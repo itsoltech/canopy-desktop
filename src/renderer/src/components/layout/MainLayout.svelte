@@ -2,6 +2,7 @@
   import SplitPaneContainer from '../terminal/SplitPaneContainer.svelte'
   import TabBar from '../terminal/TabBar.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
+  import CommandPalette from '../palette/CommandPalette.svelte'
   import {
     workspaceState,
     openWorkspace,
@@ -27,6 +28,7 @@
   } from '../../lib/stores/tabs.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
+  let paletteOpen = $state(false)
 
   let allTabs = $derived(getAllTabs())
   let currentActiveTabId = $derived(
@@ -76,6 +78,16 @@
   function handleKeydown(e: KeyboardEvent): void {
     const mod = isMac ? e.metaKey : e.ctrlKey
     if (!mod) return
+
+    // Cmd+K: toggle command palette
+    if (e.key === 'k') {
+      e.preventDefault()
+      paletteOpen = !paletteOpen
+      return
+    }
+
+    // Don't process other shortcuts while palette is open
+    if (paletteOpen) return
 
     const path = workspaceState.selectedWorktreePath
 
@@ -148,6 +160,10 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+{#if paletteOpen}
+  <CommandPalette onClose={() => (paletteOpen = false)} />
+{/if}
+
 <div class="main-layout">
   {#if workspaceState.sidebarOpen}
     <Sidebar onLaunchTool={handleLaunchTool} />
@@ -183,7 +199,9 @@
           <p class="hint">
             Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a shell
           </p>
-          <p class="hint-sub">or pick a tool from the sidebar</p>
+          <p class="hint-sub">
+            {isMac ? 'Cmd' : 'Ctrl'}+K to open command palette
+          </p>
         </div>
       {/if}
     </div>
