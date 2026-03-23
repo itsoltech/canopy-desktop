@@ -100,6 +100,61 @@
   onMount(() => {
     let resizeObserver: ResizeObserver | null = null
     let disposed = false
+    let reconnectAttempt = 0
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let dataDisposable: { dispose(): void } | null = null
+
+    const MAX_RECONNECT_ATTEMPTS = 30
+    const MAX_RECONNECT_DELAY = 8000
+
+    function connectWs(term: Terminal): void {
+      const ws = new WebSocket(wsUrl)
+      wsRef = ws
+
+      ws.onopen = (): void => {
+        if (reconnectAttempt > 0) {
+          term.write('\r\n\x1b[32m[reconnected]\x1b[0m\r\n')
+        }
+        reconnectAttempt = 0
+      }
+
+      ws.onmessage = (e): void => {
+        term.write(e.data)
+      }
+
+      ws.onclose = (): void => {
+        if (disposed) return
+        scheduleReconnect(term)
+      }
+
+      ws.onerror = (): void => {
+        // onclose fires after onerror, reconnect handled there
+      }
+
+      // Dispose previous data listener to avoid duplicates on reconnect
+      if (dataDisposable) dataDisposable.dispose()
+      dataDisposable = term.onData((data) => {
+        if (wsRef && wsRef.readyState === WebSocket.OPEN) {
+          wsRef.send(data)
+        }
+      })
+    }
+
+    function scheduleReconnect(term: Terminal): void {
+      if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+        term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n')
+        return
+      }
+      if (reconnectAttempt === 0) {
+        term.write('\r\n\x1b[33m[reconnecting...]\x1b[0m\r\n')
+      }
+      const delay = Math.min(500 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY)
+      reconnectAttempt++
+      reconnectTimer = setTimeout(() => {
+        if (disposed) return
+        connectWs(term)
+      }, delay)
+    }
 
     function initTerminal(): void {
       if (disposed) return
@@ -139,24 +194,14 @@
       requestAnimationFrame(() => fitAddon.fit())
       termRef = term
 
-      const ws = new WebSocket(wsUrl)
-      wsRef = ws
-      ws.onmessage = (e): void => {
-        term.write(e.data)
-      }
-
-      term.onData((data) => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(data)
-        }
-      })
+      connectWs(term)
 
       // Shift+Enter → CSI u newline for AI tools (kitty keyboard protocol)
       if (toolId && AI_TOOL_IDS.has(toolId)) {
         term.attachCustomKeyEventHandler((event) => {
           if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send('\x1b[13;2u')
+            if (wsRef && wsRef.readyState === WebSocket.OPEN) {
+              wsRef.send('\x1b[13;2u')
             }
             return false
           }
@@ -190,6 +235,8 @@
 
     return () => {
       disposed = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (dataDisposable) dataDisposable.dispose()
       const term = termRef
       const ws = wsRef
       termRef = null
