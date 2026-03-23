@@ -4,6 +4,7 @@
     activeTabId,
     switchTab,
     closeTab,
+    moveTab,
     getTabDisplayName,
     type TabInfo,
   } from '../../lib/stores/tabs.svelte'
@@ -55,10 +56,77 @@
       closeTab(tabId)
     }
   }
+
+  // --- Tab drag reordering ---
+
+  let dragTabId: string | null = $state(null)
+  let dragActive = $state(false)
+  let dropTargetId: string | null = $state(null)
+  let dragStartX = 0
+  let suppressClick = false
+
+  function handleTabPointerDown(e: PointerEvent, tabId: string): void {
+    if (e.button !== 0) return
+    dragTabId = tabId
+    dragStartX = e.clientX
+    dragActive = false
+    dropTargetId = null
+    window.addEventListener('pointermove', handleDragMove)
+    window.addEventListener('pointerup', handleDragEnd)
+  }
+
+  function handleDragMove(e: PointerEvent): void {
+    if (!dragTabId) return
+    if (!dragActive && Math.abs(e.clientX - dragStartX) > 5) {
+      dragActive = true
+    }
+    if (!dragActive) return
+
+    const tabEls = containerEl?.querySelectorAll<HTMLElement>('[data-tab-id]')
+    if (!tabEls) {
+      dropTargetId = null
+      return
+    }
+
+    let found: string | null = null
+    for (const el of tabEls) {
+      const rect = el.getBoundingClientRect()
+      if (e.clientX >= rect.left && e.clientX <= rect.right) {
+        const id = el.dataset.tabId
+        if (id && id !== dragTabId) found = id
+        break
+      }
+    }
+    dropTargetId = found
+  }
+
+  function handleDragEnd(): void {
+    window.removeEventListener('pointermove', handleDragMove)
+    window.removeEventListener('pointerup', handleDragEnd)
+
+    if (dragActive && dragTabId && dropTargetId) {
+      const fromIdx = tabs.findIndex((t) => t.id === dragTabId)
+      const toIdx = tabs.findIndex((t) => t.id === dropTargetId)
+      if (fromIdx >= 0 && toIdx >= 0) {
+        moveTab(worktreePath, fromIdx, toIdx)
+      }
+    }
+
+    if (dragActive) {
+      suppressClick = true
+      requestAnimationFrame(() => {
+        suppressClick = false
+      })
+    }
+
+    dragTabId = null
+    dragActive = false
+    dropTargetId = null
+  }
 </script>
 
 {#if tabs.length > 0}
-  <div class="tab-bar" bind:this={containerEl}>
+  <div class="tab-bar" class:drag-active={dragActive} bind:this={containerEl}>
     <div class="tabs-row">
       {#each visibleTabs as tab (tab.id)}
         {@const badge = getTabBadge(tab)}
@@ -68,8 +136,14 @@
           class="tab"
           class:active={tab.id === currentActiveId}
           class:exited={allPanes(tab.rootSplit).some((p) => !p.isRunning)}
-          onclick={() => switchTab(tab.id)}
+          class:dragging={dragActive && dragTabId === tab.id}
+          class:drop-target={dragActive && dropTargetId === tab.id}
+          data-tab-id={tab.id}
+          onclick={() => {
+            if (!suppressClick) switchTab(tab.id)
+          }}
           onauxclick={(e) => handleMiddleClick(e, tab.id)}
+          onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
           title={getTabDisplayName(tab)}
         >
           <span class="tab-name">{getTabDisplayName(tab)}</span>
@@ -157,6 +231,23 @@
   .tab:hover {
     background: rgba(255, 255, 255, 0.05);
     color: rgba(255, 255, 255, 0.7);
+  }
+
+  .tab.dragging {
+    opacity: 0.4;
+  }
+
+  .tab.drop-target {
+    background: rgba(116, 192, 252, 0.1);
+    box-shadow: inset 0 0 0 1px rgba(116, 192, 252, 0.3);
+  }
+
+  .drag-active {
+    user-select: none;
+  }
+
+  .drag-active .tab {
+    cursor: grabbing;
   }
 
   .tab.active {
