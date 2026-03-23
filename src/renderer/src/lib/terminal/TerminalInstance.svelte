@@ -32,6 +32,8 @@
   let termRef: Terminal | null = null
   let wsRef: WebSocket | null = null
   let dragging = $state(false)
+  let progressState = $state(0)
+  let progressValue = $state(0)
 
   // Focus terminal when tab becomes active
   $effect(() => {
@@ -123,7 +125,8 @@
       term.loadAddon(lightures)
 
       progressAddon.onChange(({ state, value }: IProgressState) => {
-        console.log(state, value)
+        progressState = state
+        progressValue = value
       })
 
       try {
@@ -207,6 +210,15 @@
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
+  {#if progressState > 0}
+    <div
+      class="progress-bar"
+      class:progress-error={progressState === 2}
+      class:progress-indeterminate={progressState === 3}
+      class:progress-warning={progressState === 4}
+      style:width={progressState === 3 ? '100%' : `${progressValue}%`}
+    ></div>
+  {/if}
   {#if dragging}
     <div class="drop-overlay">Drop files</div>
   {/if}
@@ -220,6 +232,38 @@
     box-sizing: border-box;
     background-color: var(--terminal-bg, #1e1e1e);
     position: relative;
+  }
+
+  .progress-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 2px;
+    background: #3b82f6;
+    transition: width 0.3s ease;
+    z-index: 5;
+  }
+
+  .progress-error {
+    background: #ef4444;
+  }
+
+  .progress-warning {
+    background: #eab308;
+  }
+
+  .progress-indeterminate {
+    animation: indeterminate 1.5s ease-in-out infinite;
+    background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+  }
+
+  @keyframes indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
   }
 
   .drop-overlay {
