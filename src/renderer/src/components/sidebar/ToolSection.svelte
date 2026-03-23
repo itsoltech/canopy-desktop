@@ -82,7 +82,8 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 4px 12px;
+    height: 28px;
+    padding: 0 12px;
     border: none;
     background: none;
     color: rgba(255, 255, 255, 0.7);
