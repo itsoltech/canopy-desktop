@@ -53,6 +53,10 @@ const api = {
   // App / Shell
   getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
+  newWindow: () => ipcRenderer.invoke('app:newWindow'),
+  setWorkspacePath: (path: string) => ipcRenderer.invoke('app:setWorkspacePath', { path }),
+  focusWindowForPath: (path: string) =>
+    ipcRenderer.invoke('app:focusWindowForPath', { path }) as Promise<boolean>,
 
   // Dialog
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
