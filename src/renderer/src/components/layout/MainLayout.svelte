@@ -6,6 +6,7 @@
   import ConfirmDialog from '../dialogs/ConfirmDialog.svelte'
   import InputDialog from '../dialogs/InputDialog.svelte'
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
+  import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import { dialogState, closeDialog } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -177,7 +178,7 @@
 {/if}
 
 <div class="main-layout">
-  {#if workspaceState.sidebarOpen}
+  {#if workspaceState.sidebarOpen && workspaceState.workspace}
     <Sidebar onLaunchTool={handleLaunchTool} />
   {/if}
 
@@ -203,9 +204,7 @@
       {/each}
 
       {#if !workspaceState.selectedWorktreePath && allTabs.length === 0}
-        <div class="empty-state">
-          <p class="hint">Press {isMac ? 'Cmd' : 'Ctrl'}+O to open a folder</p>
-        </div>
+        <WelcomeDashboard />
       {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
         <div class="empty-state">
           <p class="hint">

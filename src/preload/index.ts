@@ -32,10 +32,16 @@ const api = {
   spawnTool: (toolId: string, worktreePath: string, options?: { cols?: number; rows?: number }) =>
     ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
 
+  // App / Shell
+  showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
+
   // Dialog
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
 
   // Git
+  refreshWorkspaceGitStatus: (id: string, path: string) =>
+    ipcRenderer.invoke('db:workspace:refreshGitStatus', { id, path }),
+
   gitDetect: (path: string) => ipcRenderer.invoke('git:detect', { path }),
   gitWorktrees: (repoRoot: string) => ipcRenderer.invoke('git:worktrees', { repoRoot }),
   gitStatus: (repoRoot: string) => ipcRenderer.invoke('git:status', { repoRoot }),

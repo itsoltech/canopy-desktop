@@ -114,8 +114,14 @@ interface NixttyAPI {
     options?: { cols?: number; rows?: number },
   ) => Promise<ToolSpawnResult>
 
+  // App / Shell
+  showInFolder: (path: string) => Promise<void>
+
   // Dialog
   openFolder: () => Promise<string | null>
+
+  // Workspace Git Status
+  refreshWorkspaceGitStatus: (id: string, path: string) => Promise<WorkspaceRow | null>
 
   // Git
   gitDetect: (path: string) => Promise<GitInfo>

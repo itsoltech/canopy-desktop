@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, shell } from 'electron'
 import type { BrowserWindow } from 'electron'
 import os from 'os'
 import type { PtyManager } from '../pty/PtyManager'
@@ -155,6 +155,12 @@ export function registerIpcHandlers(
     return toolRegistry.checkAvailability()
   })
 
+  // --- App / Shell ---
+
+  ipcMain.handle('app:showInFolder', (_event, payload: { path: string }) => {
+    shell.showItemInFolder(payload.path)
+  })
+
   // --- Dialog ---
 
   ipcMain.handle('dialog:openFolder', async () => {
@@ -211,6 +217,23 @@ export function registerIpcHandlers(
   ipcMain.handle('git:unwatch', () => {
     disposeGitWatcher()
   })
+
+  // --- Workspace Git Status Refresh ---
+
+  ipcMain.handle(
+    'db:workspace:refreshGitStatus',
+    async (_event, payload: { id: string; path: string }) => {
+      const info = await GitRepository.detect(payload.path)
+      const aheadBehind = info.aheadBehind ? JSON.stringify(info.aheadBehind) : null
+      workspaceStore.updateGitCache(payload.id, {
+        branch: info.branch,
+        dirty: info.isDirty,
+        aheadBehind,
+        worktreeCount: info.worktrees.length,
+      })
+      return workspaceStore.get(payload.id) ?? null
+    },
+  )
 
   // --- Git Operations ---
 
