@@ -1,9 +1,13 @@
 <script lang="ts">
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
+  import { showCreateWorktree } from '../../lib/stores/dialogs.svelte'
 </script>
 
 <section class="sidebar-section">
-  <h3 class="section-title">WORKTREES</h3>
+  <div class="section-header">
+    <h3 class="section-title">WORKTREES</h3>
+    <button class="new-btn" onclick={showCreateWorktree} title="Create worktree">+ new</button>
+  </div>
   <ul class="worktree-list">
     {#each workspaceState.worktrees as wt (wt.path)}
       <li>
@@ -25,13 +29,39 @@
     padding: 12px 0;
   }
 
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px 8px;
+  }
+
   .section-title {
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 1px;
     color: rgba(255, 255, 255, 0.4);
-    padding: 0 12px 8px;
     text-transform: uppercase;
+  }
+
+  .new-btn {
+    font-size: 10px;
+    font-weight: 500;
+    font-family: inherit;
+    color: rgba(255, 255, 255, 0.35);
+    background: none;
+    border: none;
+    padding: 1px 5px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition:
+      color 0.1s,
+      background 0.1s;
+  }
+
+  .new-btn:hover {
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .worktree-list {

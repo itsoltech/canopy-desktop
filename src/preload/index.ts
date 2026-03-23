@@ -45,6 +45,7 @@ const api = {
   removeCustomTool: (id: string) => ipcRenderer.invoke('tools:removeCustom', { id }),
 
   // App / Shell
+  getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
 
   // Dialog

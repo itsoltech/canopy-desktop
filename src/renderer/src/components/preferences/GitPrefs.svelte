@@ -1,10 +1,20 @@
 <script lang="ts">
-  import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import { prefs, setPref, getPref } from '../../lib/stores/preferences.svelte'
 
   let pullRebase = $derived(prefs.gitPullRebase !== 'false')
+  let worktreesDir = $state(getPref('worktrees.baseDir', ''))
 
   function setPullStrategy(rebase: boolean): void {
     setPref('gitPullRebase', rebase ? 'true' : 'false')
+  }
+
+  function updateWorktreesDir(value: string): void {
+    worktreesDir = value
+    if (value.trim()) {
+      setPref('worktrees.baseDir', value.trim())
+    } else {
+      setPref('worktrees.baseDir', '')
+    }
   }
 </script>
 
@@ -35,6 +45,20 @@
         <span class="radio-desc">git pull</span>
       </label>
     </div>
+  </div>
+
+  <div class="field">
+    <span class="field-label">Worktrees directory</span>
+    <input
+      class="field-input"
+      type="text"
+      value={worktreesDir}
+      oninput={(e) => updateWorktreesDir(e.currentTarget.value)}
+      placeholder="~/canopy/worktrees"
+      spellcheck="false"
+      autocomplete="off"
+    />
+    <span class="field-hint">Pattern: &lt;dir&gt;/&lt;project&gt;/&lt;branch&gt;</span>
   </div>
 </div>
 
@@ -89,5 +113,32 @@
     font-size: 11px;
     color: rgba(255, 255, 255, 0.35);
     font-family: monospace;
+  }
+
+  .field-input {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #e0e0e0;
+    font-size: 13px;
+    font-family: inherit;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.1s;
+    box-sizing: border-box;
+  }
+
+  .field-input:focus {
+    border-color: rgba(116, 192, 252, 0.5);
+  }
+
+  .field-input::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  .field-hint {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
   }
 </style>

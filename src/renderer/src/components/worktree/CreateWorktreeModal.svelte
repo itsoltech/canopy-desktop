@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
+  import { getPref } from '../../lib/stores/preferences.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -14,18 +15,25 @@
   let selectedBranchIdx = $state(0)
   let errorMessage = $state('')
   let createdPath = $state('')
+  let homedir = $state('')
 
   const repoRoot = workspaceState.repoRoot!
+  const projectName = repoRoot.split('/').pop() || 'project'
 
-  // Default worktree dir: sibling of repoRoot
+  // Worktree dir: <baseDir>/<projectName>/<safeBranchName>
   let worktreeDir = $derived.by(() => {
     if (!newBranchName) return ''
-    const parent = repoRoot.split('/').slice(0, -1).join('/')
+    const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
     const safeName = newBranchName.replace(/\//g, '-')
-    return `${parent}/${safeName}`
+    return `${baseDir}/${projectName}/${safeName}`
   })
 
+  let worktreeDirDisplay = $derived(
+    homedir && worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir,
+  )
+
   onMount(async () => {
+    window.api.getHomedir().then((h) => (homedir = h))
     try {
       await window.api.gitFetchAll(repoRoot)
       const list = await window.api.gitBranches(repoRoot)
@@ -86,8 +94,13 @@
     step = 'creating'
     try {
       await window.api.gitWorktreeAdd(repoRoot, worktreeDir, newBranchName, selectedBase)
-      createdPath = worktreeDir
+      createdPath = worktreeDirDisplay
       step = 'done'
+      // Auto-switch after brief feedback
+      setTimeout(() => {
+        selectWorktree(worktreeDirDisplay)
+        onClose()
+      }, 400)
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : String(err)
       step = 'error'
@@ -192,7 +205,7 @@
             <p class="field-error">{branchNameError}</p>
           {/if}
           {#if worktreeDir}
-            <p class="field-detail">Path: {worktreeDir}</p>
+            <p class="field-detail">Path: {worktreeDirDisplay}</p>
           {/if}
           <div class="modal-actions">
             <button class="btn btn-cancel" onclick={() => (selectedBase = '')}>Back</button>
@@ -212,20 +225,8 @@
       </div>
     {:else if step === 'done'}
       <div class="modal-body center">
-        <p class="status-text success">Worktree created successfully</p>
+        <p class="status-text success">Worktree created</p>
         <p class="field-detail">{createdPath}</p>
-        <div class="modal-actions">
-          <button class="btn btn-cancel" onclick={onClose}>Close</button>
-          <button
-            class="btn btn-primary"
-            onclick={() => {
-              selectWorktree(createdPath)
-              onClose()
-            }}
-          >
-            Switch to worktree
-          </button>
-        </div>
       </div>
     {:else if step === 'error'}
       <div class="modal-body center">

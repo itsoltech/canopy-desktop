@@ -244,6 +244,8 @@ export function registerIpcHandlers(
 
   // --- App / Shell ---
 
+  ipcMain.handle('app:homedir', () => os.homedir())
+
   ipcMain.handle('app:showInFolder', (_event, payload: { path: string }) => {
     shell.showItemInFolder(payload.path)
   })
@@ -396,9 +398,12 @@ export function registerIpcHandlers(
       _event,
       payload: { repoRoot: string; path: string; branch: string; baseBranch: string },
     ) => {
+      const resolvedPath = payload.path.startsWith('~/')
+        ? os.homedir() + payload.path.slice(1)
+        : payload.path
       return GitRepository.worktreeAdd(
         payload.repoRoot,
-        payload.path,
+        resolvedPath,
         payload.branch,
         payload.baseBranch,
       )
