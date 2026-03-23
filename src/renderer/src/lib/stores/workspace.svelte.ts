@@ -74,6 +74,9 @@ export async function openWorkspace(path: string): Promise<void> {
   // Touch to update last_opened
   await window.api.touchWorkspace(ws.id)
 
+  // Save as last workspace for restore on restart
+  window.api.setPref('lastWorkspacePath', info.repoRoot ?? path)
+
   // Update state
   workspaceState.workspace = ws
   workspaceState.isGitRepo = info.isGitRepo
@@ -93,6 +96,20 @@ export async function openWorkspace(path: string): Promise<void> {
   } else {
     // Non-git folder: use the path itself
     workspaceState.selectedWorktreePath = path
+  }
+
+  // Restore saved layouts for this workspace
+  try {
+    const layouts = await window.api.getAllLayouts(ws.id)
+    if (layouts.length > 0) {
+      const { restoreLayout } = await import('./tabs.svelte')
+      for (const entry of layouts) {
+        await restoreLayout(entry.worktree_path, entry.layout_json)
+      }
+      // Mark restore complete — MainLayout's ensureShellTab will skip worktrees with tabs
+    }
+  } catch {
+    // Layout restore failed, will fall back to ensureShellTab
   }
 }
 

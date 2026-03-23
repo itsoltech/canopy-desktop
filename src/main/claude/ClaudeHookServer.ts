@@ -45,7 +45,9 @@ export class ClaudeHookServer {
 
     if (req.url === '/status') {
       try {
-        this.onStatusUpdate(JSON.parse(body))
+        const data = JSON.parse(body)
+        console.log(`[claude-status]`, JSON.stringify(data).slice(0, 300))
+        this.onStatusUpdate(data)
       } catch {
         // ignore parse errors
       }
@@ -63,9 +65,24 @@ export class ClaudeHookServer {
     let response: Record<string, unknown> | void = undefined
     try {
       const event: HookEvent = JSON.parse(body)
+      const eventName = event.hook_event_name ?? 'unknown'
+      const toolName = event.tool_name ? ` [${event.tool_name}]` : ''
+      console.log(`[claude-hook] ${eventName}${toolName}`)
+
+      if (event.tool_input) {
+        console.log(`[claude-hook]   input:`, JSON.stringify(event.tool_input).slice(0, 200))
+      }
+      if (event.tool_response !== undefined) {
+        const respStr =
+          typeof event.tool_response === 'string'
+            ? event.tool_response
+            : JSON.stringify(event.tool_response)
+        console.log(`[claude-hook]   response:`, respStr.slice(0, 200))
+      }
+
       response = this.onHookEvent(event)
-    } catch {
-      // ignore parse errors
+    } catch (err) {
+      console.error(`[claude-hook] parse error:`, err)
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' })

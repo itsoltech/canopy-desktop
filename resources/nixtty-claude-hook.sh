@@ -7,3 +7,4 @@ RESPONSE=$(curl -s -X POST "http://127.0.0.1:${NIXTTY_HOOK_PORT}/hook" \
   -d "$INPUT" 2>/dev/null) || exit 0
 # Only output if response has hookSpecificOutput (SessionStart, PermissionRequest)
 [ -n "$RESPONSE" ] && [ "$RESPONSE" != "{}" ] && echo "$RESPONSE"
+exit 0

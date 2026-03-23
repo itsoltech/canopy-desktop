@@ -15,7 +15,12 @@
     reopenClosedTab,
     splitFocusedPane,
   } from '../../lib/stores/tabs.svelte'
-  import { confirm, prompt, showCreateWorktree } from '../../lib/stores/dialogs.svelte'
+  import {
+    confirm,
+    prompt,
+    showCreateWorktree,
+    showPreferences,
+  } from '../../lib/stores/dialogs.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -114,6 +119,14 @@
       category: 'App',
       shortcut: `${mod}+Shift+I`,
       action: () => toggleInspector(),
+    })
+
+    items.push({
+      id: 'app:preferences',
+      label: 'Preferences',
+      category: 'App',
+      shortcut: `${mod}+,`,
+      action: () => showPreferences(),
     })
 
     items.push({
@@ -223,11 +236,12 @@
 
       items.push({
         id: 'git:pull',
-        label: 'Pull (rebase)',
+        label: 'Pull',
         category: 'Git',
         action: async () => {
           try {
-            await window.api.gitPull(root, true)
+            const rebase = (await window.api.getPref('gitPullRebase')) !== 'false'
+            await window.api.gitPull(root, rebase)
           } catch (err) {
             await confirm({
               title: 'Git Error',

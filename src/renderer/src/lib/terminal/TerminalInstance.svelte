@@ -6,6 +6,11 @@
   import { LigaturesAddon } from '@xterm/addon-ligatures'
   import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
   import '@xterm/xterm/css/xterm.css'
+  import { prefs } from '../stores/preferences.svelte'
+  import { getTheme } from './themes'
+
+  const DEFAULT_FONT_FAMILY = 'JetBrainsMono Nerd Font, FiraCode Nerd Font, Menlo, monospace'
+  const DEFAULT_FONT_SIZE = 13
 
   let {
     sessionId,
@@ -29,38 +34,42 @@
     }
   })
 
+  // React to preference changes for theme/font
+  $effect(() => {
+    if (!termRef) return
+    const themeName = prefs.theme || 'Default'
+    const theme = getTheme(themeName)
+    termRef.options.theme = theme
+    if (containerEl) {
+      containerEl.style.backgroundColor = theme.background ?? '#1e1e1e'
+    }
+  })
+
+  $effect(() => {
+    if (!termRef) return
+    const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
+    termRef.options.fontSize = size
+  })
+
+  $effect(() => {
+    if (!termRef) return
+    termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+  })
+
   onMount(() => {
     let ws: WebSocket | null = null
     let resizeObserver: ResizeObserver | null = null
 
+    const currentTheme = getTheme(prefs.theme || 'Default')
+    const currentFontSize = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
+    const currentFontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+
     const term = new Terminal({
-      fontSize: 13,
-      fontFamily: 'JetBrainsMono Nerd Font, FiraCode Nerd Font, Menlo, monospace',
+      fontSize: currentFontSize,
+      fontFamily: currentFontFamily,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#e0e0e0',
-        cursor: '#ffffff',
-        cursorAccent: '#000000',
-        selectionBackground: 'rgba(255, 255, 255, 0.2)',
-        black: '#1a1a1a',
-        red: '#ff6b6b',
-        green: '#69db7c',
-        yellow: '#ffd43b',
-        blue: '#74c0fc',
-        magenta: '#da77f2',
-        cyan: '#66d9e8',
-        white: '#e0e0e0',
-        brightBlack: '#686868',
-        brightRed: '#ff8787',
-        brightGreen: '#8ce99a',
-        brightYellow: '#ffe066',
-        brightBlue: '#a3d8f4',
-        brightMagenta: '#e599f7',
-        brightCyan: '#99e9f2',
-        brightWhite: '#ffffff',
-      },
+      theme: currentTheme,
     })
 
     const fitAddon = new FitAddon()
@@ -131,6 +140,6 @@
   .terminal-container {
     width: 100%;
     height: 100%;
-    background-color: #1e1e1e;
+    background-color: var(--terminal-bg, #1e1e1e);
   }
 </style>

@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow } from 'electron'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { PtyManager } from './pty/PtyManager'
@@ -7,6 +7,7 @@ import { WsBridge } from './pty/WsBridge'
 import { Database } from './db/Database'
 import { WorkspaceStore } from './db/WorkspaceStore'
 import { PreferencesStore } from './db/PreferencesStore'
+import { LayoutStore } from './db/LayoutStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers, disposeGitWatcher } from './ipc/handlers'
 import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
@@ -17,10 +18,45 @@ const wsBridge = new WsBridge()
 const database = new Database()
 const workspaceStore = new WorkspaceStore(database)
 const preferencesStore = new PreferencesStore(database)
+const layoutStore = new LayoutStore(database)
 const toolRegistry = new ToolRegistry(database)
 
 let mainWindow: BrowserWindow | null = null
 let claudeSessionManager: ClaudeSessionManager | null = null
+
+// Register nixtty:// URL scheme
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('nixtty', process.execPath, [resolve(process.argv[1])])
+  }
+} else {
+  app.setAsDefaultProtocolClient('nixtty')
+}
+
+// Ensure single instance (required for URL scheme on Windows/Linux)
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+}
+
+function handleNixttyUrl(url: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+
+  try {
+    const parsed = new URL(url)
+    const path = parsed.searchParams.get('path')
+    if (!path) return
+
+    const tool = parsed.searchParams.get('tool') ?? undefined
+    const worktree = parsed.searchParams.get('worktree') ?? undefined
+
+    const action = parsed.hostname === 'run' ? 'run' : 'open'
+
+    mainWindow.webContents.send('url:action', { action, path, tool, worktree })
+  } catch {
+    // Invalid URL — ignore
+  }
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -91,10 +127,27 @@ app.whenReady().then(async () => {
     wsBridge,
     workspaceStore,
     preferencesStore,
+    layoutStore,
     toolRegistry,
     claudeSessionManager,
     () => mainWindow,
   )
+
+  // Handle URL scheme on macOS
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    handleNixttyUrl(url)
+  })
+
+  // Handle URL scheme on Windows/Linux (second instance)
+  app.on('second-instance', (_event, argv) => {
+    const url = argv.find((a) => a.startsWith('nixtty://'))
+    if (url) handleNixttyUrl(url)
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

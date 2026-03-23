@@ -6,9 +6,10 @@
   import ConfirmDialog from '../dialogs/ConfirmDialog.svelte'
   import InputDialog from '../dialogs/InputDialog.svelte'
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
+  import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import ClaudeInspector from '../claude/ClaudeInspector.svelte'
-  import { dialogState, closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { dialogState, closeDialog, showPreferences } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
     openWorkspace,
@@ -33,6 +34,7 @@
     focusPane,
     updateSplitRatio,
     focusSessionByPtyId,
+    saveAllLayouts,
   } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
   import {
@@ -116,6 +118,27 @@
     return unsubscribe
   })
 
+  // Subscribe to URL action events
+  $effect(() => {
+    const unsubscribe = window.api.onUrlAction(async (data) => {
+      if (data.path) {
+        const { openWorkspace } = await import('../../lib/stores/workspace.svelte')
+        await openWorkspace(data.path)
+        if (data.tool && workspaceState.selectedWorktreePath) {
+          openTool(data.tool, workspaceState.selectedWorktreePath)
+        }
+      }
+    })
+    return unsubscribe
+  })
+
+  // Save layouts on window close
+  $effect(() => {
+    const handler = (): void => saveAllLayouts()
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  })
+
   // Derive active Claude session from current tab
   let activeClaudePtySessionId = $derived.by(() => {
     if (!currentActiveTabId) return null
@@ -164,6 +187,12 @@
     if (e.key === 'b') {
       e.preventDefault()
       toggleSidebar()
+    }
+
+    // Cmd+,: open preferences
+    if (e.key === ',') {
+      e.preventDefault()
+      showPreferences()
     }
 
     // Cmd+Shift+I: toggle Claude Inspector
@@ -246,6 +275,8 @@
   <InputDialog {...dialogState.current.props} />
 {:else if dialogState.current.type === 'createWorktree'}
   <CreateWorktreeModal onClose={closeDialog} />
+{:else if dialogState.current.type === 'preferences'}
+  <PreferencesModal />
 {/if}
 
 <div class="main-layout">

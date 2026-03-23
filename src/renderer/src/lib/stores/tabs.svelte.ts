@@ -15,6 +15,24 @@ import {
 import { workspaceState } from './workspace.svelte'
 import { initClaudeSession, removeClaudeSession } from '../claude/claudeState.svelte'
 
+// --- Layout serialization types ---
+
+interface SerializedLayout {
+  tabs: SerializedTab[]
+  activeTabIndex: number
+}
+
+interface SerializedTab {
+  toolId: string
+  toolName: string
+  rootSplit: SerializedSplitNode
+}
+
+type SerializedSplitNode =
+  | { type: 'leaf'; toolId: string; toolName: string }
+  | { type: 'hsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
+  | { type: 'vsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
+
 export interface TabInfo {
   id: string
   toolId: string
@@ -92,6 +110,7 @@ export async function openTool(toolId: string, worktreePath: string): Promise<Ta
     initClaudeSession(result.sessionId)
   }
 
+  scheduleSave(worktreePath)
   return tab
 }
 
@@ -137,6 +156,7 @@ export async function closeTab(tabId: string): Promise<void> {
       }
     }
 
+    scheduleSave(path)
     return
   }
 }
@@ -145,6 +165,7 @@ export function switchTab(tabId: string): void {
   for (const [path, tabs] of Object.entries(tabsByWorktree)) {
     if (tabs.some((t) => t.id === tabId)) {
       activeTabId[path] = tabId
+      scheduleSave(path)
       return
     }
   }
@@ -360,6 +381,7 @@ export async function splitFocusedPane(
 
   tab.rootSplit = newTree
   tab.focusedPaneId = paneId
+  scheduleSave(worktreePath)
 }
 
 export async function closeFocusedPane(worktreePath: string): Promise<void> {
@@ -406,6 +428,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     // Focus the first leaf in the remaining tree
     tab.focusedPaneId = firstLeaf(result.tree).id
   }
+  scheduleSave(worktreePath)
 }
 
 export function navigatePaneFocus(
@@ -445,7 +468,143 @@ export function updateSplitRatio(
     const tab = tabs.find((t) => t.id === tabId)
     if (tab) {
       tab.rootSplit = treeUpdateRatio(tab.rootSplit, splitId, ratio)
+      scheduleSave(tab.worktreePath)
       return
     }
   }
+}
+
+// --- Layout persistence ---
+
+const saveTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+
+function scheduleSave(worktreePath: string): void {
+  if (saveTimers[worktreePath]) clearTimeout(saveTimers[worktreePath])
+  saveTimers[worktreePath] = setTimeout(() => {
+    delete saveTimers[worktreePath]
+    saveLayoutForWorktree(worktreePath)
+  }, 500)
+}
+
+function serializeSplitNode(node: SplitNode): SerializedSplitNode {
+  if (node.type === 'leaf') {
+    return { type: 'leaf', toolId: node.pane.toolId, toolName: node.pane.toolName }
+  }
+  return {
+    type: node.type,
+    first: serializeSplitNode(node.first),
+    second: serializeSplitNode(node.second),
+    ratio: node.ratio,
+  }
+}
+
+function saveLayoutForWorktree(worktreePath: string): void {
+  const tabs = tabsByWorktree[worktreePath]
+  const wsId = workspaceState.workspace?.id
+  if (!tabs || !wsId) return
+
+  const activeId = activeTabId[worktreePath]
+  const activeIndex = tabs.findIndex((t) => t.id === activeId)
+
+  const layout: SerializedLayout = {
+    tabs: tabs.map((tab) => ({
+      toolId: tab.toolId,
+      toolName: tab.toolName,
+      rootSplit: serializeSplitNode(tab.rootSplit),
+    })),
+    activeTabIndex: activeIndex >= 0 ? activeIndex : 0,
+  }
+
+  window.api.saveLayout(wsId, worktreePath, JSON.stringify(layout)).catch(() => {
+    // Ignore save errors silently
+  })
+}
+
+export function saveAllLayouts(): void {
+  for (const path of Object.keys(tabsByWorktree)) {
+    saveLayoutForWorktree(path)
+  }
+}
+
+async function restoreSplitNode(
+  node: SerializedSplitNode,
+  worktreePath: string,
+): Promise<SplitNode> {
+  if (node.type === 'leaf') {
+    const options: { workspaceName?: string; branch?: string } = {}
+    if (node.toolId === 'claude') {
+      options.workspaceName = workspaceState.workspace?.name ?? ''
+      options.branch = workspaceState.branch ?? undefined
+    }
+    const result = await window.api.spawnTool(node.toolId, worktreePath, options)
+    const paneId = nextPaneId()
+    const pane: PaneSession = {
+      id: paneId,
+      sessionId: result.sessionId,
+      wsUrl: result.wsUrl,
+      toolId: node.toolId,
+      toolName: result.toolName,
+      isRunning: true,
+      exitCode: null,
+      title: null,
+    }
+    if (node.toolId === 'claude') {
+      initClaudeSession(result.sessionId)
+    }
+    return createLeaf(pane)
+  }
+
+  const [first, second] = await Promise.all([
+    restoreSplitNode(node.first, worktreePath),
+    restoreSplitNode(node.second, worktreePath),
+  ])
+  return {
+    type: node.type,
+    id: `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    first,
+    second,
+    ratio: node.ratio,
+  }
+}
+
+export async function restoreLayout(worktreePath: string, layoutJson: string): Promise<boolean> {
+  let layout: SerializedLayout
+  try {
+    layout = JSON.parse(layoutJson)
+  } catch {
+    return false
+  }
+
+  if (!layout.tabs || layout.tabs.length === 0) return false
+
+  const restoredTabs: TabInfo[] = []
+
+  for (const serializedTab of layout.tabs) {
+    try {
+      const rootSplit = await restoreSplitNode(serializedTab.rootSplit, worktreePath)
+      const id = nextTabId()
+      const name = computeDisplayName(serializedTab.toolName, worktreePath, serializedTab.toolId)
+      const firstPane = firstLeaf(rootSplit)
+
+      restoredTabs.push({
+        id,
+        toolId: serializedTab.toolId,
+        toolName: serializedTab.toolName,
+        name,
+        worktreePath,
+        rootSplit,
+        focusedPaneId: firstPane.id,
+      })
+    } catch {
+      // Skip tabs that fail to restore
+    }
+  }
+
+  if (restoredTabs.length === 0) return false
+
+  tabsByWorktree[worktreePath] = restoredTabs
+  const activeIdx = Math.min(layout.activeTabIndex, restoredTabs.length - 1)
+  activeTabId[worktreePath] = restoredTabs[Math.max(0, activeIdx)].id
+
+  return true
 }

@@ -164,6 +164,15 @@ interface NixttyAPI {
     worktreePath: string,
     options?: { cols?: number; rows?: number; workspaceName?: string; branch?: string },
   ) => Promise<ToolSpawnResult>
+  addCustomTool: (tool: {
+    id: string
+    name: string
+    command: string
+    args?: string[]
+    icon?: string
+    category?: string
+  }) => Promise<ToolDefinition[]>
+  removeCustomTool: (id: string) => Promise<ToolDefinition[]>
 
   // App / Shell
   showInFolder: (path: string) => Promise<void>
@@ -205,12 +214,20 @@ interface NixttyAPI {
   gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
 
+  // Layouts
+  saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) => Promise<void>
+  getLayout: (workspaceId: string, worktreePath: string) => Promise<string | null>
+  getAllLayouts: (workspaceId: string) => Promise<{ worktree_path: string; layout_json: string }[]>
+
   // Push events (main → renderer)
   onClaudeHookEvent: (callback: (data: ClaudeHookEventData) => void) => () => void
   onClaudeStatusUpdate: (callback: (data: ClaudeStatusData) => void) => () => void
   onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
   onGitChanged: (callback: (info: GitInfo) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
+  onUrlAction: (
+    callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
+  ) => () => void
 }
 
 declare global {

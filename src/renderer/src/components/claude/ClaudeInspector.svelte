@@ -15,6 +15,8 @@
         return 'Starting...'
       case 'idle':
         return 'Idle'
+      case 'thinking':
+        return 'Thinking...'
       case 'toolCalling':
         return `Calling ${state.status.toolName}`
       case 'waitingPermission':
@@ -31,7 +33,7 @@
       ? 'permission'
       : state.status.type === 'error'
         ? 'error'
-        : state.status.type === 'toolCalling'
+        : state.status.type === 'toolCalling' || state.status.type === 'thinking'
           ? 'active'
           : state.status.type === 'idle'
             ? 'idle'
@@ -61,6 +63,13 @@
   }
 
   let reversedNotifications = $derived([...state.notifications].reverse())
+
+  let visibleTasks = $derived(state.tasks.filter((t) => t.status !== 'deleted'))
+  let taskCounts = $derived.by(() => {
+    const done = visibleTasks.filter((t) => t.status === 'completed').length
+    const total = visibleTasks.length
+    return { done, total }
+  })
 
   let contextBarClass = $derived(
     state.contextPercent == null
@@ -179,14 +188,22 @@
   {/if}
 
   <!-- Tasks -->
-  {#if state.tasks.length > 0}
+  {#if visibleTasks.length > 0}
     <div class="section">
-      <h4 class="section-label">Tasks ({state.tasks.length})</h4>
+      <h4 class="section-label">Tasks ({taskCounts.done}/{taskCounts.total})</h4>
       <div class="item-list">
-        {#each state.tasks as task}
+        {#each visibleTasks as task (task.id)}
           <div class="item-row">
-            <span class="item-check">{'\u2713'}</span>
-            <span class="item-text">{task.subject}</span>
+            {#if task.status === 'completed'}
+              <span class="task-icon task-done">{'\u2713'}</span>
+            {:else if task.status === 'in_progress'}
+              <span class="task-icon task-active">{'\u25B6'}</span>
+            {:else}
+              <span class="task-icon task-pending">{'\u25CB'}</span>
+            {/if}
+            <span class="item-text" class:task-completed={task.status === 'completed'}
+              >{task.subject}</span
+            >
           </div>
         {/each}
       </div>
@@ -400,11 +417,28 @@
     padding: 2px 0;
   }
 
-  .item-check {
+  .task-icon {
     font-size: 10px;
-    color: rgba(100, 200, 100, 0.6);
     width: 12px;
     flex-shrink: 0;
+    text-align: center;
+  }
+
+  .task-done {
+    color: rgba(100, 200, 100, 0.6);
+  }
+
+  .task-active {
+    color: rgba(116, 192, 252, 0.8);
+  }
+
+  .task-pending {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  .task-completed {
+    text-decoration: line-through;
+    opacity: 0.5;
   }
 
   .item-text {

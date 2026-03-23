@@ -39,7 +39,7 @@ const migrations: Migration[] = [
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
-    `
+    `,
   },
   {
     id: 2,
@@ -53,8 +53,21 @@ const migrations: Migration[] = [
         ('htop', 'htop', 'htop', '[]', 'activity', 'system', 0),
         ('btop', 'btop', 'btop', '[]', 'bar-chart', 'system', 0),
         ('shell', 'Shell', 'shell', '[]', 'terminal', 'shell', 0);
-    `
-  }
+    `,
+  },
+  {
+    id: 3,
+    up: `
+      CREATE TABLE IF NOT EXISTS workspace_layouts (
+        workspace_id TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        layout_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (workspace_id, worktree_path),
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+    `,
+  },
 ]
 
 export class Database {
@@ -87,7 +100,7 @@ export class Database {
       this.db
         .prepare('SELECT id FROM _migrations')
         .all()
-        .map((row) => (row as { id: number }).id)
+        .map((row) => (row as { id: number }).id),
     )
 
     for (const migration of migrations) {

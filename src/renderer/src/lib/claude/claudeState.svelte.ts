@@ -6,8 +6,9 @@ export interface SubagentRecord {
 export interface TaskRecord {
   id: string
   subject: string
-  description: string
-  completedAt: number
+  status: 'pending' | 'in_progress' | 'completed' | 'deleted'
+  activeForm: string | null
+  owner: string | null
 }
 
 export interface NotificationRecord {
@@ -21,6 +22,7 @@ export type ClaudeStatus =
   | { type: 'inactive' }
   | { type: 'starting' }
   | { type: 'idle' }
+  | { type: 'thinking' }
   | { type: 'toolCalling'; toolName: string }
   | { type: 'waitingPermission'; toolName: string }
   | { type: 'error'; errorType: string; details: string }
@@ -93,7 +95,7 @@ interface HookEventData {
   hook_event_name: string
   tool_name?: string
   tool_input?: Record<string, unknown>
-  tool_response?: string
+  tool_response?: unknown
   error?: string
   error_details?: string
   agent_id?: string
@@ -119,11 +121,15 @@ export function handleHookEvent(ptySessionId: string, event: HookEventData): voi
 
   switch (event.hook_event_name) {
     case 'SessionStart':
-      session.status = { type: 'starting' }
+      session.status = { type: 'idle' }
       session.claudeSessionId = event.session_id
       session.startTime = new Date()
       session.permissionMode = event.permission_mode ?? null
       session.model = event.model ?? null
+      break
+
+    case 'UserPromptSubmit':
+      session.status = { type: 'thinking' }
       break
 
     case 'PreToolUse':
@@ -142,6 +148,7 @@ export function handleHookEvent(ptySessionId: string, event: HookEventData): voi
 
     case 'PostToolUse':
       session.toolCallCount++
+      handleTaskToolUse(session, event)
       break
 
     case 'PostToolUseFailure':
@@ -171,17 +178,26 @@ export function handleHookEvent(ptySessionId: string, event: HookEventData): voi
       session.activeSubagents = session.activeSubagents.filter((a) => a.agentId !== event.agent_id)
       break
 
-    case 'TaskCompleted':
-      session.tasks = [
-        ...session.tasks,
-        {
-          id: event.task_id ?? '',
-          subject: event.task_subject ?? '',
-          description: event.task_description ?? '',
-          completedAt: Date.now(),
-        },
-      ]
+    case 'TaskCompleted': {
+      const taskId = event.task_id ?? ''
+      const existing = session.tasks.find((t) => t.id === taskId)
+      if (existing) {
+        existing.status = 'completed'
+        if (event.task_subject) existing.subject = event.task_subject
+      } else {
+        session.tasks = [
+          ...session.tasks,
+          {
+            id: taskId,
+            subject: event.task_subject ?? '',
+            status: 'completed',
+            activeForm: null,
+            owner: null,
+          },
+        ]
+      }
       break
+    }
 
     case 'Notification':
       session.notifications = [
@@ -202,6 +218,49 @@ export function handleHookEvent(ptySessionId: string, event: HookEventData): voi
     case 'SessionEnd':
       session.status = { type: 'ended', reason: event.reason ?? 'unknown' }
       break
+  }
+}
+
+function handleTaskToolUse(session: ClaudeSessionState, event: HookEventData): void {
+  const toolName = event.tool_name
+  if (!toolName) return
+
+  const input = event.tool_input as Record<string, unknown> | undefined
+
+  if (toolName === 'TaskCreate' && input) {
+    // tool_response: {"task":{"id":"1","subject":"..."}}
+    const resp = event.tool_response as { task?: { id?: string } } | undefined
+    const id = resp?.task?.id ?? `t-${Date.now()}`
+
+    session.tasks = [
+      ...session.tasks,
+      {
+        id,
+        subject: (input.subject as string) ?? '',
+        status: 'pending',
+        activeForm: (input.activeForm as string) ?? null,
+        owner: null,
+      },
+    ]
+  } else if (toolName === 'TaskUpdate' && input) {
+    const taskId = String(input.taskId ?? '')
+    const existing = session.tasks.find((t) => t.id === taskId)
+    if (existing) {
+      if (input.status) {
+        existing.status = input.status as TaskRecord['status']
+      }
+      if (input.subject) {
+        existing.subject = input.subject as string
+      }
+      if (input.owner !== undefined) {
+        existing.owner = (input.owner as string) ?? null
+      }
+      if (input.activeForm !== undefined) {
+        existing.activeForm = (input.activeForm as string) ?? null
+      }
+      // Trigger reactivity
+      session.tasks = [...session.tasks]
+    }
   }
 }
 

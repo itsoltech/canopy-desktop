@@ -159,6 +159,7 @@ export class ClaudeSessionManager {
 
     const hookEvents = [
       'SessionStart',
+      'UserPromptSubmit',
       'PreToolUse',
       'PostToolUse',
       'PostToolUseFailure',

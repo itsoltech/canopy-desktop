@@ -5,6 +5,7 @@ import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
+import type { LayoutStore } from '../db/LayoutStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
 import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
 import { GitRepository } from '../git/GitRepository'
@@ -42,6 +43,7 @@ export function registerIpcHandlers(
   wsBridge: WsBridge,
   workspaceStore: WorkspaceStore,
   preferencesStore: PreferencesStore,
+  layoutStore: LayoutStore,
   toolRegistry: ToolRegistry,
   claudeSessionManager: ClaudeSessionManager,
   getMainWindow: () => BrowserWindow | null,
@@ -380,4 +382,46 @@ export function registerIpcHandlers(
       return GitRepository.getStatusPorcelain(payload.repoRoot, payload.worktreePath)
     },
   )
+
+  // --- Layouts ---
+
+  ipcMain.handle(
+    'layout:save',
+    (_event, payload: { workspaceId: string; worktreePath: string; layoutJson: string }) => {
+      layoutStore.save(payload.workspaceId, payload.worktreePath, payload.layoutJson)
+    },
+  )
+
+  ipcMain.handle('layout:get', (_event, payload: { workspaceId: string; worktreePath: string }) => {
+    return layoutStore.get(payload.workspaceId, payload.worktreePath)
+  })
+
+  ipcMain.handle('layout:getAll', (_event, payload: { workspaceId: string }) => {
+    return layoutStore.getAll(payload.workspaceId)
+  })
+
+  // --- Custom Tools ---
+
+  ipcMain.handle(
+    'tools:addCustom',
+    (
+      _event,
+      payload: {
+        id: string
+        name: string
+        command: string
+        args?: string[]
+        icon?: string
+        category?: string
+      },
+    ) => {
+      toolRegistry.addCustom(payload)
+      return toolRegistry.getAll()
+    },
+  )
+
+  ipcMain.handle('tools:removeCustom', (_event, payload: { id: string }) => {
+    toolRegistry.removeCustom(payload.id)
+    return toolRegistry.getAll()
+  })
 }

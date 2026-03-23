@@ -29,11 +29,20 @@ interface CreateWorktreeState {
   type: 'createWorktree'
 }
 
+interface PreferencesState {
+  type: 'preferences'
+}
+
 interface NoneState {
   type: 'none'
 }
 
-type DialogState = NoneState | ConfirmDialogState | InputDialogState | CreateWorktreeState
+type DialogState =
+  | NoneState
+  | ConfirmDialogState
+  | InputDialogState
+  | CreateWorktreeState
+  | PreferencesState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -77,6 +86,10 @@ export function prompt(opts: PromptOptions): Promise<string | null> {
 
 export function showCreateWorktree(): void {
   dialogState.current = { type: 'createWorktree' }
+}
+
+export function showPreferences(): void {
+  dialogState.current = { type: 'preferences' }
 }
 
 export function closeDialog(): void {

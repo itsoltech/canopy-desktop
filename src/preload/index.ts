@@ -34,6 +34,15 @@ const api = {
     worktreePath: string,
     options?: { cols?: number; rows?: number; workspaceName?: string; branch?: string },
   ) => ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
+  addCustomTool: (tool: {
+    id: string
+    name: string
+    command: string
+    args?: string[]
+    icon?: string
+    category?: string
+  }) => ipcRenderer.invoke('tools:addCustom', tool),
+  removeCustomTool: (id: string) => ipcRenderer.invoke('tools:removeCustom', { id }),
 
   // App / Shell
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
@@ -79,6 +88,13 @@ const api = {
     ipcRenderer.invoke('git:unmergedCommits', { repoRoot, branch }),
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) =>
     ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
+
+  // Layouts
+  saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) =>
+    ipcRenderer.invoke('layout:save', { workspaceId, worktreePath, layoutJson }),
+  getLayout: (workspaceId: string, worktreePath: string) =>
+    ipcRenderer.invoke('layout:get', { workspaceId, worktreePath }),
+  getAllLayouts: (workspaceId: string) => ipcRenderer.invoke('layout:getAll', { workspaceId }),
 
   // Push events (main → renderer)
   onClaudeHookEvent: (
@@ -133,6 +149,19 @@ const api = {
     ipcRenderer.on('pty:exit', handler)
     return (): void => {
       ipcRenderer.removeListener('pty:exit', handler)
+    }
+  },
+
+  onUrlAction: (
+    callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { action: string; path: string; tool?: string; worktree?: string },
+    ): void => callback(data)
+    ipcRenderer.on('url:action', handler)
+    return (): void => {
+      ipcRenderer.removeListener('url:action', handler)
     }
   },
 }
