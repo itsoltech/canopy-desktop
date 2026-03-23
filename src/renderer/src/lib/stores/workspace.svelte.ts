@@ -1,3 +1,5 @@
+import { restoreLayout } from './tabs.svelte'
+
 function basename(p: string): string {
   return p.split('/').pop() || p
 }
@@ -106,7 +108,6 @@ export async function openWorkspace(path: string): Promise<void> {
   try {
     const layouts = await window.api.getAllLayouts(ws.id)
     if (layouts.length > 0) {
-      const { restoreLayout } = await import('./tabs.svelte')
       for (const entry of layouts) {
         await restoreLayout(entry.worktree_path, entry.layout_json)
       }

@@ -22,6 +22,7 @@
   } = $props()
 
   const isMac = navigator.userAgent.includes('Mac')
+  // svelte-ignore state_referenced_locally
   let value = $state(initialValue)
   let error = $derived(validate ? validate(value) : null)
   let inputEl: HTMLInputElement | undefined = $state()

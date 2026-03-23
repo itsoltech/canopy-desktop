@@ -122,7 +122,6 @@
   $effect(() => {
     const unsubscribe = window.api.onUrlAction(async (data) => {
       if (data.path) {
-        const { openWorkspace } = await import('../../lib/stores/workspace.svelte')
         await openWorkspace(data.path)
         if (data.tool && workspaceState.selectedWorktreePath) {
           openTool(data.tool, workspaceState.selectedWorktreePath)

@@ -32,8 +32,8 @@
   <h3 class="section-title">Appearance</h3>
 
   <div class="field">
-    <label class="field-label">Theme</label>
-    <div class="theme-grid">
+    <span class="field-label">Theme</span>
+    <div class="theme-grid" role="group" aria-label="Theme">
       {#each themeNames as name (name)}
         <button
           class="theme-btn"
