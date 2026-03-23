@@ -115,6 +115,13 @@
     if (minutes < 1) return 'in <1min'
     const hours = Math.floor(minutes / 60)
     const mins = minutes % 60
+    const days = Math.floor(hours / 24)
+    const remHours = hours % 24
+    if (days > 0) {
+      if (remHours === 0 && mins === 0) return `in ${days}d`
+      if (mins === 0) return `in ${days}d ${remHours}h`
+      return `in ${days}d ${remHours}h${mins}min`
+    }
     if (hours === 0) return `in ${mins}min`
     if (mins === 0) return `in ${hours}h`
     return `in ${hours}h${mins}min`
@@ -212,7 +219,7 @@
           <div class="context-track">
             <div
               class="context-fill {rateLimitBarClass(state.rateLimitFiveHour)}"
-              style="width: {Math.min(state.rateLimitFiveHour, 100)}%"
+              style="width: {Math.max(100 - state.rateLimitFiveHour, 0)}%"
             ></div>
           </div>
         </div>
@@ -232,7 +239,7 @@
           <div class="context-track">
             <div
               class="context-fill {rateLimitBarClass(state.rateLimitSevenDay)}"
-              style="width: {Math.min(state.rateLimitSevenDay, 100)}%"
+              style="width: {Math.max(100 - state.rateLimitSevenDay, 0)}%"
             ></div>
           </div>
         </div>
