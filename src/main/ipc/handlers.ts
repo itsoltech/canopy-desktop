@@ -31,7 +31,7 @@ export function registerIpcHandlers(
   workspaceStore: WorkspaceStore,
   preferencesStore: PreferencesStore,
   toolRegistry: ToolRegistry,
-  mainWindow: BrowserWindow
+  mainWindow: BrowserWindow,
 ): void {
   // --- PTY ---
 
@@ -46,14 +46,14 @@ export function registerIpcHandlers(
       })
 
       return { sessionId: session.id, wsUrl }
-    }
+    },
   )
 
   ipcMain.handle(
     'pty:resize',
     (_event, payload: { sessionId: string; cols: number; rows: number }) => {
       ptyManager.resize(payload.sessionId, payload.cols, payload.rows)
-    }
+    },
   )
 
   ipcMain.handle('pty:kill', (_event, payload: { sessionId: string }) => {
@@ -67,7 +67,7 @@ export function registerIpcHandlers(
     'tool:spawn',
     async (
       _event,
-      payload: { toolId: string; worktreePath: string; cols?: number; rows?: number }
+      payload: { toolId: string; worktreePath: string; cols?: number; rows?: number },
     ) => {
       const tool = toolRegistry.get(payload.toolId)
       if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
@@ -81,7 +81,7 @@ export function registerIpcHandlers(
         args,
         cwd: payload.worktreePath,
         cols: payload.cols,
-        rows: payload.rows
+        rows: payload.rows,
       })
 
       const wsUrl = await wsBridge.create(session.id, session.pty)
@@ -91,7 +91,7 @@ export function registerIpcHandlers(
       })
 
       return { sessionId: session.id, wsUrl, toolId: tool.id, toolName: tool.name }
-    }
+    },
   )
 
   // --- Workspaces ---
@@ -112,7 +112,7 @@ export function registerIpcHandlers(
     'db:workspace:upsert',
     (_event, payload: { path: string; name: string; isGitRepo: boolean }) => {
       return workspaceStore.upsert(payload)
-    }
+    },
   )
 
   ipcMain.handle('db:workspace:remove', (_event, payload: { id: string }) => {
@@ -159,7 +159,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle('dialog:openFolder', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory', 'createDirectory']
+      properties: ['openDirectory', 'createDirectory'],
     })
     return result.canceled ? null : result.filePaths[0]
   })
@@ -178,7 +178,7 @@ export function registerIpcHandlers(
     const [branch, isDirty, aheadBehind] = await Promise.all([
       GitRepository.getBranch(payload.repoRoot),
       GitRepository.isDirty(payload.repoRoot),
-      GitRepository.getAheadBehind(payload.repoRoot)
+      GitRepository.getAheadBehind(payload.repoRoot),
     ])
     return { branch, isDirty, aheadBehind }
   })
@@ -199,7 +199,7 @@ export function registerIpcHandlers(
           aheadBehind: info.aheadBehind
             ? `${info.aheadBehind.ahead}/${info.aheadBehind.behind}`
             : null,
-          worktreeCount: info.worktrees.length
+          worktreeCount: info.worktrees.length,
         })
       }
       // Push to renderer
@@ -211,4 +211,106 @@ export function registerIpcHandlers(
   ipcMain.handle('git:unwatch', () => {
     disposeGitWatcher()
   })
+
+  // --- Git Operations ---
+
+  ipcMain.handle('git:commit', async (_event, payload: { repoRoot: string; message: string }) => {
+    return GitRepository.commit(payload.repoRoot, payload.message)
+  })
+
+  ipcMain.handle('git:push', async (_event, payload: { repoRoot: string }) => {
+    return GitRepository.push(payload.repoRoot)
+  })
+
+  ipcMain.handle('git:pull', async (_event, payload: { repoRoot: string; rebase: boolean }) => {
+    return GitRepository.pull(payload.repoRoot, payload.rebase)
+  })
+
+  ipcMain.handle('git:fetch', async (_event, payload: { repoRoot: string }) => {
+    return GitRepository.fetch(payload.repoRoot)
+  })
+
+  ipcMain.handle('git:fetchAll', async (_event, payload: { repoRoot: string }) => {
+    return GitRepository.fetchAll(payload.repoRoot)
+  })
+
+  ipcMain.handle('git:stash', async (_event, payload: { repoRoot: string }) => {
+    return GitRepository.stash(payload.repoRoot)
+  })
+
+  ipcMain.handle('git:stashPop', async (_event, payload: { repoRoot: string }) => {
+    return GitRepository.stashPop(payload.repoRoot)
+  })
+
+  ipcMain.handle('git:branches', async (_event, payload: { repoRoot: string }) => {
+    return GitRepository.listBranches(payload.repoRoot)
+  })
+
+  ipcMain.handle(
+    'git:branchCreate',
+    async (_event, payload: { repoRoot: string; name: string; baseBranch: string }) => {
+      return GitRepository.createBranch(payload.repoRoot, payload.name, payload.baseBranch)
+    },
+  )
+
+  ipcMain.handle(
+    'git:branchDelete',
+    async (_event, payload: { repoRoot: string; name: string; force: boolean }) => {
+      return GitRepository.deleteBranch(payload.repoRoot, payload.name, payload.force)
+    },
+  )
+
+  ipcMain.handle(
+    'git:branchDeleteRemote',
+    async (_event, payload: { repoRoot: string; remote: string; name: string }) => {
+      return GitRepository.deleteRemoteBranch(payload.repoRoot, payload.remote, payload.name)
+    },
+  )
+
+  ipcMain.handle('git:pushInfo', async (_event, payload: { repoRoot: string }) => {
+    return GitRepository.getPushInfo(payload.repoRoot)
+  })
+
+  ipcMain.handle(
+    'git:branchMerged',
+    async (_event, payload: { repoRoot: string; branch: string }) => {
+      return GitRepository.isBranchMerged(payload.repoRoot, payload.branch)
+    },
+  )
+
+  ipcMain.handle(
+    'git:worktreeAdd',
+    async (
+      _event,
+      payload: { repoRoot: string; path: string; branch: string; baseBranch: string },
+    ) => {
+      return GitRepository.worktreeAdd(
+        payload.repoRoot,
+        payload.path,
+        payload.branch,
+        payload.baseBranch,
+      )
+    },
+  )
+
+  ipcMain.handle(
+    'git:worktreeRemove',
+    async (_event, payload: { repoRoot: string; path: string; force: boolean }) => {
+      return GitRepository.worktreeRemove(payload.repoRoot, payload.path, payload.force)
+    },
+  )
+
+  ipcMain.handle(
+    'git:unmergedCommits',
+    async (_event, payload: { repoRoot: string; branch: string }) => {
+      return GitRepository.getUnmergedCommits(payload.repoRoot, payload.branch)
+    },
+  )
+
+  ipcMain.handle(
+    'git:statusPorcelain',
+    async (_event, payload: { repoRoot: string; worktreePath?: string }) => {
+      return GitRepository.getStatusPorcelain(payload.repoRoot, payload.worktreePath)
+    },
+  )
 }

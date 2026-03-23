@@ -1,0 +1,434 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
+
+  let { onClose }: { onClose: () => void } = $props()
+
+  type Step = 'fetch' | 'pickBase' | 'creating' | 'done' | 'error'
+
+  let step = $state<Step>('fetch')
+  let branches = $state<{ local: string[]; remote: string[] }>({ local: [], remote: [] })
+  let branchQuery = $state('')
+  let selectedBase = $state('')
+  let newBranchName = $state('')
+  let selectedBranchIdx = $state(0)
+  let errorMessage = $state('')
+  let createdPath = $state('')
+
+  const repoRoot = workspaceState.repoRoot!
+
+  // Default worktree dir: sibling of repoRoot
+  let worktreeDir = $derived.by(() => {
+    if (!newBranchName) return ''
+    const parent = repoRoot.split('/').slice(0, -1).join('/')
+    const safeName = newBranchName.replace(/\//g, '-')
+    return `${parent}/${safeName}`
+  })
+
+  onMount(async () => {
+    try {
+      await window.api.gitFetchAll(repoRoot)
+      const list = await window.api.gitBranches(repoRoot)
+      branches = { local: list.local, remote: list.remote }
+      step = 'pickBase'
+    } catch (err) {
+      // Fetch failed — still show branches without fresh remote data
+      try {
+        const list = await window.api.gitBranches(repoRoot)
+        branches = { local: list.local, remote: list.remote }
+        step = 'pickBase'
+      } catch (e) {
+        errorMessage = e instanceof Error ? e.message : String(e)
+        step = 'error'
+      }
+    }
+  })
+
+  // Fuzzy match for branch search
+  function fuzzyMatch(text: string, q: string): boolean {
+    if (!q) return true
+    const lower = text.toLowerCase()
+    let qi = 0
+    for (let i = 0; i < lower.length && qi < q.length; i++) {
+      if (lower[i] === q[qi]) qi++
+    }
+    return qi === q.length
+  }
+
+  let allBranches = $derived([...branches.local, ...branches.remote])
+  let filteredBranches = $derived(
+    branchQuery ? allBranches.filter((b) => fuzzyMatch(b, branchQuery.toLowerCase())) : allBranches,
+  )
+
+  $effect(() => {
+    if (selectedBranchIdx >= filteredBranches.length) {
+      selectedBranchIdx = Math.max(0, filteredBranches.length - 1)
+    }
+  })
+
+  // Validate branch name
+  let branchNameError = $derived.by(() => {
+    if (!newBranchName) return null
+    if (/\s/.test(newBranchName)) return 'No spaces allowed'
+    if (/\.\./.test(newBranchName)) return 'Cannot contain ..'
+    if (/[~^:\\]/.test(newBranchName)) return 'Invalid characters'
+    if (newBranchName.startsWith('-')) return 'Cannot start with -'
+    if (branches.local.includes(newBranchName)) return 'Branch already exists'
+    return null
+  })
+
+  function selectBranch(branch: string): void {
+    selectedBase = branch
+  }
+
+  async function createWorktree(): Promise<void> {
+    if (!newBranchName || branchNameError || !selectedBase) return
+    step = 'creating'
+    try {
+      await window.api.gitWorktreeAdd(repoRoot, worktreeDir, newBranchName, selectedBase)
+      createdPath = worktreeDir
+      step = 'done'
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err)
+      step = 'error'
+    }
+  }
+
+  function handleBranchListKeydown(e: KeyboardEvent): void {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      selectedBranchIdx = (selectedBranchIdx + 1) % Math.max(1, filteredBranches.length)
+      scrollIntoView()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      selectedBranchIdx =
+        (selectedBranchIdx - 1 + filteredBranches.length) % Math.max(1, filteredBranches.length)
+      scrollIntoView()
+    } else if (e.key === 'Enter' && filteredBranches.length > 0) {
+      e.preventDefault()
+      selectBranch(filteredBranches[selectedBranchIdx])
+    }
+  }
+
+  function scrollIntoView(): void {
+    requestAnimationFrame(() => {
+      const el = document.querySelector('.branch-item.selected')
+      el?.scrollIntoView({ block: 'nearest' })
+    })
+  }
+
+  function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+    }
+  }
+</script>
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="dialog-overlay" onkeydown={handleKeydown} onclick={onClose}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="modal-container" onclick={(e) => e.stopPropagation()}>
+    <h3 class="modal-title">Create Worktree</h3>
+
+    {#if step === 'fetch'}
+      <div class="modal-body center">
+        <p class="status-text">Fetching remotes...</p>
+      </div>
+    {:else if step === 'pickBase'}
+      {#if !selectedBase}
+        <!-- Pick base branch -->
+        <div class="modal-body" onkeydown={handleBranchListKeydown}>
+          <!-- svelte-ignore a11y_label_has_associated_control -->
+          <label class="field-label">Base branch</label>
+          <input
+            class="field-input"
+            type="text"
+            bind:value={branchQuery}
+            placeholder="Search branches..."
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <div class="branch-list">
+            {#if filteredBranches.length === 0}
+              <div class="branch-empty">No branches found</div>
+            {:else}
+              {#each filteredBranches as branch, i (branch)}
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  class="branch-item"
+                  class:selected={i === selectedBranchIdx}
+                  onclick={() => selectBranch(branch)}
+                  onpointerenter={() => (selectedBranchIdx = i)}
+                >
+                  {branch}
+                </div>
+              {/each}
+            {/if}
+          </div>
+        </div>
+      {:else}
+        <!-- Name new branch -->
+        <div class="modal-body">
+          <p class="field-info">Base: <strong>{selectedBase}</strong></p>
+          <!-- svelte-ignore a11y_label_has_associated_control -->
+          <label class="field-label">New branch name</label>
+          <input
+            class="field-input"
+            type="text"
+            bind:value={newBranchName}
+            placeholder="feature/my-branch"
+            spellcheck="false"
+            autocomplete="off"
+            onkeydown={(e) => {
+              if (e.key === 'Enter' && newBranchName && !branchNameError) {
+                e.preventDefault()
+                createWorktree()
+              }
+            }}
+          />
+          {#if branchNameError}
+            <p class="field-error">{branchNameError}</p>
+          {/if}
+          {#if worktreeDir}
+            <p class="field-detail">Path: {worktreeDir}</p>
+          {/if}
+          <div class="modal-actions">
+            <button class="btn btn-cancel" onclick={() => (selectedBase = '')}>Back</button>
+            <button
+              class="btn btn-primary"
+              onclick={createWorktree}
+              disabled={!newBranchName || !!branchNameError}
+            >
+              Create
+            </button>
+          </div>
+        </div>
+      {/if}
+    {:else if step === 'creating'}
+      <div class="modal-body center">
+        <p class="status-text">Creating worktree...</p>
+      </div>
+    {:else if step === 'done'}
+      <div class="modal-body center">
+        <p class="status-text success">Worktree created successfully</p>
+        <p class="field-detail">{createdPath}</p>
+        <div class="modal-actions">
+          <button class="btn btn-cancel" onclick={onClose}>Close</button>
+          <button
+            class="btn btn-primary"
+            onclick={() => {
+              selectWorktree(createdPath)
+              onClose()
+            }}
+          >
+            Switch to worktree
+          </button>
+        </div>
+      </div>
+    {:else if step === 'error'}
+      <div class="modal-body center">
+        <p class="status-text error">Error</p>
+        <p class="field-detail">{errorMessage}</p>
+        <div class="modal-actions">
+          <button class="btn btn-cancel" onclick={onClose}>Close</button>
+        </div>
+      </div>
+    {/if}
+  </div>
+</div>
+
+<style>
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1001;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 80px;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-container {
+    width: 480px;
+    max-height: 500px;
+    display: flex;
+    flex-direction: column;
+    background: rgba(30, 30, 30, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+  }
+
+  .modal-title {
+    margin: 0;
+    padding: 16px 20px 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #e0e0e0;
+    flex-shrink: 0;
+  }
+
+  .modal-body {
+    padding: 0 20px 20px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .modal-body.center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 30px 20px;
+    gap: 8px;
+  }
+
+  .status-text {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    margin: 0;
+  }
+
+  .status-text.success {
+    color: rgba(100, 220, 100, 0.9);
+  }
+
+  .status-text.error {
+    color: rgba(255, 120, 120, 0.9);
+  }
+
+  .field-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.4);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .field-input {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #e0e0e0;
+    font-size: 13px;
+    font-family: inherit;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.1s;
+    box-sizing: border-box;
+  }
+
+  .field-input:focus {
+    border-color: rgba(116, 192, 252, 0.5);
+  }
+
+  .field-input::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  .field-info {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .field-info strong {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .field-error {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: rgba(255, 120, 120, 0.9);
+  }
+
+  .field-detail {
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+    font-family: monospace;
+    word-break: break-all;
+  }
+
+  .branch-list {
+    margin-top: 8px;
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+  }
+
+  .branch-item {
+    padding: 6px 10px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    transition: background 0.05s;
+  }
+
+  .branch-item:hover,
+  .branch-item.selected {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .branch-empty {
+    padding: 16px 10px;
+    text-align: center;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    transition: background 0.1s;
+  }
+
+  .btn:focus-visible {
+    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline-offset: 1px;
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .btn-cancel {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .btn-cancel:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .btn-primary {
+    background: rgba(116, 192, 252, 0.2);
+    color: rgba(116, 192, 252, 0.9);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: rgba(116, 192, 252, 0.3);
+  }
+</style>

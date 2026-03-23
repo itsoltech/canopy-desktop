@@ -14,6 +14,7 @@
     reopenClosedTab,
     splitFocusedPane,
   } from '../../lib/stores/tabs.svelte'
+  import { confirm, prompt, showCreateWorktree } from '../../lib/stores/dialogs.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -151,17 +152,280 @@
       })
     }
 
+    // --- Git commands ---
+    if (workspaceState.isGitRepo && workspaceState.repoRoot) {
+      const root = workspaceState.repoRoot
+
+      items.push({
+        id: 'git:commit',
+        label: 'Commit',
+        category: 'Git',
+        action: async () => {
+          const msg = await prompt({
+            title: 'Commit',
+            placeholder: 'Commit message...',
+            multiline: true,
+            submitLabel: 'Commit',
+          })
+          if (!msg) return
+          try {
+            await window.api.gitCommit(root, msg)
+          } catch (err) {
+            await confirm({
+              title: 'Git Error',
+              message: err instanceof Error ? err.message : String(err),
+              confirmLabel: 'OK',
+            })
+          }
+        },
+      })
+
+      items.push({
+        id: 'git:push',
+        label: 'Push',
+        category: 'Git',
+        action: async () => {
+          try {
+            const info = await window.api.gitPushInfo(root)
+            if (!info) {
+              await confirm({
+                title: 'Push',
+                message: 'No upstream tracking branch configured.',
+                confirmLabel: 'OK',
+              })
+              return
+            }
+            const ok = await confirm({
+              title: 'Push',
+              message: `Push ${info.commitCount} commit(s) to ${info.remote}/${info.branch}?`,
+            })
+            if (ok) {
+              await window.api.gitPush(root)
+            }
+          } catch (err) {
+            await confirm({
+              title: 'Git Error',
+              message: err instanceof Error ? err.message : String(err),
+              confirmLabel: 'OK',
+            })
+          }
+        },
+      })
+
+      items.push({
+        id: 'git:pull',
+        label: 'Pull (rebase)',
+        category: 'Git',
+        action: async () => {
+          try {
+            await window.api.gitPull(root, true)
+          } catch (err) {
+            await confirm({
+              title: 'Git Error',
+              message: err instanceof Error ? err.message : String(err),
+              confirmLabel: 'OK',
+            })
+          }
+        },
+      })
+
+      items.push({
+        id: 'git:fetch',
+        label: 'Fetch',
+        category: 'Git',
+        action: async () => {
+          try {
+            await window.api.gitFetch(root)
+          } catch (err) {
+            await confirm({
+              title: 'Git Error',
+              message: err instanceof Error ? err.message : String(err),
+              confirmLabel: 'OK',
+            })
+          }
+        },
+      })
+
+      items.push({
+        id: 'git:stash',
+        label: 'Stash',
+        category: 'Git',
+        action: async () => {
+          try {
+            await window.api.gitStash(root)
+          } catch (err) {
+            await confirm({
+              title: 'Git Error',
+              message: err instanceof Error ? err.message : String(err),
+              confirmLabel: 'OK',
+            })
+          }
+        },
+      })
+
+      items.push({
+        id: 'git:stashPop',
+        label: 'Stash Pop',
+        category: 'Git',
+        action: async () => {
+          try {
+            await window.api.gitStashPop(root)
+          } catch (err) {
+            await confirm({
+              title: 'Git Error',
+              message: err instanceof Error ? err.message : String(err),
+              confirmLabel: 'OK',
+            })
+          }
+        },
+      })
+
+      items.push({
+        id: 'git:branchCreate',
+        label: 'Create Branch',
+        category: 'Git',
+        action: async () => {
+          const name = await prompt({
+            title: 'Create Branch',
+            placeholder: 'Branch name...',
+            submitLabel: 'Create',
+            validate: (v) => {
+              if (/\s/.test(v)) return 'No spaces allowed'
+              if (/\.\./.test(v)) return 'Cannot contain ..'
+              if (/[~^:\\]/.test(v)) return 'Invalid characters'
+              if (v.startsWith('-')) return 'Cannot start with -'
+              return null
+            },
+          })
+          if (!name) return
+          try {
+            await window.api.gitBranchCreate(root, name, 'HEAD')
+          } catch (err) {
+            await confirm({
+              title: 'Git Error',
+              message: err instanceof Error ? err.message : String(err),
+              confirmLabel: 'OK',
+            })
+          }
+        },
+      })
+
+      items.push({
+        id: 'git:branchDelete',
+        label: 'Delete Branch',
+        category: 'Git',
+        action: async () => {
+          const name = await prompt({
+            title: 'Delete Branch',
+            placeholder: 'Branch name to delete...',
+            submitLabel: 'Delete',
+          })
+          if (!name) return
+          try {
+            const merged = await window.api.gitBranchMerged(root, name)
+            if (!merged) {
+              const force = await confirm({
+                title: 'Delete Unmerged Branch',
+                message: `Branch "${name}" has not been fully merged.\nForce delete?`,
+                confirmLabel: 'Force Delete',
+                destructive: true,
+              })
+              if (!force) return
+              await window.api.gitBranchDelete(root, name, true)
+            } else {
+              await window.api.gitBranchDelete(root, name, false)
+            }
+          } catch (err) {
+            await confirm({
+              title: 'Git Error',
+              message: err instanceof Error ? err.message : String(err),
+              confirmLabel: 'OK',
+            })
+          }
+        },
+      })
+
+      items.push({
+        id: 'git:worktreeCreate',
+        label: 'Create Worktree',
+        category: 'Git',
+        action: () => showCreateWorktree(),
+      })
+
+      // Only show remove worktree if selected worktree is not main
+      const selectedWt = workspaceState.worktrees.find(
+        (w) => w.path === workspaceState.selectedWorktreePath,
+      )
+      if (selectedWt && !selectedWt.isMain) {
+        items.push({
+          id: 'git:worktreeRemove',
+          label: 'Remove Current Worktree',
+          category: 'Git',
+          action: async () => {
+            const wtPath = selectedWt.path
+            const branch = selectedWt.branch
+            try {
+              const status = await window.api.gitStatusPorcelain(root, wtPath)
+              const unmerged = await window.api.gitUnmergedCommits(root, branch)
+
+              const warnings: string[] = []
+              if (status.trim()) warnings.push('Has uncommitted changes.')
+              if (unmerged.length > 0)
+                warnings.push(`${unmerged.length} unmerged commit(s) not on any remote.`)
+
+              const msg =
+                warnings.length > 0
+                  ? warnings.join('\n') + '\n\nRemove this worktree?'
+                  : `Remove worktree "${branch}"?`
+
+              const ok = await confirm({
+                title: 'Remove Worktree',
+                message: msg,
+                details: wtPath,
+                confirmLabel: 'Remove',
+                destructive: warnings.length > 0,
+              })
+              if (!ok) return
+
+              await window.api.gitWorktreeRemove(root, wtPath, warnings.length > 0)
+
+              // Offer to delete branch if merged
+              const branchMerged = await window.api.gitBranchMerged(root, branch)
+              if (branchMerged) {
+                const del = await confirm({
+                  title: 'Delete Branch?',
+                  message: `Delete local branch "${branch}"? It has been fully merged.`,
+                  confirmLabel: 'Delete Branch',
+                })
+                if (del) {
+                  await window.api.gitBranchDelete(root, branch, false)
+                }
+              }
+            } catch (err) {
+              await confirm({
+                title: 'Git Error',
+                message: err instanceof Error ? err.message : String(err),
+                confirmLabel: 'OK',
+              })
+            }
+          },
+        })
+      }
+    }
+
     return items
   })
 
   // Determine if we're in a prefix-filter mode
-  let filterMode = $derived.by((): 'all' | 'app' => {
+  let filterMode = $derived.by((): 'all' | 'app' | 'git' => {
     if (query.startsWith('>')) return 'app'
+    if (query.toLowerCase().startsWith('git ')) return 'git'
     return 'all'
   })
 
   let searchQuery = $derived.by((): string => {
     if (filterMode === 'app') return query.slice(1).trim().toLowerCase()
+    if (filterMode === 'git') return query.slice(4).trim().toLowerCase()
     return query.trim().toLowerCase()
   })
 
@@ -183,6 +447,8 @@
     // Category filter based on prefix mode
     if (filterMode === 'app') {
       source = source.filter((i) => i.category === 'App')
+    } else if (filterMode === 'git') {
+      source = source.filter((i) => i.category === 'Git')
     }
 
     if (!searchQuery) return source
@@ -193,7 +459,7 @@
 
   // Group by category for display
   let groupedItems = $derived.by((): { category: string; items: PaletteItem[] }[] => {
-    const categoryOrder = ['Tools', 'Worktrees', 'Tabs', 'App']
+    const categoryOrder = ['Tools', 'Git', 'Worktrees', 'Tabs', 'App']
     const groups = new Map<string, PaletteItem[]>()
 
     for (const item of filteredItems) {
@@ -289,7 +555,9 @@
         type="text"
         placeholder={filterMode === 'app'
           ? 'Search app commands...'
-          : 'Search tools, tabs, worktrees...'}
+          : filterMode === 'git'
+            ? 'Search git commands...'
+            : 'Search tools, tabs, worktrees, git...'}
         spellcheck="false"
         autocomplete="off"
       />

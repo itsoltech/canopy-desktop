@@ -63,6 +63,23 @@ interface GitStatus {
   aheadBehind: { ahead: number; behind: number } | null
 }
 
+interface GitCommitResult {
+  hash: string
+  summary: string
+}
+
+interface GitPushInfo {
+  branch: string
+  remote: string
+  commitCount: number
+}
+
+interface GitBranchList {
+  local: string[]
+  remote: string[]
+  current: string | null
+}
+
 interface NixttyAPI {
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
@@ -94,7 +111,7 @@ interface NixttyAPI {
   spawnTool: (
     toolId: string,
     worktreePath: string,
-    options?: { cols?: number; rows?: number }
+    options?: { cols?: number; rows?: number },
   ) => Promise<ToolSpawnResult>
 
   // Dialog
@@ -106,6 +123,30 @@ interface NixttyAPI {
   gitStatus: (repoRoot: string) => Promise<GitStatus>
   gitWatch: (repoRoot: string) => Promise<void>
   gitUnwatch: () => Promise<void>
+
+  // Git Operations
+  gitCommit: (repoRoot: string, message: string) => Promise<GitCommitResult>
+  gitPush: (repoRoot: string) => Promise<{ branch: string; remote: string }>
+  gitPull: (repoRoot: string, rebase: boolean) => Promise<{ summary: string }>
+  gitFetch: (repoRoot: string) => Promise<void>
+  gitFetchAll: (repoRoot: string) => Promise<void>
+  gitStash: (repoRoot: string) => Promise<void>
+  gitStashPop: (repoRoot: string) => Promise<void>
+  gitBranches: (repoRoot: string) => Promise<GitBranchList>
+  gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) => Promise<void>
+  gitBranchDelete: (repoRoot: string, name: string, force: boolean) => Promise<void>
+  gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) => Promise<void>
+  gitPushInfo: (repoRoot: string) => Promise<GitPushInfo | null>
+  gitBranchMerged: (repoRoot: string, branch: string) => Promise<boolean>
+  gitWorktreeAdd: (
+    repoRoot: string,
+    path: string,
+    branch: string,
+    baseBranch: string,
+  ) => Promise<void>
+  gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) => Promise<void>
+  gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
+  gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
 
   // Push events (main → renderer)
   onGitChanged: (callback: (info: GitInfo) => void) => () => void

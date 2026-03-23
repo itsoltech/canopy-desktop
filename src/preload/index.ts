@@ -42,6 +42,35 @@ const api = {
   gitWatch: (repoRoot: string) => ipcRenderer.invoke('git:watch', { repoRoot }),
   gitUnwatch: () => ipcRenderer.invoke('git:unwatch'),
 
+  // Git Operations
+  gitCommit: (repoRoot: string, message: string) =>
+    ipcRenderer.invoke('git:commit', { repoRoot, message }),
+  gitPush: (repoRoot: string) => ipcRenderer.invoke('git:push', { repoRoot }),
+  gitPull: (repoRoot: string, rebase: boolean) =>
+    ipcRenderer.invoke('git:pull', { repoRoot, rebase }),
+  gitFetch: (repoRoot: string) => ipcRenderer.invoke('git:fetch', { repoRoot }),
+  gitFetchAll: (repoRoot: string) => ipcRenderer.invoke('git:fetchAll', { repoRoot }),
+  gitStash: (repoRoot: string) => ipcRenderer.invoke('git:stash', { repoRoot }),
+  gitStashPop: (repoRoot: string) => ipcRenderer.invoke('git:stashPop', { repoRoot }),
+  gitBranches: (repoRoot: string) => ipcRenderer.invoke('git:branches', { repoRoot }),
+  gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) =>
+    ipcRenderer.invoke('git:branchCreate', { repoRoot, name, baseBranch }),
+  gitBranchDelete: (repoRoot: string, name: string, force: boolean) =>
+    ipcRenderer.invoke('git:branchDelete', { repoRoot, name, force }),
+  gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) =>
+    ipcRenderer.invoke('git:branchDeleteRemote', { repoRoot, remote, name }),
+  gitPushInfo: (repoRoot: string) => ipcRenderer.invoke('git:pushInfo', { repoRoot }),
+  gitBranchMerged: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('git:branchMerged', { repoRoot, branch }),
+  gitWorktreeAdd: (repoRoot: string, path: string, branch: string, baseBranch: string) =>
+    ipcRenderer.invoke('git:worktreeAdd', { repoRoot, path, branch, baseBranch }),
+  gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) =>
+    ipcRenderer.invoke('git:worktreeRemove', { repoRoot, path, force }),
+  gitUnmergedCommits: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('git:unmergedCommits', { repoRoot, branch }),
+  gitStatusPorcelain: (repoRoot: string, worktreePath?: string) =>
+    ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
+
   // Push events (main → renderer)
   onGitChanged: (callback: (info: unknown) => void) => {
     const handler = (_event: IpcRendererEvent, info: unknown): void => callback(info)
@@ -51,17 +80,17 @@ const api = {
     }
   },
   onPtyExit: (
-    callback: (data: { sessionId: string; exitCode: number; signal: number }) => void
+    callback: (data: { sessionId: string; exitCode: number; signal: number }) => void,
   ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { sessionId: string; exitCode: number; signal: number }
+      data: { sessionId: string; exitCode: number; signal: number },
     ): void => callback(data)
     ipcRenderer.on('pty:exit', handler)
     return (): void => {
       ipcRenderer.removeListener('pty:exit', handler)
     }
-  }
+  },
 }
 
 if (process.contextIsolated) {

@@ -3,6 +3,10 @@
   import TabBar from '../terminal/TabBar.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
   import CommandPalette from '../palette/CommandPalette.svelte'
+  import ConfirmDialog from '../dialogs/ConfirmDialog.svelte'
+  import InputDialog from '../dialogs/InputDialog.svelte'
+  import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
+  import { dialogState, closeDialog } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
     openWorkspace,
@@ -162,6 +166,14 @@
 
 {#if paletteOpen}
   <CommandPalette onClose={() => (paletteOpen = false)} />
+{/if}
+
+{#if dialogState.current.type === 'confirm'}
+  <ConfirmDialog {...dialogState.current.props} />
+{:else if dialogState.current.type === 'input'}
+  <InputDialog {...dialogState.current.props} />
+{:else if dialogState.current.type === 'createWorktree'}
+  <CreateWorktreeModal onClose={closeDialog} />
 {/if}
 
 <div class="main-layout">
