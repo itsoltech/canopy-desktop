@@ -92,8 +92,8 @@
       if (filePath) paths.push(shellEscape(filePath))
     }
 
-    if (paths.length > 0 && wsRef && wsRef.readyState === WebSocket.OPEN) {
-      wsRef.send(paths.join(' '))
+    if (paths.length > 0 && termRef) {
+      termRef.paste(paths.join(' '))
     }
   }
 
@@ -218,10 +218,11 @@
       }
 
       resizeObserver = new ResizeObserver(() => {
-        // Skip when hidden (display:none gives 0 dimensions)
         if (!containerEl.clientWidth || !containerEl.clientHeight) return
         const dims = fitAddon.proposeDimensions()
-        if (dims && (dims.cols !== term.cols || dims.rows !== term.rows)) {
+        // Skip transient tiny sizes (e.g. window restore animation)
+        if (!dims || dims.cols < 10 || dims.rows < 3) return
+        if (dims.cols !== term.cols || dims.rows !== term.rows) {
           fitAddon.fit()
         }
       })
