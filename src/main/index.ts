@@ -4,10 +4,18 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { PtyManager } from './pty/PtyManager'
 import { WsBridge } from './pty/WsBridge'
+import { Database } from './db/Database'
+import { WorkspaceStore } from './db/WorkspaceStore'
+import { PreferencesStore } from './db/PreferencesStore'
+import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers } from './ipc/handlers'
 
 const ptyManager = new PtyManager()
 const wsBridge = new WsBridge()
+const database = new Database()
+const workspaceStore = new WorkspaceStore(database)
+const preferencesStore = new PreferencesStore(database)
+const toolRegistry = new ToolRegistry(database)
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -51,7 +59,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerIpcHandlers(ptyManager, wsBridge)
+  registerIpcHandlers(ptyManager, wsBridge, workspaceStore, preferencesStore, toolRegistry)
 
   createWindow()
 
@@ -63,6 +71,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   wsBridge.disposeAll()
   ptyManager.dispose()
+  database.close()
 })
 
 app.on('window-all-closed', () => {

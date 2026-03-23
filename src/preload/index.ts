@@ -2,11 +2,32 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 const api = {
+  // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) =>
     ipcRenderer.invoke('pty:spawn', options),
   resizePty: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', { sessionId, cols, rows }),
-  killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', { sessionId })
+  killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', { sessionId }),
+
+  // Workspaces
+  listWorkspaces: (limit?: number) => ipcRenderer.invoke('db:workspace:list', { limit }),
+  getWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:get', { id }),
+  getWorkspaceByPath: (path: string) => ipcRenderer.invoke('db:workspace:getByPath', { path }),
+  upsertWorkspace: (workspace: { path: string; name: string; isGitRepo: boolean }) =>
+    ipcRenderer.invoke('db:workspace:upsert', workspace),
+  removeWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:remove', { id }),
+  touchWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:touch', { id }),
+
+  // Preferences
+  getPref: (key: string) => ipcRenderer.invoke('db:prefs:get', { key }),
+  setPref: (key: string, value: string) => ipcRenderer.invoke('db:prefs:set', { key, value }),
+  getAllPrefs: () => ipcRenderer.invoke('db:prefs:getAll'),
+  deletePref: (key: string) => ipcRenderer.invoke('db:prefs:delete', { key }),
+
+  // Tools
+  listTools: () => ipcRenderer.invoke('tools:list'),
+  getTool: (id: string) => ipcRenderer.invoke('tools:get', { id }),
+  checkToolAvailability: () => ipcRenderer.invoke('tools:checkAvailability')
 }
 
 if (process.contextIsolated) {
