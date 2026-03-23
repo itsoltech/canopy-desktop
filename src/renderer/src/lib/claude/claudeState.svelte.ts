@@ -124,10 +124,12 @@ export function handleHookEvent(ptySessionId: string, event: HookEventData): voi
   const session = claudeSessions[ptySessionId]
   if (!session) return
 
+  // Keep session ID updated — it may change across events
+  if (event.session_id) session.claudeSessionId = event.session_id
+
   switch (event.hook_event_name) {
     case 'SessionStart':
       session.status = { type: 'idle' }
-      session.claudeSessionId = event.session_id
       session.startTime = new Date()
       session.permissionMode = event.permission_mode ?? null
       session.model = event.model ?? null
