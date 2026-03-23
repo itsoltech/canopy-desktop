@@ -32,7 +32,13 @@ const api = {
   spawnTool: (
     toolId: string,
     worktreePath: string,
-    options?: { cols?: number; rows?: number; workspaceName?: string; branch?: string },
+    options?: {
+      cols?: number
+      rows?: number
+      workspaceName?: string
+      branch?: string
+      resumeSessionId?: string
+    },
   ) => ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
   addCustomTool: (tool: {
     id: string

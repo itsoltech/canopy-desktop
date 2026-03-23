@@ -13,7 +13,11 @@ import {
   navigateFrom,
 } from './splitTree'
 import { workspaceState } from './workspace.svelte'
-import { initClaudeSession, removeClaudeSession } from '../claude/claudeState.svelte'
+import {
+  initClaudeSession,
+  removeClaudeSession,
+  claudeSessions,
+} from '../claude/claudeState.svelte'
 
 // --- Layout serialization types ---
 
@@ -29,7 +33,7 @@ interface SerializedTab {
 }
 
 type SerializedSplitNode =
-  | { type: 'leaf'; toolId: string; toolName: string }
+  | { type: 'leaf'; toolId: string; toolName: string; claudeSessionId?: string }
   | { type: 'hsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
   | { type: 'vsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
 
@@ -494,7 +498,16 @@ function scheduleSave(worktreePath: string): void {
 
 function serializeSplitNode(node: SplitNode): SerializedSplitNode {
   if (node.type === 'leaf') {
-    return { type: 'leaf', toolId: node.pane.toolId, toolName: node.pane.toolName }
+    const leaf: SerializedSplitNode = {
+      type: 'leaf',
+      toolId: node.pane.toolId,
+      toolName: node.pane.toolName,
+    }
+    if (node.pane.toolId === 'claude') {
+      const csid = claudeSessions[node.pane.sessionId]?.claudeSessionId
+      if (csid) leaf.claudeSessionId = csid
+    }
+    return leaf
   }
   return {
     type: node.type,
@@ -537,10 +550,11 @@ async function restoreSplitNode(
   worktreePath: string,
 ): Promise<SplitNode> {
   if (node.type === 'leaf') {
-    const options: { workspaceName?: string; branch?: string } = {}
+    const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
     if (node.toolId === 'claude') {
       options.workspaceName = workspaceState.workspace?.name ?? ''
       options.branch = workspaceState.branch ?? undefined
+      if (node.claudeSessionId) options.resumeSessionId = node.claudeSessionId
     }
     const result = await window.api.spawnTool(node.toolId, worktreePath, options)
     const paneId = nextPaneId()

@@ -88,6 +88,7 @@ export function registerIpcHandlers(
         rows?: number
         workspaceName?: string
         branch?: string
+        resumeSessionId?: string
       },
     ) => {
       const tool = toolRegistry.get(payload.toolId)
@@ -123,6 +124,7 @@ export function registerIpcHandlers(
           settingsOverrides,
         )
         args = ['--settings', claudeSession.settingsPath, ...args]
+        if (payload.resumeSessionId) args.push('--resume', payload.resumeSessionId)
         env = { CANOPY_HOOK_PORT: String(claudeSession.hookPort) }
         claudeTempId = claudeSession.tempId
 
