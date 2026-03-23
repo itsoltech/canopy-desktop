@@ -171,6 +171,16 @@ export function switchTab(tabId: string): void {
   }
 }
 
+export function moveTab(worktreePath: string, fromIndex: number, toIndex: number): void {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs || fromIndex === toIndex) return
+  if (fromIndex < 0 || fromIndex >= tabs.length) return
+  if (toIndex < 0 || toIndex >= tabs.length) return
+  const [tab] = tabs.splice(fromIndex, 1)
+  tabs.splice(toIndex, 0, tab)
+  scheduleSave(worktreePath)
+}
+
 export function switchTabByIndex(worktreePath: string, index: number): void {
   const tabs = tabsByWorktree[worktreePath]
   if (tabs && index >= 0 && index < tabs.length) {
