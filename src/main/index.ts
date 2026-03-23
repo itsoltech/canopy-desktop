@@ -119,7 +119,7 @@ app.whenReady().then(async () => {
 
   createWindow()
 
-  claudeSessionManager = new ClaudeSessionManager(mainWindow!)
+  claudeSessionManager = new ClaudeSessionManager()
   claudeSessionManager.cleanupOrphans()
 
   registerIpcHandlers(

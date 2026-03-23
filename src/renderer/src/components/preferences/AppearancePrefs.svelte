@@ -2,7 +2,8 @@
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { themeNames } from '../../lib/terminal/themes'
 
-  const DEFAULT_FONT_FAMILY = 'JetBrainsMono Nerd Font, FiraCode Nerd Font, Menlo, monospace'
+  const DEFAULT_FONT_FAMILY =
+    'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
   const DEFAULT_FONT_SIZE = '13'
 
   let currentTheme = $derived(prefs.theme || 'Default')

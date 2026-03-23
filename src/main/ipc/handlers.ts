@@ -1,5 +1,4 @@
-import { ipcMain, dialog, shell } from 'electron'
-import type { BrowserWindow } from 'electron'
+import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import os from 'os'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
@@ -81,7 +80,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'tool:spawn',
     async (
-      _event,
+      event,
       payload: {
         toolId: string
         worktreePath: string
@@ -102,10 +101,13 @@ export function registerIpcHandlers(
 
       let claudeTempId: string | undefined
       if (isClaude) {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender)
+        if (!senderWindow) throw new Error('No window for Claude session')
         const claudeSession = await claudeSessionManager.createSession(
           payload.worktreePath,
           payload.workspaceName ?? '',
           payload.branch ?? null,
+          senderWindow,
         )
         args = ['--settings', claudeSession.settingsPath, ...args]
         env = { NIXTTY_HOOK_PORT: String(claudeSession.hookPort) }

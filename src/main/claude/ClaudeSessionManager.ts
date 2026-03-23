@@ -1,5 +1,4 @@
-import { app, Notification } from 'electron'
-import type { BrowserWindow } from 'electron'
+import { app, BrowserWindow, Notification } from 'electron'
 import { join } from 'path'
 import { writeFileSync, mkdirSync, unlinkSync, readdirSync, existsSync, chmodSync } from 'fs'
 import { randomUUID } from 'crypto'
@@ -17,15 +16,14 @@ interface ClaudeSession {
   workspaceName: string
   branch: string | null
   sessionRef: { ptySessionId: string }
+  ownerWindow: BrowserWindow
 }
 
 export class ClaudeSessionManager {
   private sessions = new Map<string, ClaudeSession>()
   private hooksDir: string
-  private mainWindow: BrowserWindow
 
-  constructor(mainWindow: BrowserWindow) {
-    this.mainWindow = mainWindow
+  constructor() {
     this.hooksDir = join(app.getPath('userData'), 'nixtty', 'claude-hooks')
     mkdirSync(this.hooksDir, { recursive: true })
   }
@@ -34,6 +32,7 @@ export class ClaudeSessionManager {
     worktreePath: string,
     workspaceName: string,
     branch: string | null,
+    ownerWindow: BrowserWindow,
   ): Promise<{ settingsPath: string; hookPort: number; tempId: string }> {
     const claudeSessionId = randomUUID()
     const tempId = `_claude_${claudeSessionId}`
@@ -43,13 +42,15 @@ export class ClaudeSessionManager {
 
     const hookServer = new ClaudeHookServer(
       (event: HookEvent): Record<string, unknown> | void => {
-        this.mainWindow.webContents.send('claude:hookEvent', {
+        if (ownerWindow.isDestroyed()) return
+
+        ownerWindow.webContents.send('claude:hookEvent', {
           ptySessionId: sessionRef.ptySessionId,
           event,
         })
 
         if (event.hook_event_name === 'PermissionRequest') {
-          this.showPermissionNotification(event, sessionRef.ptySessionId)
+          this.showPermissionNotification(event, sessionRef.ptySessionId, ownerWindow)
         }
 
         if (event.hook_event_name === 'SessionStart') {
@@ -62,7 +63,9 @@ export class ClaudeSessionManager {
         }
       },
       (data: Record<string, unknown>) => {
-        this.mainWindow.webContents.send('claude:statusUpdate', {
+        if (ownerWindow.isDestroyed()) return
+
+        ownerWindow.webContents.send('claude:statusUpdate', {
           ptySessionId: sessionRef.ptySessionId,
           status: data,
         })
@@ -84,6 +87,7 @@ export class ClaudeSessionManager {
       workspaceName,
       branch,
       sessionRef,
+      ownerWindow,
     }
     this.sessions.set(tempId, session)
 
@@ -142,7 +146,7 @@ export class ClaudeSessionManager {
     if (is.dev) {
       return join(process.cwd(), 'resources', scriptName)
     }
-    return join(process.resourcesPath, scriptName)
+    return join(process.resourcesPath, 'app.asar.unpacked', 'resources', scriptName)
   }
 
   private buildSettingsJson(): string {
@@ -209,7 +213,7 @@ export class ClaudeSessionManager {
     if (is.dev) {
       return join(process.cwd(), 'resources', scriptName)
     }
-    return join(process.resourcesPath, scriptName)
+    return join(process.resourcesPath, 'app.asar.unpacked', 'resources', scriptName)
   }
 
   private buildSessionContext(
@@ -225,7 +229,11 @@ export class ClaudeSessionManager {
     return ctx
   }
 
-  private showPermissionNotification(event: HookEvent, ptySessionId: string): void {
+  private showPermissionNotification(
+    event: HookEvent,
+    ptySessionId: string,
+    ownerWindow: BrowserWindow,
+  ): void {
     if (!Notification.isSupported()) return
 
     const body = event.tool_name
@@ -237,8 +245,9 @@ export class ClaudeSessionManager {
       body,
     })
     n.on('click', () => {
-      this.mainWindow.focus()
-      this.mainWindow.webContents.send('claude:focusSession', { ptySessionId })
+      if (ownerWindow.isDestroyed()) return
+      ownerWindow.focus()
+      ownerWindow.webContents.send('claude:focusSession', { ptySessionId })
     })
     n.show()
   }
