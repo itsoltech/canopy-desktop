@@ -283,9 +283,21 @@ export class ClaudeSessionManager {
     if (typeof input.prompt === 'string') {
       return this.truncate(input.prompt as string, 80)
     }
+    if (typeof input.description === 'string') {
+      return this.truncate(input.description as string, 80)
+    }
+    if (typeof input.skill === 'string') {
+      return input.skill as string
+    }
 
-    const json = JSON.stringify(input)
-    return this.truncate(json, 80)
+    // Fallback: pick the first short string value instead of raw JSON
+    for (const val of Object.values(input)) {
+      if (typeof val === 'string' && val.length > 0) {
+        return this.truncate(val, 80)
+      }
+    }
+
+    return ''
   }
 
   private truncate(text: string, max: number): string {

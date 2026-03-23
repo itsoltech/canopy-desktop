@@ -309,6 +309,7 @@ export function focusSessionByPtyId(ptySessionId: string): boolean {
       const panes = allPanes(tab.rootSplit)
       const pane = panes.find((p) => p.sessionId === ptySessionId)
       if (pane) {
+        workspaceState.selectedWorktreePath = path
         activeTabId[path] = tab.id
         tab.focusedPaneId = pane.id
         return true

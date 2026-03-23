@@ -50,6 +50,8 @@ export interface ClaudeSessionState {
   linesRemoved: number | null
   rateLimitFiveHour: number | null
   rateLimitSevenDay: number | null
+  rateLimitFiveHourResetsAt: number | null
+  rateLimitSevenDayResetsAt: number | null
   version: string | null
 }
 
@@ -81,6 +83,8 @@ export function initClaudeSession(ptySessionId: string): void {
     linesRemoved: null,
     rateLimitFiveHour: null,
     rateLimitSevenDay: null,
+    rateLimitFiveHourResetsAt: null,
+    rateLimitSevenDayResetsAt: null,
     version: null,
   }
   claudeBadges[ptySessionId] = 'none'
@@ -307,8 +311,8 @@ interface StatusLineData {
     total_lines_removed?: number
   }
   rate_limits?: {
-    five_hour?: { used_percentage?: number }
-    seven_day?: { used_percentage?: number }
+    five_hour?: { used_percentage?: number; resets_at?: number }
+    seven_day?: { used_percentage?: number; resets_at?: number }
   }
   version?: string
   [key: string]: unknown
@@ -340,6 +344,12 @@ export function handleStatusUpdate(ptySessionId: string, data: StatusLineData): 
       data.rate_limits.five_hour?.used_percentage ?? session.rateLimitFiveHour
     session.rateLimitSevenDay =
       data.rate_limits.seven_day?.used_percentage ?? session.rateLimitSevenDay
+    if (data.rate_limits.five_hour?.resets_at != null) {
+      session.rateLimitFiveHourResetsAt = data.rate_limits.five_hour.resets_at * 1000
+    }
+    if (data.rate_limits.seven_day?.resets_at != null) {
+      session.rateLimitSevenDayResetsAt = data.rate_limits.seven_day.resets_at * 1000
+    }
   }
 
   if (data.version) {

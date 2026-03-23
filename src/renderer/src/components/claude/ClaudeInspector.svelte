@@ -106,6 +106,25 @@
     const hours = Math.floor(minutes / 60)
     return `${hours}h ${minutes % 60}m`
   }
+
+  function formatResetTime(resetsAt: number | null): string {
+    if (resetsAt == null) return ''
+    const diff = resetsAt - Date.now()
+    if (diff <= 0) return ''
+    const minutes = Math.floor(diff / 60000)
+    if (minutes < 1) return 'in <1min'
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    if (hours === 0) return `in ${mins}min`
+    if (mins === 0) return `in ${hours}h`
+    return `in ${hours}h${mins}min`
+  }
+
+  function rateLimitBarClass(pct: number): string {
+    if (pct >= 90) return 'ctx-red'
+    if (pct >= 70) return 'ctx-yellow'
+    return 'ctx-green'
+  }
 </script>
 
 <aside class="inspector">
@@ -178,16 +197,46 @@
   {#if state.rateLimitFiveHour != null || state.rateLimitSevenDay != null}
     <div class="section">
       <h4 class="section-label">Rate Limits</h4>
-      <div class="info-grid">
-        {#if state.rateLimitFiveHour != null}
-          <span class="info-key">5h window</span>
-          <span class="info-val">{Math.round(state.rateLimitFiveHour)}%</span>
-        {/if}
-        {#if state.rateLimitSevenDay != null}
-          <span class="info-key">7d window</span>
-          <span class="info-val">{Math.round(state.rateLimitSevenDay)}%</span>
-        {/if}
-      </div>
+      {#if state.rateLimitFiveHour != null}
+        <div class="rate-limit-row">
+          <div class="rate-limit-header">
+            <span class="rate-limit-label">5h window</span>
+            <span class="rate-limit-meta"
+              >{Math.round(
+                state.rateLimitFiveHour,
+              )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}{' '}<span
+                  class="rate-limit-reset">{formatResetTime(state.rateLimitFiveHourResetsAt)}</span
+                >{/if}</span
+            >
+          </div>
+          <div class="context-track">
+            <div
+              class="context-fill {rateLimitBarClass(state.rateLimitFiveHour)}"
+              style="width: {Math.min(state.rateLimitFiveHour, 100)}%"
+            ></div>
+          </div>
+        </div>
+      {/if}
+      {#if state.rateLimitSevenDay != null}
+        <div class="rate-limit-row">
+          <div class="rate-limit-header">
+            <span class="rate-limit-label">7d window</span>
+            <span class="rate-limit-meta"
+              >{Math.round(
+                state.rateLimitSevenDay,
+              )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}{' '}<span
+                  class="rate-limit-reset">{formatResetTime(state.rateLimitSevenDayResetsAt)}</span
+                >{/if}</span
+            >
+          </div>
+          <div class="context-track">
+            <div
+              class="context-fill {rateLimitBarClass(state.rateLimitSevenDay)}"
+              style="width: {Math.min(state.rateLimitSevenDay, 100)}%"
+            ></div>
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -466,6 +515,33 @@
     border-radius: 50%;
     background: rgba(116, 192, 252, 0.6);
     flex-shrink: 0;
+  }
+
+  /* Rate limit rows */
+  .rate-limit-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .rate-limit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .rate-limit-label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .rate-limit-meta {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .rate-limit-reset {
+    color: rgba(255, 255, 255, 0.3);
   }
 
   /* Notifications */
