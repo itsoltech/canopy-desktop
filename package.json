@@ -24,8 +24,8 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "electron-updater": "^6.3.9",
+    "ghostty-web": "^0.4.0",
     "node-pty": "^1.1.0",
-    "restty": "^0.1.34",
     "ws": "^8.20.0"
   },
   "devDependencies": {

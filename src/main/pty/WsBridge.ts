@@ -40,18 +40,8 @@ export class WsBridge {
     wss.on('connection', (ws) => {
       clients.add(ws)
 
-      ws.on('message', (raw) => {
-        try {
-          const msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString())
-          if (msg.type === 'input') {
-            ptyProcess.write(msg.data)
-          } else if (msg.type === 'resize') {
-            ptyProcess.resize(msg.cols, msg.rows)
-          }
-        } catch {
-          // Not JSON — forward raw data
-          ptyProcess.write(typeof raw === 'string' ? raw : raw.toString())
-        }
+      ws.on('message', (data) => {
+        ptyProcess.write(typeof data === 'string' ? data : data.toString())
       })
 
       ws.on('close', () => {

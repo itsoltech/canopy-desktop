@@ -20,7 +20,7 @@ function createWindow(): void {
     transparent: true,
     frame: false,
     vibrancy: 'under-window',
-    backgroundColor: '#00000000',
+    backgroundColor: '#00000050',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
