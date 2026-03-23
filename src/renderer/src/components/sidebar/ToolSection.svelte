@@ -18,7 +18,7 @@
   onMount(async () => {
     const [toolList, avail] = await Promise.all([
       window.api.listTools(),
-      window.api.checkToolAvailability()
+      window.api.checkToolAvailability(),
     ])
     tools = toolList
     availability = avail
@@ -80,7 +80,8 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 4px 12px;
+    height: 28px;
+    padding: 0 12px;
     border: none;
     background: none;
     color: rgba(255, 255, 255, 0.7);
