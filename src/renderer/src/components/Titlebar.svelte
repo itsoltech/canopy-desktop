@@ -38,6 +38,7 @@
 
   .titlebar.mac {
     padding-left: 78px;
+    padding-right: 78px;
   }
 
   .title {
