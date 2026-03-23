@@ -27,6 +27,7 @@
   <TerminalInstance
     sessionId={pane.sessionId}
     wsUrl={pane.wsUrl}
+    toolId={pane.toolId}
     active={active && focused}
     onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
   />
