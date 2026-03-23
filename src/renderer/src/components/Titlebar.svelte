@@ -16,7 +16,7 @@
       {/if}
     </span>
   {:else}
-    <span class="title">nixtty</span>
+    <span class="title">Canopy Desktop</span>
   {/if}
 </div>
 

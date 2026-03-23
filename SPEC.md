@@ -1,10 +1,10 @@
-# nixtty - Developer Terminal Workstation
+# Canopy Desktop - Developer Terminal Workstation
 
 Cross-platform desktop application for managing developer projects through CLI tools. Uses restty (libghostty-vt WASM + WebGPU/WebGL2) for terminal emulation. Project-centric UI with git worktree awareness, built-in tool launcher, and Claude Code integration.
 
 **Stack**: Electron + Svelte 5 + TypeScript + restty
 **Target**: macOS, Linux, Windows. Direct distribution (DMG, AppImage, NSIS installer).
-**Package name**: `nixtty`
+**Package name**: `canopy-code`
 
 ---
 
@@ -75,7 +75,7 @@ If the opened folder is not a git repository, the sidebar worktree section is hi
 
 ### 2.4 Keyboard shortcut boundary
 
-All `Cmd+key` (macOS) / `Ctrl+key` (Linux/Windows) combinations intercepted by nixtty (app shortcuts). Everything else passes through to the terminal. No configurable passthrough, no mode switching.
+All `Cmd+key` (macOS) / `Ctrl+key` (Linux/Windows) combinations intercepted by Canopy Desktop (app shortcuts). Everything else passes through to the terminal. No configurable passthrough, no mode switching.
 
 `Cmd+K`/`Ctrl+K` captured by the app for command palette. Users use `Ctrl+L` for terminal clear.
 
@@ -86,18 +86,21 @@ All `Cmd+key` (macOS) / `Ctrl+key` (Linux/Windows) combinations intercepted by n
 ### 3.1 Persistence
 
 SQLite via better-sqlite3 in main process. Database at:
-- macOS: `~/Library/Application Support/nixtty/nixtty.db`
-- Linux: `~/.config/nixtty/nixtty.db`
-- Windows: `%APPDATA%/nixtty/nixtty.db`
+
+- macOS: `~/Library/Application Support/canopy-code/canopy.db`
+- Linux: `~/.config/canopy-code/canopy.db`
+- Windows: `%APPDATA%/canopy-code/canopy.db`
 
 Sequential migrations. Each schema change is a new migration, never altering existing ones.
 
 Tables (Phase 2 migration):
+
 - `workspaces` - id (TEXT PK), path (TEXT UNIQUE), name, is_git_repo (BOOL), last_opened (DATETIME), cached_branch, cached_dirty (BOOL), cached_ahead_behind (TEXT), cached_worktree_count (INT)
 - `tool_definitions` - id (TEXT PK), name, command, args_json, icon, category, is_custom (BOOL)
 - `preferences` - key (TEXT PK), value (TEXT)
 
 Table (Phase 10 migration):
+
 - `workspace_layouts` - workspace_id (FK), worktree_path (TEXT), layout_json (TEXT), updated_at. JSON structure: array of tabs, each with recursive SplitNode tree where leaves contain tool_id and args. Keyed by `worktree_path`.
 
 Recent workspaces: `SELECT * FROM workspaces ORDER BY last_opened DESC LIMIT 10`. Cached git status columns refreshed in background.
@@ -164,6 +167,7 @@ interface ClosedTabEntry {
 ```
 
 Notes:
+
 - `Worktree.id` is runtime-only (regenerated from `git worktree list`). The `path` field is the stable identifier.
 - Shell tool: resolve `$SHELL` env var (macOS/Linux) or use PowerShell/cmd on Windows.
 - `ClosedTabEntry` stack: in-memory only, cleared on restart, capped at 20 per worktree.
@@ -187,10 +191,11 @@ On launch (and on preferences change), scan `$PATH` for each configured tool bin
 ### 4.4 Tool launching
 
 When launching a tool:
+
 1. Resolve binary path via `which <command>` (shell tool: resolve `$SHELL` directly)
 2. Set working directory to selected worktree path via node-pty cwd
-3. Set environment: inherit user env + `TERM_PROGRAM=nixtty`
-4. Apply tool-specific launch hooks: additional CLI arguments and environment variables from registered handlers (e.g., claude gets `--settings <path>` and `NIXTTY_SOCKET`)
+3. Set environment: inherit user env + `TERM_PROGRAM=canopy`
+4. Apply tool-specific launch hooks: additional CLI arguments and environment variables from registered handlers (e.g., claude gets `--settings <path>` and `CANOPY_HOOK_PORT`)
 5. Create PTY via node-pty, start WebSocket bridge, return wsUrl for restty `connectPty()`
 
 ### 4.5 Session lifecycle
@@ -203,6 +208,7 @@ When launching a tool:
 ### 4.6 Split panes
 
 Per-tab splits via restty's built-in `splitActivePane()`. Each tab can be split independently.
+
 - `Cmd+D`/`Ctrl+D`: split vertical (`restty.splitActivePane("vertical")`)
 - `Cmd+Shift+D`/`Ctrl+Shift+D`: split horizontal (`restty.splitActivePane("horizontal")`)
 - `Cmd+W`/`Ctrl+W` on focused pane: close pane (`restty.closePane(id)`), close tab if last pane
@@ -218,16 +224,16 @@ When the last tab in the active worktree is closed, auto-open a new shell tab.
 
 ## 5. Predefined tools
 
-| ID | Name | Command | Category | Icon |
-|----|------|---------|----------|------|
-| claude | Claude Code | claude | ai | brain |
-| codex | Codex | codex | ai | sparkles |
-| gemini | Gemini CLI | gemini | ai | wand |
-| opencode | OpenCode | opencode | ai | code |
-| lazygit | LazyGit | lazygit | git | git-branch |
-| htop | htop | htop | system | activity |
-| btop | btop | btop | system | bar-chart |
-| shell | Shell | (resolved from $SHELL) | shell | terminal |
+| ID       | Name        | Command                | Category | Icon       |
+| -------- | ----------- | ---------------------- | -------- | ---------- |
+| claude   | Claude Code | claude                 | ai       | brain      |
+| codex    | Codex       | codex                  | ai       | sparkles   |
+| gemini   | Gemini CLI  | gemini                 | ai       | wand       |
+| opencode | OpenCode    | opencode               | ai       | code       |
+| lazygit  | LazyGit     | lazygit                | git      | git-branch |
+| htop     | htop        | htop                   | system   | activity   |
+| btop     | btop        | btop                   | system   | bar-chart  |
+| shell    | Shell       | (resolved from $SHELL) | shell    | terminal   |
 
 Shell tool resolves `$SHELL` at launch (macOS/Linux) or defaults to PowerShell (Windows). User can add custom tool definitions in preferences.
 
@@ -238,6 +244,7 @@ Shell tool resolves `$SHELL` at launch (macOS/Linux) or defaults to PowerShell (
 ### 6.1 Repository detection
 
 On workspace open (main process via simple-git or raw git commands):
+
 - `git rev-parse --show-toplevel` to find repo root
 - `git worktree list --porcelain` to enumerate worktrees
 - `git branch --show-current` for active branch
@@ -246,6 +253,7 @@ On workspace open (main process via simple-git or raw git commands):
 ### 6.2 Worktree management
 
 **Creation** (guided flow):
+
 1. Fetch remotes (`git fetch --all`)
 2. Pick base branch (from local + remote branches)
 3. Name new branch (auto-suggest from pattern)
@@ -254,6 +262,7 @@ On workspace open (main process via simple-git or raw git commands):
 6. `git worktree add -b <branch> <path> <base>`
 
 **Removal** (with safety):
+
 1. Check for uncommitted changes (`git status --porcelain`)
 2. Check for unmerged commits (`git log <branch> --not --remotes`)
 3. Warn user with details. Allow force-remove.
@@ -263,6 +272,7 @@ On workspace open (main process via simple-git or raw git commands):
 ### 6.3 Command palette git commands
 
 Available via Command Palette (`Cmd+K`/`Ctrl+K`, see Section 9):
+
 - `git commit` - opens commit message input
 - `git push` - confirm dialog showing branch + remote + commit count
 - `git pull` - runs `git pull --rebase` (configurable)
@@ -282,6 +292,7 @@ Shown on cold start (no workspace open) or when user closes current workspace.
 ### 7.1 Content
 
 **Recent workspaces** (last 10):
+
 - Repository name, path
 - Current branch name
 - Dirty/clean indicator
@@ -303,59 +314,62 @@ Click workspace to open. Right-click for context menu: open in file manager, cop
 
 ### 8.1 Hook mechanism
 
-nixtty installs Claude Code hooks only for sessions it spawns. External Claude sessions unaffected.
+Canopy Desktop installs Claude Code hooks only for sessions it spawns. External Claude sessions unaffected.
 
-**Per-session isolation via `--settings` flag**: when nixtty launches `claude`, it passes `--settings <path>` pointing to a session-specific JSON file. Hook arrays from `--settings` are concatenated with user's existing hooks.
+**Per-session isolation via `--settings` flag**: when Canopy Desktop launches `claude`, it passes `--settings <path>` pointing to a session-specific JSON file. Hook arrays from `--settings` are concatenated with user's existing hooks.
 
 **Session lifecycle**:
+
 1. Generate session UUID
-2. Write settings JSON to `<userData>/nixtty/claude-hooks/session-<uuid>.json`
+2. Write settings JSON to `<userData>/canopy/claude-hooks/session-<uuid>.json`
 3. Create IPC channel (main process) for hook communication
-4. Launch `claude --settings <path>` via node-pty with env: `NIXTTY_HOOK_PORT=<port>`, `TERM_PROGRAM=nixtty`
+4. Launch `claude --settings <path>` via node-pty with env: `CANOPY_HOOK_PORT=<port>`, `TERM_PROGRAM=canopy`
 5. On SessionEnd or process exit: cleanup IPC, delete settings JSON
 
 **Startup sweep**: on app launch, delete orphaned files in claude-hooks dir where no matching session exists.
 
-### 8.2 Hooks used by nixtty
+### 8.2 Hooks used by Canopy Desktop
 
-| Hook | Purpose | Blocking | Timeout |
-|------|---------|----------|---------|
-| SessionStart | Inject workspace context via `additionalContext` | No | 10s |
-| PreToolUse | Update Inspector to "tool calling", show tool name + args | No | 10s |
-| PostToolUse | Record tool result in recent tool calls list | No | 10s |
-| PostToolUseFailure | Record tool failure | No | 10s |
-| **PermissionRequest** | **Show approve/deny UI, hold until user decides** | **Yes** | **600s** |
-| Stop | Transition Inspector to "idle" | No | 10s |
-| StopFailure | Show error state | No | 10s |
-| SubagentStart | Track subagent spawn in Inspector | No | 10s |
-| SubagentStop | Track subagent completion | No | 10s |
-| Notification | Forward to tab badges + OS notifications | No | 10s |
-| SessionEnd | Cleanup: stop server, delete settings file | No | 5s |
+| Hook                  | Purpose                                                   | Blocking | Timeout  |
+| --------------------- | --------------------------------------------------------- | -------- | -------- |
+| SessionStart          | Inject workspace context via `additionalContext`          | No       | 10s      |
+| PreToolUse            | Update Inspector to "tool calling", show tool name + args | No       | 10s      |
+| PostToolUse           | Record tool result in recent tool calls list              | No       | 10s      |
+| PostToolUseFailure    | Record tool failure                                       | No       | 10s      |
+| **PermissionRequest** | **Show approve/deny UI, hold until user decides**         | **Yes**  | **600s** |
+| Stop                  | Transition Inspector to "idle"                            | No       | 10s      |
+| StopFailure           | Show error state                                          | No       | 10s      |
+| SubagentStart         | Track subagent spawn in Inspector                         | No       | 10s      |
+| SubagentStop          | Track subagent completion                                 | No       | 10s      |
+| Notification          | Forward to tab badges + OS notifications                  | No       | 10s      |
+| SessionEnd            | Cleanup: stop server, delete settings file                | No       | 5s       |
 
 ### 8.3 Hook handler script
 
-Bundled script at `resources/nixtty-claude-hook.sh` (Unix) / `resources/nixtty-claude-hook.cmd` (Windows). Thin forwarder using curl to POST hook JSON to a localhost HTTP endpoint run by the main process. All logic lives in the Electron main process.
+Bundled script at `resources/canopy-claude-hook.sh` (Unix) / `resources/canopy-claude-hook.cmd` (Windows). Thin forwarder using curl to POST hook JSON to a localhost HTTP endpoint run by the main process. All logic lives in the Electron main process.
 
 ```bash
 #!/bin/bash
-# Forward hook JSON to nixtty via HTTP, return response
-[ -z "$NIXTTY_HOOK_PORT" ] && exit 0
+# Forward hook JSON to canopy via HTTP, return response
+[ -z "$CANOPY_HOOK_PORT" ] && exit 0
 INPUT=$(cat)
-curl -s -X POST "http://127.0.0.1:${NIXTTY_HOOK_PORT}/hook" \
+curl -s -X POST "http://127.0.0.1:${CANOPY_HOOK_PORT}/hook" \
   -H "Content-Type: application/json" \
   -d "$INPUT" 2>/dev/null || exit 0
 ```
 
 Behavior:
-- If `$NIXTTY_HOOK_PORT` unset or server unreachable: exit 0 (pass-through)
-- For PermissionRequest: curl blocks on read until nixtty sends response
+
+- If `$CANOPY_HOOK_PORT` unset or server unreachable: exit 0 (pass-through)
+- For PermissionRequest: curl blocks on read until Canopy Desktop sends response
 - For all others: app responds immediately
 
 ### 8.4 IPC protocol
 
 HTTP server on localhost (random port per session). JSON request/response.
 
-**Request** (hook script to nixtty):
+**Request** (hook script to Canopy Desktop):
+
 ```json
 {
   "session_id": "abc123",
@@ -364,11 +378,12 @@ HTTP server on localhost (random port per session). JSON request/response.
   "cwd": "/project/root",
   "permission_mode": "default",
   "tool_name": "Bash",
-  "tool_input": {"command": "npm test"}
+  "tool_input": { "command": "npm test" }
 }
 ```
 
 **Response** for PermissionRequest:
+
 ```json
 {
   "hookSpecificOutput": {
@@ -379,21 +394,23 @@ HTTP server on localhost (random port per session). JSON request/response.
 ```
 
 Denial:
+
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PermissionRequest",
-    "decision": { "behavior": "deny", "message": "Denied by user in nixtty" }
+    "decision": { "behavior": "deny", "message": "Denied by user in Canopy Desktop" }
   }
 }
 ```
 
 SessionStart context injection:
+
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "Working in nixtty workspace 'my-project', worktree 'feat/auth', branch: feat/auth."
+    "additionalContext": "Working in canopy workspace 'my-project', worktree 'feat/auth', branch: feat/auth."
   }
 }
 ```
@@ -405,7 +422,7 @@ Claude wants to run Bash("rm -rf node_modules")
   |
 Claude Code fires PermissionRequest hook
   |
-nixtty-claude-hook.sh reads JSON from stdin
+canopy-claude-hook.sh reads JSON from stdin
   |
 Script POSTs to http://127.0.0.1:<port>/hook
 curl blocks waiting for response
@@ -465,23 +482,29 @@ type ClaudeStatus =
   | { type: 'starting' }
   | { type: 'idle' }
   | { type: 'toolCalling'; toolName: string; toolInput: Record<string, unknown> }
-  | { type: 'waitingPermission'; toolName: string; toolInput: Record<string, unknown>; requestId: string }
+  | {
+      type: 'waitingPermission'
+      toolName: string
+      toolInput: Record<string, unknown>
+      requestId: string
+    }
   | { type: 'error'; errorType: string; details: string }
   | { type: 'ended'; reason: string }
 ```
 
 ### 8.7 SessionStart context injection
 
-When SessionStart fires, nixtty responds with `additionalContext`:
+When SessionStart fires, Canopy Desktop responds with `additionalContext`:
 
 ```
-Working in nixtty workspace 'my-project', worktree 'feat/auth' (branch: feat/auth).
+Working in canopy workspace 'my-project', worktree 'feat/auth' (branch: feat/auth).
 Project root: /Users/nix/projects/my-project.
 ```
 
 ### 8.8 Notifications
 
 When Claude tab is not focused:
+
 - **Tab badge** (unread dot): on PostToolUse or Stop
 - **Orange tab badge**: on PermissionRequest (user action required)
 - **OS notification**: optional, for PermissionRequest events. Clicking focuses the Claude tab.
@@ -490,30 +513,30 @@ When Claude tab is not focused:
 
 Complete list of all 22 Claude Code hook events:
 
-| Event | Matcher | Key input fields | Can block (exit 2) |
-|-------|---------|------------------|-------------------|
-| SessionStart | source | source, model | No |
-| UserPromptSubmit | (none) | prompt | Yes |
-| PreToolUse | tool name | tool_name, tool_input | Yes |
-| PermissionRequest | tool name | tool_name, tool_input, permission_suggestions | Yes |
-| PostToolUse | tool name | tool_name, tool_input, tool_response | No |
-| PostToolUseFailure | tool name | tool_name, tool_input, error, is_interrupt | No |
-| Notification | notification_type | message, title, notification_type | No |
-| SubagentStart | agent type | agent_id, agent_type | No |
-| SubagentStop | agent type | agent_id, agent_type, last_assistant_message | Yes |
-| Stop | (none) | stop_hook_active, last_assistant_message | Yes |
-| StopFailure | error type | error, error_details | No |
-| TeammateIdle | (none) | teammate_name, team_name | Yes |
-| TaskCompleted | (none) | task_id, task_subject, task_description | Yes |
-| InstructionsLoaded | load reason | file_path, memory_type, load_reason | No |
-| ConfigChange | config source | source, file_path | Yes |
-| WorktreeCreate | (none) | name | Yes |
-| WorktreeRemove | (none) | worktree_path | No |
-| PreCompact | trigger | trigger, custom_instructions | No |
-| PostCompact | trigger | trigger, compact_summary | No |
-| Elicitation | MCP server name | mcp_server_name, message, mode | Yes |
-| ElicitationResult | MCP server name | mcp_server_name, content | Yes |
-| SessionEnd | exit reason | reason | No |
+| Event              | Matcher           | Key input fields                              | Can block (exit 2) |
+| ------------------ | ----------------- | --------------------------------------------- | ------------------ |
+| SessionStart       | source            | source, model                                 | No                 |
+| UserPromptSubmit   | (none)            | prompt                                        | Yes                |
+| PreToolUse         | tool name         | tool_name, tool_input                         | Yes                |
+| PermissionRequest  | tool name         | tool_name, tool_input, permission_suggestions | Yes                |
+| PostToolUse        | tool name         | tool_name, tool_input, tool_response          | No                 |
+| PostToolUseFailure | tool name         | tool_name, tool_input, error, is_interrupt    | No                 |
+| Notification       | notification_type | message, title, notification_type             | No                 |
+| SubagentStart      | agent type        | agent_id, agent_type                          | No                 |
+| SubagentStop       | agent type        | agent_id, agent_type, last_assistant_message  | Yes                |
+| Stop               | (none)            | stop_hook_active, last_assistant_message      | Yes                |
+| StopFailure        | error type        | error, error_details                          | No                 |
+| TeammateIdle       | (none)            | teammate_name, team_name                      | Yes                |
+| TaskCompleted      | (none)            | task_id, task_subject, task_description       | Yes                |
+| InstructionsLoaded | load reason       | file_path, memory_type, load_reason           | No                 |
+| ConfigChange       | config source     | source, file_path                             | Yes                |
+| WorktreeCreate     | (none)            | name                                          | Yes                |
+| WorktreeRemove     | (none)            | worktree_path                                 | No                 |
+| PreCompact         | trigger           | trigger, custom_instructions                  | No                 |
+| PostCompact        | trigger           | trigger, compact_summary                      | No                 |
+| Elicitation        | MCP server name   | mcp_server_name, message, mode                | Yes                |
+| ElicitationResult  | MCP server name   | mcp_server_name, content                      | Yes                |
+| SessionEnd         | exit reason       | reason                                        | No                 |
 
 All hooks receive common fields: `session_id`, `transcript_path`, `cwd`, `permission_mode`, `hook_event_name`.
 
@@ -542,6 +565,7 @@ Fuzzy search across all categories. Results grouped by category. Enter to execut
 restty handles font rendering. Configure via `fontSources` in constructor and `setFontSources()` at runtime.
 
 Priority order for auto-detection:
+
 1. JetBrainsMono Nerd Font (local)
 2. FiraCode Nerd Font (local)
 3. Hack Nerd Font (local)
@@ -553,11 +577,11 @@ User overrides in preferences: font family, font size (default 13, set via `rest
 
 ## 11. URL scheme
 
-Register `nixtty://` URL scheme via Electron protocol handler.
+Register `canopy://` URL scheme via Electron protocol handler.
 
-- `nixtty://open?path=/path/to/repo` - open workspace
-- `nixtty://run?tool=claude&path=/path/to/repo` - open workspace and launch tool
-- `nixtty://run?tool=lazygit&worktree=feat/x&path=/path/to/repo` - launch in specific worktree
+- `canopy://open?path=/path/to/repo` - open workspace
+- `canopy://run?tool=claude&path=/path/to/repo` - open workspace and launch tool
+- `canopy://run?tool=lazygit&worktree=feat/x&path=/path/to/repo` - launch in specific worktree
 
 ---
 
@@ -576,6 +600,7 @@ Register `nixtty://` URL scheme via Electron protocol handler.
 Accessible via `Cmd+,`/`Ctrl+,` or command palette.
 
 Sections:
+
 - **General**: default shell, scan roots for dashboard, startup behavior
 - **Appearance**: theme (picker from 485+ built-in themes + custom), font family, font size, sidebar default state, renderer (auto/webgpu/webgl2)
 - **Tools**: list of configured tools, add/edit/remove custom tools, default args per tool
@@ -586,22 +611,22 @@ Sections:
 
 ## 14. Keyboard shortcuts
 
-| Shortcut (macOS / Linux,Win) | Action |
-|------------------------------|--------|
-| Cmd+K / Ctrl+K | Command palette |
-| Cmd+T / Ctrl+T | New shell tab in current worktree |
-| Cmd+W / Ctrl+W | Close current pane (or tab if last pane) |
-| Cmd+Shift+T / Ctrl+Shift+T | Reopen last closed tab |
-| Cmd+1-9 / Ctrl+1-9 | Switch to tab N |
-| Cmd+Shift+[ / Ctrl+Shift+[ | Previous tab |
-| Cmd+Shift+] / Ctrl+Shift+] | Next tab |
-| Cmd+D / Ctrl+D | Split pane vertical |
-| Cmd+Shift+D / Ctrl+Shift+D | Split pane horizontal |
-| Cmd+Option+Arrow / Ctrl+Alt+Arrow | Move focus between split panes |
-| Cmd+B / Ctrl+B | Toggle left sidebar |
-| Cmd+Shift+I / Ctrl+Shift+I | Toggle Claude Inspector |
-| Cmd+O / Ctrl+O | Open workspace (folder picker) |
-| Cmd+, / Ctrl+, | Preferences |
+| Shortcut (macOS / Linux,Win)      | Action                                   |
+| --------------------------------- | ---------------------------------------- |
+| Cmd+K / Ctrl+K                    | Command palette                          |
+| Cmd+T / Ctrl+T                    | New shell tab in current worktree        |
+| Cmd+W / Ctrl+W                    | Close current pane (or tab if last pane) |
+| Cmd+Shift+T / Ctrl+Shift+T        | Reopen last closed tab                   |
+| Cmd+1-9 / Ctrl+1-9                | Switch to tab N                          |
+| Cmd+Shift+[ / Ctrl+Shift+[        | Previous tab                             |
+| Cmd+Shift+] / Ctrl+Shift+]        | Next tab                                 |
+| Cmd+D / Ctrl+D                    | Split pane vertical                      |
+| Cmd+Shift+D / Ctrl+Shift+D        | Split pane horizontal                    |
+| Cmd+Option+Arrow / Ctrl+Alt+Arrow | Move focus between split panes           |
+| Cmd+B / Ctrl+B                    | Toggle left sidebar                      |
+| Cmd+Shift+I / Ctrl+Shift+I        | Toggle Claude Inspector                  |
+| Cmd+O / Ctrl+O                    | Open workspace (folder picker)           |
+| Cmd+, / Ctrl+,                    | Preferences                              |
 
 ---
 
@@ -617,27 +642,27 @@ Sections:
 
 ### 15.2 Dependencies
 
-| Dependency | Purpose |
-|------------|---------|
-| restty | Terminal emulation (libghostty-vt WASM, WebGPU/WebGL2) |
-| node-pty | PTY management in main process |
-| ws | WebSocket server bridging PTY to restty |
-| better-sqlite3 | SQLite database access |
-| chokidar | File system watching (.git/ changes) |
-| svelte (5.x) | UI framework (renderer) |
-| vite | Build tooling |
-| electron | Desktop shell |
+| Dependency     | Purpose                                                |
+| -------------- | ------------------------------------------------------ |
+| restty         | Terminal emulation (libghostty-vt WASM, WebGPU/WebGL2) |
+| node-pty       | PTY management in main process                         |
+| ws             | WebSocket server bridging PTY to restty                |
+| better-sqlite3 | SQLite database access                                 |
+| chokidar       | File system watching (.git/ changes)                   |
+| svelte (5.x)   | UI framework (renderer)                                |
+| vite           | Build tooling                                          |
+| electron       | Desktop shell                                          |
 
 ### 15.3 Bundled resources
 
-`resources/nixtty-claude-hook.sh` (Unix) and `resources/nixtty-claude-hook.cmd` (Windows) bundled in app package. Referenced by absolute path in per-session hook settings.
+`resources/canopy-claude-hook.sh` (Unix) and `resources/canopy-claude-hook.cmd` (Windows) bundled in app package. Referenced by absolute path in per-session hook settings.
 
 ---
 
 ## 16. File structure
 
 ```
-nixtty/
+canopy-desktop/
   package.json
   electron.vite.config.ts
   tsconfig.json
@@ -717,8 +742,8 @@ nixtty/
           RemoveWorktreeModal.svelte
 
   resources/
-    nixtty-claude-hook.sh       # Unix hook forwarder
-    nixtty-claude-hook.cmd      # Windows hook forwarder
+    canopy-claude-hook.sh       # Unix hook forwarder
+    canopy-claude-hook.cmd      # Windows hook forwarder
     icon.png                    # App icon
 ```
 
@@ -727,33 +752,43 @@ nixtty/
 ## 17. Implementation phases
 
 ### Phase 1: Terminal foundation
+
 Electron project scaffolding with Svelte 5 + Vite. restty integration in renderer. node-pty in main process. WebSocket bridge connecting node-pty to restty. Verify: launch app, get shell, type commands, all keys work.
 
 ### Phase 2: Data foundation
+
 better-sqlite3 setup + migrations. Core tables: `workspaces`, `tool_definitions`, `preferences`. TypeScript types (Workspace, Worktree, Tab, SplitNode, TerminalSession, ToolDefinition). PreferencesStore. ToolRegistry with predefined tools and `$SHELL` resolution. IPC handlers for database access.
 
 ### Phase 3: Workspace + worktrees
+
 Git detection (GitRepository). Open folder flow. Sidebar with worktree list. Per-worktree session isolation. chokidar watcher for `.git/` and `.git/worktrees/`. Non-git folder support. Three-column layout shell in MainLayout.svelte.
 
 ### Phase 4: Tool launcher + tabs
+
 Tab bar with shrink+overflow. PATH scanning for tool availability. Launch tools into worktree context. Session lifecycle (exit banner, restart). ClosedTabEntry stack. Sidebar tool section with running instance badge. Wire all tab shortcuts.
 
 ### Phase 5: Split panes
+
 restty `splitActivePane()` integration. Keyboard shortcuts for split/navigate/close. Click-to-focus. Drag to resize. Per-tab split state.
 
 ### Phase 6: Command palette
+
 Cmd+K/Ctrl+K overlay. Fuzzy search across tools, worktrees, app actions, tabs. `>` prefix for app commands.
 
 ### Phase 7: Git operations + worktree management
+
 Git commands in palette. Confirmation dialogs for destructive ops. Guided worktree creation flow. Removal with safety checks and branch cleanup.
 
 ### Phase 8: Welcome dashboard
+
 Recent workspaces from database. Background git status fetch. Rich display. Quick actions (open folder, open path).
 
 ### Phase 9: Claude Code integration
+
 Bundle hook scripts. ClaudeSessionManager: write per-session hook config JSON, pass `--settings` flag. ClaudeHookServer: HTTP server in main process, accept hook events, dispatch to renderer via IPC. claudeState: reactive state machine. ClaudeInspector: right sidebar panel with approve/deny buttons. PermissionRequest blocking flow. Tab badges. OS notifications. SessionStart context injection. Test with real Claude session.
 
 ### Phase 10: Persistence, preferences, polish
+
 `workspace_layouts` table. Layout persistence. Restore tabs and splits on restart. Preferences UI (all sections). Custom tool CRUD. Theme picker + `restty.applyTheme()`. Font auto-detection. URL scheme handler. Renderer selection (auto/webgpu/webgl2). Shader stage support in preferences.
 
 ---
@@ -770,6 +805,5 @@ Each phase gate:
 6. Cmd+K opens palette. Search tools, worktrees, app actions. Launch tool from palette.
 7. `git push` from palette shows confirmation. Create worktree from guided flow. Remove with branch cleanup.
 8. Cold start shows dashboard. Recent repos with git status.
-9. Launch claude from nixtty. Inspector shows session state. Tool calls appear in real-time. Approve/deny permission from Inspector. Orange tab badge when permission pending on unfocused tab. SessionStart injects workspace context.
+9. Launch claude from Canopy Desktop. Inspector shows session state. Tool calls appear in real-time. Approve/deny permission from Inspector. Orange tab badge when permission pending on unfocused tab. SessionStart injects workspace context.
 10. Quit and reopen. Same workspace, tabs, splits restored. Tools relaunched. Theme picker works. Font auto-detected. Preferences UI works. Custom tool added via preferences appears in sidebar. URL scheme opens workspace.
-

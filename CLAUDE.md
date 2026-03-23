@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Electron + Svelte 5 desktop app (nixtty — developer terminal workstation). Uses electron-vite for building and npm as package manager.
+Electron + Svelte 5 desktop app (Canopy Desktop — developer terminal workstation). Uses electron-vite for building and npm as package manager.
 
 ## Architecture
 
 Three-process Electron model:
+
 - `src/main/` — main process (Node.js, window management, IPC)
 - `src/preload/` — context-isolation bridge (`contextBridge`)
 - `src/renderer/` — Svelte 5 UI (DOM, browser APIs only)

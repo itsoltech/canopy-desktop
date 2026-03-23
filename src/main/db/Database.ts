@@ -85,7 +85,7 @@ export class Database {
   }
 
   private getDbPath(): string {
-    return join(app.getPath('userData'), 'nixtty.db')
+    return join(app.getPath('userData'), 'canopy.db')
   }
 
   private runMigrations(): void {

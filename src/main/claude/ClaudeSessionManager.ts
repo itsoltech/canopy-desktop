@@ -24,7 +24,7 @@ export class ClaudeSessionManager {
   private hooksDir: string
 
   constructor() {
-    this.hooksDir = join(app.getPath('userData'), 'nixtty', 'claude-hooks')
+    this.hooksDir = join(app.getPath('userData'), 'canopy', 'claude-hooks')
     mkdirSync(this.hooksDir, { recursive: true })
   }
 
@@ -141,7 +141,7 @@ export class ClaudeSessionManager {
 
   private getHookScriptPath(): string {
     const scriptName =
-      process.platform === 'win32' ? 'nixtty-claude-hook.cmd' : 'nixtty-claude-hook.sh'
+      process.platform === 'win32' ? 'canopy-claude-hook.cmd' : 'canopy-claude-hook.sh'
 
     if (is.dev) {
       return join(process.cwd(), 'resources', scriptName)
@@ -209,7 +209,7 @@ export class ClaudeSessionManager {
   }
 
   private getStatusLineScriptPath(): string {
-    const scriptName = 'nixtty-statusline.sh'
+    const scriptName = 'canopy-statusline.sh'
     if (is.dev) {
       return join(process.cwd(), 'resources', scriptName)
     }
@@ -221,7 +221,7 @@ export class ClaudeSessionManager {
     workspaceName: string,
     branch: string | null,
   ): string {
-    let ctx = `Working in nixtty workspace '${workspaceName}'`
+    let ctx = `Working in canopy workspace '${workspaceName}'`
     if (branch) {
       ctx += `, worktree '${branch}' (branch: ${branch})`
     }

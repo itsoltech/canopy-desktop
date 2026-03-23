@@ -37,7 +37,7 @@ export class PtyManager {
 
     const baseEnv = {
       ...(getLoginEnv() ?? process.env),
-      TERM_PROGRAM: 'nixtty',
+      TERM_PROGRAM: 'canopy',
     } as Record<string, string>
     const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv
 

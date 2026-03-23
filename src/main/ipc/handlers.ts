@@ -110,7 +110,7 @@ export function registerIpcHandlers(
           senderWindow,
         )
         args = ['--settings', claudeSession.settingsPath, ...args]
-        env = { NIXTTY_HOOK_PORT: String(claudeSession.hookPort) }
+        env = { CANOPY_HOOK_PORT: String(claudeSession.hookPort) }
         claudeTempId = claudeSession.tempId
       }
 

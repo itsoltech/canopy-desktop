@@ -24,13 +24,13 @@ const toolRegistry = new ToolRegistry(database)
 let mainWindow: BrowserWindow | null = null
 let claudeSessionManager: ClaudeSessionManager | null = null
 
-// Register nixtty:// URL scheme
+// Register canopy:// URL scheme
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('nixtty', process.execPath, [resolve(process.argv[1])])
+    app.setAsDefaultProtocolClient('canopy', process.execPath, [resolve(process.argv[1])])
   }
 } else {
-  app.setAsDefaultProtocolClient('nixtty')
+  app.setAsDefaultProtocolClient('canopy')
 }
 
 // Ensure single instance (required for URL scheme on Windows/Linux)
@@ -39,7 +39,7 @@ if (!gotTheLock) {
   app.quit()
 }
 
-function handleNixttyUrl(url: string): void {
+function handleCanopyUrl(url: string): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
 
   try {
@@ -136,13 +136,13 @@ app.whenReady().then(async () => {
   // Handle URL scheme on macOS
   app.on('open-url', (event, url) => {
     event.preventDefault()
-    handleNixttyUrl(url)
+    handleCanopyUrl(url)
   })
 
   // Handle URL scheme on Windows/Linux (second instance)
   app.on('second-instance', (_event, argv) => {
-    const url = argv.find((a) => a.startsWith('nixtty://'))
-    if (url) handleNixttyUrl(url)
+    const url = argv.find((a) => a.startsWith('canopy://'))
+    if (url) handleCanopyUrl(url)
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()

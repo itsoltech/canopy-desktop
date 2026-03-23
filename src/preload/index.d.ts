@@ -131,7 +131,7 @@ interface ClaudeStatusData {
   }
 }
 
-interface NixttyAPI {
+interface CanopyAPI {
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
@@ -233,6 +233,6 @@ interface NixttyAPI {
 declare global {
   interface Window {
     electron: ElectronAPI
-    api: NixttyAPI
+    api: CanopyAPI
   }
 }

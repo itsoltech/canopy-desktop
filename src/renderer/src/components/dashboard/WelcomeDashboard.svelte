@@ -156,7 +156,7 @@
 
 <div class="dashboard">
   <div class="dashboard-inner">
-    <h1 class="logo">nixtty</h1>
+    <h1 class="logo">Canopy Desktop</h1>
 
     {#if workspaces.length > 0}
       <h2 class="section-title">Recent</h2>
