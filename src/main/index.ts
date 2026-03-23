@@ -8,7 +8,7 @@ import { Database } from './db/Database'
 import { WorkspaceStore } from './db/WorkspaceStore'
 import { PreferencesStore } from './db/PreferencesStore'
 import { ToolRegistry } from './tools/ToolRegistry'
-import { registerIpcHandlers } from './ipc/handlers'
+import { registerIpcHandlers, disposeGitWatcher } from './ipc/handlers'
 
 const ptyManager = new PtyManager()
 const wsBridge = new WsBridge()
@@ -17,7 +17,7 @@ const workspaceStore = new WorkspaceStore(database)
 const preferencesStore = new PreferencesStore(database)
 const toolRegistry = new ToolRegistry(database)
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -54,6 +54,8 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  return mainWindow
 }
 
 app.whenReady().then(() => {
@@ -63,9 +65,16 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerIpcHandlers(ptyManager, wsBridge, workspaceStore, preferencesStore, toolRegistry)
+  const mainWindow = createWindow()
 
-  createWindow()
+  registerIpcHandlers(
+    ptyManager,
+    wsBridge,
+    workspaceStore,
+    preferencesStore,
+    toolRegistry,
+    mainWindow
+  )
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -73,6 +82,7 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  disposeGitWatcher()
   wsBridge.disposeAll()
   ptyManager.dispose()
   database.close()

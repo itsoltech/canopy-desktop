@@ -1,16 +1,31 @@
-import { ipcMain } from 'electron'
+import { ipcMain, dialog } from 'electron'
+import type { BrowserWindow } from 'electron'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
+import { GitRepository } from '../git/GitRepository'
+import { GitWatcher } from '../git/GitWatcher'
+
+let activeWatcher: GitWatcher | null = null
+let activeWorkspaceId: string | null = null
+
+export function disposeGitWatcher(): void {
+  if (activeWatcher) {
+    activeWatcher.stop()
+    activeWatcher = null
+  }
+  activeWorkspaceId = null
+}
 
 export function registerIpcHandlers(
   ptyManager: PtyManager,
   wsBridge: WsBridge,
   workspaceStore: WorkspaceStore,
   preferencesStore: PreferencesStore,
-  toolRegistry: ToolRegistry
+  toolRegistry: ToolRegistry,
+  mainWindow: BrowserWindow
 ): void {
   // --- PTY ---
 
@@ -94,5 +109,62 @@ export function registerIpcHandlers(
 
   ipcMain.handle('tools:checkAvailability', async () => {
     return toolRegistry.checkAvailability()
+  })
+
+  // --- Dialog ---
+
+  ipcMain.handle('dialog:openFolder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory']
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  // --- Git ---
+
+  ipcMain.handle('git:detect', async (_event, payload: { path: string }) => {
+    return GitRepository.detect(payload.path)
+  })
+
+  ipcMain.handle('git:worktrees', async (_event, payload: { repoRoot: string }) => {
+    return GitRepository.listWorktrees(payload.repoRoot)
+  })
+
+  ipcMain.handle('git:status', async (_event, payload: { repoRoot: string }) => {
+    const [branch, isDirty, aheadBehind] = await Promise.all([
+      GitRepository.getBranch(payload.repoRoot),
+      GitRepository.isDirty(payload.repoRoot),
+      GitRepository.getAheadBehind(payload.repoRoot)
+    ])
+    return { branch, isDirty, aheadBehind }
+  })
+
+  ipcMain.handle('git:watch', async (_event, payload: { repoRoot: string }) => {
+    disposeGitWatcher()
+
+    // Find workspace ID for cache updates
+    const ws = workspaceStore.getByPath(payload.repoRoot)
+    activeWorkspaceId = ws?.id ?? null
+
+    activeWatcher = new GitWatcher(payload.repoRoot, (info) => {
+      // Update DB cache
+      if (activeWorkspaceId) {
+        workspaceStore.updateGitCache(activeWorkspaceId, {
+          branch: info.branch,
+          dirty: info.isDirty,
+          aheadBehind: info.aheadBehind
+            ? `${info.aheadBehind.ahead}/${info.aheadBehind.behind}`
+            : null,
+          worktreeCount: info.worktrees.length
+        })
+      }
+      // Push to renderer
+      mainWindow.webContents.send('git:changed', info)
+    })
+    activeWatcher.start()
+  })
+
+  ipcMain.handle('git:unwatch', () => {
+    disposeGitWatcher()
   })
 }

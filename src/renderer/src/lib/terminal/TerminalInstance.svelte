@@ -2,12 +2,13 @@
   import { onMount } from 'svelte'
   import { init, Terminal, FitAddon } from 'ghostty-web'
 
+  let { sessionId, wsUrl }: { sessionId: string; wsUrl: string } = $props()
+
   let containerEl: HTMLDivElement
 
   onMount(() => {
     let term: Terminal | null = null
     let ws: WebSocket | null = null
-    let sessionId: string | null = null
 
     async function setup(): Promise<void> {
       await init()
@@ -45,13 +46,7 @@
       term.open(containerEl)
       fitAddon.fit()
 
-      const result = await window.api.spawnPty({
-        cols: term.cols,
-        rows: term.rows
-      })
-      sessionId = result.sessionId
-
-      ws = new WebSocket(result.wsUrl)
+      ws = new WebSocket(wsUrl)
       ws.onmessage = (e): void => {
         term!.write(e.data)
       }
@@ -63,7 +58,7 @@
       })
 
       term.onResize(({ cols, rows }) => {
-        window.api.resizePty(sessionId!, cols, rows)
+        window.api.resizePty(sessionId, cols, rows)
       })
 
       const resizeObserver = new ResizeObserver(() => fitAddon.fit())
@@ -77,7 +72,7 @@
     return () => {
       if (ws) ws.close()
       if (term) term.dispose()
-      if (sessionId) window.api.killPty(sessionId)
+      // Do NOT kill PTY here — the sessions store manages lifecycle
     }
   })
 </script>

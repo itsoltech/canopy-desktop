@@ -27,6 +27,29 @@ interface ToolDefinition {
   isCustom: boolean
 }
 
+interface GitInfo {
+  isGitRepo: boolean
+  repoRoot: string | null
+  branch: string | null
+  worktrees: GitWorktreeInfo[]
+  isDirty: boolean
+  aheadBehind: { ahead: number; behind: number } | null
+}
+
+interface GitWorktreeInfo {
+  path: string
+  head: string
+  branch: string
+  isMain: boolean
+  isBare: boolean
+}
+
+interface GitStatus {
+  branch: string | null
+  isDirty: boolean
+  aheadBehind: { ahead: number; behind: number } | null
+}
+
 interface NixttyAPI {
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
@@ -55,6 +78,19 @@ interface NixttyAPI {
   listTools: () => Promise<ToolDefinition[]>
   getTool: (id: string) => Promise<ToolDefinition | null>
   checkToolAvailability: () => Promise<Record<string, boolean>>
+
+  // Dialog
+  openFolder: () => Promise<string | null>
+
+  // Git
+  gitDetect: (path: string) => Promise<GitInfo>
+  gitWorktrees: (repoRoot: string) => Promise<GitWorktreeInfo[]>
+  gitStatus: (repoRoot: string) => Promise<GitStatus>
+  gitWatch: (repoRoot: string) => Promise<void>
+  gitUnwatch: () => Promise<void>
+
+  // Push events (main → renderer)
+  onGitChanged: (callback: (info: GitInfo) => void) => () => void
 }
 
 declare global {

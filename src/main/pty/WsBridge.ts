@@ -29,7 +29,16 @@ export class WsBridge {
 
     const clients = new Set<WsWebSocket>()
 
+    // Buffer PTY output until a client connects to avoid losing early data
+    // (e.g. fish DA1 query response)
+    let buffer: string[] = []
+    let connected = false
+
     const onData = ptyProcess.onData((data) => {
+      if (!connected) {
+        buffer.push(data)
+        return
+      }
       for (const client of clients) {
         if (client.readyState === 1) {
           client.send(data)
@@ -39,6 +48,15 @@ export class WsBridge {
 
     wss.on('connection', (ws) => {
       clients.add(ws)
+
+      // Flush buffered data to the first connecting client
+      if (!connected) {
+        connected = true
+        for (const chunk of buffer) {
+          ws.send(chunk)
+        }
+        buffer = []
+      }
 
       ws.on('message', (data) => {
         ptyProcess.write(typeof data === 'string' ? data : data.toString())

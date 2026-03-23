@@ -1,13 +1,11 @@
 <script lang="ts">
   import Titlebar from './components/Titlebar.svelte'
-  import TerminalInstance from './lib/terminal/TerminalInstance.svelte'
+  import MainLayout from './components/layout/MainLayout.svelte'
 </script>
 
 <div class="app">
   <Titlebar />
-  <div class="terminal-area">
-    <TerminalInstance />
-  </div>
+  <MainLayout />
 </div>
 
 <style>
@@ -17,10 +15,5 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-  }
-
-  .terminal-area {
-    flex: 1;
-    min-height: 0;
   }
 </style>

@@ -1,9 +1,23 @@
 <script lang="ts">
+  import { workspaceState } from '../lib/stores/workspace.svelte'
+
   const isMac = navigator.userAgent.includes('Mac')
 </script>
 
 <div class="titlebar" class:mac={isMac}>
-  <span class="title">nixtty</span>
+  {#if workspaceState.workspace}
+    <span class="title">
+      {workspaceState.workspace.name}
+      {#if workspaceState.branch}
+        <span class="branch">{workspaceState.branch}</span>
+      {/if}
+      {#if workspaceState.isDirty}
+        <span class="dirty">*</span>
+      {/if}
+    </span>
+  {:else}
+    <span class="title">nixtty</span>
+  {/if}
 </div>
 
 <style>
@@ -31,5 +45,19 @@
     font-weight: 500;
     color: rgba(255, 255, 255, 0.6);
     letter-spacing: 0.5px;
+  }
+
+  .branch {
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 6px;
+  }
+
+  .branch::before {
+    content: '\2014\00a0';
+  }
+
+  .dirty {
+    color: rgba(255, 200, 50, 0.7);
+    margin-left: 2px;
   }
 </style>

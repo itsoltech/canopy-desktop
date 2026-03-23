@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 const api = {
@@ -27,7 +28,26 @@ const api = {
   // Tools
   listTools: () => ipcRenderer.invoke('tools:list'),
   getTool: (id: string) => ipcRenderer.invoke('tools:get', { id }),
-  checkToolAvailability: () => ipcRenderer.invoke('tools:checkAvailability')
+  checkToolAvailability: () => ipcRenderer.invoke('tools:checkAvailability'),
+
+  // Dialog
+  openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
+
+  // Git
+  gitDetect: (path: string) => ipcRenderer.invoke('git:detect', { path }),
+  gitWorktrees: (repoRoot: string) => ipcRenderer.invoke('git:worktrees', { repoRoot }),
+  gitStatus: (repoRoot: string) => ipcRenderer.invoke('git:status', { repoRoot }),
+  gitWatch: (repoRoot: string) => ipcRenderer.invoke('git:watch', { repoRoot }),
+  gitUnwatch: () => ipcRenderer.invoke('git:unwatch'),
+
+  // Push events (main → renderer)
+  onGitChanged: (callback: (info: unknown) => void) => {
+    const handler = (_event: IpcRendererEvent, info: unknown): void => callback(info)
+    ipcRenderer.on('git:changed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('git:changed', handler)
+    }
+  }
 }
 
 if (process.contextIsolated) {

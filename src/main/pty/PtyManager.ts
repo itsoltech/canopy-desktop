@@ -14,11 +14,12 @@ export interface SpawnOptions {
   cwd?: string
 }
 
-function resolveShell(): string {
+function resolveShell(): { command: string; args: string[] } {
   if (os.platform() === 'win32') {
-    return 'powershell.exe'
+    return { command: 'powershell.exe', args: [] }
   }
-  return process.env.SHELL || '/bin/bash'
+  const shell = process.env.SHELL || '/bin/bash'
+  return { command: shell, args: ['--login'] }
 }
 
 export class PtyManager {
@@ -26,9 +27,9 @@ export class PtyManager {
 
   spawn(options?: SpawnOptions): PtySession {
     const id = randomUUID()
-    const shell = resolveShell()
+    const { command, args } = resolveShell()
 
-    const p = pty.spawn(shell, [], {
+    const p = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: options?.cols ?? 80,
       rows: options?.rows ?? 30,
