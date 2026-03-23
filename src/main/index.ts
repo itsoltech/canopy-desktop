@@ -26,9 +26,13 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     transparent: true,
-    frame: false,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 12, y: 12 },
     vibrancy: 'under-window',
     backgroundColor: '#00000050',
+    ...(process.platform !== 'darwin'
+      ? { titleBarOverlay: { color: '#00000000', symbolColor: '#e0e0e0', height: 40 } }
+      : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
