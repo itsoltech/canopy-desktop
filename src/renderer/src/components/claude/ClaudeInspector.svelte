@@ -210,7 +210,7 @@
             <span class="rate-limit-label">5h window</span>
             <span class="rate-limit-meta"
               >{Math.round(
-                state.rateLimitFiveHour,
+                100 - state.rateLimitFiveHour,
               )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}{' '}<span
                   class="rate-limit-reset">{formatResetTime(state.rateLimitFiveHourResetsAt)}</span
                 >{/if}</span
@@ -230,7 +230,7 @@
             <span class="rate-limit-label">7d window</span>
             <span class="rate-limit-meta"
               >{Math.round(
-                state.rateLimitSevenDay,
+                100 - state.rateLimitSevenDay,
               )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}{' '}<span
                   class="rate-limit-reset">{formatResetTime(state.rateLimitSevenDayResetsAt)}</span
                 >{/if}</span
