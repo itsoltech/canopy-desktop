@@ -1,5 +1,7 @@
 <script lang="ts">
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
+  import TabBar from '../terminal/TabBar.svelte'
+  import ExitBanner from '../terminal/ExitBanner.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
   import {
     workspaceState,
@@ -7,31 +9,67 @@
     updateGitInfo,
     toggleSidebar
   } from '../../lib/stores/workspace.svelte'
-  import { sessions, ensureSession } from '../../lib/stores/sessions.svelte'
+  import {
+    activeTabId,
+    ensureShellTab,
+    openTool,
+    closeTab,
+    reopenClosedTab,
+    switchTabByIndex,
+    nextTab,
+    prevTab,
+    handlePtyExit,
+    restartTab,
+    getAllTabs
+  } from '../../lib/stores/tabs.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
 
-  // Auto-create session when selected worktree changes
+  let allTabs = $derived(getAllTabs())
+  let currentActiveTabId = $derived(
+    workspaceState.selectedWorktreePath
+      ? (activeTabId[workspaceState.selectedWorktreePath] ?? null)
+      : null
+  )
+
+  // Auto-create shell tab when selected worktree changes
   $effect(() => {
     const path = workspaceState.selectedWorktreePath
     if (path) {
-      ensureSession(path)
+      ensureShellTab(path)
     }
   })
 
   // Subscribe to git:changed push events
   $effect(() => {
-    if (!workspaceState.repoRoot) return
+    if (!workspaceState.repoRoot) return undefined
     const unsubscribe = window.api.onGitChanged((info) => {
       updateGitInfo(info as Parameters<typeof updateGitInfo>[0])
     })
     return unsubscribe
   })
 
+  // Subscribe to pty:exit push events
+  $effect(() => {
+    const unsubscribe = window.api.onPtyExit((data) => {
+      handlePtyExit(data.sessionId, data.exitCode)
+    })
+    return unsubscribe
+  })
+
+  function handleLaunchTool(toolId: string): void {
+    const path = workspaceState.selectedWorktreePath
+    if (path) {
+      openTool(toolId, path)
+    }
+  }
+
   // Global keyboard shortcuts
   function handleKeydown(e: KeyboardEvent): void {
     const mod = isMac ? e.metaKey : e.ctrlKey
     if (!mod) return
+
+    const path = workspaceState.selectedWorktreePath
 
     if (e.key === 'b') {
       e.preventDefault()
@@ -40,9 +78,42 @@
 
     if (e.key === 'o') {
       e.preventDefault()
-      window.api.openFolder().then((path) => {
-        if (path) openWorkspace(path)
+      window.api.openFolder().then((p) => {
+        if (p) openWorkspace(p)
       })
+    }
+
+    if (e.key === 't' && !e.shiftKey && path) {
+      e.preventDefault()
+      openTool('shell', path)
+    }
+
+    if (e.key === 'T' && e.shiftKey && path) {
+      e.preventDefault()
+      reopenClosedTab(path)
+    }
+
+    if (e.key === 'w' && path) {
+      e.preventDefault()
+      const id = activeTabId[path]
+      if (id) closeTab(id)
+    }
+
+    // Cmd+1-9: switch to tab by index
+    if (path && e.key >= '1' && e.key <= '9') {
+      e.preventDefault()
+      switchTabByIndex(path, parseInt(e.key) - 1)
+    }
+
+    // Cmd+Shift+[ and Cmd+Shift+]
+    if (e.key === '[' && e.shiftKey && path) {
+      e.preventDefault()
+      prevTab(path)
+    }
+
+    if (e.key === ']' && e.shiftKey && path) {
+      e.preventDefault()
+      nextTab(path)
     }
   }
 </script>
@@ -51,21 +122,34 @@
 
 <div class="main-layout">
   {#if workspaceState.sidebarOpen}
-    <Sidebar />
+    <Sidebar onLaunchTool={handleLaunchTool} />
   {/if}
 
   <div class="center-area">
-    {#each Object.entries(sessions) as [path, session] (path)}
-      <div class="terminal-panel" class:hidden={path !== workspaceState.selectedWorktreePath}>
-        <TerminalInstance sessionId={session.sessionId} wsUrl={session.wsUrl} />
-      </div>
-    {/each}
-
-    {#if Object.keys(sessions).length === 0}
-      <div class="empty-state">
-        <p class="hint">Press {isMac ? 'Cmd' : 'Ctrl'}+O to open a folder</p>
-      </div>
+    {#if workspaceState.selectedWorktreePath}
+      <TabBar worktreePath={workspaceState.selectedWorktreePath} />
     {/if}
+
+    <div class="terminal-area">
+      {#each allTabs as tab (tab.id)}
+        <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
+          <TerminalInstance
+            sessionId={tab.sessionId}
+            wsUrl={tab.wsUrl}
+            active={tab.id === currentActiveTabId}
+          />
+          {#if !tab.isRunning}
+            <ExitBanner exitCode={tab.exitCode} onRestart={() => restartTab(tab.id)} />
+          {/if}
+        </div>
+      {/each}
+
+      {#if allTabs.length === 0 && !workspaceState.selectedWorktreePath}
+        <div class="empty-state">
+          <p class="hint">Press {isMac ? 'Cmd' : 'Ctrl'}+O to open a folder</p>
+        </div>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -81,17 +165,24 @@
   .center-area {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .terminal-area {
+    flex: 1;
+    min-height: 0;
     position: relative;
   }
 
   .terminal-panel {
     position: absolute;
     inset: 0;
+    background: #1e1e1e;
   }
 
   .terminal-panel.hidden {
-    visibility: hidden;
-    pointer-events: none;
+    display: none;
   }
 
   .empty-state {

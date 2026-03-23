@@ -5,6 +5,19 @@ interface PtySpawnResult {
   wsUrl: string
 }
 
+interface ToolSpawnResult {
+  sessionId: string
+  wsUrl: string
+  toolId: string
+  toolName: string
+}
+
+interface PtyExitData {
+  sessionId: string
+  exitCode: number
+  signal: number
+}
+
 interface WorkspaceRow {
   id: string
   path: string
@@ -78,6 +91,11 @@ interface NixttyAPI {
   listTools: () => Promise<ToolDefinition[]>
   getTool: (id: string) => Promise<ToolDefinition | null>
   checkToolAvailability: () => Promise<Record<string, boolean>>
+  spawnTool: (
+    toolId: string,
+    worktreePath: string,
+    options?: { cols?: number; rows?: number }
+  ) => Promise<ToolSpawnResult>
 
   // Dialog
   openFolder: () => Promise<string | null>
@@ -91,6 +109,7 @@ interface NixttyAPI {
 
   // Push events (main → renderer)
   onGitChanged: (callback: (info: GitInfo) => void) => () => void
+  onPtyExit: (callback: (data: PtyExitData) => void) => () => void
 }
 
 declare global {

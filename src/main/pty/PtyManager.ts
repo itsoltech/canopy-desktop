@@ -2,6 +2,7 @@ import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import { randomUUID } from 'crypto'
 import os from 'os'
+import { getLoginEnv } from '../shell/loginEnv'
 
 interface PtySession {
   id: string
@@ -12,6 +13,8 @@ export interface SpawnOptions {
   cols?: number
   rows?: number
   cwd?: string
+  command?: string
+  args?: string[]
 }
 
 function resolveShell(): { command: string; args: string[] } {
@@ -27,14 +30,16 @@ export class PtyManager {
 
   spawn(options?: SpawnOptions): PtySession {
     const id = randomUUID()
-    const { command, args } = resolveShell()
+    const shell = resolveShell()
+    const command = options?.command ?? shell.command
+    const args = options?.args ?? (options?.command ? [] : shell.args)
 
     const p = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: options?.cols ?? 80,
       rows: options?.rows ?? 30,
       cwd: options?.cwd ?? os.homedir(),
-      env: { ...process.env, TERM_PROGRAM: 'nixtty' } as Record<string, string>
+      env: { ...(getLoginEnv() ?? process.env), TERM_PROGRAM: 'nixtty' } as Record<string, string>
     })
 
     const session: PtySession = { id, pty: p }
@@ -49,7 +54,11 @@ export class PtyManager {
   resize(id: string, cols: number, rows: number): void {
     const session = this.sessions.get(id)
     if (session) {
-      session.pty.resize(cols, rows)
+      try {
+        session.pty.resize(cols, rows)
+      } catch {
+        // PTY already closed (EBADF) — ignore
+      }
     }
   }
 

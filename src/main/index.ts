@@ -9,6 +9,7 @@ import { WorkspaceStore } from './db/WorkspaceStore'
 import { PreferencesStore } from './db/PreferencesStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers, disposeGitWatcher } from './ipc/handlers'
+import { resolveLoginEnv } from './shell/loginEnv'
 
 const ptyManager = new PtyManager()
 const wsBridge = new WsBridge()
@@ -58,7 +59,10 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Resolve user's login shell env before anything else
+  await resolveLoginEnv()
+
   electronApp.setAppUserModelId('com.electron')
 
   app.on('browser-window-created', (_, window) => {

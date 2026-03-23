@@ -2,13 +2,15 @@
   import WorktreeSection from './WorktreeSection.svelte'
   import ToolSection from './ToolSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+
+  let { onLaunchTool }: { onLaunchTool: (toolId: string) => void } = $props()
 </script>
 
 <aside class="sidebar">
   {#if workspaceState.isGitRepo}
     <WorktreeSection />
   {/if}
-  <ToolSection />
+  <ToolSection {onLaunchTool} />
 </aside>
 
 <style>

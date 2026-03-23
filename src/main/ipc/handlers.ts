@@ -1,5 +1,6 @@
 import { ipcMain, dialog } from 'electron'
 import type { BrowserWindow } from 'electron'
+import os from 'os'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
@@ -7,6 +8,11 @@ import type { PreferencesStore } from '../db/PreferencesStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
 import { GitRepository } from '../git/GitRepository'
 import { GitWatcher } from '../git/GitWatcher'
+
+function resolveShellArgs(): string[] {
+  if (os.platform() === 'win32') return []
+  return ['--login']
+}
 
 let activeWatcher: GitWatcher | null = null
 let activeWorkspaceId: string | null = null
@@ -34,6 +40,11 @@ export function registerIpcHandlers(
     async (_event, options?: { cols?: number; rows?: number; cwd?: string }) => {
       const session = ptyManager.spawn(options)
       const wsUrl = await wsBridge.create(session.id, session.pty)
+
+      session.pty.onExit(({ exitCode, signal }) => {
+        mainWindow.webContents.send('pty:exit', { sessionId: session.id, exitCode, signal })
+      })
+
       return { sessionId: session.id, wsUrl }
     }
   )
@@ -49,6 +60,39 @@ export function registerIpcHandlers(
     wsBridge.destroy(payload.sessionId)
     ptyManager.kill(payload.sessionId)
   })
+
+  // --- Tool Spawning ---
+
+  ipcMain.handle(
+    'tool:spawn',
+    async (
+      _event,
+      payload: { toolId: string; worktreePath: string; cols?: number; rows?: number }
+    ) => {
+      const tool = toolRegistry.get(payload.toolId)
+      if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
+
+      const command = toolRegistry.resolveCommand(tool)
+      const isShell = tool.id === 'shell' || tool.command === 'shell'
+      const args = isShell ? resolveShellArgs() : tool.args
+
+      const session = ptyManager.spawn({
+        command,
+        args,
+        cwd: payload.worktreePath,
+        cols: payload.cols,
+        rows: payload.rows
+      })
+
+      const wsUrl = await wsBridge.create(session.id, session.pty)
+
+      session.pty.onExit(({ exitCode, signal }) => {
+        mainWindow.webContents.send('pty:exit', { sessionId: session.id, exitCode, signal })
+      })
+
+      return { sessionId: session.id, wsUrl, toolId: tool.id, toolName: tool.name }
+    }
+  )
 
   // --- Workspaces ---
 

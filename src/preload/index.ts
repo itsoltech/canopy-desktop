@@ -29,6 +29,8 @@ const api = {
   listTools: () => ipcRenderer.invoke('tools:list'),
   getTool: (id: string) => ipcRenderer.invoke('tools:get', { id }),
   checkToolAvailability: () => ipcRenderer.invoke('tools:checkAvailability'),
+  spawnTool: (toolId: string, worktreePath: string, options?: { cols?: number; rows?: number }) =>
+    ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
 
   // Dialog
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
@@ -46,6 +48,18 @@ const api = {
     ipcRenderer.on('git:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('git:changed', handler)
+    }
+  },
+  onPtyExit: (
+    callback: (data: { sessionId: string; exitCode: number; signal: number }) => void
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { sessionId: string; exitCode: number; signal: number }
+    ): void => callback(data)
+    ipcRenderer.on('pty:exit', handler)
+    return (): void => {
+      ipcRenderer.removeListener('pty:exit', handler)
     }
   }
 }

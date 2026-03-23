@@ -4,6 +4,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from '../db/Database'
 import type { ToolDefinition, ToolDefinitionRow } from '../db/types'
 import { toolFromRow } from '../db/types'
+import { getLoginEnv } from '../shell/loginEnv'
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>()
@@ -70,7 +71,8 @@ export class ToolRegistry {
       if (os.platform() === 'win32') {
         return 'powershell.exe'
       }
-      return process.env.SHELL || '/bin/bash'
+      const env = getLoginEnv()
+      return env?.SHELL || process.env.SHELL || '/bin/bash'
     }
     return tool.command
   }
@@ -78,12 +80,13 @@ export class ToolRegistry {
   async checkAvailability(): Promise<Record<string, boolean>> {
     const result: Record<string, boolean> = {}
     const cmd = os.platform() === 'win32' ? 'where' : 'which'
+    const env = getLoginEnv() ?? (process.env as Record<string, string>)
 
     const checks = this.getAll().map(
       (tool) =>
         new Promise<void>((resolve) => {
           const binary = this.resolveCommand(tool)
-          execFile(cmd, [binary], (err) => {
+          execFile(cmd, [binary], { env }, (err) => {
             result[tool.id] = !err
             resolve()
           })
