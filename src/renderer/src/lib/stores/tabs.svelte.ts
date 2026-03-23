@@ -274,11 +274,28 @@ export async function restartPane(
   const pane = panes.find((p) => p.id === paneId)
   if (!pane) return
 
-  // Kill old PTY
-  await window.api.killPty(pane.sessionId)
+  // Kill old PTY (may already be dead)
+  try {
+    await window.api.killPty(pane.sessionId)
+  } catch {
+    // Already exited or cleaned up
+  }
+
+  if (pane.toolId === 'claude') {
+    removeClaudeSession(pane.sessionId)
+  }
 
   // Spawn new
-  const result = await window.api.spawnTool(pane.toolId, worktreePath)
+  const options: { workspaceName?: string; branch?: string } = {}
+  if (pane.toolId === 'claude') {
+    options.workspaceName = workspaceState.workspace?.name ?? ''
+    options.branch = workspaceState.branch ?? undefined
+  }
+  const result = await window.api.spawnTool(pane.toolId, worktreePath, options)
+
+  if (pane.toolId === 'claude') {
+    initClaudeSession(result.sessionId)
+  }
 
   // Update pane in tree
   tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
@@ -287,7 +304,10 @@ export async function restartPane(
     wsUrl: result.wsUrl,
     isRunning: true,
     exitCode: null,
+    title: null,
   }))
+
+  scheduleSave(worktreePath)
 }
 
 export async function restartTab(tabId: string): Promise<void> {

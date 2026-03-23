@@ -72,14 +72,22 @@ export class PtyManager {
   kill(id: string): void {
     const session = this.sessions.get(id)
     if (session) {
-      session.pty.kill()
+      try {
+        session.pty.kill()
+      } catch {
+        // PTY already exited — ignore
+      }
       this.sessions.delete(id)
     }
   }
 
   dispose(): void {
     for (const [id, session] of this.sessions) {
-      session.pty.kill()
+      try {
+        session.pty.kill()
+      } catch {
+        // PTY already exited — ignore
+      }
       this.sessions.delete(id)
     }
   }

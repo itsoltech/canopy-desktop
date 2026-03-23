@@ -24,13 +24,15 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="pane-wrapper" class:focused onclick={onFocus}>
-  <TerminalInstance
-    sessionId={pane.sessionId}
-    wsUrl={pane.wsUrl}
-    toolId={pane.toolId}
-    active={active && focused}
-    onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
-  />
+  {#key pane.sessionId}
+    <TerminalInstance
+      sessionId={pane.sessionId}
+      wsUrl={pane.wsUrl}
+      toolId={pane.toolId}
+      active={active && focused}
+      onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
+    />
+  {/key}
   {#if !pane.isRunning}
     <ExitBanner
       exitCode={pane.exitCode}
