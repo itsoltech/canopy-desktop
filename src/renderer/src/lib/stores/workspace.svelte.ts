@@ -60,6 +60,10 @@ const initial: WorkspaceState = {
 export const workspaceState: WorkspaceState = $state({ ...initial })
 
 export async function openWorkspace(path: string): Promise<void> {
+  // Dedupe: if another window already has this path, focus it instead
+  const focused = await window.api.focusWindowForPath(path)
+  if (focused) return
+
   // Detect git info
   const info: GitInfo = await window.api.gitDetect(path)
 
@@ -74,8 +78,8 @@ export async function openWorkspace(path: string): Promise<void> {
   // Touch to update last_opened
   await window.api.touchWorkspace(ws.id)
 
-  // Save as last workspace for restore on restart
-  window.api.setPref('lastWorkspacePath', info.repoRoot ?? path)
+  // Register workspace path with main process for dedup
+  window.api.setWorkspacePath(info.repoRoot ?? path)
 
   // Update state
   workspaceState.workspace = ws

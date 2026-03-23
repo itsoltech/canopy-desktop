@@ -188,6 +188,13 @@
       return
     }
 
+    // Cmd+Shift+N: new window
+    if ((e.key === 'N' || e.key === 'n') && e.shiftKey) {
+      e.preventDefault()
+      window.api.newWindow()
+      return
+    }
+
     // Don't process other shortcuts while palette is open
     if (paletteOpen) return
 

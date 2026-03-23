@@ -7,34 +7,13 @@ import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
 import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
+import type { WindowManager } from '../WindowManager'
 import { GitRepository } from '../git/GitRepository'
 import { GitWatcher } from '../git/GitWatcher'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
   return ['--login']
-}
-
-let activeWatcher: GitWatcher | null = null
-let activeWorkspaceId: string | null = null
-
-export function disposeGitWatcher(): void {
-  if (activeWatcher) {
-    activeWatcher.stop()
-    activeWatcher = null
-  }
-  activeWorkspaceId = null
-}
-
-function safeSend(
-  getMainWindow: () => BrowserWindow | null,
-  channel: string,
-  ...args: unknown[]
-): void {
-  const win = getMainWindow()
-  if (win && !win.isDestroyed()) {
-    win.webContents.send(channel, ...args)
-  }
 }
 
 export function registerIpcHandlers(
@@ -45,18 +24,24 @@ export function registerIpcHandlers(
   layoutStore: LayoutStore,
   toolRegistry: ToolRegistry,
   claudeSessionManager: ClaudeSessionManager,
-  getMainWindow: () => BrowserWindow | null,
+  windowManager: WindowManager,
 ): void {
   // --- PTY ---
 
   ipcMain.handle(
     'pty:spawn',
-    async (_event, options?: { cols?: number; rows?: number; cwd?: string }) => {
+    async (event, options?: { cols?: number; rows?: number; cwd?: string }) => {
+      const sender = event.sender
       const session = ptyManager.spawn(options)
       const wsUrl = await wsBridge.create(session.id, session.pty)
 
+      windowManager.trackPtySession(sender.id, session.id)
+
       session.pty.onExit(({ exitCode, signal }) => {
-        safeSend(getMainWindow, 'pty:exit', { sessionId: session.id, exitCode, signal })
+        if (!sender.isDestroyed()) {
+          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
+        }
+        windowManager.untrackPtySession(sender.id, session.id)
       })
 
       return { sessionId: session.id, wsUrl }
@@ -91,6 +76,7 @@ export function registerIpcHandlers(
         resumeSessionId?: string
       },
     ) => {
+      const sender = event.sender
       const tool = toolRegistry.get(payload.toolId)
       if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
 
@@ -102,7 +88,7 @@ export function registerIpcHandlers(
 
       let claudeTempId: string | undefined
       if (isClaude) {
-        const senderWindow = BrowserWindow.fromWebContents(event.sender)
+        const senderWindow = BrowserWindow.fromWebContents(sender)
         if (!senderWindow) throw new Error('No window for Claude session')
 
         // Parse settings.json overrides from prefs
@@ -112,7 +98,7 @@ export function registerIpcHandlers(
           try {
             settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
           } catch {
-            // Invalid JSON — ignore
+            // Invalid JSON
           }
         }
 
@@ -152,7 +138,7 @@ export function registerIpcHandlers(
           try {
             Object.assign(env, JSON.parse(claudeCustomEnv))
           } catch {
-            // Invalid JSON — ignore
+            // Invalid JSON
           }
         }
       }
@@ -172,8 +158,13 @@ export function registerIpcHandlers(
 
       const wsUrl = await wsBridge.create(session.id, session.pty)
 
+      windowManager.trackPtySession(sender.id, session.id)
+
       session.pty.onExit(({ exitCode, signal }) => {
-        safeSend(getMainWindow, 'pty:exit', { sessionId: session.id, exitCode, signal })
+        if (!sender.isDestroyed()) {
+          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
+        }
+        windowManager.untrackPtySession(sender.id, session.id)
         if (isClaude) {
           claudeSessionManager.destroySession(session.id)
         }
@@ -252,10 +243,30 @@ export function registerIpcHandlers(
     shell.showItemInFolder(payload.path)
   })
 
+  // --- App: Multi-window ---
+
+  ipcMain.handle('app:newWindow', () => {
+    windowManager.createWindow()
+  })
+
+  ipcMain.handle('app:setWorkspacePath', (event, payload: { path: string }) => {
+    windowManager.setWorkspacePath(event.sender.id, payload.path)
+  })
+
+  ipcMain.handle('app:focusWindowForPath', (event, payload: { path: string }) => {
+    const existing = windowManager.getWindowForPath(payload.path)
+    if (existing && existing.webContents.id !== event.sender.id) {
+      if (existing.isMinimized()) existing.restore()
+      existing.focus()
+      return true
+    }
+    return false
+  })
+
   // --- Dialog ---
 
-  ipcMain.handle('dialog:openFolder', async () => {
-    const win = getMainWindow()
+  ipcMain.handle('dialog:openFolder', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return null
     const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory', 'createDirectory'],
@@ -282,17 +293,19 @@ export function registerIpcHandlers(
     return { branch, isDirty, aheadBehind }
   })
 
-  ipcMain.handle('git:watch', async (_event, payload: { repoRoot: string }) => {
-    disposeGitWatcher()
+  ipcMain.handle('git:watch', async (event, payload: { repoRoot: string }) => {
+    const senderId = event.sender.id
+
+    // Dispose previous watcher for this window only
+    windowManager.disposeGitWatcher(senderId)
 
     // Find workspace ID for cache updates
     const ws = workspaceStore.getByPath(payload.repoRoot)
-    activeWorkspaceId = ws?.id ?? null
+    const workspaceId = ws?.id ?? null
 
-    activeWatcher = new GitWatcher(payload.repoRoot, (info) => {
-      // Update DB cache
-      if (activeWorkspaceId) {
-        workspaceStore.updateGitCache(activeWorkspaceId, {
+    const watcher = new GitWatcher(payload.repoRoot, (info) => {
+      if (workspaceId) {
+        workspaceStore.updateGitCache(workspaceId, {
           branch: info.branch,
           dirty: info.isDirty,
           aheadBehind: info.aheadBehind
@@ -301,14 +314,16 @@ export function registerIpcHandlers(
           worktreeCount: info.worktrees.length,
         })
       }
-      // Push to renderer
-      safeSend(getMainWindow, 'git:changed', info)
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('git:changed', info)
+      }
     })
-    activeWatcher.start()
+    watcher.start()
+    windowManager.setGitWatcher(senderId, watcher)
   })
 
-  ipcMain.handle('git:unwatch', () => {
-    disposeGitWatcher()
+  ipcMain.handle('git:unwatch', (event) => {
+    windowManager.disposeGitWatcher(event.sender.id)
   })
 
   // --- Workspace Git Status Refresh ---

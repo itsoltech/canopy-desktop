@@ -130,6 +130,14 @@
     })
 
     items.push({
+      id: 'app:new-window',
+      label: 'New Window',
+      category: 'App',
+      shortcut: `${mod}+Shift+N`,
+      action: () => window.api.newWindow(),
+    })
+
+    items.push({
       id: 'app:open-folder',
       label: 'Open Folder',
       category: 'App',

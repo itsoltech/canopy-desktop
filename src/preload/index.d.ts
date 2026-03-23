@@ -176,6 +176,9 @@ interface CanopyAPI {
 
   // App / Shell
   showInFolder: (path: string) => Promise<void>
+  newWindow: () => Promise<void>
+  setWorkspacePath: (path: string) => Promise<void>
+  focusWindowForPath: (path: string) => Promise<boolean>
 
   // Dialog
   openFolder: () => Promise<string | null>
