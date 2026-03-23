@@ -298,47 +298,42 @@
       <TabBar worktreePath={workspaceState.selectedWorktreePath} />
     {/if}
 
-    <div class="terminal-area">
-      {#each allTabs as tab (tab.id)}
-        <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
-          <SplitPaneContainer
-            node={tab.rootSplit}
-            tabId={tab.id}
-            worktreePath={tab.worktreePath}
-            focusedPaneId={tab.focusedPaneId}
-            active={tab.id === currentActiveTabId}
-            onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
-            onUpdateRatio={(paneId, ratio) =>
-              updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
-          />
-        </div>
-      {/each}
+    <div class="content-row">
+      <div class="terminal-area">
+        {#each allTabs as tab (tab.id)}
+          <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
+            <SplitPaneContainer
+              node={tab.rootSplit}
+              tabId={tab.id}
+              worktreePath={tab.worktreePath}
+              focusedPaneId={tab.focusedPaneId}
+              active={tab.id === currentActiveTabId}
+              onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
+              onUpdateRatio={(paneId, ratio) =>
+                updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
+            />
+          </div>
+        {/each}
 
-      {#if !workspaceState.selectedWorktreePath && allTabs.length === 0}
-        <WelcomeDashboard />
-      {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
-        <div class="empty-state">
-          <p class="hint">
-            Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a shell
-          </p>
-          <p class="hint-sub">
-            {isMac ? 'Cmd' : 'Ctrl'}+K to open command palette
-          </p>
-        </div>
+        {#if !workspaceState.selectedWorktreePath && allTabs.length === 0}
+          <WelcomeDashboard />
+        {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
+          <div class="empty-state">
+            <p class="hint">
+              Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a shell
+            </p>
+            <p class="hint-sub">
+              {isMac ? 'Cmd' : 'Ctrl'}+K to open command palette
+            </p>
+          </div>
+        {/if}
+      </div>
+
+      {#if workspaceState.inspectorOpen && activeClaudeState && activeClaudePtySessionId}
+        <ClaudeInspector state={activeClaudeState} />
       {/if}
     </div>
   </div>
-
-  {#if workspaceState.inspectorOpen}
-    {#if activeClaudeState && activeClaudePtySessionId}
-      <ClaudeInspector state={activeClaudeState} />
-    {:else}
-      <aside class="inspector-empty">
-        <p class="inspector-hint">No Claude session active</p>
-        <p class="inspector-hint-sub">Open a Claude tab to see session details</p>
-      </aside>
-    {/if}
-  {/if}
 </div>
 
 <style>
@@ -355,6 +350,13 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  .content-row {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;
   }
 
   .terminal-area {
@@ -392,32 +394,5 @@
     font-weight: 400;
     margin: 6px 0 0;
     color: rgba(255, 255, 255, 0.2);
-  }
-
-  .inspector-empty {
-    width: 280px;
-    min-width: 280px;
-    height: 100%;
-    background: rgba(30, 30, 30, 0.75);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-left: 1px solid rgba(255, 255, 255, 0.06);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-  }
-
-  .inspector-hint {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.3);
-    margin: 0;
-  }
-
-  .inspector-hint-sub {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.15);
-    margin: 0;
   }
 </style>
