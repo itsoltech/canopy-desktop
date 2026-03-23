@@ -216,6 +216,8 @@
   .terminal-container {
     width: 100%;
     height: 100%;
+    padding: 8px;
+    box-sizing: border-box;
     background-color: var(--terminal-bg, #1e1e1e);
     position: relative;
   }
