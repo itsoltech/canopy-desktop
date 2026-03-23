@@ -48,7 +48,7 @@ export class ToolRegistry {
     this.db
       .prepare(
         `INSERT INTO tool_definitions (id, name, command, args_json, icon, category, is_custom)
-         VALUES (?, ?, ?, ?, ?, ?, 1)`
+         VALUES (?, ?, ?, ?, ?, ?, 1)`,
       )
       .run(
         tool.id,
@@ -56,7 +56,7 @@ export class ToolRegistry {
         tool.command,
         JSON.stringify(tool.args ?? []),
         tool.icon ?? 'terminal',
-        tool.category ?? 'system'
+        tool.category ?? 'system',
       )
     this.reload()
   }
@@ -90,7 +90,7 @@ export class ToolRegistry {
             result[tool.id] = !err
             resolve()
           })
-        })
+        }),
     )
 
     await Promise.all(checks)

@@ -36,7 +36,7 @@ export class WorkspaceStore {
         .prepare(
           `UPDATE workspaces
            SET name = ?, is_git_repo = ?, last_opened = datetime('now')
-           WHERE id = ?`
+           WHERE id = ?`,
         )
         .run(workspace.name, workspace.isGitRepo ? 1 : 0, existing.id)
       return this.get(existing.id)!
@@ -46,7 +46,7 @@ export class WorkspaceStore {
     this.db
       .prepare(
         `INSERT INTO workspaces (id, path, name, is_git_repo, last_opened)
-         VALUES (?, ?, ?, ?, datetime('now'))`
+         VALUES (?, ?, ?, ?, datetime('now'))`,
       )
       .run(id, workspace.path, workspace.name, workspace.isGitRepo ? 1 : 0)
     return this.get(id)!
@@ -59,20 +59,20 @@ export class WorkspaceStore {
       dirty?: boolean | null
       aheadBehind?: string | null
       worktreeCount?: number | null
-    }
+    },
   ): void {
     this.db
       .prepare(
         `UPDATE workspaces
          SET cached_branch = ?, cached_dirty = ?, cached_ahead_behind = ?, cached_worktree_count = ?
-         WHERE id = ?`
+         WHERE id = ?`,
       )
       .run(
         cache.branch ?? null,
         cache.dirty === undefined || cache.dirty === null ? null : cache.dirty ? 1 : 0,
         cache.aheadBehind ?? null,
         cache.worktreeCount ?? null,
-        id
+        id,
       )
   }
 

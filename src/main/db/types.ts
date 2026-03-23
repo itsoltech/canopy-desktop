@@ -97,7 +97,7 @@ export function workspaceFromRow(row: WorkspaceRow): Workspace {
     cachedBranch: row.cached_branch,
     cachedDirty: row.cached_dirty === null ? null : row.cached_dirty === 1,
     cachedAheadBehind: row.cached_ahead_behind,
-    cachedWorktreeCount: row.cached_worktree_count
+    cachedWorktreeCount: row.cached_worktree_count,
   }
 }
 
@@ -109,6 +109,6 @@ export function toolFromRow(row: ToolDefinitionRow): ToolDefinition {
     args: JSON.parse(row.args_json) as string[],
     icon: row.icon,
     category: row.category as ToolCategory,
-    isCustom: row.is_custom === 1
+    isCustom: row.is_custom === 1,
   }
 }

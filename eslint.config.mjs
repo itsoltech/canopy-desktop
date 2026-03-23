@@ -11,21 +11,21 @@ export default defineConfig(
     files: ['**/*.svelte'],
     languageOptions: {
       parserOptions: {
-        parser: tseslint.parser
-      }
-    }
+        parser: tseslint.parser,
+      },
+    },
   },
   {
     files: ['**/*.svelte.ts'],
     languageOptions: {
-      parser: tseslint.parser
-    }
+      parser: tseslint.parser,
+    },
   },
   {
     files: ['**/*.{tsx,svelte}'],
     rules: {
-      'svelte/no-unused-svelte-ignore': 'off'
-    }
+      'svelte/no-unused-svelte-ignore': 'off',
+    },
   },
-  eslintConfigPrettier
+  eslintConfigPrettier,
 )

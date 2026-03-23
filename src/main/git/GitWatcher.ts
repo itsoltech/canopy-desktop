@@ -11,7 +11,7 @@ export class GitWatcher {
 
   constructor(
     private repoRoot: string,
-    private onChange: (info: GitInfo) => void
+    private onChange: (info: GitInfo) => void,
   ) {}
 
   start(): void {
@@ -22,13 +22,13 @@ export class GitWatcher {
       join(gitDir, 'HEAD'),
       join(gitDir, 'index'),
       join(gitDir, 'refs'),
-      join(gitDir, 'worktrees')
+      join(gitDir, 'worktrees'),
     ]
 
     this.watcher = watch(watchPaths, {
       ignoreInitial: true,
       depth: 2,
-      awaitWriteFinish: { stabilityThreshold: 100 }
+      awaitWriteFinish: { stabilityThreshold: 100 },
     })
 
     this.watcher.on('all', () => this.scheduleRefresh())

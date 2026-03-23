@@ -1,7 +1,7 @@
 <script lang="ts">
   let {
     direction,
-    onDragDelta
+    onDragDelta,
   }: {
     direction: 'horizontal' | 'vertical'
     onDragDelta: (deltaPx: number) => void

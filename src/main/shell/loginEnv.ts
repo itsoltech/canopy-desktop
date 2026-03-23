@@ -51,7 +51,7 @@ export async function resolveLoginEnv(): Promise<Record<string, string>> {
 
         cachedEnv = env
         resolve(cachedEnv)
-      }
+      },
     )
   })
 }

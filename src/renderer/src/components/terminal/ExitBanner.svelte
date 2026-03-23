@@ -1,7 +1,7 @@
 <script lang="ts">
   let {
     exitCode,
-    onRestart
+    onRestart,
   }: {
     exitCode: number | null
     onRestart: () => void

@@ -11,7 +11,7 @@
     focusedPaneId,
     active,
     onFocusPane,
-    onUpdateRatio
+    onUpdateRatio,
   }: {
     node: SplitNode
     tabId: string
