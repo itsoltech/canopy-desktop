@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { tabsByWorktree, activeTabId, switchTab, closeTab } from '../../lib/stores/tabs.svelte'
+  import {
+    tabsByWorktree,
+    activeTabId,
+    switchTab,
+    closeTab,
+    getTabDisplayName,
+  } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
 
   let { worktreePath }: { worktreePath: string } = $props()
@@ -24,10 +30,10 @@
   })
 
   let visibleTabs = $derived(
-    visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(0, visibleCount) : tabs
+    visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(0, visibleCount) : tabs,
   )
   let overflowTabs = $derived(
-    visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(visibleCount) : []
+    visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(visibleCount) : [],
   )
 
   function handleMiddleClick(e: MouseEvent, tabId: string): void {
@@ -50,9 +56,9 @@
           class:exited={allPanes(tab.rootSplit).some((p) => !p.isRunning)}
           onclick={() => switchTab(tab.id)}
           onauxclick={(e) => handleMiddleClick(e, tab.id)}
-          title={tab.name}
+          title={getTabDisplayName(tab)}
         >
-          <span class="tab-name">{tab.name}</span>
+          <span class="tab-name">{getTabDisplayName(tab)}</span>
           <button
             class="tab-close"
             onclick={(e: MouseEvent) => {
@@ -82,7 +88,7 @@
                     showOverflow = false
                   }}
                 >
-                  {tab.name}
+                  {getTabDisplayName(tab)}
                 </button>
               {/each}
             </div>

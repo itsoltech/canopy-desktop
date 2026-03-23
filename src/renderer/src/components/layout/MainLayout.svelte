@@ -6,7 +6,7 @@
     workspaceState,
     openWorkspace,
     updateGitInfo,
-    toggleSidebar
+    toggleSidebar,
   } from '../../lib/stores/workspace.svelte'
   import {
     activeTabId,
@@ -18,11 +18,12 @@
     prevTab,
     handlePtyExit,
     getAllTabs,
+    getTabsForWorktree,
     splitFocusedPane,
     closeFocusedPane,
     navigatePaneFocus,
     focusPane,
-    updateSplitRatio
+    updateSplitRatio,
   } from '../../lib/stores/tabs.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
@@ -31,7 +32,12 @@
   let currentActiveTabId = $derived(
     workspaceState.selectedWorktreePath
       ? (activeTabId[workspaceState.selectedWorktreePath] ?? null)
-      : null
+      : null,
+  )
+  let currentWorktreeTabs = $derived(
+    workspaceState.selectedWorktreePath
+      ? getTabsForWorktree(workspaceState.selectedWorktreePath)
+      : [],
   )
 
   // Auto-create shell tab when selected worktree changes
@@ -85,14 +91,13 @@
       })
     }
 
-    if (e.key === 't' && !e.shiftKey && path) {
+    if ((e.key === 't' || e.key === 'T') && path) {
       e.preventDefault()
-      openTool('shell', path)
-    }
-
-    if (e.key === 'T' && e.shiftKey && path) {
-      e.preventDefault()
-      reopenClosedTab(path)
+      if (e.shiftKey) {
+        reopenClosedTab(path)
+      } else {
+        openTool('shell', path)
+      }
     }
 
     // Cmd+W: close focused pane (or tab if last pane)
@@ -101,16 +106,10 @@
       closeFocusedPane(path)
     }
 
-    // Cmd+D: split vertical
-    if (e.key === 'd' && !e.shiftKey && path) {
+    // Cmd+D: split vertical / Cmd+Shift+D: split horizontal
+    if ((e.key === 'd' || e.key === 'D') && path) {
       e.preventDefault()
-      splitFocusedPane(path, 'vsplit')
-    }
-
-    // Cmd+Shift+D: split horizontal
-    if (e.key === 'D' && e.shiftKey && path) {
-      e.preventDefault()
-      splitFocusedPane(path, 'hsplit')
+      splitFocusedPane(path, e.shiftKey ? 'hsplit' : 'vsplit')
     }
 
     // Cmd+Option+Arrow: navigate between panes
@@ -119,7 +118,7 @@
         ArrowLeft: 'left',
         ArrowRight: 'right',
         ArrowUp: 'up',
-        ArrowDown: 'down'
+        ArrowDown: 'down',
       }
       const dir = dirMap[e.key]
       if (dir) {
@@ -175,9 +174,16 @@
         </div>
       {/each}
 
-      {#if allTabs.length === 0 && !workspaceState.selectedWorktreePath}
+      {#if !workspaceState.selectedWorktreePath && allTabs.length === 0}
         <div class="empty-state">
           <p class="hint">Press {isMac ? 'Cmd' : 'Ctrl'}+O to open a folder</p>
+        </div>
+      {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
+        <div class="empty-state">
+          <p class="hint">
+            Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a shell
+          </p>
+          <p class="hint-sub">or pick a tool from the sidebar</p>
         </div>
       {/if}
     </div>
@@ -227,5 +233,13 @@
   .hint {
     font-size: 14px;
     font-weight: 400;
+    margin: 0;
+  }
+
+  .hint-sub {
+    font-size: 12px;
+    font-weight: 400;
+    margin: 6px 0 0;
+    color: rgba(255, 255, 255, 0.2);
   }
 </style>

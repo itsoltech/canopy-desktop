@@ -10,11 +10,13 @@
   let {
     sessionId,
     wsUrl,
-    active = true
+    active = true,
+    onTitleChange,
   }: {
     sessionId: string
     wsUrl: string
     active?: boolean
+    onTitleChange?: (title: string) => void
   } = $props()
 
   let containerEl: HTMLDivElement
@@ -57,8 +59,8 @@
         brightBlue: '#a3d8f4',
         brightMagenta: '#e599f7',
         brightCyan: '#99e9f2',
-        brightWhite: '#ffffff'
-      }
+        brightWhite: '#ffffff',
+      },
     })
 
     const fitAddon = new FitAddon()
@@ -97,6 +99,10 @@
     term.onResize(({ cols, rows }) => {
       window.api.resizePty(sessionId, cols, rows)
     })
+
+    if (onTitleChange) {
+      term.onTitleChange((title) => onTitleChange(title))
+    }
 
     resizeObserver = new ResizeObserver(() => {
       // Skip when hidden (display:none gives 0 dimensions)

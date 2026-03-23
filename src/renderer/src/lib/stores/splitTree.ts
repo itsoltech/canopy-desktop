@@ -6,6 +6,7 @@ export interface PaneSession {
   toolName: string
   isRunning: boolean
   exitCode: number | null
+  title: string | null
 }
 
 export type SplitNode =
@@ -56,7 +57,7 @@ export function splitPane(
   root: SplitNode,
   paneId: string,
   direction: 'hsplit' | 'vsplit',
-  newPane: PaneSession
+  newPane: PaneSession,
 ): SplitNode | null {
   if (depth(root) >= MAX_DEPTH) return null
   return splitPaneInner(root, paneId, direction, newPane)
@@ -66,7 +67,7 @@ function splitPaneInner(
   node: SplitNode,
   paneId: string,
   direction: 'hsplit' | 'vsplit',
-  newPane: PaneSession
+  newPane: PaneSession,
 ): SplitNode | null {
   if (node.type === 'leaf') {
     if (node.pane.id !== paneId) return null
@@ -75,7 +76,7 @@ function splitPaneInner(
       id: nextSplitId(),
       first: node,
       second: { type: 'leaf', pane: newPane },
-      ratio: 0.5
+      ratio: 0.5,
     }
   }
 
@@ -94,7 +95,7 @@ function splitPaneInner(
 
 export function removePane(
   root: SplitNode,
-  paneId: string
+  paneId: string,
 ): { tree: SplitNode | null; removed: PaneSession } | null {
   if (root.type === 'leaf') {
     if (root.pane.id === paneId) {
@@ -116,7 +117,7 @@ export function removePane(
   if (firstResult) {
     return {
       tree: firstResult.tree ? { ...root, first: firstResult.tree } : root.second,
-      removed: firstResult.removed
+      removed: firstResult.removed,
     }
   }
 
@@ -124,7 +125,7 @@ export function removePane(
   if (secondResult) {
     return {
       tree: secondResult.tree ? { ...root, second: secondResult.tree } : root.first,
-      removed: secondResult.removed
+      removed: secondResult.removed,
     }
   }
 
@@ -134,7 +135,7 @@ export function removePane(
 export function updatePane(
   root: SplitNode,
   paneId: string,
-  updater: (pane: PaneSession) => PaneSession
+  updater: (pane: PaneSession) => PaneSession,
 ): SplitNode {
   if (root.type === 'leaf') {
     if (root.pane.id === paneId) {
@@ -145,7 +146,7 @@ export function updatePane(
   return {
     ...root,
     first: updatePane(root.first, paneId, updater),
-    second: updatePane(root.second, paneId, updater)
+    second: updatePane(root.second, paneId, updater),
   }
 }
 
@@ -157,7 +158,7 @@ export function updateRatio(root: SplitNode, splitId: string, ratio: number): Sp
   return {
     ...root,
     first: updateRatio(root.first, splitId, ratio),
-    second: updateRatio(root.second, splitId, ratio)
+    second: updateRatio(root.second, splitId, ratio),
   }
 }
 
@@ -181,7 +182,7 @@ function buildLeafRects(node: SplitNode, x: number, y: number, w: number, h: num
     const secondW = w - firstW
     return [
       ...buildLeafRects(node.first, x, y, firstW, h),
-      ...buildLeafRects(node.second, x + firstW, y, secondW, h)
+      ...buildLeafRects(node.second, x + firstW, y, secondW, h),
     ]
   }
 
@@ -190,14 +191,14 @@ function buildLeafRects(node: SplitNode, x: number, y: number, w: number, h: num
   const secondH = h - firstH
   return [
     ...buildLeafRects(node.first, x, y, w, firstH),
-    ...buildLeafRects(node.second, x, y + firstH, w, secondH)
+    ...buildLeafRects(node.second, x, y + firstH, w, secondH),
   ]
 }
 
 export function navigateFrom(
   root: SplitNode,
   fromPaneId: string,
-  direction: 'left' | 'right' | 'up' | 'down'
+  direction: 'left' | 'right' | 'up' | 'down',
 ): string | null {
   const rects = buildLeafRects(root, 0, 0, 1, 1)
   const source = rects.find((r) => r.paneId === fromPaneId)

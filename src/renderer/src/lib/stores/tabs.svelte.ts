@@ -4,12 +4,13 @@ import {
   createLeaf,
   nextPaneId,
   allPanes,
+  findLeaf,
   splitPane as treeSplitPane,
   removePane as treeRemovePane,
   updatePane as treeUpdatePane,
   updateRatio as treeUpdateRatio,
   firstLeaf,
-  navigateFrom
+  navigateFrom,
 } from './splitTree'
 
 export interface TabInfo {
@@ -60,7 +61,8 @@ export async function openTool(toolId: string, worktreePath: string): Promise<Ta
     toolId,
     toolName: result.toolName,
     isRunning: true,
-    exitCode: null
+    exitCode: null,
+    title: null,
   }
 
   const tab: TabInfo = {
@@ -70,7 +72,7 @@ export async function openTool(toolId: string, worktreePath: string): Promise<Ta
     name,
     worktreePath,
     rootSplit: createLeaf(pane),
-    focusedPaneId: paneId
+    focusedPaneId: paneId,
   }
 
   if (!tabsByWorktree[worktreePath]) {
@@ -95,7 +97,7 @@ export async function closeTab(tabId: string): Promise<void> {
       toolId: tab.toolId,
       toolName: tab.toolName,
       worktreePath: path,
-      closedAt: Date.now()
+      closedAt: Date.now(),
     })
     if (closedTabs[path].length > MAX_CLOSED_TABS) {
       closedTabs[path].shift()
@@ -116,8 +118,6 @@ export async function closeTab(tabId: string): Promise<void> {
         activeTabId[path] = remaining[newIdx].id
       } else {
         delete activeTabId[path]
-        // Auto-open a shell tab when last tab is closed
-        await openTool('shell', path)
       }
     }
 
@@ -200,7 +200,7 @@ export function handlePtyExit(sessionId: string, exitCode: number): void {
         tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
           ...p,
           isRunning: false,
-          exitCode
+          exitCode,
         }))
         return
       }
@@ -211,7 +211,7 @@ export function handlePtyExit(sessionId: string, exitCode: number): void {
 export async function restartPane(
   worktreePath: string,
   tabId: string,
-  paneId: string
+  paneId: string,
 ): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return
@@ -235,7 +235,7 @@ export async function restartPane(
     sessionId: result.sessionId,
     wsUrl: result.wsUrl,
     isRunning: true,
-    exitCode: null
+    exitCode: null,
   }))
 }
 
@@ -270,11 +270,33 @@ export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
 }
 
+export function getTabDisplayName(tab: TabInfo): string {
+  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
+  return focused?.title || tab.name
+}
+
+export function updatePaneTitle(sessionId: string, title: string): void {
+  if (!title) return
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const panes = allPanes(tab.rootSplit)
+      const pane = panes.find((p) => p.sessionId === sessionId)
+      if (pane) {
+        tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
+          ...p,
+          title,
+        }))
+        return
+      }
+    }
+  }
+}
+
 // --- Split pane operations ---
 
 export async function splitFocusedPane(
   worktreePath: string,
-  direction: 'hsplit' | 'vsplit'
+  direction: 'hsplit' | 'vsplit',
 ): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return
@@ -294,7 +316,8 @@ export async function splitFocusedPane(
     toolId: 'shell',
     toolName: result.toolName,
     isRunning: true,
-    exitCode: null
+    exitCode: null,
+    title: null,
   }
 
   const newTree = treeSplitPane(tab.rootSplit, tab.focusedPaneId, direction, newPane)
@@ -331,7 +354,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
       toolId: tab.toolId,
       toolName: tab.toolName,
       worktreePath,
-      closedAt: Date.now()
+      closedAt: Date.now(),
     })
     if (closedTabs[worktreePath].length > MAX_CLOSED_TABS) {
       closedTabs[worktreePath].shift()
@@ -346,7 +369,6 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
       activeTabId[worktreePath] = remaining[newIdx].id
     } else {
       delete activeTabId[worktreePath]
-      await openTool('shell', worktreePath)
     }
   } else {
     tab.rootSplit = result.tree
@@ -357,7 +379,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
 
 export function navigatePaneFocus(
   worktreePath: string,
-  direction: 'left' | 'right' | 'up' | 'down'
+  direction: 'left' | 'right' | 'up' | 'down',
 ): void {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return
@@ -386,7 +408,7 @@ export function updateSplitRatio(
   _worktreePath: string,
   tabId: string,
   splitId: string,
-  ratio: number
+  ratio: number,
 ): void {
   for (const tabs of Object.values(tabsByWorktree)) {
     const tab = tabs.find((t) => t.id === tabId)
