@@ -103,15 +103,56 @@ export function registerIpcHandlers(
       if (isClaude) {
         const senderWindow = BrowserWindow.fromWebContents(event.sender)
         if (!senderWindow) throw new Error('No window for Claude session')
+
+        // Parse settings.json overrides from prefs
+        let settingsOverrides: Record<string, unknown> | undefined
+        const settingsJsonRaw = preferencesStore.get('claude.settingsJson')
+        if (settingsJsonRaw) {
+          try {
+            settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
+          } catch {
+            // Invalid JSON — ignore
+          }
+        }
+
         const claudeSession = await claudeSessionManager.createSession(
           payload.worktreePath,
           payload.workspaceName ?? '',
           payload.branch ?? null,
           senderWindow,
+          settingsOverrides,
         )
         args = ['--settings', claudeSession.settingsPath, ...args]
         env = { CANOPY_HOOK_PORT: String(claudeSession.hookPort) }
         claudeTempId = claudeSession.tempId
+
+        // CLI args from preferences
+        const claudeModel = preferencesStore.get('claude.model')
+        const claudePermMode = preferencesStore.get('claude.permissionMode')
+        const claudeEffort = preferencesStore.get('claude.effortLevel')
+        const claudeAppendPrompt = preferencesStore.get('claude.appendSystemPrompt')
+        if (claudeModel) args.push('--model', claudeModel)
+        if (claudePermMode) args.push('--permission-mode', claudePermMode)
+        if (claudeEffort) args.push('--effort', claudeEffort)
+        if (claudeAppendPrompt) args.push('--append-system-prompt', claudeAppendPrompt)
+
+        // Env vars from preferences
+        const claudeApiKey = preferencesStore.get('claude.apiKey')
+        const claudeBaseUrl = preferencesStore.get('claude.baseUrl')
+        const claudeProvider = preferencesStore.get('claude.provider')
+        const claudeCustomEnv = preferencesStore.get('claude.customEnv')
+        if (claudeApiKey) env.ANTHROPIC_API_KEY = claudeApiKey
+        if (claudeBaseUrl) env.ANTHROPIC_BASE_URL = claudeBaseUrl
+        if (claudeProvider === 'bedrock') env.CLAUDE_CODE_USE_BEDROCK = '1'
+        if (claudeProvider === 'vertex') env.CLAUDE_CODE_USE_VERTEX = '1'
+        if (claudeProvider === 'foundry') env.CLAUDE_CODE_USE_FOUNDRY = '1'
+        if (claudeCustomEnv) {
+          try {
+            Object.assign(env, JSON.parse(claudeCustomEnv))
+          } catch {
+            // Invalid JSON — ignore
+          }
+        }
       }
 
       const session = ptyManager.spawn({

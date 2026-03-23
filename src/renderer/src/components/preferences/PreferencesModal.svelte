@@ -5,8 +5,9 @@
   import ToolPrefs from './ToolPrefs.svelte'
   import GitPrefs from './GitPrefs.svelte'
   import ShortcutsPrefs from './ShortcutsPrefs.svelte'
+  import ClaudePrefs from './ClaudePrefs.svelte'
 
-  const sections = ['General', 'Appearance', 'Tools', 'Git', 'Shortcuts'] as const
+  const sections = ['General', 'Appearance', 'Tools', 'Claude', 'Git', 'Shortcuts'] as const
   type Section = (typeof sections)[number]
 
   let activeSection: Section = $state('General')
@@ -44,6 +45,8 @@
         <AppearancePrefs />
       {:else if activeSection === 'Tools'}
         <ToolPrefs />
+      {:else if activeSection === 'Claude'}
+        <ClaudePrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
       {:else if activeSection === 'Shortcuts'}

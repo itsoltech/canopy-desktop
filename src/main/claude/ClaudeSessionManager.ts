@@ -33,6 +33,7 @@ export class ClaudeSessionManager {
     workspaceName: string,
     branch: string | null,
     ownerWindow: BrowserWindow,
+    settingsOverrides?: Record<string, unknown>,
   ): Promise<{ settingsPath: string; hookPort: number; tempId: string }> {
     const claudeSessionId = randomUUID()
     const tempId = `_claude_${claudeSessionId}`
@@ -74,7 +75,7 @@ export class ClaudeSessionManager {
 
     const hookPort = await hookServer.start()
     const settingsPath = join(this.hooksDir, `session-${claudeSessionId}.json`)
-    const settingsJson = this.buildSettingsJson()
+    const settingsJson = this.buildSettingsJson(settingsOverrides)
     writeFileSync(settingsPath, settingsJson, 'utf-8')
 
     const session: ClaudeSession = {
@@ -149,7 +150,7 @@ export class ClaudeSessionManager {
     return join(process.resourcesPath, 'app.asar.unpacked', 'resources', scriptName)
   }
 
-  private buildSettingsJson(): string {
+  private buildSettingsJson(overrides?: Record<string, unknown>): string {
     const hookScript = this.getHookScriptPath()
 
     // Ensure the script is executable on Unix
@@ -197,7 +198,8 @@ export class ClaudeSessionManager {
       }
     }
 
-    const settings = {
+    const settings: Record<string, unknown> = {
+      ...(overrides ?? {}),
       hooks,
       statusLine: {
         type: 'command',
