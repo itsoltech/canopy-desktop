@@ -346,6 +346,8 @@ export function updatePaneTitle(sessionId: string, title: string): void {
 
 // --- Split pane operations ---
 
+const NO_SPLIT_TOOLS = new Set(['claude', 'codex', 'opencode', 'gemini'])
+
 export async function splitFocusedPane(
   worktreePath: string,
   direction: 'hsplit' | 'vsplit',
@@ -356,6 +358,9 @@ export async function splitFocusedPane(
   const tabId = activeTabId[worktreePath]
   const tab = tabs.find((t) => t.id === tabId)
   if (!tab) return
+
+  // AI tools don't support splitting
+  if (NO_SPLIT_TOOLS.has(tab.toolId)) return
 
   // Spawn a new shell session in the same worktree
   const result = await window.api.spawnTool('shell', worktreePath)

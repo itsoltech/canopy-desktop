@@ -139,12 +139,16 @@
     return () => window.removeEventListener('beforeunload', handler)
   })
 
+  const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
+
+  // Derive active tab's tool info
+  let activeTab = $derived(allTabs.find((t) => t.id === currentActiveTabId) ?? null)
+  let isAiTab = $derived(activeTab ? AI_TOOL_IDS.has(activeTab.toolId) : false)
+
   // Derive active Claude session from current tab
   let activeClaudePtySessionId = $derived.by(() => {
-    if (!currentActiveTabId) return null
-    const tab = allTabs.find((t) => t.id === currentActiveTabId)
-    if (!tab || tab.toolId !== 'claude') return null
-    const panes = allPanes(tab.rootSplit)
+    if (!activeTab || activeTab.toolId !== 'claude') return null
+    const panes = allPanes(activeTab.rootSplit)
     const claudePane = panes.find((p) => p.toolId === 'claude')
     return claudePane?.sessionId ?? null
   })
@@ -152,6 +156,11 @@
   let activeClaudeState = $derived(
     activeClaudePtySessionId ? (claudeSessions[activeClaudePtySessionId] ?? null) : null,
   )
+
+  // Auto-show inspector for AI tabs, auto-hide when switching away
+  $effect(() => {
+    workspaceState.inspectorOpen = isAiTab
+  })
 
   // Clear badge when Claude tab is focused
   $effect(() => {

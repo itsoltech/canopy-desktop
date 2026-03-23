@@ -23,6 +23,7 @@ export type ClaudeStatus =
   | { type: 'starting' }
   | { type: 'idle' }
   | { type: 'thinking' }
+  | { type: 'compacting' }
   | { type: 'toolCalling'; toolName: string }
   | { type: 'waitingPermission'; toolName: string }
   | { type: 'error'; errorType: string; details: string }
@@ -126,6 +127,18 @@ export function handleHookEvent(ptySessionId: string, event: HookEventData): voi
       session.startTime = new Date()
       session.permissionMode = event.permission_mode ?? null
       session.model = event.model ?? null
+      // Reset per-session stats
+      session.tasks = []
+      session.notifications = []
+      session.activeSubagents = []
+      session.compactCount = 0
+      session.toolCallCount = 0
+      session.contextPercent = null
+      session.contextSize = null
+      session.costUsd = null
+      session.durationMs = null
+      session.linesAdded = null
+      session.linesRemoved = null
       break
 
     case 'UserPromptSubmit':
@@ -211,8 +224,13 @@ export function handleHookEvent(ptySessionId: string, event: HookEventData): voi
       ]
       break
 
+    case 'PreCompact':
+      session.status = { type: 'compacting' }
+      break
+
     case 'PostCompact':
       session.compactCount++
+      session.status = { type: 'thinking' }
       break
 
     case 'SessionEnd':

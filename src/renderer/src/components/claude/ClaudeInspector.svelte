@@ -17,6 +17,8 @@
         return 'Idle'
       case 'thinking':
         return 'Thinking...'
+      case 'compacting':
+        return 'Compacting...'
       case 'toolCalling':
         return `Calling ${state.status.toolName}`
       case 'waitingPermission':
@@ -33,7 +35,9 @@
       ? 'permission'
       : state.status.type === 'error'
         ? 'error'
-        : state.status.type === 'toolCalling' || state.status.type === 'thinking'
+        : state.status.type === 'toolCalling' ||
+            state.status.type === 'thinking' ||
+            state.status.type === 'compacting'
           ? 'active'
           : state.status.type === 'idle'
             ? 'idle'
