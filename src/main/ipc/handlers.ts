@@ -388,7 +388,11 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'layout:save',
     (_event, payload: { workspaceId: string; worktreePath: string; layoutJson: string }) => {
-      layoutStore.save(payload.workspaceId, payload.worktreePath, payload.layoutJson)
+      try {
+        layoutStore.save(payload.workspaceId, payload.worktreePath, payload.layoutJson)
+      } catch {
+        // DB may already be closed during shutdown
+      }
     },
   )
 
