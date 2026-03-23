@@ -1,13 +1,25 @@
+import {
+  type PaneSession,
+  type SplitNode,
+  createLeaf,
+  nextPaneId,
+  allPanes,
+  splitPane as treeSplitPane,
+  removePane as treeRemovePane,
+  updatePane as treeUpdatePane,
+  updateRatio as treeUpdateRatio,
+  firstLeaf,
+  navigateFrom
+} from './splitTree'
+
 export interface TabInfo {
   id: string
   toolId: string
   toolName: string
   name: string
-  sessionId: string
-  wsUrl: string
   worktreePath: string
-  isRunning: boolean
-  exitCode: number | null
+  rootSplit: SplitNode
+  focusedPaneId: string
 }
 
 interface ClosedTab {
@@ -39,17 +51,26 @@ export async function openTool(toolId: string, worktreePath: string): Promise<Ta
   const result = await window.api.spawnTool(toolId, worktreePath)
   const id = nextTabId()
   const name = computeDisplayName(result.toolName, worktreePath, toolId)
+  const paneId = nextPaneId()
+
+  const pane: PaneSession = {
+    id: paneId,
+    sessionId: result.sessionId,
+    wsUrl: result.wsUrl,
+    toolId,
+    toolName: result.toolName,
+    isRunning: true,
+    exitCode: null
+  }
 
   const tab: TabInfo = {
     id,
     toolId,
     toolName: result.toolName,
     name,
-    sessionId: result.sessionId,
-    wsUrl: result.wsUrl,
     worktreePath,
-    isRunning: true,
-    exitCode: null
+    rootSplit: createLeaf(pane),
+    focusedPaneId: paneId
   }
 
   if (!tabsByWorktree[worktreePath]) {
@@ -80,8 +101,9 @@ export async function closeTab(tabId: string): Promise<void> {
       closedTabs[path].shift()
     }
 
-    // Kill PTY
-    await window.api.killPty(tab.sessionId)
+    // Kill all PTYs in the split tree
+    const panes = allPanes(tab.rootSplit)
+    await Promise.all(panes.map((p) => window.api.killPty(p.sessionId)))
 
     // Remove tab
     tabsByWorktree[path].splice(idx, 1)
@@ -160,48 +182,70 @@ export function getTabsForWorktree(worktreePath: string): TabInfo[] {
 
 export function getRunningCountByTool(worktreePath: string, toolId: string): number {
   const tabs = tabsByWorktree[worktreePath] ?? []
-  return tabs.filter((t) => t.toolId === toolId && t.isRunning).length
+  let count = 0
+  for (const tab of tabs) {
+    for (const pane of allPanes(tab.rootSplit)) {
+      if (pane.toolId === toolId && pane.isRunning) count++
+    }
+  }
+  return count
 }
 
 export function handlePtyExit(sessionId: string, exitCode: number): void {
   for (const tabs of Object.values(tabsByWorktree)) {
-    const tab = tabs.find((t) => t.sessionId === sessionId)
-    if (tab) {
-      tab.isRunning = false
-      tab.exitCode = exitCode
-      return
+    for (const tab of tabs) {
+      const panes = allPanes(tab.rootSplit)
+      const pane = panes.find((p) => p.sessionId === sessionId)
+      if (pane) {
+        tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
+          ...p,
+          isRunning: false,
+          exitCode
+        }))
+        return
+      }
     }
   }
 }
 
+export async function restartPane(
+  worktreePath: string,
+  tabId: string,
+  paneId: string
+): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  const panes = allPanes(tab.rootSplit)
+  const pane = panes.find((p) => p.id === paneId)
+  if (!pane) return
+
+  // Kill old PTY
+  await window.api.killPty(pane.sessionId)
+
+  // Spawn new
+  const result = await window.api.spawnTool(pane.toolId, worktreePath)
+
+  // Update pane in tree
+  tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+    ...p,
+    sessionId: result.sessionId,
+    wsUrl: result.wsUrl,
+    isRunning: true,
+    exitCode: null
+  }))
+}
+
 export async function restartTab(tabId: string): Promise<void> {
   for (const tabs of Object.values(tabsByWorktree)) {
-    const idx = tabs.findIndex((t) => t.id === tabId)
-    if (idx === -1) continue
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab) continue
 
-    const tab = tabs[idx]
-
-    // Kill old PTY
-    await window.api.killPty(tab.sessionId)
-
-    // Spawn new
-    const result = await window.api.spawnTool(tab.toolId, tab.worktreePath)
-
-    // Replace with a new tab ID so Svelte remounts the TerminalInstance
-    const newId = nextTabId()
-    tabs[idx] = {
-      ...tab,
-      id: newId,
-      sessionId: result.sessionId,
-      wsUrl: result.wsUrl,
-      isRunning: true,
-      exitCode: null
-    }
-
-    if (activeTabId[tab.worktreePath] === tabId) {
-      activeTabId[tab.worktreePath] = newId
-    }
-
+    // Restart the focused pane
+    await restartPane(tab.worktreePath, tabId, tab.focusedPaneId)
     return
   }
 }
@@ -213,8 +257,9 @@ export async function ensureShellTab(worktreePath: string): Promise<void> {
 }
 
 export async function killAllTabs(): Promise<void> {
-  const allTabs = Object.values(tabsByWorktree).flat()
-  await Promise.all(allTabs.map((t) => window.api.killPty(t.sessionId)))
+  const allTabsList = Object.values(tabsByWorktree).flat()
+  const allSessions = allTabsList.flatMap((t) => allPanes(t.rootSplit))
+  await Promise.all(allSessions.map((p) => window.api.killPty(p.sessionId)))
   for (const path of Object.keys(tabsByWorktree)) {
     delete tabsByWorktree[path]
     delete activeTabId[path]
@@ -223,4 +268,131 @@ export async function killAllTabs(): Promise<void> {
 
 export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
+}
+
+// --- Split pane operations ---
+
+export async function splitFocusedPane(
+  worktreePath: string,
+  direction: 'hsplit' | 'vsplit'
+): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+
+  const tabId = activeTabId[worktreePath]
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  // Spawn a new shell session in the same worktree
+  const result = await window.api.spawnTool('shell', worktreePath)
+  const paneId = nextPaneId()
+
+  const newPane: PaneSession = {
+    id: paneId,
+    sessionId: result.sessionId,
+    wsUrl: result.wsUrl,
+    toolId: 'shell',
+    toolName: result.toolName,
+    isRunning: true,
+    exitCode: null
+  }
+
+  const newTree = treeSplitPane(tab.rootSplit, tab.focusedPaneId, direction, newPane)
+  if (!newTree) {
+    // Max depth reached — kill the spawned PTY
+    await window.api.killPty(result.sessionId)
+    return
+  }
+
+  tab.rootSplit = newTree
+  tab.focusedPaneId = paneId
+}
+
+export async function closeFocusedPane(worktreePath: string): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+
+  const tabId = activeTabId[worktreePath]
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  const result = treeRemovePane(tab.rootSplit, tab.focusedPaneId)
+  if (!result) return
+
+  // Kill the removed pane's PTY
+  await window.api.killPty(result.removed.sessionId)
+
+  if (!result.tree) {
+    // Last pane — close the tab entirely
+    // Remove from closed tabs push since closeTab will handle it
+    // But we already killed the PTY, so we handle manually
+    if (!closedTabs[worktreePath]) closedTabs[worktreePath] = []
+    closedTabs[worktreePath].push({
+      toolId: tab.toolId,
+      toolName: tab.toolName,
+      worktreePath,
+      closedAt: Date.now()
+    })
+    if (closedTabs[worktreePath].length > MAX_CLOSED_TABS) {
+      closedTabs[worktreePath].shift()
+    }
+
+    const idx = tabs.findIndex((t) => t.id === tabId)
+    tabsByWorktree[worktreePath].splice(idx, 1)
+
+    const remaining = tabsByWorktree[worktreePath]
+    if (remaining.length > 0) {
+      const newIdx = Math.min(idx, remaining.length - 1)
+      activeTabId[worktreePath] = remaining[newIdx].id
+    } else {
+      delete activeTabId[worktreePath]
+      await openTool('shell', worktreePath)
+    }
+  } else {
+    tab.rootSplit = result.tree
+    // Focus the first leaf in the remaining tree
+    tab.focusedPaneId = firstLeaf(result.tree).id
+  }
+}
+
+export function navigatePaneFocus(
+  worktreePath: string,
+  direction: 'left' | 'right' | 'up' | 'down'
+): void {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+
+  const tabId = activeTabId[worktreePath]
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  const target = navigateFrom(tab.rootSplit, tab.focusedPaneId, direction)
+  if (target) {
+    tab.focusedPaneId = target
+  }
+}
+
+export function focusPane(_worktreePath: string, tabId: string, paneId: string): void {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    const tab = tabs.find((t) => t.id === tabId)
+    if (tab) {
+      tab.focusedPaneId = paneId
+      return
+    }
+  }
+}
+
+export function updateSplitRatio(
+  _worktreePath: string,
+  tabId: string,
+  splitId: string,
+  ratio: number
+): void {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    const tab = tabs.find((t) => t.id === tabId)
+    if (tab) {
+      tab.rootSplit = treeUpdateRatio(tab.rootSplit, splitId, ratio)
+      return
+    }
+  }
 }

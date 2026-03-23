@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tabsByWorktree, activeTabId, switchTab, closeTab } from '../../lib/stores/tabs.svelte'
+  import { allPanes } from '../../lib/stores/splitTree'
 
   let { worktreePath }: { worktreePath: string } = $props()
 
@@ -46,7 +47,7 @@
         <div
           class="tab"
           class:active={tab.id === currentActiveId}
-          class:exited={!tab.isRunning}
+          class:exited={allPanes(tab.rootSplit).some((p) => !p.isRunning)}
           onclick={() => switchTab(tab.id)}
           onauxclick={(e) => handleMiddleClick(e, tab.id)}
           title={tab.name}

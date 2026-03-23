@@ -1,7 +1,6 @@
 <script lang="ts">
-  import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
+  import SplitPaneContainer from '../terminal/SplitPaneContainer.svelte'
   import TabBar from '../terminal/TabBar.svelte'
-  import ExitBanner from '../terminal/ExitBanner.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
   import {
     workspaceState,
@@ -13,14 +12,17 @@
     activeTabId,
     ensureShellTab,
     openTool,
-    closeTab,
     reopenClosedTab,
     switchTabByIndex,
     nextTab,
     prevTab,
     handlePtyExit,
-    restartTab,
-    getAllTabs
+    getAllTabs,
+    splitFocusedPane,
+    closeFocusedPane,
+    navigatePaneFocus,
+    focusPane,
+    updateSplitRatio
   } from '../../lib/stores/tabs.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
@@ -93,10 +95,37 @@
       reopenClosedTab(path)
     }
 
+    // Cmd+W: close focused pane (or tab if last pane)
     if (e.key === 'w' && path) {
       e.preventDefault()
-      const id = activeTabId[path]
-      if (id) closeTab(id)
+      closeFocusedPane(path)
+    }
+
+    // Cmd+D: split vertical
+    if (e.key === 'd' && !e.shiftKey && path) {
+      e.preventDefault()
+      splitFocusedPane(path, 'vsplit')
+    }
+
+    // Cmd+Shift+D: split horizontal
+    if (e.key === 'D' && e.shiftKey && path) {
+      e.preventDefault()
+      splitFocusedPane(path, 'hsplit')
+    }
+
+    // Cmd+Option+Arrow: navigate between panes
+    if (e.altKey && path) {
+      const dirMap: Record<string, 'left' | 'right' | 'up' | 'down'> = {
+        ArrowLeft: 'left',
+        ArrowRight: 'right',
+        ArrowUp: 'up',
+        ArrowDown: 'down'
+      }
+      const dir = dirMap[e.key]
+      if (dir) {
+        e.preventDefault()
+        navigatePaneFocus(path, dir)
+      }
     }
 
     // Cmd+1-9: switch to tab by index
@@ -133,14 +162,16 @@
     <div class="terminal-area">
       {#each allTabs as tab (tab.id)}
         <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
-          <TerminalInstance
-            sessionId={tab.sessionId}
-            wsUrl={tab.wsUrl}
+          <SplitPaneContainer
+            node={tab.rootSplit}
+            tabId={tab.id}
+            worktreePath={tab.worktreePath}
+            focusedPaneId={tab.focusedPaneId}
             active={tab.id === currentActiveTabId}
+            onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
+            onUpdateRatio={(paneId, ratio) =>
+              updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
           />
-          {#if !tab.isRunning}
-            <ExitBanner exitCode={tab.exitCode} onRestart={() => restartTab(tab.id)} />
-          {/if}
         </div>
       {/each}
 
