@@ -29,8 +29,11 @@ const api = {
   listTools: () => ipcRenderer.invoke('tools:list'),
   getTool: (id: string) => ipcRenderer.invoke('tools:get', { id }),
   checkToolAvailability: () => ipcRenderer.invoke('tools:checkAvailability'),
-  spawnTool: (toolId: string, worktreePath: string, options?: { cols?: number; rows?: number }) =>
-    ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
+  spawnTool: (
+    toolId: string,
+    worktreePath: string,
+    options?: { cols?: number; rows?: number; workspaceName?: string; branch?: string },
+  ) => ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
 
   // App / Shell
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
@@ -78,6 +81,41 @@ const api = {
     ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
 
   // Push events (main → renderer)
+  onClaudeHookEvent: (
+    callback: (data: { ptySessionId: string; event: Record<string, unknown> }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { ptySessionId: string; event: Record<string, unknown> },
+    ): void => callback(data)
+    ipcRenderer.on('claude:hookEvent', handler)
+    return (): void => {
+      ipcRenderer.removeListener('claude:hookEvent', handler)
+    }
+  },
+
+  onClaudeStatusUpdate: (
+    callback: (data: { ptySessionId: string; status: Record<string, unknown> }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { ptySessionId: string; status: Record<string, unknown> },
+    ): void => callback(data)
+    ipcRenderer.on('claude:statusUpdate', handler)
+    return (): void => {
+      ipcRenderer.removeListener('claude:statusUpdate', handler)
+    }
+  },
+
+  onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { ptySessionId: string }): void =>
+      callback(data)
+    ipcRenderer.on('claude:focusSession', handler)
+    return (): void => {
+      ipcRenderer.removeListener('claude:focusSession', handler)
+    }
+  },
+
   onGitChanged: (callback: (info: unknown) => void) => {
     const handler = (_event: IpcRendererEvent, info: unknown): void => callback(info)
     ipcRenderer.on('git:changed', handler)

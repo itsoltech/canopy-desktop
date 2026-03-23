@@ -15,6 +15,7 @@ export interface SpawnOptions {
   cwd?: string
   command?: string
   args?: string[]
+  env?: Record<string, string>
 }
 
 function resolveShell(): { command: string; args: string[] } {
@@ -34,12 +35,18 @@ export class PtyManager {
     const command = options?.command ?? shell.command
     const args = options?.args ?? (options?.command ? [] : shell.args)
 
+    const baseEnv = {
+      ...(getLoginEnv() ?? process.env),
+      TERM_PROGRAM: 'nixtty',
+    } as Record<string, string>
+    const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv
+
     const p = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: options?.cols ?? 80,
       rows: options?.rows ?? 30,
       cwd: options?.cwd ?? os.homedir(),
-      env: { ...(getLoginEnv() ?? process.env), TERM_PROGRAM: 'nixtty' } as Record<string, string>
+      env,
     })
 
     const session: PtySession = { id, pty: p }

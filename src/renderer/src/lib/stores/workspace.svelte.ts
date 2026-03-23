@@ -41,6 +41,7 @@ interface WorkspaceState {
   isDirty: boolean
   aheadBehind: { ahead: number; behind: number } | null
   sidebarOpen: boolean
+  inspectorOpen: boolean
 }
 
 const initial: WorkspaceState = {
@@ -52,7 +53,8 @@ const initial: WorkspaceState = {
   branch: null,
   isDirty: false,
   aheadBehind: null,
-  sidebarOpen: true
+  sidebarOpen: true,
+  inspectorOpen: false,
 }
 
 export const workspaceState: WorkspaceState = $state({ ...initial })
@@ -66,7 +68,7 @@ export async function openWorkspace(path: string): Promise<void> {
   const ws = await window.api.upsertWorkspace({
     path: info.repoRoot ?? path,
     name,
-    isGitRepo: info.isGitRepo
+    isGitRepo: info.isGitRepo,
   })
 
   // Touch to update last_opened
@@ -121,6 +123,10 @@ export function updateGitInfo(info: GitInfo): void {
 
 export function toggleSidebar(): void {
   workspaceState.sidebarOpen = !workspaceState.sidebarOpen
+}
+
+export function toggleInspector(): void {
+  workspaceState.inspectorOpen = !workspaceState.inspectorOpen
 }
 
 export async function closeWorkspace(): Promise<void> {

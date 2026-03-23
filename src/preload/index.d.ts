@@ -80,6 +80,57 @@ interface GitBranchList {
   current: string | null
 }
 
+interface ClaudeHookEventData {
+  ptySessionId: string
+  event: {
+    session_id: string
+    hook_event_name: string
+    tool_name?: string
+    tool_input?: Record<string, unknown>
+    tool_response?: string
+    error?: string
+    error_details?: string
+    message?: string
+    title?: string
+    notification_type?: string
+    agent_id?: string
+    agent_type?: string
+    reason?: string
+    source?: string
+    model?: string
+    permission_mode?: string
+    stop_hook_active?: boolean
+    is_interrupt?: boolean
+  }
+}
+
+interface ClaudeStatusData {
+  ptySessionId: string
+  status: {
+    model?: { id?: string; display_name?: string }
+    context_window?: {
+      used_percentage?: number | null
+      remaining_percentage?: number | null
+      context_window_size?: number
+      total_input_tokens?: number
+      total_output_tokens?: number
+    }
+    cost?: {
+      total_cost_usd?: number
+      total_duration_ms?: number
+      total_api_duration_ms?: number
+      total_lines_added?: number
+      total_lines_removed?: number
+    }
+    rate_limits?: {
+      five_hour?: { used_percentage?: number; resets_at?: number }
+      seven_day?: { used_percentage?: number; resets_at?: number }
+    }
+    version?: string
+    session_id?: string
+  }
+}
+
 interface NixttyAPI {
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
@@ -111,7 +162,7 @@ interface NixttyAPI {
   spawnTool: (
     toolId: string,
     worktreePath: string,
-    options?: { cols?: number; rows?: number },
+    options?: { cols?: number; rows?: number; workspaceName?: string; branch?: string },
   ) => Promise<ToolSpawnResult>
 
   // App / Shell
@@ -155,6 +206,9 @@ interface NixttyAPI {
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
 
   // Push events (main → renderer)
+  onClaudeHookEvent: (callback: (data: ClaudeHookEventData) => void) => () => void
+  onClaudeStatusUpdate: (callback: (data: ClaudeStatusData) => void) => () => void
+  onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
   onGitChanged: (callback: (info: GitInfo) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
 }

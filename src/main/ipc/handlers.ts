@@ -6,6 +6,7 @@ import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
+import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
 import { GitRepository } from '../git/GitRepository'
 import { GitWatcher } from '../git/GitWatcher'
 
@@ -25,13 +26,25 @@ export function disposeGitWatcher(): void {
   activeWorkspaceId = null
 }
 
+function safeSend(
+  getMainWindow: () => BrowserWindow | null,
+  channel: string,
+  ...args: unknown[]
+): void {
+  const win = getMainWindow()
+  if (win && !win.isDestroyed()) {
+    win.webContents.send(channel, ...args)
+  }
+}
+
 export function registerIpcHandlers(
   ptyManager: PtyManager,
   wsBridge: WsBridge,
   workspaceStore: WorkspaceStore,
   preferencesStore: PreferencesStore,
   toolRegistry: ToolRegistry,
-  mainWindow: BrowserWindow,
+  claudeSessionManager: ClaudeSessionManager,
+  getMainWindow: () => BrowserWindow | null,
 ): void {
   // --- PTY ---
 
@@ -42,7 +55,7 @@ export function registerIpcHandlers(
       const wsUrl = await wsBridge.create(session.id, session.pty)
 
       session.pty.onExit(({ exitCode, signal }) => {
-        mainWindow.webContents.send('pty:exit', { sessionId: session.id, exitCode, signal })
+        safeSend(getMainWindow, 'pty:exit', { sessionId: session.id, exitCode, signal })
       })
 
       return { sessionId: session.id, wsUrl }
@@ -67,14 +80,35 @@ export function registerIpcHandlers(
     'tool:spawn',
     async (
       _event,
-      payload: { toolId: string; worktreePath: string; cols?: number; rows?: number },
+      payload: {
+        toolId: string
+        worktreePath: string
+        cols?: number
+        rows?: number
+        workspaceName?: string
+        branch?: string
+      },
     ) => {
       const tool = toolRegistry.get(payload.toolId)
       if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
 
       const command = toolRegistry.resolveCommand(tool)
       const isShell = tool.id === 'shell' || tool.command === 'shell'
-      const args = isShell ? resolveShellArgs() : tool.args
+      const isClaude = tool.id === 'claude'
+      let args = isShell ? resolveShellArgs() : [...tool.args]
+      let env: Record<string, string> | undefined
+
+      let claudeTempId: string | undefined
+      if (isClaude) {
+        const claudeSession = await claudeSessionManager.createSession(
+          payload.worktreePath,
+          payload.workspaceName ?? '',
+          payload.branch ?? null,
+        )
+        args = ['--settings', claudeSession.settingsPath, ...args]
+        env = { NIXTTY_HOOK_PORT: String(claudeSession.hookPort) }
+        claudeTempId = claudeSession.tempId
+      }
 
       const session = ptyManager.spawn({
         command,
@@ -82,12 +116,20 @@ export function registerIpcHandlers(
         cwd: payload.worktreePath,
         cols: payload.cols,
         rows: payload.rows,
+        env,
       })
+
+      if (isClaude && claudeTempId) {
+        claudeSessionManager.rekey(claudeTempId, session.id)
+      }
 
       const wsUrl = await wsBridge.create(session.id, session.pty)
 
       session.pty.onExit(({ exitCode, signal }) => {
-        mainWindow.webContents.send('pty:exit', { sessionId: session.id, exitCode, signal })
+        safeSend(getMainWindow, 'pty:exit', { sessionId: session.id, exitCode, signal })
+        if (isClaude) {
+          claudeSessionManager.destroySession(session.id)
+        }
       })
 
       return { sessionId: session.id, wsUrl, toolId: tool.id, toolName: tool.name }
@@ -164,7 +206,9 @@ export function registerIpcHandlers(
   // --- Dialog ---
 
   ipcMain.handle('dialog:openFolder', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
+    const win = getMainWindow()
+    if (!win || win.isDestroyed()) return null
+    const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory', 'createDirectory'],
     })
     return result.canceled ? null : result.filePaths[0]
@@ -209,7 +253,7 @@ export function registerIpcHandlers(
         })
       }
       // Push to renderer
-      mainWindow.webContents.send('git:changed', info)
+      safeSend(getMainWindow, 'git:changed', info)
     })
     activeWatcher.start()
   })

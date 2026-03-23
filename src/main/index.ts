@@ -9,6 +9,7 @@ import { WorkspaceStore } from './db/WorkspaceStore'
 import { PreferencesStore } from './db/PreferencesStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers, disposeGitWatcher } from './ipc/handlers'
+import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 
 const ptyManager = new PtyManager()
@@ -18,45 +19,56 @@ const workspaceStore = new WorkspaceStore(database)
 const preferencesStore = new PreferencesStore(database)
 const toolRegistry = new ToolRegistry(database)
 
+let mainWindow: BrowserWindow | null = null
+let claudeSessionManager: ClaudeSessionManager | null = null
+
 function createWindow(): BrowserWindow {
-  const mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 600,
     minHeight: 400,
     show: false,
     autoHideMenuBar: true,
-    transparent: true,
+    transparent: false,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 12, y: 12 },
     vibrancy: 'under-window',
-    backgroundColor: '#00000050',
+    backgroundColor: '#333',
     ...(process.platform !== 'darwin'
       ? { titleBarOverlay: { color: '#00000000', symbolColor: '#e0e0e0', height: 40 } }
       : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
+      sandbox: false,
+    },
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  win.on('ready-to-show', () => {
+    win.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.on('closed', () => {
+    disposeGitWatcher()
+    wsBridge.disposeAll()
+    ptyManager.dispose()
+    mainWindow = null
+  })
+
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  return mainWindow
+  mainWindow = win
+  return win
 }
 
 app.whenReady().then(async () => {
@@ -69,7 +81,10 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  const mainWindow = createWindow()
+  createWindow()
+
+  claudeSessionManager = new ClaudeSessionManager(mainWindow!)
+  claudeSessionManager.cleanupOrphans()
 
   registerIpcHandlers(
     ptyManager,
@@ -77,7 +92,8 @@ app.whenReady().then(async () => {
     workspaceStore,
     preferencesStore,
     toolRegistry,
-    mainWindow
+    claudeSessionManager,
+    () => mainWindow,
   )
 
   app.on('activate', function () {
@@ -86,6 +102,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', () => {
+  claudeSessionManager?.dispose()
   disposeGitWatcher()
   wsBridge.disposeAll()
   ptyManager.dispose()

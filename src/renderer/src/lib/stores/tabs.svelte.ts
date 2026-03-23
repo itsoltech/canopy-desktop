@@ -12,6 +12,8 @@ import {
   firstLeaf,
   navigateFrom,
 } from './splitTree'
+import { workspaceState } from './workspace.svelte'
+import { initClaudeSession, removeClaudeSession } from '../claude/claudeState.svelte'
 
 export interface TabInfo {
   id: string
@@ -49,7 +51,12 @@ function computeDisplayName(toolName: string, worktreePath: string, toolId: stri
 }
 
 export async function openTool(toolId: string, worktreePath: string): Promise<TabInfo> {
-  const result = await window.api.spawnTool(toolId, worktreePath)
+  const options: { workspaceName?: string; branch?: string } = {}
+  if (toolId === 'claude') {
+    options.workspaceName = workspaceState.workspace?.name ?? ''
+    options.branch = workspaceState.branch ?? undefined
+  }
+  const result = await window.api.spawnTool(toolId, worktreePath, options)
   const id = nextTabId()
   const name = computeDisplayName(result.toolName, worktreePath, toolId)
   const paneId = nextPaneId()
@@ -81,6 +88,10 @@ export async function openTool(toolId: string, worktreePath: string): Promise<Ta
   tabsByWorktree[worktreePath].push(tab)
   activeTabId[worktreePath] = id
 
+  if (toolId === 'claude') {
+    initClaudeSession(result.sessionId)
+  }
+
   return tab
 }
 
@@ -103,8 +114,13 @@ export async function closeTab(tabId: string): Promise<void> {
       closedTabs[path].shift()
     }
 
-    // Kill all PTYs in the split tree
+    // Kill all PTYs in the split tree and cleanup Claude sessions
     const panes = allPanes(tab.rootSplit)
+    for (const p of panes) {
+      if (p.toolId === 'claude') {
+        removeClaudeSession(p.sessionId)
+      }
+    }
     await Promise.all(panes.map((p) => window.api.killPty(p.sessionId)))
 
     // Remove tab
@@ -264,6 +280,21 @@ export async function killAllTabs(): Promise<void> {
     delete tabsByWorktree[path]
     delete activeTabId[path]
   }
+}
+
+export function focusSessionByPtyId(ptySessionId: string): boolean {
+  for (const [path, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const panes = allPanes(tab.rootSplit)
+      const pane = panes.find((p) => p.sessionId === ptySessionId)
+      if (pane) {
+        activeTabId[path] = tab.id
+        tab.focusedPaneId = pane.id
+        return true
+      }
+    }
+  }
+  return false
 }
 
 export function getAllTabs(): TabInfo[] {

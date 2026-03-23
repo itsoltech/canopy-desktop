@@ -7,12 +7,14 @@
   import InputDialog from '../dialogs/InputDialog.svelte'
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
+  import ClaudeInspector from '../claude/ClaudeInspector.svelte'
   import { dialogState, closeDialog } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
     openWorkspace,
     updateGitInfo,
     toggleSidebar,
+    toggleInspector,
   } from '../../lib/stores/workspace.svelte'
   import {
     activeTabId,
@@ -30,7 +32,16 @@
     navigatePaneFocus,
     focusPane,
     updateSplitRatio,
+    focusSessionByPtyId,
   } from '../../lib/stores/tabs.svelte'
+  import { allPanes } from '../../lib/stores/splitTree'
+  import {
+    claudeSessions,
+    handleHookEvent,
+    handleStatusUpdate,
+    clearBadge,
+    setBadge,
+  } from '../../lib/claude/claudeState.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
@@ -72,6 +83,60 @@
     return unsubscribe
   })
 
+  // Subscribe to Claude hook events
+  $effect(() => {
+    const unsubscribe = window.api.onClaudeHookEvent((data) => {
+      handleHookEvent(data.ptySessionId, data.event as Parameters<typeof handleHookEvent>[1])
+      // Only set badge if this session is NOT the active tab
+      if (data.ptySessionId !== activeClaudePtySessionId) {
+        const name = (data.event as { hook_event_name?: string }).hook_event_name
+        if (name === 'PermissionRequest') {
+          setBadge(data.ptySessionId, 'permission')
+        } else if (name === 'Stop' || name === 'PostToolUse') {
+          setBadge(data.ptySessionId, 'unread')
+        }
+      }
+    })
+    return unsubscribe
+  })
+
+  // Subscribe to Claude status line updates
+  $effect(() => {
+    const unsubscribe = window.api.onClaudeStatusUpdate((data) => {
+      handleStatusUpdate(data.ptySessionId, data.status as Parameters<typeof handleStatusUpdate>[1])
+    })
+    return unsubscribe
+  })
+
+  // Subscribe to Claude focus-session requests (notification clicks)
+  $effect(() => {
+    const unsubscribe = window.api.onClaudeFocusSession((data) => {
+      focusSessionByPtyId(data.ptySessionId)
+    })
+    return unsubscribe
+  })
+
+  // Derive active Claude session from current tab
+  let activeClaudePtySessionId = $derived.by(() => {
+    if (!currentActiveTabId) return null
+    const tab = allTabs.find((t) => t.id === currentActiveTabId)
+    if (!tab || tab.toolId !== 'claude') return null
+    const panes = allPanes(tab.rootSplit)
+    const claudePane = panes.find((p) => p.toolId === 'claude')
+    return claudePane?.sessionId ?? null
+  })
+
+  let activeClaudeState = $derived(
+    activeClaudePtySessionId ? (claudeSessions[activeClaudePtySessionId] ?? null) : null,
+  )
+
+  // Clear badge when Claude tab is focused
+  $effect(() => {
+    if (activeClaudePtySessionId) {
+      clearBadge(activeClaudePtySessionId)
+    }
+  })
+
   function handleLaunchTool(toolId: string): void {
     const path = workspaceState.selectedWorktreePath
     if (path) {
@@ -99,6 +164,12 @@
     if (e.key === 'b') {
       e.preventDefault()
       toggleSidebar()
+    }
+
+    // Cmd+Shift+I: toggle Claude Inspector
+    if ((e.key === 'I' || e.key === 'i') && e.shiftKey) {
+      e.preventDefault()
+      toggleInspector()
     }
 
     if (e.key === 'o') {
@@ -217,6 +288,17 @@
       {/if}
     </div>
   </div>
+
+  {#if workspaceState.inspectorOpen}
+    {#if activeClaudeState && activeClaudePtySessionId}
+      <ClaudeInspector state={activeClaudeState} />
+    {:else}
+      <aside class="inspector-empty">
+        <p class="inspector-hint">No Claude session active</p>
+        <p class="inspector-hint-sub">Open a Claude tab to see session details</p>
+      </aside>
+    {/if}
+  {/if}
 </div>
 
 <style>
@@ -270,5 +352,32 @@
     font-weight: 400;
     margin: 6px 0 0;
     color: rgba(255, 255, 255, 0.2);
+  }
+
+  .inspector-empty {
+    width: 280px;
+    min-width: 280px;
+    height: 100%;
+    background: rgba(30, 30, 30, 0.75);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .inspector-hint {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.3);
+    margin: 0;
+  }
+
+  .inspector-hint-sub {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.15);
+    margin: 0;
   }
 </style>

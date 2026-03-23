@@ -5,8 +5,21 @@
     switchTab,
     closeTab,
     getTabDisplayName,
+    type TabInfo,
   } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
+  import { claudeBadges, type BadgeType } from '../../lib/claude/claudeState.svelte'
+
+  function getTabBadge(tab: TabInfo): BadgeType {
+    if (tab.toolId !== 'claude') return 'none'
+    const panes = allPanes(tab.rootSplit)
+    for (const p of panes) {
+      const b = claudeBadges[p.sessionId]
+      if (b === 'permission') return 'permission'
+      if (b === 'unread') return 'unread'
+    }
+    return 'none'
+  }
 
   let { worktreePath }: { worktreePath: string } = $props()
 
@@ -48,6 +61,7 @@
   <div class="tab-bar" bind:this={containerEl}>
     <div class="tabs-row">
       {#each visibleTabs as tab (tab.id)}
+        {@const badge = getTabBadge(tab)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
@@ -59,6 +73,9 @@
           title={getTabDisplayName(tab)}
         >
           <span class="tab-name">{getTabDisplayName(tab)}</span>
+          {#if badge !== 'none'}
+            <span class="tab-badge" class:orange={badge === 'permission'}></span>
+          {/if}
           <button
             class="tab-close"
             onclick={(e: MouseEvent) => {
@@ -161,6 +178,29 @@
     white-space: nowrap;
     flex: 1;
     text-align: left;
+  }
+
+  .tab-badge {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(116, 192, 252, 0.8);
+    flex-shrink: 0;
+  }
+
+  .tab-badge.orange {
+    background: rgba(255, 160, 50, 0.9);
+    animation: badge-pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes badge-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
   }
 
   .tab-close {
