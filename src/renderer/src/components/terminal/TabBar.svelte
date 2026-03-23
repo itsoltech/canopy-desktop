@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import {
     tabsByWorktree,
     activeTabId,
@@ -10,6 +11,16 @@
   } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
   import { claudeBadges, type BadgeType } from '../../lib/claude/claudeState.svelte'
+  import ToolIcon from '../shared/ToolIcon.svelte'
+
+  let toolIcons: Record<string, string> = $state({})
+
+  onMount(async () => {
+    const tools = await window.api.listTools()
+    const map: Record<string, string> = {}
+    for (const t of tools) map[t.id] = t.icon
+    toolIcons = map
+  })
 
   function getTabBadge(tab: TabInfo): BadgeType {
     if (tab.toolId !== 'claude') return 'none'
@@ -146,6 +157,9 @@
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
           title={getTabDisplayName(tab)}
         >
+          {#if toolIcons[tab.toolId]}
+            <ToolIcon icon={toolIcons[tab.toolId]} size={12} />
+          {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>
           {#if badge !== 'none'}
             <span class="tab-badge" class:orange={badge === 'permission'}></span>

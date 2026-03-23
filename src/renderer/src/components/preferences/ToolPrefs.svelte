@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import ToolIcon from '../shared/ToolIcon.svelte'
 
   interface ToolDef {
     id: string
@@ -68,6 +69,7 @@
   <div class="tool-list">
     {#each tools as tool (tool.id)}
       <div class="tool-row">
+        <ToolIcon icon={tool.icon} size={16} />
         <span class="tool-name">{tool.name}</span>
         <span class="tool-command">{tool.command}</span>
         <span class="tool-category">{tool.category}</span>

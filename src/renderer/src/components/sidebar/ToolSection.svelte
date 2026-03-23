@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getRunningCountByTool } from '../../lib/stores/tabs.svelte'
+  import ToolIcon from '../shared/ToolIcon.svelte'
 
   let { onLaunchTool }: { onLaunchTool: (toolId: string) => void } = $props()
 
@@ -18,7 +19,7 @@
   onMount(async () => {
     const [toolList, avail] = await Promise.all([
       window.api.listTools(),
-      window.api.checkToolAvailability()
+      window.api.checkToolAvailability(),
     ])
     tools = toolList
     availability = avail
@@ -44,6 +45,7 @@
           onclick={() => onLaunchTool(tool.id)}
           title={availability[tool.id] ? tool.name : `${tool.name} — not found in PATH`}
         >
+          <ToolIcon icon={tool.icon} size={14} />
           <span class="tool-name">{tool.name}</span>
           {#if count > 0}
             <span class="badge">{count}</span>

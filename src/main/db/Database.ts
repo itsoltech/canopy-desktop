@@ -68,6 +68,17 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 4,
+    up: `
+      DELETE FROM tool_definitions WHERE id IN ('htop', 'btop');
+      UPDATE tool_definitions SET icon = 'ClaudeAI' WHERE id = 'claude';
+      UPDATE tool_definitions SET icon = 'OpenAI' WHERE id = 'codex';
+      UPDATE tool_definitions SET icon = 'Gemini' WHERE id = 'gemini';
+      UPDATE tool_definitions SET icon = 'Git' WHERE id = 'lazygit';
+      UPDATE tool_definitions SET icon = 'terminal' WHERE id = 'shell';
+    `,
+  },
 ]
 
 export class Database {
