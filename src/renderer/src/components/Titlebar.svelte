@@ -29,7 +29,6 @@
     justify-content: center;
     flex-shrink: 0;
     position: relative;
-    user-select: none;
     background: rgba(30, 30, 30, 0.75);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);

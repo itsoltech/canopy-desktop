@@ -256,10 +256,6 @@
     box-shadow: inset 0 0 0 1px rgba(116, 192, 252, 0.3);
   }
 
-  .drag-active {
-    user-select: none;
-  }
-
   .drag-active .tab {
     cursor: grabbing;
   }
