@@ -1,6 +1,6 @@
-# canopy-code
+# Canopy
 
-An Electron application with Svelte and TypeScript
+Developer terminal workstation
 
 ## Recommended IDE Setup
 

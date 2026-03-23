@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Electron + Svelte 5 desktop app (Canopy Desktop — developer terminal workstation). Uses electron-vite for building and npm as package manager.
+Electron + Svelte 5 desktop app (Canopy — developer terminal workstation). Uses electron-vite for building and npm as package manager.
 
 ## Architecture
 

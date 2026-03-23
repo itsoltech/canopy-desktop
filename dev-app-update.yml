@@ -1,3 +1,2 @@
-provider: generic
-url: https://example.com/auto-updates
-updaterCacheDirName: canopy-code-updater
+provider: github
+updaterCacheDirName: canopy-updater

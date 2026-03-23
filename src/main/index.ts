@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, powerMonitor } from 'electron'
 import { resolve } from 'path'
+import { autoUpdater } from 'electron-updater'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { PtyManager } from './pty/PtyManager'
 import { WsBridge } from './pty/WsBridge'
@@ -130,13 +131,16 @@ function buildAppMenu(): void {
 app.whenReady().then(async () => {
   await resolveLoginEnv()
 
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('tech.itsol.canopy')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
   buildAppMenu()
+
+  autoUpdater.logger = console
+  autoUpdater.checkForUpdatesAndNotify()
 
   claudeSessionManager = new ClaudeSessionManager()
   claudeSessionManager.cleanupOrphans()
