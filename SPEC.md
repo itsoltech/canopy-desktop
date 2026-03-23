@@ -1,10 +1,10 @@
-# Canopy Desktop - Developer Terminal Workstation
+# Canopy - Developer Terminal Workstation
 
 Cross-platform desktop application for managing developer projects through CLI tools. Uses restty (libghostty-vt WASM + WebGPU/WebGL2) for terminal emulation. Project-centric UI with git worktree awareness, built-in tool launcher, and Claude Code integration.
 
 **Stack**: Electron + Svelte 5 + TypeScript + restty
 **Target**: macOS, Linux, Windows. Direct distribution (DMG, AppImage, NSIS installer).
-**Package name**: `canopy-code`
+**Package name**: `canopy`
 
 ---
 
@@ -75,7 +75,7 @@ If the opened folder is not a git repository, the sidebar worktree section is hi
 
 ### 2.4 Keyboard shortcut boundary
 
-All `Cmd+key` (macOS) / `Ctrl+key` (Linux/Windows) combinations intercepted by Canopy Desktop (app shortcuts). Everything else passes through to the terminal. No configurable passthrough, no mode switching.
+All `Cmd+key` (macOS) / `Ctrl+key` (Linux/Windows) combinations intercepted by Canopy (app shortcuts). Everything else passes through to the terminal. No configurable passthrough, no mode switching.
 
 `Cmd+K`/`Ctrl+K` captured by the app for command palette. Users use `Ctrl+L` for terminal clear.
 
@@ -87,9 +87,9 @@ All `Cmd+key` (macOS) / `Ctrl+key` (Linux/Windows) combinations intercepted by C
 
 SQLite via better-sqlite3 in main process. Database at:
 
-- macOS: `~/Library/Application Support/canopy-code/canopy.db`
-- Linux: `~/.config/canopy-code/canopy.db`
-- Windows: `%APPDATA%/canopy-code/canopy.db`
+- macOS: `~/Library/Application Support/canopy/canopy.db`
+- Linux: `~/.config/canopy/canopy.db`
+- Windows: `%APPDATA%/canopy/canopy.db`
 
 Sequential migrations. Each schema change is a new migration, never altering existing ones.
 
@@ -314,9 +314,9 @@ Click workspace to open. Right-click for context menu: open in file manager, cop
 
 ### 8.1 Hook mechanism
 
-Canopy Desktop installs Claude Code hooks only for sessions it spawns. External Claude sessions unaffected.
+Canopy installs Claude Code hooks only for sessions it spawns. External Claude sessions unaffected.
 
-**Per-session isolation via `--settings` flag**: when Canopy Desktop launches `claude`, it passes `--settings <path>` pointing to a session-specific JSON file. Hook arrays from `--settings` are concatenated with user's existing hooks.
+**Per-session isolation via `--settings` flag**: when Canopy launches `claude`, it passes `--settings <path>` pointing to a session-specific JSON file. Hook arrays from `--settings` are concatenated with user's existing hooks.
 
 **Session lifecycle**:
 
@@ -328,7 +328,7 @@ Canopy Desktop installs Claude Code hooks only for sessions it spawns. External 
 
 **Startup sweep**: on app launch, delete orphaned files in claude-hooks dir where no matching session exists.
 
-### 8.2 Hooks used by Canopy Desktop
+### 8.2 Hooks used by Canopy
 
 | Hook                  | Purpose                                                   | Blocking | Timeout  |
 | --------------------- | --------------------------------------------------------- | -------- | -------- |
@@ -361,14 +361,14 @@ curl -s -X POST "http://127.0.0.1:${CANOPY_HOOK_PORT}/hook" \
 Behavior:
 
 - If `$CANOPY_HOOK_PORT` unset or server unreachable: exit 0 (pass-through)
-- For PermissionRequest: curl blocks on read until Canopy Desktop sends response
+- For PermissionRequest: curl blocks on read until Canopy sends response
 - For all others: app responds immediately
 
 ### 8.4 IPC protocol
 
 HTTP server on localhost (random port per session). JSON request/response.
 
-**Request** (hook script to Canopy Desktop):
+**Request** (hook script to Canopy):
 
 ```json
 {
@@ -399,7 +399,7 @@ Denial:
 {
   "hookSpecificOutput": {
     "hookEventName": "PermissionRequest",
-    "decision": { "behavior": "deny", "message": "Denied by user in Canopy Desktop" }
+    "decision": { "behavior": "deny", "message": "Denied by user in Canopy" }
   }
 }
 ```
@@ -494,7 +494,7 @@ type ClaudeStatus =
 
 ### 8.7 SessionStart context injection
 
-When SessionStart fires, Canopy Desktop responds with `additionalContext`:
+When SessionStart fires, Canopy responds with `additionalContext`:
 
 ```
 Working in canopy workspace 'my-project', worktree 'feat/auth' (branch: feat/auth).
@@ -805,5 +805,5 @@ Each phase gate:
 6. Cmd+K opens palette. Search tools, worktrees, app actions. Launch tool from palette.
 7. `git push` from palette shows confirmation. Create worktree from guided flow. Remove with branch cleanup.
 8. Cold start shows dashboard. Recent repos with git status.
-9. Launch claude from Canopy Desktop. Inspector shows session state. Tool calls appear in real-time. Approve/deny permission from Inspector. Orange tab badge when permission pending on unfocused tab. SessionStart injects workspace context.
+9. Launch claude from Canopy. Inspector shows session state. Tool calls appear in real-time. Approve/deny permission from Inspector. Orange tab badge when permission pending on unfocused tab. SessionStart injects workspace context.
 10. Quit and reopen. Same workspace, tabs, splits restored. Tools relaunched. Theme picker works. Font auto-detected. Preferences UI works. Custom tool added via preferences appears in sidebar. URL scheme opens workspace.
