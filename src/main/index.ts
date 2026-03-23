@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, Menu, powerMonitor } from 'electron'
 import { resolve } from 'path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { PtyManager } from './pty/PtyManager'
@@ -151,6 +151,11 @@ app.whenReady().then(async () => {
     claudeSessionManager,
     windowManager,
   )
+
+  // Force-close stale WebSocket clients on system wake so renderer reconnects
+  powerMonitor.on('resume', () => {
+    wsBridge.disconnectAllClients()
+  })
 
   // Restore windows from last session
   const reopenPref = preferencesStore.get('reopenLastWorkspace')

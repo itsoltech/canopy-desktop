@@ -2,6 +2,9 @@ import { WebSocketServer } from 'ws'
 import type { WebSocket as WsWebSocket } from 'ws'
 import type { IPty } from 'node-pty'
 
+const MAX_BUFFER_BYTES = 1_048_576 // 1 MB
+const HEARTBEAT_INTERVAL = 30_000 // 30 s
+
 interface Bridge {
   sessionId: string
   wss: WebSocketServer
@@ -29,14 +32,20 @@ export class WsBridge {
 
     const clients = new Set<WsWebSocket>()
 
-    // Buffer PTY output until a client connects to avoid losing early data
-    // (e.g. fish DA1 query response)
+    // Buffer PTY output when no client is connected.
+    // Re-activates after all clients disconnect (e.g. sleep/wake).
     let buffer: string[] = []
+    let bufferBytes = 0
     let connected = false
 
     const onData = ptyProcess.onData((data) => {
       if (!connected) {
         buffer.push(data)
+        bufferBytes += data.length
+        while (bufferBytes > MAX_BUFFER_BYTES && buffer.length > 0) {
+          bufferBytes -= buffer[0].length
+          buffer.shift()
+        }
         return
       }
       for (const client of clients) {
@@ -46,16 +55,34 @@ export class WsBridge {
       }
     })
 
+    // Ping/pong heartbeat to detect dead connections
+    const alive = new WeakSet<WsWebSocket>()
+
+    const heartbeat = setInterval(() => {
+      for (const client of clients) {
+        if (!alive.has(client)) {
+          client.terminate()
+          return
+        }
+        alive.delete(client)
+        client.ping()
+      }
+    }, HEARTBEAT_INTERVAL)
+
     wss.on('connection', (ws) => {
       clients.add(ws)
+      alive.add(ws)
 
-      // Flush buffered data to the first connecting client
+      ws.on('pong', () => alive.add(ws))
+
+      // Flush buffered data to the reconnecting client
       if (!connected) {
         connected = true
         for (const chunk of buffer) {
           ws.send(chunk)
         }
         buffer = []
+        bufferBytes = 0
       }
 
       ws.on('message', (data) => {
@@ -64,19 +91,35 @@ export class WsBridge {
 
       ws.on('close', () => {
         clients.delete(ws)
+        if (clients.size === 0) {
+          connected = false
+        }
       })
 
       ws.on('error', () => {
         clients.delete(ws)
+        if (clients.size === 0) {
+          connected = false
+        }
       })
     })
 
     const cleanup = (): void => {
+      clearInterval(heartbeat)
       onData.dispose()
     }
 
     this.bridges.set(sessionId, { sessionId, wss, port, clients, cleanup })
     return `ws://127.0.0.1:${port}`
+  }
+
+  /** Terminate all WS clients across all bridges (triggers renderer reconnection) */
+  disconnectAllClients(): void {
+    for (const bridge of this.bridges.values()) {
+      for (const client of bridge.clients) {
+        client.terminate()
+      }
+    }
   }
 
   destroy(sessionId: string): void {
