@@ -3,6 +3,8 @@
   import { Terminal } from '@xterm/xterm'
   import { FitAddon } from '@xterm/addon-fit'
   import { WebglAddon } from '@xterm/addon-webgl'
+  import { LigaturesAddon } from '@xterm/addon-ligatures'
+  import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
   import '@xterm/xterm/css/xterm.css'
 
   let {
@@ -17,7 +19,6 @@
 
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
-  let fitRef: FitAddon | null = null
 
   // Focus terminal when tab becomes active
   $effect(() => {
@@ -34,6 +35,7 @@
       fontSize: 13,
       fontFamily: 'JetBrainsMono Nerd Font, FiraCode Nerd Font, Menlo, monospace',
       cursorBlink: true,
+      allowProposedApi: true,
       theme: {
         background: '#1e1e1e',
         foreground: '#e0e0e0',
@@ -60,8 +62,16 @@
     })
 
     const fitAddon = new FitAddon()
-    term.loadAddon(fitAddon)
+    const lightures = new LigaturesAddon()
+    const progressAddon = new ProgressAddon()
     term.open(containerEl)
+    term.loadAddon(progressAddon)
+    term.loadAddon(fitAddon)
+    term.loadAddon(lightures)
+
+    progressAddon.onChange(({ state, value }: IProgressState) => {
+      console.log(state, value)
+    })
 
     try {
       term.loadAddon(new WebglAddon())
@@ -72,7 +82,6 @@
     // Defer initial fit to after browser layout is complete
     requestAnimationFrame(() => fitAddon.fit())
     termRef = term
-    fitRef = fitAddon
 
     ws = new WebSocket(wsUrl)
     ws.onmessage = (e): void => {
@@ -103,7 +112,6 @@
 
     return () => {
       termRef = null
-      fitRef = null
       if (resizeObserver) resizeObserver.disconnect()
       if (ws) ws.close()
       term.dispose()
