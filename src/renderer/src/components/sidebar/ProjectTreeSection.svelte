@@ -304,7 +304,32 @@
       <div class="project-header">
         <button
           class="project-toggle"
-          onclick={() => toggleCollapse(project)}
+          class:active={!project.isGitRepo &&
+            workspaceState.selectedWorktreePath === project.workspace.path}
+          onclick={() => {
+            if (project.isGitRepo) {
+              toggleCollapse(project)
+            } else {
+              selectWorktree(project.workspace.path)
+            }
+          }}
+          oncontextmenu={(e) => {
+            if (!project.isGitRepo) {
+              e.preventDefault()
+              ctxMenu = {
+                x: e.clientX,
+                y: e.clientY,
+                project,
+                wt: {
+                  path: project.workspace.path,
+                  head: '',
+                  branch: '',
+                  isMain: true,
+                  isBare: false,
+                },
+              }
+            }
+          }}
           aria-expanded={!collapsed}
         >
           <span class="chevron" class:open={!collapsed && project.isGitRepo}>
@@ -436,6 +461,15 @@
 
   .project-toggle:hover .project-name {
     color: rgba(255, 255, 255, 0.9);
+  }
+
+  .project-toggle.active {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+  }
+
+  .project-toggle.active .project-name {
+    color: #fff;
   }
 
   .chevron {
