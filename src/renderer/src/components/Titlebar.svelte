@@ -2,6 +2,17 @@
   import { workspaceState } from '../lib/stores/workspace.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
+
+  $effect(() => {
+    if (workspaceState.workspace) {
+      let title = workspaceState.workspace.name
+      if (workspaceState.branch) title += ` — ${workspaceState.branch}`
+      if (workspaceState.isDirty) title += ' *'
+      document.title = title
+    } else {
+      document.title = 'Canopy'
+    }
+  })
 </script>
 
 <div class="titlebar" class:mac={isMac}>
