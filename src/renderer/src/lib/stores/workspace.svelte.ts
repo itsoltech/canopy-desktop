@@ -62,8 +62,6 @@ const initial: WorkspaceState = {
 
 export const workspaceState: WorkspaceState = $state({ ...initial })
 
-const worktreeCache = new Map<string, GitWorktreeInfo[]>()
-
 export const projectList: WorkspaceRow[] = $state([])
 
 export async function loadProjectList(): Promise<void> {
@@ -198,12 +196,7 @@ export async function switchProject(path: string): Promise<void> {
     window.api.gitUnwatch()
   }
 
-  // 3. Cache current worktrees before switching away
-  if (workspaceState.workspace?.path && workspaceState.worktrees.length > 0) {
-    worktreeCache.set(workspaceState.workspace.path, workspaceState.worktrees)
-  }
-
-  // 4. Find cached workspace data from projectList
+  // 3. Find cached workspace data from projectList
   const cached = projectList.find((ws) => ws.path === path)
 
   if (!cached) {
@@ -223,7 +216,7 @@ export async function switchProject(path: string): Promise<void> {
     ? JSON.parse(cached.cached_ahead_behind)
     : null
   workspaceState.selectedWorktreePath = cached.path
-  workspaceState.worktrees = worktreeCache.get(path) ?? []
+  workspaceState.worktrees = []
 
   // 5. Register with main process + touch (fire-and-forget)
   window.api.setWorkspacePath(path)
@@ -244,7 +237,6 @@ export async function switchProject(path: string): Promise<void> {
     window.api.gitDetect(path).then(async (info) => {
       // Only update if still on this project
       if (workspaceState.workspace?.path !== path) return
-      worktreeCache.set(path, info.worktrees)
       workspaceState.worktrees = info.worktrees
       workspaceState.branch = info.branch
       workspaceState.isDirty = info.isDirty
