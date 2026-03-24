@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, Menu, powerMonitor } from 'electron'
 import { resolve } from 'path'
 import { autoUpdater } from 'electron-updater'
-import { electronApp, optimizer } from '@electron-toolkit/utils'
+import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { PtyManager } from './pty/PtyManager'
 import { WsBridge } from './pty/WsBridge'
 import { Database } from './db/Database'
@@ -13,6 +13,10 @@ import { registerIpcHandlers } from './ipc/handlers'
 import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
+
+if (is.dev) {
+  app.setPath('userData', app.getPath('userData') + '-dev')
+}
 
 const ptyManager = new PtyManager()
 const wsBridge = new WsBridge()
