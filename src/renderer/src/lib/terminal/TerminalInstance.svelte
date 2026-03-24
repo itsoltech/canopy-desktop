@@ -215,13 +215,22 @@
 
       connectWs(term)
 
-      // Shift+Enter → insert newline
       term.attachCustomKeyEventHandler((event) => {
-        if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
-          if (wsRef && wsRef.readyState === WebSocket.OPEN) {
-            wsRef.send('\n')
+        if (event.type === 'keydown') {
+          // Shift+Enter → insert newline
+          if (event.key === 'Enter' && event.shiftKey) {
+            if (wsRef && wsRef.readyState === WebSocket.OPEN) {
+              wsRef.send('\x1b\r')
+            }
+            return false
           }
-          return false
+          // Cmd+Backspace → kill line (delete to beginning)
+          if (event.key === 'Backspace' && event.metaKey) {
+            if (wsRef && wsRef.readyState === WebSocket.OPEN) {
+              wsRef.send('\x15')
+            }
+            return false
+          }
         }
         return true
       })
