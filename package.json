@@ -4,6 +4,7 @@
   "description": "Developer terminal workstation",
   "main": "./out/main/index.js",
   "author": "ITSOL",
+  "license": "SEE LICENSE IN LICENSE.md",
   "homepage": "https://canopy.itsol.tech",
   "scripts": {
     "format": "prettier --plugin prettier-plugin-svelte --write .",

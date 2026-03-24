@@ -19,6 +19,7 @@ nsis:
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  license: LICENSE.md
 mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
@@ -34,6 +35,7 @@ mac:
   notarize: true
 dmg:
   artifactName: ${name}-${version}.${ext}
+  license: LICENSE.md
 linux:
   target:
     - AppImage
