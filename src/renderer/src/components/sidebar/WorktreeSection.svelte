@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { SvelteSet } from 'svelte/reactivity'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
-  let mergedBranches: Set<string> = $state(new Set())
+  let mergedBranches = new SvelteSet<string>()
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
     if (wt.branch !== '(detached)') return wt.branch
@@ -23,7 +24,7 @@
       })
 
     const results = await Promise.all(checks)
-    const next = new Set<string>()
+    const next = new SvelteSet<string>()
     for (const r of results) {
       if (r.merged) next.add(r.branch)
     }
@@ -31,9 +32,8 @@
   }
 
   $effect(() => {
-    // Re-check when worktree list changes
-    const _deps = workspaceState.worktrees.length
-    checkMergedStatus()
+    // Re-check when worktree list changes (read .length synchronously for dependency tracking)
+    if (workspaceState.worktrees.length >= 0) checkMergedStatus()
   })
 
   async function removeWorktree(
