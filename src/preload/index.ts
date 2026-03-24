@@ -52,6 +52,58 @@ const api = {
   }) => ipcRenderer.invoke('tools:addCustom', tool),
   removeCustomTool: (id: string) => ipcRenderer.invoke('tools:removeCustom', { id }),
 
+  // Auto-update
+  checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+  installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+
+  onUpdateAvailable: (callback: (data: { version: string; releaseNotes?: string }) => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { version: string; releaseNotes?: string },
+    ): void => callback(data)
+    ipcRenderer.on('update:available', handler)
+    return (): void => {
+      ipcRenderer.removeListener('update:available', handler)
+    }
+  },
+
+  onUpdateProgress: (
+    callback: (data: {
+      percent: number
+      bytesPerSecond: number
+      transferred: number
+      total: number
+    }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { percent: number; bytesPerSecond: number; transferred: number; total: number },
+    ): void => callback(data)
+    ipcRenderer.on('update:progress', handler)
+    return (): void => {
+      ipcRenderer.removeListener('update:progress', handler)
+    }
+  },
+
+  onUpdateDownloaded: (callback: (data: { version: string; releaseNotes?: string }) => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { version: string; releaseNotes?: string },
+    ): void => callback(data)
+    ipcRenderer.on('update:downloaded', handler)
+    return (): void => {
+      ipcRenderer.removeListener('update:downloaded', handler)
+    }
+  },
+
+  onUpdateError: (callback: (data: { message: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { message: string }): void => callback(data)
+    ipcRenderer.on('update:error', handler)
+    return (): void => {
+      ipcRenderer.removeListener('update:error', handler)
+    }
+  },
+
   // App / Shell
   getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),

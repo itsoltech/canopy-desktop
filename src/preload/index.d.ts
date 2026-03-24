@@ -155,7 +155,27 @@ interface ClaudeStatusData {
   }
 }
 
+interface UpdateInfo {
+  version: string
+  releaseNotes?: string
+}
+
+interface UpdateProgress {
+  percent: number
+  bytesPerSecond: number
+  transferred: number
+  total: number
+}
+
 interface CanopyAPI {
+  // Auto-update
+  checkForUpdates: () => Promise<void>
+  installUpdate: () => Promise<void>
+  onUpdateAvailable: (callback: (data: UpdateInfo) => void) => () => void
+  onUpdateProgress: (callback: (data: UpdateProgress) => void) => () => void
+  onUpdateDownloaded: (callback: (data: UpdateInfo) => void) => () => void
+  onUpdateError: (callback: (data: { message: string }) => void) => () => void
+
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, powerMonitor } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor } from 'electron'
 import { resolve } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
@@ -127,6 +127,21 @@ function buildAppMenu(): void {
           : [{ role: 'close' as const }]),
       ],
     },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Check for Updates…',
+          click: () => {
+            if (app.isPackaged) {
+              autoUpdater.checkForUpdates().catch((err) => {
+                console.warn('Manual update check failed:', err)
+              })
+            }
+          },
+        },
+      ],
+    },
   ]
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -145,7 +160,53 @@ app.whenReady().then(async () => {
 
   if (app.isPackaged) {
     autoUpdater.logger = console
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+    autoUpdater.autoDownload = true
+    autoUpdater.allowPrerelease = false
+
+    const broadcast = (channel: string, data: unknown): void => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send(channel, data)
+      }
+    }
+
+    let updateDownloaded = false
+
+    autoUpdater.on('update-available', (info) => {
+      broadcast('update:available', { version: info.version, releaseNotes: info.releaseNotes })
+    })
+
+    autoUpdater.on('update-not-available', () => {
+      broadcast('update:not-available', {})
+    })
+
+    autoUpdater.on('download-progress', (progress) => {
+      broadcast('update:progress', {
+        percent: progress.percent,
+        bytesPerSecond: progress.bytesPerSecond,
+        transferred: progress.transferred,
+        total: progress.total,
+      })
+    })
+
+    autoUpdater.on('update-downloaded', (info) => {
+      updateDownloaded = true
+      broadcast('update:downloaded', { version: info.version, releaseNotes: info.releaseNotes })
+    })
+
+    autoUpdater.on('error', (err) => {
+      broadcast('update:error', { message: err.message })
+    })
+
+    ipcMain.handle('app:checkForUpdates', async () => {
+      await autoUpdater.checkForUpdates()
+    })
+
+    ipcMain.handle('app:installUpdate', () => {
+      if (!updateDownloaded) return
+      autoUpdater.quitAndInstall(true, true)
+    })
+
+    autoUpdater.checkForUpdates().catch((err) => {
       console.warn('Auto-update check failed:', err)
     })
   }

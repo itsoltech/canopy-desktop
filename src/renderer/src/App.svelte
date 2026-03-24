@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import Titlebar from './components/Titlebar.svelte'
   import MainLayout from './components/layout/MainLayout.svelte'
+  import UpdateBanner from './components/UpdateBanner.svelte'
   import { loadPrefs } from './lib/stores/preferences.svelte'
 
   onMount(async () => {
@@ -14,6 +15,7 @@
 <div class="app">
   <Titlebar />
   <MainLayout />
+  <UpdateBanner />
 </div>
 
 <style>
