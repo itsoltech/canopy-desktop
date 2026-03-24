@@ -22,6 +22,7 @@
     "release": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@lucide/svelte": "^1.0.0-rc.1",

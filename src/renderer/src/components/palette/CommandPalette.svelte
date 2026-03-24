@@ -197,6 +197,7 @@
             placeholder: 'Commit message...',
             multiline: true,
             submitLabel: 'Commit',
+            onGenerate: () => window.api.gitGenerateCommitMessage(root),
           })
           if (!msg) return
           try {

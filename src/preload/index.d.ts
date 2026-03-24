@@ -241,6 +241,7 @@ interface CanopyAPI {
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) => Promise<void>
   gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
+  gitGenerateCommitMessage: (repoRoot: string) => Promise<string | null>
 
   // Worktree Setup
   runWorktreeSetup: (

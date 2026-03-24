@@ -22,6 +22,7 @@
       placeholder: 'Commit message...',
       multiline: true,
       submitLabel: 'Commit',
+      onGenerate: () => window.api.gitGenerateCommitMessage(worktreePath()),
     })
     if (!msg) return
     loading = 'commit'

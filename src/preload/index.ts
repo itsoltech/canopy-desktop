@@ -101,6 +101,8 @@ const api = {
     ipcRenderer.invoke('git:unmergedCommits', { repoRoot, branch }),
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) =>
     ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
+  gitGenerateCommitMessage: (repoRoot: string) =>
+    ipcRenderer.invoke('git:generateCommitMessage', { repoRoot }),
 
   // Worktree Setup
   runWorktreeSetup: (workspaceId: string, repoRoot: string, newWorktreePath: string) =>

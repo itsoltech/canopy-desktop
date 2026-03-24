@@ -8,6 +8,7 @@
     multiline = false,
     submitLabel = 'Submit',
     validate,
+    onGenerate,
     onSubmit,
     onCancel,
   }: {
@@ -17,6 +18,7 @@
     multiline?: boolean
     submitLabel?: string
     validate?: (value: string) => string | null
+    onGenerate?: () => Promise<string | null>
     onSubmit: (value: string) => void
     onCancel: () => void
   } = $props()
@@ -25,6 +27,7 @@
   // svelte-ignore state_referenced_locally
   let value = $state(initialValue)
   let error = $derived(validate ? validate(value) : null)
+  let generating = $state(false)
   let inputEl: HTMLInputElement | undefined = $state()
   let textareaEl: HTMLTextAreaElement | undefined = $state()
 
@@ -41,6 +44,19 @@
     if (!trimmed) return
     if (error) return
     onSubmit(trimmed)
+  }
+
+  async function handleGenerate(): Promise<void> {
+    if (!onGenerate || generating) return
+    generating = true
+    try {
+      const msg = await onGenerate()
+      if (msg) value = msg
+    } catch {
+      // Silently ignore — user can type manually
+    } finally {
+      generating = false
+    }
   }
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -102,10 +118,17 @@
     {/if}
 
     <div class="dialog-actions">
-      <button class="btn btn-cancel" onclick={onCancel}>Cancel</button>
-      <button class="btn btn-submit" onclick={trySubmit} disabled={!value.trim() || !!error}>
-        {submitLabel}
-      </button>
+      {#if onGenerate}
+        <button class="btn btn-generate" onclick={handleGenerate} disabled={generating}>
+          {generating ? 'Generating...' : 'AI Generate'}
+        </button>
+      {/if}
+      <div class="dialog-actions-right">
+        <button class="btn btn-cancel" onclick={onCancel}>Cancel</button>
+        <button class="btn btn-submit" onclick={trySubmit} disabled={!value.trim() || !!error}>
+          {submitLabel}
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -182,9 +205,15 @@
 
   .dialog-actions {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
     gap: 8px;
     margin-top: 16px;
+  }
+
+  .dialog-actions-right {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
   }
 
   .btn {
@@ -224,5 +253,14 @@
 
   .btn-submit:hover:not(:disabled) {
     background: rgba(116, 192, 252, 0.3);
+  }
+
+  .btn-generate {
+    background: rgba(168, 130, 255, 0.2);
+    color: rgba(168, 130, 255, 0.9);
+  }
+
+  .btn-generate:hover:not(:disabled) {
+    background: rgba(168, 130, 255, 0.3);
   }
 </style>

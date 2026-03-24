@@ -13,6 +13,7 @@ export interface PromptOptions {
   multiline?: boolean
   submitLabel?: string
   validate?: (value: string) => string | null
+  onGenerate?: () => Promise<string | null>
 }
 
 interface ConfirmDialogState {

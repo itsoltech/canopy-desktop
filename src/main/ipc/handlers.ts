@@ -12,6 +12,7 @@ import { GitRepository } from '../git/GitRepository'
 import { GitWatcher } from '../git/GitWatcher'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 import type { WorktreeSetupAction } from '../db/types'
+import { generateCommitMessage } from '../ai/commitMessageGenerator'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -453,6 +454,12 @@ export function registerIpcHandlers(
       return GitRepository.getStatusPorcelain(payload.repoRoot, payload.worktreePath)
     },
   )
+
+  ipcMain.handle('git:generateCommitMessage', async (_event, payload: { repoRoot: string }) => {
+    const diff = await GitRepository.getDiff(payload.repoRoot)
+    if (!diff.trim()) return null
+    return generateCommitMessage(diff, preferencesStore)
+  })
 
   // --- Layouts ---
 

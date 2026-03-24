@@ -255,6 +255,17 @@ export class GitRepository {
       return ''
     }
   }
+
+  static async getDiff(repoRoot: string): Promise<string> {
+    const git = simpleGit(repoRoot)
+    try {
+      const staged = await git.diff(['--cached'])
+      if (staged.trim()) return staged
+      return await git.diff()
+    } catch {
+      return ''
+    }
+  }
 }
 
 function parseWorktreeOutput(raw: string): GitWorktreeInfo[] {
