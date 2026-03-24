@@ -1,23 +1,31 @@
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, dialog, shell } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { PtyManager } from './pty/PtyManager'
 import type { WsBridge } from './pty/WsBridge'
 import type { GitWatcher } from './git/GitWatcher'
+import type { ClaudeSessionManager } from './claude/ClaudeSessionManager'
 
 export class WindowManager {
   private windows = new Map<number, BrowserWindow>()
   private workspacePaths = new Map<number, string>()
   private gitWatchers = new Map<number, GitWatcher>()
   private ptySessions = new Map<number, Set<string>>()
+  private forceClosing = new Set<number>()
+  private claudeSessionManager: ClaudeSessionManager | null = null
 
   private ptyManager: PtyManager
   private wsBridge: WsBridge
+  isQuitting = false
 
   constructor(ptyManager: PtyManager, wsBridge: WsBridge) {
     this.ptyManager = ptyManager
     this.wsBridge = wsBridge
+  }
+
+  setClaudeSessionManager(csm: ClaudeSessionManager): void {
+    this.claudeSessionManager = csm
   }
 
   createWindow(): BrowserWindow {
@@ -49,6 +57,35 @@ export class WindowManager {
 
     win.on('ready-to-show', () => {
       win.show()
+    })
+
+    win.on('close', (event) => {
+      if (this.isQuitting || this.forceClosing.has(wcId)) {
+        this.forceClosing.delete(wcId)
+        return
+      }
+
+      const detail = this.getActiveSessionInfo(wcId)
+      if (!detail) return
+
+      event.preventDefault()
+
+      dialog
+        .showMessageBox(win, {
+          type: 'warning',
+          buttons: ['Close Window', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          title: 'Active Sessions',
+          message: 'This window has active sessions',
+          detail,
+        })
+        .then(({ response }) => {
+          if (response === 0) {
+            this.forceClosing.add(wcId)
+            win.close()
+          }
+        })
     })
 
     win.on('closed', () => {
@@ -132,6 +169,45 @@ export class WindowManager {
 
   get size(): number {
     return this.windows.size
+  }
+
+  getActiveSessionInfo(wcId: number): string | null {
+    const sessionIds = this.ptySessions.get(wcId)
+    if (!sessionIds || sessionIds.size === 0) return null
+
+    let busyClaudeCount = 0
+    let activeShellCount = 0
+
+    for (const sid of sessionIds) {
+      if (this.claudeSessionManager?.isClaudeSession(sid)) {
+        if (this.claudeSessionManager.isBusy(sid)) {
+          busyClaudeCount++
+        }
+      } else {
+        if (this.ptyManager.hasChildProcess(sid)) {
+          activeShellCount++
+        }
+      }
+    }
+
+    if (busyClaudeCount === 0 && activeShellCount === 0) return null
+
+    const parts: string[] = []
+    if (busyClaudeCount > 0) {
+      parts.push(`${busyClaudeCount} active Claude session${busyClaudeCount > 1 ? 's' : ''}`)
+    }
+    if (activeShellCount > 0) {
+      parts.push(`${activeShellCount} running process${activeShellCount > 1 ? 'es' : ''}`)
+    }
+    return parts.join(' and ') + ' will be terminated.'
+  }
+
+  hasAnyActiveSession(): string | null {
+    for (const [wcId] of this.windows) {
+      const info = this.getActiveSessionInfo(wcId)
+      if (info) return info
+    }
+    return null
   }
 
   private disposeWindow(wcId: number): void {

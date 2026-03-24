@@ -136,6 +136,7 @@ interface CanopyAPI {
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
   killPty: (sessionId: string) => Promise<void>
+  hasChildProcess: (sessionId: string) => Promise<boolean>
 
   // Workspaces
   listWorkspaces: (limit?: number) => Promise<WorkspaceRow[]>

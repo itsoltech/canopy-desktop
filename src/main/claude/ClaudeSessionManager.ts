@@ -19,8 +19,12 @@ interface ClaudeSession {
   ownerWindow: BrowserWindow
 }
 
+const BUSY_EVENTS = new Set(['UserPromptSubmit', 'PreToolUse', 'PreCompact', 'PermissionRequest'])
+const IDLE_EVENTS = new Set(['Stop', 'StopFailure', 'SessionEnd'])
+
 export class ClaudeSessionManager {
   private sessions = new Map<string, ClaudeSession>()
+  private busySessions = new Set<string>()
   private hooksDir: string
 
   constructor() {
@@ -43,6 +47,13 @@ export class ClaudeSessionManager {
 
     const hookServer = new ClaudeHookServer(
       (event: HookEvent): Record<string, unknown> | void => {
+        // Track busy state for close-warning checks
+        if (BUSY_EVENTS.has(event.hook_event_name)) {
+          this.busySessions.add(sessionRef.ptySessionId)
+        } else if (IDLE_EVENTS.has(event.hook_event_name)) {
+          this.busySessions.delete(sessionRef.ptySessionId)
+        }
+
         if (ownerWindow.isDestroyed()) return
 
         ownerWindow.webContents.send('claude:hookEvent', {
@@ -104,11 +115,20 @@ export class ClaudeSessionManager {
     this.sessions.set(realPtySessionId, session)
   }
 
+  isBusy(ptySessionId: string): boolean {
+    return this.busySessions.has(ptySessionId)
+  }
+
+  isClaudeSession(ptySessionId: string): boolean {
+    return this.sessions.has(ptySessionId)
+  }
+
   destroySession(ptySessionId: string): void {
     const session = this.sessions.get(ptySessionId)
     if (!session) return
 
     session.hookServer.destroy()
+    this.busySessions.delete(ptySessionId)
 
     try {
       unlinkSync(session.settingsPath)
@@ -138,6 +158,7 @@ export class ClaudeSessionManager {
     for (const [id] of this.sessions) {
       this.destroySession(id)
     }
+    this.busySessions.clear()
   }
 
   private getHookScriptPath(): string {

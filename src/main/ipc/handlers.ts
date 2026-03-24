@@ -60,6 +60,10 @@ export function registerIpcHandlers(
     ptyManager.kill(payload.sessionId)
   })
 
+  ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
+    return ptyManager.hasChildProcess(payload.sessionId)
+  })
+
   // --- Tool Spawning ---
 
   ipcMain.handle(
