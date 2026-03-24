@@ -71,6 +71,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Non-Retina (1x DPI) displays: adjust font rendering to reduce
+   the thick/blurry appearance caused by macOS font dilation */
+@media (max-resolution: 1.5dppx) {
+  body {
+    -webkit-font-smoothing: auto;
+    font-synthesis: none;
+    letter-spacing: 0.01em;
+  }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

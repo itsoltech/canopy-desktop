@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, shell } from 'electron'
+import { BrowserWindow, dialog, screen, shell } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -54,6 +54,16 @@ export class WindowManager {
     const wcId = win.webContents.id
     this.windows.set(wcId, win)
     this.ptySessions.set(wcId, new Set())
+
+    // Force re-render when window moves between displays with different scale factors
+    let lastScaleFactor = screen.getDisplayMatching(win.getBounds()).scaleFactor
+    win.on('moved', () => {
+      const currentScale = screen.getDisplayMatching(win.getBounds()).scaleFactor
+      if (currentScale !== lastScaleFactor) {
+        lastScaleFactor = currentScale
+        win.webContents.invalidate()
+      }
+    })
 
     win.on('ready-to-show', () => {
       win.show()
