@@ -1,6 +1,71 @@
 <script lang="ts">
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
-  import { showCreateWorktree } from '../../lib/stores/dialogs.svelte'
+  import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
+  import { Trash2 } from '@lucide/svelte'
+
+  let mergedBranches: Set<string> = $state(new Set())
+
+  async function checkMergedStatus(): Promise<void> {
+    const repoRoot = workspaceState.repoRoot
+    if (!repoRoot) return
+
+    const checks = workspaceState.worktrees
+      .filter((wt) => !wt.isMain)
+      .map(async (wt) => {
+        const merged = await window.api.gitBranchMerged(repoRoot, wt.branch)
+        return { branch: wt.branch, merged }
+      })
+
+    const results = await Promise.all(checks)
+    const next = new Set<string>()
+    for (const r of results) {
+      if (r.merged) next.add(r.branch)
+    }
+    mergedBranches = next
+  }
+
+  $effect(() => {
+    // Re-check when worktree list changes
+    const _deps = workspaceState.worktrees.length
+    checkMergedStatus()
+  })
+
+  async function removeWorktree(
+    e: MouseEvent,
+    wt: { path: string; branch: string },
+  ): Promise<void> {
+    e.stopPropagation()
+    const repoRoot = workspaceState.repoRoot
+    if (!repoRoot) return
+
+    const ok = await confirm({
+      title: 'Remove Worktree',
+      message: `Remove worktree and delete branch "${wt.branch}"?`,
+      details: wt.path,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
+
+    try {
+      await window.api.gitWorktreeRemove(repoRoot, wt.path, false)
+      await window.api.gitBranchDelete(repoRoot, wt.branch, false)
+    } catch {
+      // Force remove if normal remove fails (e.g. dirty worktree)
+      try {
+        await window.api.gitWorktreeRemove(repoRoot, wt.path, true)
+        await window.api.gitBranchDelete(repoRoot, wt.branch, true)
+      } catch {
+        // Ignore — watcher will update the list
+      }
+    }
+
+    // If the removed worktree was selected, fall back to main
+    if (workspaceState.selectedWorktreePath === wt.path) {
+      const main = workspaceState.worktrees.find((w) => w.isMain)
+      if (main) selectWorktree(main.path)
+    }
+  }
 </script>
 
 <section class="sidebar-section">
@@ -10,7 +75,7 @@
   </div>
   <ul class="worktree-list">
     {#each workspaceState.worktrees as wt (wt.path)}
-      <li>
+      <li class="worktree-row">
         <button
           class="worktree-item"
           class:active={wt.path === workspaceState.selectedWorktreePath}
@@ -18,7 +83,19 @@
         >
           <span class="indicator">{wt.isMain ? '*' : ' '}</span>
           <span class="branch-name">{wt.branch}</span>
+          {#if mergedBranches.has(wt.branch)}
+            <span class="merged-badge" title="Merged">merged</span>
+          {/if}
         </button>
+        {#if !wt.isMain && mergedBranches.has(wt.branch)}
+          <button
+            class="remove-btn"
+            title="Remove worktree and delete branch"
+            onclick={(e) => removeWorktree(e, wt)}
+          >
+            <Trash2 size={12} />
+          </button>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -70,11 +147,17 @@
     margin: 0;
   }
 
+  .worktree-row {
+    display: flex;
+    align-items: center;
+  }
+
   .worktree-item {
     display: flex;
     align-items: center;
     gap: 4px;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     padding: 4px 12px;
     border: none;
     background: none;
@@ -107,5 +190,37 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .merged-badge {
+    font-size: 9px;
+    font-weight: 500;
+    color: rgba(100, 200, 120, 0.7);
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  .remove-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: rgba(255, 255, 255, 0.25);
+    cursor: pointer;
+    flex-shrink: 0;
+    border-radius: 4px;
+    margin-right: 4px;
+    transition:
+      color 0.1s,
+      background 0.1s;
+  }
+
+  .remove-btn:hover {
+    color: #e05050;
+    background: rgba(224, 80, 80, 0.12);
   }
 </style>
