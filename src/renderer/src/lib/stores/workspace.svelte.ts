@@ -1,4 +1,4 @@
-import { restoreLayout, saveAllLayouts } from './tabs.svelte'
+import { restoreLayout } from './tabs.svelte'
 
 function basename(p: string): string {
   return p.split('/').pop() || p
@@ -26,7 +26,6 @@ interface WorkspaceRow {
   path: string
   name: string
   is_git_repo: number
-  is_pinned: number
   last_opened: string | null
   cached_branch: string | null
   cached_dirty: number | null
@@ -62,20 +61,10 @@ const initial: WorkspaceState = {
 
 export const workspaceState: WorkspaceState = $state({ ...initial })
 
-export const projectList: WorkspaceRow[] = $state([])
-
-export async function loadProjectList(): Promise<void> {
-  const rows = await window.api.listAllWorkspaces()
-  projectList.length = 0
-  projectList.push(...rows)
-}
-
-export async function openWorkspace(path: string, skipFocusCheck = false): Promise<void> {
+export async function openWorkspace(path: string): Promise<void> {
   // Dedupe: if another window already has this path, focus it instead
-  if (!skipFocusCheck) {
-    const focused = await window.api.focusWindowForPath(path)
-    if (focused) return
-  }
+  const focused = await window.api.focusWindowForPath(path)
+  if (focused) return
 
   // Detect git info
   const info: GitInfo = await window.api.gitDetect(path)
@@ -182,84 +171,4 @@ export async function closeWorkspace(): Promise<void> {
     await window.api.gitUnwatch()
   }
   Object.assign(workspaceState, { ...initial })
-}
-
-export async function switchProject(path: string): Promise<void> {
-  // Skip if already on this project
-  if (workspaceState.workspace?.path === path) return
-
-  // 1. Save layouts with current workspace ID before switching
-  saveAllLayouts()
-
-  // 2. Stop git watcher for old project (fire-and-forget)
-  if (workspaceState.repoRoot) {
-    window.api.gitUnwatch()
-  }
-
-  // 3. Find cached workspace data from projectList
-  const cached = projectList.find((ws) => ws.path === path)
-
-  if (!cached) {
-    // First-time open (e.g. from "+ open" button) — use full openWorkspace
-    await openWorkspace(path, true)
-    await loadProjectList()
-    return
-  }
-
-  // 4. Instantly update UI with cached data
-  workspaceState.workspace = cached
-  workspaceState.isGitRepo = cached.is_git_repo === 1
-  workspaceState.repoRoot = cached.is_git_repo ? cached.path : null
-  workspaceState.branch = cached.cached_branch
-  workspaceState.isDirty = cached.cached_dirty === 1
-  workspaceState.aheadBehind = cached.cached_ahead_behind
-    ? JSON.parse(cached.cached_ahead_behind)
-    : null
-  workspaceState.selectedWorktreePath = cached.path
-  workspaceState.worktrees = []
-
-  // 5. Register with main process + touch (fire-and-forget)
-  window.api.setWorkspacePath(path)
-  window.api.touchWorkspace(cached.id)
-
-  // 6. Restore layouts — skips if tabs already exist (live sessions guard)
-  try {
-    const layouts = await window.api.getAllLayouts(cached.id)
-    for (const entry of layouts) {
-      await restoreLayout(entry.worktree_path, entry.layout_json)
-    }
-  } catch {
-    // Layout restore failed, will fall back to ensureShellTab
-  }
-
-  // 7. Background: full git detect to fill in worktrees + start watcher
-  if (cached.is_git_repo) {
-    window.api.gitDetect(path).then(async (info) => {
-      // Only update if still on this project
-      if (workspaceState.workspace?.path !== path) return
-      workspaceState.worktrees = info.worktrees
-      workspaceState.branch = info.branch
-      workspaceState.isDirty = info.isDirty
-      workspaceState.aheadBehind = info.aheadBehind
-      workspaceState.repoRoot = info.repoRoot
-      if (info.repoRoot) {
-        const main = info.worktrees.find((wt) => wt.isMain)
-        workspaceState.selectedWorktreePath = main?.path ?? info.repoRoot
-        await window.api.gitWatch(info.repoRoot)
-      }
-    })
-  }
-
-  // 8. Refresh project list (fire-and-forget)
-  loadProjectList()
-}
-
-export async function toggleProjectPin(id: string): Promise<void> {
-  await window.api.togglePinWorkspace(id)
-  await loadProjectList()
-}
-
-export async function removeProject(id: string): Promise<void> {
-  await window.api.removeWorkspace(id)
-  await loadProjectList()
 }

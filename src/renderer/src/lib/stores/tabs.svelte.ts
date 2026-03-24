@@ -687,11 +687,6 @@ async function restoreSplitNode(
 }
 
 export async function restoreLayout(worktreePath: string, layoutJson: string): Promise<boolean> {
-  // If tabs already exist for this path (live sessions from a previous switch), keep them
-  if (tabsByWorktree[worktreePath] && tabsByWorktree[worktreePath].length > 0) {
-    return true
-  }
-
   let layout: SerializedLayout
   try {
     layout = JSON.parse(layoutJson)

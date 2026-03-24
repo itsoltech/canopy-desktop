@@ -1,7 +1,5 @@
-import { ipcMain, dialog, shell, BrowserWindow, nativeImage } from 'electron'
+import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import os from 'os'
-import fs from 'fs'
-import { join } from 'path'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
@@ -210,52 +208,6 @@ export function registerIpcHandlers(
 
   ipcMain.handle('db:workspace:touch', (_event, payload: { id: string }) => {
     workspaceStore.touch(payload.id)
-  })
-
-  ipcMain.handle('db:workspace:listAll', () => {
-    return workspaceStore.listAll()
-  })
-
-  ipcMain.handle('db:workspace:togglePin', (_event, payload: { id: string }) => {
-    return workspaceStore.togglePin(payload.id)
-  })
-
-  ipcMain.handle('workspace:detectIcon', async (_event, payload: { path: string }) => {
-    const names = [
-      'favicon.svg',
-      'favicon.png',
-      'favicon.ico',
-      'favicon.jpg',
-      'favicon.webp',
-      'icon.svg',
-      'icon.png',
-      'logo.svg',
-      'logo.png',
-    ]
-    const dirs = ['', 'public', 'static', 'assets', 'src/assets', 'resources', '.github']
-    const candidates: string[] = []
-    for (const dir of dirs) {
-      for (const name of names) {
-        candidates.push(dir ? `${dir}/${name}` : name)
-      }
-    }
-    for (const name of candidates) {
-      const full = join(payload.path, name)
-      try {
-        await fs.promises.access(full)
-        if (name.endsWith('.svg')) {
-          const svg = await fs.promises.readFile(full, 'utf-8')
-          return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
-        }
-        const img = nativeImage.createFromPath(full)
-        if (!img.isEmpty()) {
-          return img.resize({ width: 32, height: 32 }).toDataURL()
-        }
-      } catch {
-        continue
-      }
-    }
-    return null
   })
 
   // --- Preferences ---

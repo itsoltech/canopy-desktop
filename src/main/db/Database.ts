@@ -79,12 +79,6 @@ const migrations: Migration[] = [
       UPDATE tool_definitions SET icon = 'terminal' WHERE id = 'shell';
     `,
   },
-  {
-    id: 5,
-    up: `
-      ALTER TABLE workspaces ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0;
-    `,
-  },
 ]
 
 export class Database {

@@ -23,7 +23,6 @@ interface WorkspaceRow {
   path: string
   name: string
   is_git_repo: number
-  is_pinned: number
   last_opened: string | null
   cached_branch: string | null
   cached_dirty: number | null
@@ -174,9 +173,6 @@ interface CanopyAPI {
   }) => Promise<WorkspaceRow>
   removeWorkspace: (id: string) => Promise<void>
   touchWorkspace: (id: string) => Promise<void>
-  listAllWorkspaces: () => Promise<WorkspaceRow[]>
-  togglePinWorkspace: (id: string) => Promise<WorkspaceRow>
-  detectWorkspaceIcon: (path: string) => Promise<string | null>
 
   // Preferences
   getPref: (key: string) => Promise<string | null>
