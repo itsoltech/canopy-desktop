@@ -8,9 +8,13 @@ import type { LayoutStore } from '../db/LayoutStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
 import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
 import type { WindowManager } from '../WindowManager'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { GitRepository } from '../git/GitRepository'
 import { GitWatcher } from '../git/GitWatcher'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
+
+const execFileAsync = promisify(execFile)
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 
@@ -257,7 +261,13 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('app:setWorkspacePath', (event, payload: { path: string }) => {
-    windowManager.setWorkspacePath(event.sender.id, payload.path)
+    windowManager.addWorkspacePath(event.sender.id, payload.path)
+  })
+
+  ipcMain.handle('app:detachProject', (event, payload: { path: string }) => {
+    const senderId = event.sender.id
+    windowManager.removeWorkspacePath(senderId, payload.path)
+    windowManager.disposeGitWatcher(senderId, payload.path)
   })
 
   ipcMain.handle('app:focusWindowForPath', (event, payload: { path: string }) => {
@@ -303,8 +313,8 @@ export function registerIpcHandlers(
   ipcMain.handle('git:watch', async (event, payload: { repoRoot: string }) => {
     const senderId = event.sender.id
 
-    // Dispose previous watcher for this window only
-    windowManager.disposeGitWatcher(senderId)
+    // Dispose previous watcher for this specific repo only
+    windowManager.disposeGitWatcher(senderId, payload.repoRoot)
 
     // Find workspace ID for cache updates
     const ws = workspaceStore.getByPath(payload.repoRoot)
@@ -322,15 +332,24 @@ export function registerIpcHandlers(
         })
       }
       if (!event.sender.isDestroyed()) {
-        event.sender.send('git:changed', info)
+        event.sender.send('git:changed', { ...info, repoRoot: payload.repoRoot })
       }
     })
     watcher.start()
-    windowManager.setGitWatcher(senderId, watcher)
+    windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
 
-  ipcMain.handle('git:unwatch', (event) => {
-    windowManager.disposeGitWatcher(event.sender.id)
+  ipcMain.handle('git:unwatch', (event, payload?: { repoRoot?: string }) => {
+    if (payload?.repoRoot) {
+      windowManager.disposeGitWatcher(event.sender.id, payload.repoRoot)
+    } else {
+      windowManager.disposeAllGitWatchers(event.sender.id)
+    }
+  })
+
+  ipcMain.handle('git:init', async (_event, payload: { path: string }) => {
+    await execFileAsync('git', ['init'], { cwd: payload.path })
+    return GitRepository.detect(payload.path)
   })
 
   // --- Workspace Git Status Refresh ---

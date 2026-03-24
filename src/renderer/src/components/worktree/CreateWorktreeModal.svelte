@@ -3,7 +3,15 @@
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
   import { getPref } from '../../lib/stores/preferences.svelte'
 
-  let { onClose }: { onClose: () => void } = $props()
+  let {
+    onClose,
+    repoRoot: repoRootProp,
+    workspaceId: workspaceIdProp,
+  }: {
+    onClose: () => void
+    repoRoot?: string
+    workspaceId?: string
+  } = $props()
 
   type Step = 'fetch' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
 
@@ -24,9 +32,9 @@
   let setupErrors = $state<string[]>([])
   let cleanupProgressListener: (() => void) | null = null
 
-  const repoRoot = workspaceState.repoRoot!
+  const repoRoot = repoRootProp ?? workspaceState.repoRoot!
   const projectName = repoRoot.split('/').pop() || 'project'
-  const workspaceId = workspaceState.workspace?.id
+  const workspaceId = workspaceIdProp ?? workspaceState.workspace?.id
 
   // Worktree dir: <baseDir>/<projectName>/<safeBranchName>
   let worktreeDir = $derived.by(() => {

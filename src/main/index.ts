@@ -173,27 +173,44 @@ app.whenReady().then(async () => {
   // Restore windows from last session
   const reopenPref = preferencesStore.get('reopenLastWorkspace')
   if (reopenPref !== 'false') {
-    const pathsJson = preferencesStore.get('openWorkspacePaths')
-    let paths: string[] = []
-    if (pathsJson) {
+    // Try new multi-project format first
+    const configsJson = preferencesStore.get('openWindowConfigs')
+    let windowConfigs: Array<{ paths: string[] }> = []
+
+    if (configsJson) {
       try {
-        paths = JSON.parse(pathsJson) as string[]
+        windowConfigs = JSON.parse(configsJson) as Array<{ paths: string[] }>
       } catch {
         // Invalid JSON
       }
     }
 
-    // Fallback to legacy single-path pref
-    if (paths.length === 0) {
-      const lastPath = preferencesStore.get('lastWorkspacePath')
-      if (lastPath) paths = [lastPath]
+    // Fallback to legacy flat format (one path per window)
+    if (windowConfigs.length === 0) {
+      const pathsJson = preferencesStore.get('openWorkspacePaths')
+      if (pathsJson) {
+        try {
+          const paths = JSON.parse(pathsJson) as string[]
+          windowConfigs = paths.map((p) => ({ paths: [p] }))
+        } catch {
+          // Invalid JSON
+        }
+      }
     }
 
-    if (paths.length > 0) {
-      for (const path of paths) {
+    // Fallback to legacy single-path pref
+    if (windowConfigs.length === 0) {
+      const lastPath = preferencesStore.get('lastWorkspacePath')
+      if (lastPath) windowConfigs = [{ paths: [lastPath] }]
+    }
+
+    if (windowConfigs.length > 0) {
+      for (const config of windowConfigs) {
         const win = windowManager.createWindow()
         win.once('ready-to-show', () => {
-          win.webContents.send('url:action', { action: 'open', path })
+          for (const path of config.paths) {
+            win.webContents.send('url:action', { action: 'open', path })
+          }
         })
       }
     } else {
@@ -253,12 +270,12 @@ app.on('before-quit', (event) => {
     }
   }
 
-  // Normal cleanup
-  const paths = windowManager.getAllWorkspacePaths()
-  if (paths.length > 0) {
-    preferencesStore.set('openWorkspacePaths', JSON.stringify(paths))
+  // Normal cleanup — save per-window project configs
+  const configs = windowManager.getAllWindowConfigs()
+  if (configs.length > 0) {
+    preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
   } else {
-    preferencesStore.delete('openWorkspacePaths')
+    preferencesStore.delete('openWindowConfigs')
   }
 
   claudeSessionManager?.dispose()

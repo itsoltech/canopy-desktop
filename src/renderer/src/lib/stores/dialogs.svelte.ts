@@ -39,6 +39,8 @@ interface InputDialogState {
 
 interface CreateWorktreeState {
   type: 'createWorktree'
+  repoRoot?: string
+  workspaceId?: string
 }
 
 interface PreferencesState {
@@ -96,8 +98,12 @@ export function prompt(opts: PromptOptions): Promise<PromptResult | null> {
   })
 }
 
-export function showCreateWorktree(): void {
-  dialogState.current = { type: 'createWorktree' }
+export function showCreateWorktree(opts?: { repoRoot?: string; workspaceId?: string }): void {
+  dialogState.current = {
+    type: 'createWorktree',
+    repoRoot: opts?.repoRoot,
+    workspaceId: opts?.workspaceId,
+  }
 }
 
 export function showPreferences(): void {
