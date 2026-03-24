@@ -203,6 +203,7 @@ interface CanopyAPI {
   showInFolder: (path: string) => Promise<void>
   newWindow: () => Promise<void>
   setWorkspacePath: (path: string) => Promise<void>
+  detachProject: (path: string) => Promise<void>
   focusWindowForPath: (path: string) => Promise<boolean>
 
   // Dialog
@@ -216,7 +217,8 @@ interface CanopyAPI {
   gitWorktrees: (repoRoot: string) => Promise<GitWorktreeInfo[]>
   gitStatus: (path: string) => Promise<GitStatus>
   gitWatch: (repoRoot: string) => Promise<void>
-  gitUnwatch: () => Promise<void>
+  gitUnwatch: (repoRoot?: string) => Promise<void>
+  gitInit: (path: string) => Promise<GitInfo>
 
   // Git Operations
   gitCommit: (repoRoot: string, message: string, stageAll?: boolean) => Promise<GitCommitResult>
@@ -259,7 +261,7 @@ interface CanopyAPI {
   onClaudeHookEvent: (callback: (data: ClaudeHookEventData) => void) => () => void
   onClaudeStatusUpdate: (callback: (data: ClaudeStatusData) => void) => () => void
   onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
-  onGitChanged: (callback: (info: GitInfo) => void) => () => void
+  onGitChanged: (callback: (info: GitInfo & { repoRoot: string }) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void
   onUrlAction: (

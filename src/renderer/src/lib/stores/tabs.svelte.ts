@@ -12,7 +12,7 @@ import {
   firstLeaf,
   navigateFrom,
 } from './splitTree'
-import { workspaceState } from './workspace.svelte'
+import { workspaceState, getProjectForWorktree } from './workspace.svelte'
 import {
   initClaudeSession,
   removeClaudeSession,
@@ -618,7 +618,7 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode {
 
 function saveLayoutForWorktree(worktreePath: string): void {
   const tabs = tabsByWorktree[worktreePath]
-  const wsId = workspaceState.workspace?.id
+  const wsId = getProjectForWorktree(worktreePath)?.workspace.id ?? workspaceState.workspace?.id
   if (!tabs || !wsId) return
 
   const activeId = activeTabId[worktreePath]

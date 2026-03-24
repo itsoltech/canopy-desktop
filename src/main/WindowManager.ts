@@ -9,8 +9,8 @@ import type { ClaudeSessionManager } from './claude/ClaudeSessionManager'
 
 export class WindowManager {
   private windows = new Map<number, BrowserWindow>()
-  private workspacePaths = new Map<number, string>()
-  private gitWatchers = new Map<number, GitWatcher>()
+  private workspacePaths = new Map<number, Set<string>>()
+  private gitWatchers = new Map<number, Map<string, GitWatcher>>()
   private ptySessions = new Map<number, Set<string>>()
   private forceClosing = new Set<number>()
   private claudeSessionManager: ClaudeSessionManager | null = null
@@ -107,8 +107,8 @@ export class WindowManager {
   }
 
   getWindowForPath(path: string): BrowserWindow | null {
-    for (const [wcId, wsPath] of this.workspacePaths) {
-      if (wsPath === path) {
+    for (const [wcId, paths] of this.workspacePaths) {
+      if (paths.has(path)) {
         const win = this.windows.get(wcId)
         if (win && !win.isDestroyed()) return win
       }
@@ -116,21 +116,35 @@ export class WindowManager {
     return null
   }
 
-  setWorkspacePath(wcId: number, path: string): void {
-    this.workspacePaths.set(wcId, path)
-  }
-
-  getWorkspacePath(wcId: number): string | null {
-    return this.workspacePaths.get(wcId) ?? null
-  }
-
-  getAllWorkspacePaths(): string[] {
-    const paths: string[] = []
-    for (const [wcId, path] of this.workspacePaths) {
-      const win = this.windows.get(wcId)
-      if (win && !win.isDestroyed()) paths.push(path)
+  addWorkspacePath(wcId: number, path: string): void {
+    let paths = this.workspacePaths.get(wcId)
+    if (!paths) {
+      paths = new Set()
+      this.workspacePaths.set(wcId, paths)
     }
-    return paths
+    paths.add(path)
+  }
+
+  removeWorkspacePath(wcId: number, path: string): void {
+    const paths = this.workspacePaths.get(wcId)
+    if (paths) paths.delete(path)
+  }
+
+  getWorkspacePaths(wcId: number): string[] {
+    const paths = this.workspacePaths.get(wcId)
+    return paths ? [...paths] : []
+  }
+
+  /** Returns one entry per window, each containing all project paths for that window */
+  getAllWindowConfigs(): Array<{ paths: string[] }> {
+    const configs: Array<{ paths: string[] }> = []
+    for (const [wcId, paths] of this.workspacePaths) {
+      const win = this.windows.get(wcId)
+      if (win && !win.isDestroyed() && paths.size > 0) {
+        configs.push({ paths: [...paths] })
+      }
+    }
+    return configs
   }
 
   trackPtySession(wcId: number, sessionId: string): void {
@@ -143,20 +157,36 @@ export class WindowManager {
     if (set) set.delete(sessionId)
   }
 
-  setGitWatcher(wcId: number, watcher: GitWatcher): void {
-    this.gitWatchers.set(wcId, watcher)
+  setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
+    let watchers = this.gitWatchers.get(wcId)
+    if (!watchers) {
+      watchers = new Map()
+      this.gitWatchers.set(wcId, watchers)
+    }
+    watchers.set(repoRoot, watcher)
   }
 
-  getGitWatcher(wcId: number): GitWatcher | null {
-    return this.gitWatchers.get(wcId) ?? null
+  getGitWatcher(wcId: number, repoRoot: string): GitWatcher | null {
+    return this.gitWatchers.get(wcId)?.get(repoRoot) ?? null
   }
 
-  disposeGitWatcher(wcId: number): void {
-    const watcher = this.gitWatchers.get(wcId)
+  disposeGitWatcher(wcId: number, repoRoot: string): void {
+    const watchers = this.gitWatchers.get(wcId)
+    if (!watchers) return
+    const watcher = watchers.get(repoRoot)
     if (watcher) {
       watcher.stop()
-      this.gitWatchers.delete(wcId)
+      watchers.delete(repoRoot)
     }
+  }
+
+  disposeAllGitWatchers(wcId: number): void {
+    const watchers = this.gitWatchers.get(wcId)
+    if (!watchers) return
+    for (const watcher of watchers.values()) {
+      watcher.stop()
+    }
+    watchers.clear()
   }
 
   getAllWindows(): BrowserWindow[] {
@@ -211,8 +241,9 @@ export class WindowManager {
   }
 
   private disposeWindow(wcId: number): void {
-    // Stop git watcher
-    this.disposeGitWatcher(wcId)
+    // Stop all git watchers for this window
+    this.disposeAllGitWatchers(wcId)
+    this.gitWatchers.delete(wcId)
 
     // Kill PTY sessions for this window
     const sessions = this.ptySessions.get(wcId)

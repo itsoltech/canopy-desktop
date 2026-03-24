@@ -12,8 +12,9 @@
   import { dialogState, closeDialog, showPreferences } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
-    openWorkspace,
-    updateGitInfo,
+    projects,
+    attachProject,
+    updateGitInfoForProject,
     toggleSidebar,
     toggleInspector,
   } from '../../lib/stores/workspace.svelte'
@@ -68,11 +69,12 @@
     }
   })
 
-  // Subscribe to git:changed push events
+  // Subscribe to git:changed push events (all projects)
   $effect(() => {
-    if (!workspaceState.repoRoot) return undefined
     const unsubscribe = window.api.onGitChanged((info) => {
-      updateGitInfo(info as Parameters<typeof updateGitInfo>[0])
+      if (info.repoRoot) {
+        updateGitInfoForProject(info.repoRoot, info)
+      }
     })
     return unsubscribe
   })
@@ -122,7 +124,7 @@
   $effect(() => {
     const unsubscribe = window.api.onUrlAction(async (data) => {
       if (data.path) {
-        await openWorkspace(data.path)
+        await attachProject(data.path)
         if (data.tool && workspaceState.selectedWorktreePath) {
           openTool(data.tool, workspaceState.selectedWorktreePath)
         }
@@ -219,7 +221,7 @@
     if (e.key === 'o') {
       e.preventDefault()
       window.api.openFolder().then((p) => {
-        if (p) openWorkspace(p)
+        if (p) attachProject(p)
       })
     }
 
@@ -289,13 +291,17 @@
 {:else if dialogState.current.type === 'input'}
   <InputDialog {...dialogState.current.props} />
 {:else if dialogState.current.type === 'createWorktree'}
-  <CreateWorktreeModal onClose={closeDialog} />
+  <CreateWorktreeModal
+    onClose={closeDialog}
+    repoRoot={dialogState.current.repoRoot}
+    workspaceId={dialogState.current.workspaceId}
+  />
 {:else if dialogState.current.type === 'preferences'}
   <PreferencesModal />
 {/if}
 
 <div class="main-layout">
-  {#if workspaceState.sidebarOpen && workspaceState.workspace}
+  {#if workspaceState.sidebarOpen && projects.length > 0}
     <Sidebar onLaunchTool={handleLaunchTool} />
   {/if}
 
@@ -321,7 +327,7 @@
           </div>
         {/each}
 
-        {#if !workspaceState.selectedWorktreePath && allTabs.length === 0}
+        {#if projects.length === 0 && allTabs.length === 0}
           <WelcomeDashboard />
         {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
           <div class="empty-state">

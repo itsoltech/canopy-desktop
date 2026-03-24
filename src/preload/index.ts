@@ -57,6 +57,7 @@ const api = {
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
   newWindow: () => ipcRenderer.invoke('app:newWindow'),
   setWorkspacePath: (path: string) => ipcRenderer.invoke('app:setWorkspacePath', { path }),
+  detachProject: (path: string) => ipcRenderer.invoke('app:detachProject', { path }),
   focusWindowForPath: (path: string) =>
     ipcRenderer.invoke('app:focusWindowForPath', { path }) as Promise<boolean>,
 
@@ -71,7 +72,8 @@ const api = {
   gitWorktrees: (repoRoot: string) => ipcRenderer.invoke('git:worktrees', { repoRoot }),
   gitStatus: (path: string) => ipcRenderer.invoke('git:status', { path }),
   gitWatch: (repoRoot: string) => ipcRenderer.invoke('git:watch', { repoRoot }),
-  gitUnwatch: () => ipcRenderer.invoke('git:unwatch'),
+  gitUnwatch: (repoRoot?: string) => ipcRenderer.invoke('git:unwatch', { repoRoot }),
+  gitInit: (path: string) => ipcRenderer.invoke('git:init', { path }),
 
   // Git Operations
   gitCommit: (repoRoot: string, message: string, stageAll?: boolean) =>
