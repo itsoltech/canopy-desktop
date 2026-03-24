@@ -1,6 +1,7 @@
 <script lang="ts">
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import CollapsibleSection from './CollapsibleSection.svelte'
 
   let loading: string | null = $state(null)
 
@@ -111,16 +112,15 @@
   let behind = $derived(workspaceState.aheadBehind?.behind ?? 0)
 </script>
 
-<section class="sidebar-section">
-  <div class="section-header">
-    <h3 class="section-title">GIT</h3>
+<CollapsibleSection title="GIT" sectionKey="git" borderTop>
+  {#snippet headerExtra()}
     <span class="branch-status">
       <span class="branch-label">{workspaceState.branch ?? ''}</span>
       {#if workspaceState.isDirty}
         <span class="dirty-dot" title="Uncommitted changes"></span>
       {/if}
     </span>
-  </div>
+  {/snippet}
   <div class="action-list">
     <button
       class="action-item"
@@ -177,29 +177,9 @@
       <span class="action-label">Stash Pop</span>
     </button>
   </div>
-</section>
+</CollapsibleSection>
 
 <style>
-  .sidebar-section {
-    padding: 12px 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 12px 8px;
-  }
-
-  .section-title {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    color: rgba(255, 255, 255, 0.4);
-    text-transform: uppercase;
-  }
-
   .branch-status {
     display: flex;
     align-items: center;

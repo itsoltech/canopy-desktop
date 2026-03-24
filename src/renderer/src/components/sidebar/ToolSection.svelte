@@ -3,6 +3,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getRunningCountByTool } from '../../lib/stores/tabs.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
+  import CollapsibleSection from './CollapsibleSection.svelte'
 
   let { onLaunchTool }: { onLaunchTool: (toolId: string) => void } = $props()
 
@@ -32,8 +33,7 @@
   }
 </script>
 
-<section class="sidebar-section">
-  <h3 class="section-title">TOOLS</h3>
+<CollapsibleSection title="TOOLS" sectionKey="tools" borderTop>
   <ul class="tool-list">
     {#each tools as tool (tool.id)}
       {@const count = runningCount(tool.id)}
@@ -54,23 +54,9 @@
       </li>
     {/each}
   </ul>
-</section>
+</CollapsibleSection>
 
 <style>
-  .sidebar-section {
-    padding: 12px 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
-  .section-title {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    color: rgba(255, 255, 255, 0.4);
-    padding: 0 12px 8px;
-    text-transform: uppercase;
-  }
-
   .tool-list {
     list-style: none;
     padding: 0;

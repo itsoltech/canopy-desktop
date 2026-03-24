@@ -2,6 +2,7 @@
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { Trash2 } from '@lucide/svelte'
+  import CollapsibleSection from './CollapsibleSection.svelte'
 
   let mergedBranches: Set<string> = $state(new Set())
 
@@ -68,11 +69,10 @@
   }
 </script>
 
-<section class="sidebar-section">
-  <div class="section-header">
-    <h3 class="section-title">WORKTREES</h3>
+<CollapsibleSection title="WORKTREES" sectionKey="worktrees">
+  {#snippet headerExtra()}
     <button class="new-btn" onclick={showCreateWorktree} title="Create worktree">+ new</button>
-  </div>
+  {/snippet}
   <ul class="worktree-list">
     {#each workspaceState.worktrees as wt (wt.path)}
       <li class="worktree-row">
@@ -99,28 +99,9 @@
       </li>
     {/each}
   </ul>
-</section>
+</CollapsibleSection>
 
 <style>
-  .sidebar-section {
-    padding: 12px 0;
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 12px 8px;
-  }
-
-  .section-title {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    color: rgba(255, 255, 255, 0.4);
-    text-transform: uppercase;
-  }
-
   .new-btn {
     font-size: 10px;
     font-weight: 500;
