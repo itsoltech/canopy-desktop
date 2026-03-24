@@ -1,6 +1,7 @@
 import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import { randomUUID } from 'crypto'
+import { execSync } from 'child_process'
 import os from 'os'
 import { getLoginEnv } from '../shell/loginEnv'
 
@@ -78,6 +79,25 @@ export class PtyManager {
         // PTY already exited — ignore
       }
       this.sessions.delete(id)
+    }
+  }
+
+  hasChildProcess(id: string): boolean {
+    const session = this.sessions.get(id)
+    if (!session) return false
+    try {
+      const pid = session.pty.pid
+      if (process.platform === 'win32') {
+        const out = execSync(
+          `wmic process where (ParentProcessId=${pid}) get ProcessId /FORMAT:CSV`,
+          { encoding: 'utf-8', timeout: 2000 },
+        )
+        return out.trim().split('\n').length > 1
+      }
+      execSync(`pgrep -P ${pid}`, { timeout: 2000 })
+      return true
+    } catch {
+      return false
     }
   }
 

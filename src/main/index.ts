@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, powerMonitor } from 'electron'
+import { app, BrowserWindow, dialog, Menu, powerMonitor } from 'electron'
 import { resolve } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
@@ -148,6 +148,7 @@ app.whenReady().then(async () => {
 
   claudeSessionManager = new ClaudeSessionManager()
   claudeSessionManager.cleanupOrphans()
+  windowManager.setClaudeSessionManager(claudeSessionManager)
 
   registerIpcHandlers(
     ptyManager,
@@ -219,8 +220,36 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('before-quit', () => {
-  // Save open workspace paths for restore
+app.on('before-quit', (event) => {
+  if (!windowManager.isQuitting) {
+    const activeInfo = windowManager.hasAnyActiveSession()
+    if (activeInfo) {
+      event.preventDefault()
+
+      const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
+      if (!focusedWin || focusedWin.isDestroyed()) return
+
+      dialog
+        .showMessageBox(focusedWin, {
+          type: 'warning',
+          buttons: ['Quit', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          title: 'Active Sessions',
+          message: 'There are active sessions running',
+          detail: activeInfo,
+        })
+        .then(({ response }) => {
+          if (response === 0) {
+            windowManager.isQuitting = true
+            app.quit()
+          }
+        })
+      return
+    }
+  }
+
+  // Normal cleanup
   const paths = windowManager.getAllWorkspacePaths()
   if (paths.length > 0) {
     preferencesStore.set('openWorkspacePaths', JSON.stringify(paths))

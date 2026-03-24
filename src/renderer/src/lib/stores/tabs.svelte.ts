@@ -18,6 +18,48 @@ import {
   removeClaudeSession,
   claudeSessions,
 } from '../claude/claudeState.svelte'
+import { confirm } from './dialogs.svelte'
+
+// --- Active process detection ---
+
+const ACTIVE_CLAUDE_STATUSES = new Set([
+  'thinking',
+  'toolCalling',
+  'compacting',
+  'waitingPermission',
+])
+
+async function getActiveProcessDescription(panes: PaneSession[]): Promise<string | null> {
+  let busyClaude = 0
+  let activeShell = 0
+
+  await Promise.all(
+    panes.map(async (p) => {
+      if (!p.isRunning) return
+      if (p.toolId === 'claude') {
+        const s = claudeSessions[p.sessionId]
+        if (s && ACTIVE_CLAUDE_STATUSES.has(s.status.type)) busyClaude++
+      } else {
+        try {
+          if (await window.api.hasChildProcess(p.sessionId)) activeShell++
+        } catch {
+          // Ignore — PTY may already be gone
+        }
+      }
+    }),
+  )
+
+  if (busyClaude === 0 && activeShell === 0) return null
+
+  const parts: string[] = []
+  if (busyClaude > 0) {
+    parts.push(`${busyClaude} active Claude session${busyClaude > 1 ? 's' : ''}`)
+  }
+  if (activeShell > 0) {
+    parts.push(`${activeShell} running process${activeShell > 1 ? 'es' : ''}`)
+  }
+  return parts.join(' and ')
+}
 
 // --- Layout serialization types ---
 
@@ -124,6 +166,19 @@ export async function closeTab(tabId: string): Promise<void> {
     if (idx === -1) continue
 
     const tab = tabs[idx]
+
+    // Check for active processes before closing
+    const panes = allPanes(tab.rootSplit)
+    const description = await getActiveProcessDescription(panes)
+    if (description) {
+      const confirmed = await confirm({
+        title: 'Close tab?',
+        message: `This tab has ${description} that will be terminated.`,
+        confirmLabel: 'Close Tab',
+        destructive: true,
+      })
+      if (!confirmed) return
+    }
 
     // Push to closed tabs stack
     if (!closedTabs[path]) closedTabs[path] = []
@@ -431,6 +486,21 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
   const tabId = activeTabId[worktreePath]
   const tab = tabs.find((t) => t.id === tabId)
   if (!tab) return
+
+  // Check if focused pane has active process before closing
+  const focusedPane = findLeaf(tab.rootSplit, tab.focusedPaneId)
+  if (focusedPane && focusedPane.isRunning) {
+    const description = await getActiveProcessDescription([focusedPane])
+    if (description) {
+      const confirmed = await confirm({
+        title: 'Close pane?',
+        message: `This pane has ${description} that will be terminated.`,
+        confirmLabel: 'Close Pane',
+        destructive: true,
+      })
+      if (!confirmed) return
+    }
+  }
 
   const result = treeRemovePane(tab.rootSplit, tab.focusedPaneId)
   if (!result) return

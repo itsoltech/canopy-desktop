@@ -9,6 +9,8 @@ const api = {
   resizePty: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', { sessionId, cols, rows }),
   killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', { sessionId }),
+  hasChildProcess: (sessionId: string) =>
+    ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
 
   // Workspaces
   listWorkspaces: (limit?: number) => ipcRenderer.invoke('db:workspace:list', { limit }),
