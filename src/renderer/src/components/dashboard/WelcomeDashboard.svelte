@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { openWorkspace } from '../../lib/stores/workspace.svelte'
+  import { openWorkspace, loadProjectList } from '../../lib/stores/workspace.svelte'
   import { prompt } from '../../lib/stores/dialogs.svelte'
 
   interface WorkspaceRow {
@@ -8,6 +8,7 @@
     path: string
     name: string
     is_git_repo: number
+    is_pinned: number
     last_opened: string | null
     cached_branch: string | null
     cached_dirty: number | null
@@ -80,13 +81,17 @@
     }
   })
 
-  function handleOpen(ws: WorkspaceRow): void {
-    openWorkspace(ws.path)
+  async function handleOpen(ws: WorkspaceRow): Promise<void> {
+    await openWorkspace(ws.path)
+    loadProjectList()
   }
 
   async function handleOpenFolder(): Promise<void> {
     const path = await window.api.openFolder()
-    if (path) openWorkspace(path)
+    if (path) {
+      await openWorkspace(path)
+      loadProjectList()
+    }
   }
 
   async function handleOpenFromPath(): Promise<void> {
@@ -95,7 +100,10 @@
       placeholder: '/path/to/project',
       submitLabel: 'Open',
     })
-    if (path) openWorkspace(path)
+    if (path) {
+      await openWorkspace(path)
+      loadProjectList()
+    }
   }
 
   function handleContextMenu(e: MouseEvent, ws: WorkspaceRow): void {

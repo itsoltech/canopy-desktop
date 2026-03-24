@@ -83,4 +83,19 @@ export class WorkspaceStore {
   remove(id: string): void {
     this.db.prepare('DELETE FROM workspaces WHERE id = ?').run(id)
   }
+
+  listAll(): WorkspaceRow[] {
+    return this.db
+      .prepare('SELECT * FROM workspaces ORDER BY is_pinned DESC, name COLLATE NOCASE ASC')
+      .all() as WorkspaceRow[]
+  }
+
+  togglePin(id: string): WorkspaceRow {
+    this.db
+      .prepare(
+        'UPDATE workspaces SET is_pinned = CASE WHEN is_pinned = 1 THEN 0 ELSE 1 END WHERE id = ?',
+      )
+      .run(id)
+    return this.get(id)!
+  }
 }

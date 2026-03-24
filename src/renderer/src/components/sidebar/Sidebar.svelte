@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ProjectSection from './ProjectSection.svelte'
   import WorktreeSection from './WorktreeSection.svelte'
   import GitSection from './GitSection.svelte'
   import ToolSection from './ToolSection.svelte'
@@ -8,6 +9,7 @@
 </script>
 
 <aside class="sidebar">
+  <ProjectSection />
   {#if workspaceState.isGitRepo}
     <WorktreeSection />
     <GitSection />

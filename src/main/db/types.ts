@@ -5,6 +5,7 @@ export interface WorkspaceRow {
   path: string
   name: string
   is_git_repo: number
+  is_pinned: number
   last_opened: string | null
   cached_branch: string | null
   cached_dirty: number | null
@@ -29,6 +30,7 @@ export interface Workspace {
   path: string
   name: string
   isGitRepo: boolean
+  isPinned: boolean
   lastOpened: string | null
   cachedBranch: string | null
   cachedDirty: boolean | null
@@ -119,6 +121,7 @@ export function workspaceFromRow(row: WorkspaceRow): Workspace {
     path: row.path,
     name: row.name,
     isGitRepo: row.is_git_repo === 1,
+    isPinned: row.is_pinned === 1,
     lastOpened: row.last_opened,
     cachedBranch: row.cached_branch,
     cachedDirty: row.cached_dirty === null ? null : row.cached_dirty === 1,

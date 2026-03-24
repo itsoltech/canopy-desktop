@@ -20,6 +20,9 @@ const api = {
     ipcRenderer.invoke('db:workspace:upsert', workspace),
   removeWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:remove', { id }),
   touchWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:touch', { id }),
+  listAllWorkspaces: () => ipcRenderer.invoke('db:workspace:listAll'),
+  togglePinWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:togglePin', { id }),
+  detectWorkspaceIcon: (path: string) => ipcRenderer.invoke('workspace:detectIcon', { path }),
 
   // Preferences
   getPref: (key: string) => ipcRenderer.invoke('db:prefs:get', { key }),
