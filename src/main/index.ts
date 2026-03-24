@@ -139,8 +139,12 @@ app.whenReady().then(async () => {
 
   buildAppMenu()
 
-  autoUpdater.logger = console
-  autoUpdater.checkForUpdatesAndNotify()
+  if (app.isPackaged) {
+    autoUpdater.logger = console
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      console.warn('Auto-update check failed:', err)
+    })
+  }
 
   claudeSessionManager = new ClaudeSessionManager()
   claudeSessionManager.cleanupOrphans()
