@@ -12,19 +12,15 @@
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
   const DEFAULT_FONT_SIZE = 13
-  const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
-
   let {
     sessionId,
     wsUrl,
     active = true,
-    toolId,
     onTitleChange,
   }: {
     sessionId: string
     wsUrl: string
     active?: boolean
-    toolId?: string
     onTitleChange?: (title: string) => void
   } = $props()
 
@@ -196,18 +192,16 @@
 
       connectWs(term)
 
-      // Shift+Enter → CSI u newline for AI tools (kitty keyboard protocol)
-      if (toolId && AI_TOOL_IDS.has(toolId)) {
-        term.attachCustomKeyEventHandler((event) => {
-          if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
-            if (wsRef && wsRef.readyState === WebSocket.OPEN) {
-              wsRef.send('\x1b[13;2u')
-            }
-            return false
+      // Shift+Enter → insert newline
+      term.attachCustomKeyEventHandler((event) => {
+        if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
+          if (wsRef && wsRef.readyState === WebSocket.OPEN) {
+            wsRef.send('\n')
           }
-          return true
-        })
-      }
+          return false
+        }
+        return true
+      })
 
       term.onResize(({ cols, rows }) => {
         window.api.resizePty(sessionId, cols, rows)
