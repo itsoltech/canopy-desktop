@@ -44,18 +44,6 @@
             : 'dim',
   )
 
-  function sessionDuration(): string {
-    if (!state.startTime) return ''
-    const diff = Date.now() - state.startTime.getTime()
-    const seconds = Math.floor(diff / 1000)
-    if (seconds < 60) return `${seconds}s`
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m`
-    const hours = Math.floor(minutes / 60)
-    const mins = minutes % 60
-    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
-  }
-
   function relativeTime(ts: number): string {
     const diff = Date.now() - ts
     const seconds = Math.floor(diff / 1000)
@@ -211,8 +199,9 @@
             <span class="rate-limit-meta"
               >{Math.round(
                 100 - state.rateLimitFiveHour,
-              )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}{' '}<span
-                  class="rate-limit-reset">{formatResetTime(state.rateLimitFiveHourResetsAt)}</span
+              )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}
+                <span class="rate-limit-reset"
+                  >{formatResetTime(state.rateLimitFiveHourResetsAt)}</span
                 >{/if}</span
             >
           </div>
@@ -231,8 +220,9 @@
             <span class="rate-limit-meta"
               >{Math.round(
                 100 - state.rateLimitSevenDay,
-              )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}{' '}<span
-                  class="rate-limit-reset">{formatResetTime(state.rateLimitSevenDayResetsAt)}</span
+              )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}
+                <span class="rate-limit-reset"
+                  >{formatResetTime(state.rateLimitSevenDayResetsAt)}</span
                 >{/if}</span
             >
           </div>
@@ -255,11 +245,11 @@
         {#each visibleTasks as task (task.id)}
           <div class="item-row">
             {#if task.status === 'completed'}
-              <span class="task-icon task-done">{'\u2713'}</span>
+              <span class="task-icon task-done">✓</span>
             {:else if task.status === 'in_progress'}
-              <span class="task-icon task-active">{'\u25B6'}</span>
+              <span class="task-icon task-active">▶</span>
             {:else}
-              <span class="task-icon task-pending">{'\u25CB'}</span>
+              <span class="task-icon task-pending">○</span>
             {/if}
             <span class="item-text" class:task-completed={task.status === 'completed'}
               >{task.subject}</span
@@ -275,7 +265,7 @@
     <div class="section">
       <h4 class="section-label">Agents ({state.activeSubagents.length})</h4>
       <div class="item-list">
-        {#each state.activeSubagents as agent}
+        {#each state.activeSubagents as agent (agent.agentId)}
           <div class="item-row">
             <span class="agent-dot"></span>
             <span class="item-text">{agent.agentType}</span>
@@ -291,7 +281,7 @@
     <div class="section">
       <h4 class="section-label">Notifications</h4>
       <div class="item-list">
-        {#each reversedNotifications as notif}
+        {#each reversedNotifications as notif (notif.timestamp)}
           <div class="notif-row">
             <span class="notif-msg">{notif.message || notif.title}</span>
             <span class="notif-time">{relativeTime(notif.timestamp)}</span>

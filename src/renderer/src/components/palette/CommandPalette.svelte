@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import {
     workspaceState,
     toggleSidebar,
@@ -491,7 +492,7 @@
   // Group by category for display
   let groupedItems = $derived.by((): { category: string; items: PaletteItem[] }[] => {
     const categoryOrder = ['Tools', 'Git', 'Worktrees', 'Tabs', 'App']
-    const groups = new Map<string, PaletteItem[]>()
+    const groups = new SvelteMap<string, PaletteItem[]>()
 
     for (const item of filteredItems) {
       const list = groups.get(item.category) ?? []

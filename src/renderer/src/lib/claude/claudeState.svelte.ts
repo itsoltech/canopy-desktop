@@ -1,3 +1,5 @@
+import { SvelteDate } from 'svelte/reactivity'
+
 export interface SubagentRecord {
   agentId: string
   agentType: string
@@ -130,7 +132,7 @@ export function handleHookEvent(ptySessionId: string, event: HookEventData): voi
   switch (event.hook_event_name) {
     case 'SessionStart':
       session.status = { type: 'idle' }
-      session.startTime = new Date()
+      session.startTime = new SvelteDate()
       session.permissionMode = event.permission_mode ?? null
       session.model = event.model ?? null
       // Reset per-session stats
