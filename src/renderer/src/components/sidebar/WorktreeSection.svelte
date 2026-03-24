@@ -6,6 +6,11 @@
 
   let mergedBranches: Set<string> = $state(new Set())
 
+  function worktreeLabel(wt: { branch: string; path: string }): string {
+    if (wt.branch !== '(detached)') return wt.branch
+    return wt.path.split('/').pop() || wt.path
+  }
+
   async function checkMergedStatus(): Promise<void> {
     const repoRoot = workspaceState.repoRoot
     if (!repoRoot) return
@@ -39,9 +44,12 @@
     const repoRoot = workspaceState.repoRoot
     if (!repoRoot) return
 
+    const isDetached = wt.branch === '(detached)'
     const ok = await confirm({
       title: 'Remove Worktree',
-      message: `Remove worktree and delete branch "${wt.branch}"?`,
+      message: isDetached
+        ? `Remove worktree "${wt.path.split('/').pop()}"?`
+        : `Remove worktree and delete branch "${wt.branch}"?`,
       details: wt.path,
       confirmLabel: 'Remove',
       destructive: true,
@@ -50,12 +58,12 @@
 
     try {
       await window.api.gitWorktreeRemove(repoRoot, wt.path, false)
-      await window.api.gitBranchDelete(repoRoot, wt.branch, false)
+      if (!isDetached) await window.api.gitBranchDelete(repoRoot, wt.branch, false)
     } catch {
       // Force remove if normal remove fails (e.g. dirty worktree)
       try {
         await window.api.gitWorktreeRemove(repoRoot, wt.path, true)
-        await window.api.gitBranchDelete(repoRoot, wt.branch, true)
+        if (!isDetached) await window.api.gitBranchDelete(repoRoot, wt.branch, true)
       } catch {
         // Ignore — watcher will update the list
       }
@@ -82,8 +90,10 @@
           onclick={() => selectWorktree(wt.path)}
         >
           <span class="indicator">{wt.isMain ? '*' : ' '}</span>
-          <span class="branch-name">{wt.branch}</span>
-          {#if mergedBranches.has(wt.branch)}
+          <span class="branch-name" title={wt.path}>{worktreeLabel(wt)}</span>
+          {#if wt.branch === '(detached)'}
+            <span class="detached-badge" title={wt.head}>{wt.head.slice(0, 7)}</span>
+          {:else if mergedBranches.has(wt.branch)}
             <span class="merged-badge" title="Merged">merged</span>
           {/if}
         </button>
@@ -171,6 +181,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .detached-badge {
+    font-size: 9px;
+    font-weight: 500;
+    font-family: monospace;
+    color: rgba(255, 180, 80, 0.7);
+    flex-shrink: 0;
+    margin-left: auto;
   }
 
   .merged-badge {
