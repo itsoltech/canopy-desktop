@@ -22,12 +22,16 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-          - os: macos-13
+            arch: arm64
+          - os: macos-latest
             platform: mac
+            arch: x64
           - os: ubuntu-latest
             platform: linux
+            arch: ''
           - os: windows-latest
             platform: win
+            arch: ''
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +41,7 @@ jobs:
       # Tag push: build and publish to GitHub Releases (as draft via electron-builder config)
       - name: Build and publish
         if: ${{ github.event_name == 'push' || !inputs.dry_run }}
-        run: npm run release
+        run: npm run build && npx --no-install electron-builder --publish always ${{ matrix.arch && format('--arch {0}', matrix.arch) || '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ matrix.platform == 'mac' && secrets.CSC_LINK || '' }}
@@ -49,7 +53,7 @@ jobs:
       # Manual dispatch with dry_run: build only, upload as workflow artifacts
       - name: Build (dry run)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-        run: npm run build && npx --no-install electron-builder --publish never
+        run: npm run build && npx --no-install electron-builder --publish never ${{ matrix.arch && format('--arch {0}', matrix.arch) || '' }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -57,7 +61,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         uses: actions/upload-artifact@v4
         with:
-          name: canopy-${{ matrix.platform }}-${{ matrix.os }}
+          name: canopy-${{ matrix.platform }}-${{ matrix.arch || matrix.os }}
           path: |
             dist/*.dmg
             dist/*.zip
