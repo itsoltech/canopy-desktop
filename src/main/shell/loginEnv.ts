@@ -22,7 +22,7 @@ export async function resolveLoginEnv(): Promise<Record<string, string>> {
     // Use env -0 for null-byte separated output to handle multi-line values
     execFile(
       shell,
-      ['-l', '-c', 'env -0'],
+      ['-li', '-c', 'env -0'],
       { timeout: 10000, maxBuffer: 1024 * 1024 },
       (err, stdout) => {
         if (err) {
