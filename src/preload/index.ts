@@ -69,7 +69,7 @@ const api = {
 
   gitDetect: (path: string) => ipcRenderer.invoke('git:detect', { path }),
   gitWorktrees: (repoRoot: string) => ipcRenderer.invoke('git:worktrees', { repoRoot }),
-  gitStatus: (repoRoot: string) => ipcRenderer.invoke('git:status', { repoRoot }),
+  gitStatus: (path: string) => ipcRenderer.invoke('git:status', { path }),
   gitWatch: (repoRoot: string) => ipcRenderer.invoke('git:watch', { repoRoot }),
   gitUnwatch: () => ipcRenderer.invoke('git:unwatch'),
 

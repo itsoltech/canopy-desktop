@@ -290,11 +290,11 @@ export function registerIpcHandlers(
     return GitRepository.listWorktrees(payload.repoRoot)
   })
 
-  ipcMain.handle('git:status', async (_event, payload: { repoRoot: string }) => {
+  ipcMain.handle('git:status', async (_event, payload: { path: string }) => {
     const [branch, isDirty, aheadBehind] = await Promise.all([
-      GitRepository.getBranch(payload.repoRoot),
-      GitRepository.isDirty(payload.repoRoot),
-      GitRepository.getAheadBehind(payload.repoRoot),
+      GitRepository.getBranch(payload.path),
+      GitRepository.isDirty(payload.path),
+      GitRepository.getAheadBehind(payload.path),
     ])
     return { branch, isDirty, aheadBehind }
   })

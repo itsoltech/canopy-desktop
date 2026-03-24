@@ -214,7 +214,7 @@ interface CanopyAPI {
   // Git
   gitDetect: (path: string) => Promise<GitInfo>
   gitWorktrees: (repoRoot: string) => Promise<GitWorktreeInfo[]>
-  gitStatus: (repoRoot: string) => Promise<GitStatus>
+  gitStatus: (path: string) => Promise<GitStatus>
   gitWatch: (repoRoot: string) => Promise<void>
   gitUnwatch: () => Promise<void>
 

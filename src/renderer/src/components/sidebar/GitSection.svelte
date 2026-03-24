@@ -4,8 +4,8 @@
 
   let loading: string | null = $state(null)
 
-  function repoRoot(): string {
-    return workspaceState.repoRoot!
+  function worktreePath(): string {
+    return workspaceState.selectedWorktreePath ?? workspaceState.repoRoot!
   }
 
   async function gitError(err: unknown): Promise<void> {
@@ -26,7 +26,7 @@
     if (!msg) return
     loading = 'commit'
     try {
-      await window.api.gitCommit(repoRoot(), msg)
+      await window.api.gitCommit(worktreePath(), msg)
     } catch (err) {
       await gitError(err)
     } finally {
@@ -37,7 +37,7 @@
   async function doPush(): Promise<void> {
     loading = 'push'
     try {
-      const info = await window.api.gitPushInfo(repoRoot())
+      const info = await window.api.gitPushInfo(worktreePath())
       if (!info) {
         await confirm({
           title: 'Push',
@@ -51,7 +51,7 @@
         message: `Push ${info.commitCount} commit(s) to ${info.remote}/${info.branch}?`,
       })
       if (ok) {
-        await window.api.gitPush(repoRoot())
+        await window.api.gitPush(worktreePath())
       }
     } catch (err) {
       await gitError(err)
@@ -64,7 +64,7 @@
     loading = 'pull'
     try {
       const rebase = (await window.api.getPref('gitPullRebase')) !== 'false'
-      await window.api.gitPull(repoRoot(), rebase)
+      await window.api.gitPull(worktreePath(), rebase)
     } catch (err) {
       await gitError(err)
     } finally {
@@ -75,7 +75,7 @@
   async function doFetch(): Promise<void> {
     loading = 'fetch'
     try {
-      await window.api.gitFetch(repoRoot())
+      await window.api.gitFetch(worktreePath())
     } catch (err) {
       await gitError(err)
     } finally {
@@ -86,7 +86,7 @@
   async function doStash(): Promise<void> {
     loading = 'stash'
     try {
-      await window.api.gitStash(repoRoot())
+      await window.api.gitStash(worktreePath())
     } catch (err) {
       await gitError(err)
     } finally {
@@ -97,7 +97,7 @@
   async function doStashPop(): Promise<void> {
     loading = 'stashPop'
     try {
-      await window.api.gitStashPop(repoRoot())
+      await window.api.gitStashPop(worktreePath())
     } catch (err) {
       await gitError(err)
     } finally {

@@ -118,19 +118,21 @@ export async function openWorkspace(path: string): Promise<void> {
   }
 }
 
-export function selectWorktree(path: string): void {
+export async function selectWorktree(path: string): Promise<void> {
   workspaceState.selectedWorktreePath = path
   const wt = workspaceState.worktrees.find((w) => w.path === path)
   if (wt) {
     workspaceState.branch = wt.branch
   }
+
+  // Fetch per-worktree git status
+  const status = await window.api.gitStatus(path)
+  workspaceState.isDirty = status.isDirty
+  workspaceState.aheadBehind = status.aheadBehind
 }
 
-export function updateGitInfo(info: GitInfo): void {
+export async function updateGitInfo(info: GitInfo): Promise<void> {
   workspaceState.worktrees = info.worktrees
-  workspaceState.branch = info.branch
-  workspaceState.isDirty = info.isDirty
-  workspaceState.aheadBehind = info.aheadBehind
 
   // If the selected worktree was removed, fall back to main
   if (workspaceState.selectedWorktreePath) {
@@ -140,6 +142,19 @@ export function updateGitInfo(info: GitInfo): void {
       workspaceState.selectedWorktreePath = main?.path ?? null
       workspaceState.branch = main?.branch ?? info.branch
     }
+  }
+
+  // Fetch status for the currently selected worktree (not the main one)
+  const selectedPath = workspaceState.selectedWorktreePath
+  if (selectedPath) {
+    const status = await window.api.gitStatus(selectedPath)
+    workspaceState.branch = status.branch ?? workspaceState.branch
+    workspaceState.isDirty = status.isDirty
+    workspaceState.aheadBehind = status.aheadBehind
+  } else {
+    workspaceState.branch = info.branch
+    workspaceState.isDirty = info.isDirty
+    workspaceState.aheadBehind = info.aheadBehind
   }
 }
 
