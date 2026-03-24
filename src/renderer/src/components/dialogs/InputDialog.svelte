@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import type { PromptCheckbox, PromptResult } from '../../lib/stores/dialogs.svelte'
 
   let {
     title,
@@ -9,6 +10,7 @@
     submitLabel = 'Submit',
     validate,
     onGenerate,
+    checkbox,
     onSubmit,
     onCancel,
   }: {
@@ -19,13 +21,15 @@
     submitLabel?: string
     validate?: (value: string) => string | null
     onGenerate?: () => Promise<string | null>
-    onSubmit: (value: string) => void
+    checkbox?: PromptCheckbox
+    onSubmit: (result: PromptResult) => void
     onCancel: () => void
   } = $props()
 
   const isMac = navigator.userAgent.includes('Mac')
   // svelte-ignore state_referenced_locally
   let value = $state(initialValue)
+  let checked = $state(checkbox?.checked ?? false)
   let error = $derived(validate ? validate(value) : null)
   let generating = $state(false)
   let inputEl: HTMLInputElement | undefined = $state()
@@ -43,7 +47,7 @@
     const trimmed = value.trim()
     if (!trimmed) return
     if (error) return
-    onSubmit(trimmed)
+    onSubmit({ value: trimmed, checked })
   }
 
   async function handleGenerate(): Promise<void> {
@@ -111,6 +115,13 @@
 
     {#if error}
       <p class="dialog-error">{error}</p>
+    {/if}
+
+    {#if checkbox}
+      <label class="dialog-checkbox">
+        <input type="checkbox" bind:checked />
+        <span>{checkbox.label}</span>
+      </label>
     {/if}
 
     {#if multiline}
@@ -195,6 +206,22 @@
     margin: 6px 0 0;
     font-size: 12px;
     color: rgba(255, 120, 120, 0.9);
+  }
+
+  .dialog-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .dialog-checkbox input {
+    accent-color: rgba(116, 192, 252, 0.8);
+    cursor: pointer;
   }
 
   .dialog-hint {

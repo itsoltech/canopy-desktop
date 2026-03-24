@@ -6,6 +6,16 @@ export interface ConfirmOptions {
   destructive?: boolean
 }
 
+export interface PromptCheckbox {
+  label: string
+  checked?: boolean
+}
+
+export interface PromptResult {
+  value: string
+  checked: boolean
+}
+
 export interface PromptOptions {
   title: string
   placeholder?: string
@@ -14,6 +24,7 @@ export interface PromptOptions {
   submitLabel?: string
   validate?: (value: string) => string | null
   onGenerate?: () => Promise<string | null>
+  checkbox?: PromptCheckbox
 }
 
 interface ConfirmDialogState {
@@ -23,7 +34,7 @@ interface ConfirmDialogState {
 
 interface InputDialogState {
   type: 'input'
-  props: PromptOptions & { onSubmit: (value: string) => void; onCancel: () => void }
+  props: PromptOptions & { onSubmit: (result: PromptResult) => void; onCancel: () => void }
 }
 
 interface CreateWorktreeState {
@@ -66,15 +77,15 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
   })
 }
 
-export function prompt(opts: PromptOptions): Promise<string | null> {
+export function prompt(opts: PromptOptions): Promise<PromptResult | null> {
   return new Promise((resolve) => {
     dialogState.current = {
       type: 'input',
       props: {
         ...opts,
-        onSubmit: (value: string) => {
+        onSubmit: (result: PromptResult) => {
           dialogState.current = { type: 'none' }
-          resolve(value)
+          resolve(result)
         },
         onCancel: () => {
           dialogState.current = { type: 'none' }

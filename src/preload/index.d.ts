@@ -223,7 +223,7 @@ interface CanopyAPI {
   gitUnwatch: () => Promise<void>
 
   // Git Operations
-  gitCommit: (repoRoot: string, message: string) => Promise<GitCommitResult>
+  gitCommit: (repoRoot: string, message: string, stageAll?: boolean) => Promise<GitCommitResult>
   gitPush: (repoRoot: string) => Promise<{ branch: string; remote: string }>
   gitPull: (repoRoot: string, rebase: boolean) => Promise<{ summary: string }>
   gitFetch: (repoRoot: string) => Promise<void>

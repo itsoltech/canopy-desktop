@@ -77,8 +77,8 @@ const api = {
   gitUnwatch: () => ipcRenderer.invoke('git:unwatch'),
 
   // Git Operations
-  gitCommit: (repoRoot: string, message: string) =>
-    ipcRenderer.invoke('git:commit', { repoRoot, message }),
+  gitCommit: (repoRoot: string, message: string, stageAll?: boolean) =>
+    ipcRenderer.invoke('git:commit', { repoRoot, message, stageAll }),
   gitPush: (repoRoot: string) => ipcRenderer.invoke('git:push', { repoRoot }),
   gitPull: (repoRoot: string, rebase: boolean) =>
     ipcRenderer.invoke('git:pull', { repoRoot, rebase }),

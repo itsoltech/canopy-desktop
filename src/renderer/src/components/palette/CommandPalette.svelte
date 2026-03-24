@@ -192,16 +192,17 @@
         label: 'Commit',
         category: 'Git',
         action: async () => {
-          const msg = await prompt({
+          const result = await prompt({
             title: 'Commit',
             placeholder: 'Commit message...',
             multiline: true,
             submitLabel: 'Commit',
             onGenerate: () => window.api.gitGenerateCommitMessage(root),
+            checkbox: { label: 'Stage all changes', checked: true },
           })
-          if (!msg) return
+          if (!result) return
           try {
-            await window.api.gitCommit(root, msg)
+            await window.api.gitCommit(root, result.value, result.checked)
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -318,7 +319,7 @@
         label: 'Create Branch',
         category: 'Git',
         action: async () => {
-          const name = await prompt({
+          const result = await prompt({
             title: 'Create Branch',
             placeholder: 'Branch name...',
             submitLabel: 'Create',
@@ -330,9 +331,9 @@
               return null
             },
           })
-          if (!name) return
+          if (!result) return
           try {
-            await window.api.gitBranchCreate(root, name, 'HEAD')
+            await window.api.gitBranchCreate(root, result.value, 'HEAD')
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -348,25 +349,25 @@
         label: 'Delete Branch',
         category: 'Git',
         action: async () => {
-          const name = await prompt({
+          const result = await prompt({
             title: 'Delete Branch',
             placeholder: 'Branch name to delete...',
             submitLabel: 'Delete',
           })
-          if (!name) return
+          if (!result) return
           try {
-            const merged = await window.api.gitBranchMerged(root, name)
+            const merged = await window.api.gitBranchMerged(root, result.value)
             if (!merged) {
               const force = await confirm({
                 title: 'Delete Unmerged Branch',
-                message: `Branch "${name}" has not been fully merged.\nForce delete?`,
+                message: `Branch "${result.value}" has not been fully merged.\nForce delete?`,
                 confirmLabel: 'Force Delete',
                 destructive: true,
               })
               if (!force) return
-              await window.api.gitBranchDelete(root, name, true)
+              await window.api.gitBranchDelete(root, result.value, true)
             } else {
-              await window.api.gitBranchDelete(root, name, false)
+              await window.api.gitBranchDelete(root, result.value, false)
             }
           } catch (err) {
             await confirm({

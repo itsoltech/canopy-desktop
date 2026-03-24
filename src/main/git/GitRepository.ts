@@ -106,8 +106,15 @@ export class GitRepository {
 
   // --- Write operations ---
 
-  static async commit(repoRoot: string, message: string): Promise<GitCommitResult> {
+  static async commit(
+    repoRoot: string,
+    message: string,
+    stageAll?: boolean,
+  ): Promise<GitCommitResult> {
     const git = simpleGit(repoRoot)
+    if (stageAll) {
+      await git.add('-A')
+    }
     const result = await git.commit(message)
     return {
       hash: result.commit || '',

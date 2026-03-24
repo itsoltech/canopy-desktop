@@ -400,9 +400,12 @@ export function registerIpcHandlers(
 
   // --- Git Operations ---
 
-  ipcMain.handle('git:commit', async (_event, payload: { repoRoot: string; message: string }) => {
-    return GitRepository.commit(payload.repoRoot, payload.message)
-  })
+  ipcMain.handle(
+    'git:commit',
+    async (_event, payload: { repoRoot: string; message: string; stageAll?: boolean }) => {
+      return GitRepository.commit(payload.repoRoot, payload.message, payload.stageAll)
+    },
+  )
 
   ipcMain.handle('git:push', async (_event, payload: { repoRoot: string }) => {
     return GitRepository.push(payload.repoRoot)

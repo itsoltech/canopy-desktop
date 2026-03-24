@@ -95,13 +95,13 @@
   }
 
   async function handleOpenFromPath(): Promise<void> {
-    const path = await prompt({
+    const result = await prompt({
       title: 'Open from Path',
       placeholder: '/path/to/project',
       submitLabel: 'Open',
     })
-    if (path) {
-      await openWorkspace(path)
+    if (result) {
+      await openWorkspace(result.value)
       loadProjectList()
     }
   }

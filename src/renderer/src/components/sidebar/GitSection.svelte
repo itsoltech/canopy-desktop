@@ -17,17 +17,18 @@
   }
 
   async function doCommit(): Promise<void> {
-    const msg = await prompt({
+    const result = await prompt({
       title: 'Commit',
       placeholder: 'Commit message...',
       multiline: true,
       submitLabel: 'Commit',
       onGenerate: () => window.api.gitGenerateCommitMessage(worktreePath()),
+      checkbox: { label: 'Stage all changes', checked: true },
     })
-    if (!msg) return
+    if (!result) return
     loading = 'commit'
     try {
-      await window.api.gitCommit(worktreePath(), msg)
+      await window.api.gitCommit(worktreePath(), result.value, result.checked)
     } catch (err) {
       await gitError(err)
     } finally {
