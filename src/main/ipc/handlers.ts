@@ -10,6 +10,8 @@ import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
 import type { WindowManager } from '../WindowManager'
 import { GitRepository } from '../git/GitRepository'
 import { GitWatcher } from '../git/GitWatcher'
+import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
+import type { WorktreeSetupAction } from '../db/types'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -493,4 +495,42 @@ export function registerIpcHandlers(
     toolRegistry.removeCustom(payload.id)
     return toolRegistry.getAll()
   })
+
+  // --- Worktree Setup ---
+
+  ipcMain.handle(
+    'worktree:runSetup',
+    async (event, payload: { workspaceId: string; repoRoot: string; newWorktreePath: string }) => {
+      const configJson = preferencesStore.get(`workspace:${payload.workspaceId}:worktreeSetup`)
+      if (!configJson) return { success: true, errors: [] }
+
+      let actions: WorktreeSetupAction[]
+      try {
+        actions = JSON.parse(configJson) as WorktreeSetupAction[]
+      } catch {
+        return { success: false, errors: ['Invalid worktree setup config'] }
+      }
+
+      if (actions.length === 0) return { success: true, errors: [] }
+
+      const worktrees = await GitRepository.listWorktrees(payload.repoRoot)
+      const mainWorktree = worktrees.find((wt) => wt.isMain)
+      const mainWorktreePath = mainWorktree?.path ?? payload.repoRoot
+
+      const sender = event.sender
+      return runWorktreeSetup(
+        actions,
+        {
+          repoRoot: payload.repoRoot,
+          mainWorktreePath,
+          newWorktreePath: payload.newWorktreePath,
+        },
+        (progress) => {
+          if (!sender.isDestroyed()) {
+            sender.send('worktree:setupProgress', progress)
+          }
+        },
+      )
+    },
+  )
 }
