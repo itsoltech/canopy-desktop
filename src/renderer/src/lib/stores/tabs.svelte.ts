@@ -193,7 +193,6 @@ export async function closeTab(tabId: string): Promise<void> {
     }
 
     // Kill all PTYs in the split tree and cleanup Claude sessions
-    const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
       if (p.toolId === 'claude') {
         removeClaudeSession(p.sessionId)
