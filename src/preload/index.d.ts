@@ -57,6 +57,30 @@ interface GitWorktreeInfo {
   isBare: boolean
 }
 
+interface WorktreeSetupCommandAction {
+  type: 'command'
+  command: string
+  label?: string
+}
+
+interface WorktreeSetupCopyAction {
+  type: 'copy'
+  source: string
+  dest?: string
+  label?: string
+}
+
+type WorktreeSetupAction = WorktreeSetupCommandAction | WorktreeSetupCopyAction
+
+interface WorktreeSetupProgress {
+  actionIndex: number
+  totalActions: number
+  label: string
+  status: 'running' | 'done' | 'error'
+  output?: string
+  error?: string
+}
+
 interface GitStatus {
   branch: string | null
   isDirty: boolean
@@ -218,6 +242,13 @@ interface CanopyAPI {
   gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
 
+  // Worktree Setup
+  runWorktreeSetup: (
+    workspaceId: string,
+    repoRoot: string,
+    newWorktreePath: string,
+  ) => Promise<{ success: boolean; errors: string[] }>
+
   // Layouts
   saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) => Promise<void>
   getLayout: (workspaceId: string, worktreePath: string) => Promise<string | null>
@@ -229,6 +260,7 @@ interface CanopyAPI {
   onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
   onGitChanged: (callback: (info: GitInfo) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
+  onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void
   onUrlAction: (
     callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
   ) => () => void

@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
   import { getPref } from '../../lib/stores/preferences.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
-  type Step = 'fetch' | 'pickBase' | 'creating' | 'done' | 'error'
+  type Step = 'fetch' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
 
   let step = $state<Step>('fetch')
   let branches = $state<{ local: string[]; remote: string[] }>({ local: [], remote: [] })
@@ -17,8 +17,16 @@
   let createdPath = $state('')
   let homedir = $state('')
 
+  // Setup progress state
+  let setupLabel = $state('')
+  let setupCurrent = $state(0)
+  let setupTotal = $state(0)
+  let setupErrors = $state<string[]>([])
+  let cleanupProgressListener: (() => void) | null = null
+
   const repoRoot = workspaceState.repoRoot!
   const projectName = repoRoot.split('/').pop() || 'project'
+  const workspaceId = workspaceState.workspace?.id
 
   // Worktree dir: <baseDir>/<projectName>/<safeBranchName>
   let worktreeDir = $derived.by(() => {
@@ -39,7 +47,7 @@
       const list = await window.api.gitBranches(repoRoot)
       branches = { local: list.local, remote: list.remote }
       step = 'pickBase'
-    } catch (err) {
+    } catch {
       // Fetch failed — still show branches without fresh remote data
       try {
         const list = await window.api.gitBranches(repoRoot)
@@ -50,6 +58,10 @@
         step = 'error'
       }
     }
+  })
+
+  onDestroy(() => {
+    cleanupProgressListener?.()
   })
 
   // Fuzzy match for branch search
@@ -85,6 +97,18 @@
     return null
   })
 
+  function hasSetupConfig(): boolean {
+    if (!workspaceId) return false
+    const raw = getPref(`workspace:${workspaceId}:worktreeSetup`, '')
+    if (!raw) return false
+    try {
+      const actions = JSON.parse(raw) as unknown[]
+      return Array.isArray(actions) && actions.length > 0
+    } catch {
+      return false
+    }
+  }
+
   function selectBranch(branch: string): void {
     selectedBase = branch
   }
@@ -95,16 +119,55 @@
     try {
       await window.api.gitWorktreeAdd(repoRoot, worktreeDir, newBranchName, selectedBase)
       createdPath = worktreeDirDisplay
-      step = 'done'
-      // Auto-switch after brief feedback
-      setTimeout(() => {
-        selectWorktree(worktreeDirDisplay)
-        onClose()
-      }, 400)
+
+      if (hasSetupConfig() && workspaceId) {
+        step = 'setup'
+        await runSetup()
+      } else {
+        finishCreation()
+      }
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : String(err)
       step = 'error'
     }
+  }
+
+  async function runSetup(): Promise<void> {
+    cleanupProgressListener = window.api.onWorktreeSetupProgress((data) => {
+      setupLabel = data.label
+      setupCurrent = data.actionIndex + 1
+      setupTotal = data.totalActions
+      if (data.status === 'error' && data.error) {
+        setupErrors = [...setupErrors, `${data.label}: ${data.error}`]
+      }
+    })
+
+    try {
+      await window.api.runWorktreeSetup(workspaceId!, repoRoot, worktreeDirDisplay)
+    } catch (err) {
+      setupErrors = [...setupErrors, err instanceof Error ? err.message : String(err)]
+    }
+
+    cleanupProgressListener?.()
+    cleanupProgressListener = null
+    finishCreation()
+  }
+
+  function finishCreation(): void {
+    step = 'done'
+    setTimeout(
+      () => {
+        selectWorktree(worktreeDirDisplay)
+        onClose()
+      },
+      setupErrors.length > 0 ? 2000 : 400,
+    )
+  }
+
+  function skipSetup(): void {
+    cleanupProgressListener?.()
+    cleanupProgressListener = null
+    finishCreation()
   }
 
   function handleBranchListKeydown(e: KeyboardEvent): void {
@@ -223,10 +286,31 @@
       <div class="modal-body center">
         <p class="status-text">Creating worktree...</p>
       </div>
+    {:else if step === 'setup'}
+      <div class="modal-body center">
+        <p class="status-text">Running setup... ({setupCurrent}/{setupTotal})</p>
+        <p class="setup-label">{setupLabel}</p>
+        {#if setupErrors.length > 0}
+          {#each setupErrors as err, i (i)}
+            <p class="field-error">{err}</p>
+          {/each}
+        {/if}
+        <div class="modal-actions">
+          <button class="btn btn-cancel" onclick={skipSetup}>Skip</button>
+        </div>
+      </div>
     {:else if step === 'done'}
       <div class="modal-body center">
         <p class="status-text success">Worktree created</p>
         <p class="field-detail">{createdPath}</p>
+        {#if setupErrors.length > 0}
+          <div class="setup-warnings">
+            <p class="status-text warning">Setup completed with warnings:</p>
+            {#each setupErrors as err, i (i)}
+              <p class="field-error">{err}</p>
+            {/each}
+          </div>
+        {/if}
       </div>
     {:else if step === 'error'}
       <div class="modal-body center">
@@ -301,6 +385,25 @@
 
   .status-text.error {
     color: rgba(255, 120, 120, 0.9);
+  }
+
+  .status-text.warning {
+    color: rgba(255, 200, 100, 0.9);
+  }
+
+  .setup-label {
+    font-size: 12px;
+    font-family: monospace;
+    color: rgba(255, 255, 255, 0.4);
+    margin: 0;
+  }
+
+  .setup-warnings {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
   }
 
   .field-label {

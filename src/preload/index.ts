@@ -102,6 +102,10 @@ const api = {
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) =>
     ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
 
+  // Worktree Setup
+  runWorktreeSetup: (workspaceId: string, repoRoot: string, newWorktreePath: string) =>
+    ipcRenderer.invoke('worktree:runSetup', { workspaceId, repoRoot, newWorktreePath }),
+
   // Layouts
   saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) =>
     ipcRenderer.invoke('layout:save', { workspaceId, worktreePath, layoutJson }),
@@ -162,6 +166,33 @@ const api = {
     ipcRenderer.on('pty:exit', handler)
     return (): void => {
       ipcRenderer.removeListener('pty:exit', handler)
+    }
+  },
+
+  onWorktreeSetupProgress: (
+    callback: (data: {
+      actionIndex: number
+      totalActions: number
+      label: string
+      status: 'running' | 'done' | 'error'
+      output?: string
+      error?: string
+    }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: {
+        actionIndex: number
+        totalActions: number
+        label: string
+        status: 'running' | 'done' | 'error'
+        output?: string
+        error?: string
+      },
+    ): void => callback(data)
+    ipcRenderer.on('worktree:setupProgress', handler)
+    return (): void => {
+      ipcRenderer.removeListener('worktree:setupProgress', handler)
     }
   },
 

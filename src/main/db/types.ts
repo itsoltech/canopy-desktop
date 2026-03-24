@@ -48,6 +48,32 @@ export interface ToolDefinition {
   isCustom: boolean
 }
 
+// --- Worktree setup types ---
+
+export interface WorktreeSetupCommandAction {
+  type: 'command'
+  command: string
+  label?: string
+}
+
+export interface WorktreeSetupCopyAction {
+  type: 'copy'
+  source: string
+  dest?: string
+  label?: string
+}
+
+export type WorktreeSetupAction = WorktreeSetupCommandAction | WorktreeSetupCopyAction
+
+export interface WorktreeSetupProgress {
+  actionIndex: number
+  totalActions: number
+  label: string
+  status: 'running' | 'done' | 'error'
+  output?: string
+  error?: string
+}
+
 // --- Runtime types (not persisted in Phase 2, used in Phase 3+) ---
 
 export interface Worktree {
