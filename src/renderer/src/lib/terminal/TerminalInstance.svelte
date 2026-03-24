@@ -27,14 +27,41 @@
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
   let wsRef: WebSocket | null = null
+  let webglAddonRef: WebglAddon | null = null
+  let webglAttached = $state(true)
   let dragging = $state(false)
   let progressState = $state(0)
   let progressValue = $state(0)
+
+  function attachWebgl(term: Terminal): void {
+    if (webglAddonRef) return
+    try {
+      const addon = new WebglAddon()
+      addon.onContextLoss(() => {
+        addon.dispose()
+        webglAddonRef = null
+        webglAttached = false
+      })
+      term.loadAddon(addon)
+      webglAddonRef = addon
+      webglAttached = true
+    } catch {
+      webglAddonRef = null
+      webglAttached = false
+    }
+  }
 
   // Focus terminal when tab becomes active
   $effect(() => {
     if (active && termRef) {
       termRef.focus()
+    }
+  })
+
+  // Re-attach WebGL addon after context loss when tab becomes active
+  $effect(() => {
+    if (active && termRef && !webglAttached) {
+      attachWebgl(termRef)
     }
   })
 
@@ -180,11 +207,7 @@
         progressValue = value
       })
 
-      try {
-        term.loadAddon(new WebglAddon())
-      } catch {
-        // WebGL not available, fall back to canvas renderer
-      }
+      attachWebgl(term)
 
       // Defer initial fit to after browser layout is complete
       requestAnimationFrame(() => fitAddon.fit())
@@ -237,6 +260,11 @@
       termRef = null
       wsRef = null
       if (resizeObserver) resizeObserver.disconnect()
+      if (webglAddonRef) {
+        webglAddonRef.dispose()
+        webglAddonRef = null
+        webglAttached = false
+      }
       if (ws) ws.close()
       if (term) term.dispose()
     }
