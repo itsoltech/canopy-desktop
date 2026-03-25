@@ -268,12 +268,24 @@ export function registerIpcHandlers(
 
   ipcMain.handle('app:setWorkspacePath', (event, payload: { path: string }) => {
     windowManager.addWorkspacePath(event.sender.id, payload.path)
+    const configs = windowManager.getAllWindowConfigs()
+    if (configs.length > 0) {
+      preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
+    } else {
+      preferencesStore.delete('openWindowConfigs')
+    }
   })
 
   ipcMain.handle('app:detachProject', (event, payload: { path: string }) => {
     const senderId = event.sender.id
     windowManager.removeWorkspacePath(senderId, payload.path)
     windowManager.disposeGitWatcher(senderId, payload.path)
+    const configs = windowManager.getAllWindowConfigs()
+    if (configs.length > 0) {
+      preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
+    } else {
+      preferencesStore.delete('openWindowConfigs')
+    }
   })
 
   ipcMain.handle('app:focusWindowForPath', (event, payload: { path: string }) => {

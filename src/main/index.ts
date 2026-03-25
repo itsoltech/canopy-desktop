@@ -251,6 +251,12 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:installUpdate', () => {
       if (!updateDownloaded) return
+      const configs = windowManager.getAllWindowConfigs()
+      if (configs.length > 0) {
+        preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
+      } else {
+        preferencesStore.delete('openWindowConfigs')
+      }
       autoUpdater.quitAndInstall(true, true)
     })
 
