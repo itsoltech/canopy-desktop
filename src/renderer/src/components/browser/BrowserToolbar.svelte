@@ -19,6 +19,7 @@
     isDevToolsOpen,
     devToolsMode,
     pickMode = 'none',
+    hasAiSessions = false,
     onNavigate,
     onBack,
     onForward,
@@ -36,6 +37,7 @@
     isDevToolsOpen: boolean
     devToolsMode: 'bottom' | 'right'
     pickMode?: 'none' | 'element' | 'region'
+    hasAiSessions?: boolean
     onNavigate: (url: string) => void
     onBack: () => void
     onForward: () => void
@@ -126,8 +128,9 @@
         <button
           class="nav-btn"
           class:active={captureDropdownOpen}
+          disabled={!hasAiSessions}
           onclick={() => (captureDropdownOpen ? closeDropdown() : openDropdown())}
-          title="Capture to Claude"
+          title={hasAiSessions ? 'Capture to AI agent' : 'No AI sessions open'}
         >
           <Crosshair size={14} />
         </button>

@@ -40,6 +40,11 @@
   let frozenScreenshot: string | null = $state(null)
 
   let session = $derived(browserSessions[browserId])
+  let aiSessionCount = $derived(
+    workspaceState.selectedWorktreePath
+      ? getAiSessions(workspaceState.selectedWorktreePath).length
+      : 0,
+  )
 
   async function freeze(): Promise<void> {
     // Close DevTools before capture so screenshot matches full area
@@ -282,6 +287,7 @@
       onReload={handleReload}
       onToggleDevTools={handleToggleDevTools}
       onSwitchDevToolsMode={handleSwitchDevToolsMode}
+      hasAiSessions={aiSessionCount > 0}
       onStartElementPick={handleStartElementPick}
       onStartRegionCapture={handleStartRegionCapture}
       onCancelPick={handleCancelPick}
