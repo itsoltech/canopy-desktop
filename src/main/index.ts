@@ -14,6 +14,7 @@ import { registerIpcHandlers } from './ipc/handlers'
 import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
+import { BrowserManager } from './browser/BrowserManager'
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -27,6 +28,7 @@ const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
 const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
+const browserManager = new BrowserManager()
 let manualCheckInProgress = false
 
 let claudeSessionManager: ClaudeSessionManager | null = null
@@ -270,6 +272,7 @@ app.whenReady().then(async () => {
     toolRegistry,
     claudeSessionManager,
     windowManager,
+    browserManager,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {

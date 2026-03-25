@@ -85,6 +85,12 @@ export class ToolRegistry {
     const checks = this.getAll().map(
       (tool) =>
         new Promise<void>((resolve) => {
+          // Browser tool is always available (no binary needed)
+          if (tool.id === 'browser') {
+            result[tool.id] = true
+            resolve()
+            return
+          }
           const binary = this.resolveCommand(tool)
           execFile(cmd, [binary], { env }, (err) => {
             result[tool.id] = !err

@@ -2,6 +2,7 @@
   import type { PaneSession } from '../../lib/stores/splitTree'
   import { restartPane, updatePaneTitle } from '../../lib/stores/tabs.svelte'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
+  import BrowserPane from '../browser/BrowserPane.svelte'
   import ExitBanner from './ExitBanner.svelte'
 
   let {
@@ -24,19 +25,27 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="pane-wrapper" class:focused onclick={onFocus}>
-  {#key pane.sessionId}
-    <TerminalInstance
-      sessionId={pane.sessionId}
-      wsUrl={pane.wsUrl}
+  {#if pane.paneType === 'browser'}
+    <BrowserPane
+      browserId={pane.sessionId}
       active={active && focused}
       onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
     />
-  {/key}
-  {#if !pane.isRunning}
-    <ExitBanner
-      exitCode={pane.exitCode}
-      onRestart={() => restartPane(worktreePath, tabId, pane.id)}
-    />
+  {:else}
+    {#key pane.sessionId}
+      <TerminalInstance
+        sessionId={pane.sessionId}
+        wsUrl={pane.wsUrl}
+        active={active && focused}
+        onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
+      />
+    {/key}
+    {#if !pane.isRunning}
+      <ExitBanner
+        exitCode={pane.exitCode}
+        onRestart={() => restartPane(worktreePath, tabId, pane.id)}
+      />
+    {/if}
   {/if}
 </div>
 

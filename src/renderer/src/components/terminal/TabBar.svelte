@@ -11,6 +11,7 @@
   } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
   import { claudeBadges, type BadgeType } from '../../lib/claude/claudeState.svelte'
+  import { browserSessions } from '../../lib/browser/browserState.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
 
   let toolIcons: Record<string, string> = $state({})
@@ -21,6 +22,13 @@
     for (const t of tools) map[t.id] = t.icon
     toolIcons = map
   })
+
+  function getTabFavicon(tab: TabInfo): string | null {
+    if (tab.toolId !== 'browser') return null
+    const pane = allPanes(tab.rootSplit).find((p) => p.paneType === 'browser')
+    if (!pane) return null
+    return browserSessions[pane.sessionId]?.favicon ?? null
+  }
 
   function getTabBadge(tab: TabInfo): BadgeType {
     if (tab.toolId !== 'claude') return 'none'
@@ -157,7 +165,9 @@
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
           title={getTabDisplayName(tab)}
         >
-          {#if toolIcons[tab.toolId]}
+          {#if getTabFavicon(tab)}
+            <img class="tab-favicon" src={getTabFavicon(tab)} alt="" width="12" height="12" />
+          {:else if toolIcons[tab.toolId]}
             <ToolIcon icon={toolIcons[tab.toolId]} size={12} />
           {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>
@@ -302,6 +312,11 @@
     50% {
       opacity: 0.4;
     }
+  }
+
+  .tab-favicon {
+    flex-shrink: 0;
+    border-radius: 2px;
   }
 
   .tab-close {

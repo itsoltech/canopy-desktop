@@ -8,6 +8,7 @@ import type { LayoutStore } from '../db/LayoutStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
 import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
 import type { WindowManager } from '../WindowManager'
+import type { BrowserManager } from '../browser/BrowserManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { GitRepository } from '../git/GitRepository'
@@ -32,6 +33,7 @@ export function registerIpcHandlers(
   toolRegistry: ToolRegistry,
   claudeSessionManager: ClaudeSessionManager,
   windowManager: WindowManager,
+  browserManager: BrowserManager,
 ): void {
   // --- PTY ---
 
@@ -527,6 +529,67 @@ export function registerIpcHandlers(
   ipcMain.handle('tools:removeCustom', (_event, payload: { id: string }) => {
     toolRegistry.removeCustom(payload.id)
     return toolRegistry.getAll()
+  })
+
+  // --- Browser ---
+
+  ipcMain.handle('browser:create', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) throw new Error('No window for browser view')
+    const browserId = crypto.randomUUID()
+    browserManager.create(browserId, win, event.sender)
+    return { browserId }
+  })
+
+  ipcMain.handle('browser:destroy', (_event, payload: { browserId: string }) => {
+    browserManager.destroy(payload.browserId)
+  })
+
+  ipcMain.handle('browser:navigate', (_event, payload: { browserId: string; url: string }) => {
+    browserManager.navigate(payload.browserId, payload.url)
+  })
+
+  ipcMain.handle('browser:back', (_event, payload: { browserId: string }) => {
+    browserManager.goBack(payload.browserId)
+  })
+
+  ipcMain.handle('browser:forward', (_event, payload: { browserId: string }) => {
+    browserManager.goForward(payload.browserId)
+  })
+
+  ipcMain.handle('browser:reload', (_event, payload: { browserId: string }) => {
+    browserManager.reload(payload.browserId)
+  })
+
+  ipcMain.handle(
+    'browser:setBounds',
+    (
+      _event,
+      payload: {
+        browserId: string
+        bounds: { x: number; y: number; width: number; height: number }
+      },
+    ) => {
+      browserManager.setBounds(payload.browserId, payload.bounds)
+    },
+  )
+
+  ipcMain.handle(
+    'browser:setVisible',
+    (_event, payload: { browserId: string; visible: boolean }) => {
+      browserManager.setVisible(payload.browserId, payload.visible)
+    },
+  )
+
+  ipcMain.handle(
+    'browser:toggleDevTools',
+    (_event, payload: { browserId: string; mode?: 'bottom' | 'right' }) => {
+      browserManager.toggleDevTools(payload.browserId, payload.mode)
+    },
+  )
+
+  ipcMain.handle('browser:getState', (_event, payload: { browserId: string }) => {
+    return browserManager.getState(payload.browserId)
   })
 
   // --- Worktree Setup ---

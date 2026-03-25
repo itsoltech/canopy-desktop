@@ -36,7 +36,7 @@ export interface Workspace {
   cachedWorktreeCount: number | null
 }
 
-export type ToolCategory = 'ai' | 'git' | 'system' | 'shell'
+export type ToolCategory = 'ai' | 'git' | 'system' | 'shell' | 'browser'
 
 export interface ToolDefinition {
   id: string

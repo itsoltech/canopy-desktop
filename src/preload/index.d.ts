@@ -173,6 +173,23 @@ interface AboutInfo {
   license: string
 }
 
+interface BrowserState {
+  url: string
+  title: string
+  canGoBack: boolean
+  canGoForward: boolean
+  isLoading: boolean
+  isDevToolsOpen: boolean
+  devToolsMode: 'bottom' | 'right'
+}
+
+interface BrowserBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 interface CanopyAPI {
   // About
   getAboutInfo: () => Promise<AboutInfo>
@@ -275,6 +292,45 @@ interface CanopyAPI {
   gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
   gitGenerateCommitMessage: (repoRoot: string) => Promise<string | null>
+
+  // Browser
+  createBrowser: () => Promise<{ browserId: string }>
+  destroyBrowser: (browserId: string) => Promise<void>
+  navigateBrowser: (browserId: string, url: string) => Promise<void>
+  browserBack: (browserId: string) => Promise<void>
+  browserForward: (browserId: string) => Promise<void>
+  browserReload: (browserId: string) => Promise<void>
+  setBrowserBounds: (browserId: string, bounds: BrowserBounds) => Promise<void>
+  setBrowserVisible: (browserId: string, visible: boolean) => Promise<void>
+  toggleBrowserDevTools: (browserId: string, mode?: 'bottom' | 'right') => Promise<void>
+  getBrowserState: (browserId: string) => Promise<BrowserState | null>
+  onBrowserUrlChanged: (callback: (data: { browserId: string; url: string }) => void) => () => void
+  onBrowserTitleChanged: (
+    callback: (data: { browserId: string; title: string }) => void,
+  ) => () => void
+  onBrowserFaviconChanged: (
+    callback: (data: { browserId: string; favicon: string | null }) => void,
+  ) => () => void
+  onBrowserLoadingChanged: (
+    callback: (data: { browserId: string; isLoading: boolean }) => void,
+  ) => () => void
+  onBrowserLoadFailed: (
+    callback: (data: {
+      browserId: string
+      errorCode: number
+      errorDescription: string
+      validatedURL: string
+    }) => void,
+  ) => () => void
+  onBrowserStateChanged: (
+    callback: (data: {
+      browserId: string
+      canGoBack: boolean
+      canGoForward: boolean
+      isDevToolsOpen: boolean
+      devToolsMode: 'bottom' | 'right'
+    }) => void,
+  ) => () => void
 
   // Worktree Setup
   runWorktreeSetup: (
