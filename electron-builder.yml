@@ -35,7 +35,6 @@ mac:
   notarize: true
 dmg:
   artifactName: ${name}-${version}.${ext}
-  license: LICENSE.md
 linux:
   target:
     - AppImage
