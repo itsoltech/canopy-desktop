@@ -199,7 +199,7 @@
             <span class="rate-limit-meta"
               >{Math.round(
                 100 - state.rateLimitFiveHour,
-              )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}{' '}
+              )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}
                 <span class="rate-limit-reset"
                   >{formatResetTime(state.rateLimitFiveHourResetsAt)}</span
                 >{/if}</span
@@ -220,7 +220,7 @@
             <span class="rate-limit-meta"
               >{Math.round(
                 100 - state.rateLimitSevenDay,
-              )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}{' '}
+              )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}
                 <span class="rate-limit-reset"
                   >{formatResetTime(state.rateLimitSevenDayResetsAt)}</span
                 >{/if}</span
@@ -539,6 +539,7 @@
 
   .rate-limit-reset {
     color: rgba(255, 255, 255, 0.3);
+    margin-left: 0.3em;
   }
 
   /* Notifications */
