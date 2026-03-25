@@ -13,9 +13,9 @@
     workspaceId?: string
   } = $props()
 
-  type Step = 'fetch' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
+  type Step = 'loading' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
 
-  let step = $state<Step>('fetch')
+  let step = $state<Step>('loading')
   let branches = $state<{ local: string[]; remote: string[] }>({ local: [], remote: [] })
   let branchQuery = $state('')
   let selectedBase = $state('')
@@ -24,6 +24,7 @@
   let errorMessage = $state('')
   let createdPath = $state('')
   let homedir = $state('')
+  let refreshing = $state(false)
 
   // Setup progress state
   let setupLabel = $state('')
@@ -51,22 +52,26 @@
   onMount(async () => {
     window.api.getHomedir().then((h) => (homedir = h))
     try {
-      await window.api.gitFetchAll(repoRoot)
       const list = await window.api.gitBranches(repoRoot)
       branches = { local: list.local, remote: list.remote }
       step = 'pickBase'
-    } catch {
-      // Fetch failed — still show branches without fresh remote data
-      try {
-        const list = await window.api.gitBranches(repoRoot)
-        branches = { local: list.local, remote: list.remote }
-        step = 'pickBase'
-      } catch (e) {
-        errorMessage = e instanceof Error ? e.message : String(e)
-        step = 'error'
-      }
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : String(e)
+      step = 'error'
     }
   })
+
+  async function refreshBranches(): Promise<void> {
+    refreshing = true
+    try {
+      await window.api.gitFetchAll(repoRoot)
+      const list = await window.api.gitBranches(repoRoot)
+      branches = { local: list.local, remote: list.remote }
+    } catch {
+      // fetch failed — keep existing branch list
+    }
+    refreshing = false
+  }
 
   onDestroy(() => {
     cleanupProgressListener?.()
@@ -216,16 +221,35 @@
   <div class="modal-container" onclick={(e) => e.stopPropagation()}>
     <h3 class="modal-title">Create Worktree</h3>
 
-    {#if step === 'fetch'}
+    {#if step === 'loading'}
       <div class="modal-body center">
-        <p class="status-text">Fetching remotes...</p>
+        <p class="status-text">Loading branches...</p>
       </div>
     {:else if step === 'pickBase'}
       {#if !selectedBase}
         <!-- Pick base branch -->
         <div class="modal-body" onkeydown={handleBranchListKeydown}>
-          <!-- svelte-ignore a11y_label_has_associated_control -->
-          <label class="field-label">Base branch</label>
+          <div class="field-header">
+            <!-- svelte-ignore a11y_label_has_associated_control -->
+            <label class="field-label">Base branch</label>
+            <button
+              class="btn-refresh"
+              onclick={refreshBranches}
+              disabled={refreshing}
+              title="Fetch from remote"
+            >
+              <svg
+                class="refresh-icon"
+                class:spinning={refreshing}
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path d="M13.65 2.35A8 8 0 1 0 16 8h-2a6 6 0 1 1-1.76-4.24L10 6h6V0l-2.35 2.35z" />
+              </svg>
+            </button>
+          </div>
           <input
             class="field-input"
             type="text"
@@ -414,6 +438,13 @@
     align-items: center;
   }
 
+  .field-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
   .field-label {
     display: block;
     font-size: 11px;
@@ -421,7 +452,47 @@
     letter-spacing: 0.5px;
     color: rgba(255, 255, 255, 0.4);
     text-transform: uppercase;
-    margin-bottom: 6px;
+  }
+
+  .btn-refresh {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.35);
+    cursor: pointer;
+    transition:
+      background 0.1s,
+      color 0.1s;
+  }
+
+  .btn-refresh:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .btn-refresh:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  .refresh-icon {
+    transition: transform 0.2s;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .refresh-icon.spinning {
+    animation: spin 0.8s linear infinite;
   }
 
   .field-input {
