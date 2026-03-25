@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
@@ -276,6 +276,9 @@ const api = {
       ipcRenderer.removeListener('url:action', handler)
     }
   },
+
+  // File utilities
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
 }
 
 if (process.contextIsolated) {

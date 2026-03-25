@@ -298,6 +298,9 @@ interface CanopyAPI {
   onUrlAction: (
     callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
   ) => () => void
+
+  // File utilities
+  getPathForFile: (file: File) => string
 }
 
 declare global {

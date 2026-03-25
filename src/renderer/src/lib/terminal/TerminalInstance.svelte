@@ -111,7 +111,7 @@
 
     const paths: string[] = []
     for (const file of files) {
-      const filePath = (file as File & { path?: string }).path
+      const filePath = window.api.getPathForFile(file)
       if (filePath) paths.push(shellEscape(filePath))
     }
 
