@@ -50,6 +50,7 @@
       <div class="license-section">
         <h3 class="license-title">License</h3>
         <div class="license-content">
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- trusted content from bundled LICENSE.md -->
           {@html licenseHtml}
         </div>
       </div>
