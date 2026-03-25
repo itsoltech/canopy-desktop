@@ -38,6 +38,17 @@ mac:
   notarize: true
 dmg:
   artifactName: ${name}-${version}.${ext}
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 190
+      type: file
+    - x: 400
+      y: 190
+      type: link
+      path: /Applications
 linux:
   target:
     - AppImage
