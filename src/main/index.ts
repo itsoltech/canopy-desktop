@@ -147,6 +147,15 @@ function buildAppMenu(): void {
             shell.openExternal('https://canopy.itsol.tech/privacy-policy')
           },
         },
+        {
+          label: 'Third-Party Licenses',
+          click: () => {
+            const noticesPath = app.isPackaged
+              ? resolve(process.resourcesPath, 'THIRD-PARTY-NOTICES')
+              : resolve(app.getAppPath(), 'THIRD-PARTY-NOTICES')
+            shell.openPath(noticesPath)
+          },
+        },
       ],
     },
   ]
