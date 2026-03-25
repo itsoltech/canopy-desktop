@@ -477,24 +477,28 @@ export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
 }
 
-export interface ClaudeSessionInfo {
+export interface AiSessionInfo {
   sessionId: string
   tabName: string
+  toolId: string
   status: string
 }
 
-export function getClaudeSessions(worktreePath: string): ClaudeSessionInfo[] {
+const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
+
+export function getAiSessions(worktreePath: string): AiSessionInfo[] {
   const tabs = tabsByWorktree[worktreePath] ?? []
-  const result: ClaudeSessionInfo[] = []
+  const result: AiSessionInfo[] = []
   for (const tab of tabs) {
     const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
-      if (p.toolId === 'claude' && p.isRunning) {
-        const cs = claudeSessions[p.sessionId]
+      if (AI_TOOL_IDS.has(p.toolId) && p.isRunning) {
+        const cs = p.toolId === 'claude' ? claudeSessions[p.sessionId] : null
         result.push({
           sessionId: p.sessionId,
           tabName: tab.name,
-          status: cs?.status?.type ?? 'unknown',
+          toolId: p.toolId,
+          status: cs?.status?.type ?? 'running',
         })
       }
     }

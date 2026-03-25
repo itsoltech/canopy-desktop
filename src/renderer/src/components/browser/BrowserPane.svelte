@@ -15,11 +15,11 @@
   } from '../../lib/browser/browserState.svelte'
   import {
     updateBrowserPaneUrl,
-    getClaudeSessions,
+    getAiSessions,
     focusSessionByPtyId,
   } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import ClaudeSessionPicker from './ClaudeSessionPicker.svelte'
+  import AiSessionPicker from './AiSessionPicker.svelte'
   import { showUrlToast } from '../../lib/stores/toast.svelte'
 
   let {
@@ -194,9 +194,9 @@
     const path = workspaceState.selectedWorktreePath
     if (!path) return
 
-    const sessions = getClaudeSessions(path)
+    const sessions = getAiSessions(path)
     if (sessions.length === 0) {
-      showUrlToast('No Claude sessions open')
+      showUrlToast('No AI sessions open')
       return
     }
     if (sessions.length === 1) {
@@ -290,8 +290,8 @@
 {#if showPicker}
   {@const path = workspaceState.selectedWorktreePath}
   {#if path}
-    <ClaudeSessionPicker
-      sessions={getClaudeSessions(path)}
+    <AiSessionPicker
+      sessions={getAiSessions(path)}
       onSelect={handlePickerSelect}
       onClose={() => {
         showPicker = false

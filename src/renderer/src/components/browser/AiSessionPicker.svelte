@@ -1,16 +1,12 @@
 <script lang="ts">
-  interface ClaudeSessionInfo {
-    sessionId: string
-    tabName: string
-    status: string
-  }
+  import type { AiSessionInfo } from '../../lib/stores/tabs.svelte'
 
   let {
     sessions,
     onSelect,
     onClose,
   }: {
-    sessions: ClaudeSessionInfo[]
+    sessions: AiSessionInfo[]
     onSelect: (sessionId: string) => void
     onClose: () => void
   } = $props()
@@ -28,7 +24,7 @@
 <div class="picker-overlay" onclick={onClose} onkeydown={handleKeydown}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="picker" onclick={(e) => e.stopPropagation()}>
-    <div class="picker-title">Send to Claude</div>
+    <div class="picker-title">Send to</div>
     {#each sessions as s (s.sessionId)}
       <button class="picker-item" onclick={() => onSelect(s.sessionId)}>
         <span class="picker-name">{s.tabName}</span>
