@@ -70,6 +70,13 @@ export class PtyManager {
     }
   }
 
+  write(id: string, data: string): void {
+    const session = this.sessions.get(id)
+    if (session) {
+      session.pty.write(data)
+    }
+  }
+
   kill(id: string): void {
     const session = this.sessions.get(id)
     if (session) {

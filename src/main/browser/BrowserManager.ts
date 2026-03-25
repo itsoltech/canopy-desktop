@@ -1,5 +1,8 @@
 import { WebContentsView, Menu, type BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
+import { join } from 'path'
+import { writeFileSync } from 'fs'
+import os from 'os'
 
 interface BrowserViewEntry {
   view: WebContentsView
@@ -329,6 +332,126 @@ export class BrowserManager {
         this.destroy(id)
       }
     }
+  }
+
+  async startElementPick(id: string): Promise<string | null> {
+    const entry = this.views.get(id)
+    if (!entry) return null
+
+    const js = `
+      new Promise((resolve) => {
+        const ov = document.createElement('div')
+        ov.id = '__canopy_pick_overlay'
+        ov.style.cssText = 'position:fixed;inset:0;z-index:999999;cursor:crosshair'
+        const hl = document.createElement('div')
+        hl.id = '__canopy_pick_highlight'
+        hl.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;'
+          + 'border:2px solid #74c0fc;background:rgba(116,192,252,0.12);transition:all 0.05s'
+        document.body.appendChild(hl)
+        document.body.appendChild(ov)
+        ov.addEventListener('mousemove', (e) => {
+          ov.style.pointerEvents = 'none'
+          const el = document.elementFromPoint(e.clientX, e.clientY)
+          ov.style.pointerEvents = 'auto'
+          if (el && el !== document.body && el !== document.documentElement) {
+            const r = el.getBoundingClientRect()
+            hl.style.left = r.left+'px'; hl.style.top = r.top+'px'
+            hl.style.width = r.width+'px'; hl.style.height = r.height+'px'
+          }
+        })
+        ov.addEventListener('click', (e) => {
+          e.preventDefault(); e.stopPropagation()
+          ov.style.pointerEvents = 'none'
+          const el = document.elementFromPoint(e.clientX, e.clientY)
+          ov.style.pointerEvents = 'auto'
+          ov.remove(); hl.remove()
+          resolve(el ? el.outerHTML : null)
+        })
+        document.addEventListener('keydown', function handler(e) {
+          if (e.key === 'Escape') {
+            ov.remove(); hl.remove()
+            document.removeEventListener('keydown', handler)
+            resolve(null)
+          }
+        })
+      })
+    `
+    return entry.view.webContents.executeJavaScript(js)
+  }
+
+  async startRegionCapture(id: string): Promise<string | null> {
+    const entry = this.views.get(id)
+    if (!entry) return null
+
+    const js = `
+      new Promise((resolve) => {
+        const ov = document.createElement('div')
+        ov.id = '__canopy_capture_overlay'
+        ov.style.cssText = 'position:fixed;inset:0;z-index:999999;cursor:crosshair'
+        const sel = document.createElement('div')
+        sel.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;'
+          + 'border:2px solid #74c0fc;background:rgba(116,192,252,0.15)'
+        document.body.appendChild(sel)
+        document.body.appendChild(ov)
+        let startX, startY, dragging = false
+        ov.addEventListener('mousedown', (e) => {
+          startX = e.clientX; startY = e.clientY; dragging = true
+          sel.style.left = startX+'px'; sel.style.top = startY+'px'
+          sel.style.width = '0px'; sel.style.height = '0px'
+        })
+        ov.addEventListener('mousemove', (e) => {
+          if (!dragging) return
+          const x = Math.min(e.clientX, startX), y = Math.min(e.clientY, startY)
+          const w = Math.abs(e.clientX - startX), h = Math.abs(e.clientY - startY)
+          sel.style.left = x+'px'; sel.style.top = y+'px'
+          sel.style.width = w+'px'; sel.style.height = h+'px'
+        })
+        ov.addEventListener('mouseup', (e) => {
+          if (!dragging) return
+          dragging = false
+          const x = Math.min(e.clientX, startX), y = Math.min(e.clientY, startY)
+          const w = Math.abs(e.clientX - startX), h = Math.abs(e.clientY - startY)
+          ov.remove(); sel.remove()
+          if (w < 5 || h < 5) { resolve(null); return }
+          resolve({ x, y, width: w, height: h })
+        })
+        document.addEventListener('keydown', function handler(e) {
+          if (e.key === 'Escape') {
+            ov.remove(); sel.remove()
+            document.removeEventListener('keydown', handler)
+            resolve(null)
+          }
+        })
+      })
+    `
+    const bounds = await entry.view.webContents.executeJavaScript(js)
+    if (!bounds) return null
+
+    const image = await entry.view.webContents.capturePage(bounds)
+    const filePath = join(os.tmpdir(), `canopy-capture-${Date.now()}.png`)
+    writeFileSync(filePath, image.toPNG())
+    return filePath
+  }
+
+  async capturePageFull(id: string): Promise<string | null> {
+    const entry = this.views.get(id)
+    if (!entry) return null
+    const image = await entry.view.webContents.capturePage()
+    return image.toDataURL()
+  }
+
+  cancelPick(id: string): void {
+    const entry = this.views.get(id)
+    if (!entry) return
+    entry.view.webContents
+      .executeJavaScript(
+        `
+      document.getElementById('__canopy_pick_overlay')?.remove()
+      document.getElementById('__canopy_pick_highlight')?.remove()
+      document.getElementById('__canopy_capture_overlay')?.remove()
+    `,
+      )
+      .catch(() => {})
   }
 
   private sendToRenderer(id: string, channel: string, data: unknown): void {

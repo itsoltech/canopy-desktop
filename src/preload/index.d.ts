@@ -208,6 +208,7 @@ interface CanopyAPI {
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
   killPty: (sessionId: string) => Promise<void>
+  writePty: (sessionId: string, data: string) => Promise<void>
   hasChildProcess: (sessionId: string) => Promise<boolean>
 
   // Workspaces
@@ -304,6 +305,10 @@ interface CanopyAPI {
   setBrowserVisible: (browserId: string, visible: boolean) => Promise<void>
   toggleBrowserDevTools: (browserId: string, mode?: 'bottom' | 'right') => Promise<void>
   getBrowserState: (browserId: string) => Promise<BrowserState | null>
+  capturePageFull: (browserId: string) => Promise<string | null>
+  browserStartElementPick: (browserId: string) => Promise<string | null>
+  browserStartRegionCapture: (browserId: string) => Promise<string | null>
+  browserCancelPick: (browserId: string) => Promise<void>
   onBrowserUrlChanged: (callback: (data: { browserId: string; url: string }) => void) => () => void
   onBrowserTitleChanged: (
     callback: (data: { browserId: string; title: string }) => void,

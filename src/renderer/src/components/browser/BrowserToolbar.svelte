@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { ArrowLeft, ArrowRight, RotateCw, Code, PanelBottom, PanelRight } from 'lucide-svelte'
+  import {
+    ArrowLeft,
+    ArrowRight,
+    RotateCw,
+    Code,
+    PanelBottom,
+    PanelRight,
+    Crosshair,
+    Camera,
+    X,
+  } from 'lucide-svelte'
 
   let {
     url,
@@ -8,12 +18,18 @@
     isLoading,
     isDevToolsOpen,
     devToolsMode,
+    pickMode = 'none',
     onNavigate,
     onBack,
     onForward,
     onReload,
     onToggleDevTools,
     onSwitchDevToolsMode,
+    onStartElementPick,
+    onStartRegionCapture,
+    onCancelPick,
+    onDropdownOpen,
+    onDropdownClose,
   }: {
     url: string
     canGoBack: boolean
@@ -21,13 +37,31 @@
     isLoading: boolean
     isDevToolsOpen: boolean
     devToolsMode: 'bottom' | 'right'
+    pickMode?: 'none' | 'element' | 'region'
     onNavigate: (url: string) => void
     onBack: () => void
     onForward: () => void
     onReload: () => void
     onToggleDevTools: () => void
     onSwitchDevToolsMode: () => void
+    onStartElementPick: () => void
+    onStartRegionCapture: () => void
+    onCancelPick: () => void
+    onDropdownOpen: () => void
+    onDropdownClose: () => void
   } = $props()
+
+  let captureDropdownOpen = $state(false)
+
+  function openDropdown(): void {
+    captureDropdownOpen = true
+    onDropdownOpen()
+  }
+
+  function closeDropdown(): void {
+    captureDropdownOpen = false
+    onDropdownClose()
+  }
 
   let inputValue = $state(url)
   let urlInput: HTMLInputElement | undefined = $state()
@@ -84,6 +118,53 @@
   />
 
   <div class="action-buttons">
+    <div class="capture-wrapper">
+      {#if pickMode !== 'none'}
+        <button class="nav-btn cancel-btn" onclick={onCancelPick} title="Cancel (Esc)">
+          <X size={14} />
+        </button>
+        <span class="pick-label">
+          {pickMode === 'element' ? 'Select...' : 'Capture...'}
+        </span>
+      {:else}
+        <button
+          class="nav-btn"
+          class:active={captureDropdownOpen}
+          onclick={() => (captureDropdownOpen ? closeDropdown() : openDropdown())}
+          title="Capture to Claude"
+        >
+          <Crosshair size={14} />
+        </button>
+      {/if}
+      {#if captureDropdownOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="capture-backdrop" onclick={closeDropdown}></div>
+        <div class="capture-dropdown">
+          <button
+            class="capture-option"
+            onclick={() => {
+              closeDropdown()
+              onStartElementPick()
+            }}
+          >
+            <Crosshair size={13} />
+            Select Element
+          </button>
+          <button
+            class="capture-option"
+            onclick={() => {
+              closeDropdown()
+              onStartRegionCapture()
+            }}
+          >
+            <Camera size={13} />
+            Capture Region
+          </button>
+        </div>
+      {/if}
+    </div>
+
     {#if isDevToolsOpen}
       <button
         class="nav-btn"
@@ -168,6 +249,67 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  .capture-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .cancel-btn {
+    color: rgb(255, 130, 130) !important;
+  }
+
+  .cancel-btn:hover {
+    background: rgba(255, 130, 130, 0.12) !important;
+  }
+
+  .pick-label {
+    font-size: 11px;
+    color: rgba(116, 192, 252, 0.8);
+    white-space: nowrap;
+  }
+
+  .capture-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+  }
+
+  .capture-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    min-width: 160px;
+    padding: 4px;
+    background: rgba(30, 30, 30, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+  }
+
+  .capture-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .capture-option:hover {
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .url-bar {

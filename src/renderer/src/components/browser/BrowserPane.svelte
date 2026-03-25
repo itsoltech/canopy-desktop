@@ -13,7 +13,14 @@
     handleBrowserLoadFailed,
     handleBrowserStateChanged,
   } from '../../lib/browser/browserState.svelte'
-  import { updateBrowserPaneUrl } from '../../lib/stores/tabs.svelte'
+  import {
+    updateBrowserPaneUrl,
+    getClaudeSessions,
+    focusSessionByPtyId,
+  } from '../../lib/stores/tabs.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import ClaudeSessionPicker from './ClaudeSessionPicker.svelte'
+  import { showUrlToast } from '../../lib/stores/toast.svelte'
 
   let {
     browserId,
@@ -27,8 +34,32 @@
 
   let containerEl: HTMLDivElement | undefined = $state()
   let toolbarComponent: BrowserToolbar | undefined = $state()
+  let pickMode: 'none' | 'element' | 'region' = $state('none')
+  let showPicker = $state(false)
+  let pendingPayload: string | null = $state(null)
+  let frozenScreenshot: string | null = $state(null)
 
   let session = $derived(browserSessions[browserId])
+
+  async function freeze(): Promise<void> {
+    // Close DevTools before capture so screenshot matches full area
+    if (session?.isDevToolsOpen) {
+      window.api.toggleBrowserDevTools(browserId, session?.devToolsMode)
+      await new Promise((r) => setTimeout(r, 150))
+    }
+    const dataUrl = await window.api.capturePageFull(browserId)
+    if (dataUrl) {
+      frozenScreenshot = dataUrl
+      window.api.setBrowserVisible(browserId, false)
+    }
+  }
+
+  function unfreeze(): void {
+    frozenScreenshot = null
+    if (active) {
+      window.api.setBrowserVisible(browserId, true)
+    }
+  }
 
   // Subscribe to browser events
   onMount(() => {
@@ -78,6 +109,19 @@
       unsubs.forEach((fn) => fn())
       removeBrowserSession(browserId)
     }
+  })
+
+  // Escape to cancel pick/capture
+  $effect(() => {
+    if (pickMode === 'none') return
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        handleCancelPick()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
   })
 
   // Listen for Cmd+L focus event
@@ -146,6 +190,59 @@
     }, 100)
   }
 
+  async function sendToClaude(payload: string): Promise<void> {
+    const path = workspaceState.selectedWorktreePath
+    if (!path) return
+
+    const sessions = getClaudeSessions(path)
+    if (sessions.length === 0) {
+      showUrlToast('No Claude sessions open')
+      return
+    }
+    if (sessions.length === 1) {
+      deliverToSession(sessions[0].sessionId, payload)
+    } else {
+      pendingPayload = payload
+      await freeze()
+      showPicker = true
+    }
+  }
+
+  function deliverToSession(sessionId: string, payload: string): void {
+    unfreeze()
+    window.api.writePty(sessionId, payload)
+    focusSessionByPtyId(sessionId)
+  }
+
+  function handlePickerSelect(sessionId: string): void {
+    showPicker = false
+    if (pendingPayload) {
+      deliverToSession(sessionId, pendingPayload)
+      pendingPayload = null
+    }
+  }
+
+  async function handleStartElementPick(): Promise<void> {
+    pickMode = 'element'
+    const html = await window.api.browserStartElementPick(browserId)
+    pickMode = 'none'
+    if (!html) return
+    sendToClaude('```html\n' + html + '\n```\n')
+  }
+
+  async function handleStartRegionCapture(): Promise<void> {
+    pickMode = 'region'
+    const filePath = await window.api.browserStartRegionCapture(browserId)
+    pickMode = 'none'
+    if (!filePath) return
+    sendToClaude(filePath + ' ')
+  }
+
+  function handleCancelPick(): void {
+    window.api.browserCancelPick(browserId)
+    pickMode = 'none'
+  }
+
   export function focusUrlBar(): void {
     toolbarComponent?.focusUrlBar()
   }
@@ -161,16 +258,25 @@
       isLoading={session.isLoading}
       isDevToolsOpen={session.isDevToolsOpen}
       devToolsMode={session.devToolsMode}
+      {pickMode}
       onNavigate={handleNavigate}
       onBack={handleBack}
       onForward={handleForward}
       onReload={handleReload}
       onToggleDevTools={handleToggleDevTools}
       onSwitchDevToolsMode={handleSwitchDevToolsMode}
+      onStartElementPick={handleStartElementPick}
+      onStartRegionCapture={handleStartRegionCapture}
+      onCancelPick={handleCancelPick}
+      onDropdownOpen={freeze}
+      onDropdownClose={unfreeze}
     />
   {/if}
 
   <div class="browser-content" bind:this={containerEl}>
+    {#if frozenScreenshot}
+      <img class="frozen-screenshot" src={frozenScreenshot} alt="" />
+    {/if}
     {#if session?.error}
       <BrowserError
         errorDescription={session.error.description}
@@ -180,6 +286,21 @@
     {/if}
   </div>
 </div>
+
+{#if showPicker}
+  {@const path = workspaceState.selectedWorktreePath}
+  {#if path}
+    <ClaudeSessionPicker
+      sessions={getClaudeSessions(path)}
+      onSelect={handlePickerSelect}
+      onClose={() => {
+        showPicker = false
+        pendingPayload = null
+        unfreeze()
+      }}
+    />
+  {/if}
+{/if}
 
 <style>
   .browser-pane {
@@ -194,5 +315,15 @@
     flex: 1;
     position: relative;
     min-height: 0;
+  }
+
+  .frozen-screenshot {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top left;
+    z-index: 1;
   }
 </style>

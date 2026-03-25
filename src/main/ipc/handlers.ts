@@ -69,6 +69,10 @@ export function registerIpcHandlers(
     ptyManager.kill(payload.sessionId)
   })
 
+  ipcMain.handle('pty:write', (_event, payload: { sessionId: string; data: string }) => {
+    ptyManager.write(payload.sessionId, payload.data)
+  })
+
   ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
     return ptyManager.hasChildProcess(payload.sessionId)
   })
@@ -590,6 +594,22 @@ export function registerIpcHandlers(
 
   ipcMain.handle('browser:getState', (_event, payload: { browserId: string }) => {
     return browserManager.getState(payload.browserId)
+  })
+
+  ipcMain.handle('browser:capturePageFull', async (_event, payload: { browserId: string }) => {
+    return browserManager.capturePageFull(payload.browserId)
+  })
+
+  ipcMain.handle('browser:startElementPick', async (_event, payload: { browserId: string }) => {
+    return browserManager.startElementPick(payload.browserId)
+  })
+
+  ipcMain.handle('browser:startRegionCapture', async (_event, payload: { browserId: string }) => {
+    return browserManager.startRegionCapture(payload.browserId)
+  })
+
+  ipcMain.handle('browser:cancelPick', (_event, payload: { browserId: string }) => {
+    browserManager.cancelPick(payload.browserId)
   })
 
   // --- Worktree Setup ---

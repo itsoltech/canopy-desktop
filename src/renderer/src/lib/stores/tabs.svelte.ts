@@ -477,6 +477,31 @@ export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
 }
 
+export interface ClaudeSessionInfo {
+  sessionId: string
+  tabName: string
+  status: string
+}
+
+export function getClaudeSessions(worktreePath: string): ClaudeSessionInfo[] {
+  const tabs = tabsByWorktree[worktreePath] ?? []
+  const result: ClaudeSessionInfo[] = []
+  for (const tab of tabs) {
+    const panes = allPanes(tab.rootSplit)
+    for (const p of panes) {
+      if (p.toolId === 'claude' && p.isRunning) {
+        const cs = claudeSessions[p.sessionId]
+        result.push({
+          sessionId: p.sessionId,
+          tabName: tab.name,
+          status: cs?.status?.type ?? 'unknown',
+        })
+      }
+    }
+  }
+  return result
+}
+
 export function getTabDisplayName(tab: TabInfo): string {
   const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
   return focused?.title || tab.name

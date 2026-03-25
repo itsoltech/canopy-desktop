@@ -9,6 +9,8 @@ const api = {
   resizePty: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', { sessionId, cols, rows }),
   killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', { sessionId }),
+  writePty: (sessionId: string, data: string) =>
+    ipcRenderer.invoke('pty:write', { sessionId, data }),
   hasChildProcess: (sessionId: string) =>
     ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
 
@@ -187,6 +189,13 @@ const api = {
   toggleBrowserDevTools: (browserId: string, mode?: 'bottom' | 'right') =>
     ipcRenderer.invoke('browser:toggleDevTools', { browserId, mode }),
   getBrowserState: (browserId: string) => ipcRenderer.invoke('browser:getState', { browserId }),
+  capturePageFull: (browserId: string) =>
+    ipcRenderer.invoke('browser:capturePageFull', { browserId }) as Promise<string | null>,
+  browserStartElementPick: (browserId: string) =>
+    ipcRenderer.invoke('browser:startElementPick', { browserId }) as Promise<string | null>,
+  browserStartRegionCapture: (browserId: string) =>
+    ipcRenderer.invoke('browser:startRegionCapture', { browserId }) as Promise<string | null>,
+  browserCancelPick: (browserId: string) => ipcRenderer.invoke('browser:cancelPick', { browserId }),
 
   onBrowserUrlChanged: (callback: (data: { browserId: string; url: string }) => void) => {
     const handler = (_event: IpcRendererEvent, data: { browserId: string; url: string }): void =>
