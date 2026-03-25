@@ -37,6 +37,7 @@
     "chokidar": "^5.0.0",
     "electron-updater": "^6.3.9",
     "lucide-svelte": "^1.0.1",
+    "marked": "^17.0.5",
     "node-pty": "^1.1.0",
     "simple-git": "^3.33.0",
     "ws": "^8.20.0"

@@ -104,6 +104,10 @@ const api = {
     }
   },
 
+  // About
+  getAboutInfo: () => ipcRenderer.invoke('app:getAboutInfo'),
+  openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', { url }),
+
   // App / Shell
   getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),

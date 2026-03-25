@@ -7,9 +7,15 @@
   import InputDialog from '../dialogs/InputDialog.svelte'
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
+  import AboutModal from '../dialogs/AboutModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import ClaudeInspector from '../claude/ClaudeInspector.svelte'
-  import { dialogState, closeDialog, showPreferences } from '../../lib/stores/dialogs.svelte'
+  import {
+    dialogState,
+    closeDialog,
+    showPreferences,
+    showAbout,
+  } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
     projects,
@@ -131,6 +137,13 @@
       }
     })
     return unsubscribe
+  })
+
+  // Subscribe to menu:showAbout from native menu
+  $effect(() => {
+    const handler = (): void => showAbout()
+    window.electron.ipcRenderer.on('menu:showAbout', handler)
+    return () => window.electron.ipcRenderer.removeListener('menu:showAbout', handler)
   })
 
   // Save layouts on window close
@@ -298,6 +311,8 @@
   />
 {:else if dialogState.current.type === 'preferences'}
   <PreferencesModal />
+{:else if dialogState.current.type === 'about'}
+  <AboutModal />
 {/if}
 
 <div class="main-layout">

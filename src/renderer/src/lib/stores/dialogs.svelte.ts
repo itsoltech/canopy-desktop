@@ -47,6 +47,10 @@ interface PreferencesState {
   type: 'preferences'
 }
 
+interface AboutState {
+  type: 'about'
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -57,6 +61,7 @@ type DialogState =
   | InputDialogState
   | CreateWorktreeState
   | PreferencesState
+  | AboutState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -108,6 +113,10 @@ export function showCreateWorktree(opts?: { repoRoot?: string; workspaceId?: str
 
 export function showPreferences(): void {
   dialogState.current = { type: 'preferences' }
+}
+
+export function showAbout(): void {
+  dialogState.current = { type: 'about' }
 }
 
 export function closeDialog(): void {
