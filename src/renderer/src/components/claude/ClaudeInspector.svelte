@@ -108,11 +108,11 @@
     if (days > 0) {
       if (remHours === 0 && mins === 0) return `in ${days}d`
       if (mins === 0) return `in ${days}d ${remHours}h`
-      return `in ${days}d ${remHours}h${mins}min`
+      return `in ${days}d ${remHours}h ${mins}min`
     }
     if (hours === 0) return `in ${mins}min`
     if (mins === 0) return `in ${hours}h`
-    return `in ${hours}h${mins}min`
+    return `in ${hours}h ${mins}min`
   }
 
   function rateLimitBarClass(pct: number): string {
@@ -199,7 +199,7 @@
             <span class="rate-limit-meta"
               >{Math.round(
                 100 - state.rateLimitFiveHour,
-              )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}
+              )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}{' '}
                 <span class="rate-limit-reset"
                   >{formatResetTime(state.rateLimitFiveHourResetsAt)}</span
                 >{/if}</span
@@ -220,7 +220,7 @@
             <span class="rate-limit-meta"
               >{Math.round(
                 100 - state.rateLimitSevenDay,
-              )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}
+              )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}{' '}
                 <span class="rate-limit-reset"
                   >{formatResetTime(state.rateLimitSevenDayResetsAt)}</span
                 >{/if}</span
