@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { marked } from 'marked'
+  import DOMPurify from 'dompurify'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
 
   let version = $state('')
@@ -11,7 +12,7 @@
     const info = await window.api.getAboutInfo()
     version = info.version
     homepage = info.homepage
-    licenseHtml = await marked.parse(info.license)
+    licenseHtml = DOMPurify.sanitize(await marked.parse(info.license))
   })
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -24,6 +25,12 @@
 
   function openHomepage(): void {
     window.api.openExternal(homepage)
+  }
+
+  function htmlContent(node: HTMLElement, content: () => string): void {
+    $effect(() => {
+      node.innerHTML = content()
+    })
   }
 </script>
 
@@ -50,8 +57,7 @@
       <div class="license-section">
         <h3 class="license-title">License</h3>
         <div class="license-content">
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- trusted content from bundled LICENSE.md -->
-          {@html licenseHtml}
+          <div use:htmlContent={() => licenseHtml}></div>
         </div>
       </div>
     {/if}
