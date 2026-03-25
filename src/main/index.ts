@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
 import { resolve } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
@@ -138,6 +138,13 @@ function buildAppMenu(): void {
                 console.warn('Manual update check failed:', err)
               })
             }
+          },
+        },
+        { type: 'separator' as const },
+        {
+          label: 'Privacy Policy',
+          click: () => {
+            shell.openExternal('https://canopy.itsol.tech/privacy-policy')
           },
         },
       ],
