@@ -68,7 +68,6 @@ jobs:
             dist/*.exe
             dist/*.AppImage
             dist/*.deb
-            dist/*.snap
             dist/*.yml
           retention-days: 7
 
