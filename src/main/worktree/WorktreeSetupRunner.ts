@@ -2,6 +2,7 @@ import { exec } from 'child_process'
 import { copyFile, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 import type { WorktreeSetupAction, WorktreeSetupProgress } from '../db/types'
+import { getLoginEnv } from '../shell/loginEnv'
 
 export interface SetupContext {
   repoRoot: string
@@ -22,10 +23,17 @@ function getLabel(action: WorktreeSetupAction): string {
 }
 
 function execCommand(cmd: string, cwd: string): Promise<string> {
+  const loginEnv = getLoginEnv()
   return new Promise((resolve, reject) => {
     exec(
       cmd,
-      { cwd, shell: '/bin/sh', timeout: 60_000, maxBuffer: 1024 * 1024 },
+      {
+        cwd,
+        shell: loginEnv?.SHELL || process.env.SHELL || '/bin/sh',
+        env: loginEnv ?? (process.env as Record<string, string>),
+        timeout: 60_000,
+        maxBuffer: 1024 * 1024,
+      },
       (err, stdout, stderr) => {
         if (err) {
           reject(new Error(stderr || err.message))
