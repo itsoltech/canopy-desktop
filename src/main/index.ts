@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
-import { resolve } from 'path'
+import { readFileSync } from 'fs'
+import { join, resolve } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { PtyManager } from './pty/PtyManager'
@@ -82,7 +83,15 @@ function buildAppMenu(): void {
           {
             label: app.name,
             submenu: [
-              { role: 'about' as const },
+              {
+                label: 'About Canopy',
+                click: (): void => {
+                  const win = BrowserWindow.getFocusedWindow()
+                  if (win && !win.isDestroyed()) {
+                    win.webContents.send('menu:showAbout')
+                  }
+                },
+              },
               { type: 'separator' as const },
               { role: 'hide' as const },
               { role: 'hideOthers' as const },
@@ -156,6 +165,20 @@ function buildAppMenu(): void {
             shell.openPath(noticesPath)
           },
         },
+        ...(!isMac
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'About Canopy',
+                click: (): void => {
+                  const win = BrowserWindow.getFocusedWindow()
+                  if (win && !win.isDestroyed()) {
+                    win.webContents.send('menu:showAbout')
+                  }
+                },
+              },
+            ]
+          : []),
       ],
     },
   ]
@@ -241,6 +264,16 @@ app.whenReady().then(async () => {
     claudeSessionManager,
     windowManager,
   )
+
+  ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
+    return shell.openExternal(url)
+  })
+
+  ipcMain.handle('app:getAboutInfo', () => ({
+    version: app.getVersion(),
+    homepage: 'https://canopy.itsol.tech',
+    license: readFileSync(join(app.getAppPath(), 'LICENSE.md'), 'utf-8'),
+  }))
 
   // Force-close stale WebSocket clients on system wake so renderer reconnects
   powerMonitor.on('resume', () => {

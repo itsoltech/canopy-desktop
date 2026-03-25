@@ -167,7 +167,17 @@ interface UpdateProgress {
   total: number
 }
 
+interface AboutInfo {
+  version: string
+  homepage: string
+  license: string
+}
+
 interface CanopyAPI {
+  // About
+  getAboutInfo: () => Promise<AboutInfo>
+  openExternal: (url: string) => Promise<void>
+
   // Auto-update
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>

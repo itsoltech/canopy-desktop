@@ -21,6 +21,7 @@
     prompt,
     showCreateWorktree,
     showPreferences,
+    showAbout,
   } from '../../lib/stores/dialogs.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
@@ -136,6 +137,13 @@
       category: 'App',
       shortcut: `${mod}+Shift+N`,
       action: () => window.api.newWindow(),
+    })
+
+    items.push({
+      id: 'app:about',
+      label: 'About Canopy',
+      category: 'App',
+      action: () => showAbout(),
     })
 
     items.push({
