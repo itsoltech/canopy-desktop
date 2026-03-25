@@ -149,6 +149,22 @@ function buildAppMenu(): void {
             }
           },
         },
+        { type: 'separator' as const },
+        {
+          label: 'Privacy Policy',
+          click: () => {
+            shell.openExternal('https://canopy.itsol.tech/privacy-policy')
+          },
+        },
+        {
+          label: 'Third-Party Licenses',
+          click: () => {
+            const noticesPath = app.isPackaged
+              ? resolve(process.resourcesPath, 'THIRD-PARTY-NOTICES')
+              : resolve(app.getAppPath(), 'THIRD-PARTY-NOTICES')
+            shell.openPath(noticesPath)
+          },
+        },
         ...(!isMac
           ? [
               { type: 'separator' as const },
