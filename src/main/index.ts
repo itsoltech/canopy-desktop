@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
-import { readFileSync } from 'fs'
+import os from 'os'
+import { readFileSync, realpathSync } from 'fs'
 import { join, resolve } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
@@ -15,6 +16,7 @@ import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
+import { isSafeExternalUrl } from './security/validateUrl'
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -48,29 +50,48 @@ if (!gotTheLock) {
   app.quit()
 }
 
-function handleCanopyUrl(url: string): void {
+async function handleCanopyUrl(url: string): Promise<void> {
   try {
     const parsed = new URL(url)
     const path = parsed.searchParams.get('path')
     if (!path) return
 
+    // Validate path is under user's home directory (resolve symlinks to prevent bypass)
+    let resolved: string
+    try {
+      resolved = realpathSync(resolve(path))
+    } catch {
+      return // Path doesn't exist
+    }
+    if (!resolved.startsWith(os.homedir())) return
+
     const tool = parsed.searchParams.get('tool') ?? undefined
     const worktree = parsed.searchParams.get('worktree') ?? undefined
     const action = parsed.hostname === 'run' ? 'run' : 'open'
 
-    // Dedupe: focus existing window for this path
-    const existing = windowManager.getWindowForPath(path)
+    // Dedupe: focus existing window for this path (no confirmation needed)
+    const existing = windowManager.getWindowForPath(resolved)
     if (existing) {
-      existing.webContents.send('url:action', { action, path, tool, worktree })
+      existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
       existing.focus()
       return
     }
 
-    // Open in a new window
+    // Confirm before opening a new workspace from external deep link
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Open', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: 'Open workspace?',
+      detail: `An external application wants to open:\n${resolved}`,
+    })
+    if (response !== 0) return
+
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
-      win.webContents.send('url:action', { action, path, tool, worktree })
+      win.webContents.send('url:action', { action, path: resolved, tool, worktree })
     })
   } catch {
     // Invalid URL
@@ -282,6 +303,7 @@ app.whenReady().then(async () => {
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
+    if (!isSafeExternalUrl(url)) return
     return shell.openExternal(url)
   })
 

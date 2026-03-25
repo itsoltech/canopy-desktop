@@ -6,6 +6,7 @@ import type { PtyManager } from './pty/PtyManager'
 import type { WsBridge } from './pty/WsBridge'
 import type { GitWatcher } from './git/GitWatcher'
 import type { ClaudeSessionManager } from './claude/ClaudeSessionManager'
+import { isSafeExternalUrl } from './security/validateUrl'
 
 export class WindowManager {
   private windows = new Map<number, BrowserWindow>()
@@ -47,6 +48,8 @@ export class WindowManager {
       ...(process.platform === 'linux' ? { icon } : {}),
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
+        // SECURITY: sandbox disabled — required for node-pty preload bridge.
+        // Browser WebContentsViews use sandbox: true separately.
         sandbox: false,
       },
     })
@@ -103,7 +106,7 @@ export class WindowManager {
     })
 
     win.webContents.setWindowOpenHandler((details) => {
-      shell.openExternal(details.url)
+      if (isSafeExternalUrl(details.url)) shell.openExternal(details.url)
       return { action: 'deny' }
     })
 

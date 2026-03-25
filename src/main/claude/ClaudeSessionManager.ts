@@ -38,7 +38,7 @@ export class ClaudeSessionManager {
     branch: string | null,
     ownerWindow: BrowserWindow,
     settingsOverrides?: Record<string, unknown>,
-  ): Promise<{ settingsPath: string; hookPort: number; tempId: string }> {
+  ): Promise<{ settingsPath: string; hookPort: number; hookAuthToken: string; tempId: string }> {
     const claudeSessionId = randomUUID()
     const tempId = `_claude_${claudeSessionId}`
 
@@ -103,7 +103,7 @@ export class ClaudeSessionManager {
     }
     this.sessions.set(tempId, session)
 
-    return { settingsPath, hookPort, tempId }
+    return { settingsPath, hookPort, hookAuthToken: hookServer.getAuthToken(), tempId }
   }
 
   rekey(tempId: string, realPtySessionId: string): void {

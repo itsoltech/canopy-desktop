@@ -10,11 +10,15 @@ export interface SetupContext {
   newWorktreePath: string
 }
 
+function shellQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'"
+}
+
 function substituteVars(command: string, ctx: SetupContext): string {
   return command
-    .replace(/\$MAIN_WORKTREE/g, ctx.mainWorktreePath)
-    .replace(/\$NEW_WORKTREE/g, ctx.newWorktreePath)
-    .replace(/\$REPO_ROOT/g, ctx.repoRoot)
+    .replace(/\$MAIN_WORKTREE/g, shellQuote(ctx.mainWorktreePath))
+    .replace(/\$NEW_WORKTREE/g, shellQuote(ctx.newWorktreePath))
+    .replace(/\$REPO_ROOT/g, shellQuote(ctx.repoRoot))
 }
 
 function getLabel(action: WorktreeSetupAction): string {
