@@ -124,6 +124,23 @@
     return () => window.removeEventListener('keydown', handler)
   })
 
+  // Freeze/unfreeze when global overlays (modals, palette) open/close
+  $effect(() => {
+    if (!active) return
+    const onFreeze = (): void => {
+      freeze()
+    }
+    const onUnfreeze = (): void => {
+      unfreeze()
+    }
+    window.addEventListener('canopy:freeze-browsers', onFreeze)
+    window.addEventListener('canopy:unfreeze-browsers', onUnfreeze)
+    return () => {
+      window.removeEventListener('canopy:freeze-browsers', onFreeze)
+      window.removeEventListener('canopy:unfreeze-browsers', onUnfreeze)
+    }
+  })
+
   // Listen for Cmd+L focus event
   $effect(() => {
     if (!active) return
@@ -203,13 +220,13 @@
       deliverToSession(sessions[0].sessionId, payload)
     } else {
       pendingPayload = payload
-      await freeze()
+      window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
       showPicker = true
     }
   }
 
   function deliverToSession(sessionId: string, payload: string): void {
-    unfreeze()
+    window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
     window.api.writePty(sessionId, payload)
     focusSessionByPtyId(sessionId)
   }
@@ -268,8 +285,6 @@
       onStartElementPick={handleStartElementPick}
       onStartRegionCapture={handleStartRegionCapture}
       onCancelPick={handleCancelPick}
-      onDropdownOpen={freeze}
-      onDropdownClose={unfreeze}
     />
   {/if}
 
@@ -296,7 +311,7 @@
       onClose={() => {
         showPicker = false
         pendingPayload = null
-        unfreeze()
+        window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
       }}
     />
   {/if}

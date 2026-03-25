@@ -28,8 +28,6 @@
     onStartElementPick,
     onStartRegionCapture,
     onCancelPick,
-    onDropdownOpen,
-    onDropdownClose,
   }: {
     url: string
     canGoBack: boolean
@@ -47,20 +45,18 @@
     onStartElementPick: () => void
     onStartRegionCapture: () => void
     onCancelPick: () => void
-    onDropdownOpen: () => void
-    onDropdownClose: () => void
   } = $props()
 
   let captureDropdownOpen = $state(false)
 
   function openDropdown(): void {
     captureDropdownOpen = true
-    onDropdownOpen()
+    window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
   }
 
   function closeDropdown(): void {
     captureDropdownOpen = false
-    onDropdownClose()
+    window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
   }
 
   let inputValue = $state(url)

@@ -154,17 +154,12 @@
     return () => window.removeEventListener('beforeunload', handler)
   })
 
-  // Hide all browser views when modals/palette are open
+  // Freeze/unfreeze browser views when modals/palette are open
   $effect(() => {
     const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
-    // Find all browser panes in the active tab and hide/show them
-    if (!activeTab) return
-    const panes = allPanes(activeTab.rootSplit)
-    for (const p of panes) {
-      if (p.paneType === 'browser') {
-        window.api.setBrowserVisible(p.sessionId, !anyOverlayOpen)
-      }
-    }
+    window.dispatchEvent(
+      new CustomEvent(anyOverlayOpen ? 'canopy:freeze-browsers' : 'canopy:unfreeze-browsers'),
+    )
   })
 
   const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
