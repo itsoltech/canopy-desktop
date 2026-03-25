@@ -59,10 +59,10 @@
     window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
   }
 
-  let inputValue = $state(url)
+  let inputValue = $state('')
   let urlInput: HTMLInputElement | undefined = $state()
 
-  // Sync input value when url changes externally (navigation)
+  // Sync input value when url prop changes (navigation)
   $effect(() => {
     if (document.activeElement !== urlInput) {
       inputValue = url

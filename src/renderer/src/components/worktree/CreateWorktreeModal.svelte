@@ -33,9 +33,9 @@
   let setupErrors = $state<string[]>([])
   let cleanupProgressListener: (() => void) | null = null
 
-  const repoRoot = repoRootProp ?? workspaceState.repoRoot!
-  const projectName = repoRoot.split('/').pop() || 'project'
-  const workspaceId = workspaceIdProp ?? workspaceState.workspace?.id
+  let repoRoot = $derived(repoRootProp ?? workspaceState.repoRoot!)
+  let projectName = $derived(repoRoot.split('/').pop() || 'project')
+  let workspaceId = $derived(workspaceIdProp ?? workspaceState.workspace?.id)
 
   // Worktree dir: <baseDir>/<projectName>/<safeBranchName>
   let worktreeDir = $derived.by(() => {

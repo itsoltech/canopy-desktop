@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { untrack } from 'svelte'
   import { ChevronRight } from '@lucide/svelte'
 
   let {
@@ -16,7 +17,7 @@
     children: Snippet
   } = $props()
 
-  const storageKey = `canopy:sidebar:collapsed:${sectionKey}`
+  const storageKey = untrack(() => `canopy:sidebar:collapsed:${sectionKey}`)
 
   let collapsed = $state(localStorage.getItem(storageKey) === '1')
 
