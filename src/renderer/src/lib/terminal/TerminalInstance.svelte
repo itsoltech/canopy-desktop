@@ -215,8 +215,18 @@
 
       connectWs(term)
 
+      const isMac = navigator.userAgent.includes('Mac')
+
       term.attachCustomKeyEventHandler((event) => {
         if (event.type === 'keydown') {
+          // Ctrl+V → paste (Windows/Linux only; macOS uses Cmd+V natively)
+          if (!isMac && event.ctrlKey && event.key === 'v') {
+            return false
+          }
+          // Ctrl+C → copy selection (Windows/Linux only; let ^C through when no selection)
+          if (!isMac && event.ctrlKey && event.key === 'c' && term.hasSelection()) {
+            return false
+          }
           // Shift+Enter → insert newline
           if (event.key === 'Enter' && event.shiftKey) {
             if (wsRef && wsRef.readyState === WebSocket.OPEN) {
