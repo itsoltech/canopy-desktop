@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ClaudeAILogo, OpenAILogo, GeminiLogo, GitLogo } from '@selemondev/svgl-svelte'
-  import { Terminal } from 'lucide-svelte'
+  import { Terminal, Globe } from 'lucide-svelte'
 
   let { icon, size = 14 }: { icon: string; size?: number } = $props()
 </script>
@@ -15,6 +15,8 @@
   <GitLogo width={size} height={size} />
 {:else if icon === 'terminal'}
   <Terminal {size} />
+{:else if icon === 'Globe'}
+  <Globe {size} />
 {:else}
   <span
     class="fallback"

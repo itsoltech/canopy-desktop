@@ -19,6 +19,7 @@ import {
   claudeSessions,
 } from '../claude/claudeState.svelte'
 import { confirm } from './dialogs.svelte'
+import { browserSessions } from '../browser/browserState.svelte'
 
 // --- Active process detection ---
 
@@ -75,7 +76,14 @@ interface SerializedTab {
 }
 
 type SerializedSplitNode =
-  | { type: 'leaf'; toolId: string; toolName: string; claudeSessionId?: string }
+  | {
+      type: 'leaf'
+      toolId: string
+      toolName: string
+      claudeSessionId?: string
+      browserUrl?: string
+      browserDevToolsMode?: 'bottom' | 'right'
+    }
   | { type: 'hsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
   | { type: 'vsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
 
@@ -114,32 +122,62 @@ function computeDisplayName(toolName: string, worktreePath: string, toolId: stri
   return `${toolName} #${sameToolCount + 1}`
 }
 
-export async function openTool(toolId: string, worktreePath: string): Promise<TabInfo> {
-  const options: { workspaceName?: string; branch?: string } = {}
-  if (toolId === 'claude') {
-    options.workspaceName = workspaceState.workspace?.name ?? ''
-    options.branch = workspaceState.branch ?? undefined
-  }
-  const result = await window.api.spawnTool(toolId, worktreePath, options)
-  const id = nextTabId()
-  const name = computeDisplayName(result.toolName, worktreePath, toolId)
+export async function openTool(
+  toolId: string,
+  worktreePath: string,
+  initialUrl?: string,
+): Promise<TabInfo> {
+  let pane: PaneSession
   const paneId = nextPaneId()
+  let toolName: string
 
-  const pane: PaneSession = {
-    id: paneId,
-    sessionId: result.sessionId,
-    wsUrl: result.wsUrl,
-    toolId,
-    toolName: result.toolName,
-    isRunning: true,
-    exitCode: null,
-    title: null,
+  if (toolId === 'browser') {
+    const result = await window.api.createBrowser()
+    toolName = 'Browser'
+    pane = {
+      id: paneId,
+      sessionId: result.browserId,
+      wsUrl: '',
+      toolId,
+      toolName,
+      isRunning: true,
+      exitCode: null,
+      title: null,
+      paneType: 'browser',
+    }
+    if (initialUrl) {
+      window.api.navigateBrowser(result.browserId, initialUrl)
+    }
+  } else {
+    const options: { workspaceName?: string; branch?: string } = {}
+    if (toolId === 'claude') {
+      options.workspaceName = workspaceState.workspace?.name ?? ''
+      options.branch = workspaceState.branch ?? undefined
+    }
+    const result = await window.api.spawnTool(toolId, worktreePath, options)
+    toolName = result.toolName
+    pane = {
+      id: paneId,
+      sessionId: result.sessionId,
+      wsUrl: result.wsUrl,
+      toolId,
+      toolName,
+      isRunning: true,
+      exitCode: null,
+      title: null,
+    }
+    if (toolId === 'claude') {
+      initClaudeSession(result.sessionId)
+    }
   }
+
+  const id = nextTabId()
+  const name = computeDisplayName(toolName, worktreePath, toolId)
 
   const tab: TabInfo = {
     id,
     toolId,
-    toolName: result.toolName,
+    toolName,
     name,
     worktreePath,
     rootSplit: createLeaf(pane),
@@ -151,10 +189,6 @@ export async function openTool(toolId: string, worktreePath: string): Promise<Ta
   }
   tabsByWorktree[worktreePath].push(tab)
   activeTabId[worktreePath] = id
-
-  if (toolId === 'claude') {
-    initClaudeSession(result.sessionId)
-  }
 
   scheduleSave(worktreePath)
   return tab
@@ -192,13 +226,19 @@ export async function closeTab(tabId: string): Promise<void> {
       closedTabs[path].shift()
     }
 
-    // Kill all PTYs in the split tree and cleanup Claude sessions
+    // Kill all PTYs / destroy browser views and cleanup sessions
     for (const p of panes) {
       if (p.toolId === 'claude') {
         removeClaudeSession(p.sessionId)
       }
     }
-    await Promise.all(panes.map((p) => window.api.killPty(p.sessionId)))
+    await Promise.all(
+      panes.map((p) =>
+        p.paneType === 'browser'
+          ? window.api.destroyBrowser(p.sessionId)
+          : window.api.killPty(p.sessionId),
+      ),
+    )
 
     // Remove tab
     tabsByWorktree[path].splice(idx, 1)
@@ -328,38 +368,58 @@ export async function restartPane(
   const pane = panes.find((p) => p.id === paneId)
   if (!pane) return
 
-  // Kill old PTY (may already be dead)
-  try {
-    await window.api.killPty(pane.sessionId)
-  } catch {
-    // Already exited or cleaned up
-  }
+  if (pane.paneType === 'browser') {
+    const oldUrl = pane.url
+    try {
+      await window.api.destroyBrowser(pane.sessionId)
+    } catch {
+      // Already destroyed
+    }
+    const result = await window.api.createBrowser()
+    if (oldUrl) {
+      window.api.navigateBrowser(result.browserId, oldUrl)
+    }
+    tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+      ...p,
+      sessionId: result.browserId,
+      isRunning: true,
+      exitCode: null,
+      title: null,
+    }))
+  } else {
+    // Kill old PTY (may already be dead)
+    try {
+      await window.api.killPty(pane.sessionId)
+    } catch {
+      // Already exited or cleaned up
+    }
 
-  if (pane.toolId === 'claude') {
-    removeClaudeSession(pane.sessionId)
-  }
+    if (pane.toolId === 'claude') {
+      removeClaudeSession(pane.sessionId)
+    }
 
-  // Spawn new
-  const options: { workspaceName?: string; branch?: string } = {}
-  if (pane.toolId === 'claude') {
-    options.workspaceName = workspaceState.workspace?.name ?? ''
-    options.branch = workspaceState.branch ?? undefined
-  }
-  const result = await window.api.spawnTool(pane.toolId, worktreePath, options)
+    // Spawn new
+    const options: { workspaceName?: string; branch?: string } = {}
+    if (pane.toolId === 'claude') {
+      options.workspaceName = workspaceState.workspace?.name ?? ''
+      options.branch = workspaceState.branch ?? undefined
+    }
+    const result = await window.api.spawnTool(pane.toolId, worktreePath, options)
 
-  if (pane.toolId === 'claude') {
-    initClaudeSession(result.sessionId)
-  }
+    if (pane.toolId === 'claude') {
+      initClaudeSession(result.sessionId)
+    }
 
-  // Update pane in tree
-  tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-    ...p,
-    sessionId: result.sessionId,
-    wsUrl: result.wsUrl,
-    isRunning: true,
-    exitCode: null,
-    title: null,
-  }))
+    // Update pane in tree
+    tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+      ...p,
+      sessionId: result.sessionId,
+      wsUrl: result.wsUrl,
+      isRunning: true,
+      exitCode: null,
+      title: null,
+    }))
+  }
 
   scheduleSave(worktreePath)
 }
@@ -384,7 +444,13 @@ export async function ensureShellTab(worktreePath: string): Promise<void> {
 export async function killAllTabs(): Promise<void> {
   const allTabsList = Object.values(tabsByWorktree).flat()
   const allSessions = allTabsList.flatMap((t) => allPanes(t.rootSplit))
-  await Promise.all(allSessions.map((p) => window.api.killPty(p.sessionId)))
+  await Promise.all(
+    allSessions.map((p) =>
+      p.paneType === 'browser'
+        ? window.api.destroyBrowser(p.sessionId)
+        : window.api.killPty(p.sessionId),
+    ),
+  )
   for (const path of Object.keys(tabsByWorktree)) {
     delete tabsByWorktree[path]
     delete activeTabId[path]
@@ -411,6 +477,35 @@ export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
 }
 
+export interface AiSessionInfo {
+  sessionId: string
+  tabName: string
+  toolId: string
+  status: string
+}
+
+const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
+
+export function getAiSessions(worktreePath: string): AiSessionInfo[] {
+  const tabs = tabsByWorktree[worktreePath] ?? []
+  const result: AiSessionInfo[] = []
+  for (const tab of tabs) {
+    const panes = allPanes(tab.rootSplit)
+    for (const p of panes) {
+      if (AI_TOOL_IDS.has(p.toolId) && p.isRunning) {
+        const cs = p.toolId === 'claude' ? claudeSessions[p.sessionId] : null
+        result.push({
+          sessionId: p.sessionId,
+          tabName: tab.name,
+          toolId: p.toolId,
+          status: cs?.status?.type ?? 'running',
+        })
+      }
+    }
+  }
+  return result
+}
+
 export function getTabDisplayName(tab: TabInfo): string {
   const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
   return focused?.title || tab.name
@@ -427,6 +522,23 @@ export function updatePaneTitle(sessionId: string, title: string): void {
           ...p,
           title,
         }))
+        return
+      }
+    }
+  }
+}
+
+export function updateBrowserPaneUrl(sessionId: string, url: string): void {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const panes = allPanes(tab.rootSplit)
+      const pane = panes.find((p) => p.sessionId === sessionId)
+      if (pane) {
+        tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
+          ...p,
+          url,
+        }))
+        scheduleSave(tab.worktreePath)
         return
       }
     }
@@ -504,8 +616,12 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
   const result = treeRemovePane(tab.rootSplit, tab.focusedPaneId)
   if (!result) return
 
-  // Kill the removed pane's PTY
-  await window.api.killPty(result.removed.sessionId)
+  // Kill the removed pane's PTY or destroy browser view
+  if (result.removed.paneType === 'browser') {
+    await window.api.destroyBrowser(result.removed.sessionId)
+  } else {
+    await window.api.killPty(result.removed.sessionId)
+  }
 
   if (!result.tree) {
     // Last pane — close the tab entirely
@@ -606,6 +722,11 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode {
       const csid = claudeSessions[node.pane.sessionId]?.claudeSessionId
       if (csid) leaf.claudeSessionId = csid
     }
+    if (node.pane.paneType === 'browser') {
+      leaf.browserUrl = node.pane.url ?? ''
+      const bs = browserSessions[node.pane.sessionId]
+      if (bs) leaf.browserDevToolsMode = bs.devToolsMode
+    }
     return leaf
   }
   return {
@@ -649,26 +770,47 @@ async function restoreSplitNode(
   worktreePath: string,
 ): Promise<SplitNode> {
   if (node.type === 'leaf') {
-    const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
-    if (node.toolId === 'claude') {
-      options.workspaceName = workspaceState.workspace?.name ?? ''
-      options.branch = workspaceState.branch ?? undefined
-      if (node.claudeSessionId) options.resumeSessionId = node.claudeSessionId
-    }
-    const result = await window.api.spawnTool(node.toolId, worktreePath, options)
     const paneId = nextPaneId()
-    const pane: PaneSession = {
-      id: paneId,
-      sessionId: result.sessionId,
-      wsUrl: result.wsUrl,
-      toolId: node.toolId,
-      toolName: result.toolName,
-      isRunning: true,
-      exitCode: null,
-      title: null,
-    }
-    if (node.toolId === 'claude') {
-      initClaudeSession(result.sessionId)
+    let pane: PaneSession
+
+    if (node.toolId === 'browser') {
+      const result = await window.api.createBrowser()
+      pane = {
+        id: paneId,
+        sessionId: result.browserId,
+        wsUrl: '',
+        toolId: node.toolId,
+        toolName: node.toolName,
+        isRunning: true,
+        exitCode: null,
+        title: null,
+        paneType: 'browser',
+        url: node.browserUrl,
+      }
+      if (node.browserUrl) {
+        window.api.navigateBrowser(result.browserId, node.browserUrl)
+      }
+    } else {
+      const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
+      if (node.toolId === 'claude') {
+        options.workspaceName = workspaceState.workspace?.name ?? ''
+        options.branch = workspaceState.branch ?? undefined
+        if (node.claudeSessionId) options.resumeSessionId = node.claudeSessionId
+      }
+      const result = await window.api.spawnTool(node.toolId, worktreePath, options)
+      pane = {
+        id: paneId,
+        sessionId: result.sessionId,
+        wsUrl: result.wsUrl,
+        toolId: node.toolId,
+        toolName: result.toolName,
+        isRunning: true,
+        exitCode: null,
+        title: null,
+      }
+      if (node.toolId === 'claude') {
+        initClaudeSession(result.sessionId)
+      }
     }
     return createLeaf(pane)
   }

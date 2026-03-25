@@ -79,6 +79,13 @@ const migrations: Migration[] = [
       UPDATE tool_definitions SET icon = 'terminal' WHERE id = 'shell';
     `,
   },
+  {
+    id: 5,
+    up: `
+      INSERT OR IGNORE INTO tool_definitions (id, name, command, args_json, icon, category, is_custom)
+      VALUES ('browser', 'Browser', 'browser', '[]', 'Globe', 'browser', 0);
+    `,
+  },
 ]
 
 export class Database {

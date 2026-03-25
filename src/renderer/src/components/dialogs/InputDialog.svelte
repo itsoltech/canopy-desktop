@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import type { PromptCheckbox, PromptResult } from '../../lib/stores/dialogs.svelte'
 
   let {
@@ -27,9 +27,8 @@
   } = $props()
 
   const isMac = navigator.userAgent.includes('Mac')
-  // svelte-ignore state_referenced_locally
-  let value = $state(initialValue)
-  let checked = $state(checkbox?.checked ?? false)
+  let value = $state(untrack(() => initialValue))
+  let checked = $state(untrack(() => checkbox?.checked ?? false))
   let error = $derived(validate ? validate(value) : null)
   let generating = $state(false)
   let inputEl: HTMLInputElement | undefined = $state()

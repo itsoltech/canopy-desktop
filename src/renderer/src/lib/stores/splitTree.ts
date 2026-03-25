@@ -7,6 +7,9 @@ export interface PaneSession {
   isRunning: boolean
   exitCode: number | null
   title: string | null
+  paneType?: 'terminal' | 'browser'
+  url?: string
+  isLoading?: boolean
 }
 
 export type SplitNode =

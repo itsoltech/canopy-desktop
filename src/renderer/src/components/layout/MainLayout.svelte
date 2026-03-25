@@ -10,6 +10,7 @@
   import AboutModal from '../dialogs/AboutModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import ClaudeInspector from '../claude/ClaudeInspector.svelte'
+  import Toast from '../shared/Toast.svelte'
   import {
     dialogState,
     closeDialog,
@@ -153,6 +154,14 @@
     return () => window.removeEventListener('beforeunload', handler)
   })
 
+  // Freeze/unfreeze browser views when modals/palette are open
+  $effect(() => {
+    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
+    window.dispatchEvent(
+      new CustomEvent(anyOverlayOpen ? 'canopy:freeze-browsers' : 'canopy:unfreeze-browsers'),
+    )
+  })
+
   const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
   // Derive active tab's tool info
@@ -229,6 +238,13 @@
     if ((e.key === 'I' || e.key === 'i') && e.shiftKey) {
       e.preventDefault()
       toggleInspector()
+    }
+
+    // Cmd+L: focus browser URL bar (when active tab is browser)
+    if (e.key === 'l' && activeTab?.toolId === 'browser') {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent('canopy:focus-url-bar'))
+      return
     }
 
     if (e.key === 'o') {
@@ -314,6 +330,8 @@
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {/if}
+
+<Toast />
 
 <div class="main-layout">
   {#if workspaceState.sidebarOpen && projects.length > 0}

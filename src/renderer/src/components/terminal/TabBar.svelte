@@ -11,6 +11,7 @@
   } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
   import { claudeBadges, type BadgeType } from '../../lib/claude/claudeState.svelte'
+  import { browserSessions } from '../../lib/browser/browserState.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
 
   let toolIcons: Record<string, string> = $state({})
@@ -21,6 +22,13 @@
     for (const t of tools) map[t.id] = t.icon
     toolIcons = map
   })
+
+  function getTabFavicon(tab: TabInfo): string | null {
+    if (tab.toolId !== 'browser') return null
+    const pane = allPanes(tab.rootSplit).find((p) => p.paneType === 'browser')
+    if (!pane) return null
+    return browserSessions[pane.sessionId]?.favicon ?? null
+  }
 
   function getTabBadge(tab: TabInfo): BadgeType {
     if (tab.toolId !== 'claude') return 'none'
@@ -157,7 +165,9 @@
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
           title={getTabDisplayName(tab)}
         >
-          {#if toolIcons[tab.toolId]}
+          {#if getTabFavicon(tab)}
+            <img class="tab-favicon" src={getTabFavicon(tab)} alt="" width="12" height="12" />
+          {:else if toolIcons[tab.toolId]}
             <ToolIcon icon={toolIcons[tab.toolId]} size={12} />
           {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>
@@ -176,31 +186,49 @@
           </button>
         </div>
       {/each}
-
-      {#if overflowTabs.length > 0}
-        <div class="overflow-wrapper">
-          <button class="overflow-trigger" onclick={() => (showOverflow = !showOverflow)}>
-            &hellip;
-          </button>
-          {#if showOverflow}
-            <div class="overflow-menu">
-              {#each overflowTabs as tab (tab.id)}
-                <button
-                  class="overflow-item"
-                  class:active={tab.id === currentActiveId}
-                  onclick={() => {
-                    switchTab(tab.id)
-                    showOverflow = false
-                  }}
-                >
-                  {getTabDisplayName(tab)}
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
     </div>
+
+    {#if overflowTabs.length > 0}
+      <div class="overflow-wrapper">
+        <button
+          class="overflow-trigger"
+          onclick={() => {
+            showOverflow = !showOverflow
+            window.dispatchEvent(
+              new CustomEvent(showOverflow ? 'canopy:freeze-browsers' : 'canopy:unfreeze-browsers'),
+            )
+          }}
+        >
+          &hellip;
+        </button>
+        {#if showOverflow}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="overflow-backdrop"
+            onclick={() => {
+              showOverflow = false
+              window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
+            }}
+          ></div>
+          <div class="overflow-menu">
+            {#each overflowTabs as tab (tab.id)}
+              <button
+                class="overflow-item"
+                class:active={tab.id === currentActiveId}
+                onclick={() => {
+                  switchTab(tab.id)
+                  showOverflow = false
+                  window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
+                }}
+              >
+                {getTabDisplayName(tab)}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -212,7 +240,6 @@
     align-items: stretch;
     background: rgba(30, 30, 30, 0.6);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    overflow: hidden;
   }
 
   .tabs-row {
@@ -220,6 +247,7 @@
     align-items: stretch;
     flex: 1;
     min-width: 0;
+    overflow: hidden;
   }
 
   .tab {
@@ -304,6 +332,11 @@
     }
   }
 
+  .tab-favicon {
+    flex-shrink: 0;
+    border-radius: 2px;
+  }
+
   .tab-close {
     display: none;
     align-items: center;
@@ -351,6 +384,12 @@
   .overflow-trigger:hover {
     background: rgba(255, 255, 255, 0.05);
     color: rgba(255, 255, 255, 0.8);
+  }
+
+  .overflow-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
   }
 
   .overflow-menu {

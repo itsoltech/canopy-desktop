@@ -5,9 +5,13 @@
   import { WebglAddon } from '@xterm/addon-webgl'
   import { LigaturesAddon } from '@xterm/addon-ligatures'
   import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
+  import { WebLinksAddon } from '@xterm/addon-web-links'
   import '@xterm/xterm/css/xterm.css'
   import { prefs } from '../stores/preferences.svelte'
   import { getTheme } from './themes'
+  import { showUrlToast } from '../stores/toast.svelte'
+  import { openTool } from '../stores/tabs.svelte'
+  import { workspaceState } from '../stores/workspace.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -201,6 +205,21 @@
       term.loadAddon(progressAddon)
       term.loadAddon(fitAddon)
       term.loadAddon(lightures)
+
+      // URL detection — open based on urlOpenMode preference
+      term.loadAddon(
+        new WebLinksAddon((_event, url) => {
+          const mode = prefs.urlOpenMode || 'ask'
+          if (mode === 'canopy') {
+            const path = workspaceState.selectedWorktreePath
+            if (path) openTool('browser', path, url)
+          } else if (mode === 'system') {
+            window.api.openExternal(url)
+          } else {
+            showUrlToast(url)
+          }
+        }),
+      )
 
       progressAddon.onChange(({ state, value }: IProgressState) => {
         progressState = state

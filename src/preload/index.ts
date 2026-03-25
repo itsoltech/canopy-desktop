@@ -9,6 +9,8 @@ const api = {
   resizePty: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', { sessionId, cols, rows }),
   killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', { sessionId }),
+  writePty: (sessionId: string, data: string) =>
+    ipcRenderer.invoke('pty:write', { sessionId, data }),
   hasChildProcess: (sessionId: string) =>
     ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
 
@@ -169,6 +171,123 @@ const api = {
     ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
   gitGenerateCommitMessage: (repoRoot: string) =>
     ipcRenderer.invoke('git:generateCommitMessage', { repoRoot }),
+
+  // Browser
+  createBrowser: () => ipcRenderer.invoke('browser:create') as Promise<{ browserId: string }>,
+  destroyBrowser: (browserId: string) => ipcRenderer.invoke('browser:destroy', { browserId }),
+  navigateBrowser: (browserId: string, url: string) =>
+    ipcRenderer.invoke('browser:navigate', { browserId, url }),
+  browserBack: (browserId: string) => ipcRenderer.invoke('browser:back', { browserId }),
+  browserForward: (browserId: string) => ipcRenderer.invoke('browser:forward', { browserId }),
+  browserReload: (browserId: string) => ipcRenderer.invoke('browser:reload', { browserId }),
+  setBrowserBounds: (
+    browserId: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => ipcRenderer.invoke('browser:setBounds', { browserId, bounds }),
+  setBrowserVisible: (browserId: string, visible: boolean) =>
+    ipcRenderer.invoke('browser:setVisible', { browserId, visible }),
+  toggleBrowserDevTools: (browserId: string, mode?: 'bottom' | 'right') =>
+    ipcRenderer.invoke('browser:toggleDevTools', { browserId, mode }),
+  getBrowserState: (browserId: string) => ipcRenderer.invoke('browser:getState', { browserId }),
+  capturePageFull: (browserId: string) =>
+    ipcRenderer.invoke('browser:capturePageFull', { browserId }) as Promise<string | null>,
+  browserStartElementPick: (browserId: string) =>
+    ipcRenderer.invoke('browser:startElementPick', { browserId }) as Promise<string | null>,
+  browserStartRegionCapture: (browserId: string) =>
+    ipcRenderer.invoke('browser:startRegionCapture', { browserId }) as Promise<string | null>,
+  browserCancelPick: (browserId: string) => ipcRenderer.invoke('browser:cancelPick', { browserId }),
+
+  onBrowserUrlChanged: (callback: (data: { browserId: string; url: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string; url: string }): void =>
+      callback(data)
+    ipcRenderer.on('browser:urlChanged', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:urlChanged', handler)
+    }
+  },
+
+  onBrowserTitleChanged: (callback: (data: { browserId: string; title: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string; title: string }): void =>
+      callback(data)
+    ipcRenderer.on('browser:titleChanged', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:titleChanged', handler)
+    }
+  },
+
+  onBrowserFaviconChanged: (
+    callback: (data: { browserId: string; favicon: string | null }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { browserId: string; favicon: string | null },
+    ): void => callback(data)
+    ipcRenderer.on('browser:faviconChanged', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:faviconChanged', handler)
+    }
+  },
+
+  onBrowserLoadingChanged: (
+    callback: (data: { browserId: string; isLoading: boolean }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { browserId: string; isLoading: boolean },
+    ): void => callback(data)
+    ipcRenderer.on('browser:loadingChanged', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:loadingChanged', handler)
+    }
+  },
+
+  onBrowserLoadFailed: (
+    callback: (data: {
+      browserId: string
+      errorCode: number
+      errorDescription: string
+      validatedURL: string
+    }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: {
+        browserId: string
+        errorCode: number
+        errorDescription: string
+        validatedURL: string
+      },
+    ): void => callback(data)
+    ipcRenderer.on('browser:loadFailed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:loadFailed', handler)
+    }
+  },
+
+  onBrowserStateChanged: (
+    callback: (data: {
+      browserId: string
+      canGoBack: boolean
+      canGoForward: boolean
+      isDevToolsOpen: boolean
+      devToolsMode: 'bottom' | 'right'
+    }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: {
+        browserId: string
+        canGoBack: boolean
+        canGoForward: boolean
+        isDevToolsOpen: boolean
+        devToolsMode: 'bottom' | 'right'
+      },
+    ): void => callback(data)
+    ipcRenderer.on('browser:stateChanged', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:stateChanged', handler)
+    }
+  },
 
   // Worktree Setup
   runWorktreeSetup: (workspaceId: string, repoRoot: string, newWorktreePath: string) =>
