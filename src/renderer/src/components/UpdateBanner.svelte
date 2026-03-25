@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
 
-  type UpdateState = 'idle' | 'available' | 'downloading' | 'ready' | 'error'
+  type UpdateState = 'idle' | 'up-to-date' | 'available' | 'downloading' | 'ready' | 'error'
 
   let state: UpdateState = $state('idle')
   let version = $state('')
@@ -10,7 +10,7 @@
   let dismissed = $state(false)
 
   onMount(() => {
-    let errorTimer: ReturnType<typeof setTimeout> | null = null
+    let autoDismissTimer: ReturnType<typeof setTimeout> | null = null
 
     const unsubs = [
       window.api.onUpdateAvailable((data) => {
@@ -27,20 +27,29 @@
         state = 'ready'
         dismissed = false
       }),
+      window.api.onUpdateNotAvailable(() => {
+        state = 'up-to-date'
+        dismissed = false
+        if (autoDismissTimer) clearTimeout(autoDismissTimer)
+        autoDismissTimer = setTimeout(() => {
+          if (state === 'up-to-date') state = 'idle'
+          autoDismissTimer = null
+        }, 4000)
+      }),
       window.api.onUpdateError((data) => {
         errorMessage = data.message
         state = 'error'
         dismissed = false
-        if (errorTimer) clearTimeout(errorTimer)
-        errorTimer = setTimeout(() => {
+        if (autoDismissTimer) clearTimeout(autoDismissTimer)
+        autoDismissTimer = setTimeout(() => {
           if (state === 'error') state = 'idle'
-          errorTimer = null
+          autoDismissTimer = null
         }, 5000)
       }),
     ]
     return () => {
       unsubs.forEach((fn) => fn())
-      if (errorTimer) clearTimeout(errorTimer)
+      if (autoDismissTimer) clearTimeout(autoDismissTimer)
     }
   })
 
@@ -57,7 +66,9 @@
 
 {#if visible}
   <div class="update-banner" class:error={state === 'error'} role="alert" aria-live="polite">
-    {#if state === 'available'}
+    {#if state === 'up-to-date'}
+      <span class="text">You're up to date!</span>
+    {:else if state === 'available'}
       <span class="text">Update v{version} available</span>
       <button class="btn" onclick={dismiss}>Dismiss</button>
     {:else if state === 'downloading'}

@@ -27,6 +27,7 @@ const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
 const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
+let manualCheckInProgress = false
 
 let claudeSessionManager: ClaudeSessionManager | null = null
 
@@ -143,7 +144,9 @@ function buildAppMenu(): void {
           label: 'Check for Updates…',
           click: () => {
             if (app.isPackaged) {
+              manualCheckInProgress = true
               autoUpdater.checkForUpdates().catch((err) => {
+                manualCheckInProgress = false
                 console.warn('Manual update check failed:', err)
               })
             }
@@ -211,11 +214,15 @@ app.whenReady().then(async () => {
     let updateDownloaded = false
 
     autoUpdater.on('update-available', (info) => {
+      manualCheckInProgress = false
       broadcast('update:available', { version: info.version, releaseNotes: info.releaseNotes })
     })
 
     autoUpdater.on('update-not-available', () => {
-      broadcast('update:not-available', {})
+      if (manualCheckInProgress) {
+        broadcast('update:not-available', {})
+        manualCheckInProgress = false
+      }
     })
 
     autoUpdater.on('download-progress', (progress) => {

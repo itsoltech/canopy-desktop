@@ -184,6 +184,7 @@ interface CanopyAPI {
   onUpdateAvailable: (callback: (data: UpdateInfo) => void) => () => void
   onUpdateProgress: (callback: (data: UpdateProgress) => void) => () => void
   onUpdateDownloaded: (callback: (data: UpdateInfo) => void) => () => void
+  onUpdateNotAvailable: (callback: () => void) => () => void
   onUpdateError: (callback: (data: { message: string }) => void) => () => void
 
   // PTY
