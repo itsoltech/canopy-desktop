@@ -161,14 +161,16 @@ export class ClaudeSessionManager {
     this.busySessions.clear()
   }
 
-  private getHookScriptPath(): string {
-    const scriptName =
-      process.platform === 'win32' ? 'canopy-claude-hook.cmd' : 'canopy-claude-hook.sh'
+  /** Resolve a resource script path, using forward slashes on Windows for bash compatibility */
+  private getResourceScript(name: string): string {
+    const raw = is.dev
+      ? join(process.cwd(), 'resources', name)
+      : join(process.resourcesPath, 'app.asar.unpacked', 'resources', name)
+    return process.platform === 'win32' ? raw.replaceAll('\\', '/') : raw
+  }
 
-    if (is.dev) {
-      return join(process.cwd(), 'resources', scriptName)
-    }
-    return join(process.resourcesPath, 'app.asar.unpacked', 'resources', scriptName)
+  private getHookScriptPath(): string {
+    return this.getResourceScript('canopy-claude-hook.sh')
   }
 
   private buildSettingsJson(overrides?: Record<string, unknown>): string {
@@ -232,12 +234,7 @@ export class ClaudeSessionManager {
   }
 
   private getStatusLineScriptPath(): string {
-    const scriptName =
-      process.platform === 'win32' ? 'canopy-statusline.cmd' : 'canopy-statusline.sh'
-    if (is.dev) {
-      return join(process.cwd(), 'resources', scriptName)
-    }
-    return join(process.resourcesPath, 'app.asar.unpacked', 'resources', scriptName)
+    return this.getResourceScript('canopy-statusline.sh')
   }
 
   private buildSessionContext(
