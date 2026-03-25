@@ -133,7 +133,9 @@
       if (data.path) {
         await attachProject(data.path)
         if (data.tool && workspaceState.selectedWorktreePath) {
-          openTool(data.tool, workspaceState.selectedWorktreePath)
+          openTool(data.tool, workspaceState.selectedWorktreePath).catch((err) => {
+            console.error(`Failed to launch tool '${data.tool}':`, err)
+          })
         }
       }
     })
@@ -195,7 +197,9 @@
   function handleLaunchTool(toolId: string): void {
     const path = workspaceState.selectedWorktreePath
     if (path) {
-      openTool(toolId, path)
+      openTool(toolId, path).catch((err) => {
+        console.error(`Failed to launch tool '${toolId}':`, err)
+      })
     }
   }
 

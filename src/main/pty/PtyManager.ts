@@ -36,13 +36,22 @@ export class PtyManager {
     const command = options?.command ?? shell.command
     const args = options?.args ?? (options?.command ? [] : shell.args)
 
+    // On Windows, non-exe commands must go through cmd.exe
+    // so that .cmd/.bat wrappers (e.g. npm global installs) resolve correctly.
+    let finalCommand = command
+    let finalArgs = args
+    if (os.platform() === 'win32' && options?.command && !/\.(exe|com)$/i.test(command)) {
+      finalCommand = 'cmd.exe'
+      finalArgs = ['/c', command, ...args]
+    }
+
     const baseEnv = {
       ...(getLoginEnv() ?? process.env),
       TERM_PROGRAM: 'canopy',
     } as Record<string, string>
     const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv
 
-    const p = pty.spawn(command, args, {
+    const p = pty.spawn(finalCommand, finalArgs, {
       name: 'xterm-256color',
       cols: options?.cols ?? 80,
       rows: options?.rows ?? 30,

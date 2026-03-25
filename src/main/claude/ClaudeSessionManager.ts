@@ -232,7 +232,8 @@ export class ClaudeSessionManager {
   }
 
   private getStatusLineScriptPath(): string {
-    const scriptName = 'canopy-statusline.sh'
+    const scriptName =
+      process.platform === 'win32' ? 'canopy-statusline.cmd' : 'canopy-statusline.sh'
     if (is.dev) {
       return join(process.cwd(), 'resources', scriptName)
     }
