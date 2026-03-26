@@ -488,6 +488,23 @@ export interface AiSessionInfo {
 
 const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
+export function hasAiTool(root: SplitNode): boolean {
+  return allPanes(root).some((p) => AI_TOOL_IDS.has(p.toolId))
+}
+
+export function wouldCauseAiConflict(
+  worktreePath: string,
+  sourceTabId: string,
+  targetTabId: string,
+): boolean {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return false
+  const src = tabs.find((t) => t.id === sourceTabId)
+  const tgt = tabs.find((t) => t.id === targetTabId)
+  if (!src || !tgt) return false
+  return hasAiTool(src.rootSplit) && hasAiTool(tgt.rootSplit)
+}
+
 export function getAiSessions(worktreePath: string): AiSessionInfo[] {
   const tabs = tabsByWorktree[worktreePath] ?? []
   const result: AiSessionInfo[] = []
@@ -748,6 +765,7 @@ export function canMoveTabToSplit(
   const sourceTab = tabs.find((t) => t.id === sourceTabId)
   const targetTab = tabs.find((t) => t.id === targetTabId)
   if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
+  if (hasAiTool(sourceTab.rootSplit) && hasAiTool(targetTab.rootSplit)) return false
 
   const { direction, position } = mapZone(zone)
   const result = graftSubtree(
@@ -773,6 +791,7 @@ export function moveTabToSplit(
   const sourceTab = tabs.find((t) => t.id === sourceTabId)
   const targetTab = tabs.find((t) => t.id === targetTabId)
   if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
+  if (hasAiTool(sourceTab.rootSplit) && hasAiTool(targetTab.rootSplit)) return false
 
   const { direction, position } = mapZone(zone)
   const newTree = graftSubtree(

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PaneSession } from '../../lib/stores/splitTree'
-  import { restartPane, updatePaneTitle } from '../../lib/stores/tabs.svelte'
+  import { restartPane, updatePaneTitle, wouldCauseAiConflict } from '../../lib/stores/tabs.svelte'
   import { dragState, setDropTarget, type DropZone } from '../../lib/stores/dragState.svelte'
   import { claudeSessions } from '../../lib/claude/claudeState.svelte'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
@@ -65,8 +65,12 @@
     if (zone) {
       hoveredZone = zone
       setDropTarget({ tabId, paneId: pane.id, zone })
+      if (dragState.sourceTabId) {
+        dragState.aiConflict = wouldCauseAiConflict(worktreePath, dragState.sourceTabId, tabId)
+      }
     } else if (hoveredZone !== null) {
       hoveredZone = null
+      dragState.aiConflict = false
       if (dragState.dropTarget?.tabId === tabId && dragState.dropTarget?.paneId === pane.id) {
         setDropTarget(null)
       }
@@ -121,7 +125,11 @@
   {/if}
 
   {#if hoveredZone}
-    <div class="drop-zone-overlay {hoveredZone}"></div>
+    <div class="drop-zone-overlay {hoveredZone}" class:blocked={dragState.aiConflict}>
+      {#if dragState.aiConflict}
+        <span class="blocked-label">Cannot split two AI tools</span>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -161,6 +169,21 @@
     pointer-events: none;
     z-index: 10;
     transition: all 0.1s ease;
+  }
+
+  .drop-zone-overlay.blocked {
+    background: rgba(255, 80, 80, 0.15);
+    border-color: rgba(255, 80, 80, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .blocked-label {
+    font-size: 12px;
+    color: rgba(255, 120, 120, 0.9);
+    font-weight: 500;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   }
 
   .drop-zone-overlay.left {
