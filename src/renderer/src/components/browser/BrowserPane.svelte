@@ -67,7 +67,7 @@
   function unfreeze(): void {
     if (!alive) return
     frozenScreenshot = null
-    if (active) {
+    if (active && session?.url && !session?.error) {
       window.api.setBrowserVisible(browserId, true)
     }
   }
@@ -190,9 +190,10 @@
     return () => observer.disconnect()
   })
 
-  // Show/hide based on active state; hide on unmount to prevent stale bounds
+  // Show/hide based on active state; keep hidden when no URL is loaded (so
+  // clicks reach the renderer DOM for pane focus) or when an error is showing
   $effect(() => {
-    window.api.setBrowserVisible(browserId, active)
+    window.api.setBrowserVisible(browserId, active && !!session?.url && !session?.error)
     return () => {
       window.api.setBrowserVisible(browserId, false)
     }
