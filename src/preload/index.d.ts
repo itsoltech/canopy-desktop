@@ -194,6 +194,8 @@ interface CanopyAPI {
   // About
   getAboutInfo: () => Promise<AboutInfo>
   openExternal: (url: string) => Promise<void>
+  openThirdPartyNotices: () => Promise<void>
+  quit: () => Promise<void>
 
   // Auto-update
   checkForUpdates: () => Promise<void>

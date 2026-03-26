@@ -1,6 +1,7 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { themeNames } from '../../lib/terminal/themes'
+  import CustomNumberInput from '../shared/CustomNumberInput.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -17,14 +18,6 @@
   function updateFontFamily(e: Event): void {
     const value = (e.target as HTMLInputElement).value
     setPref('fontFamily', value)
-  }
-
-  function updateFontSize(e: Event): void {
-    const value = (e.target as HTMLInputElement).value
-    const size = parseInt(value, 10)
-    if (size >= 8 && size <= 24) {
-      setPref('fontSize', String(size))
-    }
   }
 </script>
 
@@ -60,14 +53,12 @@
 
   <div class="field">
     <label class="field-label" for="font-size">Font Size</label>
-    <input
+    <CustomNumberInput
       id="font-size"
-      class="number-input"
-      type="number"
-      min="8"
-      max="24"
       value={fontSize}
-      onchange={updateFontSize}
+      min={8}
+      max={24}
+      onchange={(v) => setPref('fontSize', v)}
     />
   </div>
 </div>
@@ -143,22 +134,6 @@
   }
 
   .text-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
-  }
-
-  .number-input {
-    width: 80px;
-    padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .number-input:focus {
     border-color: rgba(116, 192, 252, 0.5);
   }
 </style>

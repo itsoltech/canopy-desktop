@@ -1,5 +1,6 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
 
   // Model & behavior
   let model = $derived(prefs['claude.model'] || '')
@@ -93,34 +94,34 @@
 
     <div class="field">
       <label class="field-label" for="claude-perm">Permission mode</label>
-      <select
+      <CustomSelect
         id="claude-perm"
-        class="form-select"
         value={permissionMode}
-        onchange={updatePref('claude.permissionMode')}
-      >
-        <option value="">Default</option>
-        <option value="plan">Plan</option>
-        <option value="auto">Auto</option>
-        <option value="acceptEdits">Accept edits</option>
-        <option value="bypassPermissions">Bypass permissions</option>
-      </select>
+        options={[
+          { value: '', label: 'Default' },
+          { value: 'plan', label: 'Plan' },
+          { value: 'auto', label: 'Auto' },
+          { value: 'acceptEdits', label: 'Accept edits' },
+          { value: 'bypassPermissions', label: 'Bypass permissions' },
+        ]}
+        onchange={(v) => setPref('claude.permissionMode', v)}
+      />
     </div>
 
     <div class="field">
       <label class="field-label" for="claude-effort">Effort level</label>
-      <select
+      <CustomSelect
         id="claude-effort"
-        class="form-select"
         value={effortLevel}
-        onchange={updatePref('claude.effortLevel')}
-      >
-        <option value="">Default</option>
-        <option value="low">Low</option>
-        <option value="medium">Medium</option>
-        <option value="high">High</option>
-        <option value="max">Max</option>
-      </select>
+        options={[
+          { value: '', label: 'Default' },
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'high', label: 'High' },
+          { value: 'max', label: 'Max' },
+        ]}
+        onchange={(v) => setPref('claude.effortLevel', v)}
+      />
     </div>
   </div>
 
@@ -156,17 +157,17 @@
 
     <div class="field">
       <label class="field-label" for="claude-provider">Provider</label>
-      <select
+      <CustomSelect
         id="claude-provider"
-        class="form-select"
         value={provider}
-        onchange={updatePref('claude.provider')}
-      >
-        <option value="">Default (Anthropic)</option>
-        <option value="bedrock">AWS Bedrock</option>
-        <option value="vertex">Google Vertex AI</option>
-        <option value="foundry">Microsoft Foundry</option>
-      </select>
+        options={[
+          { value: '', label: 'Default (Anthropic)' },
+          { value: 'bedrock', label: 'AWS Bedrock' },
+          { value: 'vertex', label: 'Google Vertex AI' },
+          { value: 'foundry', label: 'Microsoft Foundry' },
+        ]}
+        onchange={(v) => setPref('claude.provider', v)}
+      />
     </div>
   </div>
 
@@ -312,22 +313,6 @@
   .mono {
     font-family: monospace;
     font-size: 12px;
-  }
-
-  .form-select {
-    padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-    max-width: 240px;
-  }
-
-  .form-select:focus {
-    border-color: rgba(116, 192, 252, 0.5);
   }
 
   /* Env var list */

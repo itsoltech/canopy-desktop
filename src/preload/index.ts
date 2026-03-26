@@ -117,6 +117,8 @@ const api = {
   // About
   getAboutInfo: () => ipcRenderer.invoke('app:getAboutInfo'),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', { url }),
+  openThirdPartyNotices: () => ipcRenderer.invoke('app:openThirdPartyNotices'),
+  quit: () => ipcRenderer.invoke('app:quit'),
 
   // App / Shell
   getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,

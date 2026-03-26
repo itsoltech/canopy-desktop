@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
 
   interface ToolDef {
     id: string
@@ -88,12 +89,16 @@
       <input class="form-input" bind:value={newName} placeholder="Display name" />
       <input class="form-input" bind:value={newCommand} placeholder="Command (binary name)" />
       <input class="form-input" bind:value={newArgs} placeholder="Args (comma-separated)" />
-      <select class="form-select" bind:value={newCategory}>
-        <option value="ai">AI</option>
-        <option value="git">Git</option>
-        <option value="system">System</option>
-        <option value="shell">Shell</option>
-      </select>
+      <CustomSelect
+        value={newCategory}
+        options={[
+          { value: 'ai', label: 'AI' },
+          { value: 'git', label: 'Git' },
+          { value: 'system', label: 'System' },
+          { value: 'shell', label: 'Shell' },
+        ]}
+        onchange={(v) => (newCategory = v)}
+      />
       {#if error}
         <p class="form-error">{error}</p>
       {/if}
@@ -186,8 +191,7 @@
     background: rgba(255, 255, 255, 0.03);
   }
 
-  .form-input,
-  .form-select {
+  .form-input {
     padding: 6px 10px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 6px;
@@ -198,8 +202,7 @@
     outline: none;
   }
 
-  .form-input:focus,
-  .form-select:focus {
+  .form-input:focus {
     border-color: rgba(116, 192, 252, 0.5);
   }
 
