@@ -55,10 +55,12 @@
     }
   }
 
-  // Focus terminal when tab becomes active
+  // Focus terminal when tab becomes active (deferred to next frame so the
+  // container has left display:none and the browser has finished layout)
   $effect(() => {
     if (active && termRef) {
-      termRef.focus()
+      const term = termRef
+      requestAnimationFrame(() => term.focus())
     }
   })
 

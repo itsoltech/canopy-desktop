@@ -290,6 +290,11 @@ export class BrowserManager {
     if (!entry) return
     entry.visible = visible
     entry.view.setVisible(visible)
+    // When hiding, return keyboard focus to the main renderer so the
+    // terminal (xterm.js) can receive keystrokes immediately.
+    if (!visible && !entry.win.isDestroyed()) {
+      entry.win.webContents.focus()
+    }
   }
 
   toggleDevTools(id: string, mode?: 'bottom' | 'right'): void {
