@@ -11,7 +11,9 @@ import {
   updateRatio as treeUpdateRatio,
   firstLeaf,
   navigateFrom,
+  graftSubtree,
 } from './splitTree'
+import type { DropZone } from './dragState.svelte'
 import { workspaceState, getProjectForWorktree } from './workspace.svelte'
 import {
   initClaudeSession,
@@ -511,6 +513,11 @@ export function getTabDisplayName(tab: TabInfo): string {
   return focused?.title || tab.name
 }
 
+export function getTabFocusedToolId(tab: TabInfo): string {
+  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
+  return focused?.toolId ?? tab.toolId
+}
+
 export function updatePaneTitle(sessionId: string, title: string): void {
   if (!title) return
   for (const tabs of Object.values(tabsByWorktree)) {
@@ -543,6 +550,18 @@ export function updateBrowserPaneUrl(sessionId: string, url: string): void {
       }
     }
   }
+}
+
+// --- Tab identity reconciliation ---
+
+function reconcileTabIdentity(tab: TabInfo): void {
+  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
+  if (!focused || tab.toolId === focused.toolId) return
+  tab.toolId = focused.toolId
+  tab.toolName = focused.toolName
+  const tabs = tabsByWorktree[tab.worktreePath] ?? []
+  const sameCount = tabs.filter((t) => t !== tab && t.toolId === focused.toolId).length
+  tab.name = sameCount === 0 ? focused.toolName : `${focused.toolName} #${sameCount + 1}`
 }
 
 // --- Split pane operations ---
@@ -652,6 +671,8 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     tab.rootSplit = result.tree
     // Focus the first leaf in the remaining tree
     tab.focusedPaneId = firstLeaf(result.tree).id
+    // Update tab identity to match focused pane (e.g., after closing Claude, only Shell remains)
+    reconcileTabIdentity(tab)
   }
   scheduleSave(worktreePath)
 }
@@ -697,6 +718,87 @@ export function updateSplitRatio(
       return
     }
   }
+}
+
+// --- Move tab to split ---
+
+function mapZone(zone: DropZone): { direction: 'hsplit' | 'vsplit'; position: 'first' | 'second' } {
+  switch (zone) {
+    case 'left':
+      return { direction: 'vsplit', position: 'first' }
+    case 'right':
+      return { direction: 'vsplit', position: 'second' }
+    case 'top':
+      return { direction: 'hsplit', position: 'first' }
+    case 'bottom':
+      return { direction: 'hsplit', position: 'second' }
+  }
+}
+
+export function canMoveTabToSplit(
+  worktreePath: string,
+  sourceTabId: string,
+  targetTabId: string,
+  targetPaneId: string,
+  zone: DropZone,
+): boolean {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return false
+
+  const sourceTab = tabs.find((t) => t.id === sourceTabId)
+  const targetTab = tabs.find((t) => t.id === targetTabId)
+  if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
+
+  const { direction, position } = mapZone(zone)
+  const result = graftSubtree(
+    targetTab.rootSplit,
+    targetPaneId,
+    direction,
+    sourceTab.rootSplit,
+    position,
+  )
+  return result !== null
+}
+
+export function moveTabToSplit(
+  worktreePath: string,
+  sourceTabId: string,
+  targetTabId: string,
+  targetPaneId: string,
+  zone: DropZone,
+): boolean {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return false
+
+  const sourceTab = tabs.find((t) => t.id === sourceTabId)
+  const targetTab = tabs.find((t) => t.id === targetTabId)
+  if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
+
+  const { direction, position } = mapZone(zone)
+  const newTree = graftSubtree(
+    targetTab.rootSplit,
+    targetPaneId,
+    direction,
+    sourceTab.rootSplit,
+    position,
+  )
+  if (!newTree) return false
+
+  // Update target tab with grafted tree
+  targetTab.rootSplit = newTree
+  targetTab.focusedPaneId = firstLeaf(sourceTab.rootSplit).id
+
+  // Remove source tab WITHOUT killing sessions — they are relocated, not closed
+  const sourceIdx = tabs.findIndex((t) => t.id === sourceTabId)
+  tabs.splice(sourceIdx, 1)
+
+  // If source was active, switch to target
+  if (activeTabId[worktreePath] === sourceTabId) {
+    activeTabId[worktreePath] = targetTabId
+  }
+
+  scheduleSave(worktreePath)
+  return true
 }
 
 // --- Layout persistence ---

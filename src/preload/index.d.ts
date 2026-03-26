@@ -318,6 +318,7 @@ interface CanopyAPI {
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,
   ) => () => void
+  onBrowserFocused: (callback: (data: { browserId: string }) => void) => () => void
   onBrowserLoadingChanged: (
     callback: (data: { browserId: string; isLoading: boolean }) => void,
   ) => () => void

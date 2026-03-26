@@ -26,10 +26,12 @@
     browserId,
     active,
     onTitleChange,
+    onFocus,
   }: {
     browserId: string
     active: boolean
     onTitleChange: (title: string) => void
+    onFocus?: () => void
   } = $props()
 
   let containerEl: HTMLDivElement | undefined = $state()
@@ -38,6 +40,7 @@
   let showPicker = $state(false)
   let pendingPayload: string | null = $state(null)
   let frozenScreenshot: string | null = $state(null)
+  let alive = true
 
   let session = $derived(browserSessions[browserId])
   let aiSessionCount = $derived(
@@ -52,14 +55,17 @@
       window.api.toggleBrowserDevTools(browserId, session?.devToolsMode)
       await new Promise((r) => setTimeout(r, 150))
     }
+    if (!alive) return
     const dataUrl = await window.api.capturePageFull(browserId)
-    if (dataUrl) {
+    // Guard: component may have been unmounted while awaiting capture
+    if (dataUrl && alive) {
       frozenScreenshot = dataUrl
       window.api.setBrowserVisible(browserId, false)
     }
   }
 
   function unfreeze(): void {
+    if (!alive) return
     frozenScreenshot = null
     if (active) {
       window.api.setBrowserVisible(browserId, true)
@@ -108,9 +114,15 @@
           handleBrowserStateChanged(browserId, data)
         }
       }),
+      window.api.onBrowserFocused((data) => {
+        if (data.browserId === browserId) {
+          onFocus?.()
+        }
+      }),
     ]
 
     return () => {
+      alive = false
       unsubs.forEach((fn) => fn())
       removeBrowserSession(browserId)
     }
@@ -178,9 +190,12 @@
     return () => observer.disconnect()
   })
 
-  // Show/hide based on active state
+  // Show/hide based on active state; hide on unmount to prevent stale bounds
   $effect(() => {
     window.api.setBrowserVisible(browserId, active)
+    return () => {
+      window.api.setBrowserVisible(browserId, false)
+    }
   })
 
   function handleNavigate(url: string): void {

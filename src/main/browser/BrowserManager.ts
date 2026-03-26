@@ -102,8 +102,14 @@ export class BrowserManager {
       }
     })
 
-    // Forward navigation events to renderer
+    // Forward focus event so renderer can track active pane
     const wc = view.webContents
+
+    wc.on('focus', () => {
+      this.sendToRenderer(id, 'browser:focused', { browserId: id })
+    })
+
+    // Forward navigation events to renderer
 
     wc.on('did-navigate', (_event, url) => {
       this.sendToRenderer(id, 'browser:urlChanged', { browserId: id, url })

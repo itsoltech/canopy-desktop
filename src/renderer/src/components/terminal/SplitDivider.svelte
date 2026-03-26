@@ -47,7 +47,8 @@
 
 <style>
   .split-divider {
-    flex-shrink: 0;
+    width: 100%;
+    height: 100%;
     background: rgba(255, 255, 255, 0.06);
     transition: background 0.15s;
     z-index: 5;
@@ -59,12 +60,10 @@
   }
 
   .split-divider.vertical {
-    width: 4px;
     cursor: col-resize;
   }
 
   .split-divider.horizontal {
-    height: 4px;
     cursor: row-resize;
   }
 </style>
