@@ -1,5 +1,6 @@
 <script lang="ts">
   import { workspaceState } from '../lib/stores/workspace.svelte'
+  import TitlebarMenu from './TitlebarMenu.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
 
@@ -16,6 +17,11 @@
 </script>
 
 <div class="titlebar" class:mac={isMac}>
+  {#if !isMac}
+    <div class="menu-area">
+      <TitlebarMenu />
+    </div>
+  {/if}
   {#if workspaceState.workspace}
     <span class="title">
       {workspaceState.workspace.name}
@@ -49,6 +55,16 @@
   .titlebar.mac {
     padding-left: 78px;
     padding-right: 78px;
+  }
+
+  .menu-area {
+    position: absolute;
+    left: 8px;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    app-region: no-drag;
   }
 
   .title {
