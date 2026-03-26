@@ -13,6 +13,8 @@ export interface BrowserSessionState {
 export const browserSessions: Record<string, BrowserSessionState> = $state({})
 
 export function initBrowserSession(browserId: string): void {
+  // Preserve existing state across component remounts (e.g. drag-to-split)
+  if (browserSessions[browserId]) return
   browserSessions[browserId] = {
     url: '',
     title: '',

@@ -5,7 +5,6 @@
   import {
     browserSessions,
     initBrowserSession,
-    removeBrowserSession,
     handleBrowserUrlChanged,
     handleBrowserTitleChanged,
     handleBrowserLoadingChanged,
@@ -124,7 +123,6 @@
     return () => {
       alive = false
       unsubs.forEach((fn) => fn())
-      removeBrowserSession(browserId)
     }
   })
 
