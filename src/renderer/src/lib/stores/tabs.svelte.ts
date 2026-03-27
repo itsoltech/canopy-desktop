@@ -488,23 +488,6 @@ export interface AiSessionInfo {
 
 const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
-export function hasAiTool(root: SplitNode): boolean {
-  return allPanes(root).some((p) => AI_TOOL_IDS.has(p.toolId))
-}
-
-export function wouldCauseAiConflict(
-  worktreePath: string,
-  sourceTabId: string,
-  targetTabId: string,
-): boolean {
-  const tabs = tabsByWorktree[worktreePath]
-  if (!tabs) return false
-  const src = tabs.find((t) => t.id === sourceTabId)
-  const tgt = tabs.find((t) => t.id === targetTabId)
-  if (!src || !tgt) return false
-  return hasAiTool(src.rootSplit) && hasAiTool(tgt.rootSplit)
-}
-
 export function getAiSessions(worktreePath: string): AiSessionInfo[] {
   const tabs = tabsByWorktree[worktreePath] ?? []
   const result: AiSessionInfo[] = []
@@ -533,6 +516,18 @@ export function getTabDisplayName(tab: TabInfo): string {
 export function getTabFocusedToolId(tab: TabInfo): string {
   const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
   return focused?.toolId ?? tab.toolId
+}
+
+export function toggleFocusedInspector(): void {
+  const path = workspaceState.selectedWorktreePath
+  if (!path) return
+  const tabId = activeTabId[path]
+  const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
+  if (!tab) return
+  const pane = findLeaf(tab.rootSplit, tab.focusedPaneId)
+  if (pane?.toolId === 'claude') {
+    pane.inspectorOpen = pane.inspectorOpen === false ? true : false
+  }
 }
 
 export function updatePaneTitle(sessionId: string, title: string): void {
@@ -765,7 +760,6 @@ export function canMoveTabToSplit(
   const sourceTab = tabs.find((t) => t.id === sourceTabId)
   const targetTab = tabs.find((t) => t.id === targetTabId)
   if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
-  if (hasAiTool(sourceTab.rootSplit) && hasAiTool(targetTab.rootSplit)) return false
 
   const { direction, position } = mapZone(zone)
   const result = graftSubtree(
@@ -791,7 +785,6 @@ export function moveTabToSplit(
   const sourceTab = tabs.find((t) => t.id === sourceTabId)
   const targetTab = tabs.find((t) => t.id === targetTabId)
   if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
-  if (hasAiTool(sourceTab.rootSplit) && hasAiTool(targetTab.rootSplit)) return false
 
   const { direction, position } = mapZone(zone)
   const newTree = graftSubtree(

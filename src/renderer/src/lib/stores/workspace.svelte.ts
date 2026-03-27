@@ -304,9 +304,7 @@ export function toggleSidebar(): void {
   workspaceState.sidebarOpen = !workspaceState.sidebarOpen
 }
 
-export function toggleInspector(): void {
-  workspaceState.inspectorOpen = !workspaceState.inspectorOpen
-}
+export { toggleFocusedInspector as toggleInspector } from './tabs.svelte'
 
 export async function closeWorkspace(): Promise<void> {
   // Detach all projects

@@ -231,7 +231,7 @@
       showPreferences()
     }
 
-    // Cmd+Shift+I: toggle Claude Inspector
+    // Cmd+Shift+I: toggle Claude Inspector on focused pane
     if ((e.key === 'I' || e.key === 'i') && e.shiftKey) {
       e.preventDefault()
       toggleInspector()

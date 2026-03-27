@@ -136,7 +136,7 @@
 
     // Check for panel-split drop first (drag from tab bar to a panel)
     const dt = dragState.dropTarget
-    if (dragActive && dragTabId && dt && !dragState.aiConflict) {
+    if (dragActive && dragTabId && dt) {
       moveTabToSplit(worktreePath, dragTabId, dt.tabId, dt.paneId, dt.zone)
     } else if (dragActive && dragTabId && dropTargetId) {
       // Existing tab-reorder logic

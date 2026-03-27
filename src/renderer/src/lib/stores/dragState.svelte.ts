@@ -11,7 +11,6 @@ interface DragState {
   sourceWorktree: string | null
   isDragging: boolean
   dropTarget: DropTarget | null
-  aiConflict: boolean
 }
 
 export const dragState: DragState = $state({
@@ -19,7 +18,6 @@ export const dragState: DragState = $state({
   sourceWorktree: null,
   isDragging: false,
   dropTarget: null,
-  aiConflict: false,
 })
 
 export function startDrag(tabId: string, worktreePath: string): void {
@@ -42,5 +40,4 @@ export function clearDrag(): void {
   dragState.sourceWorktree = null
   dragState.isDragging = false
   dragState.dropTarget = null
-  dragState.aiConflict = false
 }

@@ -10,6 +10,7 @@ export interface PaneSession {
   paneType?: 'terminal' | 'browser'
   url?: string
   isLoading?: boolean
+  inspectorOpen?: boolean
 }
 
 export type SplitNode =
