@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { TerminalSquare, Loader, ShieldAlert, Sparkles } from 'lucide-svelte'
   import NotchNotificationRow from './NotchNotificationRow.svelte'
@@ -56,7 +57,7 @@
   })
 
   // Aggregate status: what's the "highest priority" across all sessions
-  const aggregateStatus = $derived(() => {
+  const aggregateStatus = $derived.by(() => {
     const s = state.sessions
     if (s.length === 0) return 'none'
     if (s.some((x) => x.status === 'waitingPermission')) return 'waitingPermission'
@@ -73,7 +74,7 @@
       working: '#f59e0b',
       waitingPermission: '#f87171',
       error: '#f87171',
-    }[aggregateStatus()],
+    }[aggregateStatus],
   )
 
   const showExpanded = $derived(isExpanded || isPeeking)
@@ -119,6 +120,11 @@
     }, 300)
   }
 
+  onDestroy(() => {
+    if (collapseTimer) clearTimeout(collapseTimer)
+    if (peekTimer) clearTimeout(peekTimer)
+  })
+
   function handleRowClick(session: NotchSession): void {
     window.notchApi.focusSession(session.windowId, session.ptySessionId)
   }
@@ -136,9 +142,9 @@
   >
     <div class="header" style:height="{collapsedHeight}px">
       <span class="wing left" style:color={statusColor}>
-        {#if aggregateStatus() === 'working'}
+        {#if aggregateStatus === 'working'}
           <span class="spin"><Loader size={15} /></span>
-        {:else if aggregateStatus() === 'waitingPermission'}
+        {:else if aggregateStatus === 'waitingPermission'}
           <ShieldAlert size={15} />
         {:else}
           <TerminalSquare size={15} />
@@ -267,5 +273,17 @@
 
   .content {
     padding: 0 0 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .island {
+      transition-duration: 0s;
+    }
+    .spin {
+      animation: none;
+    }
+    .notch-gap {
+      transition-duration: 0s;
+    }
   }
 </style>

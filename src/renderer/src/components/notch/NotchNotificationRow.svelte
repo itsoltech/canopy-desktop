@@ -1,12 +1,5 @@
 <script lang="ts">
-  import {
-    ShieldAlert,
-    CircleDot,
-    Loader,
-    AlertTriangle,
-    Layers,
-    ChevronRight,
-  } from 'lucide-svelte'
+  import { ShieldAlert, CircleDot, Loader, AlertTriangle, ChevronRight } from 'lucide-svelte'
 
   interface Props {
     session: {
@@ -59,8 +52,6 @@
       <span class="spin"><Loader size={15} /></span>
     {:else if session.status === 'error'}
       <AlertTriangle size={15} />
-    {:else if session.status === 'compacting'}
-      <Layers size={15} />
     {:else}
       <CircleDot size={15} />
     {/if}

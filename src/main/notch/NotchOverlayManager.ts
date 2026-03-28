@@ -172,8 +172,9 @@ export class NotchOverlayManager {
       },
     )
 
-    ipcMain.on('notch:setMouseIgnore', (_event, { ignore }: { ignore: boolean }) => {
+    ipcMain.on('notch:setMouseIgnore', (event, { ignore }: { ignore: boolean }) => {
       if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return
+      if (event.sender !== this.overlayWindow.webContents) return
       if (ignore) {
         this.overlayWindow.setIgnoreMouseEvents(true, { forward: true })
       } else {

@@ -4,17 +4,19 @@ import type { IpcRendererEvent } from 'electron'
 const notchApi = {
   onStateUpdate: (
     callback: (state: {
-      items: Array<{
+      sessions: Array<{
         ptySessionId: string
         windowId: number
         workspaceName: string
         branch: string | null
-        type: 'permission' | 'idle' | 'done' | 'error'
+        status: string
         toolName?: string
         detail?: string
-        timestamp: number
+        title?: string
       }>
-      expanded: boolean
+      notchWidth: number
+      notchHeight: number
+      peekSessionIds?: string[]
     }) => void,
   ) => {
     const handler = (_event: IpcRendererEvent, state: Parameters<typeof callback>[0]): void =>
