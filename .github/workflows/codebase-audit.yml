@@ -2,8 +2,8 @@ name: Codebase Audit
 
 on:
   schedule:
-    # 04:00 UTC = 06:00 CEST (summer) / 05:00 CET (winter)
-    - cron: '0 4 * * *'
+    # 04:00 UTC Mon-Fri = 06:00 CEST (summer) / 05:00 CET (winter)
+    - cron: '0 4 * * 1-5'
   workflow_dispatch: {}
 
 concurrency:
