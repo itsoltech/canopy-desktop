@@ -360,6 +360,7 @@
             class="detach-btn"
             onclick={(e) => handleDetach(e, project)}
             title="Detach project from window"
+            aria-label="Detach project from window"
           >
             <X size={10} />
           </button>
@@ -404,6 +405,7 @@
                 <button
                   class="remove-btn"
                   title="Remove worktree and delete branch"
+                  aria-label="Remove worktree and delete branch"
                   onclick={(e) => removeWorktree(e, project, wt)}
                 >
                   <Trash2 size={12} />

@@ -24,7 +24,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="prefs-overlay" onkeydown={handleKeydown} onclick={closeDialog}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="prefs-container" onclick={(e) => e.stopPropagation()}>
+  <div class="prefs-container" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
     <div class="prefs-sidebar">
       <h2 class="prefs-title">Settings</h2>
       {#each sections as section (section)}

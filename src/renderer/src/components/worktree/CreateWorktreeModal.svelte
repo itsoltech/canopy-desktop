@@ -218,7 +218,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="dialog-overlay" onkeydown={handleKeydown} onclick={onClose}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="modal-container" onclick={(e) => e.stopPropagation()}>
+  <div class="modal-container" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
     <h3 class="modal-title">Create Worktree</h3>
 
     {#if step === 'loading'}

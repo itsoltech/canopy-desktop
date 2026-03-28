@@ -88,7 +88,12 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="dialog-overlay" onkeydown={handleKeydown} onclick={onCancel}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="dialog-container" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="dialog-container"
+    role="dialog"
+    aria-modal="true"
+    onclick={(e) => e.stopPropagation()}
+  >
     <h3 class="dialog-title">{title}</h3>
 
     {#if multiline}
