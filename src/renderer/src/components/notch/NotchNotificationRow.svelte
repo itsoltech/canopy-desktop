@@ -189,4 +189,13 @@
     display: flex;
     align-items: center;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin {
+      animation: none;
+    }
+    .row.highlight {
+      animation: none;
+    }
+  }
 </style>
