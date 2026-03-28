@@ -16,6 +16,7 @@ import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
+import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { isSafeExternalUrl } from './security/validateUrl'
 
 if (is.dev) {
@@ -34,6 +35,7 @@ const browserManager = new BrowserManager()
 let manualCheckInProgress = false
 
 let claudeSessionManager: ClaudeSessionManager | null = null
+let notchOverlay: NotchOverlayManager | null = null
 
 // Register canopy:// URL scheme
 if (process.defaultApp) {
@@ -392,6 +394,21 @@ app.whenReady().then(async () => {
     windowManager.createWindow()
   }
 
+  // Initialize notch overlay after main window so the panel doesn't suppress the dock icon
+  notchOverlay = new NotchOverlayManager(claudeSessionManager, windowManager)
+  if (preferencesStore.get('notch.enabled') === 'true') {
+    notchOverlay.initialize()
+  }
+
+  ipcMain.on('notch:setEnabled', (_event, { enabled }: { enabled: boolean }) => {
+    if (!notchOverlay) return
+    if (enabled) {
+      notchOverlay.initialize()
+    } else {
+      notchOverlay.dispose()
+    }
+  })
+
   // Handle URL scheme on macOS
   app.on('open-url', (event, url) => {
     event.preventDefault()
@@ -450,6 +467,7 @@ app.on('before-quit', (event) => {
     preferencesStore.delete('openWindowConfigs')
   }
 
+  notchOverlay?.dispose()
   claudeSessionManager?.dispose()
   windowManager.disposeAll()
   database.close()

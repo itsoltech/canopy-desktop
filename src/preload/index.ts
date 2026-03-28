@@ -28,6 +28,9 @@ const api = {
   getAllPrefs: () => ipcRenderer.invoke('db:prefs:getAll'),
   deletePref: (key: string) => ipcRenderer.invoke('db:prefs:delete', { key }),
 
+  // Notch overlay
+  setNotchEnabled: (enabled: boolean) => ipcRenderer.send('notch:setEnabled', { enabled }),
+
   // Tools
   listTools: () => ipcRenderer.invoke('tools:list'),
   getTool: (id: string) => ipcRenderer.invoke('tools:get', { id }),
@@ -52,6 +55,10 @@ const api = {
     category?: string
   }) => ipcRenderer.invoke('tools:addCustom', tool),
   removeCustomTool: (id: string) => ipcRenderer.invoke('tools:removeCustom', { id }),
+
+  // Claude session
+  updateClaudeTitle: (sessionId: string, title: string) =>
+    ipcRenderer.invoke('claude:updateTitle', { sessionId, title }),
 
   // Auto-update
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),

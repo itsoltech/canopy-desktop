@@ -2,9 +2,11 @@ import { app, BrowserWindow, Notification } from 'electron'
 import { join } from 'path'
 import { writeFileSync, mkdirSync, unlinkSync, readdirSync, existsSync, chmodSync } from 'fs'
 import { randomUUID } from 'crypto'
+import { EventEmitter } from 'events'
 import { is } from '@electron-toolkit/utils'
 import { ClaudeHookServer } from './ClaudeHookServer'
 import type { HookEvent } from './types'
+import type { NotchSessionStatus, SessionStatusType } from '../notch/types'
 
 interface ClaudeSession {
   claudeSessionId: string
@@ -17,19 +19,36 @@ interface ClaudeSession {
   branch: string | null
   sessionRef: { ptySessionId: string }
   ownerWindow: BrowserWindow
+  /** PTY process title, used to distinguish sessions in the notch overlay */
+  processTitle?: string
 }
 
 const BUSY_EVENTS = new Set(['UserPromptSubmit', 'PreToolUse', 'PreCompact', 'PermissionRequest'])
 const IDLE_EVENTS = new Set(['Stop', 'StopFailure', 'SessionEnd'])
 
-export class ClaudeSessionManager {
+export interface ClaudeSessionManagerEvents {
+  statusChange: [status: NotchSessionStatus]
+  sessionDestroyed: [ptySessionId: string]
+}
+
+export class ClaudeSessionManager extends EventEmitter {
   private sessions = new Map<string, ClaudeSession>()
   private busySessions = new Set<string>()
   private hooksDir: string
 
   constructor() {
+    super()
     this.hooksDir = join(app.getPath('userData'), 'canopy', 'claude-hooks')
     mkdirSync(this.hooksDir, { recursive: true })
+  }
+
+  getSession(ptySessionId: string): ClaudeSession | undefined {
+    return this.sessions.get(ptySessionId)
+  }
+
+  updateProcessTitle(ptySessionId: string, title: string): void {
+    const session = this.sessions.get(ptySessionId)
+    if (session) session.processTitle = title
   }
 
   async createSession(
@@ -60,6 +79,9 @@ export class ClaudeSessionManager {
           ptySessionId: sessionRef.ptySessionId,
           event,
         })
+
+        // Emit status change for notch overlay
+        this.emitStatusChange(event, sessionRef.ptySessionId, ownerWindow, workspaceName, branch)
 
         if (event.hook_event_name === 'PermissionRequest') {
           this.showPermissionNotification(event, sessionRef.ptySessionId, ownerWindow)
@@ -129,6 +151,7 @@ export class ClaudeSessionManager {
 
     session.hookServer.destroy()
     this.busySessions.delete(ptySessionId)
+    this.emit('sessionDestroyed', ptySessionId)
 
     try {
       unlinkSync(session.settingsPath)
@@ -159,6 +182,69 @@ export class ClaudeSessionManager {
       this.destroySession(id)
     }
     this.busySessions.clear()
+  }
+
+  private emitStatusChange(
+    event: HookEvent,
+    ptySessionId: string,
+    ownerWindow: BrowserWindow,
+    workspaceName: string,
+    branch: string | null,
+  ): void {
+    let status: SessionStatusType
+    let detail: string | undefined
+
+    const session = this.sessions.get(ptySessionId)
+
+    switch (event.hook_event_name) {
+      case 'SessionStart':
+      case 'Stop':
+      case 'PostToolUse':
+      case 'PostToolUseFailure':
+        status = 'idle'
+        break
+      case 'UserPromptSubmit':
+      case 'PostCompact':
+        status = 'thinking'
+        break
+      case 'PreToolUse':
+        status = 'toolCalling'
+        detail = event.tool_name
+          ? `${event.tool_name}: ${this.summarizeToolInput(event.tool_input)}`
+          : undefined
+        break
+      case 'PermissionRequest':
+        status = 'waitingPermission'
+        detail = event.tool_name
+          ? `${event.tool_name}: ${this.summarizeToolInput(event.tool_input)}`
+          : undefined
+        break
+      case 'PreCompact':
+        status = 'compacting'
+        break
+      case 'StopFailure':
+        status = 'error'
+        detail = event.error ?? undefined
+        break
+      case 'SessionEnd':
+        status = 'ended'
+        detail = event.reason ?? undefined
+        break
+      default:
+        return // SubagentStart/Stop, Notification, TaskCompleted etc. don't change status
+    }
+
+    const sessionStatus: NotchSessionStatus = {
+      ptySessionId,
+      windowId: ownerWindow.webContents.id,
+      workspaceName,
+      branch,
+      status,
+      toolName: event.tool_name ?? undefined,
+      title: session?.processTitle ?? undefined,
+      detail,
+    }
+    this.emit('statusChange', sessionStatus)
   }
 
   /** Resolve a resource script path, using forward slashes on Windows for bash compatibility */

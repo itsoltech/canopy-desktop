@@ -195,6 +195,12 @@ interface CanopyAPI {
   openThirdPartyNotices: () => Promise<void>
   quit: () => Promise<void>
 
+  // Claude session
+  updateClaudeTitle: (sessionId: string, title: string) => Promise<void>
+
+  // Notch overlay
+  setNotchEnabled: (enabled: boolean) => void
+
   // Auto-update
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>
@@ -369,8 +375,42 @@ interface CanopyAPI {
   getPathForFile: (file: File) => string
 }
 
+type SessionStatusType =
+  | 'idle'
+  | 'thinking'
+  | 'toolCalling'
+  | 'compacting'
+  | 'waitingPermission'
+  | 'error'
+  | 'ended'
+
+interface NotchSessionStatus {
+  ptySessionId: string
+  windowId: number
+  workspaceName: string
+  branch: string | null
+  status: SessionStatusType
+  toolName?: string
+  detail?: string
+  title?: string
+}
+
+interface NotchOverlayState {
+  sessions: NotchSessionStatus[]
+  notchWidth: number
+  notchHeight: number
+  peekSessionIds?: string[]
+}
+
+interface NotchAPI {
+  onStateUpdate: (callback: (state: NotchOverlayState) => void) => () => void
+  focusSession: (windowId: number, ptySessionId: string) => Promise<void>
+  setMouseIgnore: (ignore: boolean) => void
+}
+
 declare global {
   interface Window {
     api: CanopyAPI
+    notchApi: NotchAPI
   }
 }
