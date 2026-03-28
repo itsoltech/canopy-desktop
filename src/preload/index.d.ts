@@ -1,5 +1,3 @@
-import type { ElectronAPI } from '@electron-toolkit/preload'
-
 interface PtySpawnResult {
   sessionId: string
   wsUrl: string
@@ -363,13 +361,16 @@ interface CanopyAPI {
     callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
   ) => () => void
 
+  // Menu events
+  onMenuShowAbout: (callback: () => void) => () => void
+  onMenuShowPreferences: (callback: () => void) => () => void
+
   // File utilities
   getPathForFile: (file: File) => string
 }
 
 declare global {
   interface Window {
-    electron: ElectronAPI
     api: CanopyAPI
   }
 }

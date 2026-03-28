@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 
 const api = {
   // PTY
@@ -406,20 +405,33 @@ const api = {
     }
   },
 
+  // Menu events (from native menu)
+  onMenuShowAbout: (callback: () => void) => {
+    const handler = (): void => callback()
+    ipcRenderer.on('menu:showAbout', handler)
+    return (): void => {
+      ipcRenderer.removeListener('menu:showAbout', handler)
+    }
+  },
+  onMenuShowPreferences: (callback: () => void) => {
+    const handler = (): void => callback()
+    ipcRenderer.on('menu:showPreferences', handler)
+    return (): void => {
+      ipcRenderer.removeListener('menu:showPreferences', handler)
+    }
+  },
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 }
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
 }

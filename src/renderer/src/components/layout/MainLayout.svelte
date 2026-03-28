@@ -149,16 +149,12 @@
 
   // Subscribe to menu:showAbout from native menu
   $effect(() => {
-    const handler = (): void => showAbout()
-    window.electron.ipcRenderer.on('menu:showAbout', handler)
-    return () => window.electron.ipcRenderer.removeListener('menu:showAbout', handler)
+    return window.api.onMenuShowAbout(() => showAbout())
   })
 
   // Subscribe to menu:showPreferences from native menu (Windows File menu)
   $effect(() => {
-    const handler = (): void => showPreferences()
-    window.electron.ipcRenderer.on('menu:showPreferences', handler)
-    return () => window.electron.ipcRenderer.removeListener('menu:showPreferences', handler)
+    return window.api.onMenuShowPreferences(() => showPreferences())
   })
 
   // Save layouts on window close
