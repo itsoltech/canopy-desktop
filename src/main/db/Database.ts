@@ -90,6 +90,7 @@ const migrations: Migration[] = [
 
 export class Database {
   readonly db: BetterSqlite3Database
+  private closed = false
 
   constructor() {
     const dbPath = this.getDbPath()
@@ -133,6 +134,8 @@ export class Database {
   }
 
   close(): void {
+    if (this.closed) return
+    this.closed = true
     this.db.close()
   }
 }

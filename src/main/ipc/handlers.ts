@@ -285,6 +285,10 @@ export function registerIpcHandlers(
     }
   })
 
+  ipcMain.handle('app:setActiveWorktree', (event, payload: { path: string }) => {
+    windowManager.setActiveWorktree(event.sender.id, payload.path)
+  })
+
   ipcMain.handle('app:detachProject', (event, payload: { path: string }) => {
     const senderId = event.sender.id
     windowManager.removeWorkspacePath(senderId, payload.path)

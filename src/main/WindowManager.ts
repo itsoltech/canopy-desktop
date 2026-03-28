@@ -11,6 +11,7 @@ import { isSafeExternalUrl } from './security/validateUrl'
 export class WindowManager {
   private windows = new Map<number, BrowserWindow>()
   private workspacePaths = new Map<number, Set<string>>()
+  private activeWorktreePaths = new Map<number, string>()
   private gitWatchers = new Map<number, Map<string, GitWatcher>>()
   private ptySessions = new Map<number, Set<string>>()
   private forceClosing = new Set<number>()
@@ -143,18 +144,25 @@ export class WindowManager {
     if (paths) paths.delete(path)
   }
 
+  setActiveWorktree(wcId: number, path: string): void {
+    this.activeWorktreePaths.set(wcId, path)
+  }
+
   getWorkspacePaths(wcId: number): string[] {
     const paths = this.workspacePaths.get(wcId)
     return paths ? [...paths] : []
   }
 
   /** Returns one entry per window, each containing all project paths for that window */
-  getAllWindowConfigs(): Array<{ paths: string[] }> {
-    const configs: Array<{ paths: string[] }> = []
+  getAllWindowConfigs(): Array<{ paths: string[]; activeWorktreePath?: string }> {
+    const configs: Array<{ paths: string[]; activeWorktreePath?: string }> = []
     for (const [wcId, paths] of this.workspacePaths) {
       const win = this.windows.get(wcId)
       if (win && !win.isDestroyed() && paths.size > 0) {
-        configs.push({ paths: [...paths] })
+        configs.push({
+          paths: [...paths],
+          activeWorktreePath: this.activeWorktreePaths.get(wcId),
+        })
       }
     }
     return configs
