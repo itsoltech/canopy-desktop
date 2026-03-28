@@ -9,7 +9,6 @@
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
-  import ClaudeInspector from '../claude/ClaudeInspector.svelte'
   import Toast from '../shared/Toast.svelte'
   import {
     dialogState,
@@ -44,7 +43,7 @@
     focusSessionByPtyId,
     saveAllLayouts,
   } from '../../lib/stores/tabs.svelte'
-  import { allPanes } from '../../lib/stores/splitTree'
+  import { findLeaf } from '../../lib/stores/splitTree'
   import {
     claudeSessions,
     handleHookEvent,
@@ -177,30 +176,18 @@
     )
   })
 
-  const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
-
-  // Derive active tab's tool info
+  // Derive active tab and focused pane info
   let activeTab = $derived(allTabs.find((t) => t.id === currentActiveTabId) ?? null)
-  let isAiTab = $derived(activeTab ? AI_TOOL_IDS.has(activeTab.toolId) : false)
-
-  // Derive active Claude session from current tab
-  let activeClaudePtySessionId = $derived.by(() => {
-    if (!activeTab || activeTab.toolId !== 'claude') return null
-    const panes = allPanes(activeTab.rootSplit)
-    const claudePane = panes.find((p) => p.toolId === 'claude')
-    return claudePane?.sessionId ?? null
-  })
-
-  let activeClaudeState = $derived(
-    activeClaudePtySessionId ? (claudeSessions[activeClaudePtySessionId] ?? null) : null,
+  let focusedPane = $derived(
+    activeTab ? findLeaf(activeTab.rootSplit, activeTab.focusedPaneId) : null,
   )
 
-  // Auto-show inspector for AI tabs, auto-hide when switching away
-  $effect(() => {
-    workspaceState.inspectorOpen = isAiTab
-  })
+  // Derive active Claude session from focused pane
+  let activeClaudePtySessionId = $derived(
+    focusedPane?.toolId === 'claude' ? focusedPane.sessionId : null,
+  )
 
-  // Clear badge when Claude tab is focused
+  // Clear badge when Claude pane is focused
   $effect(() => {
     if (activeClaudePtySessionId) {
       clearBadge(activeClaudePtySessionId)
@@ -251,7 +238,7 @@
       showPreferences()
     }
 
-    // Cmd+Shift+I: toggle Claude Inspector
+    // Cmd+Shift+I: toggle Claude Inspector on focused pane
     if ((e.key === 'I' || e.key === 'i') && e.shiftKey) {
       e.preventDefault()
       toggleInspector()
@@ -390,10 +377,6 @@
           </div>
         {/if}
       </div>
-
-      {#if workspaceState.inspectorOpen && activeClaudeState && activeClaudePtySessionId}
-        <ClaudeInspector state={activeClaudeState} />
-      {/if}
     </div>
   </div>
 </div>

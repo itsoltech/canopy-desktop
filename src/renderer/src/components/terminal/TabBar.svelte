@@ -1,17 +1,20 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import {
     tabsByWorktree,
     activeTabId,
     switchTab,
     closeTab,
     moveTab,
+    moveTabToSplit,
     getTabDisplayName,
+    getTabFocusedToolId,
     type TabInfo,
   } from '../../lib/stores/tabs.svelte'
-  import { allPanes } from '../../lib/stores/splitTree'
+  import { allPanes, findLeaf } from '../../lib/stores/splitTree'
   import { claudeBadges, type BadgeType } from '../../lib/claude/claudeState.svelte'
   import { browserSessions } from '../../lib/browser/browserState.svelte'
+  import { dragState, startDrag, activateDrag, clearDrag } from '../../lib/stores/dragState.svelte'
   import {
     connectionStatus,
     type ConnectionStatus,
@@ -25,19 +28,24 @@
     const map: Record<string, string> = {}
     for (const t of tools) map[t.id] = t.icon
     toolIcons = map
+
+    return () => {
+      window.removeEventListener('pointermove', handleDragMove)
+      window.removeEventListener('pointerup', handleDragEnd)
+    }
   })
 
   function getTabFavicon(tab: TabInfo): string | null {
-    if (tab.toolId !== 'browser') return null
-    const pane = allPanes(tab.rootSplit).find((p) => p.paneType === 'browser')
-    if (!pane) return null
-    return browserSessions[pane.sessionId]?.favicon ?? null
+    const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
+    if (!focused || focused.paneType !== 'browser') return null
+    return browserSessions[focused.sessionId]?.favicon ?? null
   }
 
   function getTabBadge(tab: TabInfo): BadgeType {
-    if (tab.toolId !== 'claude') return 'none'
+    // Show badge if ANY claude pane in this tab has a notification
     const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
+      if (p.toolId !== 'claude') continue
       const b = claudeBadges[p.sessionId]
       if (b === 'permission') return 'permission'
       if (b === 'unread') return 'unread'
@@ -104,6 +112,10 @@
     dragStartX = e.clientX
     dragActive = false
     dropTargetId = null
+    // Only enable panel-drop mode when there are 2+ tabs
+    if (tabs.length > 1) {
+      startDrag(tabId, worktreePath)
+    }
     window.addEventListener('pointermove', handleDragMove)
     window.addEventListener('pointerup', handleDragEnd)
   }
@@ -112,6 +124,10 @@
     if (!dragTabId) return
     if (!dragActive && Math.abs(e.clientX - dragStartX) > 5) {
       dragActive = true
+      if (tabs.length > 1) {
+        activateDrag()
+      }
+      window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
     }
     if (!dragActive) return
 
@@ -133,11 +149,16 @@
     dropTargetId = found
   }
 
-  function handleDragEnd(): void {
+  async function handleDragEnd(): Promise<void> {
     window.removeEventListener('pointermove', handleDragMove)
     window.removeEventListener('pointerup', handleDragEnd)
 
-    if (dragActive && dragTabId && dropTargetId) {
+    // Check for panel-split drop first (drag from tab bar to a panel)
+    const dt = dragState.dropTarget
+    if (dragActive && dragTabId && dt) {
+      moveTabToSplit(worktreePath, dragTabId, dt.tabId, dt.paneId, dt.zone)
+    } else if (dragActive && dragTabId && dropTargetId) {
+      // Existing tab-reorder logic
       const fromIdx = tabs.findIndex((t) => t.id === dragTabId)
       const toIdx = tabs.findIndex((t) => t.id === dropTargetId)
       if (fromIdx >= 0 && toIdx >= 0) {
@@ -145,7 +166,9 @@
       }
     }
 
-    if (dragActive) {
+    const wasDragActive = dragActive
+
+    if (wasDragActive) {
       suppressClick = true
       requestAnimationFrame(() => {
         suppressClick = false
@@ -155,6 +178,14 @@
     dragTabId = null
     dragActive = false
     dropTargetId = null
+    clearDrag()
+
+    // Unfreeze AFTER clearDrag and state reset so Svelte can flush
+    // the tree change first; new BrowserPane components handle visibility
+    if (wasDragActive) {
+      await tick()
+      window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
+    }
   }
 </script>
 
@@ -180,10 +211,12 @@
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
           title={getTabDisplayName(tab)}
         >
-          {#if getTabFavicon(tab)}
-            <img class="tab-favicon" src={getTabFavicon(tab)} alt="" width="12" height="12" />
-          {:else if toolIcons[tab.toolId]}
-            <ToolIcon icon={toolIcons[tab.toolId]} size={12} />
+          {@const favicon = getTabFavicon(tab)}
+          {@const focusedToolId = getTabFocusedToolId(tab)}
+          {#if favicon}
+            <img class="tab-favicon" src={favicon} alt="" width="12" height="12" />
+          {:else if toolIcons[focusedToolId]}
+            <ToolIcon icon={toolIcons[focusedToolId]} size={12} />
           {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>
           {#if connState}

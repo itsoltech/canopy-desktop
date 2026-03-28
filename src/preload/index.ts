@@ -230,6 +230,14 @@ const api = {
     }
   },
 
+  onBrowserFocused: (callback: (data: { browserId: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string }): void => callback(data)
+    ipcRenderer.on('browser:focused', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:focused', handler)
+    }
+  },
+
   onBrowserLoadingChanged: (
     callback: (data: { browserId: string; isLoading: boolean }) => void,
   ) => {

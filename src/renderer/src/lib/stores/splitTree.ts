@@ -10,6 +10,7 @@ export interface PaneSession {
   paneType?: 'terminal' | 'browser'
   url?: string
   isLoading?: boolean
+  inspectorOpen?: boolean
 }
 
 export type SplitNode =
@@ -153,6 +154,12 @@ export function updatePane(
   }
 }
 
+export function findSplitRatio(root: SplitNode, splitId: string): number | null {
+  if (root.type === 'leaf') return null
+  if (root.id === splitId) return root.ratio
+  return findSplitRatio(root.first, splitId) ?? findSplitRatio(root.second, splitId)
+}
+
 export function updateRatio(root: SplitNode, splitId: string, ratio: number): SplitNode {
   if (root.type === 'leaf') return root
   if (root.id === splitId) {
@@ -165,7 +172,162 @@ export function updateRatio(root: SplitNode, splitId: string, ratio: number): Sp
   }
 }
 
-// Navigation: build bounding boxes for each leaf, find neighbor in direction
+export function graftSubtree(
+  root: SplitNode,
+  targetPaneId: string,
+  direction: 'hsplit' | 'vsplit',
+  subtree: SplitNode,
+  position: 'first' | 'second',
+): SplitNode | null {
+  const subtreeDepth = depth(subtree)
+  return graftInner(root, targetPaneId, direction, subtree, position, subtreeDepth, 1)
+}
+
+function graftInner(
+  node: SplitNode,
+  targetPaneId: string,
+  direction: 'hsplit' | 'vsplit',
+  subtree: SplitNode,
+  position: 'first' | 'second',
+  subtreeDepth: number,
+  currentDepth: number,
+): SplitNode | null {
+  if (node.type === 'leaf') {
+    if (node.pane.id !== targetPaneId) return null
+    // New split adds 1 level, plus the subtree depth
+    if (currentDepth + subtreeDepth > MAX_DEPTH) return null
+    const first = position === 'first' ? subtree : node
+    const second = position === 'first' ? node : subtree
+    return {
+      type: direction,
+      id: nextSplitId(),
+      first,
+      second,
+      ratio: 0.5,
+    }
+  }
+
+  const firstResult = graftInner(
+    node.first,
+    targetPaneId,
+    direction,
+    subtree,
+    position,
+    subtreeDepth,
+    currentDepth + 1,
+  )
+  if (firstResult) {
+    return { ...node, first: firstResult }
+  }
+
+  const secondResult = graftInner(
+    node.second,
+    targetPaneId,
+    direction,
+    subtree,
+    position,
+    subtreeDepth,
+    currentDepth + 1,
+  )
+  if (secondResult) {
+    return { ...node, second: secondResult }
+  }
+
+  return null
+}
+
+// --- Layout computation (flat rects for absolute positioning) ---
+
+export interface PaneRect {
+  paneId: string
+  pane: PaneSession
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface DividerRect {
+  splitId: string
+  direction: 'horizontal' | 'vertical'
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface FlatLayout {
+  panes: PaneRect[]
+  dividers: DividerRect[]
+}
+
+// Divider gap in normalized units — will be computed relative to container size
+const DIVIDER_PX = 4
+
+export function buildFlatLayout(
+  root: SplitNode,
+  containerWidth = 1,
+  containerHeight = 1,
+): FlatLayout {
+  const panes: PaneRect[] = []
+  const dividers: DividerRect[] = []
+  // Normalize divider size to fraction of container
+  const gapX = containerWidth > 0 ? DIVIDER_PX / containerWidth : 0
+  const gapY = containerHeight > 0 ? DIVIDER_PX / containerHeight : 0
+  buildLayoutInner(root, 0, 0, 1, 1, gapX, gapY, panes, dividers)
+  return { panes, dividers }
+}
+
+function buildLayoutInner(
+  node: SplitNode,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  gapX: number,
+  gapY: number,
+  panes: PaneRect[],
+  dividers: DividerRect[],
+): void {
+  if (node.type === 'leaf') {
+    panes.push({ paneId: node.pane.id, pane: node.pane, x, y, w, h })
+    return
+  }
+
+  if (node.type === 'vsplit') {
+    const splitPos = w * node.ratio
+    const firstW = Math.max(0, splitPos - gapX / 2)
+    const secondX = x + splitPos + gapX / 2
+    const secondW = Math.max(0, w - splitPos - gapX / 2)
+    buildLayoutInner(node.first, x, y, firstW, h, gapX, gapY, panes, dividers)
+    buildLayoutInner(node.second, secondX, y, secondW, h, gapX, gapY, panes, dividers)
+    dividers.push({
+      splitId: node.id,
+      direction: 'vertical',
+      x: x + splitPos - gapX / 2,
+      y,
+      w: gapX,
+      h,
+    })
+  } else {
+    const splitPos = h * node.ratio
+    const firstH = Math.max(0, splitPos - gapY / 2)
+    const secondY = y + splitPos + gapY / 2
+    const secondH = Math.max(0, h - splitPos - gapY / 2)
+    buildLayoutInner(node.first, x, y, w, firstH, gapX, gapY, panes, dividers)
+    buildLayoutInner(node.second, x, secondY, w, secondH, gapX, gapY, panes, dividers)
+    dividers.push({
+      splitId: node.id,
+      direction: 'horizontal',
+      x,
+      y: y + splitPos - gapY / 2,
+      w,
+      h: gapY,
+    })
+  }
+}
+
+// Navigation helpers
 
 interface LeafRect {
   paneId: string

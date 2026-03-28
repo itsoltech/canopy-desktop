@@ -52,7 +52,6 @@ interface WorkspaceState {
   isDirty: boolean
   aheadBehind: { ahead: number; behind: number } | null
   sidebarOpen: boolean
-  inspectorOpen: boolean
 }
 
 // --- State ---
@@ -67,7 +66,6 @@ const initial: WorkspaceState = {
   isDirty: false,
   aheadBehind: null,
   sidebarOpen: true,
-  inspectorOpen: false,
 }
 
 /** Active selection — the currently focused project + worktree context */
@@ -304,9 +302,7 @@ export function toggleSidebar(): void {
   workspaceState.sidebarOpen = !workspaceState.sidebarOpen
 }
 
-export function toggleInspector(): void {
-  workspaceState.inspectorOpen = !workspaceState.inspectorOpen
-}
+export { toggleFocusedInspector as toggleInspector } from './tabs.svelte'
 
 export async function closeWorkspace(): Promise<void> {
   // Detach all projects

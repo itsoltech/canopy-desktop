@@ -102,8 +102,14 @@ export class BrowserManager {
       }
     })
 
-    // Forward navigation events to renderer
+    // Forward focus event so renderer can track active pane
     const wc = view.webContents
+
+    wc.on('focus', () => {
+      this.sendToRenderer(id, 'browser:focused', { browserId: id })
+    })
+
+    // Forward navigation events to renderer
 
     wc.on('did-navigate', (_event, url) => {
       this.sendToRenderer(id, 'browser:urlChanged', { browserId: id, url })
@@ -284,6 +290,11 @@ export class BrowserManager {
     if (!entry) return
     entry.visible = visible
     entry.view.setVisible(visible)
+    // When hiding, return keyboard focus to the main renderer so the
+    // terminal (xterm.js) can receive keystrokes immediately.
+    if (!visible && !entry.win.isDestroyed()) {
+      entry.win.webContents.focus()
+    }
   }
 
   toggleDevTools(id: string, mode?: 'bottom' | 'right'): void {
