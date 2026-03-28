@@ -32,6 +32,7 @@ const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 let manualCheckInProgress = false
+let updateInstalling = false
 
 let claudeSessionManager: ClaudeSessionManager | null = null
 
@@ -291,6 +292,8 @@ app.whenReady().then(async () => {
       } else {
         preferencesStore.delete('openWindowConfigs')
       }
+      updateInstalling = true
+      windowManager.isQuitting = true
       autoUpdater.quitAndInstall(true, true)
     })
 
@@ -347,7 +350,7 @@ app.whenReady().then(async () => {
   if (reopenPref !== 'false') {
     // Try new multi-project format first
     const configsJson = preferencesStore.get('openWindowConfigs')
-    let windowConfigs: Array<{ paths: string[] }> = []
+    let windowConfigs: Array<{ paths: string[]; activeWorktreePath?: string }> = []
 
     if (configsJson) {
       try {
@@ -382,6 +385,9 @@ app.whenReady().then(async () => {
         win.once('ready-to-show', () => {
           for (const path of config.paths) {
             win.webContents.send('url:action', { action: 'open', path })
+          }
+          if (config.activeWorktreePath) {
+            win.webContents.send('workspace:restoreActive', config.activeWorktreePath)
           }
         })
       }
@@ -442,12 +448,14 @@ app.on('before-quit', (event) => {
     }
   }
 
-  // Normal cleanup — save per-window project configs
-  const configs = windowManager.getAllWindowConfigs()
-  if (configs.length > 0) {
-    preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
-  } else {
-    preferencesStore.delete('openWindowConfigs')
+  // Save per-window project configs (skip if update already saved them)
+  if (!updateInstalling) {
+    const configs = windowManager.getAllWindowConfigs()
+    if (configs.length > 0) {
+      preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
+    } else {
+      preferencesStore.delete('openWindowConfigs')
+    }
   }
 
   claudeSessionManager?.dispose()

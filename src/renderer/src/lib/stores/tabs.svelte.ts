@@ -853,6 +853,10 @@ function saveLayoutForWorktree(worktreePath: string): void {
 }
 
 export function saveAllLayouts(): void {
+  for (const path of Object.keys(saveTimers)) {
+    clearTimeout(saveTimers[path])
+    delete saveTimers[path]
+  }
   for (const path of Object.keys(tabsByWorktree)) {
     saveLayoutForWorktree(path)
   }

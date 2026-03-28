@@ -132,7 +132,11 @@ export class Database {
     }
   }
 
+  private closed = false
+
   close(): void {
+    if (this.closed) return
+    this.closed = true
     this.db.close()
   }
 }

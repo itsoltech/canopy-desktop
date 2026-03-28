@@ -124,6 +124,7 @@ const api = {
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
   newWindow: () => ipcRenderer.invoke('app:newWindow'),
   setWorkspacePath: (path: string) => ipcRenderer.invoke('app:setWorkspacePath', { path }),
+  setActiveWorktree: (path: string) => ipcRenderer.invoke('app:setActiveWorktree', { path }),
   detachProject: (path: string) => ipcRenderer.invoke('app:detachProject', { path }),
   focusWindowForPath: (path: string) =>
     ipcRenderer.invoke('app:focusWindowForPath', { path }) as Promise<boolean>,
@@ -402,6 +403,14 @@ const api = {
     ipcRenderer.on('url:action', handler)
     return (): void => {
       ipcRenderer.removeListener('url:action', handler)
+    }
+  },
+
+  onRestoreActiveWorktree: (callback: (path: string) => void) => {
+    const handler = (_event: IpcRendererEvent, path: string): void => callback(path)
+    ipcRenderer.on('workspace:restoreActive', handler)
+    return (): void => {
+      ipcRenderer.removeListener('workspace:restoreActive', handler)
     }
   },
 

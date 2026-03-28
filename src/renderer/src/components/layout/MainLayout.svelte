@@ -20,6 +20,8 @@
     workspaceState,
     projects,
     attachProject,
+    waitForAttachQueue,
+    selectWorktree,
     updateGitInfoForProject,
     toggleSidebar,
     toggleInspector,
@@ -143,6 +145,15 @@
           })
         }
       }
+    })
+    return unsubscribe
+  })
+
+  // Restore last active worktree after all projects are attached
+  $effect(() => {
+    const unsubscribe = window.api.onRestoreActiveWorktree(async (path) => {
+      await waitForAttachQueue()
+      await selectWorktree(path)
     })
     return unsubscribe
   })

@@ -76,7 +76,21 @@ export const projects: ProjectState[] = $state([])
 
 // --- Multi-project functions ---
 
+// Serialize concurrent attachProject calls to prevent race conditions during restore
+let attachQueue: Promise<void> = Promise.resolve()
+
+/** Wait for all pending attachProject calls to complete */
+export function waitForAttachQueue(): Promise<void> {
+  return attachQueue
+}
+
 export async function attachProject(path: string): Promise<void> {
+  const result = attachQueue.then(() => attachProjectImpl(path))
+  attachQueue = result.catch(() => {})
+  return result
+}
+
+async function attachProjectImpl(path: string): Promise<void> {
   // Dedupe: if another window already has this path, focus it instead
   const focused = await window.api.focusWindowForPath(path)
   if (focused) return
@@ -273,6 +287,7 @@ export async function selectWorktree(path: string): Promise<void> {
   }
 
   workspaceState.selectedWorktreePath = path
+  window.api.setActiveWorktree(path)
 
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)
