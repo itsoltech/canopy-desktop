@@ -12,6 +12,10 @@
   import { allPanes } from '../../lib/stores/splitTree'
   import { claudeBadges, type BadgeType } from '../../lib/claude/claudeState.svelte'
   import { browserSessions } from '../../lib/browser/browserState.svelte'
+  import {
+    connectionStatus,
+    type ConnectionStatus,
+  } from '../../lib/terminal/connectionState.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
 
   let toolIcons: Record<string, string> = $state({})
@@ -39,6 +43,16 @@
       if (b === 'unread') return 'unread'
     }
     return 'none'
+  }
+
+  function getConnectionState(tab: TabInfo): ConnectionStatus | null {
+    const panes = allPanes(tab.rootSplit)
+    for (const p of panes) {
+      const s = connectionStatus[p.sessionId]
+      if (s === 'disconnected') return 'disconnected'
+      if (s === 'reconnecting') return 'reconnecting'
+    }
+    return null
   }
 
   let { worktreePath }: { worktreePath: string } = $props()
@@ -149,6 +163,7 @@
     <div class="tabs-row">
       {#each visibleTabs as tab (tab.id)}
         {@const badge = getTabBadge(tab)}
+        {@const connState = getConnectionState(tab)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
@@ -171,7 +186,13 @@
             <ToolIcon icon={toolIcons[tab.toolId]} size={12} />
           {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>
-          {#if badge !== 'none'}
+          {#if connState}
+            <span
+              class="tab-badge connection-badge"
+              class:disconnected={connState === 'disconnected'}
+              title={connState === 'disconnected' ? 'Disconnected' : 'Reconnecting...'}
+            ></span>
+          {:else if badge !== 'none'}
             <span class="tab-badge" class:orange={badge === 'permission'}></span>
           {/if}
           <button
@@ -320,6 +341,16 @@
   .tab-badge.orange {
     background: rgba(255, 160, 50, 0.9);
     animation: badge-pulse 1.5s ease-in-out infinite;
+  }
+
+  .tab-badge.connection-badge {
+    background: rgba(250, 200, 50, 0.8);
+    animation: badge-pulse 1.5s ease-in-out infinite;
+  }
+
+  .tab-badge.connection-badge.disconnected {
+    background: rgba(239, 68, 68, 0.8);
+    animation: none;
   }
 
   @keyframes badge-pulse {
