@@ -1,8 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       dry_run:
@@ -15,7 +13,51 @@ permissions:
   contents: write
 
 jobs:
+  # ── Determine version ─────────────────────────────────────────
+  release-version:
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.semantic.outputs.new_release_published }}
+      version: ${{ steps.semantic.outputs.new_release_version }}
+      tag: ${{ steps.semantic.outputs.new_release_git_tag }}
+      notes: ${{ steps.semantic.outputs.new_release_notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: volta-cli/action@v4
+
+      - name: Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+            conventional-changelog-conventionalcommits
+          dry_run: ${{ inputs.dry_run }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        if: steps.semantic.outputs.new_release_published == 'true'
+        run: |
+          echo "## Release v${{ steps.semantic.outputs.new_release_version }}" >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.semantic.outputs.new_release_notes }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: No release needed
+        if: steps.semantic.outputs.new_release_published != 'true'
+        run: echo "No releasable commits since last tag." >> $GITHUB_STEP_SUMMARY
+
+  # ── Build all platforms ────────────────────────────────────────
   build:
+    needs: release-version
+    if: >-
+      needs.release-version.outputs.published == 'true'
+      || (inputs.dry_run)
     strategy:
       fail-fast: false
       matrix:
@@ -35,12 +77,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.dry_run && github.sha || needs.release-version.outputs.tag }}
       - uses: volta-cli/action@v4
       - run: npm ci
 
-      # Tag push: build and publish to GitHub Releases (as draft via electron-builder config)
       - name: Build and publish
-        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        if: needs.release-version.outputs.published == 'true' && !inputs.dry_run
         run: npm run build && npx --no-install electron-builder --publish always ${{ matrix.arch }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,15 +93,14 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
 
-      # Manual dispatch with dry_run: build only, upload as workflow artifacts
       - name: Build (dry run)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        if: inputs.dry_run
         run: npm run build && npx --no-install electron-builder --publish never ${{ matrix.arch }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Upload artifacts (dry run)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        if: inputs.dry_run
         uses: actions/upload-artifact@v4
         with:
           name: canopy-${{ matrix.label }}
@@ -71,18 +113,22 @@ jobs:
             dist/*.yml
           retention-days: 7
 
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+  # ── Finalize release ───────────────────────────────────────────
+  finalize:
+    needs: [release-version, build]
+    if: needs.release-version.outputs.published == 'true' && !inputs.dry_run
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Generate release notes
+      - name: Set release notes and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-version.outputs.tag }}
+          NOTES: ${{ needs.release-version.outputs.notes }}
         run: |
-          gh release edit "${{ github.ref_name }}" \
-            --generate-notes \
-            || echo "::warning::Could not update release notes for ${{ github.ref_name }}"
+          gh release edit "$TAG" \
+            --repo "$GH_REPO" \
+            --notes "$NOTES" \
+            --draft=false

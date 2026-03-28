@@ -95,7 +95,13 @@
   // Subscribe to Claude hook events
   $effect(() => {
     const unsubscribe = window.api.onClaudeHookEvent((data) => {
+      const session = claudeSessions[data.ptySessionId]
+      const prevSessionId = session?.claudeSessionId
       handleHookEvent(data.ptySessionId, data.event as Parameters<typeof handleHookEvent>[1])
+      // Persist layout when Claude session ID changes (e.g. UUID -> slug)
+      if (session && session.claudeSessionId !== prevSessionId && session.claudeSessionId) {
+        saveAllLayouts()
+      }
       // Only set badge if this session is NOT the active tab
       if (data.ptySessionId !== activeClaudePtySessionId) {
         const name = (data.event as { hook_event_name?: string }).hook_event_name
