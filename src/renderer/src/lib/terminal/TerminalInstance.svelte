@@ -12,6 +12,7 @@
   import { showUrlToast } from '../stores/toast.svelte'
   import { openTool } from '../stores/tabs.svelte'
   import { workspaceState } from '../stores/workspace.svelte'
+  import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -140,7 +141,7 @@
 
       ws.onopen = (): void => {
         if (reconnectAttempt > 0) {
-          term.write('\r\n\x1b[32m[reconnected]\x1b[0m\r\n')
+          clearConnectionStatus(sessionId)
         }
         reconnectAttempt = 0
       }
@@ -169,11 +170,11 @@
 
     function scheduleReconnect(term: Terminal): void {
       if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-        term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n')
+        setConnectionStatus(sessionId, 'disconnected')
         return
       }
       if (reconnectAttempt === 0) {
-        term.write('\r\n\x1b[33m[reconnecting...]\x1b[0m\r\n')
+        setConnectionStatus(sessionId, 'reconnecting')
       }
       const delay = Math.min(500 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY)
       reconnectAttempt++
@@ -291,6 +292,7 @@
 
     return () => {
       disposed = true
+      clearConnectionStatus(sessionId)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
