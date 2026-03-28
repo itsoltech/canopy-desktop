@@ -45,6 +45,7 @@
   } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
   import {
+    claudeSessions,
     handleHookEvent,
     handleStatusUpdate,
     clearBadge,
