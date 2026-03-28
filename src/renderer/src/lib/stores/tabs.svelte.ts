@@ -751,31 +751,6 @@ function mapZone(zone: DropZone): { direction: 'hsplit' | 'vsplit'; position: 'f
   }
 }
 
-export function canMoveTabToSplit(
-  worktreePath: string,
-  sourceTabId: string,
-  targetTabId: string,
-  targetPaneId: string,
-  zone: DropZone,
-): boolean {
-  const tabs = tabsByWorktree[worktreePath]
-  if (!tabs) return false
-
-  const sourceTab = tabs.find((t) => t.id === sourceTabId)
-  const targetTab = tabs.find((t) => t.id === targetTabId)
-  if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
-
-  const { direction, position } = mapZone(zone)
-  const result = graftSubtree(
-    targetTab.rootSplit,
-    targetPaneId,
-    direction,
-    sourceTab.rootSplit,
-    position,
-  )
-  return result !== null
-}
-
 export function moveTabToSplit(
   worktreePath: string,
   sourceTabId: string,

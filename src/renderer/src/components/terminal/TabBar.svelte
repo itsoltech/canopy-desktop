@@ -28,6 +28,11 @@
     const map: Record<string, string> = {}
     for (const t of tools) map[t.id] = t.icon
     toolIcons = map
+
+    return () => {
+      window.removeEventListener('pointermove', handleDragMove)
+      window.removeEventListener('pointerup', handleDragEnd)
+    }
   })
 
   function getTabFavicon(tab: TabInfo): string | null {
