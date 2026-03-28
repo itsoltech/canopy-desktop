@@ -195,6 +195,8 @@
       {#each visibleTabs as tab (tab.id)}
         {@const badge = getTabBadge(tab)}
         {@const connState = getConnectionState(tab)}
+        {@const favicon = getTabFavicon(tab)}
+        {@const focusedToolId = getTabFocusedToolId(tab)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
@@ -211,8 +213,6 @@
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
           title={getTabDisplayName(tab)}
         >
-          {@const favicon = getTabFavicon(tab)}
-          {@const focusedToolId = getTabFocusedToolId(tab)}
           {#if favicon}
             <img class="tab-favicon" src={favicon} alt="" width="12" height="12" />
           {:else if toolIcons[focusedToolId]}
