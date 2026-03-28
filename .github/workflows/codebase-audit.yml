@@ -44,7 +44,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          direct_prompt: |
+          prompt: |
             REPO: ${{ github.repository }}
             DATE: ${{ steps.date.outputs.date }}
             BRANCH: audit/${{ steps.date.outputs.date }}
