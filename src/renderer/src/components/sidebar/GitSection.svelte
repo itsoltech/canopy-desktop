@@ -112,6 +112,7 @@
   let behind = $derived(workspaceState.aheadBehind?.behind ?? 0)
 </script>
 
+<span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
 <CollapsibleSection title="GIT" sectionKey="git" borderTop>
   {#snippet headerExtra()}
     <span class="branch-status">
@@ -121,7 +122,6 @@
       {/if}
     </span>
   {/snippet}
-  <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
   <div class="action-list">
     <button
       class="action-item"
