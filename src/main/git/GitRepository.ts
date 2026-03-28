@@ -1,5 +1,11 @@
 import simpleGit from 'simple-git'
 
+function assertSafeRef(name: string): void {
+  if (name.startsWith('-')) {
+    throw new Error(`Invalid git ref: must not start with a dash`)
+  }
+}
+
 export interface GitCommitResult {
   hash: string
   summary: string
@@ -181,16 +187,21 @@ export class GitRepository {
   }
 
   static async createBranch(repoRoot: string, name: string, baseBranch: string): Promise<void> {
+    assertSafeRef(name)
+    assertSafeRef(baseBranch)
     const git = simpleGit(repoRoot)
     await git.raw(['branch', name, baseBranch])
   }
 
   static async deleteBranch(repoRoot: string, name: string, force: boolean): Promise<void> {
+    assertSafeRef(name)
     const git = simpleGit(repoRoot)
     await git.branch([force ? '-D' : '-d', name])
   }
 
   static async deleteRemoteBranch(repoRoot: string, remote: string, name: string): Promise<void> {
+    assertSafeRef(remote)
+    assertSafeRef(name)
     const git = simpleGit(repoRoot)
     await git.push(remote, name, { '--delete': null })
   }
@@ -233,6 +244,8 @@ export class GitRepository {
     branch: string,
     baseBranch: string,
   ): Promise<void> {
+    assertSafeRef(branch)
+    assertSafeRef(baseBranch)
     const git = simpleGit(repoRoot)
     await git.raw(['worktree', 'add', '-b', branch, path, baseBranch])
   }
@@ -245,6 +258,7 @@ export class GitRepository {
   }
 
   static async getUnmergedCommits(repoRoot: string, branch: string): Promise<string[]> {
+    assertSafeRef(branch)
     const git = simpleGit(repoRoot)
     try {
       const raw = await git.raw(['log', branch, '--not', '--remotes', '--oneline'])

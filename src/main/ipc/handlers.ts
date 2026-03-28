@@ -18,6 +18,7 @@ import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 const execFileAsync = promisify(execFile)
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
+import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -128,7 +129,10 @@ export function registerIpcHandlers(
         )
         args = ['--settings', claudeSession.settingsPath, ...args]
         if (payload.resumeSessionId) args.push('--resume', payload.resumeSessionId)
-        env = { CANOPY_HOOK_PORT: String(claudeSession.hookPort) }
+        env = {
+          CANOPY_HOOK_PORT: String(claudeSession.hookPort),
+          CANOPY_HOOK_TOKEN: claudeSession.hookAuthToken,
+        }
         claudeTempId = claudeSession.tempId
 
         // CLI args from preferences
@@ -153,7 +157,12 @@ export function registerIpcHandlers(
         if (claudeProvider === 'foundry') env.CLAUDE_CODE_USE_FOUNDRY = '1'
         if (claudeCustomEnv) {
           try {
-            Object.assign(env, JSON.parse(claudeCustomEnv))
+            const parsed = JSON.parse(claudeCustomEnv)
+            for (const [k, v] of Object.entries(parsed)) {
+              if (!BLOCKED_ENV_VARS.has(k.toUpperCase()) && typeof v === 'string') {
+                env[k] = v
+              }
+            }
           } catch {
             // Invalid JSON
           }

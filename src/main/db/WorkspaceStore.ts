@@ -11,9 +11,10 @@ export class WorkspaceStore {
   }
 
   list(limit = 10): WorkspaceRow[] {
+    const clamped = Math.max(1, Math.min(limit, 100))
     return this.db
       .prepare('SELECT * FROM workspaces ORDER BY last_opened DESC LIMIT ?')
-      .all(limit) as WorkspaceRow[]
+      .all(clamped) as WorkspaceRow[]
   }
 
   get(id: string): WorkspaceRow | undefined {

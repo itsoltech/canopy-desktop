@@ -3,6 +3,7 @@ import os from 'os'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import { getLoginEnv } from '../shell/loginEnv'
+import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 
 let cachedClaudePath: string | undefined
 
@@ -67,7 +68,12 @@ export async function generateCommitMessage(
   if (claudeProvider === 'foundry') envOverrides.CLAUDE_CODE_USE_FOUNDRY = '1'
   if (claudeCustomEnv) {
     try {
-      Object.assign(envOverrides, JSON.parse(claudeCustomEnv))
+      const parsed = JSON.parse(claudeCustomEnv)
+      for (const [k, v] of Object.entries(parsed)) {
+        if (!BLOCKED_ENV_VARS.has(k.toUpperCase()) && typeof v === 'string') {
+          envOverrides[k] = v
+        }
+      }
     } catch {
       // Invalid JSON
     }

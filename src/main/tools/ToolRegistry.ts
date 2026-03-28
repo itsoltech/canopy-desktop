@@ -45,6 +45,20 @@ export class ToolRegistry {
     icon?: string
     category?: string
   }): void {
+    if (!tool.command.trim()) {
+      throw new Error('Command cannot be empty')
+    }
+    // Block shell metacharacters for both Unix and Windows (cmd.exe: % ^ !)
+    if (/[/\\;|&$`<>%^!()"]/.test(tool.command)) {
+      throw new Error(
+        'Invalid command: must be a simple binary name without path separators or shell metacharacters',
+      )
+    }
+    // Validate args — block shell metacharacters (Unix + cmd.exe /c context)
+    const SHELL_META = /[;|&$`<>%^!()\\"]/
+    if (tool.args?.some((arg) => SHELL_META.test(arg))) {
+      throw new Error('Invalid args: contain shell metacharacters')
+    }
     this.db
       .prepare(
         `INSERT INTO tool_definitions (id, name, command, args_json, icon, category, is_custom)

@@ -2,6 +2,7 @@ import { WebContentsView, Menu, type BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
+import { randomUUID } from 'crypto'
 import os from 'os'
 
 interface BrowserViewEntry {
@@ -39,9 +40,14 @@ export class BrowserManager {
     // Block popups
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
-    // Block dangerous URL schemes
+    // Only allow http(s) navigation
     view.webContents.on('will-navigate', (event, url) => {
-      if (url.startsWith('file://') || url.startsWith('javascript:')) {
+      try {
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          event.preventDefault()
+        }
+      } catch {
         event.preventDefault()
       }
     })
@@ -244,15 +250,20 @@ export class BrowserManager {
     const entry = this.views.get(id)
     if (!entry) return
 
-    // Block dangerous schemes
-    if (url.startsWith('file://') || url.startsWith('javascript:')) return
-
     // Auto-prefix with scheme if missing
     let finalUrl = url
     if (!/^https?:\/\//i.test(finalUrl)) {
       // Use http:// for localhost/127.0.0.1 (dev servers), https:// for everything else
       const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(finalUrl)
       finalUrl = (isLocal ? 'http://' : 'https://') + finalUrl
+    }
+
+    // Only allow http(s)
+    try {
+      const parsed = new URL(finalUrl)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
+    } catch {
+      return
     }
 
     entry.view.webContents.loadURL(finalUrl)
@@ -439,7 +450,7 @@ export class BrowserManager {
     if (!bounds) return null
 
     const image = await entry.view.webContents.capturePage(bounds)
-    const filePath = join(os.tmpdir(), `canopy-capture-${Date.now()}.png`)
+    const filePath = join(os.tmpdir(), `canopy-capture-${randomUUID()}.png`)
     writeFileSync(filePath, image.toPNG())
     return filePath
   }
