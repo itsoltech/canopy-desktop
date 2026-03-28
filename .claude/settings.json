@@ -1,5 +1,44 @@
 {
   "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "model": "sonnet",
+            "statusMessage": "Reviewing code changes...",
+            "prompt": "Check if there are uncommitted code changes by reading the git diff. If there are no changes or only non-code files changed, respond with 'No review needed' and stop. If code was changed, read .github/prompts/code-review.md and review the diff against those guidelines. Focus only on issues CI cannot catch (security, memory leaks, architecture violations, Svelte 5 patterns). Report any findings concisely — one line per issue with file:line and the problem. If everything looks clean, say so in one line."
+          },
+          {
+            "type": "command",
+            "statusMessage": "Running typecheck...",
+            "command": "git status --porcelain | grep -qE '\\.(ts|svelte)$' || exit 0; result=$(npm run typecheck 2>&1); [ $? -eq 0 ] && exit 0; jq -n --arg r \"$result\" '{decision: \"block\", reason: $r}'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "agent",
+            "model": "sonnet",
+            "statusMessage": "Checking architecture & IPC...",
+            "prompt": "You guard an Electron + Svelte 5 app. Check the tool input ($ARGUMENTS) for two things: (1) RENDERER BOUNDARY — if the file is under src/renderer/, deny if it adds runtime imports of Node.js or Electron modules (electron, fs, path, child_process, os, net, http, https, crypto, stream, util, events, or node:-prefixed). 'import type' is fine, only block runtime imports/requires. All Node.js access must go through the preload bridge. (2) IPC NAMING — if the content adds ipcMain.handle, ipcMain.on, ipcRenderer.invoke, or ipcRenderer.send calls, check that channel names follow 'feature:action' convention (e.g. 'shell:execute', 'workspace:list'). Deny if they don't. If no issues found, allow silently."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | grep -qiE '\\bnpm publish\\b|electron-builder.*(--publish|publish)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Publishing commands are not allowed in Claude Code. Run manually.\"}}' || true"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
