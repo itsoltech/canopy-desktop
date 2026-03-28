@@ -58,12 +58,14 @@ async function handleCanopyUrl(url: string): Promise<void> {
 
     // Validate path is under user's home directory (resolve symlinks to prevent bypass)
     let resolved: string
+    let home: string
     try {
       resolved = realpathSync(resolve(path))
+      home = realpathSync(os.homedir())
     } catch {
       return // Path doesn't exist
     }
-    if (!resolved.startsWith(os.homedir() + sep)) return
+    if (!resolved.startsWith(home + sep)) return
 
     const tool = parsed.searchParams.get('tool') ?? undefined
     const worktree = parsed.searchParams.get('worktree') ?? undefined
