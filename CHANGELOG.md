@@ -1,3 +1,11 @@
+## [0.5.2](https://github.com/itsoltech/canopy-desktop/compare/v0.5.1...v0.5.2) (2026-03-28)
+
+### Bug Fixes
+
+* **ci:** allow claude and dependabot actors in codebase audit ([6e7012d](https://github.com/itsoltech/canopy-desktop/commit/6e7012d0111f0afd0f60449a70cff6e7281fad03))
+* **ci:** use valid prompt input for claude-code-action ([0df2982](https://github.com/itsoltech/canopy-desktop/commit/0df298239efb50f0f18dab3589955f96919e7a2e))
+* **security:** harden Electron IPC, shell execution, and credential storage ([#4](https://github.com/itsoltech/canopy-desktop/issues/4)) ([f430c88](https://github.com/itsoltech/canopy-desktop/commit/f430c88c475226f2d54f634426b153673aeb3918))
+
 ## [0.5.1](https://github.com/itsoltech/canopy-desktop/compare/v0.5.0...v0.5.1) (2026-03-28)
 
 ### Bug Fixes
