@@ -354,7 +354,10 @@ app.whenReady().then(async () => {
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as Array<{ paths: string[] }>
+        windowConfigs = JSON.parse(configsJson) as Array<{
+          paths: string[]
+          activeWorktreePath?: string
+        }>
       } catch {
         // Invalid JSON
       }
