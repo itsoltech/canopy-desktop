@@ -1,5 +1,6 @@
 /**
  * Environment variables that must never be overridden by user-supplied customEnv.
+ * All entries UPPERCASE — callers must normalize keys with .toUpperCase() before checking.
  * Covers: system paths, dynamic linkers, language runtimes, proxies, SSH/Git, editors, Node/Electron.
  */
 export const BLOCKED_ENV_VARS = new Set([
@@ -41,12 +42,9 @@ export const BLOCKED_ENV_VARS = new Set([
   'EDITOR',
   'VISUAL',
 
-  // Proxies / TLS
-  'http_proxy',
-  'https_proxy',
+  // Proxies / TLS (callers normalize to uppercase, so lowercase variants are covered)
   'HTTP_PROXY',
   'HTTPS_PROXY',
-  'no_proxy',
   'NO_PROXY',
   'SSL_CERT_FILE',
   'SSL_CERT_DIR',

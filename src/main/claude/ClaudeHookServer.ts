@@ -130,6 +130,7 @@ export class ClaudeHookServer {
         data += chunk
       })
       req.on('end', () => resolve(data))
+      req.on('error', () => resolve(''))
     })
   }
 }

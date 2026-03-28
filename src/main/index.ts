@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
 import os from 'os'
 import { readFileSync, realpathSync } from 'fs'
-import { join, resolve } from 'path'
+import { join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { PtyManager } from './pty/PtyManager'
@@ -63,7 +63,7 @@ async function handleCanopyUrl(url: string): Promise<void> {
     } catch {
       return // Path doesn't exist
     }
-    if (!resolved.startsWith(os.homedir())) return
+    if (!resolved.startsWith(os.homedir() + sep)) return
 
     const tool = parsed.searchParams.get('tool') ?? undefined
     const worktree = parsed.searchParams.get('worktree') ?? undefined

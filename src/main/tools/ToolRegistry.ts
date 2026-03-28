@@ -54,8 +54,8 @@ export class ToolRegistry {
         'Invalid command: must be a simple binary name without path separators or shell metacharacters',
       )
     }
-    // Validate args — block shell metacharacters that could inject commands via cmd.exe /c
-    const SHELL_META = /[;|&`<>%^!]/
+    // Validate args — block shell metacharacters (Unix + cmd.exe /c context)
+    const SHELL_META = /[;|&$`<>%^!()\\]/
     if (tool.args?.some((arg) => SHELL_META.test(arg))) {
       throw new Error('Invalid args: contain shell metacharacters')
     }

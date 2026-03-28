@@ -159,7 +159,7 @@ export function registerIpcHandlers(
           try {
             const parsed = JSON.parse(claudeCustomEnv)
             for (const [k, v] of Object.entries(parsed)) {
-              if (!BLOCKED_ENV_VARS.has(k) && typeof v === 'string') {
+              if (!BLOCKED_ENV_VARS.has(k.toUpperCase()) && typeof v === 'string') {
                 env[k] = v
               }
             }
