@@ -19,7 +19,7 @@
 </script>
 
 {#if toastState.visible}
-  <div class="toast" role="alert" aria-live="polite">
+  <div class="toast" role="status" aria-live="polite">
     <span class="toast-url">{toastState.url}</span>
     <div class="toast-actions">
       <button class="toast-btn" onclick={openInBrowser} title="Open in Browser pane">

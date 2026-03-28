@@ -46,9 +46,10 @@
     class="dialog-container"
     role="dialog"
     aria-modal="true"
+    aria-labelledby="confirm-dialog-title"
     onclick={(e) => e.stopPropagation()}
   >
-    <h3 class="dialog-title">{title}</h3>
+    <h3 id="confirm-dialog-title" class="dialog-title">{title}</h3>
     <p class="dialog-message">{message}</p>
     {#if details}
       <p class="dialog-details">{details}</p>

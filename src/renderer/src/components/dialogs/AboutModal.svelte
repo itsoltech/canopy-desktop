@@ -37,9 +37,15 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="about-overlay" onkeydown={handleKeydown} onclick={closeDialog}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="about-container" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="about-container"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="about-dialog-title"
+    onclick={(e) => e.stopPropagation()}
+  >
     <div class="about-header">
-      <h2 class="app-name">Canopy</h2>
+      <h2 id="about-dialog-title" class="app-name">Canopy</h2>
       {#if version}
         <span class="app-version">Version {version}</span>
       {/if}

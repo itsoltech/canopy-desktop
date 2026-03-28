@@ -92,9 +92,10 @@
     class="dialog-container"
     role="dialog"
     aria-modal="true"
+    aria-labelledby="input-dialog-title"
     onclick={(e) => e.stopPropagation()}
   >
-    <h3 class="dialog-title">{title}</h3>
+    <h3 id="input-dialog-title" class="dialog-title">{title}</h3>
 
     {#if multiline}
       <textarea

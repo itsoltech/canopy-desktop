@@ -592,6 +592,7 @@
     class="palette-container"
     role="dialog"
     aria-modal="true"
+    aria-label="Command palette"
     onclick={(e) => e.stopPropagation()}
   >
     <div class="palette-input-row">
