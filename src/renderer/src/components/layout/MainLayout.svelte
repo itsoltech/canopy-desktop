@@ -333,7 +333,7 @@
 
 <Toast />
 
-<div class="main-layout">
+<main class="main-layout">
   {#if workspaceState.sidebarOpen && projects.length > 0}
     <Sidebar onLaunchTool={handleLaunchTool} />
   {/if}
@@ -375,7 +375,7 @@
       </div>
     </div>
   </div>
-</div>
+</main>
 
 <style>
   .main-layout {

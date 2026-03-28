@@ -378,6 +378,12 @@
     }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .progress-indeterminate {
+      animation: none;
+    }
+  }
+
   .drop-overlay {
     position: absolute;
     inset: 0;

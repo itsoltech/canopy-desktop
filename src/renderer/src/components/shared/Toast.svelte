@@ -30,7 +30,7 @@
         <ExternalLink size={13} />
         System
       </button>
-      <button class="toast-close" onclick={dismissToast} title="Dismiss">
+      <button class="toast-close" onclick={dismissToast} title="Dismiss" aria-label="Dismiss">
         <X size={13} />
       </button>
     </div>
@@ -62,6 +62,12 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast {
+      animation: none;
     }
   }
 

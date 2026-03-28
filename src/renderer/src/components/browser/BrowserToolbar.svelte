@@ -93,13 +93,31 @@
 
 <div class="browser-toolbar">
   <div class="nav-buttons">
-    <button class="nav-btn" disabled={!canGoBack} onclick={onBack} title="Back">
+    <button
+      class="nav-btn"
+      disabled={!canGoBack}
+      onclick={onBack}
+      title="Back"
+      aria-label="Go back"
+    >
       <ArrowLeft size={14} />
     </button>
-    <button class="nav-btn" disabled={!canGoForward} onclick={onForward} title="Forward">
+    <button
+      class="nav-btn"
+      disabled={!canGoForward}
+      onclick={onForward}
+      title="Forward"
+      aria-label="Go forward"
+    >
       <ArrowRight size={14} />
     </button>
-    <button class="nav-btn" class:loading={isLoading} onclick={onReload} title="Reload">
+    <button
+      class="nav-btn"
+      class:loading={isLoading}
+      onclick={onReload}
+      title="Reload"
+      aria-label="Reload"
+    >
       <RotateCw size={14} />
     </button>
   </div>
@@ -247,6 +265,12 @@
     }
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-btn.loading {
+      animation: none;
     }
   }
 

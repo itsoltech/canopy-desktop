@@ -12,7 +12,7 @@
     return wt.path.split('/').pop() || wt.path
   }
 
-  async function checkMergedStatus(): Promise<void> {
+  async function checkMergedStatus(signal: AbortSignal): Promise<void> {
     const repoRoot = workspaceState.repoRoot
     if (!repoRoot) return
 
@@ -24,6 +24,7 @@
       })
 
     const results = await Promise.all(checks)
+    if (signal.aborted) return
     const next = new SvelteSet<string>()
     for (const r of results) {
       if (r.merged) next.add(r.branch)
@@ -33,7 +34,9 @@
 
   $effect(() => {
     // Re-check when worktree list changes (read .length synchronously for dependency tracking)
-    if (workspaceState.worktrees.length >= 0) checkMergedStatus()
+    const ac = new AbortController()
+    if (workspaceState.worktrees.length >= 0) checkMergedStatus(ac.signal)
+    return () => ac.abort()
   })
 
   async function removeWorktree(
