@@ -101,21 +101,37 @@ async function handleCanopyUrl(url: string): Promise<void> {
 function buildAppMenu(): void {
   const isMac = process.platform === 'darwin'
 
+  const showAboutClick = (): void => {
+    const win = BrowserWindow.getFocusedWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('menu:showAbout')
+    }
+  }
+
+  const showPreferencesClick = (): void => {
+    const win = BrowserWindow.getFocusedWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('menu:showPreferences')
+    }
+  }
+
+  const checkForUpdatesClick = (): void => {
+    if (app.isPackaged) {
+      manualCheckInProgress = true
+      autoUpdater.checkForUpdates().catch((err) => {
+        manualCheckInProgress = false
+        console.warn('Manual update check failed:', err)
+      })
+    }
+  }
+
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
       ? [
           {
             label: app.name,
             submenu: [
-              {
-                label: 'About Canopy',
-                click: (): void => {
-                  const win = BrowserWindow.getFocusedWindow()
-                  if (win && !win.isDestroyed()) {
-                    win.webContents.send('menu:showAbout')
-                  }
-                },
-              },
+              { label: 'About Canopy', click: showAboutClick },
               { type: 'separator' as const },
               { role: 'hide' as const },
               { role: 'hideOthers' as const },
@@ -135,6 +151,19 @@ function buildAppMenu(): void {
           click: () => windowManager.createWindow(),
         },
         { type: 'separator' },
+        ...(!isMac
+          ? [
+              {
+                label: 'Settings…',
+                accelerator: 'CmdOrCtrl+,',
+                click: showPreferencesClick,
+              },
+              { type: 'separator' as const },
+              { label: 'Check for Updates…', click: checkForUpdatesClick },
+              { label: 'About Canopy', click: showAboutClick },
+              { type: 'separator' as const },
+            ]
+          : []),
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
     },
@@ -163,18 +192,7 @@ function buildAppMenu(): void {
     {
       label: 'Help',
       submenu: [
-        {
-          label: 'Check for Updates…',
-          click: () => {
-            if (app.isPackaged) {
-              manualCheckInProgress = true
-              autoUpdater.checkForUpdates().catch((err) => {
-                manualCheckInProgress = false
-                console.warn('Manual update check failed:', err)
-              })
-            }
-          },
-        },
+        { label: 'Check for Updates…', click: checkForUpdatesClick },
         { type: 'separator' as const },
         {
           label: 'Privacy Policy',
@@ -192,18 +210,7 @@ function buildAppMenu(): void {
           },
         },
         ...(!isMac
-          ? [
-              { type: 'separator' as const },
-              {
-                label: 'About Canopy',
-                click: (): void => {
-                  const win = BrowserWindow.getFocusedWindow()
-                  if (win && !win.isDestroyed()) {
-                    win.webContents.send('menu:showAbout')
-                  }
-                },
-              },
-            ]
+          ? [{ type: 'separator' as const }, { label: 'About Canopy', click: showAboutClick }]
           : []),
       ],
     },
@@ -266,8 +273,12 @@ app.whenReady().then(async () => {
       broadcast('update:error', { message: err.message })
     })
 
-    ipcMain.handle('app:checkForUpdates', async () => {
-      await autoUpdater.checkForUpdates()
+    ipcMain.handle('app:checkForUpdates', () => {
+      manualCheckInProgress = true
+      autoUpdater.checkForUpdates().catch((err) => {
+        manualCheckInProgress = false
+        console.warn('Manual update check failed:', err)
+      })
     })
 
     ipcMain.handle('app:installUpdate', () => {
@@ -305,6 +316,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
     if (!isSafeExternalUrl(url)) return
     return shell.openExternal(url)
+  })
+
+  ipcMain.handle('app:quit', () => {
+    app.quit()
+  })
+
+  ipcMain.handle('app:openThirdPartyNotices', () => {
+    const noticesPath = app.isPackaged
+      ? resolve(process.resourcesPath, 'THIRD-PARTY-NOTICES')
+      : resolve(app.getAppPath(), 'THIRD-PARTY-NOTICES')
+    return shell.openPath(noticesPath)
   })
 
   ipcMain.handle('app:getAboutInfo', () => ({

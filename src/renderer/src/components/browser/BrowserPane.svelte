@@ -5,7 +5,6 @@
   import {
     browserSessions,
     initBrowserSession,
-    removeBrowserSession,
     handleBrowserUrlChanged,
     handleBrowserTitleChanged,
     handleBrowserLoadingChanged,
@@ -26,10 +25,12 @@
     browserId,
     active,
     onTitleChange,
+    onFocus,
   }: {
     browserId: string
     active: boolean
     onTitleChange: (title: string) => void
+    onFocus?: () => void
   } = $props()
 
   let containerEl: HTMLDivElement | undefined = $state()
@@ -38,6 +39,7 @@
   let showPicker = $state(false)
   let pendingPayload: string | null = $state(null)
   let frozenScreenshot: string | null = $state(null)
+  let alive = true
 
   let session = $derived(browserSessions[browserId])
   let aiSessionCount = $derived(
@@ -52,16 +54,19 @@
       window.api.toggleBrowserDevTools(browserId, session?.devToolsMode)
       await new Promise((r) => setTimeout(r, 150))
     }
+    if (!alive) return
     const dataUrl = await window.api.capturePageFull(browserId)
-    if (dataUrl) {
+    // Guard: component may have been unmounted while awaiting capture
+    if (dataUrl && alive) {
       frozenScreenshot = dataUrl
       window.api.setBrowserVisible(browserId, false)
     }
   }
 
   function unfreeze(): void {
+    if (!alive) return
     frozenScreenshot = null
-    if (active) {
+    if (active && session?.url && !session?.error) {
       window.api.setBrowserVisible(browserId, true)
     }
   }
@@ -108,11 +113,16 @@
           handleBrowserStateChanged(browserId, data)
         }
       }),
+      window.api.onBrowserFocused((data) => {
+        if (data.browserId === browserId) {
+          onFocus?.()
+        }
+      }),
     ]
 
     return () => {
+      alive = false
       unsubs.forEach((fn) => fn())
-      removeBrowserSession(browserId)
     }
   })
 
@@ -178,9 +188,13 @@
     return () => observer.disconnect()
   })
 
-  // Show/hide based on active state
+  // Show/hide based on active state; keep hidden when no URL is loaded (so
+  // clicks reach the renderer DOM for pane focus) or when an error is showing
   $effect(() => {
-    window.api.setBrowserVisible(browserId, active)
+    window.api.setBrowserVisible(browserId, active && !!session?.url && !session?.error)
+    return () => {
+      window.api.setBrowserVisible(browserId, false)
+    }
   })
 
   function handleNavigate(url: string): void {

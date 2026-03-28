@@ -1,16 +1,12 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let urlOpenMode = $derived(prefs.urlOpenMode || 'ask')
 
   function toggleReopen(): void {
     setPref('reopenLastWorkspace', reopenLast ? 'false' : 'true')
-  }
-
-  function handleUrlOpenModeChange(e: Event): void {
-    const value = (e.target as HTMLSelectElement).value
-    setPref('urlOpenMode', value)
   }
 </script>
 
@@ -24,11 +20,16 @@
 
   <div class="select-row">
     <span class="select-label">Open URLs from terminal in</span>
-    <select class="select-input" value={urlOpenMode} onchange={handleUrlOpenModeChange}>
-      <option value="ask">Always ask</option>
-      <option value="canopy">Canopy Browser</option>
-      <option value="system">System browser</option>
-    </select>
+    <CustomSelect
+      value={urlOpenMode}
+      options={[
+        { value: 'ask', label: 'Always ask' },
+        { value: 'canopy', label: 'Canopy Browser' },
+        { value: 'system', label: 'System browser' },
+      ]}
+      onchange={(v) => setPref('urlOpenMode', v)}
+      maxWidth="180px"
+    />
   </div>
 
   <div class="info-row">
@@ -74,16 +75,6 @@
   .select-label {
     color: rgba(255, 255, 255, 0.8);
     min-width: 160px;
-  }
-
-  .select-input {
-    padding: 4px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 4px;
-    background: rgba(0, 0, 0, 0.3);
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 12px;
-    font-family: inherit;
   }
 
   .info-row {

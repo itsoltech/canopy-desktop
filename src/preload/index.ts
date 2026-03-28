@@ -117,6 +117,8 @@ const api = {
   // About
   getAboutInfo: () => ipcRenderer.invoke('app:getAboutInfo'),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', { url }),
+  openThirdPartyNotices: () => ipcRenderer.invoke('app:openThirdPartyNotices'),
+  quit: () => ipcRenderer.invoke('app:quit'),
 
   // App / Shell
   getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
@@ -225,6 +227,14 @@ const api = {
     ipcRenderer.on('browser:faviconChanged', handler)
     return (): void => {
       ipcRenderer.removeListener('browser:faviconChanged', handler)
+    }
+  },
+
+  onBrowserFocused: (callback: (data: { browserId: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string }): void => callback(data)
+    ipcRenderer.on('browser:focused', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:focused', handler)
     }
   },
 

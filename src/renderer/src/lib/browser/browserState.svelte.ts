@@ -13,6 +13,8 @@ export interface BrowserSessionState {
 export const browserSessions: Record<string, BrowserSessionState> = $state({})
 
 export function initBrowserSession(browserId: string): void {
+  // Preserve existing state across component remounts (e.g. drag-to-split)
+  if (browserSessions[browserId]) return
   browserSessions[browserId] = {
     url: '',
     title: '',
@@ -24,10 +26,6 @@ export function initBrowserSession(browserId: string): void {
     devToolsMode: 'bottom',
     error: null,
   }
-}
-
-export function removeBrowserSession(browserId: string): void {
-  delete browserSessions[browserId]
 }
 
 export function handleBrowserUrlChanged(browserId: string, url: string): void {

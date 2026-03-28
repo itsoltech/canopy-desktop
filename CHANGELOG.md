@@ -1,0 +1,18 @@
+## [0.5.1](https://github.com/itsoltech/canopy-desktop/compare/v0.5.0...v0.5.1) (2026-03-28)
+
+### Bug Fixes
+
+* **ui:** move [@const](https://github.com/const) declarations to valid [#each](https://github.com/itsoltech/canopy-desktop/issues/each) block scope ([de6b8e2](https://github.com/itsoltech/canopy-desktop/commit/de6b8e20cb370cc933b1a4f43107529fcaa9dbb3))
+
+## [0.5.0](https://github.com/itsoltech/canopy-desktop/compare/v0.4.0...v0.5.0) (2026-03-28)
+
+### Features
+
+* **ui:** universal panel split with drag & drop ([#9](https://github.com/itsoltech/canopy-desktop/issues/9)) ([76a1729](https://github.com/itsoltech/canopy-desktop/commit/76a1729838269ebba89c56d260c64f75e6bdab16))
+
+### Bug Fixes
+
+* **layout:** persist layout when Claude session ID changes mid-session ([91aa2a5](https://github.com/itsoltech/canopy-desktop/commit/91aa2a5958374eea89aa5bd376b3005967cbe522))
+* **release:** checkout github.sha instead of empty ref for dry-run ([626e329](https://github.com/itsoltech/canopy-desktop/commit/626e3292587abf05a428458a577139628b37e7d1))
+* **release:** use triggering commit ref for dry-run builds ([81653b1](https://github.com/itsoltech/canopy-desktop/commit/81653b185d7b4fdcbff43945f0b81c6865f34c71))
+* **terminal:** show reconnection status as tab badge instead of writing to terminal ([919cde4](https://github.com/itsoltech/canopy-desktop/commit/919cde49f75a1bc45428eecbba8693f65f9b7861))

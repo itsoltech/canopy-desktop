@@ -194,6 +194,8 @@ interface CanopyAPI {
   // About
   getAboutInfo: () => Promise<AboutInfo>
   openExternal: (url: string) => Promise<void>
+  openThirdPartyNotices: () => Promise<void>
+  quit: () => Promise<void>
 
   // Auto-update
   checkForUpdates: () => Promise<void>
@@ -316,6 +318,7 @@ interface CanopyAPI {
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,
   ) => () => void
+  onBrowserFocused: (callback: (data: { browserId: string }) => void) => () => void
   onBrowserLoadingChanged: (
     callback: (data: { browserId: string; isLoading: boolean }) => void,
   ) => () => void
