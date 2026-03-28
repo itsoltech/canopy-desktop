@@ -235,6 +235,7 @@
               closeTab(tab.id)
             }}
             title="Close tab"
+            aria-label="Close tab"
           >
             &times;
           </button>

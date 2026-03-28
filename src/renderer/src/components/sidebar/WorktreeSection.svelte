@@ -101,6 +101,7 @@
           <button
             class="remove-btn"
             title="Remove worktree and delete branch"
+            aria-label="Remove worktree and delete branch"
             onclick={(e) => removeWorktree(e, wt)}
           >
             <Trash2 size={12} />
