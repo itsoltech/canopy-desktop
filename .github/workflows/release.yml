@@ -78,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.dry_run && '' || needs.release-version.outputs.tag }}
+          ref: ${{ inputs.dry_run && github.sha || needs.release-version.outputs.tag }}
       - uses: volta-cli/action@v4
       - run: npm ci
 
