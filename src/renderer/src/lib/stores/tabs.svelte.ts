@@ -233,6 +233,9 @@ export async function closeTab(tabId: string): Promise<void> {
       if (p.toolId === 'claude') {
         removeClaudeSession(p.sessionId)
       }
+      if (p.paneType === 'browser') {
+        delete browserSessions[p.sessionId]
+      }
     }
     await Promise.all(
       panes.map((p) =>
@@ -649,6 +652,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
 
   // Kill the removed pane's PTY or destroy browser view
   if (result.removed.paneType === 'browser') {
+    delete browserSessions[result.removed.sessionId]
     await window.api.destroyBrowser(result.removed.sessionId)
   } else {
     await window.api.killPty(result.removed.sessionId)

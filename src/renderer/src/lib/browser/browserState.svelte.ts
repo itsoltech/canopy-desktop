@@ -28,10 +28,6 @@ export function initBrowserSession(browserId: string): void {
   }
 }
 
-export function removeBrowserSession(browserId: string): void {
-  delete browserSessions[browserId]
-}
-
 export function handleBrowserUrlChanged(browserId: string, url: string): void {
   const session = browserSessions[browserId]
   if (session) {

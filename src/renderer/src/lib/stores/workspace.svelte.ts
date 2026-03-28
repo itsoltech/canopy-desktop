@@ -52,7 +52,6 @@ interface WorkspaceState {
   isDirty: boolean
   aheadBehind: { ahead: number; behind: number } | null
   sidebarOpen: boolean
-  inspectorOpen: boolean
 }
 
 // --- State ---
@@ -67,7 +66,6 @@ const initial: WorkspaceState = {
   isDirty: false,
   aheadBehind: null,
   sidebarOpen: true,
-  inspectorOpen: false,
 }
 
 /** Active selection — the currently focused project + worktree context */

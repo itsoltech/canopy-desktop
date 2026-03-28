@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import {
     tabsByWorktree,
     activeTabId,
@@ -130,7 +130,7 @@
     dropTargetId = found
   }
 
-  function handleDragEnd(): void {
+  async function handleDragEnd(): Promise<void> {
     window.removeEventListener('pointermove', handleDragMove)
     window.removeEventListener('pointerup', handleDragEnd)
 
@@ -164,9 +164,8 @@
     // Unfreeze AFTER clearDrag and state reset so Svelte can flush
     // the tree change first; new BrowserPane components handle visibility
     if (wasDragActive) {
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
-      })
+      await tick()
+      window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
     }
   }
 </script>
@@ -192,10 +191,12 @@
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
           title={getTabDisplayName(tab)}
         >
-          {#if getTabFavicon(tab)}
-            <img class="tab-favicon" src={getTabFavicon(tab)} alt="" width="12" height="12" />
-          {:else if toolIcons[getTabFocusedToolId(tab)]}
-            <ToolIcon icon={toolIcons[getTabFocusedToolId(tab)]} size={12} />
+          {@const favicon = getTabFavicon(tab)}
+          {@const focusedToolId = getTabFocusedToolId(tab)}
+          {#if favicon}
+            <img class="tab-favicon" src={favicon} alt="" width="12" height="12" />
+          {:else if toolIcons[focusedToolId]}
+            <ToolIcon icon={toolIcons[focusedToolId]} size={12} />
           {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>
           {#if badge !== 'none'}
