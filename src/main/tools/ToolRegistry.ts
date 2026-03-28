@@ -55,7 +55,7 @@ export class ToolRegistry {
       )
     }
     // Validate args — block shell metacharacters (Unix + cmd.exe /c context)
-    const SHELL_META = /[;|&$`<>%^!()\\]/
+    const SHELL_META = /[;|&$`<>%^!()\\"]/
     if (tool.args?.some((arg) => SHELL_META.test(arg))) {
       throw new Error('Invalid args: contain shell metacharacters')
     }
