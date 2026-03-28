@@ -1,0 +1,57 @@
+name: Codebase Audit
+
+on:
+  schedule:
+    # 04:00 UTC = 06:00 CEST (summer) / 05:00 CET (winter)
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: codebase-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: volta-cli/action@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set audit date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Read audit prompt
+        id: prompt
+        run: |
+          echo "content<<EOF" >> "$GITHUB_OUTPUT"
+          cat .github/prompts/codebase-audit.md >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Run codebase audit
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          direct_prompt: |
+            REPO: ${{ github.repository }}
+            DATE: ${{ steps.date.outputs.date }}
+            BRANCH: audit/${{ steps.date.outputs.date }}
+
+            ${{ steps.prompt.outputs.content }}
+          claude_args: |
+            --model opus[1m]
+            --max-turns 60
+            --effort max
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout:*),Bash(git branch:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git status:*),Bash(gh pr create:*),Bash(npm run lint:*),Bash(npm run format:*)"
