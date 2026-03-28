@@ -162,7 +162,9 @@ export class NotchOverlayManager {
   private bindIpcHandlers(): void {
     ipcMain.handle(
       'notch:focusSession',
-      (_event, { windowId, ptySessionId }: { windowId: number; ptySessionId: string }) => {
+      (event, { windowId, ptySessionId }: { windowId: number; ptySessionId: string }) => {
+        if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return
+        if (event.sender !== this.overlayWindow.webContents) return
         const win = this.windowManager.getWindowById(windowId)
         if (!win) return
 

@@ -400,8 +400,9 @@ app.whenReady().then(async () => {
     notchOverlay.initialize()
   }
 
-  ipcMain.on('notch:setEnabled', (_event, { enabled }: { enabled: boolean }) => {
+  ipcMain.on('notch:setEnabled', (event, { enabled }: { enabled: boolean }) => {
     if (!notchOverlay) return
+    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
     if (enabled) {
       notchOverlay.initialize()
     } else {
