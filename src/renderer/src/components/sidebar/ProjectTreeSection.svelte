@@ -75,7 +75,7 @@
   // Per-project merged branches
   let mergedBranches: Record<string, Set<string>> = $state({})
 
-  async function checkMergedStatus(project: ProjectState): Promise<void> {
+  async function checkMergedStatus(project: ProjectState, signal: AbortSignal): Promise<void> {
     if (!project.isGitRepo || !project.repoRoot) return
     const checks = project.worktrees
       .filter((wt) => !wt.isMain)
@@ -84,6 +84,7 @@
         return { branch: wt.branch, merged }
       })
     const results = await Promise.all(checks)
+    if (signal.aborted) return
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- temporary local Set, not reactive state
     const next = new Set<string>()
     for (const r of results) {
@@ -94,12 +95,14 @@
 
   // Re-check merged status when any project's worktrees change
   $effect(() => {
+    const ac = new AbortController()
     const deps = projects.map((p) => p.worktrees.length)
     if (deps.length >= 0) {
       for (const p of projects) {
-        checkMergedStatus(p)
+        checkMergedStatus(p, ac.signal)
       }
     }
+    return () => ac.abort()
   })
 
   function getMerged(project: ProjectState): Set<string> {

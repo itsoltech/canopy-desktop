@@ -414,6 +414,12 @@
     }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot {
+      animation: none !important;
+    }
+  }
+
   .status-text {
     font-size: 12px;
     color: rgba(255, 255, 255, 0.7);

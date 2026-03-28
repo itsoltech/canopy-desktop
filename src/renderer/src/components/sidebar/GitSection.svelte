@@ -112,6 +112,7 @@
   let behind = $derived(workspaceState.aheadBehind?.behind ?? 0)
 </script>
 
+<span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
 <CollapsibleSection title="GIT" sectionKey="git" borderTop>
   {#snippet headerExtra()}
     <span class="branch-status">
@@ -252,5 +253,17 @@
     font-size: 10px;
     font-weight: 600;
     flex-shrink: 0;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>

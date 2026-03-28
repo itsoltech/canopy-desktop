@@ -501,6 +501,12 @@
     animation: spin 0.8s linear infinite;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .refresh-icon.spinning {
+      animation: none;
+    }
+  }
+
   .field-input {
     width: 100%;
     border: 1px solid rgba(255, 255, 255, 0.12);

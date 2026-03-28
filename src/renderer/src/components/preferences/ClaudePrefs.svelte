@@ -16,7 +16,16 @@
   let appendSystemPrompt = $derived(prefs['claude.appendSystemPrompt'] || '')
 
   // Custom env vars
-  let envEntries: Array<{ key: string; value: string }> = $state([])
+  let envEntries = $derived.by(() => {
+    const raw = prefs['claude.customEnv']
+    if (!raw) return [] as Array<{ key: string; value: string }>
+    try {
+      const parsed = JSON.parse(raw) as Record<string, string>
+      return Object.entries(parsed).map(([key, value]) => ({ key, value }))
+    } catch {
+      return [] as Array<{ key: string; value: string }>
+    }
+  })
   let showEnvForm = $state(false)
   let newEnvKey = $state('')
   let newEnvValue = $state('')
@@ -24,24 +33,9 @@
   // Settings JSON
   let settingsJson = $derived(prefs['claude.settingsJson'] || '')
 
-  // Load env entries from stored JSON
-  $effect(() => {
-    const raw = prefs['claude.customEnv']
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Record<string, string>
-        envEntries = Object.entries(parsed).map(([key, value]) => ({ key, value }))
-      } catch {
-        envEntries = []
-      }
-    } else {
-      envEntries = []
-    }
-  })
-
-  function saveEnvEntries(): void {
+  function persistEnvEntries(entries: Array<{ key: string; value: string }>): void {
     const obj: Record<string, string> = {}
-    for (const entry of envEntries) {
+    for (const entry of entries) {
       if (entry.key.trim()) obj[entry.key.trim()] = entry.value
     }
     if (Object.keys(obj).length > 0) {
@@ -53,16 +47,14 @@
 
   function addEnvVar(): void {
     if (!newEnvKey.trim()) return
-    envEntries = [...envEntries, { key: newEnvKey.trim(), value: newEnvValue }]
+    persistEnvEntries([...envEntries, { key: newEnvKey.trim(), value: newEnvValue }])
     newEnvKey = ''
     newEnvValue = ''
     showEnvForm = false
-    saveEnvEntries()
   }
 
   function removeEnvVar(index: number): void {
-    envEntries = envEntries.filter((_, i) => i !== index)
-    saveEnvEntries()
+    persistEnvEntries(envEntries.filter((_, i) => i !== index))
   }
 
   function updatePref(key: string): (e: Event) => void {

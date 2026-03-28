@@ -247,6 +247,7 @@
       <div class="overflow-wrapper">
         <button
           class="overflow-trigger"
+          aria-label="Show more tabs"
           onclick={() => {
             showOverflow = !showOverflow
             window.dispatchEvent(
@@ -394,6 +395,12 @@
     }
     50% {
       opacity: 0.4;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tab-badge.connection-badge {
+      animation: none;
     }
   }
 
