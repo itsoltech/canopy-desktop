@@ -10,7 +10,7 @@
     type ProjectState,
   } from '../../lib/stores/workspace.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
-  import { getTabsForWorktree } from '../../lib/stores/tabs.svelte'
+  import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
@@ -128,6 +128,8 @@
       destructive: true,
     })
     if (!ok) return
+
+    await closeAllTabsForWorktree(wt.path)
 
     try {
       await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)
@@ -249,6 +251,8 @@
       destructive: true,
     })
     if (!ok) return
+
+    await closeAllTabsForWorktree(wt.path)
 
     try {
       await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)

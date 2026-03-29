@@ -1,6 +1,7 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
+  import { closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
@@ -58,6 +59,8 @@
       destructive: true,
     })
     if (!ok) return
+
+    await closeAllTabsForWorktree(wt.path)
 
     try {
       await window.api.gitWorktreeRemove(repoRoot, wt.path, false)

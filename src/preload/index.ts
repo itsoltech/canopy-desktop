@@ -318,6 +318,8 @@ const api = {
   getLayout: (workspaceId: string, worktreePath: string) =>
     ipcRenderer.invoke('layout:get', { workspaceId, worktreePath }),
   getAllLayouts: (workspaceId: string) => ipcRenderer.invoke('layout:getAll', { workspaceId }),
+  deleteLayout: (workspaceId: string, worktreePath: string) =>
+    ipcRenderer.invoke('layout:delete', { workspaceId, worktreePath }),
 
   // Push events (main → renderer)
   onClaudeHookEvent: (

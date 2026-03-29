@@ -546,6 +546,13 @@ export function registerIpcHandlers(
     return layoutStore.getAll(payload.workspaceId)
   })
 
+  ipcMain.handle(
+    'layout:delete',
+    (_event, payload: { workspaceId: string; worktreePath: string }) => {
+      layoutStore.delete(payload.workspaceId, payload.worktreePath)
+    },
+  )
+
   // --- Custom Tools ---
 
   ipcMain.handle(
