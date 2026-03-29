@@ -447,6 +447,32 @@ export async function ensureShellTab(worktreePath: string): Promise<void> {
   await openTool('shell', worktreePath)
 }
 
+export async function closeAllTabsForWorktree(worktreePath: string): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs || tabs.length === 0) return
+
+  const allSessions = tabs.flatMap((t) => allPanes(t.rootSplit))
+  for (const p of allSessions) {
+    if (p.toolId === 'claude') removeClaudeSession(p.sessionId)
+    if (p.paneType === 'browser') delete browserSessions[p.sessionId]
+  }
+  await Promise.allSettled(
+    allSessions.map((p) =>
+      p.paneType === 'browser'
+        ? window.api.destroyBrowser(p.sessionId)
+        : window.api.killPty(p.sessionId),
+    ),
+  )
+
+  delete tabsByWorktree[worktreePath]
+  delete activeTabId[worktreePath]
+
+  const wsId = getProjectForWorktree(worktreePath)?.workspace.id ?? workspaceState.workspace?.id
+  if (wsId) {
+    window.api.deleteLayout(wsId, worktreePath).catch(() => {})
+  }
+}
+
 export async function killAllTabs(): Promise<void> {
   const allTabsList = Object.values(tabsByWorktree).flat()
   const allSessions = allTabsList.flatMap((t) => allPanes(t.rootSplit))
