@@ -293,6 +293,13 @@ export function registerIpcHandlers(
     windowManager.setActiveWorktree(event.sender.id, payload.path)
   })
 
+  ipcMain.handle(
+    'app:setFocusedClaudeSession',
+    (event, payload: { ptySessionId: string | null }) => {
+      windowManager.setFocusedClaudeSession(event.sender.id, payload.ptySessionId)
+    },
+  )
+
   ipcMain.handle('app:detachProject', (event, payload: { path: string }) => {
     const senderId = event.sender.id
     windowManager.removeWorkspacePath(senderId, payload.path)

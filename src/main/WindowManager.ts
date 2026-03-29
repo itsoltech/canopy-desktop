@@ -15,6 +15,7 @@ export class WindowManager {
   private gitWatchers = new Map<number, Map<string, GitWatcher>>()
   private ptySessions = new Map<number, Set<string>>()
   private forceClosing = new Set<number>()
+  private focusedClaudeSessions = new Map<number, string>()
   private claudeSessionManager: ClaudeSessionManager | null = null
 
   private ptyManager: PtyManager
@@ -146,6 +147,18 @@ export class WindowManager {
 
   setActiveWorktree(wcId: number, path: string): void {
     this.activeWorktreePaths.set(wcId, path)
+  }
+
+  setFocusedClaudeSession(wcId: number, ptySessionId: string | null): void {
+    if (ptySessionId) {
+      this.focusedClaudeSessions.set(wcId, ptySessionId)
+    } else {
+      this.focusedClaudeSessions.delete(wcId)
+    }
+  }
+
+  getFocusedClaudeSession(wcId: number): string | null {
+    return this.focusedClaudeSessions.get(wcId) ?? null
   }
 
   getWorkspacePaths(wcId: number): string[] {

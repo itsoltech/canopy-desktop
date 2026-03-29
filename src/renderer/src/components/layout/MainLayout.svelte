@@ -201,6 +201,11 @@
     }
   })
 
+  // Notify main process about focused Claude session for notch peek suppression
+  $effect(() => {
+    window.api.setFocusedClaudeSession(activeClaudePtySessionId)
+  })
+
   function handleLaunchTool(toolId: string): void {
     const path = workspaceState.selectedWorktreePath
     if (path) {

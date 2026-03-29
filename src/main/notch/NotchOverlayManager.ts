@@ -132,8 +132,7 @@ export class NotchOverlayManager {
       } else {
         // Detect peek-worthy transitions before updating
         if (this.isPeekWorthy(prev, status.status)) {
-          const ownerWindow = this.windowManager.getWindowById(status.windowId)
-          if (!ownerWindow || !ownerWindow.isFocused()) {
+          if (!this.isSessionVisibleInFocusedWindow(status)) {
             this.pendingPeekIds.add(status.ptySessionId)
           }
         }
@@ -152,6 +151,13 @@ export class NotchOverlayManager {
 
     this.claudeSessionManager.on('statusChange', this.statusChangeHandler)
     this.claudeSessionManager.on('sessionDestroyed', this.sessionDestroyedHandler)
+  }
+
+  /** Check if the session is the focused Claude pane in a focused window */
+  private isSessionVisibleInFocusedWindow(status: NotchSessionStatus): boolean {
+    const win = this.windowManager.getWindowById(status.windowId)
+    if (!win || !win.isFocused()) return false
+    return this.windowManager.getFocusedClaudeSession(status.windowId) === status.ptySessionId
   }
 
   private isPeekWorthy(prev: SessionStatusType | undefined, next: SessionStatusType): boolean {

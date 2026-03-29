@@ -132,6 +132,8 @@ const api = {
   newWindow: () => ipcRenderer.invoke('app:newWindow'),
   setWorkspacePath: (path: string) => ipcRenderer.invoke('app:setWorkspacePath', { path }),
   setActiveWorktree: (path: string) => ipcRenderer.invoke('app:setActiveWorktree', { path }),
+  setFocusedClaudeSession: (ptySessionId: string | null) =>
+    ipcRenderer.invoke('app:setFocusedClaudeSession', { ptySessionId }),
   detachProject: (path: string) => ipcRenderer.invoke('app:detachProject', { path }),
   focusWindowForPath: (path: string) =>
     ipcRenderer.invoke('app:focusWindowForPath', { path }) as Promise<boolean>,
