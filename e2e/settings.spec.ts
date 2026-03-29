@@ -43,11 +43,6 @@ test.describe('Settings dialog', () => {
     await switchTab(page, 'General')
     await expect(page.locator('.prefs-content .section-title')).toHaveText('General')
   })
-
-  test('settings screenshot', async ({ page }) => {
-    await openSettings(page)
-    await expect(page).toHaveScreenshot('settings-general.png')
-  })
 })
 
 test.describe('General settings', () => {

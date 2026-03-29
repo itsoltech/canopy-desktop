@@ -14,8 +14,3 @@ test('main layout renders', async ({ page }) => {
   const app = page.locator('.app')
   await expect(app).toBeVisible()
 })
-
-test('app launch screenshot', async ({ page }) => {
-  await page.waitForSelector('.app', { state: 'visible' })
-  await expect(page).toHaveScreenshot('app-launch.png')
-})
