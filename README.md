@@ -30,11 +30,15 @@
 
 ### GPU-accelerated terminal
 
-WebGL-powered rendering, multi-pane splits, tabs, and persistent sessions that remember your setup. Your shell config works out of the box.
+WebGL-powered rendering, drag & drop panel splits, tabs, and persistent sessions that remember your setup. Rearrange panes by dragging them where you need them. Your shell config works out of the box.
 
 ### Claude Code integration
 
 Built in, not bolted on. Real-time Inspector panel tracks costs, context usage, tool calls, and tasks per session. Configure your API provider, model, permission mode, and system prompts from Preferences. AI-powered commit message generation included.
+
+### Session status in the notch
+
+On macOS, a notch overlay shows live Claude session status. Color-coded indicators (green for idle, orange for working, red for permission needed) auto-peek when state changes. Hover to expand and see per-session workspace, branch, and status. Click a row to focus that window.
 
 ### Git & worktree management
 
@@ -42,7 +46,7 @@ Your branches, your worktrees, all visible at a glance. One-click worktree creat
 
 ### Multi-project workspaces
 
-Multiple projects in one window with persistent layouts that remember your exact configuration. Welcome Dashboard for quick access to recent projects.
+Multiple projects in one window with persistent layouts that remember your exact configuration. All open projects and the active worktree restore automatically after app updates. Welcome Dashboard for quick access to recent projects.
 
 ### Built-in browser
 
