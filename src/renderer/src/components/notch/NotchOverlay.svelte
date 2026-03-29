@@ -150,11 +150,7 @@
           <TerminalSquare size={15} />
         {/if}
       </span>
-      <span class="notch-gap" style:width="{gapWidth}px">
-        {#if !showExpanded && state.sessions.length > 1}
-          <span class="count" style:color={statusColor}>{state.sessions.length}</span>
-        {/if}
-      </span>
+      <span class="notch-gap" style:width="{gapWidth}px"></span>
       <span class="wing right" style:color={statusColor}>
         <Sparkles size={14} />
       </span>
@@ -245,16 +241,6 @@
     position: relative;
     flex-shrink: 0;
     transition: width 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1);
-  }
-
-  .count {
-    position: absolute;
-    left: 50%;
-    bottom: 2px;
-    transform: translateX(-50%);
-    font-size: 11px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
   }
 
   .spin {
