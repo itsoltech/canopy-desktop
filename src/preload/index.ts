@@ -63,6 +63,8 @@ const api = {
   // Auto-update
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
   installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+  setUpdateChannel: (channel: string) => ipcRenderer.invoke('app:setUpdateChannel', channel),
+  setAutoUpdate: (enabled: boolean) => ipcRenderer.invoke('app:setAutoUpdate', enabled),
 
   onUpdateAvailable: (callback: (data: { version: string; releaseNotes?: string }) => void) => {
     const handler = (

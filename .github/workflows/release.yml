@@ -1,6 +1,8 @@
 name: Release
 
 on:
+  push:
+    branches: [main, next]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -127,8 +129,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-version.outputs.tag }}
           NOTES: ${{ needs.release-version.outputs.notes }}
+          VERSION: ${{ needs.release-version.outputs.version }}
         run: |
+          PRERELEASE_FLAG=""
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
           gh release edit "$TAG" \
             --repo "$GH_REPO" \
             --notes "$NOTES" \
-            --draft=false
+            --draft=false \
+            $PRERELEASE_FLAG
