@@ -1,3 +1,9 @@
+## [0.7.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.1...v0.7.0-next.2) (2026-03-29)
+
+### Refactoring
+
+* **sidebar:** remove file tree section from sidebar ([c24b1da](https://github.com/itsoltech/canopy-desktop/commit/c24b1da031c4b877893b88d3d62ccfd581fa800f))
+
 ## [0.7.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.6.2...v0.7.0-next.1) (2026-03-29)
 
 ### Features
