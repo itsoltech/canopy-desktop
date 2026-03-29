@@ -11,7 +11,7 @@ test.beforeEach(async () => {
   execSync('git init', { cwd: tmpDir })
   execSync('git config user.email "test@test.com"', { cwd: tmpDir })
   execSync('git config user.name "Test"', { cwd: tmpDir })
-  writeFile(join(tmpDir, 'README.md'), '# Test Project\n')
+  await writeFile(join(tmpDir, 'README.md'), '# Test Project\n')
   execSync('git add . && git commit -m "init"', { cwd: tmpDir })
 })
 
@@ -77,5 +77,6 @@ test('non-git folder opens without branch info', async ({ electronApp, page }) =
 
   // No branch for non-git folders
   await expect(page.locator('.titlebar .branch')).not.toBeVisible()
-  // plainDir cleaned up by OS temp lifecycle; not deleted here to avoid app close hang
+  // Clean up non-git temp dir
+  await rm(plainDir, { recursive: true, force: true })
 })

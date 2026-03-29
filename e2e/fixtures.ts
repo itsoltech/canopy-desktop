@@ -58,7 +58,8 @@ export { expect } from '@playwright/test'
 /** Open the Settings dialog via Cmd+, */
 export async function openSettings(page: Page): Promise<void> {
   await page.waitForSelector('.app', { state: 'visible' })
-  await page.keyboard.press('Meta+,')
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
+  await page.keyboard.press(`${modifier}+,`)
   await page.waitForSelector('.prefs-container', { state: 'visible' })
 }
 
@@ -97,8 +98,11 @@ export async function openProject(
 ): Promise<void> {
   await page.waitForSelector('.app', { state: 'visible' })
   // Wait for Svelte effects (including onUrlAction listener) to settle
-  await page.waitForFunction(() => !!(window as unknown as CanopyWindow).api)
-  await page.waitForTimeout(500)
+  await page.waitForFunction(
+    () =>
+      !!(window as unknown as CanopyWindow).api &&
+      typeof (window as unknown as CanopyWindow).api.getPref === 'function',
+  )
 
   await electronApp.evaluate(({ BrowserWindow }, path) => {
     const win = BrowserWindow.getAllWindows()[0]

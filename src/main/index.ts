@@ -22,7 +22,7 @@ if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
 }
 
-if (process.env.CANOPY_TEST_USER_DATA) {
+if (process.env.CANOPY_TEST_USER_DATA && !app.isPackaged) {
   app.setPath('userData', process.env.CANOPY_TEST_USER_DATA)
 }
 
