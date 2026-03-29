@@ -240,9 +240,12 @@ app.whenReady().then(async () => {
   buildAppMenu()
 
   if (app.isPackaged) {
+    const updateChannel = preferencesStore.get('update.channel') ?? 'stable'
+    const autoUpdate = preferencesStore.get('update.autoUpdate') !== 'false'
+
     autoUpdater.logger = console
-    autoUpdater.autoDownload = true
-    autoUpdater.allowPrerelease = false
+    autoUpdater.autoDownload = autoUpdate
+    autoUpdater.allowPrerelease = updateChannel === 'next'
 
     const broadcast = (channel: string, data: unknown): void => {
       for (const win of BrowserWindow.getAllWindows()) {
@@ -280,6 +283,20 @@ app.whenReady().then(async () => {
 
     autoUpdater.on('error', (err) => {
       broadcast('update:error', { message: err.message })
+    })
+
+    ipcMain.handle('app:setUpdateChannel', (_e, channel: string) => {
+      const allowPrerelease = channel === 'next'
+      autoUpdater.allowPrerelease = allowPrerelease
+      preferencesStore.set('update.channel', channel)
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.warn('Update check after channel switch failed:', err)
+      })
+    })
+
+    ipcMain.handle('app:setAutoUpdate', (_e, enabled: boolean) => {
+      autoUpdater.autoDownload = enabled
+      preferencesStore.set('update.autoUpdate', enabled ? 'true' : 'false')
     })
 
     ipcMain.handle('app:checkForUpdates', () => {

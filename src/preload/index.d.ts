@@ -214,6 +214,8 @@ interface CanopyAPI {
   // Auto-update
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>
+  setUpdateChannel: (channel: string) => Promise<void>
+  setAutoUpdate: (enabled: boolean) => Promise<void>
   onUpdateAvailable: (callback: (data: UpdateInfo) => void) => () => void
   onUpdateProgress: (callback: (data: UpdateProgress) => void) => () => void
   onUpdateDownloaded: (callback: (data: UpdateInfo) => void) => () => void
