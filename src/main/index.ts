@@ -286,6 +286,7 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('app:setUpdateChannel', (_e, channel: string) => {
+      if (channel !== 'stable' && channel !== 'next') return
       const allowPrerelease = channel === 'next'
       autoUpdater.allowPrerelease = allowPrerelease
       preferencesStore.set('update.channel', channel)

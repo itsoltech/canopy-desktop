@@ -18,20 +18,35 @@
     window.api.setUpdateChannel(value)
   }
 
-  async function checkNow(): Promise<void> {
+  function checkNow(): void {
     checkState = 'checking'
-    try {
-      await window.api.checkForUpdates()
-      checkState = 'up-to-date'
+
+    const dismiss = (state: 'up-to-date' | 'error'): void => {
+      checkState = state
       setTimeout(() => {
-        if (checkState === 'up-to-date') checkState = 'idle'
-      }, 4000)
-    } catch {
-      checkState = 'error'
-      setTimeout(() => {
-        if (checkState === 'error') checkState = 'idle'
+        if (checkState === state) checkState = 'idle'
       }, 4000)
     }
+
+    const offAvailable = window.api.onUpdateAvailable(() => {
+      cleanup()
+    })
+    const offNotAvailable = window.api.onUpdateNotAvailable(() => {
+      dismiss('up-to-date')
+      cleanup()
+    })
+    const offError = window.api.onUpdateError(() => {
+      dismiss('error')
+      cleanup()
+    })
+
+    const cleanup = (): void => {
+      offAvailable()
+      offNotAvailable()
+      offError()
+    }
+
+    window.api.checkForUpdates()
   }
 </script>
 
