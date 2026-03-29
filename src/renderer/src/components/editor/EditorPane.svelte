@@ -63,8 +63,11 @@
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
+  let currentPath = $state(filePath)
   $effect(() => {
-    void filePath
+    if (currentPath !== filePath) {
+      currentPath = filePath
+    }
     loadFile()
   })
 </script>

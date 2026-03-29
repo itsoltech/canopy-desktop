@@ -110,6 +110,7 @@
 
 <CollapsibleSection title="FILES" sectionKey="files" borderTop>
   {#if fileTree.rootPath && fileTree.expandedDirs[fileTree.rootPath]}
+    <!-- TODO: add virtualization for large directory trees (>500 items) -->
     <div class="file-tree">
       {#snippet renderEntries(entries: DirEntry[], parentPath: string, depth: number)}
         {#each entries as entry (entry.name)}
@@ -160,18 +161,29 @@
   {/if}
 </CollapsibleSection>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 {#if contextMenu}
-  <div class="ctx-overlay" use:portal onclick={closeContextMenu}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="ctx-overlay"
+    use:portal
+    onclick={closeContextMenu}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') closeContextMenu()
+    }}
+  >
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="ctx-menu"
+      role="menu"
       style="left: {contextMenu.x}px; top: {contextMenu.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <button class="ctx-item" onclick={contextShowInFinder}>Show in Finder</button>
-      <button class="ctx-item" onclick={contextCopyPath}>Copy path</button>
-      <button class="ctx-item" onclick={contextCopyName}>Copy name</button>
+      <!-- eslint-disable-next-line svelte/no-autofocus -->
+      <button class="ctx-item" role="menuitem" autofocus onclick={contextShowInFinder}>
+        Show in Finder
+      </button>
+      <button class="ctx-item" role="menuitem" onclick={contextCopyPath}>Copy path</button>
+      <button class="ctx-item" role="menuitem" onclick={contextCopyName}>Copy name</button>
     </div>
   </div>
 {/if}

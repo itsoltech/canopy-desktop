@@ -14,13 +14,16 @@ function createFileTreeStore() {
   let selectedFilePath: string | null = $state(null)
   let rootPath: string | null = $state(null)
   const gitFileStatus = new SvelteMap<string, string>()
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
   async function expandDir(dirPath: string): Promise<void> {
     try {
       const entries = await window.api.readDir(dirPath)
       expandedDirs[dirPath] = entries
-    } catch {
-      // Directory unreadable
+    } catch (e) {
+      // Show empty rather than leaving in collapsed state
+      expandedDirs[dirPath] = []
+      console.warn('readDir failed:', dirPath, e)
     }
   }
 
@@ -62,13 +65,19 @@ function createFileTreeStore() {
     }
   }
 
-  async function refreshAll(repoRoot: string): Promise<void> {
-    const dirs = Object.keys(expandedDirs)
-    await Promise.all(dirs.map((d) => expandDir(d)))
-    await refreshGitStatus(repoRoot)
+  function refreshAll(repoRoot: string): void {
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(async () => {
+      refreshTimer = null
+      const dirs = Object.keys(expandedDirs)
+      await Promise.all(dirs.map((d) => expandDir(d)))
+      await refreshGitStatus(repoRoot)
+    }, 300)
   }
 
   function reset(newRoot: string | null): void {
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = null
     expandedDirs = {}
     selectedFilePath = null
     gitFileStatus.clear()

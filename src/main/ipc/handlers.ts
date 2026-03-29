@@ -671,59 +671,62 @@ export function registerIpcHandlers(
     '.output',
   ])
 
-  function validatePathAccess(wcId: number, targetPath: string): void {
-    const resolved = path.resolve(targetPath)
+  async function validatePathAccess(wcId: number, targetPath: string): Promise<void> {
+    const resolved = await fs.promises.realpath(targetPath)
     const allowed = windowManager.getWorkspacePaths(wcId)
     const ok = allowed.some((wp) => resolved === wp || resolved.startsWith(wp + path.sep))
     if (!ok) throw new Error('Access denied: path outside workspace')
   }
 
   ipcMain.handle('fs:readDir', async (event, payload: { dirPath: string }) => {
-    validatePathAccess(event.sender.id, payload.dirPath)
+    await validatePathAccess(event.sender.id, payload.dirPath)
     const entries = await fs.promises.readdir(payload.dirPath, { withFileTypes: true })
-    const result: { name: string; isDirectory: boolean; size: number }[] = []
-    for (const entry of entries) {
-      if (IGNORED_NAMES.has(entry.name)) continue
-      if (entry.name.startsWith('.') && entry.name !== '.env.example') continue
-      let size = 0
-      const isDir = entry.isDirectory()
-      if (!isDir) {
-        try {
-          const stat = await fs.promises.stat(path.join(payload.dirPath, entry.name))
-          size = stat.size
-        } catch {
-          // Skip entries we can't stat
-          continue
-        }
-      }
-      result.push({ name: entry.name, isDirectory: isDir, size })
-    }
-    result.sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    const filtered = entries.filter((e) => {
+      if (IGNORED_NAMES.has(e.name)) return false
+      if (e.name.startsWith('.') && e.name !== '.env.example') return false
+      return true
     })
-    return result
+    const results = await Promise.all(
+      filtered.map(async (entry) => {
+        const isDir = entry.isDirectory()
+        let size = 0
+        if (!isDir) {
+          try {
+            const s = await fs.promises.stat(path.join(payload.dirPath, entry.name))
+            size = s.size
+          } catch {
+            return null
+          }
+        }
+        return { name: entry.name, isDirectory: isDir, size }
+      }),
+    )
+    return results
+      .filter((r): r is { name: string; isDirectory: boolean; size: number } => r !== null)
+      .sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      })
   })
 
   ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
-    validatePathAccess(event.sender.id, payload.filePath)
+    await validatePathAccess(event.sender.id, payload.filePath)
     const maxBytes = payload.maxBytes ?? 1_048_576
     const stat = await fs.promises.stat(payload.filePath)
     const size = stat.size
 
-    // Binary detection: read first 8KB
-    const detectSize = Math.min(size, 8192)
     const fd = await fs.promises.open(payload.filePath, 'r')
     try {
-      const detectBuf = Buffer.alloc(detectSize)
-      await fd.read(detectBuf, 0, detectSize, 0)
-      if (detectBuf.includes(0)) {
-        return { binary: true, size }
-      }
-      // Read content up to maxBytes
       const readSize = Math.min(size, maxBytes)
       const buf = Buffer.alloc(readSize)
       await fd.read(buf, 0, readSize, 0)
+
+      // Binary detection: check first 8KB for null bytes
+      const detectEnd = Math.min(readSize, 8192)
+      for (let i = 0; i < detectEnd; i++) {
+        if (buf[i] === 0) return { binary: true, size }
+      }
+
       return {
         content: buf.toString('utf-8'),
         truncated: size > maxBytes,
