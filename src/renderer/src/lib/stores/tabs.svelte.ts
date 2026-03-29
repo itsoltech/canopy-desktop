@@ -85,6 +85,7 @@ type SerializedSplitNode =
       claudeSessionId?: string
       browserUrl?: string
       browserDevToolsMode?: 'bottom' | 'right'
+      filePath?: string
     }
   | { type: 'hsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
   | { type: 'vsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
@@ -239,11 +240,13 @@ export async function closeTab(tabId: string): Promise<void> {
       }
     }
     await Promise.all(
-      panes.map((p) =>
-        p.paneType === 'browser'
-          ? window.api.destroyBrowser(p.sessionId)
-          : window.api.killPty(p.sessionId),
-      ),
+      panes
+        .filter((p) => p.paneType !== 'editor')
+        .map((p) =>
+          p.paneType === 'browser'
+            ? window.api.destroyBrowser(p.sessionId)
+            : window.api.killPty(p.sessionId),
+        ),
     )
 
     // Remove tab
@@ -320,6 +323,56 @@ export async function reopenClosedTab(worktreePath: string): Promise<void> {
   await openTool(entry.toolId, worktreePath)
 }
 
+export function openFile(filePath: string, worktreePath: string): void {
+  // Check if already open - focus it
+  const tabs = tabsByWorktree[worktreePath] ?? []
+  for (const tab of tabs) {
+    const panes = allPanes(tab.rootSplit)
+    const existing = panes.find((p) => p.paneType === 'editor' && p.filePath === filePath)
+    if (existing) {
+      activeTabId[worktreePath] = tab.id
+      tab.focusedPaneId = existing.id
+      return
+    }
+  }
+
+  // Create new editor tab
+  const paneId = nextPaneId()
+  const fileName = filePath.split('/').pop() ?? 'File'
+  const pane: PaneSession = {
+    id: paneId,
+    sessionId: '',
+    wsUrl: '',
+    toolId: 'editor',
+    toolName: fileName,
+    isRunning: true,
+    exitCode: null,
+    title: null,
+    paneType: 'editor',
+    filePath,
+  }
+
+  const id = nextTabId()
+  const name = computeDisplayName(fileName, worktreePath, 'editor')
+
+  const tab: TabInfo = {
+    id,
+    toolId: 'editor',
+    toolName: fileName,
+    name,
+    worktreePath,
+    rootSplit: createLeaf(pane),
+    focusedPaneId: paneId,
+  }
+
+  if (!tabsByWorktree[worktreePath]) {
+    tabsByWorktree[worktreePath] = []
+  }
+  tabsByWorktree[worktreePath].push(tab)
+  activeTabId[worktreePath] = id
+  scheduleSave(worktreePath)
+}
+
 export function getActiveTab(worktreePath: string): TabInfo | null {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return null
@@ -373,6 +426,12 @@ export async function restartPane(
   const panes = allPanes(tab.rootSplit)
   const pane = panes.find((p) => p.id === paneId)
   if (!pane) return
+
+  if (pane.paneType === 'editor') {
+    // Editor panes have no session to restart. The component re-reads on mount.
+    scheduleSave(worktreePath)
+    return
+  }
 
   if (pane.paneType === 'browser') {
     const oldUrl = pane.url
@@ -457,11 +516,13 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
     if (p.paneType === 'browser') delete browserSessions[p.sessionId]
   }
   await Promise.allSettled(
-    allSessions.map((p) =>
-      p.paneType === 'browser'
-        ? window.api.destroyBrowser(p.sessionId)
-        : window.api.killPty(p.sessionId),
-    ),
+    allSessions
+      .filter((p) => p.paneType !== 'editor')
+      .map((p) =>
+        p.paneType === 'browser'
+          ? window.api.destroyBrowser(p.sessionId)
+          : window.api.killPty(p.sessionId),
+      ),
   )
 
   delete tabsByWorktree[worktreePath]
@@ -477,11 +538,13 @@ export async function killAllTabs(): Promise<void> {
   const allTabsList = Object.values(tabsByWorktree).flat()
   const allSessions = allTabsList.flatMap((t) => allPanes(t.rootSplit))
   await Promise.all(
-    allSessions.map((p) =>
-      p.paneType === 'browser'
-        ? window.api.destroyBrowser(p.sessionId)
-        : window.api.killPty(p.sessionId),
-    ),
+    allSessions
+      .filter((p) => p.paneType !== 'editor')
+      .map((p) =>
+        p.paneType === 'browser'
+          ? window.api.destroyBrowser(p.sessionId)
+          : window.api.killPty(p.sessionId),
+      ),
   )
   for (const path of Object.keys(tabsByWorktree)) {
     delete tabsByWorktree[path]
@@ -681,8 +744,10 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
   const result = treeRemovePane(tab.rootSplit, tab.focusedPaneId)
   if (!result) return
 
-  // Kill the removed pane's PTY or destroy browser view
-  if (result.removed.paneType === 'browser') {
+  // Kill the removed pane's PTY or destroy browser view (editor panes have no session)
+  if (result.removed.paneType === 'editor') {
+    // No-op
+  } else if (result.removed.paneType === 'browser') {
     delete browserSessions[result.removed.sessionId]
     await window.api.destroyBrowser(result.removed.sessionId)
   } else {
@@ -851,6 +916,9 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode {
       const bs = browserSessions[node.pane.sessionId]
       if (bs) leaf.browserDevToolsMode = bs.devToolsMode
     }
+    if (node.pane.paneType === 'editor') {
+      leaf.filePath = node.pane.filePath
+    }
     return leaf
   }
   return {
@@ -901,7 +969,20 @@ async function restoreSplitNode(
     const paneId = nextPaneId()
     let pane: PaneSession
 
-    if (node.toolId === 'browser') {
+    if (node.toolId === 'editor' && node.filePath) {
+      pane = {
+        id: paneId,
+        sessionId: '',
+        wsUrl: '',
+        toolId: 'editor',
+        toolName: node.toolName,
+        isRunning: true,
+        exitCode: null,
+        title: null,
+        paneType: 'editor',
+        filePath: node.filePath,
+      }
+    } else if (node.toolId === 'browser') {
       const result = await window.api.createBrowser()
       pane = {
         id: paneId,

@@ -441,6 +441,11 @@ const api = {
     }
   },
 
+  // Filesystem
+  readDir: (dirPath: string) => ipcRenderer.invoke('fs:readDir', { dirPath }),
+  readFile: (filePath: string, maxBytes?: number) =>
+    ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 }
