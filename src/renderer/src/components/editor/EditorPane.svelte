@@ -79,13 +79,14 @@
       {/if}
     </div>
     <div class="toolbar-actions">
-      <button class="toolbar-btn" onclick={loadFile} title="Refresh">
+      <button class="toolbar-btn" onclick={loadFile} title="Refresh" aria-label="Refresh file">
         <RotateCw size={13} />
       </button>
       <button
         class="toolbar-btn"
         onclick={() => window.api.showInFolder(filePath)}
         title="Show in Finder"
+        aria-label="Show in Finder"
       >
         <FolderOpen size={13} />
       </button>
