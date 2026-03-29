@@ -13,4 +13,4 @@ jobs:
         with:
           mode: minimum
           count: 1
-          labels: 'claude:review:approve'
+          labels: 'claude:review:approved'
