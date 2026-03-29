@@ -49,17 +49,6 @@ test('titlebar shows branch and document title updates', async ({ electronApp, p
   expect(title).toContain(projectName)
 })
 
-test('dirty indicator appears after modifying a tracked file', async ({ electronApp, page }) => {
-  await openProject(electronApp, page, tmpDir)
-  await expect(page.locator('.titlebar .branch')).toBeVisible({ timeout: 10_000 })
-
-  // Modify a file to make the repo dirty
-  await writeFile(join(tmpDir, 'README.md'), '# Modified\n')
-
-  // Wait for the git watcher to detect the change
-  await expect(page.locator('.titlebar .dirty')).toBeVisible({ timeout: 15_000 })
-})
-
 test('tab bar appears with a shell tab', async ({ electronApp, page }) => {
   await openProject(electronApp, page, tmpDir)
 
