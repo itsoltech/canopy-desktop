@@ -14,4 +14,4 @@ jobs:
       - uses: volta-cli/action@v4
       - run: npm ci
       - run: npm run lint
-      - run: npm run typecheck
+      - run: npm run build

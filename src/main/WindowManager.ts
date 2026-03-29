@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, screen, shell } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -70,7 +70,7 @@ export class WindowManager {
     })
 
     win.on('ready-to-show', () => {
-      win.show()
+      if (!process.env.CANOPY_E2E || app.isPackaged) win.show()
     })
 
     win.on('close', (event) => {

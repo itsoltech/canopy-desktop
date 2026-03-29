@@ -20,7 +20,8 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "release": "npm run build && electron-builder --publish always"
+    "release": "npm run build && electron-builder --publish always",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.81",
@@ -47,6 +48,7 @@
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@playwright/test": "^1.58.2",
     "@sveltejs/vite-plugin-svelte": "^6.2.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/dompurify": "^3.0.5",
