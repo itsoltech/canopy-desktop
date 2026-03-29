@@ -1,3 +1,15 @@
+## [0.7.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.6.2...v0.7.0-next.1) (2026-03-29)
+
+### Features
+
+* add file browser with read-only editor pane ([#18](https://github.com/itsoltech/canopy-desktop/issues/18)) ([9b5fb27](https://github.com/itsoltech/canopy-desktop/commit/9b5fb275b42c74f120bf8bb8f021676cb40a1440))
+* next branch pre-release pipeline and update channel settings ([#19](https://github.com/itsoltech/canopy-desktop/issues/19)) ([528b0c5](https://github.com/itsoltech/canopy-desktop/commit/528b0c599cb0354a43500fbf377ed053e224f877))
+
+### Bug Fixes
+
+* **ci:** correct required label name to claude:review:approved ([c5f1758](https://github.com/itsoltech/canopy-desktop/commit/c5f1758b1d44e954c6c1db6847ee013b1f5cc5ac))
+* **ci:** use PAT for semantic-release to bypass branch ruleset ([4c367e2](https://github.com/itsoltech/canopy-desktop/commit/4c367e2bca7a58ec4b11afb59833f5c36c1095fc))
+
 ## [0.6.2](https://github.com/itsoltech/canopy-desktop/compare/v0.6.1...v0.6.2) (2026-03-29)
 
 ### Bug Fixes
