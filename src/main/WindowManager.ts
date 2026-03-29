@@ -70,7 +70,7 @@ export class WindowManager {
     })
 
     win.on('ready-to-show', () => {
-      win.show()
+      if (!process.env.CANOPY_E2E) win.show()
     })
 
     win.on('close', (event) => {
