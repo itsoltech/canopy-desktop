@@ -119,6 +119,23 @@ Structure:
 - Mention any repeated issues that were flagged only once inline.
 - Keep it under 20 lines.
 
+## Labels
+
+After posting the summary, apply exactly one label to the PR:
+
+- `claude:review:approved` if no issues were found.
+- `claude:review:changes-requested` if any issues were found.
+
+Always remove the opposite label first to handle re-reviews:
+
+```bash
+# Approved
+gh pr edit $PR_NUMBER --add-label "claude:review:approved" --remove-label "claude:review:changes-requested"
+
+# Changes requested
+gh pr edit $PR_NUMBER --add-label "claude:review:changes-requested" --remove-label "claude:review:approved"
+```
+
 ## Tone
 
 Be direct and constructive. State the problem and the fix. Do not lecture, do not add disclaimers about "overall good work", do not use phrases like "consider doing X" when X is a rule violation.
