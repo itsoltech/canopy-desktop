@@ -108,6 +108,7 @@ export class NotchOverlayManager {
       webPreferences: {
         preload: join(__dirname, '../preload/notch.js'),
         sandbox: true,
+        backgroundThrottling: false,
       },
     })
 
