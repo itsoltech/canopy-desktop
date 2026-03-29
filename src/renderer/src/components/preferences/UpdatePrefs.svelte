@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
 
@@ -6,6 +7,7 @@
   let channel = $derived(prefs['update.channel'] || 'stable')
 
   let checkState: 'idle' | 'checking' | 'up-to-date' | 'error' = $state('idle')
+  let checkCleanup: (() => void) | null = $state(null)
 
   function toggleAutoUpdate(): void {
     const next = !autoUpdate
@@ -19,6 +21,7 @@
   }
 
   function checkNow(): void {
+    checkCleanup?.()
     checkState = 'checking'
 
     const dismiss = (state: 'up-to-date' | 'error'): void => {
@@ -44,10 +47,14 @@
       offAvailable()
       offNotAvailable()
       offError()
+      checkCleanup = null
     }
 
+    checkCleanup = cleanup
     window.api.checkForUpdates()
   }
+
+  onDestroy(() => checkCleanup?.())
 </script>
 
 <div class="section">
