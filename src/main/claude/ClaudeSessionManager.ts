@@ -199,9 +199,11 @@ export class ClaudeSessionManager extends EventEmitter {
     switch (event.hook_event_name) {
       case 'SessionStart':
       case 'Stop':
+        status = 'idle'
+        break
       case 'PostToolUse':
       case 'PostToolUseFailure':
-        status = 'idle'
+        status = 'thinking'
         break
       case 'UserPromptSubmit':
       case 'PostCompact':

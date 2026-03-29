@@ -132,7 +132,10 @@ export class NotchOverlayManager {
       } else {
         // Detect peek-worthy transitions before updating
         if (this.isPeekWorthy(prev, status.status)) {
-          this.pendingPeekIds.add(status.ptySessionId)
+          const ownerWindow = this.windowManager.getWindowById(status.windowId)
+          if (!ownerWindow || !ownerWindow.isFocused()) {
+            this.pendingPeekIds.add(status.ptySessionId)
+          }
         }
         this.previousStatuses.set(status.ptySessionId, status.status)
         this.sessions.set(status.ptySessionId, status)
