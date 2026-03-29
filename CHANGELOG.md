@@ -1,3 +1,16 @@
+## [0.6.1](https://github.com/itsoltech/canopy-desktop/compare/v0.6.0...v0.6.1) (2026-03-29)
+
+### Bug Fixes
+
+* **claude:** restore command hooks, keep only agent hooks removed ([6203b7f](https://github.com/itsoltech/canopy-desktop/commit/6203b7f6131121ea55ed59672675dfc1cb5acd71))
+* **deps:** patch brace-expansion and picomatch vulnerabilities ([#15](https://github.com/itsoltech/canopy-desktop/issues/15)) ([ab65db2](https://github.com/itsoltech/canopy-desktop/commit/ab65db237c0db4a1b072a0e513e185a64ce8f122))
+* **notch:** check active Claude tab before suppressing peek ([8ad0ec9](https://github.com/itsoltech/canopy-desktop/commit/8ad0ec9ed1b5cfad62d52eb8e717b2e5d394a081))
+* **notch:** correct status mismatch and suppress peek for focused window ([5541b53](https://github.com/itsoltech/canopy-desktop/commit/5541b539fbd2764f5f53614de2c51d35019b81e6))
+
+### Refactoring
+
+* **notch:** remove session count from collapsed header ([fde97eb](https://github.com/itsoltech/canopy-desktop/commit/fde97ebf1e030254da5cf4e73464153c54391b26))
+
 ## [0.6.0](https://github.com/itsoltech/canopy-desktop/compare/v0.5.2...v0.6.0) (2026-03-29)
 
 ### Features

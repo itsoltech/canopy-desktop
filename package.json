@@ -1,6 +1,6 @@
 {
   "name": "canopy",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Developer terminal workstation",
   "main": "./out/main/index.js",
   "author": "ITSOL",
