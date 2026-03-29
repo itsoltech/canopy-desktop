@@ -210,6 +210,11 @@ export class WindowManager {
     watchers.clear()
   }
 
+  getWindowById(wcId: number): BrowserWindow | null {
+    const win = this.windows.get(wcId)
+    return win && !win.isDestroyed() ? win : null
+  }
+
   getAllWindows(): BrowserWindow[] {
     const result: BrowserWindow[] = []
     for (const win of this.windows.values()) {

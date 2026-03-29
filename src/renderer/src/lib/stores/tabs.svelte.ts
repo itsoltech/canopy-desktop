@@ -153,7 +153,8 @@ export async function openTool(
   } else {
     const options: { workspaceName?: string; branch?: string } = {}
     if (toolId === 'claude') {
-      options.workspaceName = workspaceState.workspace?.name ?? ''
+      const project = getProjectForWorktree(worktreePath)
+      options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
       options.branch = workspaceState.branch ?? undefined
     }
     const result = await window.api.spawnTool(toolId, worktreePath, options)
@@ -544,6 +545,10 @@ export function updatePaneTitle(sessionId: string, title: string): void {
           ...p,
           title,
         }))
+        // Forward title to main process for the notch overlay
+        if (pane.toolId === 'claude') {
+          window.api.updateClaudeTitle(sessionId, title)
+        }
         return
       }
     }
@@ -890,7 +895,8 @@ async function restoreSplitNode(
     } else {
       const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
       if (node.toolId === 'claude') {
-        options.workspaceName = workspaceState.workspace?.name ?? ''
+        const project = getProjectForWorktree(worktreePath)
+        options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
         options.branch = workspaceState.branch ?? undefined
         if (node.claudeSessionId) options.resumeSessionId = node.claudeSessionId
       }

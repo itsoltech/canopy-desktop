@@ -200,6 +200,10 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle('claude:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
+    claudeSessionManager.updateProcessTitle(payload.sessionId, payload.title)
+  })
+
   // --- Workspaces ---
 
   ipcMain.handle('db:workspace:list', (_event, payload?: { limit?: number }) => {

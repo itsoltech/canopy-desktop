@@ -3,10 +3,17 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
+  let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let urlOpenMode = $derived(prefs.urlOpenMode || 'ask')
 
   function toggleReopen(): void {
     setPref('reopenLastWorkspace', reopenLast ? 'false' : 'true')
+  }
+
+  function toggleNotch(): void {
+    const next = !notchEnabled
+    setPref('notch.enabled', next ? 'true' : 'false')
+    window.api.setNotchEnabled(next)
   }
 </script>
 
@@ -16,6 +23,11 @@
   <label class="checkbox-row">
     <input type="checkbox" checked={reopenLast} onchange={toggleReopen} />
     <span>Reopen last workspace on startup</span>
+  </label>
+
+  <label class="checkbox-row">
+    <input type="checkbox" checked={notchEnabled} onchange={toggleNotch} />
+    <span>Show session status in notch overlay</span>
   </label>
 
   <div class="select-row">
