@@ -1,3 +1,18 @@
+## [0.6.0](https://github.com/itsoltech/canopy-desktop/compare/v0.5.2...v0.6.0) (2026-03-29)
+
+### Features
+
+* **notch:** macOS notch overlay for Claude session status ([#13](https://github.com/itsoltech/canopy-desktop/issues/13)) ([d96e5e6](https://github.com/itsoltech/canopy-desktop/commit/d96e5e6b5fcd97c8721a0425a04f43ee7ceb0149))
+
+### Bug Fixes
+
+* **e2e:** use specific selector for reopen workspace checkbox ([4bf41a9](https://github.com/itsoltech/canopy-desktop/commit/4bf41a9934a5749872c0450fa891b938f605d1b9))
+* **workspace:** restore all projects and active worktree on update restart ([#12](https://github.com/itsoltech/canopy-desktop/issues/12)) ([c62cde1](https://github.com/itsoltech/canopy-desktop/commit/c62cde1f924f984e9f526ea81875b33672801c65))
+
+### Styling
+
+* **css:** add tabular-nums for stable digit widths ([ac1cf6e](https://github.com/itsoltech/canopy-desktop/commit/ac1cf6e3f9c01122339c86053ff303236016b171))
+
 ## [0.5.2](https://github.com/itsoltech/canopy-desktop/compare/v0.5.1...v0.5.2) (2026-03-28)
 
 ### Bug Fixes
