@@ -711,7 +711,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
     await validatePathAccess(event.sender.id, payload.filePath)
-    const maxBytes = payload.maxBytes ?? 1_048_576
+    const maxBytes = Math.min(payload.maxBytes ?? 1_048_576, 10_485_760)
     const stat = await fs.promises.stat(payload.filePath)
     const size = stat.size
 
