@@ -456,7 +456,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
     if (p.toolId === 'claude') removeClaudeSession(p.sessionId)
     if (p.paneType === 'browser') delete browserSessions[p.sessionId]
   }
-  await Promise.all(
+  await Promise.allSettled(
     allSessions.map((p) =>
       p.paneType === 'browser'
         ? window.api.destroyBrowser(p.sessionId)
