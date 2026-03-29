@@ -5,12 +5,17 @@ import { tmpdir } from 'os'
 
 const appDir = resolve(__dirname, '..')
 
+interface CanopyWindow extends Window {
+  api: { getPref: (k: string) => Promise<string | null> }
+}
+
 type ElectronFixtures = {
   electronApp: ElectronApplication
   page: Page
 }
 
 export const test = base.extend<ElectronFixtures>({
+  // eslint-disable-next-line no-empty-pattern
   electronApp: async ({}, use) => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'canopy-e2e-data-'))
     const app = await _electron.launch({
@@ -31,7 +36,9 @@ export const test = base.extend<ElectronFixtures>({
         setTimeout(() => {
           try {
             process.kill(pid!)
-          } catch {}
+          } catch {
+            /* process already exited */
+          }
           resolve()
         }, 5_000),
       ),
@@ -73,7 +80,13 @@ export async function selectOption(
 
 /** Read a persisted preference value through the preload bridge */
 export async function getStoredPref(page: Page, key: string): Promise<string | null> {
-  return page.evaluate((k) => (window as any).api.getPref(k), key)
+  return page.evaluate(
+    (k) =>
+      (
+        window as unknown as { api: { getPref: (k: string) => Promise<string | null> } }
+      ).api.getPref(k),
+    key,
+  )
 }
 
 /** Open a project by sending url:action IPC. Waits for MainLayout's effect listeners to register first. */
@@ -84,7 +97,7 @@ export async function openProject(
 ): Promise<void> {
   await page.waitForSelector('.app', { state: 'visible' })
   // Wait for Svelte effects (including onUrlAction listener) to settle
-  await page.waitForFunction(() => !!(window as any).api)
+  await page.waitForFunction(() => !!(window as unknown as CanopyWindow).api)
   await page.waitForTimeout(500)
 
   await electronApp.evaluate(({ BrowserWindow }, path) => {
