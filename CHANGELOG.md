@@ -1,3 +1,10 @@
+## [0.6.2](https://github.com/itsoltech/canopy-desktop/compare/v0.6.1...v0.6.2) (2026-03-29)
+
+### Bug Fixes
+
+* **notch:** eliminate first-hover FPS drop ([#16](https://github.com/itsoltech/canopy-desktop/issues/16)) ([84d55a0](https://github.com/itsoltech/canopy-desktop/commit/84d55a06ff2ed873e12be22436810e0d7acd7526))
+* **worktree:** dispose PTY sessions before removing worktree ([#17](https://github.com/itsoltech/canopy-desktop/issues/17)) ([ed2bb02](https://github.com/itsoltech/canopy-desktop/commit/ed2bb02ead0d6dbbdee6860cbe4d799cd45b13df))
+
 ## [0.6.1](https://github.com/itsoltech/canopy-desktop/compare/v0.6.0...v0.6.1) (2026-03-29)
 
 ### Bug Fixes
