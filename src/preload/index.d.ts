@@ -188,6 +188,16 @@ interface BrowserBounds {
   height: number
 }
 
+interface DirEntry {
+  name: string
+  isDirectory: boolean
+  size: number
+}
+
+type FileReadResult =
+  | { content: string; truncated: boolean; size: number; binary: false }
+  | { binary: true; size: number }
+
 interface CanopyAPI {
   // About
   getAboutInfo: () => Promise<AboutInfo>
@@ -370,6 +380,10 @@ interface CanopyAPI {
   // Menu events
   onMenuShowAbout: (callback: () => void) => () => void
   onMenuShowPreferences: (callback: () => void) => () => void
+
+  // Filesystem
+  readDir: (dirPath: string) => Promise<DirEntry[]>
+  readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
 
   // File utilities
   getPathForFile: (file: File) => string

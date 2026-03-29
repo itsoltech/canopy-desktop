@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import ProjectTreeSection from './ProjectTreeSection.svelte'
   import GitSection from './GitSection.svelte'
+  import FileTreeSection from './FileTreeSection.svelte'
   import ToolSection from './ToolSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
 
@@ -19,6 +20,9 @@
   <ProjectTreeSection />
   {#if workspaceState.isGitRepo && workspaceState.selectedWorktreePath}
     <GitSection />
+  {/if}
+  {#if workspaceState.selectedWorktreePath}
+    <FileTreeSection />
   {/if}
   <ToolSection {onLaunchTool} />
   <div class="sidebar-footer">

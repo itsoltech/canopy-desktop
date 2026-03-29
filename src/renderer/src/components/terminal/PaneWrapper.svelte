@@ -5,6 +5,7 @@
   import { claudeSessions } from '../../lib/claude/claudeState.svelte'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
   import BrowserPane from '../browser/BrowserPane.svelte'
+  import EditorPane from '../editor/EditorPane.svelte'
   import ClaudeInspector from '../claude/ClaudeInspector.svelte'
   import ExitBanner from './ExitBanner.svelte'
 
@@ -98,6 +99,8 @@
       onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
       {onFocus}
     />
+  {:else if pane.paneType === 'editor'}
+    <EditorPane filePath={pane.filePath!} {active} />
   {:else}
     <div class="pane-with-inspector">
       <div class="pane-content">

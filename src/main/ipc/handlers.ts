@@ -1,5 +1,7 @@
 import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import os from 'os'
+import fs from 'fs'
+import path from 'path'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
@@ -653,6 +655,84 @@ export function registerIpcHandlers(
 
   ipcMain.handle('browser:cancelPick', (_event, payload: { browserId: string }) => {
     browserManager.cancelPick(payload.browserId)
+  })
+
+  // --- Filesystem ---
+
+  const IGNORED_NAMES = new Set([
+    '.git',
+    'node_modules',
+    '.next',
+    '__pycache__',
+    '.DS_Store',
+    '.svelte-kit',
+    '.turbo',
+    '.nuxt',
+    '.output',
+  ])
+
+  function validatePathAccess(wcId: number, targetPath: string): void {
+    const resolved = path.resolve(targetPath)
+    const allowed = windowManager.getWorkspacePaths(wcId)
+    const ok = allowed.some((wp) => resolved === wp || resolved.startsWith(wp + path.sep))
+    if (!ok) throw new Error('Access denied: path outside workspace')
+  }
+
+  ipcMain.handle('fs:readDir', async (event, payload: { dirPath: string }) => {
+    validatePathAccess(event.sender.id, payload.dirPath)
+    const entries = await fs.promises.readdir(payload.dirPath, { withFileTypes: true })
+    const result: { name: string; isDirectory: boolean; size: number }[] = []
+    for (const entry of entries) {
+      if (IGNORED_NAMES.has(entry.name)) continue
+      if (entry.name.startsWith('.') && entry.name !== '.env.example') continue
+      let size = 0
+      const isDir = entry.isDirectory()
+      if (!isDir) {
+        try {
+          const stat = await fs.promises.stat(path.join(payload.dirPath, entry.name))
+          size = stat.size
+        } catch {
+          // Skip entries we can't stat
+          continue
+        }
+      }
+      result.push({ name: entry.name, isDirectory: isDir, size })
+    }
+    result.sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
+    return result
+  })
+
+  ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
+    validatePathAccess(event.sender.id, payload.filePath)
+    const maxBytes = payload.maxBytes ?? 1_048_576
+    const stat = await fs.promises.stat(payload.filePath)
+    const size = stat.size
+
+    // Binary detection: read first 8KB
+    const detectSize = Math.min(size, 8192)
+    const fd = await fs.promises.open(payload.filePath, 'r')
+    try {
+      const detectBuf = Buffer.alloc(detectSize)
+      await fd.read(detectBuf, 0, detectSize, 0)
+      if (detectBuf.includes(0)) {
+        return { binary: true, size }
+      }
+      // Read content up to maxBytes
+      const readSize = Math.min(size, maxBytes)
+      const buf = Buffer.alloc(readSize)
+      await fd.read(buf, 0, readSize, 0)
+      return {
+        content: buf.toString('utf-8'),
+        truncated: size > maxBytes,
+        size,
+        binary: false,
+      }
+    } finally {
+      await fd.close()
+    }
   })
 
   // --- Worktree Setup ---
