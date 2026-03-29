@@ -1,0 +1,16 @@
+name: PR Labels
+
+on:
+  pull_request:
+    types: [opened, labeled, unlabeled, synchronize]
+
+jobs:
+  check-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required labels
+        uses: mheap/github-action-required-labels@v5
+        with:
+          mode: minimum
+          count: 1
+          labels: 'claude:review:approve'
