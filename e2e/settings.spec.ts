@@ -49,7 +49,7 @@ test.describe('General settings', () => {
   test('toggle reopen last workspace', async ({ page }) => {
     await openSettings(page)
 
-    const checkbox = page.locator('.checkbox-row input[type="checkbox"]')
+    const checkbox = page.getByRole('checkbox', { name: 'Reopen last workspace on' })
     const wasChecked = await checkbox.isChecked()
 
     await checkbox.click()
