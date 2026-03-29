@@ -25,4 +25,4 @@ jobs:
             --title "chore: promote next to main" \
             --body "Automated promotion of \`next\` branch to \`main\` for stable release." \
             || echo "PR already exists"
-          gh pr merge --enable-auto --merge next
+          gh pr merge --auto --merge next
