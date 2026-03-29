@@ -185,6 +185,8 @@
     border-radius: 0 0 16px 16px;
     overflow: hidden;
     cursor: default;
+    contain: layout style;
+    will-change: width, height, box-shadow;
     transition:
       width 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1),
       height 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1),
