@@ -180,7 +180,7 @@
     >
       <!-- eslint-disable-next-line svelte/no-autofocus -->
       <button class="ctx-item" role="menuitem" autofocus onclick={contextShowInFinder}>
-        Show in Finder
+        Reveal in File Manager
       </button>
       <button class="ctx-item" role="menuitem" onclick={contextCopyPath}>Copy path</button>
       <button class="ctx-item" role="menuitem" onclick={contextCopyName}>Copy name</button>

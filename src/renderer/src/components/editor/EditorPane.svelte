@@ -85,8 +85,8 @@
       <button
         class="toolbar-btn"
         onclick={() => window.api.showInFolder(filePath)}
-        title="Show in Finder"
-        aria-label="Show in Finder"
+        title="Reveal in File Manager"
+        aria-label="Reveal in File Manager"
       >
         <FolderOpen size={13} />
       </button>
