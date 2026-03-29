@@ -27,7 +27,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - uses: volta-cli/action@v4
 
@@ -41,7 +42,7 @@ jobs:
             conventional-changelog-conventionalcommits
           dry_run: ${{ inputs.dry_run }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Summary
         if: steps.semantic.outputs.new_release_published == 'true'
