@@ -109,10 +109,11 @@ export const jiraClient: IssueTrackerProviderClient = {
   },
 
   async fetchStatuses(connection, token, boardId) {
-    if (boardId) {
+    const resolvedBoardId = boardId || connection.boardId
+    if (resolvedBoardId) {
       const data = await jiraFetch<{
         columnConfig?: { columns?: Array<{ name: string; statuses?: Array<{ id: string }> }> }
-      }>(connection, token, `/rest/agile/1.0/board/${boardId}/configuration`)
+      }>(connection, token, `/rest/agile/1.0/board/${resolvedBoardId}/configuration`)
       return (
         data.columnConfig?.columns?.map(
           (c): TrackerStatus => ({
@@ -121,6 +122,10 @@ export const jiraClient: IssueTrackerProviderClient = {
           }),
         ) ?? []
       )
+    }
+
+    if (!connection.projectKey) {
+      return []
     }
 
     const data = await jiraFetch<Array<{ id: string; name: string }>>(
@@ -140,7 +145,41 @@ export const jiraClient: IssueTrackerProviderClient = {
   },
 
   async fetchIssues(connection, token, params) {
-    const jqlParts: string[] = [`project = "${connection.projectKey}"`]
+    const resolvedBoardId = params.boardId || connection.boardId
+
+    // If we have a board, use the agile API to get issues from the board
+    if (resolvedBoardId) {
+      const jqlParts: string[] = []
+
+      if (connection.projectKey) {
+        jqlParts.push(`project = "${connection.projectKey}"`)
+      }
+
+      if (params.statuses && params.statuses.length > 0) {
+        const statusList = params.statuses.map((s) => `"${s}"`).join(', ')
+        jqlParts.push(`status IN (${statusList})`)
+      }
+
+      if (params.assignedToMe) {
+        jqlParts.push('assignee = currentUser()')
+      }
+
+      const jqlParam =
+        jqlParts.length > 0 ? `&jql=${encodeURIComponent(jqlParts.join(' AND '))}` : ''
+      const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
+      const data = await jiraFetch<{ issues: JiraIssue[] }>(
+        connection,
+        token,
+        `/rest/agile/1.0/board/${resolvedBoardId}/issue?fields=${fields}&maxResults=100${jqlParam}`,
+      )
+      return data.issues.map((i) => mapJiraIssue(i, connection.baseUrl))
+    }
+
+    // Fallback: JQL search with project key
+    const jqlParts: string[] = []
+    if (connection.projectKey) {
+      jqlParts.push(`project = "${connection.projectKey}"`)
+    }
 
     if (params.statuses && params.statuses.length > 0) {
       const statusList = params.statuses.map((s) => `"${s}"`).join(', ')
@@ -148,6 +187,10 @@ export const jiraClient: IssueTrackerProviderClient = {
     }
 
     if (params.assignedToMe) {
+      jqlParts.push('assignee = currentUser()')
+    }
+
+    if (jqlParts.length === 0) {
       jqlParts.push('assignee = currentUser()')
     }
 
