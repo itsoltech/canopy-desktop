@@ -179,12 +179,12 @@
         reconnectAttempt = 0
       }
 
-      const MAX_PENDING_BYTES = 2 * 1024 * 1024 // 2 MB
+      const MAX_PENDING_CHARS = 2 * 1024 * 1024 // ~2 MB for ASCII
 
       ws.onmessage = (e): void => {
         pendingData += e.data
-        if (pendingData.length > MAX_PENDING_BYTES) {
-          pendingData = pendingData.slice(-MAX_PENDING_BYTES)
+        if (pendingData.length > MAX_PENDING_CHARS) {
+          pendingData = pendingData.slice(-MAX_PENDING_CHARS)
         }
         if (!writeScheduled) {
           writeScheduled = true
