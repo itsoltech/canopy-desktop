@@ -57,6 +57,7 @@
 
   onMount(async () => {
     await loadConnections()
+    if (connections.length === 0) showAddForm = true
     templateInput = branchTemplate.template
     await updatePreview()
   })
