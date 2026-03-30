@@ -572,6 +572,15 @@ export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
 }
 
+export function findWorktreeForSession(sessionId: string): string | null {
+  for (const [path, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      if (allPanes(tab.rootSplit).some((p) => p.sessionId === sessionId)) return path
+    }
+  }
+  return null
+}
+
 export interface AiSessionInfo {
   sessionId: string
   tabName: string
