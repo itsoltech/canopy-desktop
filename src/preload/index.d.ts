@@ -433,6 +433,21 @@ interface CanopyAPI {
     connectionId: string,
     boardId?: string,
   ) => Promise<TrackerSprint | null>
+  issueTrackerResolveBranchName: (
+    connectionId: string,
+    issue: TrackerIssue,
+    boardId?: string,
+  ) => Promise<string>
+  issueTrackerRenderBranchPreview: (
+    template: string,
+    customVars?: Record<string, string>,
+  ) => Promise<string>
+  issueTrackerGetAvailablePlaceholders: (
+    customVars?: Record<string, string>,
+  ) => Promise<Array<{ key: string; description: string; example: string }>>
+  issueTrackerValidateTemplate: (
+    template: string,
+  ) => Promise<{ valid: boolean; errors: string[] }>
 
   // File utilities
   getPathForFile: (file: File) => string

@@ -4,6 +4,7 @@
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
+  import { createBranchFromIssue } from '../../lib/issueTracker/branchCreation'
 
   let { connectionId }: { connectionId: string } = $props()
 
@@ -76,12 +77,9 @@
     el?.scrollIntoView({ block: 'nearest' })
   }
 
-  function selectIssue(issue: TrackerIssue): void {
-    // Dispatch custom event for branch creation flow
-    window.dispatchEvent(
-      new CustomEvent('canopy:issueSelected', { detail: { connectionId, issue } }),
-    )
+  async function selectIssue(issue: TrackerIssue): Promise<void> {
     closeDialog()
+    await createBranchFromIssue(connectionId, issue)
   }
 
   function sendToTerminal(issue: TrackerIssue, e: MouseEvent): void {

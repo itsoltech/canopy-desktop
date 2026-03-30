@@ -503,6 +503,17 @@ const api = {
   ) => ipcRenderer.invoke('issueTracker:fetchIssues', { connectionId, ...params }),
   issueTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
     ipcRenderer.invoke('issueTracker:getCurrentSprint', { connectionId, boardId }),
+  issueTrackerResolveBranchName: (
+    connectionId: string,
+    issue: Record<string, unknown>,
+    boardId?: string,
+  ) => ipcRenderer.invoke('issueTracker:resolveBranchName', { connectionId, issue, boardId }),
+  issueTrackerRenderBranchPreview: (template: string, customVars?: Record<string, string>) =>
+    ipcRenderer.invoke('issueTracker:renderBranchPreview', { template, customVars }),
+  issueTrackerGetAvailablePlaceholders: (customVars?: Record<string, string>) =>
+    ipcRenderer.invoke('issueTracker:getAvailablePlaceholders', { customVars }),
+  issueTrackerValidateTemplate: (template: string) =>
+    ipcRenderer.invoke('issueTracker:validateTemplate', { template }),
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

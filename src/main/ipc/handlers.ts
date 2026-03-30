@@ -22,7 +22,14 @@ import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 import type { IssueTrackerManager } from '../issueTracker/IssueTrackerManager'
-import type { IssueTrackerProvider } from '../issueTracker/types'
+import type { IssueTrackerProvider, TrackerIssue } from '../issueTracker/types'
+import {
+  renderBranchName,
+  buildVariables,
+  renderPreview,
+  getAvailablePlaceholders,
+  validateTemplate,
+} from '../issueTracker/branchTemplate'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -835,6 +842,49 @@ export function registerIpcHandlers(
       return issueTrackerManager.getCurrentSprint(payload.connectionId, payload.boardId)
     },
   )
+
+  ipcMain.handle(
+    'issueTracker:resolveBranchName',
+    async (
+      _event,
+      payload: { connectionId: string; issue: TrackerIssue; boardId?: string },
+    ) => {
+      const templateJson = preferencesStore.get('issueTracker.branchTemplate')
+      let template = 's{sprint}/{issueKey}'
+      let customVars: Record<string, string> = {}
+      if (templateJson) {
+        try {
+          const config = JSON.parse(templateJson)
+          template = config.template || template
+          customVars = config.customVars || {}
+        } catch {
+          // use defaults
+        }
+      }
+
+      const sprint = await issueTrackerManager
+        .getCurrentSprint(payload.connectionId, payload.boardId)
+        .catch(() => null)
+
+      const variables = buildVariables(payload.issue, sprint, customVars)
+      return renderBranchName(template, variables)
+    },
+  )
+
+  ipcMain.handle(
+    'issueTracker:renderBranchPreview',
+    (_event, payload: { template: string; customVars?: Record<string, string> }) => {
+      return renderPreview(payload.template, payload.customVars)
+    },
+  )
+
+  ipcMain.handle('issueTracker:getAvailablePlaceholders', (_event, payload?: { customVars?: Record<string, string> }) => {
+    return getAvailablePlaceholders(payload?.customVars)
+  })
+
+  ipcMain.handle('issueTracker:validateTemplate', (_event, payload: { template: string }) => {
+    return validateTemplate(payload.template)
+  })
 
   // --- Worktree Setup ---
 
