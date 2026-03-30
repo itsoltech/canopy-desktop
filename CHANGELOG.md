@@ -1,3 +1,9 @@
+## [0.7.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.3...v0.7.0-next.4) (2026-03-30)
+
+### Bug Fixes
+
+* **ci:** add --auto flag to auto-merge gh pr merge command ([2028541](https://github.com/itsoltech/canopy-desktop/commit/20285418dd83c411141553bbe179fea8420364d9))
+
 ## [0.7.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.2...v0.7.0-next.3) (2026-03-30)
 
 ### Features
