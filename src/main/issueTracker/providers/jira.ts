@@ -175,7 +175,7 @@ export const jiraClient: IssueTrackerProviderClient = {
       return data.issues.map((i) => mapJiraIssue(i, connection.baseUrl))
     }
 
-    // Fallback: JQL search with project key
+    // Fallback: JQL search (using new /search/jql endpoint)
     const jqlParts: string[] = []
     if (connection.projectKey) {
       jqlParts.push(`project = "${connection.projectKey}"`)
@@ -195,12 +195,28 @@ export const jiraClient: IssueTrackerProviderClient = {
     }
 
     const jql = jqlParts.join(' AND ')
-    const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
-    const data = await jiraFetch<{ issues: JiraIssue[] }>(
-      connection,
-      token,
-      `/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=100`,
-    )
+    const fields = [
+      'summary',
+      'description',
+      'status',
+      'priority',
+      'issuetype',
+      'parent',
+      'assignee',
+      'sprint',
+    ]
+    const body = JSON.stringify({ jql, fields, maxResults: 100 })
+    const url = `${connection.baseUrl.replace(/\/$/, '')}/rest/api/3/search/jql`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildAuthHeaders(connection, token),
+      body,
+    })
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`Jira API error ${res.status}: ${errBody || res.statusText}`)
+    }
+    const data = (await res.json()) as { issues: JiraIssue[] }
 
     return data.issues.map((i) => mapJiraIssue(i, connection.baseUrl))
   },
