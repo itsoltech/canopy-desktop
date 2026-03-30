@@ -65,6 +65,20 @@
     }
   })
 
+  // Listen for imperative focus requests (e.g. after browser screenshot delivery)
+  $effect(() => {
+    if (!termRef) return
+    const term = termRef
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ sessionId: string }>).detail
+      if (detail.sessionId === sessionId) {
+        requestAnimationFrame(() => term.focus())
+      }
+    }
+    window.addEventListener('canopy:focus-terminal', handler)
+    return () => window.removeEventListener('canopy:focus-terminal', handler)
+  })
+
   // Dispose WebGL addon when tab becomes inactive to free GPU memory
   $effect(() => {
     if (!active && webglAddonRef) {
@@ -133,6 +147,7 @@
 
     if (paths.length > 0 && termRef) {
       termRef.paste(paths.join(' '))
+      termRef.focus()
     }
   }
 

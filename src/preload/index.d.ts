@@ -275,6 +275,7 @@ interface CanopyAPI {
   setWorkspacePath: (path: string) => Promise<void>
   detachProject: (path: string) => Promise<void>
   focusWindowForPath: (path: string) => Promise<boolean>
+  focusRendererWebContents: () => Promise<void>
   setFocusedAgentSession: (ptySessionId: string | null) => Promise<void>
 
   // Dialog

@@ -160,6 +160,7 @@ const api = {
   detachProject: (path: string) => ipcRenderer.invoke('app:detachProject', { path }),
   focusWindowForPath: (path: string) =>
     ipcRenderer.invoke('app:focusWindowForPath', { path }) as Promise<boolean>,
+  focusRendererWebContents: () => ipcRenderer.invoke('app:focusRendererWebContents'),
 
   // Dialog
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
