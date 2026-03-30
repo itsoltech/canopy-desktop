@@ -142,10 +142,15 @@
         <div class="state-msg">No issues found</div>
       {:else}
         {#each filteredIssues as issue, i (issue.key)}
-          <button
+          <div
             class="issue-row"
             class:selected={i === selectedIndex}
+            role="button"
+            tabindex="0"
             onclick={() => selectIssue(issue)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') selectIssue(issue)
+            }}
             onmouseenter={() => (selectedIndex = i)}
           >
             <span class="issue-key">{issue.key}</span>
@@ -160,12 +165,15 @@
             </span>
             <button
               class="send-btn"
-              onclick={(e) => sendToTerminal(issue, e)}
+              onclick={(e) => {
+                e.stopPropagation()
+                sendToTerminal(issue, e)
+              }}
               title="Send to active terminal"
             >
               <Send size={12} />
             </button>
-          </button>
+          </div>
         {/each}
       {/if}
     </div>
