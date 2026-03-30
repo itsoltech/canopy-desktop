@@ -140,6 +140,7 @@
     // Write batching: coalesce rapid WebSocket messages into one term.write() per frame
     let pendingData = ''
     let writeScheduled = false
+    let writeRafId: number | null = null
 
     function scrollPreservingWrite(term: Terminal, data: string): void {
       const buffer = term.buffer.active
@@ -173,7 +174,8 @@
         pendingData += e.data
         if (!writeScheduled) {
           writeScheduled = true
-          requestAnimationFrame(() => {
+          writeRafId = requestAnimationFrame(() => {
+            writeRafId = null
             const chunk = pendingData
             pendingData = ''
             writeScheduled = false
@@ -336,6 +338,7 @@
     return () => {
       disposed = true
       clearConnectionStatus(sessionId)
+      if (writeRafId !== null) cancelAnimationFrame(writeRafId)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
