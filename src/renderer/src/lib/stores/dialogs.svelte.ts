@@ -45,6 +45,12 @@ interface CreateWorktreeState {
 
 interface PreferencesState {
   type: 'preferences'
+  section?: string
+}
+
+interface IssuePickerState {
+  type: 'issuePicker'
+  connectionId: string
 }
 
 interface AboutState {
@@ -66,6 +72,7 @@ type DialogState =
   | InputDialogState
   | CreateWorktreeState
   | PreferencesState
+  | IssuePickerState
   | AboutState
   | ChangelogState
 
@@ -117,8 +124,12 @@ export function showCreateWorktree(opts?: { repoRoot?: string; workspaceId?: str
   }
 }
 
-export function showPreferences(): void {
-  dialogState.current = { type: 'preferences' }
+export function showPreferences(section?: string): void {
+  dialogState.current = { type: 'preferences', section }
+}
+
+export function showIssuePicker(connectionId: string): void {
+  dialogState.current = { type: 'issuePicker', connectionId }
 }
 
 export function showAbout(): void {

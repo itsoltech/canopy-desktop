@@ -1,6 +1,6 @@
 import { setPref } from './preferences.svelte'
 
-export type SidebarSectionId = 'projects' | 'git' | 'files' | 'tools'
+export type SidebarSectionId = 'projects' | 'git' | 'files' | 'tools' | 'issues'
 
 export interface SidebarSectionDef {
   id: SidebarSectionId
@@ -13,6 +13,7 @@ export const SECTION_DEFS: SidebarSectionDef[] = [
   { id: 'git', label: 'Git', forced: false },
   { id: 'files', label: 'Files', forced: false },
   { id: 'tools', label: 'Tools', forced: false },
+  { id: 'issues', label: 'Issues', forced: false },
 ]
 
 export interface SidebarSectionConfig {
@@ -27,6 +28,7 @@ const DEFAULT_CONFIG: SidebarSectionConfig[] = [
   { id: 'git', visible: true },
   { id: 'files', visible: false },
   { id: 'tools', visible: true },
+  { id: 'issues', visible: true },
 ]
 
 export function getSidebarConfig(raw: string): SidebarSectionConfig[] {
