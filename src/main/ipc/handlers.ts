@@ -30,6 +30,7 @@ import {
   getAvailablePlaceholders,
   validateTemplate,
 } from '../issueTracker/branchTemplate'
+import { createPullRequest, buildPRConfig } from '../issueTracker/prCreation'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -773,12 +774,9 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle(
-    'issueTracker:removeConnection',
-    (_event, payload: { connectionId: string }) => {
-      issueTrackerManager.removeConnection(payload.connectionId)
-    },
-  )
+  ipcMain.handle('issueTracker:removeConnection', (_event, payload: { connectionId: string }) => {
+    issueTrackerManager.removeConnection(payload.connectionId)
+  })
 
   ipcMain.handle(
     'issueTracker:testConnection',
@@ -806,12 +804,9 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle(
-    'issueTracker:fetchBoards',
-    async (_event, payload: { connectionId: string }) => {
-      return issueTrackerManager.fetchBoards(payload.connectionId)
-    },
-  )
+  ipcMain.handle('issueTracker:fetchBoards', async (_event, payload: { connectionId: string }) => {
+    return issueTrackerManager.fetchBoards(payload.connectionId)
+  })
 
   ipcMain.handle(
     'issueTracker:fetchStatuses',
@@ -845,10 +840,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'issueTracker:resolveBranchName',
-    async (
-      _event,
-      payload: { connectionId: string; issue: TrackerIssue; boardId?: string },
-    ) => {
+    async (_event, payload: { connectionId: string; issue: TrackerIssue; boardId?: string }) => {
       const templateJson = preferencesStore.get('issueTracker.branchTemplate')
       let template = 's{sprint}/{issueKey}'
       let customVars: Record<string, string> = {}
@@ -878,13 +870,56 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('issueTracker:getAvailablePlaceholders', (_event, payload?: { customVars?: Record<string, string> }) => {
-    return getAvailablePlaceholders(payload?.customVars)
-  })
+  ipcMain.handle(
+    'issueTracker:getAvailablePlaceholders',
+    (_event, payload?: { customVars?: Record<string, string> }) => {
+      return getAvailablePlaceholders(payload?.customVars)
+    },
+  )
 
   ipcMain.handle('issueTracker:validateTemplate', (_event, payload: { template: string }) => {
     return validateTemplate(payload.template)
   })
+
+  ipcMain.handle(
+    'issueTracker:createPR',
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        issue: TrackerIssue
+        sourceBranch: string
+      },
+    ) => {
+      const titleTemplate =
+        preferencesStore.get('issueTracker.prTitleTemplate') || '[{issueKey}] {issueTitle}'
+      const bodyTemplate =
+        preferencesStore.get('issueTracker.prBodyTemplate') ||
+        '## {issueKey}: {issueTitle}\n\n{issueUrl}'
+      const defaultBranch = preferencesStore.get('issueTracker.prDefaultBranch') || 'develop'
+      const targetRulesJson = preferencesStore.get('issueTracker.prTargetRules')
+      let targetRules: Array<{ issueType: string; targetPattern: string }> = []
+      if (targetRulesJson) {
+        try {
+          targetRules = JSON.parse(targetRulesJson)
+        } catch {
+          // use empty
+        }
+      }
+
+      const branches = await GitRepository.listBranches(payload.repoRoot)
+      const existingBranches = [...branches.local, ...branches.remote]
+
+      const prConfig = buildPRConfig(titleTemplate, bodyTemplate, defaultBranch, targetRules)
+      return createPullRequest({
+        repoRoot: payload.repoRoot,
+        issue: payload.issue,
+        sourceBranch: payload.sourceBranch,
+        prConfig,
+        existingBranches,
+      })
+    },
+  )
 
   // --- Worktree Setup ---
 

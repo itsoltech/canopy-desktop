@@ -514,6 +514,8 @@ const api = {
     ipcRenderer.invoke('issueTracker:getAvailablePlaceholders', { customVars }),
   issueTrackerValidateTemplate: (template: string) =>
     ipcRenderer.invoke('issueTracker:validateTemplate', { template }),
+  issueTrackerCreatePR: (repoRoot: string, issue: Record<string, unknown>, sourceBranch: string) =>
+    ipcRenderer.invoke('issueTracker:createPR', { repoRoot, issue, sourceBranch }),
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

@@ -421,10 +421,7 @@ interface CanopyAPI {
     token: string
   }) => Promise<boolean>
   issueTrackerFetchBoards: (connectionId: string) => Promise<TrackerBoard[]>
-  issueTrackerFetchStatuses: (
-    connectionId: string,
-    boardId?: string,
-  ) => Promise<TrackerStatus[]>
+  issueTrackerFetchStatuses: (connectionId: string, boardId?: string) => Promise<TrackerStatus[]>
   issueTrackerFetchIssues: (
     connectionId: string,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
@@ -445,9 +442,12 @@ interface CanopyAPI {
   issueTrackerGetAvailablePlaceholders: (
     customVars?: Record<string, string>,
   ) => Promise<Array<{ key: string; description: string; example: string }>>
-  issueTrackerValidateTemplate: (
-    template: string,
-  ) => Promise<{ valid: boolean; errors: string[] }>
+  issueTrackerValidateTemplate: (template: string) => Promise<{ valid: boolean; errors: string[] }>
+  issueTrackerCreatePR: (
+    repoRoot: string,
+    issue: TrackerIssue,
+    sourceBranch: string,
+  ) => Promise<{ url: string; title: string; targetBranch: string }>
 
   // File utilities
   getPathForFile: (file: File) => string
