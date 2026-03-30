@@ -13,8 +13,8 @@
   let version = $state('')
 
   let sections = $derived.by(() => {
-    void prefs['sidebar.sections']
-    return getSidebarConfig()
+    const raw = prefs['sidebar.sections'] ?? ''
+    return getSidebarConfig(raw)
   })
 
   onMount(async () => {

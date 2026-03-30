@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { ChevronUp, ChevronDown } from '@lucide/svelte'
   import {
     SECTION_DEFS,
@@ -6,8 +7,9 @@
     saveSidebarConfig,
     type SidebarSectionConfig,
   } from '../../lib/stores/sidebarSections.svelte'
+  import { getPref } from '../../lib/stores/preferences.svelte'
 
-  let config: SidebarSectionConfig[] = $state(getSidebarConfig())
+  let config: SidebarSectionConfig[] = $state(getSidebarConfig(getPref('sidebar.sections', '')))
 
   function toggleVisibility(index: number): void {
     const def = SECTION_DEFS.find((d) => d.id === config[index].id)
@@ -16,22 +18,30 @@
     saveSidebarConfig(config)
   }
 
-  function moveUp(index: number): void {
+  async function moveUp(index: number): Promise<void> {
     if (index === 0) return
     const item = config[index]
     config[index] = config[index - 1]
     config[index - 1] = item
     config = [...config]
     saveSidebarConfig(config)
+    await tick()
+    const btn = document.querySelector(`[data-order-up="${index - 1}"]`) as HTMLButtonElement | null
+    btn?.focus()
   }
 
-  function moveDown(index: number): void {
+  async function moveDown(index: number): Promise<void> {
     if (index === config.length - 1) return
     const item = config[index]
     config[index] = config[index + 1]
     config[index + 1] = item
     config = [...config]
     saveSidebarConfig(config)
+    await tick()
+    const btn = document.querySelector(
+      `[data-order-down="${index + 1}"]`,
+    ) as HTMLButtonElement | null
+    btn?.focus()
   }
 </script>
 
@@ -56,14 +66,21 @@
           {/if}
         </label>
         <div class="order-buttons">
-          <button class="order-btn" disabled={i === 0} onclick={() => moveUp(i)} title="Move up">
+          <button
+            class="order-btn"
+            data-order-up={i}
+            disabled={i === 0}
+            onclick={() => moveUp(i)}
+            aria-label="Move {def?.label ?? item.id} up"
+          >
             <ChevronUp size={14} />
           </button>
           <button
             class="order-btn"
+            data-order-down={i}
             disabled={i === config.length - 1}
             onclick={() => moveDown(i)}
-            title="Move down"
+            aria-label="Move {def?.label ?? item.id} down"
           >
             <ChevronDown size={14} />
           </button>

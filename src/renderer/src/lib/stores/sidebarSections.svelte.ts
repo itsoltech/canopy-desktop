@@ -1,7 +1,9 @@
-import { getPref, setPref } from './preferences.svelte'
+import { setPref } from './preferences.svelte'
+
+export type SidebarSectionId = 'projects' | 'git' | 'files' | 'tools'
 
 export interface SidebarSectionDef {
-  id: string
+  id: SidebarSectionId
   label: string
   forced: boolean
 }
@@ -14,7 +16,7 @@ export const SECTION_DEFS: SidebarSectionDef[] = [
 ]
 
 export interface SidebarSectionConfig {
-  id: string
+  id: SidebarSectionId
   visible: boolean
 }
 
@@ -27,14 +29,21 @@ const DEFAULT_CONFIG: SidebarSectionConfig[] = [
   { id: 'tools', visible: true },
 ]
 
-export function getSidebarConfig(): SidebarSectionConfig[] {
-  const raw = getPref(PREF_KEY, '')
+export function getSidebarConfig(raw: string): SidebarSectionConfig[] {
   if (!raw) return DEFAULT_CONFIG
   try {
-    const parsed = JSON.parse(raw) as SidebarSectionConfig[]
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return DEFAULT_CONFIG
+    const validated = parsed.filter(
+      (s): s is SidebarSectionConfig =>
+        typeof s === 'object' &&
+        s !== null &&
+        typeof s.id === 'string' &&
+        typeof s.visible === 'boolean',
+    )
     const known = SECTION_DEFS.map((d) => d.id)
-    const ids = parsed.map((s) => s.id)
-    const result = parsed.filter((s) => known.includes(s.id))
+    const ids = validated.map((s) => s.id)
+    const result = validated.filter((s) => known.includes(s.id))
     for (const def of SECTION_DEFS) {
       if (!ids.includes(def.id)) {
         const defaultItem = DEFAULT_CONFIG.find((d) => d.id === def.id)
