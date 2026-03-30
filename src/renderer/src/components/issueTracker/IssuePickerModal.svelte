@@ -83,7 +83,7 @@
     error = ''
     try {
       issues = await window.api.issueTrackerFetchIssues(connectionId, {
-        statuses: activeStatuses.length > 0 ? activeStatuses : undefined,
+        statuses: activeStatuses.length > 0 ? [...activeStatuses] : undefined,
         assignedToMe,
         boardId: selectedBoardId || undefined,
       })
