@@ -77,7 +77,17 @@
               <span class="version-badge">v{entry.version}</span>
               <span class="date">{entry.date}</span>
             </div>
-            <div class="entry-body" use:htmlContent={() => entry.html}></div>
+            <div
+              class="entry-body"
+              use:htmlContent={() => entry.html}
+              onclick={(e: MouseEvent) => {
+                const anchor = (e.target as HTMLElement).closest('a')
+                if (anchor?.href) {
+                  e.preventDefault()
+                  window.api.openExternal(anchor.href)
+                }
+              }}
+            ></div>
           </div>
         {/each}
       {/if}

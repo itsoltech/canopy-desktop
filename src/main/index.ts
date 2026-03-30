@@ -17,6 +17,7 @@ import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
+import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange } from './changelog/fetchChangelog'
 
@@ -374,6 +375,7 @@ app.whenReady().then(async () => {
   ipcMain.handle(
     'app:getChangelogSinceVersion',
     async (_e, { fromVersion }: { fromVersion: string }) => {
+      if (typeof fromVersion !== 'string' || !semver.valid(fromVersion)) return null
       const channel = (preferencesStore.get('update.channel') ?? 'stable') as 'stable' | 'next'
       return fetchChangelogRange(fromVersion, app.getVersion(), channel)
     },
@@ -421,9 +423,11 @@ app.whenReady().then(async () => {
       if (lastPath) windowConfigs = [{ paths: [lastPath] }]
     }
 
+    let changelogSent = false
     const sendChangelog = (win: BrowserWindow): void => {
-      if (versionChanged && lastSeenVersion) {
+      if (!changelogSent && versionChanged && lastSeenVersion) {
         win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
+        changelogSent = true
       }
     }
 
