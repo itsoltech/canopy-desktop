@@ -88,4 +88,4 @@ jobs:
         if: steps.checks.outputs.all_passed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr merge "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --squash --delete-branch
+        run: gh pr merge "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --squash --delete-branch --auto
