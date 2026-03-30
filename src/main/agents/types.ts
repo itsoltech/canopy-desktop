@@ -65,6 +65,8 @@ export interface NormalizedStatusData {
 export interface SettingsSetup {
   /** Extra CLI args to add (e.g. ['--settings', '/path']) */
   args: string[]
+  /** Extra env vars injected by the settings setup (e.g. GEMINI_CLI_HOME) */
+  env?: Record<string, string>
   /** Cleanup on session destroy */
   cleanup: () => void
 }
@@ -102,6 +104,4 @@ export interface AgentAdapter {
   formatNotification?(event: NormalizedHookEvent): { title: string; body: string } | null
 
   toNotchStatus(event: NormalizedHookEvent): { status: SessionStatusType; detail?: string } | null
-
-  summarizeToolInput(input?: Record<string, unknown>): string
 }

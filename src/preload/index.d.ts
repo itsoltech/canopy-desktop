@@ -106,24 +106,25 @@ interface AgentHookEventData {
   ptySessionId: string
   agentType: string
   event: {
-    session_id: string
-    hook_event_name: string
-    tool_name?: string
-    tool_input?: Record<string, unknown>
-    tool_response?: string
+    agentType: string
+    sessionId: string
+    event: string
+    rawEventName: string
+    toolName?: string
+    toolInput?: Record<string, unknown>
+    toolResponse?: string
     error?: string
-    error_details?: string
+    errorDetails?: string
     message?: string
     title?: string
-    notification_type?: string
-    agent_id?: string
-    agent_type?: string
+    notificationType?: string
+    agentId?: string
+    agentSubtype?: string
     reason?: string
-    source?: string
     model?: string
-    permission_mode?: string
-    stop_hook_active?: boolean
-    is_interrupt?: boolean
+    permissionMode?: string
+    extra?: Record<string, unknown>
+    [key: string]: unknown
   }
 }
 
@@ -131,27 +132,16 @@ interface AgentStatusData {
   ptySessionId: string
   agentType: string
   status: {
-    model?: { id?: string; display_name?: string }
-    context_window?: {
-      used_percentage?: number | null
-      remaining_percentage?: number | null
-      context_window_size?: number
-      total_input_tokens?: number
-      total_output_tokens?: number
-    }
+    model?: { id?: string; displayName?: string }
+    contextWindow?: { usedPercent?: number; size?: number }
     cost?: {
-      total_cost_usd?: number
-      total_duration_ms?: number
-      total_api_duration_ms?: number
-      total_lines_added?: number
-      total_lines_removed?: number
-    }
-    rate_limits?: {
-      five_hour?: { used_percentage?: number; resets_at?: number }
-      seven_day?: { used_percentage?: number; resets_at?: number }
+      totalCostUsd?: number
+      durationMs?: number
+      linesAdded?: number
+      linesRemoved?: number
     }
     version?: string
-    session_id?: string
+    extra?: Record<string, unknown>
   }
 }
 

@@ -12,7 +12,7 @@
     type TabInfo,
   } from '../../lib/stores/tabs.svelte'
   import { allPanes, findLeaf } from '../../lib/stores/splitTree'
-  import { agentBadges, type BadgeType } from '../../lib/agents/agentState.svelte'
+  import { agentBadges, agentSessions, type BadgeType } from '../../lib/agents/agentState.svelte'
   import { browserSessions } from '../../lib/browser/browserState.svelte'
   import { dragState, startDrag, activateDrag, clearDrag } from '../../lib/stores/dragState.svelte'
   import {
@@ -42,10 +42,10 @@
   }
 
   function getTabBadge(tab: TabInfo): BadgeType {
-    // Show badge if ANY claude pane in this tab has a notification
+    // Show badge if ANY agent pane in this tab has a notification
     const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
-      if (p.toolId !== 'claude') continue
+      if (!agentSessions[p.sessionId]) continue
       const b = agentBadges[p.sessionId]
       if (b === 'permission') return 'permission'
       if (b === 'unread') return 'unread'

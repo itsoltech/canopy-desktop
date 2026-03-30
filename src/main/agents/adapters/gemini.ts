@@ -1,5 +1,15 @@
-import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
-import { join } from 'path'
+import os from 'os'
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  existsSync,
+  mkdirSync,
+  symlinkSync,
+  rmSync,
+} from 'fs'
+import { join, dirname } from 'path'
+import { randomUUID } from 'crypto'
 import { is } from '@electron-toolkit/utils'
 import type {
   AgentAdapter,
@@ -12,23 +22,30 @@ import type {
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
+import { summarizeToolInput } from '../utils'
 
-/** Model ID -> context window size in tokens */
-let geminiModelLimits: Record<string, number> = {}
-try {
-  const limitsPath = is.dev
-    ? join(process.cwd(), 'resources', 'gemini-models.json')
-    : join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'gemini-models.json')
-  geminiModelLimits = JSON.parse(readFileSync(limitsPath, 'utf-8'))
-} catch {
-  // File missing or invalid - context % won't be available
+/** Model ID -> context window size in tokens (lazy-loaded) */
+let geminiModelLimits: Record<string, number> | null = null
+
+function getModelLimits(): Record<string, number> {
+  if (geminiModelLimits !== null) return geminiModelLimits
+  try {
+    const limitsPath = is.dev
+      ? join(process.cwd(), 'resources', 'gemini-models.json')
+      : join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'gemini-models.json')
+    geminiModelLimits = JSON.parse(readFileSync(limitsPath, 'utf-8'))
+  } catch {
+    geminiModelLimits = {}
+  }
+  return geminiModelLimits!
 }
 
 function lookupContextLimit(model: string): number | undefined {
+  const limits = getModelLimits()
   // Direct match
-  if (geminiModelLimits[model]) return geminiModelLimits[model]
+  if (limits[model]) return limits[model]
   // Try without version suffix (e.g. "gemini-2.5-flash" matches "gemini-2.5-flash-preview-04-17")
-  for (const [id, limit] of Object.entries(geminiModelLimits)) {
+  for (const [id, limit] of Object.entries(limits)) {
     if (id.startsWith(model) || model.startsWith(id)) return limit
   }
   return undefined
@@ -64,10 +81,6 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
 
 const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
 
-function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max - 3) + '...' : text
-}
-
 function deepMerge(
   target: Record<string, unknown>,
   source: Record<string, unknown>,
@@ -98,21 +111,28 @@ export const geminiAdapter: AgentAdapter = {
   idleEvents: new Set(['SessionEnd', 'AfterAgent']),
 
   setupSettings(
-    _settingsPath: string,
-    worktreePath: string,
+    settingsPath: string,
+    _worktreePath: string,
     hookScriptPath: string,
     _statusLineScriptPath: string | null,
     overrides?: Record<string, unknown>,
   ): SettingsSetup {
-    const geminiDir = join(worktreePath, '.gemini')
-    const settingsFile = join(geminiDir, 'settings.json')
+    // Create an isolated home dir so concurrent sessions don't collide
+    const homeDir = join(dirname(settingsPath), `gemini-home-${randomUUID()}`)
+    const geminiDir = join(homeDir, '.gemini')
+    mkdirSync(geminiDir, { recursive: true })
 
-    // Back up existing settings
-    let backup: string | null = null
-    let hadFile = false
-    if (existsSync(settingsFile)) {
-      backup = readFileSync(settingsFile, 'utf-8')
-      hadFile = true
+    // Symlink user config files (except settings.json which we write ourselves)
+    const userGeminiDir = join(os.homedir(), '.gemini')
+    if (existsSync(userGeminiDir)) {
+      for (const entry of readdirSync(userGeminiDir)) {
+        if (entry === 'settings.json') continue
+        try {
+          symlinkSync(join(userGeminiDir, entry), join(geminiDir, entry))
+        } catch {
+          /* entry may already exist or be inaccessible */
+        }
+      }
     }
 
     // Build hooks config
@@ -124,37 +144,28 @@ export const geminiAdapter: AgentAdapter = {
       hooks[event] = [{ matcher: '', hooks: [{ type: 'command', command: hookScriptPath }] }]
     }
 
-    const incoming: Record<string, unknown> = {
-      ...(overrides ?? {}),
-      hooks,
-    }
-
-    // Deep-merge with existing config
-    let existing: Record<string, unknown> = {}
-    if (backup) {
+    // Read user settings and deep-merge our hooks in
+    let userSettings: Record<string, unknown> = {}
+    const userSettingsPath = join(userGeminiDir, 'settings.json')
+    if (existsSync(userSettingsPath)) {
       try {
-        existing = JSON.parse(backup) as Record<string, unknown>
+        userSettings = JSON.parse(readFileSync(userSettingsPath, 'utf-8'))
       } catch {
-        // Corrupt file, overwrite
+        /* corrupt file, start fresh */
       }
     }
 
-    const merged = deepMerge(existing, incoming)
-
-    mkdirSync(geminiDir, { recursive: true })
-    writeFileSync(settingsFile, JSON.stringify(merged, null, 2), 'utf-8')
+    const merged = deepMerge(userSettings, { ...(overrides ?? {}), hooks })
+    writeFileSync(join(geminiDir, 'settings.json'), JSON.stringify(merged, null, 2), 'utf-8')
 
     return {
       args: [],
+      env: { GEMINI_CLI_HOME: homeDir },
       cleanup: () => {
         try {
-          if (hadFile && backup !== null) {
-            writeFileSync(settingsFile, backup, 'utf-8')
-          } else {
-            unlinkSync(settingsFile)
-          }
+          rmSync(homeDir, { recursive: true, force: true })
         } catch {
-          // Best-effort restore
+          /* best-effort */
         }
       },
     }
@@ -297,7 +308,7 @@ export const geminiAdapter: AgentAdapter = {
     if (event.message) {
       body = event.message
     } else if (event.toolName) {
-      body = `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+      body = `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
     }
     return { title: 'Gemini CLI — Permission Required', body }
   },
@@ -314,14 +325,14 @@ export const geminiAdapter: AgentAdapter = {
 
       case 'BeforeToolUse': {
         const detail = event.toolName
-          ? `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+          ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
           : undefined
         return { status: 'toolCalling', detail }
       }
 
       case 'PermissionRequest': {
         const detail = event.toolName
-          ? `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+          ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
           : undefined
         return { status: 'waitingPermission', detail }
       }
@@ -332,52 +343,5 @@ export const geminiAdapter: AgentAdapter = {
       default:
         return null
     }
-  },
-
-  summarizeToolInput(input?: Record<string, unknown>): string {
-    if (!input) return ''
-
-    if (typeof input.command === 'string') {
-      return truncate(input.command, 80)
-    }
-    if (typeof input.file_path === 'string') {
-      return input.file_path as string
-    }
-    if (Array.isArray(input.questions) && input.questions.length > 0) {
-      const first = input.questions[0] as Record<string, unknown> | undefined
-      if (first && typeof first.question === 'string') {
-        return truncate(first.question as string, 80)
-      }
-    }
-    if (typeof input.query === 'string') {
-      return truncate(input.query, 80)
-    }
-    if (typeof input.url === 'string') {
-      return truncate(input.url, 80)
-    }
-    if (typeof input.pattern === 'string') {
-      let summary = input.pattern as string
-      if (typeof input.path === 'string') {
-        summary += ` in ${input.path}`
-      }
-      return truncate(summary, 80)
-    }
-    if (typeof input.prompt === 'string') {
-      return truncate(input.prompt, 80)
-    }
-    if (typeof input.description === 'string') {
-      return truncate(input.description, 80)
-    }
-    if (typeof input.skill === 'string') {
-      return input.skill as string
-    }
-
-    for (const val of Object.values(input)) {
-      if (typeof val === 'string' && val.length > 0) {
-        return truncate(val, 80)
-      }
-    }
-
-    return ''
   },
 }

@@ -137,6 +137,7 @@ export function registerIpcHandlers(
         env = {
           CANOPY_HOOK_PORT: String(agentSession.hookPort),
           CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
+          ...agentSession.settingsEnv,
           ...agentSessionManager.getEnvVars(tool.id, preferencesStore),
         }
         agentTempId = agentSession.tempId

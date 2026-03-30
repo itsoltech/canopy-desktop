@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Notification } from 'electron'
 import { join } from 'path'
-import { mkdirSync, readdirSync, unlinkSync, existsSync, chmodSync } from 'fs'
+import { mkdirSync, readdirSync, unlinkSync, rmSync, existsSync, chmodSync, statSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
 import { is } from '@electron-toolkit/utils'
@@ -65,11 +65,10 @@ export class AgentSessionManager extends EventEmitter {
     settingsOverrides?: Record<string, unknown>,
   ): Promise<{
     settingsArgs: string[]
+    settingsEnv?: Record<string, string>
     hookPort: number
     hookAuthToken: string
     tempId: string
-    cliArgs: string[]
-    envVars: Record<string, string>
   }> {
     const adapter = getAdapter(toolId)
     if (!adapter) throw new Error(`No agent adapter for tool: ${toolId}`)
@@ -188,11 +187,10 @@ export class AgentSessionManager extends EventEmitter {
 
     return {
       settingsArgs: settingsSetup.args,
+      settingsEnv: settingsSetup.env,
       hookPort,
       hookAuthToken: hookServer.getAuthToken(),
       tempId,
-      cliArgs: adapter.buildCliArgs({ get: () => null }),
-      envVars: adapter.buildEnvVars({ get: () => null }),
     }
   }
 
@@ -248,14 +246,17 @@ export class AgentSessionManager extends EventEmitter {
 
   cleanupOrphans(): void {
     if (!existsSync(this.hooksDir)) return
-    const files = readdirSync(this.hooksDir)
-    for (const file of files) {
-      if (file.startsWith('session-') && file.endsWith('.json')) {
-        try {
-          unlinkSync(join(this.hooksDir, file))
-        } catch {
-          // Ignore
+    const entries = readdirSync(this.hooksDir)
+    for (const entry of entries) {
+      const fullPath = join(this.hooksDir, entry)
+      try {
+        if (entry.startsWith('session-') && entry.endsWith('.json')) {
+          unlinkSync(fullPath)
+        } else if (entry.startsWith('gemini-home-') && statSync(fullPath).isDirectory()) {
+          rmSync(fullPath, { recursive: true, force: true })
         }
+      } catch {
+        // Ignore
       }
     }
   }

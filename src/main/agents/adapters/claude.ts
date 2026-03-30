@@ -10,6 +10,7 @@ import type {
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
+import { summarizeToolInput } from '../utils'
 
 const CLAUDE_HOOK_EVENTS = [
   'SessionStart',
@@ -50,10 +51,6 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
 }
 
 const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max - 3) + '...' : text
-}
 
 export const claudeAdapter: AgentAdapter = {
   agentType: 'claude' as AgentType,
@@ -235,7 +232,7 @@ export const claudeAdapter: AgentAdapter = {
   formatNotification(event: NormalizedHookEvent): { title: string; body: string } | null {
     if (event.event !== 'PermissionRequest') return null
     const body = event.toolName
-      ? `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+      ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
       : 'A tool requires your approval'
     return { title: 'Claude Code — Permission Required', body }
   },
@@ -254,14 +251,14 @@ export const claudeAdapter: AgentAdapter = {
 
       case 'BeforeToolUse': {
         const detail = event.toolName
-          ? `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+          ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
           : undefined
         return { status: 'toolCalling', detail }
       }
 
       case 'PermissionRequest': {
         const detail = event.toolName
-          ? `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+          ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
           : undefined
         return { status: 'waitingPermission', detail }
       }
@@ -278,52 +275,5 @@ export const claudeAdapter: AgentAdapter = {
       default:
         return null
     }
-  },
-
-  summarizeToolInput(input?: Record<string, unknown>): string {
-    if (!input) return ''
-
-    if (typeof input.command === 'string') {
-      return truncate(input.command, 80)
-    }
-    if (typeof input.file_path === 'string') {
-      return input.file_path as string
-    }
-    if (Array.isArray(input.questions) && input.questions.length > 0) {
-      const first = input.questions[0] as Record<string, unknown> | undefined
-      if (first && typeof first.question === 'string') {
-        return truncate(first.question as string, 80)
-      }
-    }
-    if (typeof input.query === 'string') {
-      return truncate(input.query, 80)
-    }
-    if (typeof input.url === 'string') {
-      return truncate(input.url, 80)
-    }
-    if (typeof input.pattern === 'string') {
-      let summary = input.pattern as string
-      if (typeof input.path === 'string') {
-        summary += ` in ${input.path}`
-      }
-      return truncate(summary, 80)
-    }
-    if (typeof input.prompt === 'string') {
-      return truncate(input.prompt, 80)
-    }
-    if (typeof input.description === 'string') {
-      return truncate(input.description, 80)
-    }
-    if (typeof input.skill === 'string') {
-      return input.skill as string
-    }
-
-    for (const val of Object.values(input)) {
-      if (typeof val === 'string' && val.length > 0) {
-        return truncate(val, 80)
-      }
-    }
-
-    return ''
   },
 }
