@@ -5,7 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import type { PtyManager } from './pty/PtyManager'
 import type { WsBridge } from './pty/WsBridge'
 import type { GitWatcher } from './git/GitWatcher'
-import type { ClaudeSessionManager } from './claude/ClaudeSessionManager'
+import type { AgentSessionManager } from './agents/AgentSessionManager'
 import type { BrowserManager } from './browser/BrowserManager'
 import { isSafeExternalUrl } from './security/validateUrl'
 
@@ -16,8 +16,8 @@ export class WindowManager {
   private gitWatchers = new Map<number, Map<string, GitWatcher>>()
   private ptySessions = new Map<number, Set<string>>()
   private forceClosing = new Set<number>()
-  private focusedClaudeSessions = new Map<number, string>()
-  private claudeSessionManager: ClaudeSessionManager | null = null
+  private focusedAgentSessions = new Map<number, string>()
+  private agentSessionManager: AgentSessionManager | null = null
   private browserManager: BrowserManager | null = null
 
   private ptyManager: PtyManager
@@ -29,8 +29,8 @@ export class WindowManager {
     this.wsBridge = wsBridge
   }
 
-  setClaudeSessionManager(csm: ClaudeSessionManager): void {
-    this.claudeSessionManager = csm
+  setAgentSessionManager(asm: AgentSessionManager): void {
+    this.agentSessionManager = asm
   }
 
   setBrowserManager(bm: BrowserManager): void {
@@ -155,16 +155,16 @@ export class WindowManager {
     this.activeWorktreePaths.set(wcId, path)
   }
 
-  setFocusedClaudeSession(wcId: number, ptySessionId: string | null): void {
+  setFocusedAgentSession(wcId: number, ptySessionId: string | null): void {
     if (ptySessionId) {
-      this.focusedClaudeSessions.set(wcId, ptySessionId)
+      this.focusedAgentSessions.set(wcId, ptySessionId)
     } else {
-      this.focusedClaudeSessions.delete(wcId)
+      this.focusedAgentSessions.delete(wcId)
     }
   }
 
-  getFocusedClaudeSession(wcId: number): string | null {
-    return this.focusedClaudeSessions.get(wcId) ?? null
+  getFocusedAgentSession(wcId: number): string | null {
+    return this.focusedAgentSessions.get(wcId) ?? null
   }
 
   getWorkspacePaths(wcId: number): string[] {
@@ -250,13 +250,13 @@ export class WindowManager {
     const sessionIds = this.ptySessions.get(wcId)
     if (!sessionIds || sessionIds.size === 0) return null
 
-    let busyClaudeCount = 0
+    let busyAgentCount = 0
     let activeShellCount = 0
 
     for (const sid of sessionIds) {
-      if (this.claudeSessionManager?.isClaudeSession(sid)) {
-        if (this.claudeSessionManager.isBusy(sid)) {
-          busyClaudeCount++
+      if (this.agentSessionManager?.isAgentSession(sid)) {
+        if (this.agentSessionManager.isBusy(sid)) {
+          busyAgentCount++
         }
       } else {
         if (this.ptyManager.hasChildProcess(sid)) {
@@ -265,11 +265,11 @@ export class WindowManager {
       }
     }
 
-    if (busyClaudeCount === 0 && activeShellCount === 0) return null
+    if (busyAgentCount === 0 && activeShellCount === 0) return null
 
     const parts: string[] = []
-    if (busyClaudeCount > 0) {
-      parts.push(`${busyClaudeCount} active Claude session${busyClaudeCount > 1 ? 's' : ''}`)
+    if (busyAgentCount > 0) {
+      parts.push(`${busyAgentCount} active AI session${busyAgentCount > 1 ? 's' : ''}`)
     }
     if (activeShellCount > 0) {
       parts.push(`${activeShellCount} running process${activeShellCount > 1 ? 'es' : ''}`)
@@ -308,7 +308,7 @@ export class WindowManager {
     this.windows.delete(wcId)
     this.workspacePaths.delete(wcId)
     this.activeWorktreePaths.delete(wcId)
-    this.focusedClaudeSessions.delete(wcId)
+    this.focusedAgentSessions.delete(wcId)
     this.ptySessions.delete(wcId)
   }
 

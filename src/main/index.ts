@@ -12,7 +12,7 @@ import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers } from './ipc/handlers'
-import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
+import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
@@ -41,7 +41,7 @@ const browserManager = new BrowserManager()
 let manualCheckInProgress = false
 let updateInstalling = false
 
-let claudeSessionManager: ClaudeSessionManager | null = null
+let agentSessionManager: AgentSessionManager | null = null
 let notchOverlay: NotchOverlayManager | null = null
 
 // Register canopy:// URL scheme
@@ -373,9 +373,9 @@ app.whenReady().then(async () => {
     })
   }
 
-  claudeSessionManager = new ClaudeSessionManager()
-  claudeSessionManager.cleanupOrphans()
-  windowManager.setClaudeSessionManager(claudeSessionManager)
+  agentSessionManager = new AgentSessionManager()
+  agentSessionManager.cleanupOrphans()
+  windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
   registerIpcHandlers(
@@ -385,7 +385,7 @@ app.whenReady().then(async () => {
     preferencesStore,
     layoutStore,
     toolRegistry,
-    claudeSessionManager,
+    agentSessionManager,
     windowManager,
     browserManager,
   )
@@ -498,7 +498,7 @@ app.whenReady().then(async () => {
   }
 
   // Initialize notch overlay after main window so the panel doesn't suppress the dock icon
-  notchOverlay = new NotchOverlayManager(claudeSessionManager, windowManager)
+  notchOverlay = new NotchOverlayManager(agentSessionManager, windowManager)
   if (preferencesStore.get('notch.enabled') === 'true') {
     notchOverlay.initialize()
   }
@@ -539,7 +539,7 @@ app.on('before-quit', (event) => {
   // Window configs already saved; windows already destroyed.
   if (updateInstalling) {
     notchOverlay?.dispose()
-    claudeSessionManager?.dispose()
+    agentSessionManager?.dispose()
     database.close()
     return
   }
@@ -580,7 +580,7 @@ app.on('before-quit', (event) => {
   }
 
   notchOverlay?.dispose()
-  claudeSessionManager?.dispose()
+  agentSessionManager?.dispose()
   windowManager.disposeAll()
   database.close()
 })

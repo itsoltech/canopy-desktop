@@ -50,14 +50,14 @@
   } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
   import {
-    claudeSessions,
+    agentSessions,
     handleHookEvent,
     handleStatusUpdate,
     clearBadge,
     setBadge,
     setWorktreeBadge,
     clearWorktreeBadge,
-  } from '../../lib/claude/claudeState.svelte'
+  } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
@@ -132,31 +132,31 @@
     return unsubscribe
   })
 
-  // Subscribe to Claude hook events
+  // Subscribe to agent hook events
   $effect(() => {
-    const unsubscribe = window.api.onClaudeHookEvent((data) => {
-      const session = claudeSessions[data.ptySessionId]
-      const prevSessionId = session?.claudeSessionId
+    const unsubscribe = window.api.onAgentHookEvent((data) => {
+      const session = agentSessions[data.ptySessionId]
+      const prevSessionId = session?.agentSessionId
       handleHookEvent(data.ptySessionId, data.event as Parameters<typeof handleHookEvent>[1])
-      // Persist layout when Claude session ID changes (e.g. UUID -> slug)
-      if (session && session.claudeSessionId !== prevSessionId && session.claudeSessionId) {
+      // Persist layout when agent session ID changes (e.g. UUID -> slug)
+      if (session && session.agentSessionId !== prevSessionId && session.agentSessionId) {
         saveAllLayouts()
       }
-      const name = (data.event as { hook_event_name?: string }).hook_event_name
+      const normalized = data.event as { event?: string }
       // Only set badge if this session is NOT the active tab
-      if (data.ptySessionId !== activeClaudePtySessionId) {
-        if (name === 'PermissionRequest') {
+      if (data.ptySessionId !== activeAgentPtySessionId) {
+        if (normalized.event === 'PermissionRequest') {
           setBadge(data.ptySessionId, 'permission')
-        } else if (name === 'Stop' || name === 'PostToolUse') {
+        } else if (normalized.event === 'Idle' || normalized.event === 'AfterToolUse') {
           setBadge(data.ptySessionId, 'unread')
         }
       }
       // Set worktree badge if session is in a non-selected worktree
       const sessionWorktreePath = findWorktreeForSession(data.ptySessionId)
       if (sessionWorktreePath && sessionWorktreePath !== workspaceState.selectedWorktreePath) {
-        if (name === 'PermissionRequest') {
+        if (normalized.event === 'PermissionRequest') {
           setWorktreeBadge(sessionWorktreePath, 'permission')
-        } else if (name === 'Stop' || name === 'PostToolUse') {
+        } else if (normalized.event === 'Idle' || normalized.event === 'AfterToolUse') {
           setWorktreeBadge(sessionWorktreePath, 'unread')
         }
       }
@@ -164,17 +164,17 @@
     return unsubscribe
   })
 
-  // Subscribe to Claude status line updates
+  // Subscribe to agent status line updates
   $effect(() => {
-    const unsubscribe = window.api.onClaudeStatusUpdate((data) => {
+    const unsubscribe = window.api.onAgentStatusUpdate((data) => {
       handleStatusUpdate(data.ptySessionId, data.status as Parameters<typeof handleStatusUpdate>[1])
     })
     return unsubscribe
   })
 
-  // Subscribe to Claude focus-session requests (notification clicks)
+  // Subscribe to agent focus-session requests (notification clicks)
   $effect(() => {
-    const unsubscribe = window.api.onClaudeFocusSession((data) => {
+    const unsubscribe = window.api.onAgentFocusSession((data) => {
       focusSessionByPtyId(data.ptySessionId)
     })
     return unsubscribe
@@ -242,15 +242,15 @@
     activeTab ? findLeaf(activeTab.rootSplit, activeTab.focusedPaneId) : null,
   )
 
-  // Derive active Claude session from focused pane
-  let activeClaudePtySessionId = $derived(
-    focusedPane?.toolId === 'claude' ? focusedPane.sessionId : null,
+  // Derive active agent session from focused pane
+  let activeAgentPtySessionId = $derived(
+    focusedPane && agentSessions[focusedPane.sessionId] ? focusedPane.sessionId : null,
   )
 
-  // Clear badge when Claude pane is focused
+  // Clear badge when agent pane is focused
   $effect(() => {
-    if (activeClaudePtySessionId) {
-      clearBadge(activeClaudePtySessionId)
+    if (activeAgentPtySessionId) {
+      clearBadge(activeAgentPtySessionId)
     }
   })
 
@@ -260,9 +260,9 @@
     if (path) clearWorktreeBadge(path)
   })
 
-  // Notify main process about focused Claude session for notch peek suppression
+  // Notify main process about focused agent session for notch peek suppression
   $effect(() => {
-    window.api.setFocusedClaudeSession(activeClaudePtySessionId)
+    window.api.setFocusedAgentSession(activeAgentPtySessionId)
   })
 
   function handleLaunchTool(toolId: string): void {
@@ -309,7 +309,7 @@
       showPreferences()
     }
 
-    // Cmd+Shift+I: toggle Claude Inspector on focused pane
+    // Cmd+Shift+I: toggle Agent Inspector on focused pane
     if ((e.key === 'I' || e.key === 'i') && e.shiftKey) {
       e.preventDefault()
       toggleInspector()

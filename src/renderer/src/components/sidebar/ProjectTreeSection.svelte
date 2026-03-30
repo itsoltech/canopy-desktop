@@ -12,8 +12,8 @@
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
-  import { worktreeBadges } from '../../lib/claude/claudeState.svelte'
-  import { getWorktreeClaudeStatus } from '../../lib/claude/worktreeStatus.svelte'
+  import { worktreeBadges } from '../../lib/agents/agentState.svelte'
+  import { getWorktreeAgentStatus } from '../../lib/agents/worktreeStatus.svelte'
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
     if (wt.branch !== '(detached)') return wt.branch
@@ -380,7 +380,7 @@
         <ul class="worktree-list">
           {#each sortedWorktrees(project.worktrees) as wt (wt.path)}
             {@const wtActive = isWorktreeActive(wt.path)}
-            {@const claudeStatus = getWorktreeClaudeStatus(wt.path)}
+            {@const agentStatus = getWorktreeAgentStatus(wt.path)}
             {@const wtBadge = worktreeBadges[wt.path] ?? 'none'}
             <li class="worktree-row">
               <button
@@ -391,12 +391,12 @@
               >
                 <span
                   class="indicator"
-                  class:has-dot={claudeStatus !== 'none'}
-                  title={claudeStatus !== 'none' ? `Agent: ${claudeStatus}` : undefined}
-                  aria-label={claudeStatus !== 'none' ? `Agent status: ${claudeStatus}` : undefined}
+                  class:has-dot={agentStatus !== 'none'}
+                  title={agentStatus !== 'none' ? `Agent: ${agentStatus}` : undefined}
+                  aria-label={agentStatus !== 'none' ? `Agent status: ${agentStatus}` : undefined}
                 >
-                  {#if claudeStatus !== 'none'}
-                    <span class="wt-status-dot {claudeStatus}" aria-hidden="true"></span>
+                  {#if agentStatus !== 'none'}
+                    <span class="wt-status-dot {agentStatus}" aria-hidden="true"></span>
                     {#if wtBadge !== 'none'}
                       <span
                         class="wt-notify-dot"
