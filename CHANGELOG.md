@@ -1,3 +1,13 @@
+## [0.7.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.4...v0.7.0-next.5) (2026-03-30)
+
+### Features
+
+* **sidebar:** agent status indicators on worktree items ([#25](https://github.com/itsoltech/canopy-desktop/issues/25)) ([52f8238](https://github.com/itsoltech/canopy-desktop/commit/52f82386c86e496c9de1e6284fb9ee0758d59216))
+
+### Bug Fixes
+
+* **notch:** remove 5-item cap and fix height calculation in agent list ([#24](https://github.com/itsoltech/canopy-desktop/issues/24)) ([224595f](https://github.com/itsoltech/canopy-desktop/commit/224595f48454ae856b081241fe3d4b25289040e7))
+
 ## [0.7.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.3...v0.7.0-next.4) (2026-03-30)
 
 ### Bug Fixes
