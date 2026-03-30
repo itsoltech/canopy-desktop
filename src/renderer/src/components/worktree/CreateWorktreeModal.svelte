@@ -7,10 +7,12 @@
     onClose,
     repoRoot: repoRootProp,
     workspaceId: workspaceIdProp,
+    baseBranch: baseBranchProp,
   }: {
     onClose: () => void
     repoRoot?: string
     workspaceId?: string
+    baseBranch?: string
   } = $props()
 
   type Step = 'loading' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
@@ -54,6 +56,9 @@
     try {
       const list = await window.api.gitBranches(repoRoot)
       branches = { local: list.local, remote: list.remote }
+      if (baseBranchProp) {
+        selectedBase = baseBranchProp
+      }
       step = 'pickBase'
     } catch (e) {
       errorMessage = e instanceof Error ? e.message : String(e)
