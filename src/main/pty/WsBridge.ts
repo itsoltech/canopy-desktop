@@ -34,7 +34,7 @@ export class WsBridge {
 
     // Rolling history buffer — always maintained so reconnecting clients
     // (e.g. after worktree switch) can restore the terminal content.
-    let history: string[] = []
+    const history: string[] = []
     let historyBytes = 0
 
     const onData = ptyProcess.onData((data) => {
