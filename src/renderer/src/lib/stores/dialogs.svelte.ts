@@ -51,6 +51,11 @@ interface AboutState {
   type: 'about'
 }
 
+interface ChangelogState {
+  type: 'changelog'
+  fromVersion: string
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -62,6 +67,7 @@ type DialogState =
   | CreateWorktreeState
   | PreferencesState
   | AboutState
+  | ChangelogState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -117,6 +123,10 @@ export function showPreferences(): void {
 
 export function showAbout(): void {
   dialogState.current = { type: 'about' }
+}
+
+export function showChangelog(fromVersion: string): void {
+  dialogState.current = { type: 'changelog', fromVersion }
 }
 
 export function closeDialog(): void {

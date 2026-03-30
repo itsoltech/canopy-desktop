@@ -8,6 +8,7 @@
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
+  import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
   import {
@@ -15,6 +16,7 @@
     closeDialog,
     showPreferences,
     showAbout,
+    showChangelog,
   } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -166,6 +168,13 @@
   // Subscribe to menu:showPreferences from native menu (Windows File menu)
   $effect(() => {
     return window.api.onMenuShowPreferences(() => showPreferences())
+  })
+
+  // Subscribe to post-update changelog push event
+  $effect(() => {
+    return window.api.onShowChangelog((data) => {
+      showChangelog(data.fromVersion)
+    })
   })
 
   // Save layouts on window close
@@ -345,6 +354,8 @@
   <PreferencesModal />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
+{:else if dialogState.current.type === 'changelog'}
+  <ChangelogModal fromVersion={dialogState.current.fromVersion} />
 {/if}
 
 <Toast />

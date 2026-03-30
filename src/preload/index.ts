@@ -122,6 +122,19 @@ const api = {
     }
   },
 
+  // Changelog
+  getChangelogSinceVersion: (fromVersion: string) =>
+    ipcRenderer.invoke('app:getChangelogSinceVersion', { fromVersion }),
+
+  onShowChangelog: (callback: (data: { fromVersion: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { fromVersion: string }): void =>
+      callback(data)
+    ipcRenderer.on('app:showChangelog', handler)
+    return (): void => {
+      ipcRenderer.removeListener('app:showChangelog', handler)
+    }
+  },
+
   // About
   getAboutInfo: () => ipcRenderer.invoke('app:getAboutInfo'),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', { url }),
