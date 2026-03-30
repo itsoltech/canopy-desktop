@@ -6,6 +6,7 @@
   import GitPrefs from './GitPrefs.svelte'
   import ShortcutsPrefs from './ShortcutsPrefs.svelte'
   import ClaudePrefs from './ClaudePrefs.svelte'
+  import GeminiPrefs from './GeminiPrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
 
@@ -16,6 +17,7 @@
     'Sidebar',
     'Tools',
     'Claude',
+    'Gemini',
     'Git',
     'Shortcuts',
   ] as const
@@ -68,6 +70,8 @@
         <ToolPrefs />
       {:else if activeSection === 'Claude'}
         <ClaudePrefs />
+      {:else if activeSection === 'Gemini'}
+        <GeminiPrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
       {:else if activeSection === 'Shortcuts'}

@@ -2,7 +2,7 @@ import { safeStorage } from 'electron'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
 
-const ENCRYPTED_KEYS = new Set(['claude.apiKey'])
+const ENCRYPTED_KEYS = new Set(['claude.apiKey', 'gemini.apiKey'])
 
 export class PreferencesStore {
   constructor(private database: Database) {}

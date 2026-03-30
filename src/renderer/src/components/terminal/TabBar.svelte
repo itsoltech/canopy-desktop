@@ -12,7 +12,7 @@
     type TabInfo,
   } from '../../lib/stores/tabs.svelte'
   import { allPanes, findLeaf } from '../../lib/stores/splitTree'
-  import { claudeBadges, type BadgeType } from '../../lib/claude/claudeState.svelte'
+  import { agentBadges, type BadgeType } from '../../lib/agents/agentState.svelte'
   import { browserSessions } from '../../lib/browser/browserState.svelte'
   import { dragState, startDrag, activateDrag, clearDrag } from '../../lib/stores/dragState.svelte'
   import {
@@ -46,7 +46,7 @@
     const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
       if (p.toolId !== 'claude') continue
-      const b = claudeBadges[p.sessionId]
+      const b = agentBadges[p.sessionId]
       if (b === 'permission') return 'permission'
       if (b === 'unread') return 'unread'
     }

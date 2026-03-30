@@ -8,7 +8,7 @@ import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
-import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
+import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { BrowserManager } from '../browser/BrowserManager'
 import { execFile } from 'child_process'
@@ -20,7 +20,6 @@ import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 const execFileAsync = promisify(execFile)
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
-import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -34,7 +33,7 @@ export function registerIpcHandlers(
   preferencesStore: PreferencesStore,
   layoutStore: LayoutStore,
   toolRegistry: ToolRegistry,
-  claudeSessionManager: ClaudeSessionManager,
+  agentSessionManager: AgentSessionManager,
   windowManager: WindowManager,
   browserManager: BrowserManager,
 ): void {
@@ -102,18 +101,18 @@ export function registerIpcHandlers(
 
       const command = toolRegistry.resolveCommand(tool)
       const isShell = tool.id === 'shell' || tool.command === 'shell'
-      const isClaude = tool.id === 'claude'
+      const isAgent = agentSessionManager.isAgentTool(tool.id)
       let args = isShell ? resolveShellArgs() : [...tool.args]
       let env: Record<string, string> | undefined
 
-      let claudeTempId: string | undefined
-      if (isClaude) {
+      let agentTempId: string | undefined
+      if (isAgent) {
         const senderWindow = BrowserWindow.fromWebContents(sender)
-        if (!senderWindow) throw new Error('No window for Claude session')
+        if (!senderWindow) throw new Error('No window for agent session')
 
         // Parse settings.json overrides from prefs
         let settingsOverrides: Record<string, unknown> | undefined
-        const settingsJsonRaw = preferencesStore.get('claude.settingsJson')
+        const settingsJsonRaw = preferencesStore.get(`${tool.id}.settingsJson`)
         if (settingsJsonRaw) {
           try {
             settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
@@ -122,53 +121,25 @@ export function registerIpcHandlers(
           }
         }
 
-        const claudeSession = await claudeSessionManager.createSession(
+        const agentSession = await agentSessionManager.createSession(
+          tool.id,
           payload.worktreePath,
           payload.workspaceName ?? '',
           payload.branch ?? null,
           senderWindow,
           settingsOverrides,
         )
-        args = ['--settings', claudeSession.settingsPath, ...args]
-        if (payload.resumeSessionId) args.push('--resume', payload.resumeSessionId)
+        args = [...agentSession.settingsArgs, ...args]
+        if (payload.resumeSessionId) {
+          args.push(...agentSessionManager.getResumeArgs(tool.id, payload.resumeSessionId))
+        }
+        args.push(...agentSessionManager.getCliArgs(tool.id, preferencesStore))
         env = {
-          CANOPY_HOOK_PORT: String(claudeSession.hookPort),
-          CANOPY_HOOK_TOKEN: claudeSession.hookAuthToken,
+          CANOPY_HOOK_PORT: String(agentSession.hookPort),
+          CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
+          ...agentSessionManager.getEnvVars(tool.id, preferencesStore),
         }
-        claudeTempId = claudeSession.tempId
-
-        // CLI args from preferences
-        const claudeModel = preferencesStore.get('claude.model')
-        const claudePermMode = preferencesStore.get('claude.permissionMode')
-        const claudeEffort = preferencesStore.get('claude.effortLevel')
-        const claudeAppendPrompt = preferencesStore.get('claude.appendSystemPrompt')
-        if (claudeModel) args.push('--model', claudeModel)
-        if (claudePermMode) args.push('--permission-mode', claudePermMode)
-        if (claudeEffort) args.push('--effort', claudeEffort)
-        if (claudeAppendPrompt) args.push('--append-system-prompt', claudeAppendPrompt)
-
-        // Env vars from preferences
-        const claudeApiKey = preferencesStore.get('claude.apiKey')
-        const claudeBaseUrl = preferencesStore.get('claude.baseUrl')
-        const claudeProvider = preferencesStore.get('claude.provider')
-        const claudeCustomEnv = preferencesStore.get('claude.customEnv')
-        if (claudeApiKey) env.ANTHROPIC_API_KEY = claudeApiKey
-        if (claudeBaseUrl) env.ANTHROPIC_BASE_URL = claudeBaseUrl
-        if (claudeProvider === 'bedrock') env.CLAUDE_CODE_USE_BEDROCK = '1'
-        if (claudeProvider === 'vertex') env.CLAUDE_CODE_USE_VERTEX = '1'
-        if (claudeProvider === 'foundry') env.CLAUDE_CODE_USE_FOUNDRY = '1'
-        if (claudeCustomEnv) {
-          try {
-            const parsed = JSON.parse(claudeCustomEnv)
-            for (const [k, v] of Object.entries(parsed)) {
-              if (!BLOCKED_ENV_VARS.has(k.toUpperCase()) && typeof v === 'string') {
-                env[k] = v
-              }
-            }
-          } catch {
-            // Invalid JSON
-          }
-        }
+        agentTempId = agentSession.tempId
       }
 
       const session = ptyManager.spawn({
@@ -180,8 +151,8 @@ export function registerIpcHandlers(
         env,
       })
 
-      if (isClaude && claudeTempId) {
-        claudeSessionManager.rekey(claudeTempId, session.id)
+      if (isAgent && agentTempId) {
+        agentSessionManager.rekey(agentTempId, session.id)
       }
 
       const wsUrl = await wsBridge.create(session.id, session.pty)
@@ -193,8 +164,8 @@ export function registerIpcHandlers(
           sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
         }
         windowManager.untrackPtySession(sender.id, session.id)
-        if (isClaude) {
-          claudeSessionManager.destroySession(session.id)
+        if (isAgent) {
+          agentSessionManager.destroySession(session.id)
         }
       })
 
@@ -202,8 +173,8 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('claude:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
-    claudeSessionManager.updateProcessTitle(payload.sessionId, payload.title)
+  ipcMain.handle('agent:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
+    agentSessionManager.updateProcessTitle(payload.sessionId, payload.title)
   })
 
   // --- Workspaces ---
@@ -296,9 +267,9 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(
-    'app:setFocusedClaudeSession',
+    'app:setFocusedAgentSession',
     (event, payload: { ptySessionId: string | null }) => {
-      windowManager.setFocusedClaudeSession(event.sender.id, payload.ptySessionId)
+      windowManager.setFocusedAgentSession(event.sender.id, payload.ptySessionId)
     },
   )
 

@@ -102,8 +102,9 @@ interface GitBranchList {
   current: string | null
 }
 
-interface ClaudeHookEventData {
+interface AgentHookEventData {
   ptySessionId: string
+  agentType: string
   event: {
     session_id: string
     hook_event_name: string
@@ -126,8 +127,9 @@ interface ClaudeHookEventData {
   }
 }
 
-interface ClaudeStatusData {
+interface AgentStatusData {
   ptySessionId: string
+  agentType: string
   status: {
     model?: { id?: string; display_name?: string }
     context_window?: {
@@ -211,8 +213,8 @@ interface CanopyAPI {
   openThirdPartyNotices: () => Promise<void>
   quit: () => Promise<void>
 
-  // Claude session
-  updateClaudeTitle: (sessionId: string, title: string) => Promise<void>
+  // Agent session
+  updateAgentTitle: (sessionId: string, title: string) => Promise<void>
 
   // Notch overlay
   setNotchEnabled: (enabled: boolean) => void
@@ -283,6 +285,7 @@ interface CanopyAPI {
   setWorkspacePath: (path: string) => Promise<void>
   detachProject: (path: string) => Promise<void>
   focusWindowForPath: (path: string) => Promise<boolean>
+  setFocusedAgentSession: (ptySessionId: string | null) => Promise<void>
 
   // Dialog
   openFolder: () => Promise<string | null>
@@ -380,9 +383,9 @@ interface CanopyAPI {
   getAllLayouts: (workspaceId: string) => Promise<{ worktree_path: string; layout_json: string }[]>
 
   // Push events (main → renderer)
-  onClaudeHookEvent: (callback: (data: ClaudeHookEventData) => void) => () => void
-  onClaudeStatusUpdate: (callback: (data: ClaudeStatusData) => void) => () => void
-  onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
+  onAgentHookEvent: (callback: (data: AgentHookEventData) => void) => () => void
+  onAgentStatusUpdate: (callback: (data: AgentStatusData) => void) => () => void
+  onAgentFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
   onGitChanged: (callback: (info: GitInfo & { repoRoot: string }) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void

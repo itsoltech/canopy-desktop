@@ -1,0 +1,383 @@
+import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
+import { join } from 'path'
+import { is } from '@electron-toolkit/utils'
+import type {
+  AgentAdapter,
+  AgentType,
+  NormalizedEventName,
+  NormalizedHookEvent,
+  NormalizedStatusData,
+  PreferencesReader,
+  SettingsSetup,
+} from '../types'
+import type { SessionStatusType } from '../../notch/types'
+import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
+
+/** Model ID -> context window size in tokens */
+let geminiModelLimits: Record<string, number> = {}
+try {
+  const limitsPath = is.dev
+    ? join(process.cwd(), 'resources', 'gemini-models.json')
+    : join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'gemini-models.json')
+  geminiModelLimits = JSON.parse(readFileSync(limitsPath, 'utf-8'))
+} catch {
+  // File missing or invalid - context % won't be available
+}
+
+function lookupContextLimit(model: string): number | undefined {
+  // Direct match
+  if (geminiModelLimits[model]) return geminiModelLimits[model]
+  // Try without version suffix (e.g. "gemini-2.5-flash" matches "gemini-2.5-flash-preview-04-17")
+  for (const [id, limit] of Object.entries(geminiModelLimits)) {
+    if (id.startsWith(model) || model.startsWith(id)) return limit
+  }
+  return undefined
+}
+
+const GEMINI_HOOK_EVENTS = [
+  'SessionStart',
+  'SessionEnd',
+  'BeforeAgent',
+  'AfterAgent',
+  'BeforeModel',
+  'AfterModel',
+  'BeforeToolSelection',
+  'BeforeTool',
+  'AfterTool',
+  'PreCompress',
+  'Notification',
+]
+
+const EVENT_MAP: Record<string, NormalizedEventName> = {
+  SessionStart: 'SessionStart',
+  SessionEnd: 'SessionEnd',
+  BeforeAgent: 'PromptSubmit',
+  AfterAgent: 'Idle',
+  BeforeModel: 'Unknown',
+  AfterModel: 'Unknown',
+  BeforeToolSelection: 'Unknown',
+  BeforeTool: 'BeforeToolUse',
+  AfterTool: 'AfterToolUse',
+  PreCompress: 'Unknown',
+  Notification: 'Notification',
+}
+
+const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max - 3) + '...' : text
+}
+
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...target }
+  for (const [key, val] of Object.entries(source)) {
+    if (
+      val !== null &&
+      typeof val === 'object' &&
+      !Array.isArray(val) &&
+      typeof out[key] === 'object' &&
+      out[key] !== null &&
+      !Array.isArray(out[key])
+    ) {
+      out[key] = deepMerge(out[key] as Record<string, unknown>, val as Record<string, unknown>)
+    } else {
+      out[key] = val
+    }
+  }
+  return out
+}
+
+export const geminiAdapter: AgentAdapter = {
+  agentType: 'gemini' as AgentType,
+  toolId: 'gemini',
+
+  busyEvents: new Set(['BeforeAgent', 'BeforeTool']),
+  idleEvents: new Set(['SessionEnd', 'AfterAgent']),
+
+  setupSettings(
+    _settingsPath: string,
+    worktreePath: string,
+    hookScriptPath: string,
+    _statusLineScriptPath: string | null,
+    overrides?: Record<string, unknown>,
+  ): SettingsSetup {
+    const geminiDir = join(worktreePath, '.gemini')
+    const settingsFile = join(geminiDir, 'settings.json')
+
+    // Back up existing settings
+    let backup: string | null = null
+    let hadFile = false
+    if (existsSync(settingsFile)) {
+      backup = readFileSync(settingsFile, 'utf-8')
+      hadFile = true
+    }
+
+    // Build hooks config
+    const hooks: Record<
+      string,
+      Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>
+    > = {}
+    for (const event of GEMINI_HOOK_EVENTS) {
+      hooks[event] = [{ matcher: '', hooks: [{ type: 'command', command: hookScriptPath }] }]
+    }
+
+    const incoming: Record<string, unknown> = {
+      ...(overrides ?? {}),
+      hooks,
+    }
+
+    // Deep-merge with existing config
+    let existing: Record<string, unknown> = {}
+    if (backup) {
+      try {
+        existing = JSON.parse(backup) as Record<string, unknown>
+      } catch {
+        // Corrupt file, overwrite
+      }
+    }
+
+    const merged = deepMerge(existing, incoming)
+
+    mkdirSync(geminiDir, { recursive: true })
+    writeFileSync(settingsFile, JSON.stringify(merged, null, 2), 'utf-8')
+
+    return {
+      args: [],
+      cleanup: () => {
+        try {
+          if (hadFile && backup !== null) {
+            writeFileSync(settingsFile, backup, 'utf-8')
+          } else {
+            unlinkSync(settingsFile)
+          }
+        } catch {
+          // Best-effort restore
+        }
+      },
+    }
+  },
+
+  normalizeEvent(raw: Record<string, unknown>): NormalizedHookEvent {
+    const rawName = (raw.hook_event_name as string) ?? ''
+
+    let event = EVENT_MAP[rawName] ?? 'Unknown'
+    let toolName = raw.tool_name as string | undefined
+    let model: string | undefined
+
+    // Gemini Notification with ToolPermission = permission request
+    // details: { type: "ask_user", title: "Ask User" }
+    if (rawName === 'Notification' && raw.notification_type === 'ToolPermission') {
+      event = 'PermissionRequest'
+      const details = raw.details as Record<string, unknown> | undefined
+      if (details) {
+        toolName = (details.type as string) ?? (details.title as string) ?? toolName
+      }
+    }
+
+    // Extract model name from BeforeModel/BeforeToolSelection llm_request
+    if (rawName === 'BeforeModel' || rawName === 'BeforeToolSelection') {
+      const llmReq = raw.llm_request as Record<string, unknown> | undefined
+      if (llmReq?.model) model = llmReq.model as string
+    }
+
+    // Extract token usage from AfterModel llm_response.usageMetadata
+    let extra: Record<string, unknown> | undefined
+    if (rawName === 'AfterModel') {
+      const llmResp = raw.llm_response as Record<string, unknown> | undefined
+      const usage = llmResp?.usageMetadata as Record<string, unknown> | undefined
+      if (usage?.totalTokenCount) {
+        const totalTokens = usage.totalTokenCount as number
+        extra = { totalTokenCount: totalTokens }
+        // Also extract model from the request if available
+        const llmReq = raw.llm_request as Record<string, unknown> | undefined
+        if (llmReq?.model) {
+          model = llmReq.model as string
+          const contextLimit = lookupContextLimit(model)
+          if (contextLimit) {
+            extra.contextPercent = (totalTokens / contextLimit) * 100
+            extra.contextSize = contextLimit
+          }
+        }
+      }
+    }
+
+    return {
+      agentType: 'gemini',
+      sessionId: (raw.session_id as string) ?? '',
+      event,
+      rawEventName: rawName,
+      toolName,
+      toolInput: raw.tool_input as Record<string, unknown> | undefined,
+      toolResponse: raw.tool_response as string | undefined,
+      error: raw.error as string | undefined,
+      errorDetails: raw.error_details as string | undefined,
+      message: raw.message as string | undefined,
+      title: raw.title as string | undefined,
+      notificationType: raw.notification_type as string | undefined,
+      agentId: raw.agent_id as string | undefined,
+      agentSubtype: raw.agent_type as string | undefined,
+      reason: raw.reason as string | undefined,
+      model,
+      permissionMode: raw.permission_mode as string | undefined,
+      compactSummary: raw.compact_summary as string | undefined,
+      prompt: raw.prompt as string | undefined,
+      taskId: raw.task_id as string | undefined,
+      taskSubject: raw.task_subject as string | undefined,
+      taskDescription: raw.task_description as string | undefined,
+      teammateName: raw.teammate_name as string | undefined,
+      teamName: raw.team_name as string | undefined,
+      extra,
+    }
+  },
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  normalizeStatus(_raw: Record<string, unknown>): NormalizedStatusData {
+    // Gemini CLI does not expose a status line
+    return {}
+  },
+
+  buildCliArgs(prefs: PreferencesReader): string[] {
+    const args: string[] = []
+    const model = prefs.get('gemini.model')
+    const approvalMode = prefs.get('gemini.approvalMode')
+
+    if (model) args.push('--model', model)
+    if (approvalMode) args.push('--approval-mode', approvalMode)
+
+    return args
+  },
+
+  buildEnvVars(prefs: PreferencesReader): Record<string, string> {
+    const env: Record<string, string> = {}
+
+    const apiKey = prefs.get('gemini.apiKey')
+    const customEnv = prefs.get('gemini.customEnv')
+
+    if (apiKey) env.GEMINI_API_KEY = apiKey
+
+    if (customEnv) {
+      try {
+        const parsed = JSON.parse(customEnv)
+        for (const [k, v] of Object.entries(parsed)) {
+          if (
+            typeof v === 'string' &&
+            !BLOCKED_ENV_VARS.has(k.toUpperCase()) &&
+            !INTERNAL_BLOCKED.has(k)
+          ) {
+            env[k] = v
+          }
+        }
+      } catch {
+        // Invalid JSON
+      }
+    }
+
+    return env
+  },
+
+  buildResumeArgs(resumeSessionId: string): string[] {
+    return ['--resume', resumeSessionId]
+  },
+
+  buildSessionContext(worktreePath: string, workspaceName: string, branch: string | null): string {
+    let ctx = `Working in canopy workspace '${workspaceName}'`
+    if (branch) {
+      ctx += `, worktree '${branch}' (branch: ${branch})`
+    }
+    ctx += `.\nProject root: ${worktreePath}.`
+    return ctx
+  },
+
+  formatNotification(event: NormalizedHookEvent): { title: string; body: string } | null {
+    if (event.event !== 'PermissionRequest') return null
+    let body = 'A tool requires confirmation'
+    if (event.message) {
+      body = event.message
+    } else if (event.toolName) {
+      body = `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+    }
+    return { title: 'Gemini CLI — Permission Required', body }
+  },
+
+  toNotchStatus(event: NormalizedHookEvent): { status: SessionStatusType; detail?: string } | null {
+    switch (event.event) {
+      case 'SessionStart':
+      case 'Idle':
+        return { status: 'idle' }
+
+      case 'PromptSubmit':
+      case 'AfterToolUse':
+        return { status: 'thinking' }
+
+      case 'BeforeToolUse': {
+        const detail = event.toolName
+          ? `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+          : undefined
+        return { status: 'toolCalling', detail }
+      }
+
+      case 'PermissionRequest': {
+        const detail = event.toolName
+          ? `${event.toolName}: ${this.summarizeToolInput(event.toolInput)}`
+          : undefined
+        return { status: 'waitingPermission', detail }
+      }
+
+      case 'SessionEnd':
+        return { status: 'ended', detail: event.reason }
+
+      default:
+        return null
+    }
+  },
+
+  summarizeToolInput(input?: Record<string, unknown>): string {
+    if (!input) return ''
+
+    if (typeof input.command === 'string') {
+      return truncate(input.command, 80)
+    }
+    if (typeof input.file_path === 'string') {
+      return input.file_path as string
+    }
+    if (Array.isArray(input.questions) && input.questions.length > 0) {
+      const first = input.questions[0] as Record<string, unknown> | undefined
+      if (first && typeof first.question === 'string') {
+        return truncate(first.question as string, 80)
+      }
+    }
+    if (typeof input.query === 'string') {
+      return truncate(input.query, 80)
+    }
+    if (typeof input.url === 'string') {
+      return truncate(input.url, 80)
+    }
+    if (typeof input.pattern === 'string') {
+      let summary = input.pattern as string
+      if (typeof input.path === 'string') {
+        summary += ` in ${input.path}`
+      }
+      return truncate(summary, 80)
+    }
+    if (typeof input.prompt === 'string') {
+      return truncate(input.prompt, 80)
+    }
+    if (typeof input.description === 'string') {
+      return truncate(input.description, 80)
+    }
+    if (typeof input.skill === 'string') {
+      return input.skill as string
+    }
+
+    for (const val of Object.values(input)) {
+      if (typeof val === 'string' && val.length > 0) {
+        return truncate(val, 80)
+      }
+    }
+
+    return ''
+  },
+}
