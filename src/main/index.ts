@@ -350,19 +350,10 @@ app.whenReady().then(async () => {
       await Promise.all(closePromises)
       console.log('[updater] all windows destroyed')
 
-      if (process.platform === 'darwin') {
-        // On macOS, autoUpdater.quitAndInstall() is unreliable due to
-        // dual-download architecture (Squirrel may not be ready).
-        // Release lock, relaunch, quit — autoInstallOnAppQuit handles the update.
-        app.releaseSingleInstanceLock()
-        app.relaunch()
-        app.quit()
-      } else {
-        // Windows/Linux: quitAndInstall works reliably
-        setImmediate(() => {
-          autoUpdater.quitAndInstall(true, true)
-        })
-      }
+      app.releaseSingleInstanceLock()
+      setImmediate(() => {
+        autoUpdater.quitAndInstall(true, true)
+      })
 
       // Safety net: force exit if quit hangs
       setTimeout(() => {
