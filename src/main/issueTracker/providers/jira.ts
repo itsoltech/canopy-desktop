@@ -180,28 +180,12 @@ export const jiraClient: IssueTrackerProviderClient = {
     }
 
     const jql = jqlParts.join(' AND ') + ' ORDER BY updated DESC'
-    const fields = [
-      'summary',
-      'description',
-      'status',
-      'priority',
-      'issuetype',
-      'parent',
-      'assignee',
-      'sprint',
-    ]
-    const body = JSON.stringify({ jql, fields, maxResults: 200 })
-    const url = `${connection.baseUrl.replace(/\/$/, '')}/rest/api/3/search/jql`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: buildAuthHeaders(connection, token),
-      body,
-    })
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '')
-      throw new Error(`Jira API error ${res.status}: ${errBody || res.statusText}`)
-    }
-    const data = (await res.json()) as { issues: JiraIssue[] }
+    const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
+    const data = await jiraFetch<{ issues: JiraIssue[] }>(
+      connection,
+      token,
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=200`,
+    )
 
     return data.issues.map((i) => mapJiraIssue(i, connection.baseUrl))
   },
