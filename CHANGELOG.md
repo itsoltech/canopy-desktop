@@ -1,3 +1,17 @@
+## [0.8.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.7.1-next.1...v0.8.0-next.1) (2026-03-30)
+
+### Features
+
+* **inspector:** generic agent abstraction with Gemini CLI support ([#33](https://github.com/itsoltech/canopy-desktop/issues/33)) ([0b6e6f1](https://github.com/itsoltech/canopy-desktop/commit/0b6e6f1289def57f25a2c0efab7113cb4d07f16b))
+* **pty:** truecolor support for terminals ([#34](https://github.com/itsoltech/canopy-desktop/issues/34)) ([9de8f60](https://github.com/itsoltech/canopy-desktop/commit/9de8f60c064bd6cb82e34c707a3017b3c06ca394))
+* **sidebar:** add "New Worktree from Branch" to context menu ([#35](https://github.com/itsoltech/canopy-desktop/issues/35)) ([95c4615](https://github.com/itsoltech/canopy-desktop/commit/95c4615a8715d9dc6975e257635d4843db9aaafe))
+* **sidebar:** show loading indicator when removing worktree ([#38](https://github.com/itsoltech/canopy-desktop/issues/38)) ([d5e74d6](https://github.com/itsoltech/canopy-desktop/commit/d5e74d62697b9c51413ad9ab736942505bff43f4))
+
+### Bug Fixes
+
+* **terminal:** restore focus after file drop and screenshot delivery ([#37](https://github.com/itsoltech/canopy-desktop/issues/37)) ([3c46743](https://github.com/itsoltech/canopy-desktop/commit/3c4674359605a547ec4ed673b932fbe3e78280dc))
+* **updater:** include stable releases in pre-release update channel ([#36](https://github.com/itsoltech/canopy-desktop/issues/36)) ([098d70e](https://github.com/itsoltech/canopy-desktop/commit/098d70e4b6935dba02eec1039a8cdc2d9a719510))
+
 ## [0.7.1-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0...v0.7.1-next.1) (2026-03-30)
 
 ### Bug Fixes
