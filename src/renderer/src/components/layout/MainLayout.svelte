@@ -9,6 +9,7 @@
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
+  import IssuePickerModal from '../issueTracker/IssuePickerModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
   import {
@@ -369,7 +370,9 @@
     workspaceId={dialogState.current.workspaceId}
   />
 {:else if dialogState.current.type === 'preferences'}
-  <PreferencesModal />
+  <PreferencesModal section={dialogState.current.section} />
+{:else if dialogState.current.type === 'issuePicker'}
+  <IssuePickerModal connectionId={dialogState.current.connectionId} />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}

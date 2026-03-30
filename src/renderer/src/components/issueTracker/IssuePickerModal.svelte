@@ -1,0 +1,402 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import { Search, X, Loader2, Send } from '@lucide/svelte'
+  import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
+  import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
+
+  let { connectionId }: { connectionId: string } = $props()
+
+  let issues: TrackerIssue[] = $state([])
+  let loading = $state(true)
+  let error = $state('')
+  let searchQuery = $state('')
+  let selectedIndex = $state(0)
+
+  let filteredIssues = $derived.by(() => {
+    if (!searchQuery) return issues
+    const q = searchQuery.toLowerCase()
+    return issues.filter(
+      (i) =>
+        i.key.toLowerCase().includes(q) || i.summary.toLowerCase().includes(q),
+    )
+  })
+
+  onMount(async () => {
+    await fetchIssues()
+  })
+
+  async function fetchIssues(): Promise<void> {
+    loading = true
+    error = ''
+    try {
+      const filterJson = prefs[`issueTracker.filters.${connectionId}`]
+      let statuses: string[] | undefined
+      let assignedToMe = true
+
+      if (filterJson) {
+        try {
+          const filters = JSON.parse(filterJson)
+          statuses = filters.statuses
+          assignedToMe = filters.assignedToMe ?? true
+        } catch {
+          // use defaults
+        }
+      }
+
+      issues = await window.api.issueTrackerFetchIssues(connectionId, {
+        statuses,
+        assignedToMe,
+      })
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Failed to fetch issues'
+    } finally {
+      loading = false
+    }
+  }
+
+  function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      closeDialog()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      selectedIndex = Math.min(selectedIndex + 1, filteredIssues.length - 1)
+      scrollToSelected()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      selectedIndex = Math.max(selectedIndex - 1, 0)
+      scrollToSelected()
+    } else if (e.key === 'Enter' && filteredIssues[selectedIndex]) {
+      selectIssue(filteredIssues[selectedIndex])
+    }
+  }
+
+  function scrollToSelected(): void {
+    const el = document.querySelector('.issue-row.selected')
+    el?.scrollIntoView({ block: 'nearest' })
+  }
+
+  function selectIssue(issue: TrackerIssue): void {
+    // Dispatch custom event for branch creation flow
+    window.dispatchEvent(
+      new CustomEvent('canopy:issueSelected', { detail: { connectionId, issue } }),
+    )
+    closeDialog()
+  }
+
+  function sendToTerminal(issue: TrackerIssue, e: MouseEvent): void {
+    e.stopPropagation()
+    const sessionId = getActivePtySessionId()
+    if (!sessionId) return
+    const text = `Issue: ${issue.key} - ${issue.summary}\n\n${issue.description || '(no description)'}`
+    window.api.writePty(sessionId, text)
+    closeDialog()
+  }
+
+  function priorityColor(priority: string): string {
+    const p = priority.toLowerCase()
+    if (p.includes('critical') || p.includes('highest')) return 'rgba(255, 100, 100, 0.8)'
+    if (p.includes('high')) return 'rgba(255, 160, 100, 0.8)'
+    if (p.includes('medium') || p.includes('normal')) return 'rgba(255, 210, 100, 0.8)'
+    if (p.includes('low')) return 'rgba(100, 200, 255, 0.8)'
+    return 'rgba(255, 255, 255, 0.5)'
+  }
+</script>
+
+<svelte:window onkeydown={handleKeydown} />
+
+<div class="dialog-overlay" onclick={closeDialog} role="presentation">
+  <div
+    class="picker-container"
+    onclick={(e) => e.stopPropagation()}
+    role="dialog"
+    aria-modal="true"
+    aria-label="Issue Picker"
+  >
+    <div class="picker-header">
+      <h3 class="picker-title">Select Issue</h3>
+      <button class="close-btn" onclick={closeDialog} aria-label="Close">
+        <X size={16} />
+      </button>
+    </div>
+
+    <div class="search-row">
+      <Search size={14} />
+      <input
+        class="search-input"
+        bind:value={searchQuery}
+        placeholder="Search by key or title..."
+        oninput={() => (selectedIndex = 0)}
+      />
+    </div>
+
+    <div class="issue-list">
+      {#if loading}
+        <div class="state-msg">
+          <Loader2 size={16} class="spin" />
+          <span>Loading issues...</span>
+        </div>
+      {:else if error}
+        <div class="state-msg error">
+          <span>{error}</span>
+          <button class="retry-btn" onclick={fetchIssues}>Retry</button>
+        </div>
+      {:else if filteredIssues.length === 0}
+        <div class="state-msg">No issues found</div>
+      {:else}
+        {#each filteredIssues as issue, i (issue.key)}
+          <button
+            class="issue-row"
+            class:selected={i === selectedIndex}
+            onclick={() => selectIssue(issue)}
+            onmouseenter={() => (selectedIndex = i)}
+          >
+            <span class="issue-key">{issue.key}</span>
+            <span class="issue-summary">{issue.summary}</span>
+            <span class="status-badge">{issue.status}</span>
+            <span class="priority-dot" style="color: {priorityColor(issue.priority)}" title={issue.priority}>
+              ●
+            </span>
+            <button
+              class="send-btn"
+              onclick={(e) => sendToTerminal(issue, e)}
+              title="Send to active terminal"
+            >
+              <Send size={12} />
+            </button>
+          </button>
+        {/each}
+      {/if}
+    </div>
+
+    <div class="picker-footer">
+      <span class="hint">↑↓ navigate · Enter select · Esc close</span>
+      <span class="count">{filteredIssues.length} issue{filteredIssues.length !== 1 ? 's' : ''}</span>
+    </div>
+  </div>
+</div>
+
+<style>
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1001;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 80px;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .picker-container {
+    width: 600px;
+    max-height: 500px;
+    display: flex;
+    flex-direction: column;
+    background: rgba(30, 30, 30, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+  }
+
+  .picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .picker-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+  }
+
+  .close-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .search-input {
+    flex: 1;
+    border: none;
+    background: none;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+  }
+
+  .search-input::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .issue-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+
+  .state-msg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px 16px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .state-msg.error {
+    color: rgba(255, 120, 120, 0.8);
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .retry-btn {
+    padding: 4px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    background: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .retry-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .issue-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 16px;
+    border: none;
+    background: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.05s;
+  }
+
+  .issue-row:hover,
+  .issue-row.selected {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .issue-key {
+    flex-shrink: 0;
+    font-weight: 600;
+    color: rgba(116, 192, 252, 0.9);
+    min-width: 80px;
+  }
+
+  .issue-summary {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .status-badge {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .priority-dot {
+    flex-shrink: 0;
+    font-size: 8px;
+    line-height: 1;
+  }
+
+  .send-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: rgba(255, 255, 255, 0.3);
+    cursor: pointer;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  .issue-row:hover .send-btn,
+  .issue-row.selected .send-btn {
+    opacity: 1;
+  }
+
+  .send-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(168, 130, 255, 0.9);
+  }
+
+  .picker-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .hint {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .count {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  :global(.spin) {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+</style>

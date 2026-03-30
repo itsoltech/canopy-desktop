@@ -9,6 +9,8 @@
   import UpdatePrefs from './UpdatePrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
 
+  let { section: initialSection }: { section?: string } = $props()
+
   const sections = [
     'General',
     'Updates',
@@ -17,11 +19,22 @@
     'Tools',
     'Claude',
     'Git',
+    'Issues',
     'Shortcuts',
   ] as const
   type Section = (typeof sections)[number]
 
-  let activeSection: Section = $state('General')
+  function resolveInitialSection(): Section {
+    if (initialSection) {
+      const match = sections.find(
+        (s) => s.toLowerCase() === initialSection!.toLowerCase(),
+      )
+      if (match) return match
+    }
+    return 'General'
+  }
+
+  let activeSection: Section = $state(resolveInitialSection())
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
@@ -70,6 +83,8 @@
         <ClaudePrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
+      {:else if activeSection === 'Issues'}
+        <p style="color: rgba(255,255,255,0.5); font-size: 13px;">Issue tracker settings coming soon.</p>
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
       {/if}
