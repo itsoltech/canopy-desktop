@@ -1,3 +1,9 @@
+## [0.7.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.2...v0.7.0-next.3) (2026-03-30)
+
+### Features
+
+* post-update changelog modal with release notes ([#22](https://github.com/itsoltech/canopy-desktop/issues/22)) ([2575ef6](https://github.com/itsoltech/canopy-desktop/commit/2575ef69d2cc6e21d165163efb94529426eb5e11))
+
 ## [0.7.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.1...v0.7.0-next.2) (2026-03-29)
 
 ### Refactoring
