@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SvelteSet } from 'svelte/reactivity'
   import { ChevronRight, Square, Trash2, X } from '@lucide/svelte'
   import {
     projects,
@@ -111,6 +112,39 @@
     return mergedBranches[project.workspace.path] ?? new Set()
   }
 
+  const removingPaths = new SvelteSet<string>()
+
+  async function doRemoveWorktree(
+    project: ProjectState,
+    wt: { path: string; branch: string },
+  ): Promise<void> {
+    if (!project.repoRoot || removingPaths.has(wt.path)) return
+    removingPaths.add(wt.path)
+
+    await closeAllTabsForWorktree(wt.path)
+
+    const isDetached = wt.branch === '(detached)'
+    try {
+      await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)
+      if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, false)
+    } catch {
+      try {
+        await window.api.gitWorktreeRemove(project.repoRoot, wt.path, true)
+        if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, true)
+      } catch {
+        removingPaths.delete(wt.path)
+        return
+      }
+    }
+
+    removingPaths.delete(wt.path)
+
+    if (workspaceState.selectedWorktreePath === wt.path) {
+      const main = project.worktrees.find((w) => w.isMain)
+      if (main) selectWorktree(main.path)
+    }
+  }
+
   async function removeWorktree(
     e: MouseEvent,
     project: ProjectState,
@@ -131,24 +165,7 @@
     })
     if (!ok) return
 
-    await closeAllTabsForWorktree(wt.path)
-
-    try {
-      await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)
-      if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, false)
-    } catch {
-      try {
-        await window.api.gitWorktreeRemove(project.repoRoot, wt.path, true)
-        if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, true)
-      } catch {
-        // Ignore — watcher will update the list
-      }
-    }
-
-    if (workspaceState.selectedWorktreePath === wt.path) {
-      const main = project.worktrees.find((w) => w.isMain)
-      if (main) selectWorktree(main.path)
-    }
+    await doRemoveWorktree(project, wt)
   }
 
   function handleNewWorktree(e: MouseEvent, project: ProjectState): void {
@@ -265,24 +282,7 @@
     })
     if (!ok) return
 
-    await closeAllTabsForWorktree(wt.path)
-
-    try {
-      await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)
-      if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, false)
-    } catch {
-      try {
-        await window.api.gitWorktreeRemove(project.repoRoot, wt.path, true)
-        if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, true)
-      } catch {
-        // Ignore — watcher will update the list
-      }
-    }
-
-    if (workspaceState.selectedWorktreePath === wt.path) {
-      const main = project.worktrees.find((w) => w.isMain)
-      if (main) selectWorktree(main.path)
-    }
+    await doRemoveWorktree(project, wt)
   }
 </script>
 
@@ -395,7 +395,8 @@
             {@const wtActive = isWorktreeActive(wt.path)}
             {@const agentStatus = getWorktreeAgentStatus(wt.path)}
             {@const wtBadge = worktreeBadges[wt.path] ?? 'none'}
-            <li class="worktree-row">
+            {@const isRemoving = removingPaths.has(wt.path)}
+            <li class="worktree-row" class:removing={isRemoving}>
               <button
                 class="worktree-item"
                 class:active={wt.path === workspaceState.selectedWorktreePath}
@@ -422,7 +423,9 @@
                   {/if}
                 </span>
                 <span class="branch-name" title={wt.path}>{worktreeLabel(wt)}</span>
-                {#if wt.branch === '(detached)'}
+                {#if isRemoving}
+                  <span class="removing-label">removing...</span>
+                {:else if wt.branch === '(detached)'}
                   <span class="detached-badge" title={wt.head}>{wt.head.slice(0, 7)}</span>
                 {:else if merged.has(wt.branch)}
                   <span class="merged-badge" title="Merged">merged</span>
@@ -443,7 +446,7 @@
                   </span>
                 {/if}
               </button>
-              {#if !wtActive && !wt.isMain && merged.has(wt.branch)}
+              {#if !wtActive && !wt.isMain && merged.has(wt.branch) && !isRemoving}
                 <button
                   class="remove-btn"
                   title="Remove worktree and delete branch"
@@ -602,6 +605,11 @@
     align-items: center;
   }
 
+  .worktree-row.removing {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
   .worktree-item {
     display: flex;
     align-items: center;
@@ -696,7 +704,8 @@
   @media (prefers-reduced-motion: reduce) {
     .wt-status-dot.working,
     .wt-status-dot.waitingPermission,
-    .wt-notify-dot.permission {
+    .wt-notify-dot.permission,
+    .removing-label {
       animation: none;
     }
   }
@@ -722,6 +731,15 @@
     color: rgba(100, 200, 120, 0.7);
     flex-shrink: 0;
     margin-left: auto;
+  }
+
+  .removing-label {
+    font-size: 9px;
+    font-weight: 500;
+    color: rgba(255, 180, 80, 0.7);
+    flex-shrink: 0;
+    margin-left: auto;
+    animation: wt-pulse 1.5s ease-in-out infinite;
   }
 
   .stop-btn {
