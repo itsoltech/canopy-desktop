@@ -1,3 +1,9 @@
+## [0.7.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.7...v0.7.0-next.8) (2026-03-30)
+
+### Features
+
+* **sidebar:** section visibility and ordering settings ([#28](https://github.com/itsoltech/canopy-desktop/issues/28)) ([e69c684](https://github.com/itsoltech/canopy-desktop/commit/e69c684d6f30aff627b8af630ff5c227b32edab2))
+
 ## [0.7.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.6...v0.7.0-next.7) (2026-03-30)
 
 ### Bug Fixes
