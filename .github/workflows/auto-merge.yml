@@ -1,13 +1,16 @@
 name: Auto Merge
 
 on:
-  check_run:
+  workflow_run:
+    workflows: [CI, PR Labels]
     types: [completed]
   pull_request:
     types: [labeled]
+  pull_request_review:
+    types: [submitted, dismissed]
 
 concurrency:
-  group: auto-merge-${{ github.event.pull_request.head.ref || github.event.check_run.head_sha || github.ref }}
+  group: auto-merge-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,12 +26,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "pull_request_review" ]; then
             echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
           else
-            NUMBER=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.check_run.head_sha }}/pulls" --jq '.[0].number // empty')
+            NUMBER=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" --jq '.[0].number // empty')
             if [ -z "$NUMBER" ]; then
-              echo "No PR found for this check suite"
+              echo "No PR found for this workflow run"
               exit 0
             fi
             echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
@@ -43,9 +46,22 @@ jobs:
           HAS=$(gh pr view "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | any(. == "claude:review:approved")')
           echo "approved=$HAS" >> "$GITHUB_OUTPUT"
 
+      - name: Check no changes requested
+        id: reviews
+        if: steps.label.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DECISION=$(gh pr view "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --json reviewDecision --jq '.reviewDecision')
+          if [ "$DECISION" = "CHANGES_REQUESTED" ]; then
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "blocked=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check all status checks passed
         id: checks
-        if: steps.label.outputs.approved == 'true'
+        if: steps.label.outputs.approved == 'true' && steps.reviews.outputs.blocked != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
