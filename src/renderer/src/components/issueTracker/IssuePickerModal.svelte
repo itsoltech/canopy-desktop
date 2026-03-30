@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Search, X, Loader2, Send } from '@lucide/svelte'
+  import { Search, X, Loader2, Send, Filter } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
-  import { prefs } from '../../lib/stores/preferences.svelte'
   import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
   import { createBranchFromIssue } from '../../lib/issueTracker/branchCreation'
 
@@ -14,6 +13,17 @@
   let searchQuery = $state('')
   let selectedIndex = $state(0)
 
+  // Board selector
+  let boards: TrackerBoard[] = $state([])
+  let selectedBoardId = $state('')
+  let loadingBoards = $state(true)
+
+  // Status filter
+  let availableStatuses: string[] = $state([])
+  let activeStatuses: string[] = $state([])
+  let showFilters = $state(false)
+  let assignedToMe = $state(true)
+
   let filteredIssues = $derived.by(() => {
     if (!searchQuery) return issues
     const q = searchQuery.toLowerCase()
@@ -23,36 +33,79 @@
   })
 
   onMount(async () => {
-    await fetchIssues()
+    await loadBoards()
   })
+
+  async function loadBoards(): Promise<void> {
+    loadingBoards = true
+    try {
+      boards = await window.api.issueTrackerFetchBoards(connectionId)
+      if (boards.length > 0) {
+        selectedBoardId = boards[0].id
+        await loadStatuses()
+        await fetchIssues()
+      } else {
+        loadingBoards = false
+        await fetchIssues()
+      }
+    } catch {
+      loadingBoards = false
+      await fetchIssues()
+    }
+  }
+
+  async function loadStatuses(): Promise<void> {
+    try {
+      const statuses = await window.api.issueTrackerFetchStatuses(
+        connectionId,
+        selectedBoardId || undefined,
+      )
+      availableStatuses = statuses.map((s) => s.name)
+      // Default: exclude typical "done" statuses
+      activeStatuses = availableStatuses.filter(
+        (s) => !/^(done|closed|resolved|cancelled|rejected)/i.test(s),
+      )
+    } catch {
+      availableStatuses = []
+      activeStatuses = []
+    } finally {
+      loadingBoards = false
+    }
+  }
+
+  async function onBoardChange(): Promise<void> {
+    await loadStatuses()
+    await fetchIssues()
+  }
 
   async function fetchIssues(): Promise<void> {
     loading = true
     error = ''
     try {
-      const filterJson = prefs[`issueTracker.filters.${connectionId}`]
-      let statuses: string[] | undefined
-      let assignedToMe = true
-
-      if (filterJson) {
-        try {
-          const filters = JSON.parse(filterJson)
-          statuses = filters.statuses
-          assignedToMe = filters.assignedToMe ?? true
-        } catch {
-          // use defaults
-        }
-      }
-
       issues = await window.api.issueTrackerFetchIssues(connectionId, {
-        statuses,
+        statuses: activeStatuses.length > 0 ? activeStatuses : undefined,
         assignedToMe,
+        boardId: selectedBoardId || undefined,
       })
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to fetch issues'
     } finally {
       loading = false
     }
+  }
+
+  function toggleStatus(status: string): void {
+    if (activeStatuses.includes(status)) {
+      activeStatuses = activeStatuses.filter((s) => s !== status)
+    } else {
+      activeStatuses = [...activeStatuses, status]
+    }
+    fetchIssues()
+  }
+
+  function toggleAssignedToMe(): void {
+    assignedToMe = !assignedToMe
+    fetchIssues()
   }
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -112,10 +165,52 @@
   >
     <div class="picker-header">
       <h3 class="picker-title">Select Issue</h3>
-      <button class="close-btn" onclick={closeDialog} aria-label="Close">
-        <X size={16} />
-      </button>
+      <div class="header-actions">
+        <button
+          class="filter-btn"
+          class:active={showFilters}
+          onclick={() => (showFilters = !showFilters)}
+          title="Filters"
+        >
+          <Filter size={14} />
+        </button>
+        <button class="close-btn" onclick={closeDialog} aria-label="Close">
+          <X size={16} />
+        </button>
+      </div>
     </div>
+
+    {#if boards.length > 1}
+      <div class="board-row">
+        <select class="board-select" bind:value={selectedBoardId} onchange={onBoardChange}>
+          {#each boards as board (board.id)}
+            <option value={board.id}>{board.name}</option>
+          {/each}
+        </select>
+      </div>
+    {/if}
+
+    {#if showFilters}
+      <div class="filters-panel">
+        <label class="filter-check">
+          <input type="checkbox" checked={assignedToMe} onchange={toggleAssignedToMe} />
+          <span>Only assigned to me</span>
+        </label>
+        {#if availableStatuses.length > 0}
+          <div class="status-filters">
+            {#each availableStatuses as status (status)}
+              <button
+                class="status-chip"
+                class:active={activeStatuses.includes(status)}
+                onclick={() => toggleStatus(status)}
+              >
+                {status}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <div class="search-row">
       <Search size={14} />
@@ -224,6 +319,105 @@
     font-size: 14px;
     font-weight: 600;
     color: rgba(255, 255, 255, 0.9);
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .filter-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+  }
+
+  .filter-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .filter-btn.active {
+    background: rgba(116, 192, 252, 0.15);
+    color: rgba(116, 192, 252, 0.9);
+  }
+
+  .board-row {
+    padding: 6px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .board-select {
+    width: 100%;
+    padding: 4px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #e0e0e0;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .board-select:focus {
+    border-color: rgba(116, 192, 252, 0.5);
+  }
+
+  .filters-panel {
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .filter-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+  }
+
+  .status-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .status-chip {
+    padding: 2px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    background: none;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition:
+      background 0.1s,
+      color 0.1s;
+  }
+
+  .status-chip:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .status-chip.active {
+    background: rgba(116, 192, 252, 0.15);
+    border-color: rgba(116, 192, 252, 0.3);
+    color: rgba(116, 192, 252, 0.9);
   }
 
   .close-btn {
