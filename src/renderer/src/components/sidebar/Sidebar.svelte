@@ -8,7 +8,13 @@
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
 
-  let { onLaunchTool }: { onLaunchTool: (toolId: string) => void } = $props()
+  let {
+    onLaunchTool,
+    width = 220,
+  }: {
+    onLaunchTool: (toolId: string) => void
+    width?: number
+  } = $props()
 
   let version = $state('')
 
@@ -23,7 +29,7 @@
   })
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" style="width: {width}px; min-width: {width}px">
   {#each sections as section (section.id)}
     {#if section.visible}
       {#if section.id === 'projects'}
@@ -48,8 +54,7 @@
 
 <style>
   .sidebar {
-    width: 220px;
-    min-width: 220px;
+    flex-shrink: 0;
     height: 100%;
     background: rgba(30, 30, 30, 0.75);
     backdrop-filter: blur(20px);
