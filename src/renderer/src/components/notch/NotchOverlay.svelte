@@ -85,8 +85,11 @@
       ? state.sessions.filter((s) => peekSessionIds.has(s.ptySessionId))
       : state.sessions,
   )
-  const itemCount = $derived(Math.min(visibleSessions.length, 5))
-  const expandedHeight = $derived(collapsedHeight + itemCount * 56 + 12)
+  const ROW_HEIGHT = 48
+  const CONTENT_PADDING = 6
+  const MAX_VISIBLE_ROWS = 12
+  const visibleItemCount = $derived(Math.min(visibleSessions.length, MAX_VISIBLE_ROWS))
+  const expandedHeight = $derived(collapsedHeight + visibleItemCount * ROW_HEIGHT + CONTENT_PADDING)
   const gapWidth = $derived(showExpanded ? 480 - 80 : state.notchWidth)
 
   function handleMouseEnter(): void {
@@ -157,7 +160,7 @@
     </div>
 
     <div class="content">
-      {#each visibleSessions.slice(0, 5) as session (session.ptySessionId)}
+      {#each visibleSessions as session (session.ptySessionId)}
         <NotchNotificationRow
           {session}
           highlight={peekSessionIds.has(session.ptySessionId)}
@@ -180,6 +183,8 @@
 
   .island {
     position: relative;
+    display: flex;
+    flex-direction: column;
     margin: 0 auto;
     background: #000;
     border-radius: 0 0 16px 16px;
@@ -261,6 +266,22 @@
 
   .content {
     padding: 0 0 6px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .content::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+  }
+
+  .content::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   @media (prefers-reduced-motion: reduce) {
