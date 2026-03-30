@@ -1,3 +1,9 @@
+## [0.7.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.5...v0.7.0-next.6) (2026-03-30)
+
+### Bug Fixes
+
+* **terminal:** preserve scroll position when new content arrives ([#26](https://github.com/itsoltech/canopy-desktop/issues/26)) ([7507315](https://github.com/itsoltech/canopy-desktop/commit/75073154541f69fbea0284497add5c72a273a8ca))
+
 ## [0.7.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.4...v0.7.0-next.5) (2026-03-30)
 
 ### Features
