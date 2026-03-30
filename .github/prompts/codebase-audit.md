@@ -131,7 +131,7 @@ If issues were found:
 
 ### Phase 3: Create PR
 
-Create a pull request using `gh pr create`:
+Create a pull request targeting `next` using `gh pr create --base next`:
 
 - Title: `chore(audit): automated codebase audit $DATE`
 - Body structure:
