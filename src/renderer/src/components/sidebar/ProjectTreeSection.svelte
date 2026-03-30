@@ -137,6 +137,8 @@
       }
     }
 
+    removingPaths.delete(wt.path)
+
     if (workspaceState.selectedWorktreePath === wt.path) {
       const main = project.worktrees.find((w) => w.isMain)
       if (main) selectWorktree(main.path)
@@ -689,7 +691,8 @@
   @media (prefers-reduced-motion: reduce) {
     .wt-status-dot.working,
     .wt-status-dot.waitingPermission,
-    .wt-notify-dot.permission {
+    .wt-notify-dot.permission,
+    .removing-label {
       animation: none;
     }
   }
