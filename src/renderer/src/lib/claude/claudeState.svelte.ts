@@ -63,6 +63,7 @@ const MAX_NOTIFICATIONS = 20
 
 export const claudeSessions: Record<string, ClaudeSessionState> = $state({})
 export const claudeBadges: Record<string, BadgeType> = $state({})
+export const worktreeBadges: Record<string, BadgeType> = $state({})
 
 export function initClaudeSession(ptySessionId: string): void {
   claudeSessions[ptySessionId] = {
@@ -300,6 +301,16 @@ export function clearBadge(ptySessionId: string): void {
 
 export function getClaudeBadge(ptySessionId: string): BadgeType {
   return claudeBadges[ptySessionId] ?? 'none'
+}
+
+export function setWorktreeBadge(worktreePath: string, badge: BadgeType): void {
+  const current = worktreeBadges[worktreePath]
+  if (current === 'permission' && badge === 'unread') return
+  worktreeBadges[worktreePath] = badge
+}
+
+export function clearWorktreeBadge(worktreePath: string): void {
+  worktreeBadges[worktreePath] = 'none'
 }
 
 interface StatusLineData {

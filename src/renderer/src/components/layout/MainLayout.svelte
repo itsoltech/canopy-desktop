@@ -54,7 +54,10 @@
     handleStatusUpdate,
     clearBadge,
     setBadge,
+    setWorktreeBadge,
+    clearWorktreeBadge,
   } from '../../lib/claude/claudeState.svelte'
+  import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
@@ -114,6 +117,16 @@
           setBadge(data.ptySessionId, 'permission')
         } else if (name === 'Stop' || name === 'PostToolUse') {
           setBadge(data.ptySessionId, 'unread')
+        }
+      }
+      // Set worktree badge if session is in a non-selected worktree
+      const sessionWorktreePath = findWorktreeForSession(data.ptySessionId)
+      if (sessionWorktreePath && sessionWorktreePath !== workspaceState.selectedWorktreePath) {
+        const name = (data.event as { hook_event_name?: string }).hook_event_name
+        if (name === 'PermissionRequest') {
+          setWorktreeBadge(sessionWorktreePath, 'permission')
+        } else if (name === 'Stop' || name === 'PostToolUse') {
+          setWorktreeBadge(sessionWorktreePath, 'unread')
         }
       }
     })
@@ -208,6 +221,12 @@
     if (activeClaudePtySessionId) {
       clearBadge(activeClaudePtySessionId)
     }
+  })
+
+  // Clear worktree badge when worktree is selected
+  $effect(() => {
+    const path = workspaceState.selectedWorktreePath
+    if (path) clearWorktreeBadge(path)
   })
 
   // Notify main process about focused Claude session for notch peek suppression
