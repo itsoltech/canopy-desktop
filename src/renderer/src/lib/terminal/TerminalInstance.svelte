@@ -65,7 +65,16 @@
     }
   })
 
-  // Re-attach WebGL addon after context loss when tab becomes active
+  // Dispose WebGL addon when tab becomes inactive to free GPU memory
+  $effect(() => {
+    if (!active && webglAddonRef) {
+      webglAddonRef.dispose()
+      webglAddonRef = null
+      webglAttached = false
+    }
+  })
+
+  // Re-attach WebGL addon when tab becomes active
   $effect(() => {
     if (active && termRef && !webglAttached) {
       attachWebgl(termRef)
@@ -170,8 +179,13 @@
         reconnectAttempt = 0
       }
 
+      const MAX_PENDING_CHARS = 2 * 1024 * 1024 // ~2 MB for ASCII
+
       ws.onmessage = (e): void => {
         pendingData += e.data
+        if (pendingData.length > MAX_PENDING_CHARS) {
+          pendingData = pendingData.slice(-MAX_PENDING_CHARS)
+        }
         if (!writeScheduled) {
           writeScheduled = true
           writeRafId = requestAnimationFrame(() => {
@@ -231,6 +245,7 @@
         cursorBlink: true,
         allowProposedApi: true,
         theme: currentTheme,
+        scrollback: 5000,
       })
 
       const fitAddon = new FitAddon()
