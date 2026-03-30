@@ -296,6 +296,13 @@ export function registerIpcHandlers(
     return false
   })
 
+  ipcMain.handle('app:focusRendererWebContents', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win && !win.isDestroyed()) {
+      win.webContents.focus()
+    }
+  })
+
   // --- Dialog ---
 
   ipcMain.handle('dialog:openFolder', async (event) => {
