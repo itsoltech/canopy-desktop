@@ -137,6 +137,28 @@
     const MAX_RECONNECT_ATTEMPTS = 30
     const MAX_RECONNECT_DELAY = 8000
 
+    // Write batching: coalesce rapid WebSocket messages into one term.write() per frame
+    let pendingData = ''
+    let writeScheduled = false
+    let writeRafId: number | null = null
+
+    function scrollPreservingWrite(term: Terminal, data: string): void {
+      const buffer = term.buffer.active
+      const isAtBottom = buffer.viewportY >= buffer.baseY
+
+      if (isAtBottom) {
+        term.write(data)
+      } else {
+        const savedY = buffer.viewportY
+        term.write(data, () => {
+          const currentY = term.buffer.active.viewportY
+          if (currentY !== savedY) {
+            term.scrollLines(savedY - currentY)
+          }
+        })
+      }
+    }
+
     function connectWs(term: Terminal): void {
       const ws = new WebSocket(wsUrl)
       wsRef = ws
@@ -149,7 +171,17 @@
       }
 
       ws.onmessage = (e): void => {
-        term.write(e.data)
+        pendingData += e.data
+        if (!writeScheduled) {
+          writeScheduled = true
+          writeRafId = requestAnimationFrame(() => {
+            writeRafId = null
+            const chunk = pendingData
+            pendingData = ''
+            writeScheduled = false
+            scrollPreservingWrite(term, chunk)
+          })
+        }
       }
 
       ws.onclose = (): void => {
@@ -281,7 +313,18 @@
         // Skip transient tiny sizes (e.g. window restore animation)
         if (!dims || dims.cols < 10 || dims.rows < 3) return
         if (dims.cols !== term.cols || dims.rows !== term.rows) {
+          const buffer = term.buffer.active
+          const isAtBottom = buffer.viewportY >= buffer.baseY
+          const savedY = buffer.viewportY
+
           fitAddon.fit()
+
+          if (!isAtBottom) {
+            const currentY = term.buffer.active.viewportY
+            if (currentY !== savedY) {
+              term.scrollLines(savedY - currentY)
+            }
+          }
         }
       })
       resizeObserver.observe(containerEl)
@@ -295,6 +338,7 @@
     return () => {
       disposed = true
       clearConnectionStatus(sessionId)
+      if (writeRafId !== null) cancelAnimationFrame(writeRafId)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
