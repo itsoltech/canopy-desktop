@@ -56,6 +56,25 @@
     }
   }
 
+  function getStatusTitle(relativePath: string): string | null {
+    const status = fileTree.gitFileStatus.get(relativePath)
+    if (!status) return null
+    switch (status) {
+      case 'M':
+        return 'Modified'
+      case 'A':
+        return 'Added'
+      case 'D':
+        return 'Deleted'
+      case '?':
+        return 'Untracked'
+      case 'R':
+        return 'Renamed'
+      default:
+        return 'Changed'
+    }
+  }
+
   function getRelativePath(absPath: string): string {
     if (!fileTree.rootPath) return absPath
     const rel = absPath.startsWith(fileTree.rootPath + '/')
@@ -118,12 +137,14 @@
           {@const isExpanded = !!fileTree.expandedDirs[absPath]}
           {@const relPath = getRelativePath(absPath)}
           {@const statusColor = getStatusColor(relPath)}
+          {@const statusTitle = getStatusTitle(relPath)}
           {@const isSelected = fileTree.selectedFilePath === absPath}
           {#if entry.isDirectory}
             <button
               class="tree-row"
               class:selected={isSelected}
               style:padding-left="{8 + depth * 16}px"
+              title={statusTitle ? `${entry.name} — ${statusTitle}` : entry.name}
               onclick={() => fileTree.toggleDir(absPath)}
               oncontextmenu={(e) => handleContextMenu(e, absPath)}
             >
@@ -145,6 +166,7 @@
               class="tree-row file-row"
               class:selected={isSelected}
               style:padding-left="{8 + depth * 16 + 16}px"
+              title={statusTitle ? `${entry.name} — ${statusTitle}` : entry.name}
               onclick={() => handleFileClick(absPath)}
               oncontextmenu={(e) => handleContextMenu(e, absPath)}
             >

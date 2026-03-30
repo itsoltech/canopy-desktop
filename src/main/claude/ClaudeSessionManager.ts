@@ -182,6 +182,7 @@ export class ClaudeSessionManager extends EventEmitter {
       this.destroySession(id)
     }
     this.busySessions.clear()
+    this.removeAllListeners()
   }
 
   private emitStatusChange(

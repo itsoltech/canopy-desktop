@@ -29,9 +29,13 @@ export const BLOCKED_ENV_VARS = new Set([
   // Language runtimes
   'PYTHONPATH',
   'PYTHONHOME',
+  'PYTHONSTARTUP',
   'RUBYLIB',
+  'RUBYOPT',
   'PERL5LIB',
+  'PERL5OPT',
   'CLASSPATH',
+  'JAVA_TOOL_OPTIONS',
 
   // Git / SSH
   'GIT_SSH_COMMAND',

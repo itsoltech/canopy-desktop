@@ -53,11 +53,21 @@ export class ClaudeHookServer {
 
     // Validate auth token (timing-safe comparison)
     const provided = req.headers['x-canopy-auth']
-    if (
-      typeof provided !== 'string' ||
-      provided.length !== this.authToken.length ||
-      !timingSafeEqual(Buffer.from(provided), Buffer.from(this.authToken))
-    ) {
+    if (typeof provided !== 'string') {
+      res.writeHead(403)
+      res.end()
+      return
+    }
+    // Pad both buffers to equal length so timingSafeEqual never rejects early,
+    // preventing a length-based timing oracle.
+    const tokenBuf = Buffer.from(this.authToken)
+    const providedBuf = Buffer.from(provided)
+    const maxLen = Math.max(tokenBuf.length, providedBuf.length)
+    const a = Buffer.alloc(maxLen)
+    const b = Buffer.alloc(maxLen)
+    tokenBuf.copy(a)
+    providedBuf.copy(b)
+    if (tokenBuf.length !== providedBuf.length || !timingSafeEqual(a, b)) {
       res.writeHead(403)
       res.end()
       return
