@@ -1,3 +1,9 @@
+## [0.7.1-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0...v0.7.1-next.1) (2026-03-30)
+
+### Bug Fixes
+
+* **terminal:** reduce renderer memory usage ([#32](https://github.com/itsoltech/canopy-desktop/issues/32)) ([f534c78](https://github.com/itsoltech/canopy-desktop/commit/f534c78e23bfc755406cab993781ae354cd1cacf))
+
 ## [0.7.0](https://github.com/itsoltech/canopy-desktop/compare/v0.6.2...v0.7.0) (2026-03-30)
 
 ### Features
