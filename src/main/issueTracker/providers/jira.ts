@@ -150,65 +150,40 @@ export const jiraClient: IssueTrackerProviderClient = {
   async fetchIssues(connection, token, params) {
     const resolvedBoardId = params.boardId || connection.boardId
 
-    // If we have a board, use the agile API to get issues from the board
-    if (resolvedBoardId) {
-      const jqlParts: string[] = []
-
-      if (connection.projectKey) {
-        jqlParts.push(`project = "${connection.projectKey}"`)
-      }
-
-      if (params.statuses && params.statuses.length > 0) {
-        const statusList = params.statuses.map((s) => `"${s}"`).join(', ')
-        jqlParts.push(`status IN (${statusList})`)
-      }
-
-      if (params.assignedToMe) {
-        jqlParts.push('assignee = currentUser()')
-      }
-
-      const jqlParam =
-        jqlParts.length > 0 ? `&jql=${encodeURIComponent(jqlParts.join(' AND '))}` : ''
-      const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
-      const data = await jiraFetch<{ issues: JiraIssue[] }>(
-        connection,
-        token,
-        `/rest/agile/1.0/board/${resolvedBoardId}/issue?fields=${fields}&maxResults=100${jqlParam}`,
-      )
-      return data.issues.map((i) => mapJiraIssue(i, connection.baseUrl))
-    }
-
-    // Fallback: JQL search (using new /search/jql endpoint)
+    // Build JQL — only use assignee filter, no status filter
+    // Status filtering is done client-side to avoid mismatched column/status names
     const jqlParts: string[] = []
+
     if (connection.projectKey) {
       jqlParts.push(`project = "${connection.projectKey}"`)
-    }
-
-    if (params.statuses && params.statuses.length > 0) {
-      const statusList = params.statuses.map((s) => `"${s}"`).join(', ')
-      jqlParts.push(`status IN (${statusList})`)
     }
 
     if (params.assignedToMe) {
       jqlParts.push('assignee = currentUser()')
     }
 
+    const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
+
+    // If we have a board, use agile API
+    if (resolvedBoardId) {
+      const jqlParam =
+        jqlParts.length > 0 ? `&jql=${encodeURIComponent(jqlParts.join(' AND '))}` : ''
+      const data = await jiraFetch<{ issues: JiraIssue[] }>(
+        connection,
+        token,
+        `/rest/agile/1.0/board/${resolvedBoardId}/issue?fields=${fields}&maxResults=200${jqlParam}`,
+      )
+      return data.issues.map((i) => mapJiraIssue(i, connection.baseUrl))
+    }
+
+    // Fallback: JQL search
     if (jqlParts.length === 0) {
       jqlParts.push('assignee = currentUser()')
     }
 
     const jql = jqlParts.join(' AND ')
-    const fields = [
-      'summary',
-      'description',
-      'status',
-      'priority',
-      'issuetype',
-      'parent',
-      'assignee',
-      'sprint',
-    ]
-    const body = JSON.stringify({ jql, fields, maxResults: 100 })
+    const fieldsArr = fields.split(',')
+    const body = JSON.stringify({ jql, fields: fieldsArr, maxResults: 200 })
     const url = `${connection.baseUrl.replace(/\/$/, '')}/rest/api/3/search/jql`
     const res = await fetch(url, {
       method: 'POST',

@@ -7,7 +7,7 @@
 
   let { connectionId }: { connectionId: string } = $props()
 
-  let issues: TrackerIssue[] = $state([])
+  let allIssues: TrackerIssue[] = $state([])
   let loading = $state(true)
   let error = $state('')
   let searchQuery = $state('')
@@ -19,17 +19,29 @@
   let loadingBoards = $state(true)
 
   // Status filter
-  let availableStatuses: string[] = $state([])
-  let activeStatuses: string[] = $state([])
+  let availableStatuses: string[] = $derived.by(() => {
+    const seen = new Set<string>()
+    for (const i of allIssues) {
+      if (i.status) seen.add(i.status)
+    }
+    return [...seen].sort()
+  })
+  let excludedStatuses: Set<string> = $state(new Set())
   let showFilters = $state(false)
   let assignedToMe = $state(true)
 
   let filteredIssues = $derived.by(() => {
-    if (!searchQuery) return issues
-    const q = searchQuery.toLowerCase()
-    return issues.filter(
-      (i) => i.key.toLowerCase().includes(q) || i.summary.toLowerCase().includes(q),
-    )
+    let result = allIssues
+    if (excludedStatuses.size > 0) {
+      result = result.filter((i) => !excludedStatuses.has(i.status))
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (i) => i.key.toLowerCase().includes(q) || i.summary.toLowerCase().includes(q),
+      )
+    }
+    return result
   })
 
   onMount(async () => {
@@ -42,39 +54,15 @@
       boards = await window.api.issueTrackerFetchBoards(connectionId)
       if (boards.length > 0) {
         selectedBoardId = boards[0].id
-        await loadStatuses()
-        await fetchIssues()
-      } else {
-        loadingBoards = false
-        await fetchIssues()
       }
     } catch {
-      loadingBoards = false
-      await fetchIssues()
+      // no boards available
     }
-  }
-
-  async function loadStatuses(): Promise<void> {
-    try {
-      const statuses = await window.api.issueTrackerFetchStatuses(
-        connectionId,
-        selectedBoardId || undefined,
-      )
-      availableStatuses = statuses.map((s) => s.name)
-      // Default: exclude typical "done" statuses
-      activeStatuses = availableStatuses.filter(
-        (s) => !/^(done|closed|resolved|cancelled|rejected)/i.test(s),
-      )
-    } catch {
-      availableStatuses = []
-      activeStatuses = []
-    } finally {
-      loadingBoards = false
-    }
+    await fetchIssues()
   }
 
   async function onBoardChange(): Promise<void> {
-    await loadStatuses()
+    excludedStatuses = new Set()
     await fetchIssues()
   }
 
@@ -82,25 +70,35 @@
     loading = true
     error = ''
     try {
-      issues = await window.api.issueTrackerFetchIssues(connectionId, {
-        statuses: activeStatuses.length > 0 ? [...activeStatuses] : undefined,
+      allIssues = await window.api.issueTrackerFetchIssues(connectionId, {
         assignedToMe,
         boardId: selectedBoardId || undefined,
       })
+      // Auto-exclude done/closed on first load
+      if (excludedStatuses.size === 0 && allIssues.length > 0) {
+        const donePattern = /^(done|closed|resolved|cancelled|rejected|complete|gotowe|zamkni)/i
+        for (const issue of allIssues) {
+          if (donePattern.test(issue.status)) {
+            excludedStatuses.add(issue.status)
+          }
+        }
+        excludedStatuses = new Set(excludedStatuses)
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to fetch issues'
     } finally {
       loading = false
+      loadingBoards = false
     }
   }
 
   function toggleStatus(status: string): void {
-    if (activeStatuses.includes(status)) {
-      activeStatuses = activeStatuses.filter((s) => s !== status)
+    if (excludedStatuses.has(status)) {
+      excludedStatuses.delete(status)
     } else {
-      activeStatuses = [...activeStatuses, status]
+      excludedStatuses.add(status)
     }
-    fetchIssues()
+    excludedStatuses = new Set(excludedStatuses)
   }
 
   function toggleAssignedToMe(): void {
@@ -201,7 +199,8 @@
             {#each availableStatuses as status (status)}
               <button
                 class="status-chip"
-                class:active={activeStatuses.includes(status)}
+                class:active={!excludedStatuses.has(status)}
+                class:excluded={excludedStatuses.has(status)}
                 onclick={() => toggleStatus(status)}
               >
                 {status}
@@ -418,6 +417,11 @@
     background: rgba(116, 192, 252, 0.15);
     border-color: rgba(116, 192, 252, 0.3);
     color: rgba(116, 192, 252, 0.9);
+  }
+
+  .status-chip.excluded {
+    opacity: 0.4;
+    text-decoration: line-through;
   }
 
   .close-btn {
