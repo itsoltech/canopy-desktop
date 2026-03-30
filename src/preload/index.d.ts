@@ -227,6 +227,7 @@ interface CanopyAPI {
   onUpdateDownloaded: (callback: (data: UpdateInfo) => void) => () => void
   onUpdateNotAvailable: (callback: () => void) => () => void
   onUpdateError: (callback: (data: { message: string }) => void) => () => void
+  onUpdateInstalling: (callback: () => void) => () => void
 
   // Changelog
   getChangelogSinceVersion: (fromVersion: string) => Promise<ChangelogEntry[] | null>

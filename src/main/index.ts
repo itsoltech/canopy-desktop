@@ -286,6 +286,7 @@ app.whenReady().then(async () => {
 
     autoUpdater.on('update-downloaded', (info) => {
       updateDownloaded = true
+      autoUpdater.autoInstallOnAppQuit = true
       broadcast('update:downloaded', { version: info.version, releaseNotes: info.releaseNotes })
     })
 
@@ -316,17 +317,57 @@ app.whenReady().then(async () => {
       })
     })
 
-    ipcMain.handle('app:installUpdate', () => {
+    ipcMain.handle('app:installUpdate', async () => {
       if (!updateDownloaded) return
+
+      console.log('[updater] installUpdate requested')
+
       const configs = windowManager.getAllWindowConfigs()
       if (configs.length > 0) {
         preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
       } else {
         preferencesStore.delete('openWindowConfigs')
       }
+
       updateInstalling = true
       windowManager.isQuitting = true
-      autoUpdater.quitAndInstall(true, true)
+
+      // Broadcast installing state to renderer before destroying windows
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('update:installing', {})
+      }
+
+      // Destroy all windows to prevent lifecycle conflicts
+      const closePromises = BrowserWindow.getAllWindows().map(
+        (win) =>
+          new Promise<void>((resolve) => {
+            if (win.isDestroyed()) return resolve()
+            win.once('closed', () => resolve())
+            win.destroy()
+          }),
+      )
+      await Promise.all(closePromises)
+      console.log('[updater] all windows destroyed')
+
+      if (process.platform === 'darwin') {
+        // On macOS, autoUpdater.quitAndInstall() is unreliable due to
+        // dual-download architecture (Squirrel may not be ready).
+        // Release lock, relaunch, quit — autoInstallOnAppQuit handles the update.
+        app.releaseSingleInstanceLock()
+        app.relaunch()
+        app.quit()
+      } else {
+        // Windows/Linux: quitAndInstall works reliably
+        setImmediate(() => {
+          autoUpdater.quitAndInstall(false, true)
+        })
+      }
+
+      // Safety net: force exit if quit hangs
+      setTimeout(() => {
+        console.error('[updater] quit did not complete within 10s — forcing exit')
+        app.exit(0)
+      }, 10_000)
     })
 
     autoUpdater.checkForUpdates().catch((err) => {
@@ -496,6 +537,14 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', (event) => {
+  // During update install, skip cleanup that could interfere with Squirrel.
+  // Window configs already saved; windows already destroyed.
+  if (updateInstalling) {
+    notchOverlay?.dispose()
+    claudeSessionManager?.dispose()
+    return
+  }
+
   if (!windowManager.isQuitting) {
     const activeInfo = windowManager.hasAnyActiveSession()
     if (activeInfo) {
@@ -524,14 +573,11 @@ app.on('before-quit', (event) => {
     }
   }
 
-  // Save per-window project configs (skip if update already saved them)
-  if (!updateInstalling) {
-    const configs = windowManager.getAllWindowConfigs()
-    if (configs.length > 0) {
-      preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
-    } else {
-      preferencesStore.delete('openWindowConfigs')
-    }
+  const configs = windowManager.getAllWindowConfigs()
+  if (configs.length > 0) {
+    preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
+  } else {
+    preferencesStore.delete('openWindowConfigs')
   }
 
   notchOverlay?.dispose()
