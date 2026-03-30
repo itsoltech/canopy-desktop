@@ -337,6 +337,7 @@ app.whenReady().then(async () => {
   claudeSessionManager = new ClaudeSessionManager()
   claudeSessionManager.cleanupOrphans()
   windowManager.setClaudeSessionManager(claudeSessionManager)
+  windowManager.setBrowserManager(browserManager)
 
   registerIpcHandlers(
     ptyManager,

@@ -6,6 +6,7 @@ import type { PtyManager } from './pty/PtyManager'
 import type { WsBridge } from './pty/WsBridge'
 import type { GitWatcher } from './git/GitWatcher'
 import type { ClaudeSessionManager } from './claude/ClaudeSessionManager'
+import type { BrowserManager } from './browser/BrowserManager'
 import { isSafeExternalUrl } from './security/validateUrl'
 
 export class WindowManager {
@@ -17,6 +18,7 @@ export class WindowManager {
   private forceClosing = new Set<number>()
   private focusedClaudeSessions = new Map<number, string>()
   private claudeSessionManager: ClaudeSessionManager | null = null
+  private browserManager: BrowserManager | null = null
 
   private ptyManager: PtyManager
   private wsBridge: WsBridge
@@ -29,6 +31,10 @@ export class WindowManager {
 
   setClaudeSessionManager(csm: ClaudeSessionManager): void {
     this.claudeSessionManager = csm
+  }
+
+  setBrowserManager(bm: BrowserManager): void {
+    this.browserManager = bm
   }
 
   createWindow(): BrowserWindow {
@@ -284,6 +290,12 @@ export class WindowManager {
     this.disposeAllGitWatchers(wcId)
     this.gitWatchers.delete(wcId)
 
+    // Destroy browser views owned by this window
+    const win = this.windows.get(wcId)
+    if (win && this.browserManager) {
+      this.browserManager.destroyAllForWindow(win)
+    }
+
     // Kill PTY sessions for this window
     const sessions = this.ptySessions.get(wcId)
     if (sessions) {
@@ -295,6 +307,8 @@ export class WindowManager {
 
     this.windows.delete(wcId)
     this.workspacePaths.delete(wcId)
+    this.activeWorktreePaths.delete(wcId)
+    this.focusedClaudeSessions.delete(wcId)
     this.ptySessions.delete(wcId)
   }
 
