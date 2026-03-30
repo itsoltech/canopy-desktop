@@ -8,6 +8,7 @@
   import ClaudePrefs from './ClaudePrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
+  import IssueTrackerPrefs from './IssueTrackerPrefs.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
 
@@ -84,7 +85,7 @@
       {:else if activeSection === 'Git'}
         <GitPrefs />
       {:else if activeSection === 'Issues'}
-        <p style="color: rgba(255,255,255,0.5); font-size: 13px;">Issue tracker settings coming soon.</p>
+        <IssueTrackerPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
       {/if}
