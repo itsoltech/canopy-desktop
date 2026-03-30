@@ -261,17 +261,24 @@ app.whenReady().then(async () => {
     autoUpdater.autoDownload = autoUpdate
     autoUpdater.allowPrerelease = updateChannel === 'next'
 
+    let updateCheckInFlight = false
     const checkWithChannelResolution = async (): Promise<void> => {
-      const ch = preferencesStore.get('update.channel') ?? 'stable'
-      if (ch === 'next') {
-        const effective = await resolveUpdateChannel(app.getVersion())
-        autoUpdater.channel = effective
-        autoUpdater.allowPrerelease = true
-      } else {
-        autoUpdater.channel = 'latest'
-        autoUpdater.allowPrerelease = false
+      if (updateCheckInFlight) return
+      updateCheckInFlight = true
+      try {
+        const ch = preferencesStore.get('update.channel') ?? 'stable'
+        if (ch === 'next') {
+          const effective = await resolveUpdateChannel(app.getVersion())
+          autoUpdater.channel = effective
+          autoUpdater.allowPrerelease = true
+        } else {
+          autoUpdater.channel = 'latest'
+          autoUpdater.allowPrerelease = false
+        }
+        await autoUpdater.checkForUpdates()
+      } finally {
+        updateCheckInFlight = false
       }
-      await autoUpdater.checkForUpdates()
     }
 
     const broadcast = (channel: string, data: unknown): void => {
