@@ -228,6 +228,17 @@
     closeCtxMenu()
   }
 
+  function ctxNewWorktree(): void {
+    if (!ctxMenu) return
+    const { project, wt } = ctxMenu
+    closeCtxMenu()
+    showCreateWorktree({
+      repoRoot: project.repoRoot!,
+      workspaceId: project.workspace.id,
+      baseBranch: wt.branch,
+    })
+  }
+
   async function ctxStopAll(): Promise<void> {
     if (!ctxMenu) return
     const tabs = getTabsForWorktree(ctxMenu.wt.path)
@@ -290,6 +301,8 @@
       <button class="ctx-item" onclick={ctxCopyPath}>Copy Path</button>
       {#if ctxMenu.wt.branch !== '(detached)'}
         <button class="ctx-item" onclick={ctxCopyBranch}>Copy Branch Name</button>
+        <div class="ctx-divider"></div>
+        <button class="ctx-item" onclick={ctxNewWorktree}>New Worktree from Branch</button>
       {/if}
       {#if isWorktreeActive(ctxMenu.wt.path)}
         <div class="ctx-divider"></div>

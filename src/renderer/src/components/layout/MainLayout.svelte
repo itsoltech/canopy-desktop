@@ -399,6 +399,7 @@
     onClose={closeDialog}
     repoRoot={dialogState.current.repoRoot}
     workspaceId={dialogState.current.workspaceId}
+    baseBranch={dialogState.current.baseBranch}
   />
 {:else if dialogState.current.type === 'preferences'}
   <PreferencesModal />
