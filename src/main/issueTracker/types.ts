@@ -28,6 +28,7 @@ export interface TrackerIssue {
 export interface TrackerBoard {
   id: string
   name: string
+  projectKey?: string
 }
 
 export interface TrackerStatus {
@@ -89,6 +90,7 @@ export interface FetchIssuesParams {
 
 export interface IssueTrackerProviderClient {
   testConnection(connection: IssueTrackerConnection, token: string): Promise<boolean>
+  getCurrentUserDisplayName(connection: IssueTrackerConnection, token: string): Promise<string>
   fetchBoards(connection: IssueTrackerConnection, token: string): Promise<TrackerBoard[]>
   fetchStatuses(
     connection: IssueTrackerConnection,

@@ -853,6 +853,13 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle(
+    'issueTracker:getCurrentUser',
+    async (_event, payload: { connectionId: string }) => {
+      return issueTrackerManager.getCurrentUserDisplayName(payload.connectionId)
+    },
+  )
+
+  ipcMain.handle(
     'issueTracker:getCurrentSprint',
     async (_event, payload: { connectionId: string; boardId?: string }) => {
       return issueTrackerManager.getCurrentSprint(payload.connectionId, payload.boardId)

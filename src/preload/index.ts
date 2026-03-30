@@ -511,6 +511,8 @@ const api = {
   ) => ipcRenderer.invoke('issueTracker:fetchIssues', { connectionId, ...params }),
   issueTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
     ipcRenderer.invoke('issueTracker:getCurrentSprint', { connectionId, boardId }),
+  issueTrackerGetCurrentUser: (connectionId: string) =>
+    ipcRenderer.invoke('issueTracker:getCurrentUser', { connectionId }) as Promise<string>,
   issueTrackerResolveBranchName: (
     connectionId: string,
     issue: Record<string, unknown>,

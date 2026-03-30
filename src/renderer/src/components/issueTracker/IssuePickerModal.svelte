@@ -2,8 +2,39 @@
   import { onMount } from 'svelte'
   import { Search, X, Loader2, Send, Filter } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { setPref, prefs } from '../../lib/stores/preferences.svelte'
   import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
   import { createBranchFromIssue } from '../../lib/issueTracker/branchCreation'
+
+  function filterPrefKey(connId: string, boardId: string): string {
+    return `issueTracker.pickerFilters.${connId}.${boardId}`
+  }
+
+  interface SavedFilters {
+    excludedStatuses: string[]
+    assignedToMe: boolean
+    showFilters: boolean
+  }
+
+  function loadSavedFilters(connId: string, boardId: string): SavedFilters | null {
+    const raw = prefs[filterPrefKey(connId, boardId)]
+    if (!raw) return null
+    try {
+      return JSON.parse(raw) as SavedFilters
+    } catch {
+      return null
+    }
+  }
+
+  function saveFilters(): void {
+    if (!selectedBoardId) return
+    const data: SavedFilters = {
+      excludedStatuses: [...excludedStatuses],
+      assignedToMe,
+      showFilters,
+    }
+    setPref(filterPrefKey(connectionId, selectedBoardId), JSON.stringify(data))
+  }
 
   let { connectionId }: { connectionId: string } = $props()
 
@@ -28,10 +59,24 @@
   })
   let excludedStatuses: Set<string> = $state(new Set())
   let showFilters = $state(false)
-  let assignedToMe = $state(true)
+  let assignedToMe = $state(false)
+  let currentUserName = $state('')
+  let hasSavedFilters = $state(false)
+
+  let selectedBoardProjectKey = $derived.by(() => {
+    const board = boards.find((b) => b.id === selectedBoardId)
+    return board?.projectKey ?? ''
+  })
 
   let filteredIssues = $derived.by(() => {
     let result = allIssues
+    // Filter by board's project key
+    if (selectedBoardProjectKey) {
+      result = result.filter((i) => i.key.startsWith(selectedBoardProjectKey + '-'))
+    }
+    if (assignedToMe && currentUserName) {
+      result = result.filter((i) => i.assignee === currentUserName)
+    }
     if (excludedStatuses.size > 0) {
       result = result.filter((i) => !excludedStatuses.has(i.status))
     }
@@ -51,9 +96,15 @@
   async function loadBoards(): Promise<void> {
     loadingBoards = true
     try {
-      boards = await window.api.issueTrackerFetchBoards(connectionId)
+      const [boardList, userName] = await Promise.all([
+        window.api.issueTrackerFetchBoards(connectionId),
+        window.api.issueTrackerGetCurrentUser(connectionId).catch(() => ''),
+      ])
+      boards = boardList
+      currentUserName = userName
       if (boards.length > 0) {
         selectedBoardId = boards[0].id
+        restoreSavedFilters()
       }
     } catch {
       // no boards available
@@ -61,8 +112,23 @@
     await fetchIssues()
   }
 
+  function restoreSavedFilters(): void {
+    const saved = loadSavedFilters(connectionId, selectedBoardId)
+    if (saved) {
+      excludedStatuses = new Set(saved.excludedStatuses)
+      assignedToMe = saved.assignedToMe
+      showFilters = saved.showFilters
+      hasSavedFilters = true
+    } else {
+      excludedStatuses = new Set()
+      assignedToMe = false
+      showFilters = false
+      hasSavedFilters = false
+    }
+  }
+
   async function onBoardChange(): Promise<void> {
-    excludedStatuses = new Set()
+    restoreSavedFilters()
     await fetchIssues()
   }
 
@@ -71,11 +137,10 @@
     error = ''
     try {
       allIssues = await window.api.issueTrackerFetchIssues(connectionId, {
-        assignedToMe,
         boardId: selectedBoardId || undefined,
       })
-      // Auto-exclude done/closed on first load
-      if (excludedStatuses.size === 0 && allIssues.length > 0) {
+      // Auto-exclude done/closed only if no saved filters
+      if (!hasSavedFilters && excludedStatuses.size === 0 && allIssues.length > 0) {
         const donePattern = /^(done|closed|resolved|cancelled|rejected|complete|gotowe|zamkni)/i
         for (const issue of allIssues) {
           if (donePattern.test(issue.status)) {
@@ -83,6 +148,7 @@
           }
         }
         excludedStatuses = new Set(excludedStatuses)
+        saveFilters()
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to fetch issues'
@@ -99,11 +165,12 @@
       excludedStatuses.add(status)
     }
     excludedStatuses = new Set(excludedStatuses)
+    saveFilters()
   }
 
   function toggleAssignedToMe(): void {
     assignedToMe = !assignedToMe
-    fetchIssues()
+    saveFilters()
   }
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -167,7 +234,10 @@
         <button
           class="filter-btn"
           class:active={showFilters}
-          onclick={() => (showFilters = !showFilters)}
+          onclick={() => {
+            showFilters = !showFilters
+            saveFilters()
+          }}
           title="Filters"
         >
           <Filter size={14} />

@@ -103,6 +103,13 @@ export class IssueTrackerManager {
     return client.fetchBoards(tempConn, token)
   }
 
+  async getCurrentUserDisplayName(connectionId: string): Promise<string> {
+    const conn = this.getConnection(connectionId)
+    const token = this.getToken(conn)
+    const client = createProviderClient(conn.provider)
+    return client.getCurrentUserDisplayName(conn, token)
+  }
+
   async fetchBoards(connectionId: string): Promise<TrackerBoard[]> {
     const conn = this.getConnection(connectionId)
     const token = this.getToken(conn)

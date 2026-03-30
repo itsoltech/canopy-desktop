@@ -91,19 +91,27 @@ export const jiraClient: IssueTrackerProviderClient = {
     return true
   },
 
+  async getCurrentUserDisplayName(connection, token) {
+    const data = await jiraFetch<{ displayName?: string }>(connection, token, '/rest/api/3/myself')
+    return data.displayName ?? ''
+  },
+
   async fetchBoards(connection, token) {
     const params = connection.projectKey
       ? `?projectKeyOrId=${encodeURIComponent(connection.projectKey)}`
       : '?maxResults=50'
-    const data = await jiraFetch<{ values: Array<{ id: number; name: string }> }>(
-      connection,
-      token,
-      `/rest/agile/1.0/board${params}`,
-    )
+    const data = await jiraFetch<{
+      values: Array<{
+        id: number
+        name: string
+        location?: { projectKey?: string }
+      }>
+    }>(connection, token, `/rest/agile/1.0/board${params}`)
     return data.values.map(
       (b): TrackerBoard => ({
         id: String(b.id),
         name: b.name,
+        projectKey: b.location?.projectKey,
       }),
     )
   },
@@ -149,38 +157,46 @@ export const jiraClient: IssueTrackerProviderClient = {
 
   async fetchIssues(connection, token, params) {
     const resolvedBoardId = params.boardId || connection.boardId
+    const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
 
-    // Always use JQL search — board endpoint misses backlog items
-    // Get project key from board config if we don't have one
-    const jqlParts: string[] = []
+    // Board endpoint returns ONLY issues belonging to this board's filter
+    if (resolvedBoardId) {
+      const allIssues: JiraIssue[] = []
+      let startAt = 0
+      const maxPerPage = 100
 
-    let projectKey = connection.projectKey
-    if (!projectKey && resolvedBoardId) {
-      try {
-        const boardConfig = await jiraFetch<{
-          filter?: { query?: string }
-          location?: { projectKeyOrId?: string }
-        }>(connection, token, `/rest/agile/1.0/board/${resolvedBoardId}/configuration`)
-        projectKey = boardConfig.location?.projectKeyOrId ?? ''
-      } catch {
-        // can't determine project
+      // Exclude done issues at API level for performance
+      const jql = 'statusCategory != Done ORDER BY updated DESC'
+      const jqlParam = `&jql=${encodeURIComponent(jql)}`
+
+      // Paginate to get all non-done issues from the board
+      while (true) {
+        const data = await jiraFetch<{
+          issues: JiraIssue[]
+          total: number
+          startAt: number
+          maxResults: number
+        }>(
+          connection,
+          token,
+          `/rest/agile/1.0/board/${resolvedBoardId}/issue?fields=${fields}&maxResults=${maxPerPage}&startAt=${startAt}${jqlParam}`,
+        )
+        allIssues.push(...data.issues)
+        if (allIssues.length >= data.total || data.issues.length === 0) break
+        startAt += data.issues.length
       }
+
+      return allIssues.map((i) => mapJiraIssue(i, connection.baseUrl))
     }
 
-    if (projectKey) {
-      jqlParts.push(`project = "${projectKey}"`)
+    // No board — fallback to JQL search for assigned issues
+    const jqlParts: string[] = []
+    if (connection.projectKey) {
+      jqlParts.push(`project = "${connection.projectKey}"`)
     }
-
-    if (params.assignedToMe) {
-      jqlParts.push('assignee = currentUser()')
-    }
-
-    if (jqlParts.length === 0) {
-      jqlParts.push('assignee = currentUser()')
-    }
+    jqlParts.push('assignee = currentUser()')
 
     const jql = jqlParts.join(' AND ') + ' ORDER BY updated DESC'
-    const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
     const data = await jiraFetch<{ issues: JiraIssue[] }>(
       connection,
       token,

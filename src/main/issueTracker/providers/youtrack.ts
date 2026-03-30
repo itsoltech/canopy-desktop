@@ -96,6 +96,15 @@ export const youtrackClient: IssueTrackerProviderClient = {
     return true
   },
 
+  async getCurrentUserDisplayName(connection, token) {
+    const data = await ytFetch<{ name?: string; fullName?: string }>(
+      connection,
+      token,
+      '/api/users/me?fields=name,fullName',
+    )
+    return data.fullName ?? data.name ?? ''
+  },
+
   async fetchBoards(connection, token) {
     const data = await ytFetch<Array<{ id: string; name: string }>>(
       connection,

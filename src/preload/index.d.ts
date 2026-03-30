@@ -438,6 +438,7 @@ interface CanopyAPI {
     connectionId: string,
     boardId?: string,
   ) => Promise<TrackerSprint | null>
+  issueTrackerGetCurrentUser: (connectionId: string) => Promise<string>
   issueTrackerResolveBranchName: (
     connectionId: string,
     issue: TrackerIssue,
@@ -490,6 +491,7 @@ interface TrackerIssue {
 interface TrackerBoard {
   id: string
   name: string
+  projectKey?: string
 }
 
 interface TrackerStatus {
