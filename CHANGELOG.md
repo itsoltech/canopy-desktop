@@ -1,3 +1,30 @@
+## [0.7.0](https://github.com/itsoltech/canopy-desktop/compare/v0.6.2...v0.7.0) (2026-03-30)
+
+### Features
+
+* add file browser with read-only editor pane ([#18](https://github.com/itsoltech/canopy-desktop/issues/18)) ([9b5fb27](https://github.com/itsoltech/canopy-desktop/commit/9b5fb275b42c74f120bf8bb8f021676cb40a1440))
+* next branch pre-release pipeline and update channel settings ([#19](https://github.com/itsoltech/canopy-desktop/issues/19)) ([528b0c5](https://github.com/itsoltech/canopy-desktop/commit/528b0c599cb0354a43500fbf377ed053e224f877))
+* post-update changelog modal with release notes ([#22](https://github.com/itsoltech/canopy-desktop/issues/22)) ([2575ef6](https://github.com/itsoltech/canopy-desktop/commit/2575ef69d2cc6e21d165163efb94529426eb5e11))
+* **sidebar:** agent status indicators on worktree items ([#25](https://github.com/itsoltech/canopy-desktop/issues/25)) ([52f8238](https://github.com/itsoltech/canopy-desktop/commit/52f82386c86e496c9de1e6284fb9ee0758d59216))
+* **sidebar:** draggable resize handle ([#30](https://github.com/itsoltech/canopy-desktop/issues/30)) ([6eac17b](https://github.com/itsoltech/canopy-desktop/commit/6eac17bc0f2b6b01227a4fdfa0817226fd5155f0))
+* **sidebar:** section visibility and ordering settings ([#28](https://github.com/itsoltech/canopy-desktop/issues/28)) ([e69c684](https://github.com/itsoltech/canopy-desktop/commit/e69c684d6f30aff627b8af630ff5c227b32edab2))
+
+### Bug Fixes
+
+* **ci:** add --auto flag to auto-merge gh pr merge command ([2028541](https://github.com/itsoltech/canopy-desktop/commit/20285418dd83c411141553bbe179fea8420364d9))
+* **ci:** correct required label name to claude:review:approved ([c5f1758](https://github.com/itsoltech/canopy-desktop/commit/c5f1758b1d44e954c6c1db6847ee013b1f5cc5ac))
+* **ci:** use PAT for semantic-release to bypass branch ruleset ([4c367e2](https://github.com/itsoltech/canopy-desktop/commit/4c367e2bca7a58ec4b11afb59833f5c36c1095fc))
+* **menu:** add Preferences item to macOS app menu ([#29](https://github.com/itsoltech/canopy-desktop/issues/29)) ([a5d9344](https://github.com/itsoltech/canopy-desktop/commit/a5d9344a166c793a697c36a8e7bd19eb566aa983))
+* **notch:** disable text selection in notch overlay ([a2b0e56](https://github.com/itsoltech/canopy-desktop/commit/a2b0e56f780c0af33a7932a33b6003147549658f))
+* **notch:** remove 5-item cap and fix height calculation in agent list ([#24](https://github.com/itsoltech/canopy-desktop/issues/24)) ([224595f](https://github.com/itsoltech/canopy-desktop/commit/224595f48454ae856b081241fe3d4b25289040e7))
+* **terminal:** preserve scroll position when new content arrives ([#26](https://github.com/itsoltech/canopy-desktop/issues/26)) ([7507315](https://github.com/itsoltech/canopy-desktop/commit/75073154541f69fbea0284497add5c72a273a8ca))
+* **updater:** bypass unreliable quitAndInstall on macOS ([#27](https://github.com/itsoltech/canopy-desktop/issues/27)) ([ff2ce6f](https://github.com/itsoltech/canopy-desktop/commit/ff2ce6f0cf12eef6ac2c48617ad2ac55343d7ab6))
+* **updater:** use quitAndInstall on macOS instead of app.relaunch ([7e441cc](https://github.com/itsoltech/canopy-desktop/commit/7e441cc5708ca2689d10eebebf95ae770321c0b4))
+
+### Refactoring
+
+* **sidebar:** remove file tree section from sidebar ([c24b1da](https://github.com/itsoltech/canopy-desktop/commit/c24b1da031c4b877893b88d3d62ccfd581fa800f))
+
 ## [0.7.0-next.10](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.9...v0.7.0-next.10) (2026-03-30)
 
 ### Features
