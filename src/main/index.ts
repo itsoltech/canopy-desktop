@@ -144,6 +144,12 @@ function buildAppMenu(): void {
             submenu: [
               { label: 'About Canopy', click: showAboutClick },
               { type: 'separator' as const },
+              {
+                label: 'Preferences…',
+                accelerator: 'CmdOrCtrl+,',
+                click: showPreferencesClick,
+              },
+              { type: 'separator' as const },
               { role: 'hide' as const },
               { role: 'hideOthers' as const },
               { role: 'unhide' as const },
