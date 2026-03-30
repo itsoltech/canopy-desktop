@@ -136,7 +136,12 @@
   <div class="action-buttons">
     <div class="capture-wrapper">
       {#if pickMode !== 'none'}
-        <button class="nav-btn cancel-btn" onclick={onCancelPick} title="Cancel (Esc)">
+        <button
+          class="nav-btn cancel-btn"
+          onclick={onCancelPick}
+          title="Cancel (Esc)"
+          aria-label="Cancel pick"
+        >
           <X size={14} />
         </button>
         <span class="pick-label">
@@ -149,6 +154,7 @@
           disabled={!hasAiSessions}
           onclick={() => (captureDropdownOpen ? closeDropdown() : openDropdown())}
           title={hasAiSessions ? 'Capture to AI agent' : 'No AI sessions open'}
+          aria-label={hasAiSessions ? 'Capture to AI agent' : 'No AI sessions open'}
         >
           <Crosshair size={14} />
         </button>
@@ -187,6 +193,7 @@
         class="nav-btn"
         onclick={onSwitchDevToolsMode}
         title="Switch DevTools position ({devToolsMode === 'bottom' ? 'right' : 'bottom'})"
+        aria-label="Switch DevTools position to {devToolsMode === 'bottom' ? 'right' : 'bottom'}"
       >
         {#if devToolsMode === 'bottom'}
           <PanelRight size={14} />
@@ -200,6 +207,7 @@
       class:active={isDevToolsOpen}
       onclick={onToggleDevTools}
       title="Toggle DevTools"
+      aria-label="Toggle DevTools"
     >
       <Code size={14} />
     </button>

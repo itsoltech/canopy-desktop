@@ -399,6 +399,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .tab-badge.orange,
     .tab-badge.connection-badge {
       animation: none;
     }
