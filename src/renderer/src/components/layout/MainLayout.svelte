@@ -11,6 +11,7 @@
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
+  import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import {
     dialogState,
     closeDialog,
@@ -61,6 +62,37 @@
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
+
+  // Sidebar resize state
+  const SIDEBAR_MIN = 150
+  const SIDEBAR_MAX = 600
+  let sidebarWidth = $state(parseInt(getPref('sidebar.width', '220'), 10) || 220)
+  let sidebarDragging = $state(false)
+  let sidebarDragStart = 0
+
+  function handleSidebarPointerDown(e: PointerEvent): void {
+    e.preventDefault()
+    const target = e.currentTarget as HTMLElement
+    target.setPointerCapture(e.pointerId)
+    sidebarDragging = true
+    sidebarDragStart = e.clientX
+  }
+
+  function handleSidebarPointerMove(e: PointerEvent): void {
+    if (!sidebarDragging) return
+    const delta = e.clientX - sidebarDragStart
+    if (delta !== 0) {
+      sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, sidebarWidth + delta))
+      sidebarDragStart = e.clientX
+    }
+  }
+
+  function handleSidebarPointerUp(): void {
+    if (sidebarDragging) {
+      sidebarDragging = false
+      setPref('sidebar.width', String(sidebarWidth))
+    }
+  }
 
   let allTabs = $derived(getAllTabs())
   let currentActiveTabId = $derived(
@@ -380,7 +412,16 @@
 
 <main class="main-layout">
   {#if workspaceState.sidebarOpen && projects.length > 0}
-    <Sidebar onLaunchTool={handleLaunchTool} />
+    <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="sidebar-resize-handle"
+      class:dragging={sidebarDragging}
+      onpointerdown={handleSidebarPointerDown}
+      onpointermove={handleSidebarPointerMove}
+      onpointerup={handleSidebarPointerUp}
+      onpointercancel={handleSidebarPointerUp}
+    ></div>
   {/if}
 
   <div class="center-area">
@@ -429,6 +470,19 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+  }
+
+  .sidebar-resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+
+  .sidebar-resize-handle:hover,
+  .sidebar-resize-handle.dragging {
+    background: rgba(116, 192, 252, 0.3);
   }
 
   .center-area {
