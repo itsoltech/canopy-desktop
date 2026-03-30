@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
 
-  type UpdateState = 'idle' | 'up-to-date' | 'available' | 'downloading' | 'ready' | 'error'
+  type UpdateState =
+    | 'idle'
+    | 'up-to-date'
+    | 'available'
+    | 'downloading'
+    | 'ready'
+    | 'installing'
+    | 'error'
 
   let state: UpdateState = $state('idle')
   let version = $state('')
@@ -46,6 +53,9 @@
           autoDismissTimer = null
         }, 5000)
       }),
+      window.api.onUpdateInstalling(() => {
+        state = 'installing'
+      }),
     ]
     return () => {
       unsubs.forEach((fn) => fn())
@@ -76,6 +86,8 @@
       <div class="progress-track">
         <div class="progress-fill" style="width: {percent}%"></div>
       </div>
+    {:else if state === 'installing'}
+      <span class="text">Installing update…</span>
     {:else if state === 'ready'}
       <span class="text">Update v{version} ready</span>
       <button class="btn primary" onclick={restart}>Restart Now</button>

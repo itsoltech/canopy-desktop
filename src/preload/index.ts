@@ -122,6 +122,14 @@ const api = {
     }
   },
 
+  onUpdateInstalling: (callback: () => void) => {
+    const handler = (): void => callback()
+    ipcRenderer.on('update:installing', handler)
+    return (): void => {
+      ipcRenderer.removeListener('update:installing', handler)
+    }
+  },
+
   // Changelog
   getChangelogSinceVersion: (fromVersion: string) =>
     ipcRenderer.invoke('app:getChangelogSinceVersion', { fromVersion }),
