@@ -92,10 +92,13 @@ export const jiraClient: IssueTrackerProviderClient = {
   },
 
   async fetchBoards(connection, token) {
+    const params = connection.projectKey
+      ? `?projectKeyOrId=${encodeURIComponent(connection.projectKey)}`
+      : '?maxResults=50'
     const data = await jiraFetch<{ values: Array<{ id: number; name: string }> }>(
       connection,
       token,
-      `/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(connection.projectKey)}`,
+      `/rest/agile/1.0/board${params}`,
     )
     return data.values.map(
       (b): TrackerBoard => ({

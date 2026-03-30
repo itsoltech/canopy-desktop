@@ -90,6 +90,19 @@ export class IssueTrackerManager {
     return client.testConnection(tempConn, token)
   }
 
+  async fetchBoardsForNew(
+    connection: Omit<IssueTrackerConnection, 'id' | 'authPrefKey'>,
+    token: string,
+  ): Promise<TrackerBoard[]> {
+    const tempConn: IssueTrackerConnection = {
+      ...connection,
+      id: 'temp',
+      authPrefKey: 'temp',
+    }
+    const client = createProviderClient(connection.provider)
+    return client.fetchBoards(tempConn, token)
+  }
+
   async fetchBoards(connectionId: string): Promise<TrackerBoard[]> {
     const conn = this.getConnection(connectionId)
     const token = this.getToken(conn)

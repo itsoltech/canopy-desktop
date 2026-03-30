@@ -809,6 +809,27 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(
+    'issueTracker:fetchBoardsForNew',
+    async (
+      _event,
+      payload: {
+        provider: IssueTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const { token, ...connectionData } = payload
+      return issueTrackerManager.fetchBoardsForNew(
+        { ...connectionData, projectKey: connectionData.projectKey ?? '' },
+        token,
+      )
+    },
+  )
+
+  ipcMain.handle(
     'issueTracker:fetchStatuses',
     async (_event, payload: { connectionId: string; boardId?: string }) => {
       return issueTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)

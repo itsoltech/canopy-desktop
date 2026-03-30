@@ -11,11 +11,13 @@
   let newProvider = $state<'jira' | 'youtrack'>('jira')
   let newName = $state('')
   let newBaseUrl = $state('')
-  let newProjectKey = $state('')
   let newUsername = $state('')
   let newToken = $state('')
   let testing = $state(false)
   let testResult = $state<'success' | 'fail' | ''>('')
+  let availableBoards = $state<Array<{ id: string; name: string }>>([])
+  let selectedBoardId = $state('')
+  let loadingBoards = $state(false)
 
   // --- Branch Template ---
   let branchTemplate = $derived.by(() => {
@@ -106,16 +108,35 @@
   async function testNewConnection(): Promise<void> {
     testing = true
     testResult = ''
+    availableBoards = []
+    selectedBoardId = ''
     try {
       await window.api.issueTrackerTestNewConnection({
         provider: newProvider,
         name: newName,
         baseUrl: newBaseUrl.replace(/\/$/, ''),
-        projectKey: newProjectKey,
+        projectKey: '',
         username: newUsername || undefined,
         token: newToken,
       })
       testResult = 'success'
+      loadingBoards = true
+      try {
+        availableBoards = await window.api.issueTrackerFetchBoardsForNew({
+          provider: newProvider,
+          name: newName,
+          baseUrl: newBaseUrl.replace(/\/$/, ''),
+          username: newUsername || undefined,
+          token: newToken,
+        })
+        if (availableBoards.length > 0) {
+          selectedBoardId = availableBoards[0].id
+        }
+      } catch {
+        addToast('Connected but failed to fetch boards')
+      } finally {
+        loadingBoards = false
+      }
     } catch {
       testResult = 'fail'
     } finally {
@@ -124,12 +145,14 @@
   }
 
   async function addConnection(): Promise<void> {
+    const board = availableBoards.find((b) => b.id === selectedBoardId)
     try {
       await window.api.issueTrackerAddConnection({
         provider: newProvider,
         name: newName,
         baseUrl: newBaseUrl.replace(/\/$/, ''),
-        projectKey: newProjectKey,
+        projectKey: board?.name ?? '',
+        boardId: selectedBoardId || undefined,
         username: newUsername || undefined,
         token: newToken,
       })
@@ -152,10 +175,11 @@
     newProvider = 'jira'
     newName = ''
     newBaseUrl = ''
-    newProjectKey = ''
     newUsername = ''
     newToken = ''
     testResult = ''
+    availableBoards = []
+    selectedBoardId = ''
   }
 
   async function loadStatusesFromApi(): Promise<void> {
@@ -289,10 +313,6 @@
           placeholder="https://company.atlassian.net"
         />
       </div>
-      <div class="form-row">
-        <label class="form-label">Project Key</label>
-        <input class="form-input" bind:value={newProjectKey} placeholder="PROJ" />
-      </div>
       {#if newProvider === 'jira'}
         <div class="form-row">
           <label class="form-label">Email</label>
@@ -303,23 +323,44 @@
         <label class="form-label">API Token</label>
         <input class="form-input" type="password" bind:value={newToken} placeholder="Enter token" />
       </div>
+      {#if testResult === 'success' && availableBoards.length > 0}
+        <div class="form-row">
+          <label class="form-label">Board</label>
+          <select class="form-select" bind:value={selectedBoardId}>
+            {#each availableBoards as board (board.id)}
+              <option value={board.id}>{board.name}</option>
+            {/each}
+          </select>
+        </div>
+      {:else if loadingBoards}
+        <div class="form-row">
+          <label class="form-label">Board</label>
+          <span class="loading-text">Loading boards...</span>
+        </div>
+      {/if}
       <div class="form-actions">
         <button class="btn btn-secondary" onclick={resetAddForm}>Cancel</button>
-        <button class="btn btn-secondary" onclick={testNewConnection} disabled={testing}>
-          {#if testing}Testing...{:else}Test{/if}
+        <button
+          class="btn btn-secondary"
+          onclick={testNewConnection}
+          disabled={testing || !newBaseUrl || !newToken}
+        >
+          {#if testing}Testing...{:else}Test Connection{/if}
         </button>
         {#if testResult === 'success'}
           <span class="test-ok"><Check size={14} /> OK</span>
         {:else if testResult === 'fail'}
           <span class="test-fail"><X size={14} /> Failed</span>
         {/if}
-        <button
-          class="btn btn-primary"
-          onclick={addConnection}
-          disabled={!newName || !newBaseUrl || !newToken}
-        >
-          Add
-        </button>
+        {#if testResult === 'success'}
+          <button
+            class="btn btn-primary"
+            onclick={addConnection}
+            disabled={!newName || !selectedBoardId}
+          >
+            Add
+          </button>
+        {/if}
       </div>
     </div>
   {:else}
@@ -755,5 +796,10 @@
     font-size: 12px;
     color: rgba(255, 255, 255, 0.35);
     margin: 4px 0;
+  }
+
+  .loading-text {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
   }
 </style>

@@ -495,6 +495,14 @@ const api = {
   }) => ipcRenderer.invoke('issueTracker:testNewConnection', connection),
   issueTrackerFetchBoards: (connectionId: string) =>
     ipcRenderer.invoke('issueTracker:fetchBoards', { connectionId }),
+  issueTrackerFetchBoardsForNew: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('issueTracker:fetchBoardsForNew', connection),
   issueTrackerFetchStatuses: (connectionId: string, boardId?: string) =>
     ipcRenderer.invoke('issueTracker:fetchStatuses', { connectionId, boardId }),
   issueTrackerFetchIssues: (

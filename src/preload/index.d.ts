@@ -421,6 +421,14 @@ interface CanopyAPI {
     token: string
   }) => Promise<boolean>
   issueTrackerFetchBoards: (connectionId: string) => Promise<TrackerBoard[]>
+  issueTrackerFetchBoardsForNew: (connection: {
+    provider: IssueTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey?: string
+    username?: string
+    token: string
+  }) => Promise<TrackerBoard[]>
   issueTrackerFetchStatuses: (connectionId: string, boardId?: string) => Promise<TrackerStatus[]>
   issueTrackerFetchIssues: (
     connectionId: string,
