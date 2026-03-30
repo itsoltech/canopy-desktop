@@ -469,6 +469,41 @@ const api = {
   readFile: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
 
+  // Issue Tracker
+  issueTrackerGetConnections: () => ipcRenderer.invoke('issueTracker:getConnections'),
+  issueTrackerAddConnection: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('issueTracker:addConnection', connection),
+  issueTrackerRemoveConnection: (connectionId: string) =>
+    ipcRenderer.invoke('issueTracker:removeConnection', { connectionId }),
+  issueTrackerTestConnection: (connectionId: string) =>
+    ipcRenderer.invoke('issueTracker:testConnection', { connectionId }),
+  issueTrackerTestNewConnection: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('issueTracker:testNewConnection', connection),
+  issueTrackerFetchBoards: (connectionId: string) =>
+    ipcRenderer.invoke('issueTracker:fetchBoards', { connectionId }),
+  issueTrackerFetchStatuses: (connectionId: string, boardId?: string) =>
+    ipcRenderer.invoke('issueTracker:fetchStatuses', { connectionId, boardId }),
+  issueTrackerFetchIssues: (
+    connectionId: string,
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => ipcRenderer.invoke('issueTracker:fetchIssues', { connectionId, ...params }),
+  issueTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
+    ipcRenderer.invoke('issueTracker:getCurrentSprint', { connectionId, boardId }),
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 }

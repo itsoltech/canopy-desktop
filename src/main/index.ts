@@ -17,6 +17,7 @@ import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
+import { IssueTrackerManager } from './issueTracker/IssueTrackerManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange } from './changelog/fetchChangelog'
@@ -378,6 +379,8 @@ app.whenReady().then(async () => {
   windowManager.setClaudeSessionManager(claudeSessionManager)
   windowManager.setBrowserManager(browserManager)
 
+  const issueTrackerManager = new IssueTrackerManager(preferencesStore)
+
   registerIpcHandlers(
     ptyManager,
     wsBridge,
@@ -388,6 +391,7 @@ app.whenReady().then(async () => {
     claudeSessionManager,
     windowManager,
     browserManager,
+    issueTrackerManager,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {

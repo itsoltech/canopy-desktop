@@ -398,8 +398,87 @@ interface CanopyAPI {
   readDir: (dirPath: string) => Promise<DirEntry[]>
   readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
 
+  // Issue Tracker
+  issueTrackerGetConnections: () => Promise<IssueTrackerConnectionInfo[]>
+  issueTrackerAddConnection: (connection: {
+    provider: IssueTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => Promise<IssueTrackerConnectionInfo>
+  issueTrackerRemoveConnection: (connectionId: string) => Promise<void>
+  issueTrackerTestConnection: (connectionId: string) => Promise<boolean>
+  issueTrackerTestNewConnection: (connection: {
+    provider: IssueTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => Promise<boolean>
+  issueTrackerFetchBoards: (connectionId: string) => Promise<TrackerBoard[]>
+  issueTrackerFetchStatuses: (
+    connectionId: string,
+    boardId?: string,
+  ) => Promise<TrackerStatus[]>
+  issueTrackerFetchIssues: (
+    connectionId: string,
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => Promise<TrackerIssue[]>
+  issueTrackerGetCurrentSprint: (
+    connectionId: string,
+    boardId?: string,
+  ) => Promise<TrackerSprint | null>
+
   // File utilities
   getPathForFile: (file: File) => string
+}
+
+type IssueTrackerProvider = 'jira' | 'youtrack'
+
+interface IssueTrackerConnectionInfo {
+  id: string
+  provider: IssueTrackerProvider
+  name: string
+  baseUrl: string
+  projectKey: string
+  boardId?: string
+  username?: string
+}
+
+interface TrackerIssue {
+  key: string
+  summary: string
+  description: string
+  status: string
+  priority: string
+  type: string
+  parentKey?: string
+  sprintName?: string
+  sprintNumber?: number
+  assignee?: string
+  url?: string
+}
+
+interface TrackerBoard {
+  id: string
+  name: string
+}
+
+interface TrackerStatus {
+  id: string
+  name: string
+}
+
+interface TrackerSprint {
+  id: string
+  name: string
+  number?: number
+  state: 'active' | 'closed' | 'future'
 }
 
 type SessionStatusType =

@@ -21,6 +21,8 @@ const execFileAsync = promisify(execFile)
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
+import type { IssueTrackerManager } from '../issueTracker/IssueTrackerManager'
+import type { IssueTrackerProvider } from '../issueTracker/types'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -37,6 +39,7 @@ export function registerIpcHandlers(
   claudeSessionManager: ClaudeSessionManager,
   windowManager: WindowManager,
   browserManager: BrowserManager,
+  issueTrackerManager: IssueTrackerManager,
 ): void {
   // --- PTY ---
 
@@ -737,6 +740,101 @@ export function registerIpcHandlers(
       await fd.close()
     }
   })
+
+  // --- Issue Tracker ---
+
+  ipcMain.handle('issueTracker:getConnections', () => {
+    return issueTrackerManager.getConnections()
+  })
+
+  ipcMain.handle(
+    'issueTracker:addConnection',
+    async (
+      _event,
+      payload: {
+        provider: IssueTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey: string
+        boardId?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const { token, ...connectionData } = payload
+      return issueTrackerManager.addConnection(connectionData, token)
+    },
+  )
+
+  ipcMain.handle(
+    'issueTracker:removeConnection',
+    (_event, payload: { connectionId: string }) => {
+      issueTrackerManager.removeConnection(payload.connectionId)
+    },
+  )
+
+  ipcMain.handle(
+    'issueTracker:testConnection',
+    async (_event, payload: { connectionId: string }) => {
+      return issueTrackerManager.testConnection(payload.connectionId)
+    },
+  )
+
+  ipcMain.handle(
+    'issueTracker:testNewConnection',
+    async (
+      _event,
+      payload: {
+        provider: IssueTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey: string
+        boardId?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const { token, ...connectionData } = payload
+      return issueTrackerManager.testNewConnection(connectionData, token)
+    },
+  )
+
+  ipcMain.handle(
+    'issueTracker:fetchBoards',
+    async (_event, payload: { connectionId: string }) => {
+      return issueTrackerManager.fetchBoards(payload.connectionId)
+    },
+  )
+
+  ipcMain.handle(
+    'issueTracker:fetchStatuses',
+    async (_event, payload: { connectionId: string; boardId?: string }) => {
+      return issueTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)
+    },
+  )
+
+  ipcMain.handle(
+    'issueTracker:fetchIssues',
+    async (
+      _event,
+      payload: {
+        connectionId: string
+        statuses?: string[]
+        assignedToMe?: boolean
+        boardId?: string
+      },
+    ) => {
+      const { connectionId, ...params } = payload
+      return issueTrackerManager.fetchIssues(connectionId, params)
+    },
+  )
+
+  ipcMain.handle(
+    'issueTracker:getCurrentSprint',
+    async (_event, payload: { connectionId: string; boardId?: string }) => {
+      return issueTrackerManager.getCurrentSprint(payload.connectionId, payload.boardId)
+    },
+  )
 
   // --- Worktree Setup ---
 
