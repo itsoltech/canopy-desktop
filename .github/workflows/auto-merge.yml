@@ -37,9 +37,21 @@ jobs:
             echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check PR is open
+        id: state
+        if: steps.pr.outputs.number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          STATE=$(gh pr view "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --json state --jq '.state')
+          if [ "$STATE" != "OPEN" ]; then
+            echo "PR #${{ steps.pr.outputs.number }} is $STATE, skipping"
+          fi
+          echo "open=$( [ "$STATE" = "OPEN" ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
+
       - name: Check required label
         id: label
-        if: steps.pr.outputs.number
+        if: steps.state.outputs.open == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

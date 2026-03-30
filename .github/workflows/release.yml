@@ -3,6 +3,17 @@ name: Release
 on:
   push:
     branches: [main, next]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'electron-builder.yml'
+      - 'electron.vite.config.ts'
+      - 'svelte.config.mjs'
+      - 'tsconfig*.json'
+      - 'build/**'
+      - 'resources/**'
+      - '.releaserc'
   workflow_dispatch:
     inputs:
       dry_run:
