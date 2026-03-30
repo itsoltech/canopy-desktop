@@ -17,7 +17,9 @@ import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
+import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
+import { fetchChangelogRange } from './changelog/fetchChangelog'
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -142,6 +144,12 @@ function buildAppMenu(): void {
             submenu: [
               { label: 'About Canopy', click: showAboutClick },
               { type: 'separator' as const },
+              {
+                label: 'Preferences…',
+                accelerator: 'CmdOrCtrl+,',
+                click: showPreferencesClick,
+              },
+              { type: 'separator' as const },
               { role: 'hide' as const },
               { role: 'hideOthers' as const },
               { role: 'unhide' as const },
@@ -239,10 +247,19 @@ app.whenReady().then(async () => {
 
   buildAppMenu()
 
+  // Track version changes for post-update changelog
+  const currentVersion = app.getVersion()
+  const lastSeenVersion = preferencesStore.get('app.lastSeenVersion')
+  const versionChanged = lastSeenVersion !== null && lastSeenVersion !== currentVersion
+  preferencesStore.set('app.lastSeenVersion', currentVersion)
+
   if (app.isPackaged) {
+    const updateChannel = preferencesStore.get('update.channel') ?? 'stable'
+    const autoUpdate = preferencesStore.get('update.autoUpdate') !== 'false'
+
     autoUpdater.logger = console
-    autoUpdater.autoDownload = true
-    autoUpdater.allowPrerelease = false
+    autoUpdater.autoDownload = autoUpdate
+    autoUpdater.allowPrerelease = updateChannel === 'next'
 
     const broadcast = (channel: string, data: unknown): void => {
       for (const win of BrowserWindow.getAllWindows()) {
@@ -275,11 +292,27 @@ app.whenReady().then(async () => {
 
     autoUpdater.on('update-downloaded', (info) => {
       updateDownloaded = true
+      autoUpdater.autoInstallOnAppQuit = true
       broadcast('update:downloaded', { version: info.version, releaseNotes: info.releaseNotes })
     })
 
     autoUpdater.on('error', (err) => {
       broadcast('update:error', { message: err.message })
+    })
+
+    ipcMain.handle('app:setUpdateChannel', (_e, channel: string) => {
+      if (channel !== 'stable' && channel !== 'next') return
+      const allowPrerelease = channel === 'next'
+      autoUpdater.allowPrerelease = allowPrerelease
+      preferencesStore.set('update.channel', channel)
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.warn('Update check after channel switch failed:', err)
+      })
+    })
+
+    ipcMain.handle('app:setAutoUpdate', (_e, enabled: boolean) => {
+      autoUpdater.autoDownload = enabled
+      preferencesStore.set('update.autoUpdate', enabled ? 'true' : 'false')
     })
 
     ipcMain.handle('app:checkForUpdates', () => {
@@ -290,17 +323,49 @@ app.whenReady().then(async () => {
       })
     })
 
-    ipcMain.handle('app:installUpdate', () => {
-      if (!updateDownloaded) return
+    ipcMain.handle('app:installUpdate', async () => {
+      if (!updateDownloaded || updateInstalling) return
+
+      console.log('[updater] installUpdate requested')
+
       const configs = windowManager.getAllWindowConfigs()
       if (configs.length > 0) {
         preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
       } else {
         preferencesStore.delete('openWindowConfigs')
       }
+
       updateInstalling = true
       windowManager.isQuitting = true
-      autoUpdater.quitAndInstall(true, true)
+
+      // Broadcast installing state and give renderer time to render it
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('update:installing', {})
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500))
+
+      // Destroy all windows to prevent lifecycle conflicts
+      const closePromises = BrowserWindow.getAllWindows().map(
+        (win) =>
+          new Promise<void>((resolve) => {
+            if (win.isDestroyed()) return resolve()
+            win.once('closed', () => resolve())
+            win.destroy()
+          }),
+      )
+      await Promise.all(closePromises)
+      console.log('[updater] all windows destroyed')
+
+      app.releaseSingleInstanceLock()
+      setImmediate(() => {
+        autoUpdater.quitAndInstall(true, true)
+      })
+
+      // Safety net: force exit if quit hangs
+      setTimeout(() => {
+        console.error('[updater] quit did not complete within 10s — forcing exit')
+        app.exit(0)
+      }, 10_000)
     })
 
     autoUpdater.checkForUpdates().catch((err) => {
@@ -311,6 +376,7 @@ app.whenReady().then(async () => {
   claudeSessionManager = new ClaudeSessionManager()
   claudeSessionManager.cleanupOrphans()
   windowManager.setClaudeSessionManager(claudeSessionManager)
+  windowManager.setBrowserManager(browserManager)
 
   registerIpcHandlers(
     ptyManager,
@@ -345,6 +411,15 @@ app.whenReady().then(async () => {
     homepage: 'https://canopy.itsol.tech',
     license: readFileSync(join(app.getAppPath(), 'LICENSE.md'), 'utf-8'),
   }))
+
+  ipcMain.handle(
+    'app:getChangelogSinceVersion',
+    async (_e, { fromVersion }: { fromVersion: string }) => {
+      if (typeof fromVersion !== 'string' || !semver.valid(fromVersion)) return null
+      const channel = (preferencesStore.get('update.channel') ?? 'stable') as 'stable' | 'next'
+      return fetchChangelogRange(fromVersion, app.getVersion(), channel)
+    },
+  )
 
   // Force-close stale WebSocket clients on system wake so renderer reconnects
   powerMonitor.on('resume', () => {
@@ -388,6 +463,14 @@ app.whenReady().then(async () => {
       if (lastPath) windowConfigs = [{ paths: [lastPath] }]
     }
 
+    let changelogSent = false
+    const sendChangelog = (win: BrowserWindow): void => {
+      if (!changelogSent && versionChanged && lastSeenVersion) {
+        win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
+        changelogSent = true
+      }
+    }
+
     if (windowConfigs.length > 0) {
       for (const config of windowConfigs) {
         const win = windowManager.createWindow()
@@ -398,13 +481,20 @@ app.whenReady().then(async () => {
           if (config.activeWorktreePath) {
             win.webContents.send('workspace:restoreActive', config.activeWorktreePath)
           }
+          sendChangelog(win)
         })
       }
     } else {
-      windowManager.createWindow()
+      const win = windowManager.createWindow()
+      win.once('ready-to-show', () => sendChangelog(win))
     }
   } else {
-    windowManager.createWindow()
+    const win = windowManager.createWindow()
+    win.once('ready-to-show', () => {
+      if (versionChanged && lastSeenVersion) {
+        win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
+      }
+    })
   }
 
   // Initialize notch overlay after main window so the panel doesn't suppress the dock icon
@@ -445,6 +535,15 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', (event) => {
+  // During update install, skip cleanup that could interfere with Squirrel.
+  // Window configs already saved; windows already destroyed.
+  if (updateInstalling) {
+    notchOverlay?.dispose()
+    claudeSessionManager?.dispose()
+    database.close()
+    return
+  }
+
   if (!windowManager.isQuitting) {
     const activeInfo = windowManager.hasAnyActiveSession()
     if (activeInfo) {
@@ -473,14 +572,11 @@ app.on('before-quit', (event) => {
     }
   }
 
-  // Save per-window project configs (skip if update already saved them)
-  if (!updateInstalling) {
-    const configs = windowManager.getAllWindowConfigs()
-    if (configs.length > 0) {
-      preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
-    } else {
-      preferencesStore.delete('openWindowConfigs')
-    }
+  const configs = windowManager.getAllWindowConfigs()
+  if (configs.length > 0) {
+    preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
+  } else {
+    preferencesStore.delete('openWindowConfigs')
   }
 
   notchOverlay?.dispose()

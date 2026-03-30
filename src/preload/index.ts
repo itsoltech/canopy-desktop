@@ -63,6 +63,8 @@ const api = {
   // Auto-update
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
   installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+  setUpdateChannel: (channel: string) => ipcRenderer.invoke('app:setUpdateChannel', channel),
+  setAutoUpdate: (enabled: boolean) => ipcRenderer.invoke('app:setAutoUpdate', enabled),
 
   onUpdateAvailable: (callback: (data: { version: string; releaseNotes?: string }) => void) => {
     const handler = (
@@ -117,6 +119,27 @@ const api = {
     ipcRenderer.on('update:error', handler)
     return (): void => {
       ipcRenderer.removeListener('update:error', handler)
+    }
+  },
+
+  onUpdateInstalling: (callback: () => void) => {
+    const handler = (): void => callback()
+    ipcRenderer.on('update:installing', handler)
+    return (): void => {
+      ipcRenderer.removeListener('update:installing', handler)
+    }
+  },
+
+  // Changelog
+  getChangelogSinceVersion: (fromVersion: string) =>
+    ipcRenderer.invoke('app:getChangelogSinceVersion', { fromVersion }),
+
+  onShowChangelog: (callback: (data: { fromVersion: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { fromVersion: string }): void =>
+      callback(data)
+    ipcRenderer.on('app:showChangelog', handler)
+    return (): void => {
+      ipcRenderer.removeListener('app:showChangelog', handler)
     }
   },
 

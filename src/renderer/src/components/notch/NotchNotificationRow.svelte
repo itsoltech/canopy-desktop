@@ -80,6 +80,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    height: 48px;
+    box-sizing: border-box;
     padding: 8px 12px;
     margin: 0 6px;
     width: calc(100% - 12px);

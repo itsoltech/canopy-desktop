@@ -12,6 +12,8 @@
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
+  import { worktreeBadges } from '../../lib/claude/claudeState.svelte'
+  import { getWorktreeClaudeStatus } from '../../lib/claude/worktreeStatus.svelte'
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
     if (wt.branch !== '(detached)') return wt.branch
@@ -378,6 +380,8 @@
         <ul class="worktree-list">
           {#each sortedWorktrees(project.worktrees) as wt (wt.path)}
             {@const wtActive = isWorktreeActive(wt.path)}
+            {@const claudeStatus = getWorktreeClaudeStatus(wt.path)}
+            {@const wtBadge = worktreeBadges[wt.path] ?? 'none'}
             <li class="worktree-row">
               <button
                 class="worktree-item"
@@ -385,7 +389,25 @@
                 onclick={() => selectWorktree(wt.path)}
                 oncontextmenu={(e) => handleWorktreeContextMenu(e, project, wt)}
               >
-                <span class="indicator">{wt.isMain ? '*' : ' '}</span>
+                <span
+                  class="indicator"
+                  class:has-dot={claudeStatus !== 'none'}
+                  title={claudeStatus !== 'none' ? `Agent: ${claudeStatus}` : undefined}
+                  aria-label={claudeStatus !== 'none' ? `Agent status: ${claudeStatus}` : undefined}
+                >
+                  {#if claudeStatus !== 'none'}
+                    <span class="wt-status-dot {claudeStatus}" aria-hidden="true"></span>
+                    {#if wtBadge !== 'none'}
+                      <span
+                        class="wt-notify-dot"
+                        class:permission={wtBadge === 'permission'}
+                        aria-hidden="true"
+                      ></span>
+                    {/if}
+                  {:else}
+                    {wt.isMain ? '*' : ' '}
+                  {/if}
+                </span>
                 <span class="branch-name" title={wt.path}>{worktreeLabel(wt)}</span>
                 {#if wt.branch === '(detached)'}
                   <span class="detached-badge" title={wt.head}>{wt.head.slice(0, 7)}</span>
@@ -599,6 +621,71 @@
     color: rgba(255, 255, 255, 0.5);
     width: 10px;
     flex-shrink: 0;
+  }
+
+  .indicator.has-dot {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .wt-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .wt-status-dot.idle {
+    background: rgba(100, 200, 100, 0.6);
+  }
+
+  .wt-status-dot.working {
+    background: rgba(116, 192, 252, 0.8);
+    animation: wt-pulse 1.5s ease-in-out infinite;
+  }
+
+  .wt-status-dot.waitingPermission {
+    background: rgba(255, 160, 50, 0.9);
+    animation: wt-pulse 1s ease-in-out infinite;
+  }
+
+  .wt-status-dot.error {
+    background: rgba(255, 100, 100, 0.8);
+  }
+
+  .wt-notify-dot {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(116, 192, 252, 0.8);
+  }
+
+  .wt-notify-dot.permission {
+    background: rgba(255, 160, 50, 0.9);
+    animation: wt-pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes wt-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wt-status-dot.working,
+    .wt-status-dot.waitingPermission,
+    .wt-notify-dot.permission {
+      animation: none;
+    }
   }
 
   .branch-name {

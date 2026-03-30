@@ -1,10 +1,15 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, next]
   pull_request:
     branches: [main, next]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:

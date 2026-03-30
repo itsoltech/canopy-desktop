@@ -153,6 +153,12 @@ interface ClaudeStatusData {
   }
 }
 
+interface ChangelogEntry {
+  version: string
+  date: string
+  body: string
+}
+
 interface UpdateInfo {
   version: string
   releaseNotes?: string
@@ -214,11 +220,18 @@ interface CanopyAPI {
   // Auto-update
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>
+  setUpdateChannel: (channel: string) => Promise<void>
+  setAutoUpdate: (enabled: boolean) => Promise<void>
   onUpdateAvailable: (callback: (data: UpdateInfo) => void) => () => void
   onUpdateProgress: (callback: (data: UpdateProgress) => void) => () => void
   onUpdateDownloaded: (callback: (data: UpdateInfo) => void) => () => void
   onUpdateNotAvailable: (callback: () => void) => () => void
   onUpdateError: (callback: (data: { message: string }) => void) => () => void
+  onUpdateInstalling: (callback: () => void) => () => void
+
+  // Changelog
+  getChangelogSinceVersion: (fromVersion: string) => Promise<ChangelogEntry[] | null>
+  onShowChangelog: (callback: (data: { fromVersion: string }) => void) => () => void
 
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>

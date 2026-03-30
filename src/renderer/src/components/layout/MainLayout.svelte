@@ -8,13 +8,16 @@
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
+  import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
+  import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import {
     dialogState,
     closeDialog,
     showPreferences,
     showAbout,
+    showChangelog,
   } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -52,10 +55,44 @@
     handleStatusUpdate,
     clearBadge,
     setBadge,
+    setWorktreeBadge,
+    clearWorktreeBadge,
   } from '../../lib/claude/claudeState.svelte'
+  import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
+
+  // Sidebar resize state
+  const SIDEBAR_MIN = 150
+  const SIDEBAR_MAX = 600
+  let sidebarWidth = $state(parseInt(getPref('sidebar.width', '220'), 10) || 220)
+  let sidebarDragging = $state(false)
+  let sidebarDragStart = 0
+
+  function handleSidebarPointerDown(e: PointerEvent): void {
+    e.preventDefault()
+    const target = e.currentTarget as HTMLElement
+    target.setPointerCapture(e.pointerId)
+    sidebarDragging = true
+    sidebarDragStart = e.clientX
+  }
+
+  function handleSidebarPointerMove(e: PointerEvent): void {
+    if (!sidebarDragging) return
+    const delta = e.clientX - sidebarDragStart
+    if (delta !== 0) {
+      sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, sidebarWidth + delta))
+      sidebarDragStart = e.clientX
+    }
+  }
+
+  function handleSidebarPointerUp(): void {
+    if (sidebarDragging) {
+      sidebarDragging = false
+      setPref('sidebar.width', String(sidebarWidth))
+    }
+  }
 
   let allTabs = $derived(getAllTabs())
   let currentActiveTabId = $derived(
@@ -105,13 +142,22 @@
       if (session && session.claudeSessionId !== prevSessionId && session.claudeSessionId) {
         saveAllLayouts()
       }
+      const name = (data.event as { hook_event_name?: string }).hook_event_name
       // Only set badge if this session is NOT the active tab
       if (data.ptySessionId !== activeClaudePtySessionId) {
-        const name = (data.event as { hook_event_name?: string }).hook_event_name
         if (name === 'PermissionRequest') {
           setBadge(data.ptySessionId, 'permission')
         } else if (name === 'Stop' || name === 'PostToolUse') {
           setBadge(data.ptySessionId, 'unread')
+        }
+      }
+      // Set worktree badge if session is in a non-selected worktree
+      const sessionWorktreePath = findWorktreeForSession(data.ptySessionId)
+      if (sessionWorktreePath && sessionWorktreePath !== workspaceState.selectedWorktreePath) {
+        if (name === 'PermissionRequest') {
+          setWorktreeBadge(sessionWorktreePath, 'permission')
+        } else if (name === 'Stop' || name === 'PostToolUse') {
+          setWorktreeBadge(sessionWorktreePath, 'unread')
         }
       }
     })
@@ -168,6 +214,13 @@
     return window.api.onMenuShowPreferences(() => showPreferences())
   })
 
+  // Subscribe to post-update changelog push event
+  $effect(() => {
+    return window.api.onShowChangelog((data) => {
+      showChangelog(data.fromVersion)
+    })
+  })
+
   // Save layouts on window close
   $effect(() => {
     const handler = (): void => saveAllLayouts()
@@ -199,6 +252,12 @@
     if (activeClaudePtySessionId) {
       clearBadge(activeClaudePtySessionId)
     }
+  })
+
+  // Clear worktree badge when worktree is selected
+  $effect(() => {
+    const path = workspaceState.selectedWorktreePath
+    if (path) clearWorktreeBadge(path)
   })
 
   // Notify main process about focused Claude session for notch peek suppression
@@ -345,13 +404,24 @@
   <PreferencesModal />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
+{:else if dialogState.current.type === 'changelog'}
+  <ChangelogModal fromVersion={dialogState.current.fromVersion} />
 {/if}
 
 <Toast />
 
 <main class="main-layout">
   {#if workspaceState.sidebarOpen && projects.length > 0}
-    <Sidebar onLaunchTool={handleLaunchTool} />
+    <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="sidebar-resize-handle"
+      class:dragging={sidebarDragging}
+      onpointerdown={handleSidebarPointerDown}
+      onpointermove={handleSidebarPointerMove}
+      onpointerup={handleSidebarPointerUp}
+      onpointercancel={handleSidebarPointerUp}
+    ></div>
   {/if}
 
   <div class="center-area">
@@ -400,6 +470,19 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+  }
+
+  .sidebar-resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+
+  .sidebar-resize-handle:hover,
+  .sidebar-resize-handle.dragging {
+    background: rgba(116, 192, 252, 0.3);
   }
 
   .center-area {

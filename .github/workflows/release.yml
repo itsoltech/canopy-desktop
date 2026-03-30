@@ -1,6 +1,19 @@
 name: Release
 
 on:
+  push:
+    branches: [main, next]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'electron-builder.yml'
+      - 'electron.vite.config.ts'
+      - 'svelte.config.mjs'
+      - 'tsconfig*.json'
+      - 'build/**'
+      - 'resources/**'
+      - '.releaserc'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -25,7 +38,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - uses: volta-cli/action@v4
 
@@ -39,7 +53,7 @@ jobs:
             conventional-changelog-conventionalcommits
           dry_run: ${{ inputs.dry_run }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Summary
         if: steps.semantic.outputs.new_release_published == 'true'
@@ -127,8 +141,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-version.outputs.tag }}
           NOTES: ${{ needs.release-version.outputs.notes }}
+          VERSION: ${{ needs.release-version.outputs.version }}
         run: |
+          PRERELEASE_FLAG=""
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
           gh release edit "$TAG" \
             --repo "$GH_REPO" \
             --notes "$NOTES" \
-            --draft=false
+            --draft=false \
+            $PRERELEASE_FLAG

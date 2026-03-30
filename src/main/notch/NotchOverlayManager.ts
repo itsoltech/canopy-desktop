@@ -8,7 +8,7 @@ import type { NotchSessionStatus, NotchOverlayState, SessionStatusType } from '.
 // Window is oversized so CSS animations can expand freely inside it.
 // Transparent pixels are click-through on macOS.
 const WINDOW_WIDTH = 560
-const WINDOW_HEIGHT = 500
+const WINDOW_HEIGHT = 650
 
 export class NotchOverlayManager {
   private overlayWindow: BrowserWindow | null = null
