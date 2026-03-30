@@ -1,3 +1,13 @@
+## [0.7.0-next.10](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.9...v0.7.0-next.10) (2026-03-30)
+
+### Features
+
+* **sidebar:** draggable resize handle ([#30](https://github.com/itsoltech/canopy-desktop/issues/30)) ([6eac17b](https://github.com/itsoltech/canopy-desktop/commit/6eac17bc0f2b6b01227a4fdfa0817226fd5155f0))
+
+### Bug Fixes
+
+* **menu:** add Preferences item to macOS app menu ([#29](https://github.com/itsoltech/canopy-desktop/issues/29)) ([a5d9344](https://github.com/itsoltech/canopy-desktop/commit/a5d9344a166c793a697c36a8e7bd19eb566aa983))
+
 ## [0.7.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.8...v0.7.0-next.9) (2026-03-30)
 
 ### Bug Fixes
