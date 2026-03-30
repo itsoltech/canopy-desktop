@@ -1,3 +1,9 @@
+## [0.7.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.8...v0.7.0-next.9) (2026-03-30)
+
+### Bug Fixes
+
+* **updater:** use quitAndInstall on macOS instead of app.relaunch ([7e441cc](https://github.com/itsoltech/canopy-desktop/commit/7e441cc5708ca2689d10eebebf95ae770321c0b4))
+
 ## [0.7.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.7...v0.7.0-next.8) (2026-03-30)
 
 ### Features
