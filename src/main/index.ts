@@ -40,6 +40,26 @@ const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 let manualCheckInProgress = false
 let updateInstalling = false
+let updateCheckInFlight = false
+
+const checkWithChannelResolution = async (): Promise<void> => {
+  if (updateCheckInFlight) return
+  updateCheckInFlight = true
+  try {
+    const ch = preferencesStore.get('update.channel') ?? 'stable'
+    if (ch === 'next') {
+      const effective = await resolveUpdateChannel(app.getVersion())
+      autoUpdater.channel = effective
+      autoUpdater.allowPrerelease = true
+    } else {
+      autoUpdater.channel = 'latest'
+      autoUpdater.allowPrerelease = false
+    }
+    await autoUpdater.checkForUpdates()
+  } finally {
+    updateCheckInFlight = false
+  }
+}
 
 let agentSessionManager: AgentSessionManager | null = null
 let notchOverlay: NotchOverlayManager | null = null
@@ -129,7 +149,7 @@ function buildAppMenu(): void {
   const checkForUpdatesClick = (): void => {
     if (app.isPackaged) {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -260,26 +280,6 @@ app.whenReady().then(async () => {
     autoUpdater.logger = console
     autoUpdater.autoDownload = autoUpdate
     autoUpdater.allowPrerelease = updateChannel === 'next'
-
-    let updateCheckInFlight = false
-    const checkWithChannelResolution = async (): Promise<void> => {
-      if (updateCheckInFlight) return
-      updateCheckInFlight = true
-      try {
-        const ch = preferencesStore.get('update.channel') ?? 'stable'
-        if (ch === 'next') {
-          const effective = await resolveUpdateChannel(app.getVersion())
-          autoUpdater.channel = effective
-          autoUpdater.allowPrerelease = true
-        } else {
-          autoUpdater.channel = 'latest'
-          autoUpdater.allowPrerelease = false
-        }
-        await autoUpdater.checkForUpdates()
-      } finally {
-        updateCheckInFlight = false
-      }
-    }
 
     const broadcast = (channel: string, data: unknown): void => {
       for (const win of BrowserWindow.getAllWindows()) {
