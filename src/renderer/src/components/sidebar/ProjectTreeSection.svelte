@@ -389,11 +389,19 @@
                 onclick={() => selectWorktree(wt.path)}
                 oncontextmenu={(e) => handleWorktreeContextMenu(e, project, wt)}
               >
-                <span class="indicator" class:has-dot={claudeStatus !== 'none'}>
+                <span
+                  class="indicator"
+                  class:has-dot={claudeStatus !== 'none'}
+                  title={claudeStatus !== 'none' ? `Agent: ${claudeStatus}` : undefined}
+                  aria-label={claudeStatus !== 'none' ? `Agent status: ${claudeStatus}` : undefined}
+                >
                   {#if claudeStatus !== 'none'}
-                    <span class="wt-status-dot {claudeStatus}"></span>
+                    <span class="wt-status-dot {claudeStatus}" aria-hidden="true"></span>
                     {#if wtBadge !== 'none'}
-                      <span class="wt-notify-dot" class:permission={wtBadge === 'permission'}
+                      <span
+                        class="wt-notify-dot"
+                        class:permission={wtBadge === 'permission'}
+                        aria-hidden="true"
                       ></span>
                     {/if}
                   {:else}
@@ -669,6 +677,14 @@
     }
     50% {
       opacity: 0.4;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wt-status-dot.working,
+    .wt-status-dot.waitingPermission,
+    .wt-notify-dot.permission {
+      animation: none;
     }
   }
 

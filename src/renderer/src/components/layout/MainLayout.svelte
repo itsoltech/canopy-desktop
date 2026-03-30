@@ -110,9 +110,9 @@
       if (session && session.claudeSessionId !== prevSessionId && session.claudeSessionId) {
         saveAllLayouts()
       }
+      const name = (data.event as { hook_event_name?: string }).hook_event_name
       // Only set badge if this session is NOT the active tab
       if (data.ptySessionId !== activeClaudePtySessionId) {
-        const name = (data.event as { hook_event_name?: string }).hook_event_name
         if (name === 'PermissionRequest') {
           setBadge(data.ptySessionId, 'permission')
         } else if (name === 'Stop' || name === 'PostToolUse') {
@@ -122,7 +122,6 @@
       // Set worktree badge if session is in a non-selected worktree
       const sessionWorktreePath = findWorktreeForSession(data.ptySessionId)
       if (sessionWorktreePath && sessionWorktreePath !== workspaceState.selectedWorktreePath) {
-        const name = (data.event as { hook_event_name?: string }).hook_event_name
         if (name === 'PermissionRequest') {
           setWorktreeBadge(sessionWorktreePath, 'permission')
         } else if (name === 'Stop' || name === 'PostToolUse') {
