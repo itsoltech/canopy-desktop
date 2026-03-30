@@ -108,40 +108,43 @@ export const jiraClient: IssueTrackerProviderClient = {
     )
   },
 
-  async fetchStatuses(connection, token, boardId) {
-    const resolvedBoardId = boardId || connection.boardId
-    if (resolvedBoardId) {
-      const data = await jiraFetch<{
-        columnConfig?: { columns?: Array<{ name: string; statuses?: Array<{ id: string }> }> }
-      }>(connection, token, `/rest/agile/1.0/board/${resolvedBoardId}/configuration`)
-      return (
-        data.columnConfig?.columns?.map(
-          (c): TrackerStatus => ({
-            id: c.name,
-            name: c.name,
-          }),
-        ) ?? []
-      )
-    }
-
-    if (!connection.projectKey) {
+  async fetchStatuses(connection, token, _boardId) {
+    // Use /rest/api/3/statuses to get all actual issue statuses
+    try {
+      const data = await jiraFetch<
+        Array<{ id: string; name: string; statusCategory?: { key?: string } }>
+      >(connection, token, '/rest/api/3/statuses')
+      const seen = new Set<string>()
+      const statuses: TrackerStatus[] = []
+      for (const s of data) {
+        if (!seen.has(s.name)) {
+          seen.add(s.name)
+          statuses.push({ id: s.id, name: s.name })
+        }
+      }
+      return statuses
+    } catch {
+      // Fallback: try project statuses if available
+      if (connection.projectKey) {
+        const data = await jiraFetch<Array<{ statuses?: Array<{ id: string; name: string }> }>>(
+          connection,
+          token,
+          `/rest/api/3/project/${encodeURIComponent(connection.projectKey)}/statuses`,
+        )
+        const seen = new Set<string>()
+        const statuses: TrackerStatus[] = []
+        for (const category of data) {
+          for (const s of category.statuses ?? []) {
+            if (!seen.has(s.name)) {
+              seen.add(s.name)
+              statuses.push({ id: s.id, name: s.name })
+            }
+          }
+        }
+        return statuses
+      }
       return []
     }
-
-    const data = await jiraFetch<Array<{ id: string; name: string }>>(
-      connection,
-      token,
-      `/rest/api/3/project/${encodeURIComponent(connection.projectKey)}/statuses`,
-    )
-    const seen = new Set<string>()
-    const statuses: TrackerStatus[] = []
-    for (const category of data) {
-      if (!seen.has(category.name)) {
-        seen.add(category.name)
-        statuses.push({ id: category.id, name: category.name })
-      }
-    }
-    return statuses
   },
 
   async fetchIssues(connection, token, params) {
