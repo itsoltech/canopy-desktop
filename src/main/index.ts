@@ -18,6 +18,7 @@ import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { isSafeExternalUrl } from './security/validateUrl'
+import { fetchChangelogRange } from './changelog/fetchChangelog'
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -239,6 +240,12 @@ app.whenReady().then(async () => {
 
   buildAppMenu()
 
+  // Track version changes for post-update changelog
+  const currentVersion = app.getVersion()
+  const lastSeenVersion = preferencesStore.get('app.lastSeenVersion')
+  const versionChanged = lastSeenVersion !== null && lastSeenVersion !== currentVersion
+  preferencesStore.set('app.lastSeenVersion', currentVersion)
+
   if (app.isPackaged) {
     const updateChannel = preferencesStore.get('update.channel') ?? 'stable'
     const autoUpdate = preferencesStore.get('update.autoUpdate') !== 'false'
@@ -364,6 +371,14 @@ app.whenReady().then(async () => {
     license: readFileSync(join(app.getAppPath(), 'LICENSE.md'), 'utf-8'),
   }))
 
+  ipcMain.handle(
+    'app:getChangelogSinceVersion',
+    async (_e, { fromVersion }: { fromVersion: string }) => {
+      const channel = (preferencesStore.get('update.channel') ?? 'stable') as 'stable' | 'next'
+      return fetchChangelogRange(fromVersion, app.getVersion(), channel)
+    },
+  )
+
   // Force-close stale WebSocket clients on system wake so renderer reconnects
   powerMonitor.on('resume', () => {
     wsBridge.disconnectAllClients()
@@ -406,6 +421,12 @@ app.whenReady().then(async () => {
       if (lastPath) windowConfigs = [{ paths: [lastPath] }]
     }
 
+    const sendChangelog = (win: BrowserWindow): void => {
+      if (versionChanged && lastSeenVersion) {
+        win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
+      }
+    }
+
     if (windowConfigs.length > 0) {
       for (const config of windowConfigs) {
         const win = windowManager.createWindow()
@@ -416,13 +437,20 @@ app.whenReady().then(async () => {
           if (config.activeWorktreePath) {
             win.webContents.send('workspace:restoreActive', config.activeWorktreePath)
           }
+          sendChangelog(win)
         })
       }
     } else {
-      windowManager.createWindow()
+      const win = windowManager.createWindow()
+      win.once('ready-to-show', () => sendChangelog(win))
     }
   } else {
-    windowManager.createWindow()
+    const win = windowManager.createWindow()
+    win.once('ready-to-show', () => {
+      if (versionChanged && lastSeenVersion) {
+        win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
+      }
+    })
   }
 
   // Initialize notch overlay after main window so the panel doesn't suppress the dock icon
