@@ -352,15 +352,13 @@
         {:else if testResult === 'fail'}
           <span class="test-fail"><X size={14} /> Failed</span>
         {/if}
-        {#if testResult === 'success'}
-          <button
-            class="btn btn-primary"
-            onclick={addConnection}
-            disabled={!newName || !selectedBoardId}
-          >
-            Add
-          </button>
-        {/if}
+        <button
+          class="btn btn-primary"
+          onclick={addConnection}
+          disabled={!newName || !newBaseUrl || !newToken}
+        >
+          Add
+        </button>
       </div>
     </div>
   {:else}
