@@ -19,7 +19,7 @@ import { BrowserManager } from './browser/BrowserManager'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
-import { fetchChangelogRange } from './changelog/fetchChangelog'
+import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -40,6 +40,26 @@ const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 let manualCheckInProgress = false
 let updateInstalling = false
+let updateCheckInFlight = false
+
+const checkWithChannelResolution = async (): Promise<void> => {
+  if (updateCheckInFlight) return
+  updateCheckInFlight = true
+  try {
+    const ch = preferencesStore.get('update.channel') ?? 'stable'
+    if (ch === 'next') {
+      const effective = await resolveUpdateChannel(app.getVersion())
+      autoUpdater.channel = effective
+      autoUpdater.allowPrerelease = true
+    } else {
+      autoUpdater.channel = 'latest'
+      autoUpdater.allowPrerelease = false
+    }
+    await autoUpdater.checkForUpdates()
+  } finally {
+    updateCheckInFlight = false
+  }
+}
 
 let agentSessionManager: AgentSessionManager | null = null
 let notchOverlay: NotchOverlayManager | null = null
@@ -129,7 +149,7 @@ function buildAppMenu(): void {
   const checkForUpdatesClick = (): void => {
     if (app.isPackaged) {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -302,10 +322,8 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:setUpdateChannel', (_e, channel: string) => {
       if (channel !== 'stable' && channel !== 'next') return
-      const allowPrerelease = channel === 'next'
-      autoUpdater.allowPrerelease = allowPrerelease
       preferencesStore.set('update.channel', channel)
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         console.warn('Update check after channel switch failed:', err)
       })
     })
@@ -317,7 +335,7 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:checkForUpdates', () => {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -368,7 +386,7 @@ app.whenReady().then(async () => {
       }, 10_000)
     })
 
-    autoUpdater.checkForUpdates().catch((err) => {
+    checkWithChannelResolution().catch((err) => {
       console.warn('Auto-update check failed:', err)
     })
   }
