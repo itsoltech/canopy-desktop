@@ -318,7 +318,7 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('app:installUpdate', async () => {
-      if (!updateDownloaded) return
+      if (!updateDownloaded || updateInstalling) return
 
       console.log('[updater] installUpdate requested')
 
@@ -332,10 +332,11 @@ app.whenReady().then(async () => {
       updateInstalling = true
       windowManager.isQuitting = true
 
-      // Broadcast installing state to renderer before destroying windows
+      // Broadcast installing state and give renderer time to render it
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send('update:installing', {})
       }
+      await new Promise((resolve) => setTimeout(resolve, 500))
 
       // Destroy all windows to prevent lifecycle conflicts
       const closePromises = BrowserWindow.getAllWindows().map(
@@ -359,7 +360,7 @@ app.whenReady().then(async () => {
       } else {
         // Windows/Linux: quitAndInstall works reliably
         setImmediate(() => {
-          autoUpdater.quitAndInstall(false, true)
+          autoUpdater.quitAndInstall(true, true)
         })
       }
 
@@ -542,6 +543,7 @@ app.on('before-quit', (event) => {
   if (updateInstalling) {
     notchOverlay?.dispose()
     claudeSessionManager?.dispose()
+    database.close()
     return
   }
 
