@@ -1,3 +1,9 @@
+## [0.7.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.6...v0.7.0-next.7) (2026-03-30)
+
+### Bug Fixes
+
+* **updater:** bypass unreliable quitAndInstall on macOS ([#27](https://github.com/itsoltech/canopy-desktop/issues/27)) ([ff2ce6f](https://github.com/itsoltech/canopy-desktop/commit/ff2ce6f0cf12eef6ac2c48617ad2ac55343d7ab6))
+
 ## [0.7.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0-next.5...v0.7.0-next.6) (2026-03-30)
 
 ### Bug Fixes
