@@ -162,9 +162,7 @@
       <h2 class="section-title">Recent</h2>
       <div class="workspace-list">
         {#each workspaces as ws (ws.id)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div
+          <button
             class="workspace-card"
             onclick={() => handleOpen(ws)}
             oncontextmenu={(e) => handleContextMenu(e, ws)}
@@ -200,7 +198,7 @@
                 {/if}
               </span>
             </div>
-          </div>
+          </button>
         {/each}
       </div>
     {/if}
@@ -254,10 +252,22 @@
   }
 
   .workspace-card {
+    display: block;
+    width: 100%;
     padding: 10px 12px;
+    border: none;
     border-radius: 6px;
+    background: none;
+    font-family: inherit;
+    text-align: left;
     cursor: pointer;
     transition: background 0.08s;
+    outline: none;
+  }
+
+  .workspace-card:focus-visible {
+    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline-offset: 1px;
   }
 
   .workspace-card:hover {
