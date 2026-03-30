@@ -342,7 +342,7 @@
         saveBranchTemplate()
         updatePreview()
       }}
-      placeholder="s{sprint}/{issueKey}"
+      placeholder={'s{sprint}/{issueKey}'}
     />
   </div>
   <div class="preview-row">
@@ -390,7 +390,7 @@
       class="form-input"
       value={prTitleTemplate}
       oninput={(e) => setPref('issueTracker.prTitleTemplate', (e.target as HTMLInputElement).value)}
-      placeholder="[{issueKey}] {issueTitle}"
+      placeholder={'[{issueKey}] {issueTitle}'}
     />
   </div>
   <div class="form-row">
@@ -400,7 +400,7 @@
       value={prBodyTemplate}
       oninput={(e) =>
         setPref('issueTracker.prBodyTemplate', (e.target as HTMLTextAreaElement).value)}
-      placeholder="## {issueKey}: {issueTitle}"
+      placeholder={'## {issueKey}: {issueTitle}'}
       rows="3"
     ></textarea>
   </div>
