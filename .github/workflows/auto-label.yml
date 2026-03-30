@@ -28,6 +28,7 @@ jobs:
         if: github.event_name == 'issues'
         uses: anthropics/claude-code-action@v1
         with:
+          allowed_bots: 'claude,dependabot'
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
@@ -44,6 +45,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: anthropics/claude-code-action@v1
         with:
+          allowed_bots: 'claude,dependabot'
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}

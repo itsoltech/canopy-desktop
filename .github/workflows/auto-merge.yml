@@ -1,18 +1,59 @@
 name: Auto Merge
 
 on:
+  check_suite:
+    types: [completed]
   pull_request:
-    types: [opened, reopened]
+    types: [labeled]
 
 jobs:
-  enable-auto-merge:
+  auto-merge:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+      checks: read
     steps:
-      - name: Enable auto-merge
-        run: gh pr merge --auto --squash "$PR_URL"
+      - name: Resolve PR number
+        id: pr
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          else
+            NUMBER=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.check_suite.head_sha }}/pulls" --jq '.[0].number // empty')
+            if [ -z "$NUMBER" ]; then
+              echo "No PR found for this check suite"
+              exit 0
+            fi
+            echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check required label
+        id: label
+        if: steps.pr.outputs.number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HAS=$(gh pr view "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | any(. == "claude:review:approved")')
+          echo "approved=$HAS" >> "$GITHUB_OUTPUT"
+
+      - name: Check all status checks passed
+        id: checks
+        if: steps.label.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FAILED=$(gh pr checks "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --json name,state --jq '[.[] | select(.name != "auto-merge" and .state != "SUCCESS" and .state != "SKIPPED")] | length')
+          if [ "$FAILED" = "0" ]; then
+            echo "all_passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "all_passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Squash merge
+        if: steps.checks.outputs.all_passed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --squash --delete-branch
