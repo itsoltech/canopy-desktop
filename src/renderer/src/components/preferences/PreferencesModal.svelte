@@ -27,9 +27,7 @@
 
   function resolveInitialSection(): Section {
     if (initialSection) {
-      const match = sections.find(
-        (s) => s.toLowerCase() === initialSection!.toLowerCase(),
-      )
+      const match = sections.find((s) => s.toLowerCase() === initialSection!.toLowerCase())
       if (match) return match
     }
     return 'General'

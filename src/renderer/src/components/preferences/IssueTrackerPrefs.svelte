@@ -33,7 +33,9 @@
   let newVarValue = $state('')
 
   // --- PR Template ---
-  let prTitleTemplate = $derived(prefs['issueTracker.prTitleTemplate'] || '[{issueKey}] {issueTitle}')
+  let prTitleTemplate = $derived(
+    prefs['issueTracker.prTitleTemplate'] || '[{issueKey}] {issueTitle}',
+  )
   let prBodyTemplate = $derived(
     prefs['issueTracker.prBodyTemplate'] || '## {issueKey}: {issueTitle}\n\n{issueUrl}',
   )
@@ -280,7 +282,11 @@
       </div>
       <div class="form-row">
         <label class="form-label">Base URL</label>
-        <input class="form-input" bind:value={newBaseUrl} placeholder="https://company.atlassian.net" />
+        <input
+          class="form-input"
+          bind:value={newBaseUrl}
+          placeholder="https://company.atlassian.net"
+        />
       </div>
       <div class="form-row">
         <label class="form-label">Project Key</label>
@@ -306,7 +312,11 @@
         {:else if testResult === 'fail'}
           <span class="test-fail"><X size={14} /> Failed</span>
         {/if}
-        <button class="btn btn-primary" onclick={addConnection} disabled={!newName || !newBaseUrl || !newToken}>
+        <button
+          class="btn btn-primary"
+          onclick={addConnection}
+          disabled={!newName || !newBaseUrl || !newToken}
+        >
           Add
         </button>
       </div>
@@ -327,7 +337,10 @@
     <input
       class="form-input"
       bind:value={templateInput}
-      oninput={() => { saveBranchTemplate(); updatePreview() }}
+      oninput={() => {
+        saveBranchTemplate()
+        updatePreview()
+      }}
       placeholder="s{sprint}/{issueKey}"
     />
   </div>
@@ -338,12 +351,14 @@
 
   <div class="placeholder-list">
     <span class="placeholder-hint">Available: </span>
-    {#each ['{sprint}', '{sprintName}', '{issueKey}', '{parentKey}', '{issueType}', '{issueTitle}', '{boardKey}'] as ph}
+    {#each ['{sprint}', '{sprintName}', '{issueKey}', '{parentKey}', '{issueType}', '{issueTitle}', '{boardKey}'] as ph (ph)}
       <code class="placeholder-tag">{ph}</code>
     {/each}
   </div>
 
-  <p class="section-desc" style="margin-top: 12px;">Conditional: <code>{'{?parentKey}...{/parentKey}'}</code> — only renders if parentKey exists.</p>
+  <p class="section-desc" style="margin-top: 12px;">
+    Conditional: <code>{'{?parentKey}...{/parentKey}'}</code> — only renders if parentKey exists.
+  </p>
 
   <h4 class="subsection-title">Custom Variables</h4>
   {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
@@ -382,7 +397,8 @@
     <textarea
       class="form-textarea"
       value={prBodyTemplate}
-      oninput={(e) => setPref('issueTracker.prBodyTemplate', (e.target as HTMLTextAreaElement).value)}
+      oninput={(e) =>
+        setPref('issueTracker.prBodyTemplate', (e.target as HTMLTextAreaElement).value)}
       placeholder="## {issueKey}: {issueTitle}"
       rows="3"
     ></textarea>
@@ -413,12 +429,17 @@
 
   <h4 class="subsection-title" style="margin-top: 12px;">
     Status Filter
-    <button class="icon-btn" onclick={loadStatusesFromApi} disabled={loadingStatuses} title="Refresh from API">
+    <button
+      class="icon-btn"
+      onclick={loadStatusesFromApi}
+      disabled={loadingStatuses}
+      title="Refresh from API"
+    >
       <RefreshCw size={12} />
     </button>
   </h4>
   {#if availableStatuses.length > 0}
-    {#each availableStatuses as status}
+    {#each availableStatuses as status (status)}
       <label class="checkbox-row">
         <input
           type="checkbox"

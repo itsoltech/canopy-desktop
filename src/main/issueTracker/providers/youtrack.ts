@@ -33,7 +33,7 @@ function buildHeaders(token: string): HeadersInit {
 async function ytFetch<T>(
   connection: IssueTrackerConnection,
   token: string,
-  path: string
+  path: string,
 ): Promise<T> {
   const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
   const res = await fetch(url, { headers: buildHeaders(token) })
@@ -46,9 +46,7 @@ async function ytFetch<T>(
 
 function extractField(issue: YTIssue, fieldName: string): string {
   const field = issue.fields?.find(
-    (f) =>
-      f.name === fieldName ||
-      f.projectCustomField?.field?.name === fieldName
+    (f) => f.name === fieldName || f.projectCustomField?.field?.name === fieldName,
   )
   if (!field?.value) return ''
   if (Array.isArray(field.value)) return field.value[0]?.name ?? ''
@@ -102,13 +100,13 @@ export const youtrackClient: IssueTrackerProviderClient = {
     const data = await ytFetch<Array<{ id: string; name: string }>>(
       connection,
       token,
-      `/api/agiles?fields=id,name&$top=50`
+      `/api/agiles?fields=id,name&$top=50`,
     )
     return data.map(
       (b): TrackerBoard => ({
         id: b.id,
         name: b.name,
-      })
+      }),
     )
   },
 
@@ -122,11 +120,11 @@ export const youtrackClient: IssueTrackerProviderClient = {
     >(
       connection,
       token,
-      `/api/admin/projects/${encodeURIComponent(connection.projectKey)}/customFields?fields=id,name,bundle(values(name))&$top=50`
+      `/api/admin/projects/${encodeURIComponent(connection.projectKey)}/customFields?fields=id,name,bundle(values(name))&$top=50`,
     )
 
     const stateField = data.find(
-      (f) => f.name === 'State' || f.name.toLowerCase().includes('state')
+      (f) => f.name === 'State' || f.name.toLowerCase().includes('state'),
     )
     if (!stateField?.values) return []
 
@@ -134,7 +132,7 @@ export const youtrackClient: IssueTrackerProviderClient = {
       (v): TrackerStatus => ({
         id: v.name,
         name: v.name,
-      })
+      }),
     )
   },
 
@@ -156,7 +154,7 @@ export const youtrackClient: IssueTrackerProviderClient = {
     const data = await ytFetch<YTIssue[]>(
       connection,
       token,
-      `/api/issues?query=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&$top=100`
+      `/api/issues?query=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&$top=100`,
     )
 
     return data.map((i) => mapYTIssue(i, connection.baseUrl))
@@ -174,12 +172,12 @@ export const youtrackClient: IssueTrackerProviderClient = {
     >(
       connection,
       token,
-      `/api/agiles/${boardId}/sprints?fields=id,name,isResolved,start,finish&$top=10`
+      `/api/agiles/${boardId}/sprints?fields=id,name,isResolved,start,finish&$top=10`,
     )
 
     const now = Date.now()
     const active = data.find(
-      (s) => !s.isResolved && s.start && s.finish && s.start <= now && s.finish >= now
+      (s) => !s.isResolved && s.start && s.finish && s.start <= now && s.finish >= now,
     )
     if (!active) {
       const unresolved = data.find((s) => !s.isResolved)

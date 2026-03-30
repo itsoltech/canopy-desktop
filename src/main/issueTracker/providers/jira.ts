@@ -43,7 +43,7 @@ function buildAuthHeaders(connection: IssueTrackerConnection, token: string): He
 async function jiraFetch<T>(
   connection: IssueTrackerConnection,
   token: string,
-  path: string
+  path: string,
 ): Promise<T> {
   const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
   const res = await fetch(url, { headers: buildAuthHeaders(connection, token) })
@@ -95,13 +95,13 @@ export const jiraClient: IssueTrackerProviderClient = {
     const data = await jiraFetch<{ values: Array<{ id: number; name: string }> }>(
       connection,
       token,
-      `/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(connection.projectKey)}`
+      `/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(connection.projectKey)}`,
     )
     return data.values.map(
       (b): TrackerBoard => ({
         id: String(b.id),
         name: b.name,
-      })
+      }),
     )
   },
 
@@ -115,7 +115,7 @@ export const jiraClient: IssueTrackerProviderClient = {
           (c): TrackerStatus => ({
             id: c.name,
             name: c.name,
-          })
+          }),
         ) ?? []
       )
     }
@@ -123,7 +123,7 @@ export const jiraClient: IssueTrackerProviderClient = {
     const data = await jiraFetch<Array<{ id: string; name: string }>>(
       connection,
       token,
-      `/rest/api/3/project/${encodeURIComponent(connection.projectKey)}/statuses`
+      `/rest/api/3/project/${encodeURIComponent(connection.projectKey)}/statuses`,
     )
     const seen = new Set<string>()
     const statuses: TrackerStatus[] = []
@@ -153,7 +153,7 @@ export const jiraClient: IssueTrackerProviderClient = {
     const data = await jiraFetch<{ issues: JiraIssue[] }>(
       connection,
       token,
-      `/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=100`
+      `/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=100`,
     )
 
     return data.issues.map((i) => mapJiraIssue(i, connection.baseUrl))

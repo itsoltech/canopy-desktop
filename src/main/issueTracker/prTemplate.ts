@@ -37,7 +37,7 @@ export function resolveTargetBranch(
 
   if (!matchingRule) return defaultBranch
 
-  let target = matchingRule.targetPattern
+  const target = matchingRule.targetPattern
     .replace(/\{parentKey\}/g, issue.parentKey ?? '')
     .replace(/\{issueKey\}/g, issue.key)
     .replace(/\{boardKey\}/g, issue.key.split('-')[0] ?? '')

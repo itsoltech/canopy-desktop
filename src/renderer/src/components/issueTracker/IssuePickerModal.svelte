@@ -18,8 +18,7 @@
     if (!searchQuery) return issues
     const q = searchQuery.toLowerCase()
     return issues.filter(
-      (i) =>
-        i.key.toLowerCase().includes(q) || i.summary.toLowerCase().includes(q),
+      (i) => i.key.toLowerCase().includes(q) || i.summary.toLowerCase().includes(q),
     )
   })
 
@@ -152,7 +151,11 @@
             <span class="issue-key">{issue.key}</span>
             <span class="issue-summary">{issue.summary}</span>
             <span class="status-badge">{issue.status}</span>
-            <span class="priority-dot" style="color: {priorityColor(issue.priority)}" title={issue.priority}>
+            <span
+              class="priority-dot"
+              style="color: {priorityColor(issue.priority)}"
+              title={issue.priority}
+            >
               ●
             </span>
             <button
@@ -169,7 +172,9 @@
 
     <div class="picker-footer">
       <span class="hint">↑↓ navigate · Enter select · Esc close</span>
-      <span class="count">{filteredIssues.length} issue{filteredIssues.length !== 1 ? 's' : ''}</span>
+      <span class="count"
+        >{filteredIssues.length} issue{filteredIssues.length !== 1 ? 's' : ''}</span
+      >
     </div>
   </div>
 </div>

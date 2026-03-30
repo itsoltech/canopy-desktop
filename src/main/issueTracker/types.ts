@@ -93,16 +93,16 @@ export interface IssueTrackerProviderClient {
   fetchStatuses(
     connection: IssueTrackerConnection,
     token: string,
-    boardId?: string
+    boardId?: string,
   ): Promise<TrackerStatus[]>
   fetchIssues(
     connection: IssueTrackerConnection,
     token: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string }
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
   ): Promise<TrackerIssue[]>
   getCurrentSprint(
     connection: IssueTrackerConnection,
     token: string,
-    boardId?: string
+    boardId?: string,
   ): Promise<TrackerSprint | null>
 }

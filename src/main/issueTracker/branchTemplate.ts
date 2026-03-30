@@ -42,7 +42,7 @@ function slugify(text: string, maxLength = 50): string {
 function sanitizeBranchName(name: string): string {
   return name
     .replace(/\.\./g, '.')
-    .replace(/[~^:?*\[\]\\@{}\s]/g, '-')
+    .replace(/[~^:?*[\]\\@{}\s]/g, '-')
     .replace(/\/\//g, '/')
     .replace(/\/{2,}/g, '/')
     .replace(/^\/|\/$/g, '')
@@ -68,10 +68,7 @@ export function buildVariables(
   return vars
 }
 
-export function renderBranchName(
-  template: string,
-  variables: Record<string, string>,
-): string {
+export function renderBranchName(template: string, variables: Record<string, string>): string {
   // Handle conditional segments: {?varName}content{/varName}
   let result = template.replace(
     /\{\?(\w+)\}(.*?)\{\/\1\}/g,
@@ -125,10 +122,7 @@ export function validateTemplate(template: string): { valid: boolean; errors: st
   return { valid: errors.length === 0, errors }
 }
 
-export function renderPreview(
-  template: string,
-  customVars: Record<string, string> = {},
-): string {
+export function renderPreview(template: string, customVars: Record<string, string> = {}): string {
   const mockVariables: Record<string, string> = {
     sprint: '10',
     sprintName: 'Sprint 10',
