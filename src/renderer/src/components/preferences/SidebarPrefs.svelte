@@ -1,0 +1,172 @@
+<script lang="ts">
+  import { ChevronUp, ChevronDown } from '@lucide/svelte'
+  import {
+    SECTION_DEFS,
+    getSidebarConfig,
+    saveSidebarConfig,
+    type SidebarSectionConfig,
+  } from '../../lib/stores/sidebarSections.svelte'
+
+  let config: SidebarSectionConfig[] = $state(getSidebarConfig())
+
+  function toggleVisibility(index: number): void {
+    const def = SECTION_DEFS.find((d) => d.id === config[index].id)
+    if (def?.forced) return
+    config[index] = { ...config[index], visible: !config[index].visible }
+    saveSidebarConfig(config)
+  }
+
+  function moveUp(index: number): void {
+    if (index === 0) return
+    const item = config[index]
+    config[index] = config[index - 1]
+    config[index - 1] = item
+    config = [...config]
+    saveSidebarConfig(config)
+  }
+
+  function moveDown(index: number): void {
+    if (index === config.length - 1) return
+    const item = config[index]
+    config[index] = config[index + 1]
+    config[index + 1] = item
+    config = [...config]
+    saveSidebarConfig(config)
+  }
+</script>
+
+<div class="section">
+  <h3 class="section-title">Sidebar</h3>
+  <p class="section-desc">Choose which sections appear in the sidebar and their order.</p>
+
+  <div class="section-list">
+    {#each config as item, i (item.id)}
+      {@const def = SECTION_DEFS.find((d) => d.id === item.id)}
+      <div class="section-row">
+        <label class="checkbox-row">
+          <input
+            type="checkbox"
+            checked={item.visible}
+            disabled={def?.forced}
+            onchange={() => toggleVisibility(i)}
+          />
+          <span class:forced={def?.forced}>{def?.label ?? item.id}</span>
+          {#if def?.forced}
+            <span class="hint">Always visible</span>
+          {/if}
+        </label>
+        <div class="order-buttons">
+          <button class="order-btn" disabled={i === 0} onclick={() => moveUp(i)} title="Move up">
+            <ChevronUp size={14} />
+          </button>
+          <button
+            class="order-btn"
+            disabled={i === config.length - 1}
+            onclick={() => moveDown(i)}
+            title="Move down"
+          >
+            <ChevronDown size={14} />
+          </button>
+        </div>
+      </div>
+    {/each}
+  </div>
+</div>
+
+<style>
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e0e0e0;
+    margin: 0;
+  }
+
+  .section-desc {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    margin: 0;
+  }
+
+  .section-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .section-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border-radius: 6px;
+    transition: background 0.1s;
+  }
+
+  .section-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+  }
+
+  .checkbox-row input[type='checkbox'] {
+    accent-color: #74c0fc;
+  }
+
+  .checkbox-row input[type='checkbox']:disabled {
+    opacity: 0.4;
+  }
+
+  .forced {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .hint {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+    margin-left: 4px;
+  }
+
+  .order-buttons {
+    display: flex;
+    gap: 2px;
+  }
+
+  .order-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition:
+      background 0.1s,
+      color 0.1s;
+  }
+
+  .order-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .order-btn:disabled {
+    opacity: 0.2;
+    cursor: default;
+  }
+</style>

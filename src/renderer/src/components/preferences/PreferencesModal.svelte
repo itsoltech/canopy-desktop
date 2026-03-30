@@ -7,11 +7,13 @@
   import ShortcutsPrefs from './ShortcutsPrefs.svelte'
   import ClaudePrefs from './ClaudePrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
+  import SidebarPrefs from './SidebarPrefs.svelte'
 
   const sections = [
     'General',
     'Updates',
     'Appearance',
+    'Sidebar',
     'Tools',
     'Claude',
     'Git',
@@ -60,6 +62,8 @@
         <UpdatePrefs />
       {:else if activeSection === 'Appearance'}
         <AppearancePrefs />
+      {:else if activeSection === 'Sidebar'}
+        <SidebarPrefs />
       {:else if activeSection === 'Tools'}
         <ToolPrefs />
       {:else if activeSection === 'Claude'}
