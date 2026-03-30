@@ -258,7 +258,9 @@
     border: none;
     border-radius: 6px;
     background: none;
+    color: inherit;
     font-family: inherit;
+    font-size: inherit;
     text-align: left;
     cursor: pointer;
     transition: background 0.08s;
