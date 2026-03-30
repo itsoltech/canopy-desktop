@@ -68,7 +68,7 @@
       {:else if entries.length === 0}
         <div class="empty">No release notes found for this update.</div>
       {:else}
-        {#each entries as entry, i}
+        {#each entries as entry, i (entry.version)}
           {#if i > 0}
             <div class="separator"></div>
           {/if}

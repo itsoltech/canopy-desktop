@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [opened, labeled, unlabeled, synchronize]
 
+concurrency:
+  group: pr-labels-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-labels:
     runs-on: ubuntu-latest
