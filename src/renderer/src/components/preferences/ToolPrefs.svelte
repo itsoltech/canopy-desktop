@@ -34,9 +34,6 @@
 
     const id = newId.trim()
     try {
-      if (newIconSvg) {
-        await window.api.setToolIcon(id, newIconSvg)
-      }
       await window.api.addCustomTool({
         id,
         name: newName.trim(),
@@ -48,6 +45,9 @@
         icon: newIconSvg ? `custom:${id}` : 'terminal',
         category: newCategory,
       })
+      if (newIconSvg) {
+        await window.api.setToolIcon(id, newIconSvg)
+      }
       newId = ''
       newName = ''
       newCommand = ''
@@ -57,9 +57,6 @@
       showForm = false
       error = ''
     } catch (e) {
-      if (newIconSvg) {
-        await window.api.removeToolIcon(id).catch(() => {})
-      }
       error = e instanceof Error ? e.message : String(e)
     }
   }

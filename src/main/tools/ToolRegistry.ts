@@ -166,8 +166,8 @@ export class ToolRegistry {
       .replace(/\s+on\w+\s*=\s*"[^"]*"/gi, '')
       .replace(/\s+on\w+\s*=\s*'[^']*'/gi, '')
       .replace(/\s+on\w+\s*=\s*[^\s>]*/gi, '')
-      .replace(/href\s*=\s*["']?\s*javascript:/gi, 'href="')
-      .replace(/href\s*=\s*["']?\s*data:/gi, 'href="')
+      .replace(/(?:xlink:)?href\s*=\s*["']?\s*javascript:/gi, 'href="')
+      .replace(/(?:xlink:)?href\s*=\s*["']?\s*data:/gi, 'href="')
   }
 
   setIcon(toolId: string, svgContent: string): void {
