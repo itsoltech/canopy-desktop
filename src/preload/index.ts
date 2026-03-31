@@ -206,49 +206,29 @@ const api = {
   gitGenerateCommitMessage: (repoRoot: string) =>
     ipcRenderer.invoke('git:generateCommitMessage', { repoRoot }),
 
-  // Browser
-  createBrowser: () => ipcRenderer.invoke('browser:create') as Promise<{ browserId: string }>,
-  destroyBrowser: (browserId: string) => ipcRenderer.invoke('browser:destroy', { browserId }),
-  navigateBrowser: (browserId: string, url: string) =>
-    ipcRenderer.invoke('browser:navigate', { browserId, url }),
-  browserBack: (browserId: string) => ipcRenderer.invoke('browser:back', { browserId }),
-  browserForward: (browserId: string) => ipcRenderer.invoke('browser:forward', { browserId }),
-  browserReload: (browserId: string) => ipcRenderer.invoke('browser:reload', { browserId }),
-  setBrowserBounds: (
+  // Browser (<webview> management)
+  setupBrowserWebview: (browserId: string, webContentsId: number) =>
+    ipcRenderer.invoke('browser:setup', { browserId, webContentsId }),
+  teardownBrowserWebview: (browserId: string) =>
+    ipcRenderer.invoke('browser:teardown', { browserId }),
+  openBrowserDevTools: (browserId: string) =>
+    ipcRenderer.invoke('browser:openDevTools', { browserId }),
+  closeBrowserDevTools: (browserId: string) =>
+    ipcRenderer.invoke('browser:closeDevTools', { browserId }),
+  setBrowserDevToolsBounds: (
     browserId: string,
     bounds: { x: number; y: number; width: number; height: number },
-  ) => ipcRenderer.invoke('browser:setBounds', { browserId, bounds }),
-  setBrowserVisible: (browserId: string, visible: boolean) =>
-    ipcRenderer.invoke('browser:setVisible', { browserId, visible }),
-  toggleBrowserDevTools: (browserId: string, mode?: 'bottom' | 'right') =>
-    ipcRenderer.invoke('browser:toggleDevTools', { browserId, mode }),
-  getBrowserState: (browserId: string) => ipcRenderer.invoke('browser:getState', { browserId }),
-  capturePageFull: (browserId: string) =>
-    ipcRenderer.invoke('browser:capturePageFull', { browserId }) as Promise<string | null>,
-  browserStartElementPick: (browserId: string) =>
-    ipcRenderer.invoke('browser:startElementPick', { browserId }) as Promise<string | null>,
-  browserStartRegionCapture: (browserId: string) =>
-    ipcRenderer.invoke('browser:startRegionCapture', { browserId }) as Promise<string | null>,
-  browserCancelPick: (browserId: string) => ipcRenderer.invoke('browser:cancelPick', { browserId }),
+  ) => ipcRenderer.invoke('browser:setDevToolsBounds', { browserId, bounds }),
+  setBrowserDeviceEmulation: (
+    browserId: string,
+    device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null,
+  ) => ipcRenderer.invoke('browser:setDeviceEmulation', { browserId, device }),
+  saveBrowserCapture: (buffer: ArrayBuffer) =>
+    ipcRenderer.invoke('browser:saveCaptureFile', {
+      buffer: Buffer.from(buffer),
+    }) as Promise<string>,
 
-  onBrowserUrlChanged: (callback: (data: { browserId: string; url: string }) => void) => {
-    const handler = (_event: IpcRendererEvent, data: { browserId: string; url: string }): void =>
-      callback(data)
-    ipcRenderer.on('browser:urlChanged', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:urlChanged', handler)
-    }
-  },
-
-  onBrowserTitleChanged: (callback: (data: { browserId: string; title: string }) => void) => {
-    const handler = (_event: IpcRendererEvent, data: { browserId: string; title: string }): void =>
-      callback(data)
-    ipcRenderer.on('browser:titleChanged', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:titleChanged', handler)
-    }
-  },
-
+  // Browser push events (main → renderer, still needed for favicon + focus)
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,
   ) => {
@@ -267,67 +247,6 @@ const api = {
     ipcRenderer.on('browser:focused', handler)
     return (): void => {
       ipcRenderer.removeListener('browser:focused', handler)
-    }
-  },
-
-  onBrowserLoadingChanged: (
-    callback: (data: { browserId: string; isLoading: boolean }) => void,
-  ) => {
-    const handler = (
-      _event: IpcRendererEvent,
-      data: { browserId: string; isLoading: boolean },
-    ): void => callback(data)
-    ipcRenderer.on('browser:loadingChanged', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:loadingChanged', handler)
-    }
-  },
-
-  onBrowserLoadFailed: (
-    callback: (data: {
-      browserId: string
-      errorCode: number
-      errorDescription: string
-      validatedURL: string
-    }) => void,
-  ) => {
-    const handler = (
-      _event: IpcRendererEvent,
-      data: {
-        browserId: string
-        errorCode: number
-        errorDescription: string
-        validatedURL: string
-      },
-    ): void => callback(data)
-    ipcRenderer.on('browser:loadFailed', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:loadFailed', handler)
-    }
-  },
-
-  onBrowserStateChanged: (
-    callback: (data: {
-      browserId: string
-      canGoBack: boolean
-      canGoForward: boolean
-      isDevToolsOpen: boolean
-      devToolsMode: 'bottom' | 'right'
-    }) => void,
-  ) => {
-    const handler = (
-      _event: IpcRendererEvent,
-      data: {
-        browserId: string
-        canGoBack: boolean
-        canGoForward: boolean
-        isDevToolsOpen: boolean
-        devToolsMode: 'bottom' | 'right'
-      },
-    ): void => callback(data)
-    ipcRenderer.on('browser:stateChanged', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:stateChanged', handler)
     }
   },
 

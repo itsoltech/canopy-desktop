@@ -1,3 +1,25 @@
+/** Minimal type for Electron <webview> element methods used in the renderer */
+export interface WebviewElement extends HTMLElement {
+  loadURL(url: string): Promise<void>
+  getURL(): string
+  getTitle(): string
+  canGoBack(): boolean
+  canGoForward(): boolean
+  goBack(): void
+  goForward(): void
+  reload(): void
+  isDevToolsOpened(): boolean
+  getWebContentsId(): number
+  openDevTools(): void
+  closeDevTools(): void
+  isDevToolsFocused(): boolean
+  executeJavaScript(code: string): Promise<unknown>
+  capturePage(rect?: { x: number; y: number; width: number; height: number }): Promise<{
+    toPNG(): Buffer
+    toDataURL(): string
+  }>
+}
+
 export interface BrowserSessionState {
   url: string
   title: string
@@ -6,7 +28,7 @@ export interface BrowserSessionState {
   canGoForward: boolean
   isLoading: boolean
   isDevToolsOpen: boolean
-  devToolsMode: 'bottom' | 'right'
+  devToolsMode: 'bottom' | 'left'
   error: { code: number; description: string; url: string } | null
 }
 
@@ -78,7 +100,7 @@ export function handleBrowserStateChanged(
     canGoBack: boolean
     canGoForward: boolean
     isDevToolsOpen: boolean
-    devToolsMode: 'bottom' | 'right'
+    devToolsMode: 'bottom' | 'left'
   },
 ): void {
   const session = browserSessions[browserId]

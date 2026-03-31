@@ -96,6 +96,8 @@
     <BrowserPane
       browserId={pane.sessionId}
       {active}
+      {focused}
+      initialUrl={pane.url}
       onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
       {onFocus}
     />

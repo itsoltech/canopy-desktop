@@ -5,10 +5,11 @@
     RotateCw,
     Code,
     PanelBottom,
-    PanelRight,
+    PanelLeft,
     Crosshair,
     Camera,
     X,
+    Smartphone,
   } from 'lucide-svelte'
 
   let {
@@ -20,6 +21,7 @@
     devToolsMode,
     pickMode = 'none',
     hasAiSessions = false,
+    activeDevice = null,
     onNavigate,
     onBack,
     onForward,
@@ -29,15 +31,17 @@
     onStartElementPick,
     onStartRegionCapture,
     onCancelPick,
+    onSetDevice,
   }: {
     url: string
     canGoBack: boolean
     canGoForward: boolean
     isLoading: boolean
     isDevToolsOpen: boolean
-    devToolsMode: 'bottom' | 'right'
+    devToolsMode: 'bottom' | 'left'
     pickMode?: 'none' | 'element' | 'region'
     hasAiSessions?: boolean
+    activeDevice?: string | null
     onNavigate: (url: string) => void
     onBack: () => void
     onForward: () => void
@@ -47,18 +51,18 @@
     onStartElementPick: () => void
     onStartRegionCapture: () => void
     onCancelPick: () => void
+    onSetDevice: (name: string | null) => void
   } = $props()
 
   let captureDropdownOpen = $state(false)
+  let deviceDropdownOpen = $state(false)
 
   function openDropdown(): void {
     captureDropdownOpen = true
-    window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
   }
 
   function closeDropdown(): void {
     captureDropdownOpen = false
-    window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
   }
 
   let inputValue = $state('')
@@ -188,15 +192,61 @@
       {/if}
     </div>
 
+    <div class="capture-wrapper">
+      <button
+        class="nav-btn"
+        class:active={activeDevice !== null || deviceDropdownOpen}
+        onclick={() => (deviceDropdownOpen = !deviceDropdownOpen)}
+        title="Responsive mode"
+        aria-label="Responsive mode"
+      >
+        <Smartphone size={14} />
+      </button>
+      {#if deviceDropdownOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="capture-backdrop" onclick={() => (deviceDropdownOpen = false)}></div>
+        <div class="capture-dropdown">
+          {#if activeDevice}
+            <button
+              class="capture-option active-device"
+              onclick={() => {
+                deviceDropdownOpen = false
+                onSetDevice(null)
+              }}
+            >
+              <X size={13} />
+              Reset to Desktop
+            </button>
+            <div class="dropdown-divider"></div>
+          {/if}
+          {#each [['iPhone SE', '375x667x2'], ['iPhone 14 Pro', '393x852x3'], ['iPhone 14 Pro Max', '430x932x3'], ['iPad Mini', '768x1024x2'], ['iPad Pro 11"', '834x1194x2'], ['Samsung Galaxy S24', '360x780x3'], ['Pixel 8', '412x915x2.625']] as [name, spec] (name)}
+            <button
+              class="capture-option"
+              class:selected={activeDevice === name}
+              onclick={() => {
+                deviceDropdownOpen = false
+                onSetDevice(name)
+              }}
+            >
+              <Smartphone size={13} />
+              {name}
+              <span class="device-size">{spec.split('x').slice(0, 2).join('\u00d7')}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
     {#if isDevToolsOpen}
       <button
         class="nav-btn"
         onclick={onSwitchDevToolsMode}
-        title="Switch DevTools position ({devToolsMode === 'bottom' ? 'right' : 'bottom'})"
-        aria-label="Switch DevTools position to {devToolsMode === 'bottom' ? 'right' : 'bottom'}"
+        title="Switch DevTools position ({devToolsMode === 'bottom' ? 'left' : 'bottom'})"
+        aria-label="Switch DevTools position to {devToolsMode === 'bottom' ? 'left' : 'bottom'}"
       >
         {#if devToolsMode === 'bottom'}
-          <PanelRight size={14} />
+          <PanelLeft size={14} />
         {:else}
           <PanelBottom size={14} />
         {/if}
@@ -340,6 +390,26 @@
   }
 
   .capture-option:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .capture-option.selected {
+    color: rgb(116, 192, 252);
+  }
+
+  .capture-option.active-device {
+    color: rgba(255, 130, 130, 0.9);
+  }
+
+  .device-size {
+    margin-left: auto;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    margin: 2px 6px;
     background: rgba(255, 255, 255, 0.08);
   }
 

@@ -580,38 +580,31 @@ export function registerIpcHandlers(
     return toolRegistry.getAll()
   })
 
-  // --- Browser ---
+  // --- Browser (<webview> management) ---
 
-  ipcMain.handle('browser:create', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) throw new Error('No window for browser view')
-    const browserId = crypto.randomUUID()
-    browserManager.create(browserId, win, event.sender)
-    return { browserId }
+  ipcMain.handle(
+    'browser:setup',
+    (event, payload: { browserId: string; webContentsId: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) throw new Error('No window for browser webview')
+      browserManager.setup(payload.browserId, payload.webContentsId, win, event.sender)
+    },
+  )
+
+  ipcMain.handle('browser:teardown', (_event, payload: { browserId: string }) => {
+    browserManager.teardown(payload.browserId)
   })
 
-  ipcMain.handle('browser:destroy', (_event, payload: { browserId: string }) => {
-    browserManager.destroy(payload.browserId)
+  ipcMain.handle('browser:openDevTools', (_event, payload: { browserId: string }) => {
+    browserManager.openDevTools(payload.browserId)
   })
 
-  ipcMain.handle('browser:navigate', (_event, payload: { browserId: string; url: string }) => {
-    browserManager.navigate(payload.browserId, payload.url)
-  })
-
-  ipcMain.handle('browser:back', (_event, payload: { browserId: string }) => {
-    browserManager.goBack(payload.browserId)
-  })
-
-  ipcMain.handle('browser:forward', (_event, payload: { browserId: string }) => {
-    browserManager.goForward(payload.browserId)
-  })
-
-  ipcMain.handle('browser:reload', (_event, payload: { browserId: string }) => {
-    browserManager.reload(payload.browserId)
+  ipcMain.handle('browser:closeDevTools', (_event, payload: { browserId: string }) => {
+    browserManager.closeDevTools(payload.browserId)
   })
 
   ipcMain.handle(
-    'browser:setBounds',
+    'browser:setDevToolsBounds',
     (
       _event,
       payload: {
@@ -619,42 +612,25 @@ export function registerIpcHandlers(
         bounds: { x: number; y: number; width: number; height: number }
       },
     ) => {
-      browserManager.setBounds(payload.browserId, payload.bounds)
+      browserManager.setDevToolsBounds(payload.browserId, payload.bounds)
     },
   )
 
   ipcMain.handle(
-    'browser:setVisible',
-    (_event, payload: { browserId: string; visible: boolean }) => {
-      browserManager.setVisible(payload.browserId, payload.visible)
+    'browser:setDeviceEmulation',
+    (
+      _event,
+      payload: {
+        browserId: string
+        device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null
+      },
+    ) => {
+      browserManager.setDeviceEmulation(payload.browserId, payload.device)
     },
   )
 
-  ipcMain.handle(
-    'browser:toggleDevTools',
-    (_event, payload: { browserId: string; mode?: 'bottom' | 'right' }) => {
-      browserManager.toggleDevTools(payload.browserId, payload.mode)
-    },
-  )
-
-  ipcMain.handle('browser:getState', (_event, payload: { browserId: string }) => {
-    return browserManager.getState(payload.browserId)
-  })
-
-  ipcMain.handle('browser:capturePageFull', async (_event, payload: { browserId: string }) => {
-    return browserManager.capturePageFull(payload.browserId)
-  })
-
-  ipcMain.handle('browser:startElementPick', async (_event, payload: { browserId: string }) => {
-    return browserManager.startElementPick(payload.browserId)
-  })
-
-  ipcMain.handle('browser:startRegionCapture', async (_event, payload: { browserId: string }) => {
-    return browserManager.startRegionCapture(payload.browserId)
-  })
-
-  ipcMain.handle('browser:cancelPick', (_event, payload: { browserId: string }) => {
-    browserManager.cancelPick(payload.browserId)
+  ipcMain.handle('browser:saveCaptureFile', (_event, payload: { buffer: Buffer }) => {
+    return browserManager.saveCaptureFile(Buffer.from(payload.buffer))
   })
 
   // --- Filesystem ---

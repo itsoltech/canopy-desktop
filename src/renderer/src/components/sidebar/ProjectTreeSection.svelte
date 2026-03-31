@@ -195,12 +195,10 @@
   ): void {
     e.preventDefault()
     ctxMenu = { x: e.clientX, y: e.clientY, project, wt }
-    window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
   }
 
   function closeCtxMenu(): void {
     ctxMenu = null
-    window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
   }
 
   function handleCtxKeydown(e: KeyboardEvent): void {
@@ -339,7 +337,6 @@
                   isBare: false,
                 },
               }
-              window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
             }
           }}
           aria-expanded={!collapsed}

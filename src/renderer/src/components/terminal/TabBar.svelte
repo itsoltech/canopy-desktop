@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount } from 'svelte'
   import {
     tabsByWorktree,
     activeTabId,
@@ -127,7 +127,6 @@
       if (tabs.length > 1) {
         activateDrag()
       }
-      window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
     }
     if (!dragActive) return
 
@@ -179,13 +178,6 @@
     dragActive = false
     dropTargetId = null
     clearDrag()
-
-    // Unfreeze AFTER clearDrag and state reset so Svelte can flush
-    // the tree change first; new BrowserPane components handle visibility
-    if (wasDragActive) {
-      await tick()
-      window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
-    }
   }
 </script>
 
@@ -250,9 +242,6 @@
           aria-label="Show more tabs"
           onclick={() => {
             showOverflow = !showOverflow
-            window.dispatchEvent(
-              new CustomEvent(showOverflow ? 'canopy:freeze-browsers' : 'canopy:unfreeze-browsers'),
-            )
           }}
         >
           &hellip;
@@ -264,7 +253,6 @@
             class="overflow-backdrop"
             onclick={() => {
               showOverflow = false
-              window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
             }}
           ></div>
           <div class="overflow-menu">
@@ -275,7 +263,6 @@
                 onclick={() => {
                   switchTab(tab.id)
                   showOverflow = false
-                  window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
                 }}
               >
                 {getTabDisplayName(tab)}
