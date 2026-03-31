@@ -11,6 +11,7 @@
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
+  let keystrokeVisualizerEnabled = $derived(prefs['keystrokeVisualizer.enabled'] === 'true')
   let startupToolOptions = $derived(
     getTools()
       .filter((t) => t.category !== 'browser' && getToolAvailability()[t.id] !== false)
@@ -42,6 +43,10 @@
     setPref('wpm.enabled', wpmEnabled ? 'false' : 'true')
   }
 
+  function toggleKeystrokeVisualizer(): void {
+    setPref('keystrokeVisualizer.enabled', keystrokeVisualizerEnabled ? 'false' : 'true')
+  }
+
   async function rerunSetupWizard(): Promise<void> {
     await window.api.resetOnboarding()
     await initOnboarding('first-launch')
@@ -71,6 +76,21 @@
     <div class="hint-row">
       Tracks printable keystrokes in a 10-second sliding window. Control keys, arrows, and escape
       sequences are excluded. Displays current WPM, peak speed, and total characters.
+    </div>
+  {/if}
+
+  <label class="checkbox-row">
+    <input
+      type="checkbox"
+      checked={keystrokeVisualizerEnabled}
+      onchange={toggleKeystrokeVisualizer}
+    />
+    <span>Show keystroke overlay in terminals</span>
+  </label>
+  {#if keystrokeVisualizerEnabled}
+    <div class="hint-row">
+      Displays pressed keys and keyboard shortcuts as a floating overlay in the bottom-left corner
+      of the terminal. Keys fade out after 2 seconds.
     </div>
   {/if}
 

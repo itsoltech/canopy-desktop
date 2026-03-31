@@ -14,6 +14,7 @@
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
   import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
+  import { recordKeyEvent, cleanupKeystrokeSession } from '../stores/keystrokeVisualizer.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -391,6 +392,15 @@
 
       const isMac = navigator.userAgent.includes('Mac')
 
+      // Keystroke visualizer — capture via onKey (fires after xterm processes the key)
+      term.onKey(({ domEvent }) => {
+        try {
+          recordKeyEvent(sessionId, domEvent)
+        } catch {
+          /* never break terminal input */
+        }
+      })
+
       term.attachCustomKeyEventHandler((event) => {
         if (event.type === 'keydown') {
           // Ctrl+V → paste (Windows/Linux only; macOS uses Cmd+V natively)
@@ -486,6 +496,7 @@
       disposed = true
       startTerminal = null
       cleanupSession(sessionId)
+      cleanupKeystrokeSession(sessionId)
       disconnectWs({ suppressStatus: true })
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
