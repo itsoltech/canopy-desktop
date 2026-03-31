@@ -19,7 +19,11 @@ interface SessionData {
 
 const sessions = new SvelteMap<string, SessionData>()
 
+// All reactive values exposed to components — $state Records for fine-grained reactivity
 const wpmValues: Record<string, number> = $state({})
+const peakValues: Record<string, number> = $state({})
+const totalCharsValues: Record<string, number> = $state({})
+const activeFlags: Record<string, boolean> = $state({})
 
 /** Only count real keystrokes — skip escape sequences (mouse events, arrows, function keys) */
 function countPrintable(data: string): number {
@@ -56,6 +60,12 @@ export function recordKeystroke(sessionId: string, data: string): void {
   session.lastActivity = now
   session.totalChars += printable
 
+  // Update reactive flags
+  totalCharsValues[sessionId] = session.totalChars
+  if (session.totalChars >= MIN_CHARS_TO_ACTIVATE) {
+    activeFlags[sessionId] = true
+  }
+
   // Trim old timestamps outside window
   const cutoff = now - WINDOW_MS
   const idx = session.timestamps.findIndex((t) => t >= cutoff)
@@ -80,7 +90,10 @@ export function recordKeystroke(sessionId: string, data: string): void {
   const wpm = minutes > 0 ? Math.round(chars / CHARS_PER_WORD / minutes) : 0
   wpmValues[sessionId] = wpm
 
-  if (wpm > session.peakWpm) session.peakWpm = wpm
+  if (wpm > session.peakWpm) {
+    session.peakWpm = wpm
+    peakValues[sessionId] = wpm
+  }
 }
 
 export function getWpm(sessionId: string): number {
@@ -92,30 +105,33 @@ export function getLastActivity(sessionId: string): number {
 }
 
 export function isSessionActive(sessionId: string): boolean {
-  const session = sessions.get(sessionId)
-  return !!session && session.totalChars >= MIN_CHARS_TO_ACTIVATE
+  return activeFlags[sessionId] ?? false
 }
 
 export function getSessionStats(sessionId: string): {
   totalChars: number
   peakWpm: number
 } {
-  const session = sessions.get(sessionId)
-  if (!session) return { totalChars: 0, peakWpm: 0 }
   return {
-    totalChars: session.totalChars,
-    peakWpm: session.peakWpm,
+    totalChars: totalCharsValues[sessionId] ?? 0,
+    peakWpm: peakValues[sessionId] ?? 0,
   }
 }
 
 export function cleanupSession(sessionId: string): void {
   sessions.delete(sessionId)
   delete wpmValues[sessionId]
+  delete peakValues[sessionId]
+  delete totalCharsValues[sessionId]
+  delete activeFlags[sessionId]
 }
 
 export function resetAllSessions(): void {
   for (const id of sessions.keys()) {
     delete wpmValues[id]
+    delete peakValues[id]
+    delete totalCharsValues[id]
+    delete activeFlags[id]
   }
   sessions.clear()
 }
@@ -130,6 +146,9 @@ export function startCleanupTimer(): void {
       if (now - session.lastActivity > 30_000) {
         sessions.delete(id)
         delete wpmValues[id]
+        delete peakValues[id]
+        delete totalCharsValues[id]
+        delete activeFlags[id]
       }
     }
   }, CLEANUP_INTERVAL_MS)
