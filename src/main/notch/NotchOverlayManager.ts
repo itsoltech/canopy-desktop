@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeImage, screen } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import type { AgentSessionManager } from '../agents/AgentSessionManager'
@@ -30,8 +30,17 @@ export class NotchOverlayManager {
 
     const focusedWin = BrowserWindow.getFocusedWindow()
     this.createOverlayWindow()
-    // Panel windows cause macOS to hide the dock icon; restore it then refocus
+    // Panel windows cause macOS to hide the dock icon; restore it then refocus.
+    // After restoring, force-set the icon so the Dock refreshes its cached entry.
     app.dock?.show().then(() => {
+      const iconPath = app.isPackaged
+        ? join(process.resourcesPath, '..', 'electron.icns')
+        : join(app.getAppPath(), 'build', 'icon.icns')
+      try {
+        app.dock?.setIcon(nativeImage.createFromPath(iconPath))
+      } catch {
+        // icon file missing — Dock will use default Electron icon
+      }
       if (focusedWin && !focusedWin.isDestroyed()) focusedWin.focus()
     })
     this.bindAgentEvents()
