@@ -630,7 +630,10 @@ export function toggleFocusedInspector(): void {
   if (!tab) return
   const pane = findLeaf(tab.rootSplit, tab.focusedPaneId)
   if (pane && AI_TOOL_IDS.has(pane.toolId)) {
-    pane.inspectorOpen = pane.inspectorOpen === false ? true : false
+    tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
+      ...p,
+      inspectorOpen: p.inspectorOpen === false,
+    }))
   }
 }
 
