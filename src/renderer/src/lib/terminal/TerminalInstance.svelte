@@ -392,13 +392,9 @@
 
       const isMac = navigator.userAgent.includes('Mac')
 
-      // Keystroke visualizer — capture via onKey (fires after xterm processes the key)
+      // Keystroke visualizer — defer to avoid Svelte reactive updates blocking xterm/onData
       term.onKey(({ domEvent }) => {
-        try {
-          recordKeyEvent(sessionId, domEvent)
-        } catch {
-          /* never break terminal input */
-        }
+        queueMicrotask(() => recordKeyEvent(sessionId, domEvent))
       })
 
       term.attachCustomKeyEventHandler((event) => {
