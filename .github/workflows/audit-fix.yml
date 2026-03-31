@@ -54,6 +54,12 @@ jobs:
             --model opus[1m]
             --effort max
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(gh api:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git status:*),Bash(npm run lint:*),Bash(npm run format:*)"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}"
+              }
+            }
 
       - name: Mark fixes applied
         run: gh pr edit ${{ github.event.pull_request.number }} --add-label "audit-fixes-applied"
