@@ -47,9 +47,31 @@
     value: string
   }
 
+  const SEPARATORS = ['/', '-', '_']
+
   let templateTokens = $derived.by(() => parseTemplate(templateInput))
+  let lastTokenIsSeparator = $derived(
+    templateTokens.length > 0 && templateTokens[templateTokens.length - 1].type === 'separator',
+  )
+
+  // Drag state
   let dragIdx: number | null = $state(null)
   let dragOverIdx: number | null = $state(null)
+  let dragFromAvailable: string | null = $state(null)
+
+  // Popups
+  let sepPopup = $state<{ visible: boolean; pendingKey: string; x: number; y: number }>({
+    visible: false,
+    pendingKey: '',
+    x: 0,
+    y: 0,
+  })
+  let editSepPopup = $state<{ visible: boolean; tokenIdx: number; x: number; y: number }>({
+    visible: false,
+    tokenIdx: -1,
+    x: 0,
+    y: 0,
+  })
 
   function parseTemplate(tpl: string): TemplateToken[] {
     const tokens: TemplateToken[] = []
@@ -69,25 +91,88 @@
     return tokens.map((t) => t.value).join('')
   }
 
-  function addPlaceholderToTemplate(key: string): void {
+  function addPlaceholderToTemplate(key: string, e?: MouseEvent): void {
     const tag = `{${key}}`
     if (templateInput.includes(tag)) return
-    templateInput = templateInput ? templateInput + '/' + tag : tag
+
+    if (!templateInput || lastTokenIsSeparator) {
+      templateInput = templateInput + tag
+      saveBranchTemplate()
+    } else {
+      // Need separator first — show popup
+      sepPopup = {
+        visible: true,
+        pendingKey: key,
+        x: e?.clientX ?? 200,
+        y: e?.clientY ?? 200,
+      }
+    }
+  }
+
+  function confirmSeparatorAndAdd(sep: string): void {
+    const tag = `{${sepPopup.pendingKey}}`
+    templateInput = templateInput + sep + tag
+    sepPopup = { visible: false, pendingKey: '', x: 0, y: 0 }
     saveBranchTemplate()
+  }
+
+  function closeSepPopup(): void {
+    sepPopup = { visible: false, pendingKey: '', x: 0, y: 0 }
+  }
+
+  function onSeparatorTokenClick(index: number, e: MouseEvent): void {
+    editSepPopup = { visible: true, tokenIdx: index, x: e.clientX, y: e.clientY }
+  }
+
+  function changeSeparator(newSep: string): void {
+    const tokens = [...templateTokens]
+    tokens[editSepPopup.tokenIdx] = { type: 'separator', value: newSep }
+    templateInput = tokensToTemplate(tokens)
+    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0 }
+    saveBranchTemplate()
+  }
+
+  function removeSeparatorToken(): void {
+    removeTokenAt(editSepPopup.tokenIdx)
+    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0 }
+  }
+
+  function closeEditSepPopup(): void {
+    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0 }
+  }
+
+  function ensureSeparators(tokens: TemplateToken[]): TemplateToken[] {
+    const result: TemplateToken[] = []
+    for (let i = 0; i < tokens.length; i++) {
+      result.push(tokens[i])
+      if (tokens[i].type === 'placeholder' && tokens[i + 1]?.type === 'placeholder') {
+        result.push({ type: 'separator', value: '/' })
+      }
+    }
+    return result
   }
 
   function removeTokenAt(index: number): void {
     const tokens = [...templateTokens]
     tokens.splice(index, 1)
-    // Clean up double separators
     templateInput = tokensToTemplate(tokens)
-      .replace(/\/\//g, '/')
-      .replace(/^\/|\/$/g, '')
+      .replace(/\/{2,}/g, '/')
+      .replace(/-{2,}/g, '-')
+      .replace(/_{2,}/g, '_')
+      .replace(/^[/\-_]|[/\-_]$/g, '')
     saveBranchTemplate()
   }
 
+  // Drag from token track
   function onTokenDragStart(index: number): void {
     dragIdx = index
+    dragFromAvailable = null
+  }
+
+  // Drag from available tags
+  function onAvailableDragStart(key: string): void {
+    dragFromAvailable = key
+    dragIdx = null
   }
 
   function onTokenDragOver(index: number, e: DragEvent): void {
@@ -95,7 +180,25 @@
     dragOverIdx = index
   }
 
+  function onTrackDragOver(e: DragEvent): void {
+    e.preventDefault()
+    if (dragFromAvailable) dragOverIdx = templateTokens.length
+  }
+
   function onTokenDrop(index: number): void {
+    if (dragFromAvailable) {
+      // Drop from available tags
+      const tag = `{${dragFromAvailable}}`
+      if (!templateInput.includes(tag)) {
+        const tokens = [...templateTokens]
+        tokens.splice(index, 0, { type: 'placeholder', value: tag })
+        templateInput = tokensToTemplate(ensureSeparators(tokens))
+        saveBranchTemplate()
+      }
+      dragFromAvailable = null
+      dragOverIdx = null
+      return
+    }
     if (dragIdx === null || dragIdx === index) {
       dragIdx = null
       dragOverIdx = null
@@ -104,15 +207,29 @@
     const tokens = [...templateTokens]
     const [moved] = tokens.splice(dragIdx, 1)
     tokens.splice(index, 0, moved)
-    templateInput = tokensToTemplate(tokens)
+    templateInput = tokensToTemplate(ensureSeparators(tokens))
     dragIdx = null
     dragOverIdx = null
     saveBranchTemplate()
   }
 
+  function onTrackDrop(): void {
+    if (dragFromAvailable) {
+      const tag = `{${dragFromAvailable}}`
+      if (!templateInput.includes(tag)) {
+        const tokens = [...templateTokens, { type: 'placeholder' as const, value: tag }]
+        templateInput = tokensToTemplate(ensureSeparators(tokens))
+        saveBranchTemplate()
+      }
+      dragFromAvailable = null
+      dragOverIdx = null
+    }
+  }
+
   function onTokenDragEnd(): void {
     dragIdx = null
     dragOverIdx = null
+    dragFromAvailable = null
   }
 
   // --- PR Template ---
@@ -471,46 +588,41 @@
 
   <div class="token-builder">
     <span class="builder-label">Template:</span>
-    <div class="token-track">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="token-track" ondragover={onTrackDragOver} ondrop={onTrackDrop}>
       {#each templateTokens as token, i (i)}
-        <span
-          class="token"
-          class:placeholder={token.type === 'placeholder'}
-          class:separator={token.type === 'separator'}
-          class:drag-over={dragOverIdx === i}
-          draggable="true"
-          ondragstart={() => onTokenDragStart(i)}
-          ondragover={(e) => onTokenDragOver(i, e)}
-          ondrop={() => onTokenDrop(i)}
-          ondragend={onTokenDragEnd}
-          role="listitem"
-        >
-          {token.value}
-          {#if token.type === 'placeholder'}
+        {#if token.type === 'placeholder'}
+          <span
+            class="token placeholder"
+            class:drag-over={dragOverIdx === i}
+            draggable="true"
+            ondragstart={() => onTokenDragStart(i)}
+            ondragover={(e) => onTokenDragOver(i, e)}
+            ondrop={() => onTokenDrop(i)}
+            ondragend={onTokenDragEnd}
+            role="listitem"
+          >
+            {token.value}
             <button class="token-remove" onclick={() => removeTokenAt(i)}>×</button>
-          {/if}
-        </span>
+          </span>
+        {:else}
+          <button
+            class="token separator"
+            class:drag-over={dragOverIdx === i}
+            draggable="true"
+            ondragstart={() => onTokenDragStart(i)}
+            ondragover={(e) => onTokenDragOver(i, e)}
+            ondrop={() => onTokenDrop(i)}
+            ondragend={onTokenDragEnd}
+            onclick={(e) => onSeparatorTokenClick(i, e)}
+          >
+            {token.value}
+          </button>
+        {/if}
       {/each}
       {#if templateTokens.length === 0}
-        <span class="token-empty">Click a tag below to add</span>
+        <span class="token-empty">Drag or click tags below to build template</span>
       {/if}
-    </div>
-  </div>
-
-  <div class="separator-row">
-    <span class="builder-label">Separator:</span>
-    <div class="separator-options">
-      {#each ['/', '-', '_'] as sep (sep)}
-        <button
-          class="sep-btn"
-          onclick={() => {
-            templateInput += sep
-            saveBranchTemplate()
-          }}
-        >
-          <code>{sep}</code>
-        </button>
-      {/each}
     </div>
   </div>
 
@@ -521,7 +633,10 @@
         class="placeholder-tag"
         class:used={templateInput.includes('{' + ph.key + '}')}
         title={ph.description + ' (e.g. ' + ph.example + ')'}
-        onclick={() => addPlaceholderToTemplate(ph.key)}
+        draggable="true"
+        ondragstart={() => onAvailableDragStart(ph.key)}
+        ondragend={onTokenDragEnd}
+        onclick={(e) => addPlaceholderToTemplate(ph.key, e)}
       >
         &#123;{ph.key}&#125;
       </button>
@@ -648,6 +763,43 @@
     </button>
   </div>
 </div>
+
+{#if sepPopup.visible}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="popup-overlay" onclick={closeSepPopup}>
+    <div
+      class="sep-popup"
+      style="left:{sepPopup.x}px;top:{sepPopup.y}px"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <span class="popup-hint">Separator:</span>
+      {#each SEPARATORS as sep (sep)}
+        <button class="popup-sep-btn" onclick={() => confirmSeparatorAndAdd(sep)}>
+          <code>{sep}</code>
+        </button>
+      {/each}
+    </div>
+  </div>
+{/if}
+
+{#if editSepPopup.visible}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="popup-overlay" onclick={closeEditSepPopup}>
+    <div
+      class="sep-popup"
+      style="left:{editSepPopup.x}px;top:{editSepPopup.y}px"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <span class="popup-hint">Change to:</span>
+      {#each SEPARATORS as sep (sep)}
+        <button class="popup-sep-btn" onclick={() => changeSeparator(sep)}>
+          <code>{sep}</code>
+        </button>
+      {/each}
+      <button class="popup-sep-btn remove" onclick={removeSeparatorToken}>✕</button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .section {
@@ -1000,36 +1152,61 @@
     padding: 2px 4px;
   }
 
-  .separator-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .advanced-template {
+    margin-top: 8px;
     margin-bottom: 8px;
   }
 
-  .separator-options {
-    display: flex;
-    gap: 4px;
+  .popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
   }
 
-  .sep-btn {
-    padding: 2px 10px;
+  .sep-popup {
+    position: fixed;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: rgba(40, 40, 40, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    transform: translate(-50%, -100%) translateY(-8px);
+  }
+
+  .popup-hint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-right: 2px;
+  }
+
+  .popup-sep-btn {
+    padding: 3px 10px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 4px;
     background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.7);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
-  .sep-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+  .popup-sep-btn:hover {
+    background: rgba(116, 192, 252, 0.15);
+    border-color: rgba(116, 192, 252, 0.3);
+    color: rgba(116, 192, 252, 0.9);
   }
 
-  .advanced-template {
-    margin-top: 8px;
-    margin-bottom: 8px;
+  .popup-sep-btn.remove {
+    color: rgba(255, 100, 100, 0.7);
+  }
+
+  .popup-sep-btn.remove:hover {
+    background: rgba(255, 100, 100, 0.15);
+    border-color: rgba(255, 100, 100, 0.3);
+    color: rgba(255, 100, 100, 0.9);
   }
 
   .advanced-template summary {
