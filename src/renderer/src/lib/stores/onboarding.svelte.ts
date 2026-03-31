@@ -1,6 +1,16 @@
 import { SvelteSet } from 'svelte/reactivity'
 import { getFirstLaunchSteps, getFeatureSteps, type OnboardingStep } from '../onboarding/steps'
 
+function semverGt(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return true
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return false
+  }
+  return false
+}
+
 interface OnboardingState {
   mode: 'none' | 'first-launch' | 'upgrade'
   currentStep: number
@@ -28,7 +38,7 @@ export async function initOnboarding(
     steps = getFirstLaunchSteps()
   } else {
     steps = getFeatureSteps().filter(
-      (s) => !completedIds.has(s.id) && fromVersion && s.introducedIn > fromVersion,
+      (s) => !completedIds.has(s.id) && fromVersion && semverGt(s.introducedIn, fromVersion),
     )
   }
 
