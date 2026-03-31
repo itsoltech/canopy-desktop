@@ -27,7 +27,9 @@ export async function initOnboarding(
   if (mode === 'first-launch') {
     steps = getFirstLaunchSteps()
   } else {
-    steps = getFeatureSteps().filter((s) => !completedIds.has(s.id))
+    steps = getFeatureSteps().filter(
+      (s) => !completedIds.has(s.id) && fromVersion && s.introducedIn > fromVersion,
+    )
   }
 
   if (steps.length === 0) {

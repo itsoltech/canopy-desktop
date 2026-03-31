@@ -783,7 +783,11 @@ export function registerIpcHandlers(
     (_event, payload: { stepIds: string[]; appVersion: string }) => {
       if (!Array.isArray(payload.stepIds) || typeof payload.appVersion !== 'string') return
       if (payload.stepIds.length === 0 || !payload.appVersion) return
-      onboardingStore.completeMany(payload.stepIds, payload.appVersion)
+      const safeIds = payload.stepIds.filter(
+        (id) => typeof id === 'string' && id.length > 0 && id.length < 100,
+      )
+      if (safeIds.length === 0) return
+      onboardingStore.completeMany(safeIds, payload.appVersion)
     },
   )
 
