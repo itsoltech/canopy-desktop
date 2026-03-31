@@ -37,6 +37,13 @@ export function registerIpcHandlers(
   windowManager: WindowManager,
   browserManager: BrowserManager,
 ): void {
+  function broadcastToolsChanged(): void {
+    const tools = toolRegistry.getAll()
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('tools:changed', tools)
+    }
+  }
+
   // --- PTY ---
 
   ipcMain.handle(
@@ -550,13 +557,55 @@ export function registerIpcHandlers(
       },
     ) => {
       toolRegistry.addCustom(payload)
+      broadcastToolsChanged()
       return toolRegistry.getAll()
     },
   )
 
   ipcMain.handle('tools:removeCustom', (_event, payload: { id: string }) => {
     toolRegistry.removeCustom(payload.id)
+    broadcastToolsChanged()
     return toolRegistry.getAll()
+  })
+
+  ipcMain.handle(
+    'tools:updateCustom',
+    (
+      _event,
+      payload: {
+        id: string
+        changes: {
+          name?: string
+          command?: string
+          args?: string[]
+          icon?: string
+          category?: string
+        }
+      },
+    ) => {
+      toolRegistry.updateCustom(payload.id, payload.changes)
+      broadcastToolsChanged()
+      return toolRegistry.getAll()
+    },
+  )
+
+  ipcMain.handle('tools:setIcon', (_event, payload: { toolId: string; svgContent: string }) => {
+    toolRegistry.setIcon(payload.toolId, payload.svgContent)
+  })
+
+  ipcMain.handle('tools:getIcon', (_event, payload: { toolId: string }) => {
+    return toolRegistry.getIcon(payload.toolId)
+  })
+
+  ipcMain.handle('tools:selectIconFile', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: [{ name: 'SVG Images', extensions: ['svg'] }],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return fs.readFileSync(result.filePaths[0], 'utf-8')
   })
 
   // --- Browser ---

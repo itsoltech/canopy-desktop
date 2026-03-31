@@ -268,6 +268,19 @@ interface CanopyAPI {
     category?: string
   }) => Promise<ToolDefinition[]>
   removeCustomTool: (id: string) => Promise<ToolDefinition[]>
+  updateCustomTool: (
+    id: string,
+    changes: {
+      name?: string
+      command?: string
+      args?: string[]
+      icon?: string
+      category?: string
+    },
+  ) => Promise<ToolDefinition[]>
+  setToolIcon: (toolId: string, svgContent: string) => Promise<void>
+  getToolIcon: (toolId: string) => Promise<string | null>
+  selectIconFile: () => Promise<string | null>
 
   // App / Shell
   showInFolder: (path: string) => Promise<void>
@@ -378,6 +391,7 @@ interface CanopyAPI {
   onAgentStatusUpdate: (callback: (data: AgentStatusData) => void) => () => void
   onAgentFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
   onGitChanged: (callback: (info: GitInfo & { repoRoot: string }) => void) => () => void
+  onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void
   onUrlAction: (

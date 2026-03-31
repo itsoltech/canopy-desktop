@@ -55,6 +55,20 @@ const api = {
     category?: string
   }) => ipcRenderer.invoke('tools:addCustom', tool),
   removeCustomTool: (id: string) => ipcRenderer.invoke('tools:removeCustom', { id }),
+  updateCustomTool: (
+    id: string,
+    changes: {
+      name?: string
+      command?: string
+      args?: string[]
+      icon?: string
+      category?: string
+    },
+  ) => ipcRenderer.invoke('tools:updateCustom', { id, changes }),
+  setToolIcon: (toolId: string, svgContent: string) =>
+    ipcRenderer.invoke('tools:setIcon', { toolId, svgContent }),
+  getToolIcon: (toolId: string) => ipcRenderer.invoke('tools:getIcon', { toolId }),
+  selectIconFile: () => ipcRenderer.invoke('tools:selectIconFile'),
 
   // Agent session
   updateAgentTitle: (sessionId: string, title: string) =>
@@ -394,6 +408,36 @@ const api = {
     ipcRenderer.on('git:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('git:changed', handler)
+    }
+  },
+  onToolsChanged: (
+    callback: (
+      tools: Array<{
+        id: string
+        name: string
+        command: string
+        args: string[]
+        icon: string
+        category: string
+        isCustom: boolean
+      }>,
+    ) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      tools: Array<{
+        id: string
+        name: string
+        command: string
+        args: string[]
+        icon: string
+        category: string
+        isCustom: boolean
+      }>,
+    ): void => callback(tools)
+    ipcRenderer.on('tools:changed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('tools:changed', handler)
     }
   },
   onPtyExit: (
