@@ -86,7 +86,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
   }
 
   .about-container {
@@ -96,8 +96,8 @@
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     padding: 24px;
@@ -113,7 +113,7 @@
     margin: 0;
     font-size: 20px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     letter-spacing: 0.5px;
   }
 
@@ -121,14 +121,14 @@
     display: block;
     margin-top: 4px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 
   .copyright {
     margin: 0 0 12px;
     text-align: center;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .homepage-link {
@@ -139,7 +139,7 @@
     background: transparent;
     font-size: 13px;
     font-family: inherit;
-    color: rgba(116, 192, 252, 0.9);
+    color: var(--c-accent-text);
     cursor: pointer;
     text-decoration: none;
   }
@@ -156,19 +156,19 @@
     margin: 0 0 8px;
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   .license-content {
     max-height: 200px;
     overflow-y: auto;
     padding: 12px;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--c-bg-input);
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--c-border-subtle);
     font-size: 11px;
     line-height: 1.5;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .license-content :global(h1),
@@ -177,7 +177,7 @@
     margin: 12px 0 6px;
     font-size: 12px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.65);
+    color: var(--c-text-secondary);
   }
 
   .license-content :global(h1) {
@@ -200,7 +200,7 @@
   }
 
   .license-content :global(strong) {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   .about-actions {
@@ -216,17 +216,17 @@
     cursor: pointer;
     border: none;
     outline: none;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-active);
+    color: var(--c-text);
     transition: background 0.1s;
   }
 
   .btn-close:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--c-border);
   }
 
   .btn-close:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 </style>

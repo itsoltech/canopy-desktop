@@ -24,7 +24,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--c-scrim);
     z-index: 10;
   }
 
@@ -36,16 +36,16 @@
   }
 
   .exit-text {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     font-size: 13px;
   }
 
   .restart-btn {
     padding: 6px 16px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--c-text-faint);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-active);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -55,7 +55,7 @@
   }
 
   .restart-btn:hover {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.3);
+    background: var(--c-hover-strong);
+    border-color: var(--c-text-faint);
   }
 </style>

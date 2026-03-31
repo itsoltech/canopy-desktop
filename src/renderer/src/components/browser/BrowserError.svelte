@@ -37,7 +37,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.85);
+    background: var(--c-scrim);
     cursor: pointer;
     z-index: 1;
   }
@@ -56,18 +56,18 @@
   .error-title {
     font-size: 14px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--c-text);
   }
 
   .error-url {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     word-break: break-all;
   }
 
   .error-desc {
     font-size: 12px;
-    color: rgba(255, 130, 130, 0.8);
+    color: var(--c-danger-text);
   }
 
   .retry-btn {
@@ -76,16 +76,16 @@
     gap: 6px;
     margin-top: 8px;
     padding: 6px 16px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid var(--c-text-faint);
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .retry-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover-strong);
   }
 </style>

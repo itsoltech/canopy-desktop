@@ -49,14 +49,14 @@
   .split-divider {
     width: 100%;
     height: 100%;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-border-subtle);
     transition: background 0.15s;
     z-index: 5;
   }
 
   .split-divider:hover,
   .split-divider.dragging {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-muted);
   }
 
   .split-divider.vertical {

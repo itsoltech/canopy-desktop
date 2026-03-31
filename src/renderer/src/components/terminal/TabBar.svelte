@@ -281,8 +281,8 @@
     flex-shrink: 0;
     display: flex;
     align-items: stretch;
-    background: rgba(30, 30, 30, 0.6);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--c-bg-glass-light);
+    border-bottom: 1px solid var(--c-border-subtle);
   }
 
   .tabs-row {
@@ -303,19 +303,19 @@
     padding: 0 8px;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
-    border-right: 1px solid rgba(255, 255, 255, 0.04);
+    border-right: 1px solid var(--c-border-subtle);
     transition:
       background 0.1s,
       color 0.1s;
   }
 
   .tab:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .tab.dragging {
@@ -323,8 +323,8 @@
   }
 
   .tab.drop-target {
-    background: rgba(116, 192, 252, 0.1);
-    box-shadow: inset 0 0 0 1px rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-bg);
+    box-shadow: inset 0 0 0 1px var(--c-accent-muted);
   }
 
   .drag-active .tab {
@@ -332,8 +332,8 @@
   }
 
   .tab.active {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   .tab.exited {
@@ -356,22 +356,22 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: rgba(116, 192, 252, 0.8);
+    background: var(--c-accent-text);
     flex-shrink: 0;
   }
 
   .tab-badge.orange {
-    background: rgba(255, 160, 50, 0.9);
+    background: var(--c-warning-text);
     animation: badge-pulse 1.5s ease-in-out infinite;
   }
 
   .tab-badge.connection-badge {
-    background: rgba(250, 200, 50, 0.8);
+    background: var(--c-warning-text);
     animation: badge-pulse 1.5s ease-in-out infinite;
   }
 
   .tab-badge.connection-badge.disconnected {
-    background: rgba(239, 68, 68, 0.8);
+    background: var(--c-danger-text);
     animation: none;
   }
 
@@ -405,7 +405,7 @@
     height: 16px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     font-size: 14px;
     cursor: pointer;
     border-radius: 3px;
@@ -419,8 +419,8 @@
   }
 
   .tab-close:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .overflow-wrapper {
@@ -436,14 +436,14 @@
     height: 100%;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     font-size: 14px;
     cursor: pointer;
   }
 
   .overflow-trigger:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .overflow-backdrop {
@@ -457,9 +457,9 @@
     top: 100%;
     right: 0;
     min-width: 160px;
-    background: rgba(40, 40, 40, 0.95);
+    background: var(--c-bg-overlay);
     backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
     padding: 4px;
     z-index: 100;
@@ -472,7 +472,7 @@
     padding: 6px 10px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     text-align: left;
@@ -481,11 +481,11 @@
   }
 
   .overflow-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 
   .overflow-item.active {
-    color: rgba(255, 255, 255, 0.95);
-    background: rgba(255, 255, 255, 0.06);
+    color: var(--c-text);
+    background: var(--c-hover);
   }
 </style>
