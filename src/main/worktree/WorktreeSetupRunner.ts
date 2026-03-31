@@ -36,7 +36,9 @@ function spawnCommand(
   signal?: AbortSignal,
 ): Promise<void> {
   const loginEnv = getLoginEnv()
-  const shellPath = loginEnv?.SHELL || process.env.SHELL || '/bin/sh'
+  const isWin = process.platform === 'win32'
+  const shellPath = isWin ? 'powershell.exe' : loginEnv?.SHELL || process.env.SHELL || '/bin/sh'
+  const shellArgs = isWin ? ['-NoProfile', '-Command', cmd] : ['-c', cmd]
   const env = {
     ...(loginEnv ?? (process.env as Record<string, string>)),
     TERM: 'xterm-256color',
@@ -44,7 +46,7 @@ function spawnCommand(
   }
 
   return new Promise((resolve, reject) => {
-    const p = pty.spawn(shellPath, ['-c', cmd], {
+    const p = pty.spawn(shellPath, shellArgs, {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
