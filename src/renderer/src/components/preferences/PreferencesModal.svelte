@@ -7,6 +7,7 @@
   import ShortcutsPrefs from './ShortcutsPrefs.svelte'
   import ClaudePrefs from './ClaudePrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
+  import ViewportsPrefs from './ViewportsPrefs.svelte'
 
   const sections = [
     'General',
@@ -15,6 +16,7 @@
     'Tools',
     'Claude',
     'Git',
+    'Web Browser',
     'Shortcuts',
   ] as const
   type Section = (typeof sections)[number]
@@ -66,6 +68,8 @@
         <ClaudePrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
+      {:else if activeSection === 'Web Browser'}
+        <ViewportsPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
       {/if}

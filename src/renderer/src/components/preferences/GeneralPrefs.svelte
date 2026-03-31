@@ -1,10 +1,7 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
-
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
-  let urlOpenMode = $derived(prefs.urlOpenMode || 'ask')
 
   function toggleReopen(): void {
     setPref('reopenLastWorkspace', reopenLast ? 'false' : 'true')
@@ -29,20 +26,6 @@
     <input type="checkbox" checked={notchEnabled} onchange={toggleNotch} />
     <span>Show session status in notch overlay</span>
   </label>
-
-  <div class="select-row">
-    <span class="select-label">Open URLs from terminal in</span>
-    <CustomSelect
-      value={urlOpenMode}
-      options={[
-        { value: 'ask', label: 'Always ask' },
-        { value: 'canopy', label: 'Canopy Browser' },
-        { value: 'system', label: 'System browser' },
-      ]}
-      onchange={(v) => setPref('urlOpenMode', v)}
-      maxWidth="180px"
-    />
-  </div>
 
   <div class="info-row">
     <span class="info-label">Shell</span>
@@ -75,18 +58,6 @@
 
   .checkbox-row input[type='checkbox'] {
     accent-color: #74c0fc;
-  }
-
-  .select-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-  }
-
-  .select-label {
-    color: rgba(255, 255, 255, 0.8);
-    min-width: 160px;
   }
 
   .info-row {

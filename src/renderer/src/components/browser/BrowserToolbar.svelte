@@ -10,6 +10,7 @@
     Camera,
     X,
     Smartphone,
+    Star,
   } from 'lucide-svelte'
 
   let {
@@ -22,6 +23,7 @@
     pickMode = 'none',
     hasAiSessions = false,
     activeDevice = null,
+    viewports = {},
     onNavigate,
     onBack,
     onForward,
@@ -32,6 +34,8 @@
     onStartRegionCapture,
     onCancelPick,
     onSetDevice,
+    isFavorited = false,
+    onToggleFavorite,
   }: {
     url: string
     canGoBack: boolean
@@ -42,6 +46,10 @@
     pickMode?: 'none' | 'element' | 'region'
     hasAiSessions?: boolean
     activeDevice?: string | null
+    viewports?: Record<
+      string,
+      { width: number; height: number; scaleFactor: number; mobile: boolean }
+    >
     onNavigate: (url: string) => void
     onBack: () => void
     onForward: () => void
@@ -52,6 +60,8 @@
     onStartRegionCapture: () => void
     onCancelPick: () => void
     onSetDevice: (name: string | null) => void
+    isFavorited?: boolean
+    onToggleFavorite: () => void
   } = $props()
 
   let captureDropdownOpen = $state(false)
@@ -137,6 +147,18 @@
     spellcheck="false"
   />
 
+  {#if url && url !== 'about:blank'}
+    <button
+      class="nav-btn star-btn"
+      class:favorited={isFavorited}
+      onclick={onToggleFavorite}
+      title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+      aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+    >
+      <Star size={14} fill={isFavorited ? 'currentColor' : 'none'} />
+    </button>
+  {/if}
+
   <div class="action-buttons">
     <div class="capture-wrapper">
       {#if pickMode !== 'none'}
@@ -220,7 +242,7 @@
             </button>
             <div class="dropdown-divider"></div>
           {/if}
-          {#each [['iPhone SE', '375x667x2'], ['iPhone 14 Pro', '393x852x3'], ['iPhone 14 Pro Max', '430x932x3'], ['iPad Mini', '768x1024x2'], ['iPad Pro 11"', '834x1194x2'], ['Samsung Galaxy S24', '360x780x3'], ['Pixel 8', '412x915x2.625']] as [name, spec] (name)}
+          {#each Object.entries(viewports) as [name, preset] (name)}
             <button
               class="capture-option"
               class:selected={activeDevice === name}
@@ -231,7 +253,7 @@
             >
               <Smartphone size={13} />
               {name}
-              <span class="device-size">{spec.split('x').slice(0, 2).join('\u00d7')}</span>
+              <span class="device-size">{preset.width}&times;{preset.height}</span>
             </button>
           {/each}
         </div>
@@ -330,6 +352,10 @@
     .nav-btn.loading {
       animation: none;
     }
+  }
+
+  .star-btn.favorited {
+    color: rgb(250, 200, 60);
   }
 
   .capture-wrapper {

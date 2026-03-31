@@ -11,6 +11,13 @@
     handleBrowserFaviconChanged,
     handleBrowserLoadFailed,
     handleBrowserStateChanged,
+    getAllViewports,
+    isFavorite,
+    addFavorite,
+    removeFavorite,
+    updateFavorite,
+    reorderFavorites,
+    getFavorites,
   } from '../../lib/browser/browserState.svelte'
   import {
     updateBrowserPaneUrl,
@@ -57,8 +64,8 @@
   // Compute scale factor so device frame fits in wrapper while preserving aspect ratio.
   // The webview always renders at full device resolution; CSS transform scales it down.
   let deviceScale = $derived.by(() => {
-    if (!activeDevice || !DEVICE_PRESETS[activeDevice]) return 1
-    const d = DEVICE_PRESETS[activeDevice]
+    if (!activeDevice || !getAllViewports()[activeDevice]) return 1
+    const d = getAllViewports()[activeDevice]
     const labelH = 22
     const availW = wrapperSize.w
     const availH = wrapperSize.h - labelH
@@ -66,18 +73,6 @@
     return Math.min(1, availW / d.width, availH / d.height)
   })
 
-  const DEVICE_PRESETS: Record<
-    string,
-    { width: number; height: number; scaleFactor: number; mobile: boolean }
-  > = {
-    'iPhone SE': { width: 375, height: 667, scaleFactor: 2, mobile: true },
-    'iPhone 14 Pro': { width: 393, height: 852, scaleFactor: 3, mobile: true },
-    'iPhone 14 Pro Max': { width: 430, height: 932, scaleFactor: 3, mobile: true },
-    'iPad Mini': { width: 768, height: 1024, scaleFactor: 2, mobile: true },
-    'iPad Pro 11"': { width: 834, height: 1194, scaleFactor: 2, mobile: true },
-    'Samsung Galaxy S24': { width: 360, height: 780, scaleFactor: 3, mobile: true },
-    'Pixel 8': { width: 412, height: 915, scaleFactor: 2.625, mobile: true },
-  }
   let alive = true
   let registered = false
 
@@ -131,8 +126,89 @@
 
   function handleSetDevice(name: string | null): void {
     activeDevice = name
-    const device = name ? (DEVICE_PRESETS[name] ?? null) : null
+    const device = name ? (getAllViewports()[name] ?? null) : null
     window.api.setBrowserDeviceEmulation(browserId, device)
+  }
+
+  // --- Favorites ---
+
+  let favModalOpen = $state(false)
+  let favModalMode: 'add' | 'edit' = $state('add')
+  let favEditOriginalUrl = $state('')
+  let favName = $state('')
+  let favUrl = $state('')
+  let favCtxMenu: { x: number; y: number; index: number } | null = $state(null)
+  let favDragIndex: number | null = $state(null)
+  let favDropIndex: number | null = $state(null)
+
+  function handleToggleFavorite(): void {
+    const url = session?.url
+    if (!url || url === 'about:blank') return
+    if (isFavorite(url)) {
+      removeFavorite(url)
+    } else {
+      favName = session?.title || new URL(url).hostname
+      favUrl = url
+      favModalMode = 'add'
+      favModalOpen = true
+    }
+  }
+
+  function handleFavModalSave(): void {
+    const name = favName.trim()
+    const url = favUrl.trim()
+    if (!name || !url) return
+    if (favModalMode === 'edit') {
+      updateFavorite(favEditOriginalUrl, {
+        url,
+        name,
+        favicon: getFavorites().find((f) => f.url === favEditOriginalUrl)?.favicon ?? null,
+      })
+    } else {
+      addFavorite({ url, name, favicon: session?.favicon ?? null })
+    }
+    favModalOpen = false
+  }
+
+  function handleFavContextMenu(e: MouseEvent, index: number): void {
+    e.preventDefault()
+    favCtxMenu = { x: e.clientX, y: e.clientY, index }
+  }
+
+  function handleFavEdit(index: number): void {
+    const fav = getFavorites()[index]
+    if (!fav) return
+    favEditOriginalUrl = fav.url
+    favName = fav.name
+    favUrl = fav.url
+    favModalMode = 'edit'
+    favModalOpen = true
+    favCtxMenu = null
+  }
+
+  function handleFavDelete(index: number): void {
+    const fav = getFavorites()[index]
+    if (fav) removeFavorite(fav.url)
+    favCtxMenu = null
+  }
+
+  function handleFavDragStart(e: DragEvent, index: number): void {
+    favDragIndex = index
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+  }
+
+  function handleFavDragOver(e: DragEvent, index: number): void {
+    e.preventDefault()
+    favDropIndex = index
+  }
+
+  function handleFavDrop(e: DragEvent, index: number): void {
+    e.preventDefault()
+    if (favDragIndex !== null && favDragIndex !== index) {
+      reorderFavorites(favDragIndex, index)
+    }
+    favDragIndex = null
+    favDropIndex = null
   }
 
   // --- DevTools (WebContentsView managed by main process) ---
@@ -445,6 +521,7 @@
 
     const onDidNavigate = (e: Event): void => {
       const url = (e as CustomEvent).url ?? w.getURL()
+      if (url === 'about:blank') return
       handleBrowserUrlChanged(browserId, url)
       updateBrowserPaneUrl(browserId, url)
       handleBrowserStateChanged(browserId, {
@@ -543,10 +620,13 @@
       onSwitchDevToolsMode={handleSwitchDevToolsMode}
       hasAiSessions={aiSessionCount > 0}
       {activeDevice}
+      viewports={getAllViewports()}
       onStartElementPick={handleStartElementPick}
       onStartRegionCapture={handleStartRegionCapture}
       onCancelPick={handleCancelPick}
       onSetDevice={handleSetDevice}
+      isFavorited={!!session?.url && session.url !== 'about:blank' && isFavorite(session.url)}
+      onToggleFavorite={handleToggleFavorite}
     />
   {/if}
 
@@ -563,12 +643,99 @@
         onRetry={handleReload}
       />
     {/if}
-    <div class="webview-wrapper" class:device-mode={activeDevice !== null} bind:this={wrapperEl}>
+    {#if !session?.url}
+      <div class="start-page">
+        <h2 class="start-title">Favorites</h2>
+        {#if getFavorites().length > 0}
+          <div class="favorites-grid">
+            {#each getFavorites() as fav, i (fav.url)}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <button
+                class="favorite-card"
+                class:drag-over={favDropIndex === i && favDragIndex !== i}
+                draggable="true"
+                onclick={() => handleNavigate(fav.url)}
+                oncontextmenu={(e) => handleFavContextMenu(e, i)}
+                ondragstart={(e) => handleFavDragStart(e, i)}
+                ondragover={(e) => handleFavDragOver(e, i)}
+                ondrop={(e) => handleFavDrop(e, i)}
+                ondragend={() => {
+                  favDragIndex = null
+                  favDropIndex = null
+                }}
+              >
+                <div class="favorite-icon">
+                  {#if fav.favicon}
+                    <img src={fav.favicon} alt="" class="favorite-favicon" draggable="false" />
+                  {:else}
+                    <span class="favorite-initials">
+                      {fav.name.slice(0, 2).toUpperCase()}
+                    </span>
+                  {/if}
+                </div>
+                <span class="favorite-name">{fav.name}</span>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <p class="start-hint">
+            Navigate to a page and click the star to add it to your favorites
+          </p>
+        {/if}
+      </div>
+    {/if}
+
+    {#if favCtxMenu}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="fav-ctx-backdrop" onclick={() => (favCtxMenu = null)}></div>
+      <div class="fav-ctx-menu" style="left:{favCtxMenu.x}px;top:{favCtxMenu.y}px">
+        <button class="fav-ctx-item" onclick={() => handleFavEdit(favCtxMenu.index)}>Edit</button>
+        <button
+          class="fav-ctx-item fav-ctx-delete"
+          onclick={() => handleFavDelete(favCtxMenu.index)}>Delete</button
+        >
+      </div>
+    {/if}
+
+    {#if favModalOpen}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="fav-modal-backdrop" onclick={() => (favModalOpen = false)}>
+        <div class="fav-modal" onclick={(e) => e.stopPropagation()}>
+          <h3 class="fav-modal-title">
+            {favModalMode === 'edit' ? 'Edit Favorite' : 'Add Favorite'}
+          </h3>
+          <label class="fav-modal-label">
+            Name
+            <input class="fav-modal-input" bind:value={favName} />
+          </label>
+          <label class="fav-modal-label">
+            URL
+            <input class="fav-modal-input" bind:value={favUrl} />
+          </label>
+          <div class="fav-modal-actions">
+            <button class="fav-modal-btn fav-modal-cancel" onclick={() => (favModalOpen = false)}
+              >Cancel</button
+            >
+            <button class="fav-modal-btn fav-modal-save" onclick={handleFavModalSave}>
+              {favModalMode === 'edit' ? 'Save' : 'Add'}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+    <div
+      class="webview-wrapper"
+      class:device-mode={activeDevice !== null}
+      class:webview-hidden={!session?.url}
+      bind:this={wrapperEl}
+    >
       <div
         class:device-frame={activeDevice !== null}
         class:desktop-frame={activeDevice === null}
-        style={activeDevice && DEVICE_PRESETS[activeDevice]
-          ? `width:${Math.round(DEVICE_PRESETS[activeDevice].width * deviceScale)}px;height:${Math.round(DEVICE_PRESETS[activeDevice].height * deviceScale)}px`
+        style={activeDevice && getAllViewports()[activeDevice]
+          ? `width:${Math.round(getAllViewports()[activeDevice].width * deviceScale)}px;height:${Math.round(getAllViewports()[activeDevice].height * deviceScale)}px`
           : ''}
       >
         <webview
@@ -579,8 +746,8 @@
           class="browser-webview"
           class:hidden={!!session?.error && !activeDevice}
           class:no-events={dragState.isDragging}
-          style={activeDevice && DEVICE_PRESETS[activeDevice]
-            ? `width:${DEVICE_PRESETS[activeDevice].width}px;height:${DEVICE_PRESETS[activeDevice].height}px;transform:scale(${deviceScale});transform-origin:top left`
+          style={activeDevice && getAllViewports()[activeDevice]
+            ? `width:${getAllViewports()[activeDevice].width}px;height:${getAllViewports()[activeDevice].height}px;transform:scale(${deviceScale});transform-origin:top left`
             : ''}
         ></webview>
       </div>
@@ -640,6 +807,223 @@
 
   .browser-content.devtools-left {
     flex-direction: row-reverse;
+  }
+
+  .favorite-card.drag-over {
+    border-color: rgba(116, 192, 252, 0.5);
+    background: rgba(116, 192, 252, 0.08);
+  }
+
+  .fav-ctx-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+  }
+
+  .fav-ctx-menu {
+    position: fixed;
+    z-index: 200;
+    min-width: 120px;
+    padding: 4px;
+    background: rgba(30, 30, 30, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  }
+
+  .fav-ctx-item {
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .fav-ctx-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .fav-ctx-delete {
+    color: rgba(255, 120, 120, 0.8);
+  }
+
+  .fav-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .fav-modal {
+    width: 320px;
+    padding: 20px;
+    background: rgb(35, 35, 35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .fav-modal-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e0e0e0;
+    margin: 0;
+  }
+
+  .fav-modal-label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .fav-modal-input {
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #e0e0e0;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+  }
+
+  .fav-modal-input:focus {
+    border-color: rgba(116, 192, 252, 0.5);
+  }
+
+  .fav-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .fav-modal-btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+  }
+
+  .fav-modal-cancel {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .fav-modal-save {
+    background: rgba(116, 192, 252, 0.2);
+    color: rgba(116, 192, 252, 0.9);
+  }
+
+  .fav-modal-save:hover {
+    background: rgba(116, 192, 252, 0.3);
+  }
+
+  .webview-hidden {
+    display: none !important;
+  }
+
+  .start-page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 32px;
+  }
+
+  .start-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.4);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .start-hint {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.25);
+    margin: 0;
+  }
+
+  .favorites-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    max-width: 500px;
+  }
+
+  .favorite-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 80px;
+    padding: 12px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.7);
+    font-family: inherit;
+    transition:
+      background 0.1s,
+      border-color 0.1s;
+  }
+
+  .favorite-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .favorite-icon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+  }
+
+  .favorite-favicon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .favorite-initials {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .favorite-name {
+    font-size: 11px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
   }
 
   .webview-wrapper {

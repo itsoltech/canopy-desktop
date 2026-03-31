@@ -20,6 +20,86 @@ export interface WebviewElement extends HTMLElement {
   }>
 }
 
+import { prefs, setPref } from '../stores/preferences.svelte'
+
+export interface ViewportPreset {
+  width: number
+  height: number
+  scaleFactor: number
+  mobile: boolean
+}
+
+export const DEFAULT_VIEWPORTS: Record<string, ViewportPreset> = {
+  'iPhone SE': { width: 375, height: 667, scaleFactor: 2, mobile: true },
+  'iPhone 14 Pro': { width: 393, height: 852, scaleFactor: 3, mobile: true },
+  'iPhone 14 Pro Max': { width: 430, height: 932, scaleFactor: 3, mobile: true },
+  'iPad Mini': { width: 768, height: 1024, scaleFactor: 2, mobile: true },
+  'iPad Pro 11"': { width: 834, height: 1194, scaleFactor: 2, mobile: true },
+  'Samsung Galaxy S24': { width: 360, height: 780, scaleFactor: 3, mobile: true },
+  'Pixel 8': { width: 412, height: 915, scaleFactor: 2.625, mobile: true },
+}
+
+export function getCustomViewports(): Record<string, ViewportPreset> {
+  const raw = prefs['viewports.custom']
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw) as Record<string, ViewportPreset>
+  } catch {
+    return {}
+  }
+}
+
+export function getAllViewports(): Record<string, ViewportPreset> {
+  return { ...DEFAULT_VIEWPORTS, ...getCustomViewports() }
+}
+
+export function saveCustomViewports(viewports: Record<string, ViewportPreset>): void {
+  setPref('viewports.custom', JSON.stringify(viewports))
+}
+
+export interface BrowserFavorite {
+  url: string
+  name: string
+  favicon: string | null
+}
+
+export function getFavorites(): BrowserFavorite[] {
+  const raw = prefs['browser.favorites']
+  if (!raw) return []
+  try {
+    return JSON.parse(raw) as BrowserFavorite[]
+  } catch {
+    return []
+  }
+}
+
+export function addFavorite(fav: BrowserFavorite): void {
+  const list = getFavorites().filter((f) => f.url !== fav.url)
+  list.push(fav)
+  setPref('browser.favorites', JSON.stringify(list))
+}
+
+export function removeFavorite(url: string): void {
+  const list = getFavorites().filter((f) => f.url !== url)
+  setPref('browser.favorites', JSON.stringify(list))
+}
+
+export function updateFavorite(oldUrl: string, updated: BrowserFavorite): void {
+  const list = getFavorites().map((f) => (f.url === oldUrl ? updated : f))
+  setPref('browser.favorites', JSON.stringify(list))
+}
+
+export function reorderFavorites(fromIndex: number, toIndex: number): void {
+  const list = getFavorites()
+  const [item] = list.splice(fromIndex, 1)
+  list.splice(toIndex, 0, item)
+  setPref('browser.favorites', JSON.stringify(list))
+}
+
+export function isFavorite(url: string): boolean {
+  return getFavorites().some((f) => f.url === url)
+}
+
 export interface BrowserSessionState {
   url: string
   title: string
