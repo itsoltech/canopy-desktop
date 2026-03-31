@@ -12,9 +12,16 @@ jobs:
   check-labels:
     runs-on: ubuntu-latest
     steps:
-      - name: Check required labels
+      - name: Check code review label
         uses: mheap/github-action-required-labels@v5
         with:
           mode: minimum
           count: 1
           labels: 'claude:review:approved'
+
+      - name: Check PR validation label
+        uses: mheap/github-action-required-labels@v5
+        with:
+          mode: minimum
+          count: 1
+          labels: 'claude:pr-validation:passed'
