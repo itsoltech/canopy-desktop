@@ -36,6 +36,7 @@ This is a desktop app for developers (terminal workstation). Prioritize keyboard
 - Destructive actions (close session, delete worktree) with no confirmation.
 - Text truncation hiding file paths, branch names, or error messages without tooltip or overflow strategy.
 - Terminal or editor panes not resizing properly on window resize.
+- New non-core features enabled by default or auto-enabled via migration. Non-essential features (cosmetic indicators, badges, optional UI widgets) must be behind a feature flag and off by default — users opt in. Only core functionality (security fixes, critical UX, essential workflows) may be auto-enabled.
 
 ### Cross-platform consistency
 
