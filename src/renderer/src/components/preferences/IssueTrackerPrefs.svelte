@@ -284,6 +284,8 @@
   onMount(async () => {
     await loadConnections()
     if (connections.length === 0) showAddForm = true
+    // Load boards for all connections in parallel
+    await Promise.all(connections.map((c) => loadBoardsForConnection(c.id)))
     try {
       const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
       placeholders = await window.api.issueTrackerGetAvailablePlaceholders(vars)
@@ -623,7 +625,6 @@
         templateInput = branchTemplate.template
         updatePreview()
       }}
-      onfocus={() => connections.forEach((c) => loadBoardsForConnection(c.id))}
     >
       <option value="global">Global (default)</option>
       {#each connections as conn (conn.id)}
