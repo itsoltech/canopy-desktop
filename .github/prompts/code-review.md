@@ -48,6 +48,7 @@ Every new feature must earn its place. Prioritize high-impact additions that sol
 - Feature targets a niche use case but affects the default experience for all users (should be opt-in or a plugin).
 - Added configuration or settings without evidence users need the customization.
 - Feature increases cognitive load (more things to learn/notice) disproportionate to its value.
+- New user-facing feature missing a corresponding onboarding step in `src/renderer/src/lib/onboarding/steps.ts`. Features that change defaults, add UI surfaces, or introduce new workflows should have a `category: 'feature'` step with the release version in `introducedIn` so users see it after upgrade. Keep the total step count low — onboarding must stay under 5 steps per release or users will skip it entirely.
 
 ### Cross-platform consistency
 

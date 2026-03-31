@@ -130,6 +130,25 @@ const api = {
     }
   },
 
+  // Onboarding
+  getOnboardingCompleted: () => ipcRenderer.invoke('onboarding:getCompleted') as Promise<string[]>,
+  completeOnboarding: (stepIds: string[], appVersion: string) =>
+    ipcRenderer.invoke('onboarding:complete', { stepIds, appVersion }),
+  resetOnboarding: () => ipcRenderer.invoke('onboarding:reset'),
+
+  onShowOnboarding: (
+    callback: (data: { mode: 'first-launch' | 'upgrade'; fromVersion?: string }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { mode: 'first-launch' | 'upgrade'; fromVersion?: string },
+    ): void => callback(data)
+    ipcRenderer.on('app:showOnboarding', handler)
+    return (): void => {
+      ipcRenderer.removeListener('app:showOnboarding', handler)
+    }
+  },
+
   // Changelog
   getChangelogSinceVersion: (fromVersion: string) =>
     ipcRenderer.invoke('app:getChangelogSinceVersion', { fromVersion }),

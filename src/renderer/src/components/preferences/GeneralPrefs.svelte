@@ -1,5 +1,8 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
+  import { initOnboarding } from '../../lib/stores/onboarding.svelte'
+
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
@@ -16,6 +19,13 @@
 
   function toggleWpm(): void {
     setPref('wpm.enabled', wpmEnabled ? 'false' : 'true')
+  }
+
+  async function rerunSetupWizard(): Promise<void> {
+    await window.api.resetOnboarding()
+    await initOnboarding('first-launch')
+    closeDialog()
+    showOnboardingWizard()
   }
 </script>
 
@@ -46,6 +56,10 @@
   <div class="info-row">
     <span class="info-label">Shell</span>
     <span class="info-value">Resolved from $SHELL at launch</span>
+  </div>
+
+  <div class="action-row">
+    <button class="action-btn" onclick={rerunSetupWizard}>Re-run setup wizard</button>
   </div>
 </div>
 
@@ -100,5 +114,26 @@
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;
+  }
+
+  .action-row {
+    padding-top: 4px;
+  }
+
+  .action-btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid var(--c-border);
+    background: var(--c-border-subtle);
+    color: var(--c-text-secondary);
+    transition: background 0.1s;
+  }
+
+  .action-btn:hover {
+    background: var(--c-active);
+    color: var(--c-text);
   }
 </style>

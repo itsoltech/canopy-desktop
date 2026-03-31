@@ -106,6 +106,16 @@ const migrations: Migration[] = [
       ALTER TABLE credentials ADD COLUMN title TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    id: 8,
+    up: `
+      CREATE TABLE IF NOT EXISTS onboarding_completions (
+        step_id TEXT PRIMARY KEY,
+        completed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        app_version TEXT NOT NULL
+      );
+    `,
+  },
 ]
 
 export class Database {

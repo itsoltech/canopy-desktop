@@ -215,6 +215,14 @@ interface CanopyAPI {
   onUpdateError: (callback: (data: { message: string }) => void) => () => void
   onUpdateInstalling: (callback: () => void) => () => void
 
+  // Onboarding
+  getOnboardingCompleted: () => Promise<string[]>
+  completeOnboarding: (stepIds: string[], appVersion: string) => Promise<void>
+  resetOnboarding: () => Promise<void>
+  onShowOnboarding: (
+    callback: (data: { mode: 'first-launch' | 'upgrade'; fromVersion?: string }) => void,
+  ) => () => void
+
   // Changelog
   getChangelogSinceVersion: (fromVersion: string) => Promise<ChangelogEntry[] | null>
   onShowChangelog: (callback: (data: { fromVersion: string }) => void) => () => void

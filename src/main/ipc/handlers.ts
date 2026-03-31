@@ -7,6 +7,7 @@ import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
+import type { OnboardingStore } from '../db/OnboardingStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
 import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
@@ -38,6 +39,7 @@ export function registerIpcHandlers(
   windowManager: WindowManager,
   browserManager: BrowserManager,
   credentialStore: CredentialStore,
+  onboardingStore: OnboardingStore,
 ): void {
   // --- PTY ---
 
@@ -816,5 +818,28 @@ export function registerIpcHandlers(
   ipcMain.on('worktree:abortSetup', (event) => {
     const controller = setupAbortControllers.get(event.sender.id)
     controller?.abort()
+  })
+
+  // --- Onboarding ---
+
+  ipcMain.handle('onboarding:getCompleted', () => {
+    return onboardingStore.getCompleted()
+  })
+
+  ipcMain.handle(
+    'onboarding:complete',
+    (_event, payload: { stepIds: string[]; appVersion: string }) => {
+      if (!Array.isArray(payload.stepIds) || typeof payload.appVersion !== 'string') return
+      if (payload.stepIds.length === 0 || !payload.appVersion) return
+      const safeIds = payload.stepIds.filter(
+        (id) => typeof id === 'string' && id.length > 0 && id.length < 100,
+      )
+      if (safeIds.length === 0) return
+      onboardingStore.completeMany(safeIds, payload.appVersion)
+    },
+  )
+
+  ipcMain.handle('onboarding:reset', () => {
+    onboardingStore.reset()
   })
 }
