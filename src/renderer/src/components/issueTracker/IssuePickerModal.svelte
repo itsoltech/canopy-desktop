@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { SvelteSet } from 'svelte/reactivity'
   import { Search, X, Loader2, Send, Filter } from '@lucide/svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
-  import { setPref, prefs } from '../../lib/stores/preferences.svelte'
+  import { setPref, prefs, getPref } from '../../lib/stores/preferences.svelte'
   import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
-  import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
 
   function filterPrefKey(connId: string, boardId: string): string {
     return `issueTracker.pickerFilters.${connId}.${boardId}`
@@ -47,17 +48,16 @@
   // Board selector
   let boards: TrackerBoard[] = $state([])
   let selectedBoardId = $state('')
-  let loadingBoards = $state(true)
 
   // Status filter
   let availableStatuses: string[] = $derived.by(() => {
-    const seen = new Set<string>()
+    const seen: string[] = []
     for (const i of allIssues) {
-      if (i.status) seen.add(i.status)
+      if (i.status && !seen.includes(i.status)) seen.push(i.status)
     }
-    return [...seen].sort()
+    return seen.sort()
   })
-  let excludedStatuses: Set<string> = $state(new Set())
+  let excludedStatuses = new SvelteSet<string>()
   let showFilters = $state(false)
   let assignedToMe = $state(false)
   let currentUserName = $state('')
@@ -113,14 +113,14 @@
   }
 
   function restoreSavedFilters(): void {
+    excludedStatuses.clear()
     const saved = loadSavedFilters(connectionId, selectedBoardId)
     if (saved) {
-      excludedStatuses = new Set(saved.excludedStatuses)
+      for (const s of saved.excludedStatuses) excludedStatuses.add(s)
       assignedToMe = saved.assignedToMe
       showFilters = saved.showFilters
       hasSavedFilters = true
     } else {
-      excludedStatuses = new Set()
       assignedToMe = false
       showFilters = false
       hasSavedFilters = false
@@ -147,14 +147,12 @@
             excludedStatuses.add(issue.status)
           }
         }
-        excludedStatuses = new Set(excludedStatuses)
         saveFilters()
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to fetch issues'
     } finally {
       loading = false
-      loadingBoards = false
     }
   }
 
@@ -164,7 +162,6 @@
     } else {
       excludedStatuses.add(status)
     }
-    excludedStatuses = new Set(excludedStatuses)
     saveFilters()
   }
 
@@ -214,39 +211,33 @@
       return
     }
 
+    // Build worktree path
+    const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
+    const projectName = repoRoot.split('/').pop() || 'project'
+    const safeBranchName = branchName.replace(/\//g, '-')
+    const worktreeDir = `${baseDir}/${projectName}/${safeBranchName}`
+    const homedir = await window.api.getHomedir()
+    const worktreePath = worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir
+
     // Close picker, then open confirm
     closeDialog()
     await new Promise((r) => setTimeout(r, 0))
 
     const confirmed = await confirm({
       title: 'Create Branch',
-      message: `Create and checkout branch from ${issue.key}?`,
-      details: branchName,
-      confirmLabel: 'Create & Checkout',
+      message: `Create worktree with branch from ${issue.key}?`,
+      details: `Branch: ${branchName}\nPath: ${worktreeDir}`,
+      confirmLabel: 'Create & Switch',
     })
     if (!confirmed) return
 
-    if (workspaceState.isDirty) {
-      const stash = await confirm({
-        title: 'Uncommitted Changes',
-        message: 'You have uncommitted changes. Stash them before switching?',
-        confirmLabel: 'Stash & Continue',
-      })
-      if (!stash) return
-      try {
-        await window.api.gitStash(repoRoot)
-      } catch {
-        return
-      }
-    }
-
     try {
-      await window.api.gitBranchCreate(repoRoot, branchName, currentBranch)
-      await window.api.gitCheckout(repoRoot, branchName)
+      await window.api.gitWorktreeAdd(repoRoot, worktreePath, branchName, currentBranch)
+      await selectWorktree(worktreePath)
     } catch (e) {
       await confirm({
-        title: 'Branch Creation Failed',
-        message: e instanceof Error ? e.message : 'Failed to create branch',
+        title: 'Worktree Creation Failed',
+        message: e instanceof Error ? e.message : 'Failed to create worktree',
         confirmLabel: 'OK',
       })
     }

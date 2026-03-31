@@ -116,7 +116,7 @@ export const jiraClient: IssueTrackerProviderClient = {
     )
   },
 
-  async fetchStatuses(connection, token, _boardId) {
+  async fetchStatuses(connection, token) {
     // Use /rest/api/3/statuses to get all actual issue statuses
     try {
       const data = await jiraFetch<
