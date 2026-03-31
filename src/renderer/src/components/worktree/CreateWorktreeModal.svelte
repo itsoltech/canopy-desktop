@@ -274,13 +274,21 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      onClose()
+      if (step === 'setup') {
+        skipSetup()
+      } else {
+        onClose()
+      }
     }
   }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="dialog-overlay" onkeydown={handleKeydown} onmousedown={onClose}>
+<div
+  class="dialog-overlay"
+  onkeydown={handleKeydown}
+  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
