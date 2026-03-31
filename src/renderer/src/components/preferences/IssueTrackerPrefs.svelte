@@ -22,6 +22,17 @@
   // --- Branch Template ---
   type TemplateScope = 'global' | string // connectionId or connectionId.boardId
   let templateScope = $state<TemplateScope>('global')
+  let scopeBoards = $state<Record<string, Array<{ id: string; name: string }>>>({})
+
+  async function loadBoardsForConnection(connId: string): Promise<void> {
+    if (scopeBoards[connId]) return
+    try {
+      const boards = await window.api.issueTrackerFetchBoards(connId)
+      scopeBoards = { ...scopeBoards, [connId]: boards }
+    } catch {
+      scopeBoards = { ...scopeBoards, [connId]: [] }
+    }
+  }
 
   function templatePrefKey(scope: TemplateScope): string {
     return scope === 'global'
@@ -612,10 +623,14 @@
         templateInput = branchTemplate.template
         updatePreview()
       }}
+      onfocus={() => connections.forEach((c) => loadBoardsForConnection(c.id))}
     >
       <option value="global">Global (default)</option>
       {#each connections as conn (conn.id)}
-        <option value={conn.id}>{conn.name}</option>
+        <option value={conn.id}>↳ {conn.name}</option>
+        {#each scopeBoards[conn.id] ?? [] as board (board.id)}
+          <option value="{conn.id}.{board.id}">&nbsp;&nbsp;↳ {board.name}</option>
+        {/each}
       {/each}
     </select>
   </div>
