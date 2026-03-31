@@ -155,7 +155,7 @@
     }
   }
 
-  let hasUpdate = $derived(updateState.status === 'available' || updateState.status === 'ready')
+  let hasUpdate = $derived(updateState.status === 'ready')
 
   // Task progress for focused agent
   let taskProgress = $derived.by(() => {
@@ -171,7 +171,11 @@
     <!-- LEFT: git & worktree -->
     <div class="section left">
       {#if workspaceState.isGitRepo && workspaceState.branch}
-        <button class="status-item branch" title="Branch: {workspaceState.branch}">
+        <button
+          class="status-item branch"
+          aria-label="Branch: {workspaceState.branch}"
+          title="Branch: {workspaceState.branch}"
+        >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
             <path
               d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 2.122a2.25 2.25 0 1 0-1 0v1.836A2.252 2.252 0 0 0 2 9.5a2.25 2.25 0 1 0 3.163.132l2.382-2.382A1.75 1.75 0 0 1 8.783 6.75h1.467a2.25 2.25 0 1 0 0-1.5H8.783a3.25 3.25 0 0 0-2.299.952L4.5 8.186V5.372ZM4.25 12a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Zm8.25-6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"
@@ -184,7 +188,7 @@
         </button>
 
         {#if workspaceState.aheadBehind && (workspaceState.aheadBehind.ahead > 0 || workspaceState.aheadBehind.behind > 0)}
-          <button class="status-item sync" title="Sync status">
+          <button class="status-item sync" aria-label="Sync status" title="Sync status">
             {#if workspaceState.aheadBehind.ahead > 0}
               <span class="sync-label">&#8593;{workspaceState.aheadBehind.ahead}</span>
             {/if}
@@ -256,6 +260,7 @@
       {#if agentCount > 0}
         <button
           class="status-item agents"
+          aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}"
           title="{agentCount} agent{agentCount !== 1 ? 's' : ''}"
           onclick={focusWorstAgent}
         >
@@ -272,6 +277,7 @@
       {#if permissionSessionId}
         <button
           class="status-item permission-bell"
+          aria-label="Agent waiting for permission"
           title="Agent waiting for permission"
           onclick={focusPermissionAgent}
         >
@@ -286,9 +292,8 @@
       {#if hasUpdate}
         <button
           class="status-item update"
-          title="Update {updateState.version} {updateState.status === 'ready'
-            ? 'ready to install'
-            : 'available'}"
+          aria-label="Install update v{updateState.version}"
+          title="Update v{updateState.version} ready to install"
           onclick={installUpdate}
         >
           <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
@@ -301,6 +306,7 @@
 
       <button
         class="status-item inspector-toggle"
+        aria-label="Toggle Inspector"
         title="Toggle Inspector"
         onclick={() => toggleInspector()}
       >
@@ -461,6 +467,13 @@
     }
     50% {
       opacity: 0.4;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agent-dot.pulse,
+    .permission-bell {
+      animation: none;
     }
   }
 

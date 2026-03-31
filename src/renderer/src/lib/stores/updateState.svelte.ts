@@ -33,22 +33,28 @@ function clearAutoDismiss(): void {
 }
 
 export function initUpdateListeners(): () => void {
+  let disposed = false
+
   const unsubs = [
     window.api.onUpdateAvailable((data) => {
+      if (disposed) return
       updateState.version = data.version
       updateState.status = 'available'
       updateState.dismissed = false
     }),
     window.api.onUpdateProgress((data) => {
+      if (disposed) return
       updateState.percent = Math.round(data.percent)
       updateState.status = 'downloading'
     }),
     window.api.onUpdateDownloaded((data) => {
+      if (disposed) return
       updateState.version = data.version
       updateState.status = 'ready'
       updateState.dismissed = false
     }),
     window.api.onUpdateNotAvailable(() => {
+      if (disposed) return
       updateState.status = 'up-to-date'
       updateState.dismissed = false
       clearAutoDismiss()
@@ -58,6 +64,7 @@ export function initUpdateListeners(): () => void {
       }, 4000)
     }),
     window.api.onUpdateError((data) => {
+      if (disposed) return
       updateState.errorMessage = data.message
       updateState.status = 'error'
       updateState.dismissed = false
@@ -68,11 +75,13 @@ export function initUpdateListeners(): () => void {
       }, 5000)
     }),
     window.api.onUpdateInstalling(() => {
+      if (disposed) return
       updateState.status = 'installing'
     }),
   ]
 
   return () => {
+    disposed = true
     unsubs.forEach((fn) => fn())
     clearAutoDismiss()
   }
