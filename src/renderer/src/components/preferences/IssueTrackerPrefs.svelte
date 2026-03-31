@@ -628,10 +628,12 @@
     >
       <option value="global">Global (default)</option>
       {#each connections as conn (conn.id)}
-        <option value={conn.id}>↳ {conn.name}</option>
-        {#each scopeBoards[conn.id] ?? [] as board (board.id)}
-          <option value="{conn.id}.{board.id}">&nbsp;&nbsp;↳ {board.name}</option>
-        {/each}
+        <optgroup label={conn.name}>
+          <option value={conn.id}>All boards</option>
+          {#each scopeBoards[conn.id] ?? [] as board (board.id)}
+            <option value="{conn.id}.{board.id}">{board.name}</option>
+          {/each}
+        </optgroup>
       {/each}
     </select>
   </div>
