@@ -123,7 +123,7 @@
     font-size: 10px;
     font-weight: 500;
     font-family: inherit;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     background: none;
     border: none;
     padding: 1px 5px;
@@ -135,8 +135,8 @@
   }
 
   .new-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--c-text);
+    background: var(--c-active);
   }
 
   .worktree-list {
@@ -159,7 +159,7 @@
     padding: 4px 12px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -167,19 +167,19 @@
   }
 
   .worktree-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .worktree-item.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .indicator {
     font-family: monospace;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     width: 10px;
     flex-shrink: 0;
   }
@@ -194,7 +194,7 @@
     font-size: 9px;
     font-weight: 500;
     font-family: monospace;
-    color: rgba(255, 180, 80, 0.7);
+    color: var(--c-warning-text);
     flex-shrink: 0;
     margin-left: auto;
   }
@@ -202,7 +202,7 @@
   .merged-badge {
     font-size: 9px;
     font-weight: 500;
-    color: rgba(100, 200, 120, 0.7);
+    color: var(--c-success);
     flex-shrink: 0;
     margin-left: auto;
   }
@@ -216,7 +216,7 @@
     padding: 0;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     cursor: pointer;
     flex-shrink: 0;
     border-radius: 4px;
@@ -227,7 +227,7 @@
   }
 
   .remove-btn:hover {
-    color: #e05050;
-    background: rgba(224, 80, 80, 0.12);
+    color: var(--c-danger);
+    background: var(--c-danger-bg);
   }
 </style>

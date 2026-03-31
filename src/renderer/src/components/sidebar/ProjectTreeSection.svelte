@@ -481,7 +481,7 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 1px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     text-transform: uppercase;
   }
 
@@ -510,22 +510,22 @@
   }
 
   .project-toggle:hover .project-name {
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--c-text);
   }
 
   .project-toggle.active {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover-strong);
     border-radius: 4px;
   }
 
   .project-toggle.active .project-name {
-    color: #fff;
+    color: var(--c-text);
   }
 
   .chevron {
     display: flex;
     align-items: center;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     transition: transform 0.15s ease;
     transform: rotate(0deg);
     width: 12px;
@@ -539,7 +539,7 @@
   .project-name {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -556,7 +556,7 @@
     font-size: 10px;
     font-weight: 500;
     font-family: inherit;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     background: none;
     border: none;
     padding: 1px 5px;
@@ -568,8 +568,8 @@
   }
 
   .action-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--c-text);
+    background: var(--c-active);
   }
 
   .detach-btn {
@@ -581,7 +581,7 @@
     padding: 0;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.15);
+    color: var(--c-text-faint);
     cursor: pointer;
     border-radius: 3px;
     transition:
@@ -590,8 +590,8 @@
   }
 
   .detach-btn:hover {
-    color: rgba(255, 255, 255, 0.5);
-    background: rgba(255, 255, 255, 0.06);
+    color: var(--c-text-secondary);
+    background: var(--c-hover);
   }
 
   .worktree-list {
@@ -619,7 +619,7 @@
     padding: 4px 8px 4px 28px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -627,19 +627,19 @@
   }
 
   .worktree-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .worktree-item.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .indicator {
     font-family: monospace;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     width: 10px;
     flex-shrink: 0;
   }
@@ -655,25 +655,25 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--c-text-faint);
   }
 
   .wt-status-dot.idle {
-    background: rgba(100, 200, 100, 0.6);
+    background: var(--c-success);
   }
 
   .wt-status-dot.working {
-    background: rgba(116, 192, 252, 0.8);
+    background: var(--c-accent-text);
     animation: wt-pulse 1.5s ease-in-out infinite;
   }
 
   .wt-status-dot.waitingPermission {
-    background: rgba(255, 160, 50, 0.9);
+    background: var(--c-warning-text);
     animation: wt-pulse 1s ease-in-out infinite;
   }
 
   .wt-status-dot.error {
-    background: rgba(255, 100, 100, 0.8);
+    background: var(--c-danger-text);
   }
 
   .wt-notify-dot {
@@ -683,11 +683,11 @@
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: rgba(116, 192, 252, 0.8);
+    background: var(--c-accent-text);
   }
 
   .wt-notify-dot.permission {
-    background: rgba(255, 160, 50, 0.9);
+    background: var(--c-warning-text);
     animation: wt-pulse 1.5s ease-in-out infinite;
   }
 
@@ -720,7 +720,7 @@
     font-size: 9px;
     font-weight: 500;
     font-family: monospace;
-    color: rgba(255, 180, 80, 0.7);
+    color: var(--c-warning-text);
     flex-shrink: 0;
     margin-left: auto;
   }
@@ -728,7 +728,7 @@
   .merged-badge {
     font-size: 9px;
     font-weight: 500;
-    color: rgba(100, 200, 120, 0.7);
+    color: var(--c-success);
     flex-shrink: 0;
     margin-left: auto;
   }
@@ -736,7 +736,7 @@
   .removing-label {
     font-size: 9px;
     font-weight: 500;
-    color: rgba(255, 180, 80, 0.7);
+    color: var(--c-warning-text);
     flex-shrink: 0;
     margin-left: auto;
     animation: wt-pulse 1.5s ease-in-out infinite;
@@ -749,7 +749,7 @@
     padding: 0;
     border: none;
     background: none;
-    color: rgba(255, 180, 80, 0.5);
+    color: var(--c-warning-text);
     cursor: pointer;
     flex-shrink: 0;
     margin-left: auto;
@@ -759,8 +759,8 @@
   }
 
   .stop-btn:hover {
-    color: #e05050;
-    background: rgba(224, 80, 80, 0.12);
+    color: var(--c-danger);
+    background: var(--c-danger-bg);
   }
 
   .remove-btn {
@@ -772,7 +772,7 @@
     padding: 0;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     cursor: pointer;
     flex-shrink: 0;
     border-radius: 4px;
@@ -783,15 +783,15 @@
   }
 
   .remove-btn:hover {
-    color: #e05050;
-    background: rgba(224, 80, 80, 0.12);
+    color: var(--c-danger);
+    background: var(--c-danger-bg);
   }
 
   .attach-btn {
     font-size: 10px;
     font-weight: 500;
     font-family: inherit;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     background: none;
     border: none;
     padding: 4px 12px;
@@ -803,7 +803,7 @@
   }
 
   .attach-btn:hover {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   .ctx-overlay {
@@ -815,8 +815,8 @@
   .ctx-menu {
     position: fixed;
     min-width: 180px;
-    background: rgba(40, 40, 40, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     padding: 4px;
@@ -830,7 +830,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
@@ -839,16 +839,16 @@
   }
 
   .ctx-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 
   .ctx-item.destructive {
-    color: rgba(255, 120, 120, 0.9);
+    color: var(--c-danger-text);
   }
 
   .ctx-divider {
     height: 1px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
     margin: 4px 8px;
   }
 </style>
