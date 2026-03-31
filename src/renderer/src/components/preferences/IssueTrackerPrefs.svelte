@@ -703,7 +703,7 @@
 
   <div class="preview-row">
     <span class="preview-label">Preview:</span>
-    <code class="preview-value">{branchPreview}</code>
+    <code class="preview-value">{branchPreview || '\u2014'}</code>
   </div>
 
   <details class="advanced-template">
@@ -1083,6 +1083,9 @@
     background: var(--c-bg-input);
     padding: 2px 8px;
     border-radius: 4px;
+    min-height: 18px;
+    line-height: 18px;
+    display: inline-block;
   }
 
   .placeholder-list {
@@ -1133,12 +1136,20 @@
     flex-wrap: wrap;
     gap: 3px;
     flex: 1;
-    min-height: 32px;
-    padding: 4px 6px;
+    min-height: 28px;
+    padding: 3px 6px;
     border: 1px solid var(--c-border);
     border-radius: 6px;
     background: var(--c-bg-input);
     align-items: center;
+    box-sizing: content-box;
+  }
+
+  .token-empty {
+    font-size: 11px;
+    color: var(--c-text-faint);
+    padding: 2px 4px;
+    line-height: 22px;
   }
 
   .token {
@@ -1194,12 +1205,6 @@
   .token-remove:hover {
     background: var(--c-danger-bg);
     color: var(--c-danger-text);
-  }
-
-  .token-empty {
-    font-size: 11px;
-    color: var(--c-text-faint);
-    padding: 2px 4px;
   }
 
   .advanced-template {
