@@ -45,7 +45,7 @@
   >
     <div class="header">
       <div class="icon-wrap">
-        <Sparkles size={20} strokeWidth={1.5} color="#74c0fc" />
+        <Sparkles size={20} strokeWidth={1.5} color="var(--c-accent)" />
       </div>
       <div>
         <h2 class="title">New in this update</h2>
@@ -76,7 +76,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
   }
 
   .container {
@@ -86,8 +86,8 @@
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     padding: 24px;
@@ -104,7 +104,7 @@
     width: 40px;
     height: 40px;
     border-radius: 10px;
-    background: rgba(116, 192, 252, 0.1);
+    background: var(--c-accent-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -115,12 +115,12 @@
     margin: 0;
     font-size: 17px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
   }
 
   .subtitle {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
   }
 
   .features {
@@ -135,20 +135,20 @@
   .feature-card {
     padding: 12px 14px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--c-border-subtle);
+    border: 1px solid var(--c-border-subtle);
   }
 
   .feature-title {
     font-size: 13px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     margin-bottom: 4px;
   }
 
   .feature-desc {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     line-height: 1.4;
   }
 
@@ -168,17 +168,17 @@
     cursor: pointer;
     border: none;
     outline: none;
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.95);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
     transition: background 0.1s;
   }
 
   .btn-dismiss:hover {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-bg-hover);
   }
 
   .btn-dismiss:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 </style>

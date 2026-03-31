@@ -47,13 +47,13 @@
     margin: 0;
     font-size: 18px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
   }
 
   .description {
     margin: 0;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .theme-grid {
@@ -72,7 +72,7 @@
     padding: 8px;
     border: 2px solid transparent;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--c-border-subtle);
     cursor: pointer;
     transition:
       border-color 0.15s,
@@ -80,13 +80,13 @@
   }
 
   .theme-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover);
+    border-color: var(--c-hover-strong);
   }
 
   .theme-btn.active {
-    border-color: rgba(116, 192, 252, 0.6);
-    background: rgba(116, 192, 252, 0.08);
+    border-color: var(--c-focus-ring);
+    background: var(--c-accent-bg);
   }
 
   .theme-preview {
@@ -98,7 +98,7 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--c-active);
   }
 
   .preview-text {
@@ -120,7 +120,7 @@
 
   .theme-name {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     font-family: inherit;
     white-space: nowrap;
     overflow: hidden;
@@ -129,6 +129,6 @@
   }
 
   .theme-btn.active .theme-name {
-    color: #74c0fc;
+    color: var(--c-accent);
   }
 </style>

@@ -130,7 +130,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--c-scrim);
   }
 
   .wizard {
@@ -140,8 +140,8 @@
     max-height: 85vh;
     display: flex;
     flex-direction: column;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 12px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     overflow: hidden;
@@ -160,7 +160,7 @@
     flex-direction: column;
     gap: 16px;
     padding: 16px 32px 24px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--c-border-subtle);
   }
 
   .nav-buttons {
@@ -180,27 +180,27 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 
   .btn-ghost {
     background: transparent;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .btn-ghost:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .btn-primary {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.95);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
     font-weight: 500;
   }
 
   .btn-primary:hover {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-bg-hover);
   }
 </style>

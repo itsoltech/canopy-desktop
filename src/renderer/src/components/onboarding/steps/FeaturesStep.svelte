@@ -72,13 +72,13 @@
     margin: 0;
     font-size: 18px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
   }
 
   .description {
     margin: 0;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .toggles {
@@ -101,13 +101,13 @@
   }
 
   .toggle-row:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--c-border-subtle);
   }
 
   .toggle-row input[type='checkbox'] {
     margin-top: 2px;
     flex-shrink: 0;
-    accent-color: #74c0fc;
+    accent-color: var(--c-accent);
   }
 
   .toggle-info {
@@ -118,12 +118,12 @@
 
   .toggle-label {
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
   }
 
   .toggle-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     line-height: 1.4;
   }
 </style>

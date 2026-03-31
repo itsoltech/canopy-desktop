@@ -154,14 +154,14 @@
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--c-border);
+    background: var(--c-border-subtle);
+    color: var(--c-text-secondary);
     transition: background 0.1s;
   }
 
   .action-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 </style>

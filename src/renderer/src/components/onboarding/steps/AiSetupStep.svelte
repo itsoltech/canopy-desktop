@@ -62,13 +62,13 @@
     margin: 0;
     font-size: 18px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
   }
 
   .description {
     margin: 0;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     max-width: 380px;
     line-height: 1.5;
   }
@@ -91,32 +91,32 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
   .field-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .text-input {
     padding: 8px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
+    background: var(--c-hover);
+    color: var(--c-text);
     font-size: 13px;
     font-family: monospace;
     outline: none;
   }
 
   .text-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .text-input::placeholder {
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
   }
 </style>
