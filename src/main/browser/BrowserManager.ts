@@ -10,7 +10,7 @@ import os from 'os'
  * in some Electron versions. This helper scans getAllWebContents() as fallback.
  */
 function findWebContents(id: number): WebContents | undefined {
-  return findWebContents(id) ?? webContents.getAllWebContents().find((wc) => wc.id === id)
+  return webContents.fromId(id) ?? webContents.getAllWebContents().find((wc) => wc.id === id)
 }
 
 interface WebviewEntry {
@@ -234,8 +234,9 @@ export class BrowserManager {
       // Close DevTools
       const browserWc =
         this.guestContents.get(entry.webContentsId) ?? findWebContents(entry.webContentsId)
-      if (browserWc && !browserWc.isDestroyed() && browserWc.isDevToolsOpened()) {
-        browserWc.closeDevTools()
+      if (browserWc && !browserWc.isDestroyed()) {
+        if (browserWc.isDevToolsOpened()) browserWc.closeDevTools()
+        if (browserWc.debugger.isAttached()) browserWc.debugger.detach()
       }
       // Destroy the view on full teardown
       if (entry.devToolsView) {
@@ -312,7 +313,12 @@ export class BrowserManager {
         })
         .catch(() => {})
     } else {
-      wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride').catch(() => {})
+      wc.debugger
+        .sendCommand('Emulation.clearDeviceMetricsOverride')
+        .then(() => {
+          if (wc.debugger.isAttached()) wc.debugger.detach()
+        })
+        .catch(() => {})
     }
   }
 

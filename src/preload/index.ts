@@ -232,7 +232,7 @@ const api = {
   // Credentials
   getCredentials: (domain: string) =>
     ipcRenderer.invoke('credentials:getForDomain', { domain }) as Promise<
-      Array<{ id: string; domain: string; username: string; password: string }>
+      Array<{ id: string; domain: string; username: string; title: string }>
     >,
   saveCredential: (domain: string, username: string, password: string, title?: string) =>
     ipcRenderer.invoke('credentials:save', { domain, username, password, title }),

@@ -329,7 +329,7 @@ interface CanopyAPI {
   // Credentials
   getCredentials: (
     domain: string,
-  ) => Promise<Array<{ id: string; domain: string; username: string; password: string }>>
+  ) => Promise<Array<{ id: string; domain: string; username: string; title: string }>>
   saveCredential: (
     domain: string,
     username: string,

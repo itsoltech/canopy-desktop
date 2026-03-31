@@ -617,7 +617,7 @@ export function registerIpcHandlers(
   // --- Credentials ---
 
   ipcMain.handle('credentials:getForDomain', (_event, payload: { domain: string }) => {
-    return credentialStore.getForDomain(payload.domain)
+    return credentialStore.getForDomainMasked(payload.domain)
   })
 
   ipcMain.handle(
@@ -660,8 +660,9 @@ export function registerIpcHandlers(
         }
       } else {
         // Linux: confirmation dialog (zenity/kdialog not guaranteed)
-        const win = BrowserWindow.fromWebContents(event.sender)
-        const { response } = await dialog.showMessageBox(win ?? BrowserWindow.getFocusedWindow()!, {
+        const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+        if (!win) return null
+        const { response } = await dialog.showMessageBox(win, {
           type: 'warning',
           buttons: ['Reveal Password', 'Cancel'],
           defaultId: 1,

@@ -44,6 +44,9 @@ export class CredentialStore {
       return safeStorage.encryptString(plaintext).toString('base64')
     }
     // Fallback: base64 only (no OS keychain available, e.g. Linux without keyring)
+    console.warn(
+      '[CredentialStore] safeStorage encryption unavailable — credentials stored without OS-level encryption. Configure a system keyring for secure storage.',
+    )
     return Buffer.from(plaintext).toString('base64')
   }
 
@@ -59,6 +62,7 @@ export class CredentialStore {
     return Buffer.from(stored, 'base64').toString()
   }
 
+  /** Returns credentials WITH decrypted passwords — internal use only, never expose via IPC directly */
   getForDomain(domain: string): Credential[] {
     const rows = this.db
       .prepare('SELECT * FROM credentials WHERE domain = ?')
@@ -68,6 +72,23 @@ export class CredentialStore {
       domain: row.domain,
       username: row.username,
       password: this.decrypt(row.password_enc),
+      title: row.title,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  }
+
+  /** Returns credentials WITHOUT passwords — safe for IPC */
+  getForDomainMasked(domain: string): CredentialMasked[] {
+    const rows = this.db
+      .prepare(
+        'SELECT id, domain, username, title, created_at, updated_at FROM credentials WHERE domain = ?',
+      )
+      .all(domain) as Omit<CredentialRow, 'password_enc'>[]
+    return rows.map((row) => ({
+      id: row.id,
+      domain: row.domain,
+      username: row.username,
       title: row.title,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

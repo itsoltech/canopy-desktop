@@ -65,8 +65,8 @@
   // Compute scale factor so device frame fits in wrapper while preserving aspect ratio.
   // The webview always renders at full device resolution; CSS transform scales it down.
   let deviceScale = $derived.by(() => {
-    if (!activeDevice || !getAllViewports()[activeDevice]) return 1
-    const d = getAllViewports()[activeDevice]
+    if (!activeDevice || !viewports[activeDevice]) return 1
+    const d = viewports[activeDevice]
     const labelH = 22
     const availW = wrapperSize.w
     const availH = wrapperSize.h - labelH
@@ -75,7 +75,7 @@
   })
 
   let alive = true
-  let registered = false
+  let registeredElement: HTMLElement | null = null
 
   let session = $derived(browserSessions[browserId])
   let aiSessionCount = $derived(
@@ -83,6 +83,7 @@
       ? getAiSessions(workspaceState.selectedWorktreePath).length
       : 0,
   )
+  let viewports = $derived(getAllViewports())
 
   function wv(): WebviewElement | null {
     return (webviewEl as WebviewElement) ?? null
@@ -127,7 +128,7 @@
 
   function handleSetDevice(name: string | null): void {
     activeDevice = name
-    const device = name ? (getAllViewports()[name] ?? null) : null
+    const device = name ? (viewports[name] ?? null) : null
     window.api.setBrowserDeviceEmulation(browserId, device)
   }
 
@@ -331,13 +332,13 @@
   }
 
   function injectAutofillIcon(
-    creds: Array<{ username: string; password: string; title?: string }>,
+    creds: Array<{ id: string; username: string; title?: string }>,
   ): void {
     const w = wv()
     if (!w) return
 
     const credsJson = JSON.stringify(
-      creds.map((c) => ({ u: c.username, p: c.password, t: c.title || '' })),
+      creds.map((c) => ({ id: c.id, u: c.username, t: c.title || '' })),
     )
 
     w.executeJavaScript(
@@ -347,19 +348,6 @@
         const pw = document.querySelector('input[type="password"]')
         if (!pw) return
         const creds = ${credsJson}
-
-        function fill(u, p) {
-          const form = pw.closest('form') || pw.parentElement
-          const uf = form?.querySelector('input[type="email"],input[type="text"],input[name*="user"],input[name*="email"],input[name*="login"],input[autocomplete="username"]')
-          if (uf) {
-            uf.value = u
-            uf.dispatchEvent(new Event('input',{bubbles:true}))
-            uf.dispatchEvent(new Event('change',{bubbles:true}))
-          }
-          pw.value = p
-          pw.dispatchEvent(new Event('input',{bubbles:true}))
-          pw.dispatchEvent(new Event('change',{bubbles:true}))
-        }
 
         const svgKey = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>'
 
@@ -415,7 +403,7 @@
             btn.onmouseleave = () => { btn.style.background = 'none' }
             btn.onclick = (ev) => {
               ev.preventDefault(); ev.stopPropagation()
-              fill(c.u, c.p)
+              console.log('__CANOPY_FILL__:' + c.id)
               picker.remove()
             }
             picker.appendChild(btn)
@@ -443,6 +431,35 @@
     ).catch(() => {})
   }
 
+  async function handleAutofillCredential(credId: string): Promise<void> {
+    const w = wv()
+    if (!w) return
+    const url = w.getURL()
+    if (!url) return
+    const domain = new URL(url).host
+    const cred = await window.api.getCredentialDecrypted(credId, domain)
+    if (!cred) return
+    w.executeJavaScript(
+      `
+      (function() {
+        const pw = document.querySelector('input[type="password"]')
+        if (!pw) return
+        const form = pw.closest('form') || pw.parentElement
+        const uf = form?.querySelector('input[type="email"],input[type="text"],input[name*="user"],input[name*="email"],input[name*="login"],input[autocomplete="username"]')
+        if (uf) {
+          uf.value = ${JSON.stringify(cred.username)}
+          uf.dispatchEvent(new Event('input',{bubbles:true}))
+          uf.dispatchEvent(new Event('change',{bubbles:true}))
+        }
+        pw.value = ${JSON.stringify(cred.password)}
+        pw.dispatchEvent(new Event('input',{bubbles:true}))
+        pw.dispatchEvent(new Event('change',{bubbles:true}))
+        document.getElementById('__canopy_autofill_icon')?.remove()
+      })()
+    `,
+    ).catch(() => {})
+  }
+
   /** Inject early capture script — stores credentials on form submit/button click */
   function injectCredentialCapture(): void {
     const w = wv()
@@ -457,15 +474,7 @@
         function capture() {
           const pw = document.querySelector('input[type="password"]')
           if (!pw || !pw.value) return
-          const form = pw.closest('form') || pw.parentElement
-          const uf = form?.querySelector('input[type="email"],input[type="text"],input[name*="user"],input[name*="email"],input[name*="login"],input[autocomplete="username"]')
-          const data = {
-            username: uf?.value || '',
-            password: pw.value,
-            domain: location.host,
-            title: document.title || '',
-          }
-          console.log('__CANOPY_CREDS__:' + JSON.stringify(data))
+          console.log('__CANOPY_CREDS_READY__')
         }
 
         // Capture on form submit
@@ -501,8 +510,7 @@
     try {
       const existing = await window.api.getCredentials(captured.domain)
       const alreadySaved = existing.some(
-        (c: { username: string; password: string }) =>
-          c.username === captured.username && c.password === captured.password,
+        (c: { username: string }) => c.username === captured.username,
       )
       if (!alreadySaved) {
         savePrompt = captured
@@ -819,9 +827,9 @@
       if (devtoolsOpen) {
         window.api.closeBrowserDevTools(browserId).catch(() => {})
       }
-      if (registered) {
+      if (registeredElement) {
         window.api.teardownBrowserWebview(browserId).catch(() => {})
-        registered = false
+        registeredElement = null
       }
     }
   })
@@ -829,11 +837,11 @@
   // Setup browser webview
   $effect(() => {
     const w = wv()
-    if (!w || registered) return
+    if (!w || registeredElement === webviewEl) return
 
     const onDomReady = async (): Promise<void> => {
-      if (!alive || registered) return
-      registered = true
+      if (!alive || registeredElement === webviewEl) return
+      registeredElement = webviewEl ?? null
       const wcId = w.getWebContentsId()
       await window.api.setupBrowserWebview(browserId, wcId)
       if (initialUrl) handleNavigate(initialUrl)
@@ -882,12 +890,30 @@
     const onConsoleMessage = (e: Event): void => {
       const msg = (e as CustomEvent & { message: string }).message
       if (typeof msg !== 'string') return
-      if (msg.startsWith('__CANOPY_CREDS__:')) {
-        try {
-          lastCapturedCreds = JSON.parse(msg.slice('__CANOPY_CREDS__:'.length))
-        } catch {
-          // ignore
-        }
+      if (msg === '__CANOPY_CREDS_READY__') {
+        w.executeJavaScript(
+          `
+          (function() {
+            const pw = document.querySelector('input[type="password"]')
+            if (!pw || !pw.value) return null
+            const form = pw.closest('form') || pw.parentElement
+            const uf = form?.querySelector('input[type="email"],input[type="text"],input[name*="user"],input[name*="email"],input[name*="login"],input[autocomplete="username"]')
+            return {
+              username: uf?.value || '',
+              password: pw.value,
+              domain: location.host,
+              title: document.title || '',
+            }
+          })()
+        `,
+        )
+          .then((data) => {
+            if (data) lastCapturedCreds = data
+          })
+          .catch(() => {})
+      } else if (msg.startsWith('__CANOPY_FILL__:')) {
+        const credId = msg.slice('__CANOPY_FILL__:'.length)
+        handleAutofillCredential(credId)
       } else if (msg === '__CANOPY_PW_FIELD_FOUND__') {
         checkCredentials()
       } else if (msg === '__CANOPY_NAV__:back') {
@@ -965,7 +991,7 @@
       onSwitchDevToolsMode={handleSwitchDevToolsMode}
       hasAiSessions={aiSessionCount > 0}
       {activeDevice}
-      viewports={getAllViewports()}
+      {viewports}
       onStartElementPick={handleStartElementPick}
       onStartRegionCapture={handleStartRegionCapture}
       onCancelPick={handleCancelPick}
@@ -1099,8 +1125,8 @@
       <div
         class:device-frame={activeDevice !== null}
         class:desktop-frame={activeDevice === null}
-        style={activeDevice && getAllViewports()[activeDevice]
-          ? `width:${Math.round(getAllViewports()[activeDevice].width * deviceScale)}px;height:${Math.round(getAllViewports()[activeDevice].height * deviceScale)}px`
+        style={activeDevice && viewports[activeDevice]
+          ? `width:${Math.round(viewports[activeDevice].width * deviceScale)}px;height:${Math.round(viewports[activeDevice].height * deviceScale)}px`
           : ''}
       >
         <webview
@@ -1111,8 +1137,8 @@
           class="browser-webview"
           class:hidden={!!session?.error && !activeDevice}
           class:no-events={dragState.isDragging}
-          style={activeDevice && getAllViewports()[activeDevice]
-            ? `width:${getAllViewports()[activeDevice].width}px;height:${getAllViewports()[activeDevice].height}px;transform:scale(${deviceScale});transform-origin:top left`
+          style={activeDevice && viewports[activeDevice]
+            ? `width:${viewports[activeDevice].width}px;height:${viewports[activeDevice].height}px;transform:scale(${deviceScale});transform-origin:top left`
             : ''}
         ></webview>
       </div>
