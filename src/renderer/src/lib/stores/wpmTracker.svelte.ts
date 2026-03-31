@@ -106,6 +106,13 @@ export function cleanupSession(sessionId: string): void {
   delete wpmValues[sessionId]
 }
 
+export function resetAllSessions(): void {
+  for (const id of sessions.keys()) {
+    delete wpmValues[id]
+  }
+  sessions.clear()
+}
+
 let cleanupIntervalId: ReturnType<typeof setInterval> | undefined
 
 export function startCleanupTimer(): void {

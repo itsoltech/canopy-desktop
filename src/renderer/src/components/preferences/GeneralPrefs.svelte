@@ -1,6 +1,7 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
+  import { resetAllSessions } from '../../lib/stores/wpmTracker.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
@@ -40,7 +41,9 @@
   }
 
   function toggleWpm(): void {
-    setPref('wpm.enabled', wpmEnabled ? 'false' : 'true')
+    const next = !wpmEnabled
+    setPref('wpm.enabled', next ? 'true' : 'false')
+    if (next) resetAllSessions()
   }
 
   function toggleKeystrokeVisualizer(): void {
