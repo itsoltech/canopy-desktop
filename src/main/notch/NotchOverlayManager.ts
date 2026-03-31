@@ -34,12 +34,11 @@ export class NotchOverlayManager {
     // After restoring, force-set the icon so the Dock refreshes its cached entry.
     app.dock?.show().then(() => {
       const iconPath = app.isPackaged
-        ? join(process.resourcesPath, '..', 'electron.icns')
+        ? join(process.resourcesPath, 'electron.icns')
         : join(app.getAppPath(), 'build', 'icon.icns')
-      try {
-        app.dock?.setIcon(nativeImage.createFromPath(iconPath))
-      } catch {
-        // icon file missing — Dock will use default Electron icon
+      const icon = nativeImage.createFromPath(iconPath)
+      if (!icon.isEmpty()) {
+        app.dock?.setIcon(icon)
       }
       if (focusedWin && !focusedWin.isDestroyed()) focusedWin.focus()
     })
