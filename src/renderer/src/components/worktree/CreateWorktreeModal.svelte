@@ -43,7 +43,6 @@
   let cleanupProgressListener: (() => void) | null = null
 
   // Setup terminal
-  let termContainerEl: HTMLDivElement | undefined = $state()
   let setupTerm: Terminal | null = null
   let progressState = $state(0)
   let progressValue = $state(0)
@@ -97,8 +96,8 @@
     disposeSetupTerminal()
   })
 
-  function initSetupTerminal(): void {
-    if (setupTerm || !termContainerEl) return
+  function initSetupTerminal(container: HTMLDivElement): void {
+    if (setupTerm) return
     const currentTheme = getTheme(prefs.theme || 'Default')
     const term = new Terminal({
       fontSize: 11,
@@ -111,7 +110,7 @@
     })
     const fitAddon = new FitAddon()
     const progressAddon = new ProgressAddon()
-    term.open(termContainerEl)
+    term.open(container)
     term.loadAddon(fitAddon)
     term.loadAddon(progressAddon)
     progressAddon.onChange(({ state, value }: IProgressState) => {
@@ -265,8 +264,8 @@
     })
   }
 
-  function setupTerminalAction(): { destroy: () => void } {
-    initSetupTerminal()
+  function setupTerminalAction(node: HTMLDivElement): { destroy: () => void } {
+    initSetupTerminal(node)
     return { destroy: disposeSetupTerminal }
   }
 
@@ -404,7 +403,7 @@
               style:width={progressState === 3 ? '100%' : `${progressValue}%`}
             ></div>
           {/if}
-          <div class="setup-terminal" bind:this={termContainerEl} use:setupTerminalAction></div>
+          <div class="setup-terminal" use:setupTerminalAction></div>
         </div>
         {#if setupErrors.length > 0}
           {#each setupErrors as err, i (i)}

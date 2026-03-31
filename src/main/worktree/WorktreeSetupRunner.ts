@@ -1,4 +1,4 @@
-import { spawn } from 'child_process'
+import * as pty from 'node-pty'
 import { copyFile, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 import type { WorktreeSetupAction, WorktreeSetupProgress } from '../db/types'
@@ -37,53 +37,48 @@ function spawnCommand(
 ): Promise<string> {
   const loginEnv = getLoginEnv()
   const shellPath = loginEnv?.SHELL || process.env.SHELL || '/bin/sh'
-  const env = loginEnv ?? (process.env as Record<string, string>)
+  const env = {
+    ...(loginEnv ?? (process.env as Record<string, string>)),
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+  }
 
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, {
+    const p = pty.spawn(shellPath, ['-c', cmd], {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
       cwd,
-      shell: shellPath,
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
     })
 
     let fullOutput = ''
 
     const timeout = setTimeout(() => {
-      child.kill('SIGTERM')
+      p.kill()
       reject(new Error('Command timed out after 5 minutes'))
     }, 300_000)
 
     const abortHandler = (): void => {
-      child.kill('SIGTERM')
+      p.kill()
     }
     signal?.addEventListener('abort', abortHandler, { once: true })
 
-    function handleData(data: Buffer): void {
-      const raw = data.toString()
-      fullOutput += raw
-      onChunk(raw)
-    }
+    p.onData((data) => {
+      fullOutput += data
+      onChunk(data)
+    })
 
-    child.stdout?.on('data', handleData)
-    child.stderr?.on('data', handleData)
-
-    child.on('close', (code) => {
+    p.onExit(({ exitCode }) => {
       clearTimeout(timeout)
       signal?.removeEventListener('abort', abortHandler)
       if (signal?.aborted) {
         reject(new Error('Setup aborted'))
-      } else if (code === 0 || code === null) {
+      } else if (exitCode === 0) {
         resolve(fullOutput)
       } else {
-        reject(new Error(`Command exited with code ${code}`))
+        reject(new Error(`Command exited with code ${exitCode}`))
       }
-    })
-
-    child.on('error', (err) => {
-      clearTimeout(timeout)
-      signal?.removeEventListener('abort', abortHandler)
-      reject(err)
     })
   })
 }
