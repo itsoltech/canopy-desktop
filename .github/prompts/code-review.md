@@ -13,6 +13,17 @@ You are reviewing a pull request for Canopy, an Electron + Svelte 5 desktop app.
 
 Focus on issues that CI cannot catch. Categories are ordered by priority.
 
+### User privacy & data security
+
+- Secrets, passwords, tokens, or API keys logged to console, files, or crash reports.
+- Credentials stored in plaintext instead of OS keychain (`safeStorage`, Keychain, Credential Manager).
+- Sensitive user data (terminal history, file contents, clipboard) persisted without encryption.
+- Telemetry or analytics collecting or transmitting data without explicit user consent.
+- Network requests leaking user activity or environment details to third parties.
+- User data included in error reports, logs, or diagnostics without sanitization.
+- File system or OS-level data accessed beyond what the feature requires.
+- Passwords or secrets visible in UI (inputs not masked, values shown in plain text).
+
 ### UX/UI
 
 This is a desktop app for developers (terminal workstation). Prioritize keyboard-driven workflows and information density.
@@ -35,7 +46,6 @@ This is a desktop app for developers (terminal workstation). Prioritize keyboard
 - Missing `setWindowOpenHandler` restrictions.
 - Missing input validation in `ipcMain.handle` handlers (renderer is untrusted).
 - User-supplied strings interpolated into shell commands, SQL, or HTML without sanitization.
-- Secrets, tokens, or credentials logged or stored in plaintext.
 
 ### Memory leaks
 
