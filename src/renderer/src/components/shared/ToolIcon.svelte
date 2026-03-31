@@ -10,9 +10,14 @@
   $effect(() => {
     if (icon.startsWith('custom:')) {
       const toolId = icon.slice('custom:'.length)
-      window.api.getToolIcon(toolId).then((svg) => {
-        customSvg = svg
-      })
+      window.api
+        .getToolIcon(toolId)
+        .then((svg) => {
+          customSvg = svg
+        })
+        .catch(() => {
+          customSvg = null
+        })
     } else {
       customSvg = null
     }

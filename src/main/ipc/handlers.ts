@@ -609,7 +609,12 @@ export function registerIpcHandlers(
       filters: [{ name: 'SVG Images', extensions: ['svg'] }],
     })
     if (result.canceled || result.filePaths.length === 0) return null
-    return fs.readFileSync(result.filePaths[0], 'utf-8')
+    const filePath = result.filePaths[0]
+    const stat = fs.statSync(filePath)
+    if (stat.size > 256 * 1024) {
+      throw new Error('SVG file too large (max 256 KB)')
+    }
+    return fs.readFileSync(filePath, 'utf-8')
   })
 
   // --- Browser ---

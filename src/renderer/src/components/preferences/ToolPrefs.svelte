@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { getTools, initToolStore } from '../../lib/stores/tools.svelte'
+  import { getTools } from '../../lib/stores/tools.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
   import SvgPreview from '../shared/SvgPreview.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -23,10 +22,6 @@
   let editHadIcon = $state(false)
   let editError = $state('')
 
-  onMount(() => {
-    initToolStore()
-  })
-
   async function addTool(): Promise<void> {
     if (!newId.trim() || !newName.trim() || !newCommand.trim()) {
       error = 'ID, name, and command are required'
@@ -37,8 +32,8 @@
       return
     }
 
+    const id = newId.trim()
     try {
-      const id = newId.trim()
       if (newIconSvg) {
         await window.api.setToolIcon(id, newIconSvg)
       }
@@ -62,6 +57,9 @@
       showForm = false
       error = ''
     } catch (e) {
+      if (newIconSvg) {
+        await window.api.removeToolIcon(id).catch(() => {})
+      }
       error = e instanceof Error ? e.message : String(e)
     }
   }
@@ -105,7 +103,13 @@
     }
 
     try {
-      const changes: Record<string, unknown> = {
+      const changes: {
+        name?: string
+        command?: string
+        args?: string[]
+        icon?: string
+        category?: string
+      } = {
         name: editName.trim(),
         command: editCommand.trim(),
         args: editArgs
@@ -117,20 +121,11 @@
       if (editIconSvg) {
         await window.api.setToolIcon(editingId, editIconSvg)
         changes.icon = `custom:${editingId}`
-      } else if (editHadIcon && !editIconSvg) {
+      } else if (editHadIcon) {
         await window.api.removeToolIcon(editingId)
         changes.icon = 'terminal'
       }
-      await window.api.updateCustomTool(
-        editingId,
-        changes as {
-          name?: string
-          command?: string
-          args?: string[]
-          icon?: string
-          category?: string
-        },
-      )
+      await window.api.updateCustomTool(editingId, changes)
       editingId = null
       editIconSvg = null
       editHadIcon = false

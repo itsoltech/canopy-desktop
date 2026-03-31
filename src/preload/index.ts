@@ -411,31 +411,8 @@ const api = {
       ipcRenderer.removeListener('git:changed', handler)
     }
   },
-  onToolsChanged: (
-    callback: (
-      tools: Array<{
-        id: string
-        name: string
-        command: string
-        args: string[]
-        icon: string
-        category: string
-        isCustom: boolean
-      }>,
-    ) => void,
-  ) => {
-    const handler = (
-      _event: IpcRendererEvent,
-      tools: Array<{
-        id: string
-        name: string
-        command: string
-        args: string[]
-        icon: string
-        category: string
-        isCustom: boolean
-      }>,
-    ): void => callback(tools)
+  onToolsChanged: (callback: (tools: unknown[]) => void) => {
+    const handler = (_event: IpcRendererEvent, tools: unknown[]): void => callback(tools)
     ipcRenderer.on('tools:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('tools:changed', handler)

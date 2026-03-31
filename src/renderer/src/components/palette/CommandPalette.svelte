@@ -23,7 +23,7 @@
     showPreferences,
     showAbout,
   } from '../../lib/stores/dialogs.svelte'
-  import { getTools, getToolAvailability, initToolStore } from '../../lib/stores/tools.svelte'
+  import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -41,9 +41,8 @@
   let selectedIndex = $state(0)
   let inputEl: HTMLInputElement | undefined = $state()
 
-  onMount(async () => {
+  onMount(() => {
     inputEl?.focus()
-    await initToolStore()
   })
 
   const isMac = navigator.userAgent.includes('Mac')

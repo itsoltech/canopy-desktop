@@ -20,6 +20,12 @@ export class ToolRegistry {
     return this.database.db
   }
 
+  private validateId(id: string): void {
+    if (!id || /[/\\]|\.\.|\0/.test(id)) {
+      throw new Error('Invalid tool ID: contains path separators or traversal characters')
+    }
+  }
+
   private reload(): void {
     this.tools.clear()
     const rows = this.db.prepare('SELECT * FROM tool_definitions').all() as ToolDefinitionRow[]
@@ -48,6 +54,7 @@ export class ToolRegistry {
     icon?: string
     category?: string
   }): void {
+    this.validateId(tool.id)
     if (!tool.command.trim()) {
       throw new Error('Command cannot be empty')
     }
@@ -94,6 +101,7 @@ export class ToolRegistry {
       category?: string
     },
   ): void {
+    this.validateId(id)
     const existing = this.tools.get(id)
     if (!existing || !existing.isCustom) {
       throw new Error(`Custom tool not found: ${id}`)
@@ -150,18 +158,29 @@ export class ToolRegistry {
     return dir
   }
 
+  private sanitizeSvg(svg: string): string {
+    return svg
+      .replace(/<script[\s>][\s\S]*?<\/script\s*>/gi, '')
+      .replace(/<foreignObject[\s>][\s\S]*?<\/foreignObject\s*>/gi, '')
+      .replace(/\s+on\w+\s*=\s*"[^"]*"/gi, '')
+      .replace(/\s+on\w+\s*=\s*'[^']*'/gi, '')
+  }
+
   setIcon(toolId: string, svgContent: string): void {
+    this.validateId(toolId)
     const filePath = path.join(this.iconDir, `${toolId}.svg`)
-    fs.writeFileSync(filePath, svgContent, 'utf-8')
+    fs.writeFileSync(filePath, this.sanitizeSvg(svgContent), 'utf-8')
   }
 
   getIcon(toolId: string): string | null {
+    this.validateId(toolId)
     const filePath = path.join(this.iconDir, `${toolId}.svg`)
     if (!fs.existsSync(filePath)) return null
     return fs.readFileSync(filePath, 'utf-8')
   }
 
   removeIcon(toolId: string): void {
+    this.validateId(toolId)
     const filePath = path.join(this.iconDir, `${toolId}.svg`)
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
   }

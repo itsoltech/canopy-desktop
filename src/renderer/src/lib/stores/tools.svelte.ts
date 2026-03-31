@@ -13,6 +13,7 @@ interface ToolDefinition {
 let tools: ToolDefinition[] = $state([])
 let availability: Record<string, boolean> = $state({})
 let initialized = false
+let unsubscribe: (() => void) | null = null
 
 // --- Accessors ---
 
@@ -38,10 +39,20 @@ export async function initToolStore(): Promise<void> {
   tools = fetchedTools
   availability = fetchedAvailability
 
-  window.api.onToolsChanged(async (updated) => {
+  unsubscribe = window.api.onToolsChanged(async (updated) => {
     tools = updated
     availability = await window.api.checkToolAvailability()
   })
+}
+
+// --- Cleanup ---
+
+export function destroyToolStore(): void {
+  unsubscribe?.()
+  unsubscribe = null
+  initialized = false
+  tools = []
+  availability = {}
 }
 
 // --- Refresh ---
