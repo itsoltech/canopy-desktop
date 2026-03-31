@@ -576,6 +576,13 @@
     }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .progress-indeterminate {
+      animation: none;
+      background: #3b82f6;
+    }
+  }
+
   .setup-warnings {
     margin-top: 8px;
     display: flex;
