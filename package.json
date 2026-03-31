@@ -59,7 +59,7 @@
     "electron": "^41.0.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
-    "eslint": "^9.39.1",
+    "eslint": "^10.1.0",
     "eslint-plugin-svelte": "^3.13.1",
     "generate-license-file": "^4.1.1",
     "prettier": "^3.7.4",
