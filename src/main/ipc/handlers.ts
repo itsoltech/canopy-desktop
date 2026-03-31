@@ -597,7 +597,8 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('tools:getIcon', (_event, payload: { toolId: string }) => {
-    return toolRegistry.getIcon(payload.toolId)
+    const svg = toolRegistry.getIcon(payload.toolId)
+    return svg ? toolRegistry.sanitizeSvg(svg) : null
   })
 
   ipcMain.handle('tools:removeIcon', (_event, payload: { toolId: string }) => {

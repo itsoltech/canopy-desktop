@@ -119,14 +119,13 @@
           .filter(Boolean),
         category: editCategory,
       }
-      if (editIconSvg) {
-        changes.icon = `custom:${editingId}`
-      } else if (editHadIcon) {
+      if (editHadIcon && !editIconSvg) {
         changes.icon = 'terminal'
       }
       await window.api.updateCustomTool(editingId, changes)
       if (editIconSvg) {
         await window.api.setToolIcon(editingId, editIconSvg)
+        await window.api.updateCustomTool(editingId, { icon: `custom:${editingId}` })
       } else if (editHadIcon) {
         await window.api.removeToolIcon(editingId)
       }
