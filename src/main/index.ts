@@ -10,6 +10,7 @@ import { Database } from './db/Database'
 import { WorkspaceStore } from './db/WorkspaceStore'
 import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
+import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
@@ -35,6 +36,7 @@ const database = new Database()
 const workspaceStore = new WorkspaceStore(database)
 const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
+const onboardingStore = new OnboardingStore(database)
 const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
@@ -267,10 +269,11 @@ app.whenReady().then(async () => {
 
   buildAppMenu()
 
-  // Track version changes for post-update changelog
+  // Track version changes for post-update changelog / onboarding
   const currentVersion = app.getVersion()
   const lastSeenVersion = preferencesStore.get('app.lastSeenVersion')
-  const versionChanged = lastSeenVersion !== null && lastSeenVersion !== currentVersion
+  const isFirstLaunch = lastSeenVersion === null
+  const versionChanged = !isFirstLaunch && lastSeenVersion !== currentVersion
   preferencesStore.set('app.lastSeenVersion', currentVersion)
 
   if (app.isPackaged) {
@@ -406,6 +409,7 @@ app.whenReady().then(async () => {
     agentSessionManager,
     windowManager,
     browserManager,
+    onboardingStore,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
@@ -481,11 +485,18 @@ app.whenReady().then(async () => {
       if (lastPath) windowConfigs = [{ paths: [lastPath] }]
     }
 
-    let changelogSent = false
-    const sendChangelog = (win: BrowserWindow): void => {
-      if (!changelogSent && versionChanged && lastSeenVersion) {
-        win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
-        changelogSent = true
+    let postLaunchSent = false
+    const sendPostLaunch = (win: BrowserWindow): void => {
+      if (postLaunchSent) return
+      postLaunchSent = true
+
+      if (isFirstLaunch) {
+        win.webContents.send('app:showOnboarding', { mode: 'first-launch' })
+      } else if (versionChanged && lastSeenVersion) {
+        win.webContents.send('app:showOnboarding', {
+          mode: 'upgrade',
+          fromVersion: lastSeenVersion,
+        })
       }
     }
 
@@ -499,18 +510,23 @@ app.whenReady().then(async () => {
           if (config.activeWorktreePath) {
             win.webContents.send('workspace:restoreActive', config.activeWorktreePath)
           }
-          sendChangelog(win)
+          sendPostLaunch(win)
         })
       }
     } else {
       const win = windowManager.createWindow()
-      win.once('ready-to-show', () => sendChangelog(win))
+      win.once('ready-to-show', () => sendPostLaunch(win))
     }
   } else {
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
-      if (versionChanged && lastSeenVersion) {
-        win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
+      if (isFirstLaunch) {
+        win.webContents.send('app:showOnboarding', { mode: 'first-launch' })
+      } else if (versionChanged && lastSeenVersion) {
+        win.webContents.send('app:showOnboarding', {
+          mode: 'upgrade',
+          fromVersion: lastSeenVersion,
+        })
       }
     })
   }

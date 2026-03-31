@@ -86,6 +86,16 @@ const migrations: Migration[] = [
       VALUES ('browser', 'Browser', 'browser', '[]', 'Globe', 'browser', 0);
     `,
   },
+  {
+    id: 6,
+    up: `
+      CREATE TABLE IF NOT EXISTS onboarding_completions (
+        step_id TEXT PRIMARY KEY,
+        completed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        app_version TEXT NOT NULL
+      );
+    `,
+  },
 ]
 
 export class Database {
