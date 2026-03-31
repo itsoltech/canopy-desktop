@@ -126,3 +126,7 @@ export function stopCleanupTimer(): void {
 }
 
 startCleanupTimer()
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => stopCleanupTimer())
+}

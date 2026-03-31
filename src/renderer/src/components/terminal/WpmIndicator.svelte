@@ -1,45 +1,25 @@
 <script lang="ts">
-  import {
-    getWpm,
-    getLastActivity,
-    getSessionStats,
-    isSessionActive,
-  } from '../../lib/stores/wpmTracker.svelte'
+  import { getWpm, getSessionStats, isSessionActive } from '../../lib/stores/wpmTracker.svelte'
 
   let { sessionId }: { sessionId: string } = $props()
 
+  let currentWpm = $derived(getWpm(sessionId))
+  let stats = $derived(getSessionStats(sessionId))
+  let active = $derived(isSessionActive(sessionId))
+
   let visible = $state(false)
   let fadeTimer: ReturnType<typeof setTimeout> | undefined
-  let pollTimer: ReturnType<typeof setInterval> | undefined
-  let currentWpm = $state(0)
-  let peakWpm = $state(0)
-  let active = $state(false)
 
   $effect(() => {
-    pollTimer = setInterval(() => {
-      const wpm = getWpm(sessionId)
-      const lastActivity = getLastActivity(sessionId)
-      const stats = getSessionStats(sessionId)
-      const now = Date.now()
-      const recentlyTyped = now - lastActivity < 2500
-
-      currentWpm = wpm
-      peakWpm = stats.peakWpm
-      active = isSessionActive(sessionId)
-
-      if (active && recentlyTyped && wpm > 0) {
-        visible = true
-        clearTimeout(fadeTimer)
-        fadeTimer = setTimeout(() => {
-          visible = false
-        }, 3000)
-      }
-    }, 400)
-
-    return () => {
-      clearInterval(pollTimer)
+    if (currentWpm > 0 && active) {
+      visible = true
       clearTimeout(fadeTimer)
+      fadeTimer = setTimeout(() => {
+        visible = false
+      }, 3000)
     }
+
+    return () => clearTimeout(fadeTimer)
   })
 </script>
 
@@ -47,9 +27,9 @@
   <div class="wpm-badge" class:visible>
     <span class="wpm-number">{currentWpm}</span>
     <span class="wpm-label">wpm</span>
-    {#if peakWpm > 0}
+    {#if stats.peakWpm > 0}
       <span class="wpm-sep"></span>
-      <span class="wpm-peak">{peakWpm} peak</span>
+      <span class="wpm-peak">{stats.peakWpm} peak</span>
     {/if}
   </div>
 {/if}
@@ -70,6 +50,12 @@
     transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     z-index: 5;
     -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wpm-badge {
+      transition: none;
+    }
   }
 
   .wpm-badge.visible {
