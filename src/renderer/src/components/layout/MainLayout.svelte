@@ -248,14 +248,6 @@
     return () => window.removeEventListener('beforeunload', handler)
   })
 
-  // Freeze/unfreeze browser views when modals/palette are open
-  $effect(() => {
-    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
-    window.dispatchEvent(
-      new CustomEvent(anyOverlayOpen ? 'canopy:freeze-browsers' : 'canopy:unfreeze-browsers'),
-    )
-  })
-
   // Derive active tab and focused pane info
   let activeTab = $derived(allTabs.find((t) => t.id === currentActiveTabId) ?? null)
   let focusedPane = $derived(

@@ -2,12 +2,10 @@
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
   import { initOnboarding } from '../../lib/stores/onboarding.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
-  let urlOpenMode = $derived(prefs.urlOpenMode || 'ask')
 
   function toggleReopen(): void {
     setPref('reopenLastWorkspace', reopenLast ? 'false' : 'true')
@@ -55,20 +53,6 @@
     </div>
   {/if}
 
-  <div class="select-row">
-    <span class="select-label">Open URLs from terminal in</span>
-    <CustomSelect
-      value={urlOpenMode}
-      options={[
-        { value: 'ask', label: 'Always ask' },
-        { value: 'canopy', label: 'Canopy Browser' },
-        { value: 'system', label: 'System browser' },
-      ]}
-      onchange={(v) => setPref('urlOpenMode', v)}
-      maxWidth="180px"
-    />
-  </div>
-
   <div class="info-row">
     <span class="info-label">Shell</span>
     <span class="info-value">Resolved from $SHELL at launch</span>
@@ -104,18 +88,6 @@
 
   .checkbox-row input[type='checkbox'] {
     accent-color: var(--c-accent);
-  }
-
-  .select-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-  }
-
-  .select-label {
-    color: var(--c-text);
-    min-width: 160px;
   }
 
   .info-row {

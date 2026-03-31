@@ -57,14 +57,20 @@ export class WindowManager {
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
         // SECURITY: sandbox disabled — required for node-pty preload bridge.
-        // Browser WebContentsViews use sandbox: true separately.
+        // Browser <webview> tags use sandbox: true via webpreferences attribute.
         sandbox: false,
+        webviewTag: true,
       },
     })
 
     const wcId = win.webContents.id
     this.windows.set(wcId, win)
     this.ptySessions.set(wcId, new Set())
+
+    // Track webview guest webContents for keyboard interception + DevTools
+    if (this.browserManager) {
+      this.browserManager.trackWindow(win)
+    }
 
     // Force re-render when window moves between displays with different scale factors
     let lastScaleFactor = screen.getDisplayMatching(win.getBounds()).scaleFactor
@@ -293,10 +299,10 @@ export class WindowManager {
     this.disposeAllGitWatchers(wcId)
     this.gitWatchers.delete(wcId)
 
-    // Destroy browser views owned by this window
+    // Teardown browser webviews owned by this window
     const win = this.windows.get(wcId)
     if (win && this.browserManager) {
-      this.browserManager.destroyAllForWindow(win)
+      this.browserManager.teardownAllForWindow(win)
     }
 
     // Kill PTY sessions for this window

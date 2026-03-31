@@ -17,6 +17,7 @@ import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
+import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
@@ -40,6 +41,7 @@ const onboardingStore = new OnboardingStore(database)
 const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
+const credentialStore = new CredentialStore(database)
 let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false
@@ -394,6 +396,40 @@ app.whenReady().then(async () => {
     })
   }
 
+  // SECURITY: Validate and harden all <webview> tags before they attach.
+  // Even if an attacker modifies webview attributes in the DOM, this handler
+  // forces safe webPreferences and blocks non-http(s) sources.
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-attach-webview', (event, webPreferences, params) => {
+      // Strip preload scripts — browser webviews must not have preload
+      delete webPreferences.preload
+
+      // Force secure defaults
+      webPreferences.nodeIntegration = false
+      webPreferences.contextIsolation = true
+      webPreferences.sandbox = true
+
+      // Only allow http(s) or about:blank as source
+      const src = params.src
+      if (src && src !== '' && src !== 'about:blank') {
+        try {
+          const url = new URL(src)
+          if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+            event.preventDefault()
+            return
+          }
+        } catch {
+          event.preventDefault()
+          return
+        }
+      }
+    })
+  })
+
+  // Initialize browser partition (shared session for all browser webviews,
+  // isolated from the main app session to protect API keys)
+  browserManager.ensurePartition()
+
   agentSessionManager = new AgentSessionManager()
   agentSessionManager.cleanupOrphans()
   windowManager.setAgentSessionManager(agentSessionManager)
@@ -409,6 +445,7 @@ app.whenReady().then(async () => {
     agentSessionManager,
     windowManager,
     browserManager,
+    credentialStore,
     onboardingStore,
   )
 
