@@ -35,7 +35,7 @@ jobs:
       tag: ${{ steps.semantic.outputs.new_release_git_tag }}
       notes: ${{ steps.semantic.outputs.new_release_notes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: true
@@ -45,7 +45,7 @@ jobs:
 
       - name: Semantic Release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v4
+        uses: cycjimmy/semantic-release-action@v6
         with:
           extra_plugins: |
             @semantic-release/changelog
@@ -90,7 +90,7 @@ jobs:
             label: win
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.dry_run && github.sha || needs.release-version.outputs.tag }}
       - uses: volta-cli/action@v4
@@ -115,7 +115,7 @@ jobs:
 
       - name: Upload artifacts (dry run)
         if: inputs.dry_run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: canopy-${{ matrix.label }}
           path: |
