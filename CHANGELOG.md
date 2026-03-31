@@ -1,3 +1,15 @@
+## [0.8.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.1...v0.8.0-next.2) (2026-03-31)
+
+### Features
+
+* **statusbar:** add bottom status bar ([#51](https://github.com/itsoltech/canopy-desktop/issues/51)) ([5d69f33](https://github.com/itsoltech/canopy-desktop/commit/5d69f33fda482c6483684b508331375849bcba61))
+* **terminal:** add typing speed (WPM) tracker ([#53](https://github.com/itsoltech/canopy-desktop/issues/53)) ([5cc5b0a](https://github.com/itsoltech/canopy-desktop/commit/5cc5b0acb52f6f975f6dc9f0dc99239ee25c137a))
+
+### Bug Fixes
+
+* **file-tree:** include active worktree in path validation ([#50](https://github.com/itsoltech/canopy-desktop/issues/50)) ([c28ea44](https://github.com/itsoltech/canopy-desktop/commit/c28ea44e21946a3e0d8972847651e2912d88f6d6))
+* **modals:** auto-focus and prevent close on text selection drag ([#39](https://github.com/itsoltech/canopy-desktop/issues/39)) ([f70cdc0](https://github.com/itsoltech/canopy-desktop/commit/f70cdc0d64d86e45e4af6cf0fdd2e05f45c364b9))
+
 ## [0.8.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.7.1-next.1...v0.8.0-next.1) (2026-03-30)
 
 ### Features

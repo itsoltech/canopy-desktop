@@ -8,6 +8,8 @@
   import EditorPane from '../editor/EditorPane.svelte'
   import AgentInspector from '../agents/AgentInspector.svelte'
   import ExitBanner from './ExitBanner.svelte'
+  import WpmIndicator from './WpmIndicator.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
 
   let {
     pane,
@@ -30,6 +32,7 @@
 
   let agentState = $derived(agentSessions[pane.sessionId] ?? null)
   let showInspector = $derived(pane.inspectorOpen !== false && agentState !== null)
+  let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
 
   // Whether this pane is a valid drop target
   let isValidTarget = $derived(
@@ -108,6 +111,9 @@
             onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
           />
         {/key}
+        {#if wpmEnabled}
+          <WpmIndicator sessionId={pane.sessionId} />
+        {/if}
         {#if !pane.isRunning}
           <ExitBanner
             exitCode={pane.exitCode}
