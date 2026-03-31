@@ -20,6 +20,7 @@
 
 {#if icon.startsWith('custom:') && customSvg}
   <span class="custom-icon" style:width="{size}px" style:height="{size}px">
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -- SVG loaded from user's local file -->
     {@html customSvg}
   </span>
 {:else if icon === 'ClaudeAI'}
