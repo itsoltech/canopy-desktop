@@ -186,7 +186,7 @@
 
   .project-item.active {
     background: var(--c-hover-strong);
-    color: #fff;
+    color: var(--c-text);
   }
 
   .project-item:hover .project-actions {

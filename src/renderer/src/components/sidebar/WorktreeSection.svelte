@@ -173,7 +173,7 @@
 
   .worktree-item.active {
     background: var(--c-hover-strong);
-    color: #fff;
+    color: var(--c-text);
   }
 
   .indicator {

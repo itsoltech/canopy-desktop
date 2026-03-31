@@ -32,6 +32,7 @@ function blend(base: RGB, target: RGB, amount: number): RGB {
 }
 
 export function deriveAppTheme(theme: ITheme): Record<string, string> {
+  // All built-in themes populate these fields; getTheme() guarantees a built-in.
   const bg = hexToRgb(theme.background as string)
   const fg = hexToRgb(theme.foreground as string)
   const light = isLightTheme(theme.background as string)
@@ -52,7 +53,7 @@ export function deriveAppTheme(theme: ITheme): Record<string, string> {
     '--c-bg-glass-heavy': rgba(bg, 0.85),
     '--c-bg-glass-light': rgba(bg, 0.6),
     '--c-bg-overlay': rgba(bg, 0.98),
-    '--c-bg-input': rgba(contrastBase, 0.3),
+    '--c-bg-input': rgba([0, 0, 0], light ? 0.06 : 0.3),
 
     '--c-text': rgba(fg, 0.86),
     '--c-text-secondary': rgba(fg, 0.6),
