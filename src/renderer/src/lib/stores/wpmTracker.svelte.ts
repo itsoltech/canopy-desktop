@@ -38,7 +38,7 @@ function countPrintable(data: string): number {
 }
 
 export function recordKeystroke(sessionId: string, data: string): void {
-  if (getPref('wpm.enabled') === 'false') return
+  if (getPref('wpm.enabled') !== 'true') return
 
   const printable = countPrintable(data)
   if (printable === 0) return

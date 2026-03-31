@@ -4,7 +4,7 @@
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
-  let wpmEnabled = $derived(prefs['wpm.enabled'] !== 'false')
+  let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
   let urlOpenMode = $derived(prefs.urlOpenMode || 'ask')
 
   function toggleReopen(): void {

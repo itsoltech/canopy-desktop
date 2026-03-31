@@ -32,7 +32,7 @@
 
   let agentState = $derived(agentSessions[pane.sessionId] ?? null)
   let showInspector = $derived(pane.inspectorOpen !== false && agentState !== null)
-  let wpmEnabled = $derived(prefs['wpm.enabled'] !== 'false')
+  let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
 
   // Whether this pane is a valid drop target
   let isValidTarget = $derived(
