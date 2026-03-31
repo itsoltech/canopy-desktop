@@ -960,6 +960,10 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle('issueTracker:findIssueByKey', async (_event, payload: { issueKey: string }) => {
+    return issueTrackerManager.findIssueByKey(payload.issueKey)
+  })
+
   ipcMain.handle(
     'issueTracker:createPR',
     async (
@@ -970,24 +974,10 @@ export function registerIpcHandlers(
         sourceBranch: string
       },
     ) => {
-      // If issue has key but no summary, try to fetch it from connections
       let issue = payload.issue
       if (issue.key && !issue.summary) {
-        const connections = issueTrackerManager.getConnections()
-        for (const conn of connections) {
-          try {
-            const issues = await issueTrackerManager.fetchIssues(conn.id, {
-              boardId: conn.boardId,
-            })
-            const found = issues.find((i) => i.key === issue.key)
-            if (found) {
-              issue = found
-              break
-            }
-          } catch {
-            // try next connection
-          }
-        }
+        const found = await issueTrackerManager.findIssueByKey(issue.key)
+        if (found) issue = found
       }
 
       const titleTemplate =

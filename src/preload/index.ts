@@ -555,6 +555,8 @@ const api = {
     ipcRenderer.invoke('issueTracker:getAvailablePlaceholders', { customVars }),
   issueTrackerValidateTemplate: (template: string) =>
     ipcRenderer.invoke('issueTracker:validateTemplate', { template }),
+  issueTrackerFindIssueByKey: (issueKey: string) =>
+    ipcRenderer.invoke('issueTracker:findIssueByKey', { issueKey }),
   issueTrackerCreatePR: (repoRoot: string, issue: Record<string, unknown>, sourceBranch: string) =>
     ipcRenderer.invoke('issueTracker:createPR', { repoRoot, issue, sourceBranch }),
 

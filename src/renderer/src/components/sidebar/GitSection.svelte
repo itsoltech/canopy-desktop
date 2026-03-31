@@ -125,7 +125,17 @@
     if (!branch) return
 
     const issueKey = issueKeyFromBranch
-    const issue = {
+    loading = 'pr'
+
+    // Fetch issue data for PR title preview
+    let issue: {
+      key: string
+      summary: string
+      description: string
+      status: string
+      priority: string
+      type: string
+    } = {
       key: issueKey ?? '',
       summary: '',
       description: '',
@@ -134,12 +144,31 @@
       type: 'task',
     }
 
+    if (issueKey) {
+      try {
+        const found = await window.api.issueTrackerFindIssueByKey(issueKey)
+        if (found) issue = found
+      } catch {
+        // use empty issue
+      }
+    }
+
+    const titleTemplate =
+      (await window.api.getPref('issueTracker.prTitleTemplate')) || '[{issueKey}] {issueTitle}'
     const defaultTarget = (await window.api.getPref('issueTracker.prDefaultBranch')) || 'develop'
+
+    const prTitle = titleTemplate
+      .replace(/\{issueKey\}/g, issue.key)
+      .replace(/\{issueTitle\}/g, issue.summary)
+      .replace(/\{issueType\}/g, issue.type)
+      .replace(/\{boardKey\}/g, issue.key.split('-')[0] ?? '')
+
+    loading = null
 
     const ok = await confirm({
       title: 'Create Pull Request',
       message: `Create PR from "${branch}"?`,
-      details: `Issue: ${issueKey ?? 'none'}\nTarget: ${defaultTarget}\n\nTitle will be resolved from issue tracker.`,
+      details: `Title: ${prTitle}\nTarget: ${defaultTarget}`,
       confirmLabel: 'Create PR',
     })
     if (!ok) return

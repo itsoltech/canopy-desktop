@@ -459,6 +459,7 @@ interface CanopyAPI {
     customVars?: Record<string, string>,
   ) => Promise<Array<{ key: string; description: string; example: string }>>
   issueTrackerValidateTemplate: (template: string) => Promise<{ valid: boolean; errors: string[] }>
+  issueTrackerFindIssueByKey: (issueKey: string) => Promise<TrackerIssue | null>
   issueTrackerCreatePR: (
     repoRoot: string,
     issue: TrackerIssue,

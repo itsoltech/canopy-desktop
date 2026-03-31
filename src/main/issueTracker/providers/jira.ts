@@ -96,6 +96,20 @@ export const jiraClient: IssueTrackerProviderClient = {
     return data.displayName ?? ''
   },
 
+  async fetchIssueByKey(connection, token, issueKey) {
+    try {
+      const fields = 'summary,status,priority,issuetype,parent,assignee,sprint'
+      const data = await jiraFetch<JiraIssue>(
+        connection,
+        token,
+        `/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=${fields}`,
+      )
+      return mapJiraIssue(data, connection.baseUrl)
+    } catch {
+      return null
+    }
+  },
+
   async fetchBoards(connection, token) {
     const params = connection.projectKey
       ? `?projectKeyOrId=${encodeURIComponent(connection.projectKey)}`

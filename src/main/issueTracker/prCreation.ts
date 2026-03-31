@@ -66,6 +66,8 @@ export async function createPullRequest(params: CreatePRParams): Promise<CreateP
       targetBranch,
       '--head',
       sourceBranch,
+      '--assignee',
+      '@me',
     ],
     { cwd: repoRoot },
   )

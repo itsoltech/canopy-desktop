@@ -103,6 +103,21 @@ export class IssueTrackerManager {
     return client.fetchBoards(tempConn, token)
   }
 
+  async findIssueByKey(issueKey: string): Promise<TrackerIssue | null> {
+    const connections = this.getConnections()
+    for (const conn of connections) {
+      try {
+        const token = this.getToken(conn)
+        const client = createProviderClient(conn.provider)
+        const issue = await client.fetchIssueByKey(conn, token, issueKey)
+        if (issue) return issue
+      } catch {
+        // try next connection
+      }
+    }
+    return null
+  }
+
   async getCurrentUserDisplayName(connectionId: string): Promise<string> {
     const conn = this.getConnection(connectionId)
     const token = this.getToken(conn)

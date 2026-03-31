@@ -91,6 +91,11 @@ export interface FetchIssuesParams {
 export interface IssueTrackerProviderClient {
   testConnection(connection: IssueTrackerConnection, token: string): Promise<boolean>
   getCurrentUserDisplayName(connection: IssueTrackerConnection, token: string): Promise<string>
+  fetchIssueByKey(
+    connection: IssueTrackerConnection,
+    token: string,
+    issueKey: string,
+  ): Promise<TrackerIssue | null>
   fetchBoards(connection: IssueTrackerConnection, token: string): Promise<TrackerBoard[]>
   fetchStatuses(
     connection: IssueTrackerConnection,

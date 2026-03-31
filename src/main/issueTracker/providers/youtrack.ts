@@ -105,6 +105,21 @@ export const youtrackClient: IssueTrackerProviderClient = {
     return data.fullName ?? data.name ?? ''
   },
 
+  async fetchIssueByKey(connection, token, issueKey) {
+    try {
+      const fields =
+        'id,idReadable,summary,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
+      const data = await ytFetch<YTIssue>(
+        connection,
+        token,
+        `/api/issues/${encodeURIComponent(issueKey)}?fields=${encodeURIComponent(fields)}`,
+      )
+      return mapYTIssue(data, connection.baseUrl)
+    } catch {
+      return null
+    }
+  },
+
   async fetchBoards(connection, token) {
     const data = await ytFetch<
       Array<{
