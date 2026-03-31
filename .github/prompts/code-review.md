@@ -38,6 +38,17 @@ This is a desktop app for developers (terminal workstation). Prioritize keyboard
 - Terminal or editor panes not resizing properly on window resize.
 - New non-core features enabled by default or auto-enabled via migration. Non-essential features (cosmetic indicators, badges, optional UI widgets) must be behind a feature flag and off by default — users opt in. Only core functionality (security fixes, critical UX, essential workflows) may be auto-enabled.
 
+### Feature justification
+
+Every new feature must earn its place. Prioritize high-impact additions that solve real workflow problems for developers.
+
+- Feature adds UI complexity (new buttons, panels, indicators) without solving a concrete user workflow problem.
+- Feature duplicates or overlaps existing functionality without clear improvement.
+- No clear user story — who needs this, when, and why.
+- Feature targets a niche use case but affects the default experience for all users (should be opt-in or a plugin).
+- Added configuration or settings without evidence users need the customization.
+- Feature increases cognitive load (more things to learn/notice) disproportionate to its value.
+
 ### Cross-platform consistency
 
 This app targets macOS, Windows, and Linux. Platform-specific labels and behaviors are acceptable only in platform-exclusive features.
