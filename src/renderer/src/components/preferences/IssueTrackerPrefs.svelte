@@ -1123,7 +1123,7 @@
 
   .token-builder {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 8px;
     margin-bottom: 8px;
   }
@@ -1133,7 +1133,7 @@
     flex-wrap: wrap;
     gap: 3px;
     flex: 1;
-    min-height: 30px;
+    min-height: 32px;
     padding: 4px 6px;
     border: 1px solid var(--c-border);
     border-radius: 6px;
