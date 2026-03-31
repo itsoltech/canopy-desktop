@@ -1,6 +1,7 @@
 <script lang="ts">
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
   let loading: string | null = $state(null)
@@ -110,6 +111,59 @@
 
   let ahead = $derived(workspaceState.aheadBehind?.ahead ?? 0)
   let behind = $derived(workspaceState.aheadBehind?.behind ?? 0)
+
+  function extractIssueKeyFromBranch(branch: string | null): string | null {
+    if (!branch) return null
+    const match = branch.match(/([A-Z][A-Z0-9]+-\d+)/)
+    return match ? match[1] : null
+  }
+
+  let issueKeyFromBranch = $derived(extractIssueKeyFromBranch(workspaceState.branch))
+
+  async function doCreatePR(): Promise<void> {
+    const branch = workspaceState.branch
+    if (!branch) return
+
+    const issueKey = issueKeyFromBranch
+    const issue = {
+      key: issueKey ?? '',
+      summary: '',
+      description: '',
+      status: '',
+      priority: '',
+      type: 'task',
+    }
+
+    const defaultTarget = (await window.api.getPref('issueTracker.prDefaultBranch')) || 'develop'
+
+    const ok = await confirm({
+      title: 'Create Pull Request',
+      message: `Create PR from "${branch}"?`,
+      details: `Issue: ${issueKey ?? 'none'}\nTarget: ${defaultTarget}\n\nTitle will be resolved from issue tracker.`,
+      confirmLabel: 'Create PR',
+    })
+    if (!ok) return
+
+    loading = 'pr'
+    try {
+      const result = await window.api.issueTrackerCreatePR(worktreePath(), issue, branch)
+      addToast(`PR created`)
+      window.api.openExternal(result.url)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('No commits between')) {
+        await confirm({
+          title: 'No Changes',
+          message: `No commits between target branch and "${branch}". Commit changes first.`,
+          confirmLabel: 'OK',
+        })
+      } else {
+        await gitError(err)
+      }
+    } finally {
+      loading = null
+    }
+  }
 </script>
 
 <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
@@ -176,6 +230,17 @@
       title="Pop stashed changes"
     >
       <span class="action-label">Stash Pop</span>
+    </button>
+    <button
+      class="action-item"
+      disabled={loading === 'pr' || !workspaceState.branch}
+      onclick={doCreatePR}
+      title={issueKeyFromBranch ? `Create PR for ${issueKeyFromBranch}` : 'Create Pull Request'}
+    >
+      <span class="action-label">Create PR</span>
+      {#if issueKeyFromBranch}
+        <span class="badge">{issueKeyFromBranch}</span>
+      {/if}
     </button>
   </div>
 </CollapsibleSection>

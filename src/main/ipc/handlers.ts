@@ -970,6 +970,26 @@ export function registerIpcHandlers(
         sourceBranch: string
       },
     ) => {
+      // If issue has key but no summary, try to fetch it from connections
+      let issue = payload.issue
+      if (issue.key && !issue.summary) {
+        const connections = issueTrackerManager.getConnections()
+        for (const conn of connections) {
+          try {
+            const issues = await issueTrackerManager.fetchIssues(conn.id, {
+              boardId: conn.boardId,
+            })
+            const found = issues.find((i) => i.key === issue.key)
+            if (found) {
+              issue = found
+              break
+            }
+          } catch {
+            // try next connection
+          }
+        }
+      }
+
       const titleTemplate =
         preferencesStore.get('issueTracker.prTitleTemplate') || '[{issueKey}] {issueTitle}'
       const bodyTemplate =
@@ -992,7 +1012,7 @@ export function registerIpcHandlers(
       const prConfig = buildPRConfig(titleTemplate, bodyTemplate, defaultBranch, targetRules)
       return createPullRequest({
         repoRoot: payload.repoRoot,
-        issue: payload.issue,
+        issue,
         sourceBranch: payload.sourceBranch,
         prConfig,
         existingBranches,
