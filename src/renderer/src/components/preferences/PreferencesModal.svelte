@@ -1,8 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
-
-  let containerEl: HTMLDivElement | undefined = $state()
   import GeneralPrefs from './GeneralPrefs.svelte'
   import AppearancePrefs from './AppearancePrefs.svelte'
   import ToolPrefs from './ToolPrefs.svelte'
@@ -12,6 +10,8 @@
   import GeminiPrefs from './GeminiPrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
+
+  let containerEl: HTMLDivElement | undefined = $state()
 
   const sections = [
     'General',

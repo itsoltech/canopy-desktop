@@ -1,11 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-
-  let containerEl: HTMLDivElement | undefined = $state()
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
 
+  let containerEl: HTMLDivElement | undefined = $state()
   let version = $state('')
   let homepage = $state('')
   let licenseHtml = $state('')
