@@ -92,6 +92,7 @@
   }
 
   onDestroy(() => {
+    window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
   })
