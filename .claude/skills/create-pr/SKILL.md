@@ -1,3 +1,9 @@
+---
+description: Create a pull request with conventional commit title, auto-detected base branch, and filled-in PR template
+allowed-tools: ['Bash', 'Read', 'Grep']
+disable-model-invocation: true
+---
+
 Create a pull request for the current branch following our PR template and conventional commit standards.
 
 ## Steps

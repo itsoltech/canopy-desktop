@@ -1,3 +1,10 @@
+---
+description: Create a GitHub issue (bug report or feature request) following project templates
+argument-hint: '[bug|feature]'
+allowed-tools: ['Bash']
+disable-model-invocation: true
+---
+
 Create a GitHub issue for this repository following our issue templates.
 
 Ask me:

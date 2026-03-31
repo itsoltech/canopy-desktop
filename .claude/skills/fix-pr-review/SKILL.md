@@ -1,7 +1,8 @@
 ---
 description: Fix unresolved PR review comments, reply, and resolve threads
-argument-hint: "[PR number]"
-allowed-tools: ["Bash", "Read", "Edit", "Write"]
+argument-hint: '[PR number]'
+allowed-tools: ['Bash', 'Read', 'Edit', 'Write']
+disable-model-invocation: true
 ---
 
 # Fix PR review comments
@@ -150,6 +151,7 @@ fix: address PR review feedback
 Include a body listing each file and what was changed.
 
 Print summary:
+
 - Threads resolved (count and brief descriptions)
 - Threads skipped as needing manual attention (with reasons)
 - Files modified
