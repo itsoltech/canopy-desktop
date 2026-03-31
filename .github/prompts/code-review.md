@@ -36,6 +36,17 @@ This is a desktop app for developers (terminal workstation). Prioritize keyboard
 - Destructive actions (close session, delete worktree) with no confirmation.
 - Text truncation hiding file paths, branch names, or error messages without tooltip or overflow strategy.
 - Terminal or editor panes not resizing properly on window resize.
+- New non-core features enabled by default or auto-enabled via migration. Non-essential features (cosmetic indicators, badges, optional UI widgets) must be behind a feature flag and off by default — users opt in. Only core functionality (security fixes, critical UX, essential workflows) may be auto-enabled.
+
+### Cross-platform consistency
+
+This app targets macOS, Windows, and Linux. Platform-specific labels and behaviors are acceptable only in platform-exclusive features.
+
+- OS-specific labels in shared features (e.g., "Reveal in Finder" in a context menu available on all platforms). Use platform-resolved text or a generic label ("Show in File Manager").
+- Hardcoded platform paths (`~/`, `%APPDATA%`, `/home/`) instead of `app.getPath()` or Node.js equivalents.
+- Platform-specific shell commands (`open`, `xdg-open`, `start`) without a cross-platform wrapper or `process.platform` guard.
+- Keyboard shortcut labels showing only `Cmd` or only `Ctrl` instead of adapting to the current OS.
+- Native APIs assumed to exist on all platforms (e.g., `systemPreferences.getUserDefault` is macOS-only).
 
 ### Security
 
