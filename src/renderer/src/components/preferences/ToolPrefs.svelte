@@ -10,6 +10,7 @@
   let newCommand = $state('')
   let newArgs = $state('')
   let newCategory = $state('system')
+  let newIconSvg: string | null = $state(null)
   let error = $state('')
 
   let editingId: string | null = $state(null)
@@ -17,6 +18,7 @@
   let editCommand = $state('')
   let editArgs = $state('')
   let editCategory = $state('')
+  let editIconSvg: string | null = $state(null)
   let editError = $state('')
 
   onMount(() => {
@@ -34,21 +36,27 @@
     }
 
     try {
+      const id = newId.trim()
       await window.api.addCustomTool({
-        id: newId.trim(),
+        id,
         name: newName.trim(),
         command: newCommand.trim(),
         args: newArgs
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean),
+        icon: newIconSvg ? `custom:${id}` : 'terminal',
         category: newCategory,
       })
+      if (newIconSvg) {
+        await window.api.setToolIcon(id, newIconSvg)
+      }
       newId = ''
       newName = ''
       newCommand = ''
       newArgs = ''
       newCategory = 'system'
+      newIconSvg = null
       showForm = false
       error = ''
     } catch (e) {
@@ -72,6 +80,7 @@
     editCommand = tool.command
     editArgs = tool.args.join(', ')
     editCategory = tool.category
+    editIconSvg = null
     editError = ''
   }
 
@@ -88,7 +97,7 @@
     }
 
     try {
-      await window.api.updateCustomTool(editingId, {
+      const changes: Record<string, unknown> = {
         name: editName.trim(),
         command: editCommand.trim(),
         args: editArgs
@@ -96,19 +105,39 @@
           .map((s) => s.trim())
           .filter(Boolean),
         category: editCategory,
-      })
+      }
+      if (editIconSvg) {
+        changes.icon = `custom:${editingId}`
+      }
+      await window.api.updateCustomTool(
+        editingId,
+        changes as {
+          name?: string
+          command?: string
+          args?: string[]
+          icon?: string
+          category?: string
+        },
+      )
+      if (editIconSvg) {
+        await window.api.setToolIcon(editingId, editIconSvg)
+      }
       editingId = null
+      editIconSvg = null
       editError = ''
     } catch (e) {
       editError = e instanceof Error ? e.message : String(e)
     }
   }
 
-  async function uploadIcon(toolId: string): Promise<void> {
+  async function pickIcon(target: 'new' | 'edit'): Promise<void> {
     const svgContent = await window.api.selectIconFile()
     if (svgContent != null) {
-      await window.api.setToolIcon(toolId, svgContent)
-      await window.api.updateCustomTool(toolId, { icon: 'custom:' + toolId })
+      if (target === 'new') {
+        newIconSvg = svgContent
+      } else {
+        editIconSvg = svgContent
+      }
     }
   }
 </script>
@@ -136,8 +165,8 @@
             ]}
             onchange={(v) => (editCategory = v)}
           />
-          <button class="btn btn-icon-upload" onclick={() => uploadIcon(tool.id)}>
-            Upload Icon (SVG)
+          <button class="btn btn-icon-upload" onclick={() => pickIcon('edit')}>
+            {editIconSvg ? 'Icon selected ✓' : 'Choose Icon (SVG)'}
           </button>
           {#if editError}
             <p class="form-error">{editError}</p>
@@ -180,11 +209,9 @@
         ]}
         onchange={(v) => (newCategory = v)}
       />
-      {#if newId.trim()}
-        <button class="btn btn-icon-upload" onclick={() => uploadIcon(newId.trim())}>
-          Upload Icon (SVG)
-        </button>
-      {/if}
+      <button class="btn btn-icon-upload" onclick={() => pickIcon('new')}>
+        {newIconSvg ? 'Icon selected ✓' : 'Choose Icon (SVG)'}
+      </button>
       {#if error}
         <p class="form-error">{error}</p>
       {/if}
