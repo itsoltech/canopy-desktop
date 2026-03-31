@@ -137,7 +137,9 @@ export class ToolRegistry {
     if (setClauses.length === 0) return
     values.push(id)
     this.db
-      .prepare(`UPDATE tool_definitions SET ${setClauses.join(', ')} WHERE id = ? AND is_custom = 1`)
+      .prepare(
+        `UPDATE tool_definitions SET ${setClauses.join(', ')} WHERE id = ? AND is_custom = 1`,
+      )
       .run(...values)
     this.reload()
   }

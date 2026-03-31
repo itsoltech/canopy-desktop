@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { getTools, initToolStore } from '../../lib/stores/tools.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
+  import SvgPreview from '../shared/SvgPreview.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
 
   let showForm = $state(false)
@@ -19,6 +20,7 @@
   let editArgs = $state('')
   let editCategory = $state('')
   let editIconSvg: string | null = $state(null)
+  let editHadIcon = $state(false)
   let editError = $state('')
 
   onMount(() => {
@@ -37,6 +39,9 @@
 
     try {
       const id = newId.trim()
+      if (newIconSvg) {
+        await window.api.setToolIcon(id, newIconSvg)
+      }
       await window.api.addCustomTool({
         id,
         name: newName.trim(),
@@ -48,9 +53,6 @@
         icon: newIconSvg ? `custom:${id}` : 'terminal',
         category: newCategory,
       })
-      if (newIconSvg) {
-        await window.api.setToolIcon(id, newIconSvg)
-      }
       newId = ''
       newName = ''
       newCommand = ''
@@ -68,20 +70,26 @@
     await window.api.removeCustomTool(id)
   }
 
-  function startEdit(tool: {
+  async function startEdit(tool: {
     id: string
     name: string
     command: string
     args: string[]
+    icon: string
     category: string
-  }): void {
+  }): Promise<void> {
     editingId = tool.id
     editName = tool.name
     editCommand = tool.command
     editArgs = tool.args.join(', ')
     editCategory = tool.category
-    editIconSvg = null
+    editHadIcon = tool.icon.startsWith('custom:')
     editError = ''
+    if (editHadIcon) {
+      editIconSvg = await window.api.getToolIcon(tool.id)
+    } else {
+      editIconSvg = null
+    }
   }
 
   function cancelEdit(): void {
@@ -107,7 +115,11 @@
         category: editCategory,
       }
       if (editIconSvg) {
+        await window.api.setToolIcon(editingId, editIconSvg)
         changes.icon = `custom:${editingId}`
+      } else if (editHadIcon && !editIconSvg) {
+        await window.api.removeToolIcon(editingId)
+        changes.icon = 'terminal'
       }
       await window.api.updateCustomTool(
         editingId,
@@ -119,11 +131,9 @@
           category?: string
         },
       )
-      if (editIconSvg) {
-        await window.api.setToolIcon(editingId, editIconSvg)
-      }
       editingId = null
       editIconSvg = null
+      editHadIcon = false
       editError = ''
     } catch (e) {
       editError = e instanceof Error ? e.message : String(e)
@@ -163,11 +173,20 @@
               { value: 'system', label: 'System' },
               { value: 'shell', label: 'Shell' },
             ]}
+            maxWidth="100%"
             onchange={(v) => (editCategory = v)}
           />
-          <button class="btn btn-icon-upload" onclick={() => pickIcon('edit')}>
-            {editIconSvg ? 'Icon selected ✓' : 'Choose Icon (SVG)'}
-          </button>
+          {#if editIconSvg}
+            <div class="icon-preview-row">
+              <SvgPreview svg={editIconSvg} size={20} />
+              <span class="icon-preview-label">Selected icon</span>
+              <button class="btn btn-icon-clear" onclick={() => (editIconSvg = null)}>Clear</button>
+            </div>
+          {:else}
+            <button class="btn btn-icon-upload" onclick={() => pickIcon('edit')}>
+              Choose Icon (SVG)
+            </button>
+          {/if}
           {#if editError}
             <p class="form-error">{editError}</p>
           {/if}
@@ -207,11 +226,20 @@
           { value: 'system', label: 'System' },
           { value: 'shell', label: 'Shell' },
         ]}
+        maxWidth="100%"
         onchange={(v) => (newCategory = v)}
       />
-      <button class="btn btn-icon-upload" onclick={() => pickIcon('new')}>
-        {newIconSvg ? 'Icon selected ✓' : 'Choose Icon (SVG)'}
-      </button>
+      {#if newIconSvg}
+        <div class="icon-preview-row">
+          <SvgPreview svg={newIconSvg} size={20} />
+          <span class="icon-preview-label">Selected icon</span>
+          <button class="btn btn-icon-clear" onclick={() => (newIconSvg = null)}>Clear</button>
+        </div>
+      {:else}
+        <button class="btn btn-icon-upload" onclick={() => pickIcon('new')}>
+          Choose Icon (SVG)
+        </button>
+      {/if}
       {#if error}
         <p class="form-error">{error}</p>
       {/if}
@@ -417,5 +445,36 @@
   .btn-icon-upload:hover {
     background: rgba(255, 255, 255, 0.1);
     color: rgba(255, 255, 255, 0.7);
+  }
+
+  .icon-preview-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .icon-preview-label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    flex: 1;
+  }
+
+  .btn-icon-clear {
+    padding: 2px 8px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(255, 100, 100, 0.15);
+    color: rgba(255, 120, 120, 0.8);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .btn-icon-clear:hover {
+    background: rgba(255, 100, 100, 0.25);
   }
 </style>

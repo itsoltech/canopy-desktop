@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ClaudeAILogo, OpenAILogo, GeminiLogo, GitLogo } from '@selemondev/svgl-svelte'
   import { Terminal, Globe, FileText } from 'lucide-svelte'
+  import SvgPreview from './SvgPreview.svelte'
 
   let { icon, size = 14 }: { icon: string; size?: number } = $props()
 
@@ -19,10 +20,7 @@
 </script>
 
 {#if icon.startsWith('custom:') && customSvg}
-  <span class="custom-icon" style:width="{size}px" style:height="{size}px">
-    <!-- eslint-disable-next-line svelte/no-at-html-tags -- SVG loaded from user's local file -->
-    {@html customSvg}
-  </span>
+  <SvgPreview svg={customSvg} {size} />
 {:else if icon === 'ClaudeAI'}
   <ClaudeAILogo width={size} height={size} />
 {:else if icon === 'OpenAI'}
@@ -49,19 +47,6 @@
 {/if}
 
 <style>
-  .custom-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    overflow: hidden;
-  }
-
-  .custom-icon :global(svg) {
-    width: 100%;
-    height: 100%;
-  }
-
   .fallback {
     display: inline-flex;
     align-items: center;

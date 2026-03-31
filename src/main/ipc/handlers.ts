@@ -597,6 +597,10 @@ export function registerIpcHandlers(
     return toolRegistry.getIcon(payload.toolId)
   })
 
+  ipcMain.handle('tools:removeIcon', (_event, payload: { toolId: string }) => {
+    toolRegistry.removeIcon(payload.toolId)
+  })
+
   ipcMain.handle('tools:selectIconFile', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return null
