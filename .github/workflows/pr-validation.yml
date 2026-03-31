@@ -1,0 +1,42 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Read validation prompt
+        id: prompt
+        run: echo "content<<EOF" >> $GITHUB_OUTPUT && cat .github/prompts/pr-validation.md >> $GITHUB_OUTPUT && echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Validate PR
+        uses: anthropics/claude-code-action@v1
+        with:
+          allowed_bots: 'claude'
+          claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR_NUMBER: ${{ github.event.pull_request.number }}
+            PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+
+            ${{ steps.prompt.outputs.content }}
+          claude_args: |
+            --model haiku
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr edit:*)"
