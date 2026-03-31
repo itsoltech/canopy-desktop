@@ -1,3 +1,9 @@
+## [0.8.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.1...v0.8.0-next.2) (2026-03-31)
+
+### Bug Fixes
+
+* **modals:** auto-focus and prevent close on text selection drag ([#39](https://github.com/itsoltech/canopy-desktop/issues/39)) ([f70cdc0](https://github.com/itsoltech/canopy-desktop/commit/f70cdc0d64d86e45e4af6cf0fdd2e05f45c364b9))
+
 ## [0.8.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.7.1-next.1...v0.8.0-next.1) (2026-03-30)
 
 ### Features
