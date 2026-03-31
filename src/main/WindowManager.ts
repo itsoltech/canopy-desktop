@@ -169,7 +169,10 @@ export class WindowManager {
 
   getWorkspacePaths(wcId: number): string[] {
     const paths = this.workspacePaths.get(wcId)
-    return paths ? [...paths] : []
+    const result = paths ? [...paths] : []
+    const active = this.activeWorktreePaths.get(wcId)
+    if (active && !result.includes(active)) result.push(active)
+    return result
   }
 
   /** Returns one entry per window, each containing all project paths for that window */
