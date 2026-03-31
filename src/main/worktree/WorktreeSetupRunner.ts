@@ -34,7 +34,7 @@ function spawnCommand(
   cwd: string,
   onChunk: (raw: string) => void,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<void> {
   const loginEnv = getLoginEnv()
   const shellPath = loginEnv?.SHELL || process.env.SHELL || '/bin/sh'
   const env = {
@@ -52,33 +52,38 @@ function spawnCommand(
       env,
     })
 
-    let fullOutput = ''
+    let settled = false
+    function settle(fn: () => void): void {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abortHandler)
+      fn()
+    }
 
     const timeout = setTimeout(() => {
       p.kill()
-      reject(new Error('Command timed out after 5 minutes'))
+      settle(() => reject(new Error('Command timed out after 5 minutes')))
     }, 300_000)
 
     const abortHandler = (): void => {
       p.kill()
+      settle(() => reject(new Error('Setup aborted')))
     }
     signal?.addEventListener('abort', abortHandler, { once: true })
 
     p.onData((data) => {
-      fullOutput += data
-      onChunk(data)
+      if (!settled) onChunk(data)
     })
 
     p.onExit(({ exitCode }) => {
-      clearTimeout(timeout)
-      signal?.removeEventListener('abort', abortHandler)
-      if (signal?.aborted) {
-        reject(new Error('Setup aborted'))
-      } else if (exitCode === 0) {
-        resolve(fullOutput)
-      } else {
-        reject(new Error(`Command exited with code ${exitCode}`))
-      }
+      settle(() => {
+        if (exitCode === 0) {
+          resolve()
+        } else {
+          reject(new Error(`Command exited with code ${exitCode}`))
+        }
+      })
     })
   })
 }
@@ -109,7 +114,7 @@ export async function runWorktreeSetup(
     try {
       if (action.type === 'command') {
         const cmd = substituteVars(action.command, context)
-        const output = await spawnCommand(
+        await spawnCommand(
           cmd,
           context.newWorktreePath,
           (raw) => {
@@ -128,7 +133,6 @@ export async function runWorktreeSetup(
           totalActions: actions.length,
           label,
           status: 'done',
-          output,
         })
       } else {
         const sourcePath = join(context.mainWorktreePath, action.source)

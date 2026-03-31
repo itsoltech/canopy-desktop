@@ -406,7 +406,7 @@
           <div class="setup-terminal" use:setupTerminalAction></div>
         </div>
         {#if setupErrors.length > 0}
-          {#each setupErrors as err, i (i)}
+          {#each setupErrors as err (err)}
             <p class="field-error">{err}</p>
           {/each}
         {/if}
@@ -421,7 +421,7 @@
         {#if setupErrors.length > 0}
           <div class="setup-warnings">
             <p class="status-text warning">Setup completed with warnings:</p>
-            {#each setupErrors as err, i (i)}
+            {#each setupErrors as err (err)}
               <p class="field-error">{err}</p>
             {/each}
           </div>
