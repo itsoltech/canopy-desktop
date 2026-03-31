@@ -308,6 +308,7 @@ interface CanopyAPI {
   gitStashPop: (repoRoot: string) => Promise<void>
   gitBranches: (repoRoot: string) => Promise<GitBranchList>
   gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) => Promise<void>
+  gitCheckout: (repoRoot: string, branch: string) => Promise<void>
   gitBranchDelete: (repoRoot: string, name: string, force: boolean) => Promise<void>
   gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) => Promise<void>
   gitPushInfo: (repoRoot: string) => Promise<GitPushInfo | null>

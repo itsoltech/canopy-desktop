@@ -468,6 +468,10 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle('git:checkout', async (_event, payload: { repoRoot: string; branch: string }) => {
+    return GitRepository.checkout(payload.repoRoot, payload.branch)
+  })
+
   ipcMain.handle(
     'git:branchDelete',
     async (_event, payload: { repoRoot: string; name: string; force: boolean }) => {

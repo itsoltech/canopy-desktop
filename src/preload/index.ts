@@ -188,6 +188,8 @@ const api = {
   gitBranches: (repoRoot: string) => ipcRenderer.invoke('git:branches', { repoRoot }),
   gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) =>
     ipcRenderer.invoke('git:branchCreate', { repoRoot, name, baseBranch }),
+  gitCheckout: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('git:checkout', { repoRoot, branch }),
   gitBranchDelete: (repoRoot: string, name: string, force: boolean) =>
     ipcRenderer.invoke('git:branchDelete', { repoRoot, name, force }),
   gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) =>

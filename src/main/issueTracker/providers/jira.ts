@@ -157,34 +157,20 @@ export const jiraClient: IssueTrackerProviderClient = {
 
   async fetchIssues(connection, token, params) {
     const resolvedBoardId = params.boardId || connection.boardId
-    const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
+    const fields = 'summary,status,priority,issuetype,parent,assignee,sprint'
 
     // Board endpoint returns ONLY issues belonging to this board's filter
     if (resolvedBoardId) {
-      const allIssues: JiraIssue[] = []
-      let startAt = 0
-      const maxPerPage = 100
-
-      // Exclude done issues at API level for performance
+      // Exclude done issues, sort by recent, single request
       const jql = 'statusCategory != Done ORDER BY updated DESC'
       const jqlParam = `&jql=${encodeURIComponent(jql)}`
 
-      // Paginate to get all non-done issues from the board
-      while (true) {
-        const data = await jiraFetch<{
-          issues: JiraIssue[]
-          total: number
-          startAt: number
-          maxResults: number
-        }>(
-          connection,
-          token,
-          `/rest/agile/1.0/board/${resolvedBoardId}/issue?fields=${fields}&maxResults=${maxPerPage}&startAt=${startAt}${jqlParam}`,
-        )
-        allIssues.push(...data.issues)
-        if (allIssues.length >= data.total || data.issues.length === 0) break
-        startAt += data.issues.length
-      }
+      const data = await jiraFetch<{ issues: JiraIssue[] }>(
+        connection,
+        token,
+        `/rest/agile/1.0/board/${resolvedBoardId}/issue?fields=${fields}&maxResults=200${jqlParam}`,
+      )
+      const allIssues = data.issues
 
       return allIssues.map((i) => mapJiraIssue(i, connection.baseUrl))
     }

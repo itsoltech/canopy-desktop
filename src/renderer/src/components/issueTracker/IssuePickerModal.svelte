@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Search, X, Loader2, Send, Filter } from '@lucide/svelte'
-  import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
   import { setPref, prefs } from '../../lib/stores/preferences.svelte'
   import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
-  import { createBranchFromIssue } from '../../lib/issueTracker/branchCreation'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
 
   function filterPrefKey(connId: string, boardId: string): string {
     return `issueTracker.pickerFilters.${connId}.${boardId}`
@@ -195,8 +195,61 @@
   }
 
   async function selectIssue(issue: TrackerIssue): Promise<void> {
+    const repoRoot = workspaceState.repoRoot
+    const currentBranch = workspaceState.branch
+    if (!repoRoot || !currentBranch) return
+
+    // Clone issue to plain object — Svelte 5 Proxy can't be serialized by IPC
+    const plainIssue = JSON.parse(JSON.stringify(issue)) as TrackerIssue
+
+    // Resolve branch name while picker is still open
+    let branchName: string
+    try {
+      branchName = await window.api.issueTrackerResolveBranchName(
+        connectionId,
+        plainIssue,
+        selectedBoardId || undefined,
+      )
+    } catch {
+      return
+    }
+
+    // Close picker, then open confirm
     closeDialog()
-    await createBranchFromIssue(connectionId, issue)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const confirmed = await confirm({
+      title: 'Create Branch',
+      message: `Create and checkout branch from ${issue.key}?`,
+      details: branchName,
+      confirmLabel: 'Create & Checkout',
+    })
+    if (!confirmed) return
+
+    if (workspaceState.isDirty) {
+      const stash = await confirm({
+        title: 'Uncommitted Changes',
+        message: 'You have uncommitted changes. Stash them before switching?',
+        confirmLabel: 'Stash & Continue',
+      })
+      if (!stash) return
+      try {
+        await window.api.gitStash(repoRoot)
+      } catch {
+        return
+      }
+    }
+
+    try {
+      await window.api.gitBranchCreate(repoRoot, branchName, currentBranch)
+      await window.api.gitCheckout(repoRoot, branchName)
+    } catch (e) {
+      await confirm({
+        title: 'Branch Creation Failed',
+        message: e instanceof Error ? e.message : 'Failed to create branch',
+        confirmLabel: 'OK',
+      })
+    }
   }
 
   function sendToTerminal(issue: TrackerIssue, e: MouseEvent): void {
