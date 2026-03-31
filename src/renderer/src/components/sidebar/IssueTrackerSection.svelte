@@ -72,7 +72,7 @@
   .loading {
     padding: 8px 12px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 
   .empty-state {
@@ -85,10 +85,10 @@
     gap: 6px;
     width: 100%;
     padding: 6px 10px;
-    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border: 1px dashed var(--c-border);
     border-radius: 6px;
     background: none;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-muted);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -98,8 +98,8 @@
   }
 
   .connect-btn:hover {
-    border-color: rgba(116, 192, 252, 0.4);
-    color: rgba(116, 192, 252, 0.9);
+    border-color: var(--c-accent-muted);
+    color: var(--c-accent-text);
   }
 
   .tracker-list {
@@ -117,7 +117,7 @@
     padding: 0 12px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -126,7 +126,7 @@
   }
 
   .tracker-item:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
   }
 
   .tracker-name {
@@ -138,7 +138,7 @@
 
   .tracker-provider {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-faint);
     flex-shrink: 0;
   }
 
@@ -153,7 +153,7 @@
     padding: 2px 6px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-faint);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
@@ -161,6 +161,6 @@
   }
 
   .add-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text-secondary);
   }
 </style>

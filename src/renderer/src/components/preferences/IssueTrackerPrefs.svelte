@@ -867,20 +867,20 @@
   .section-title {
     font-size: 14px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--c-text);
     margin: 0 0 4px;
   }
 
   .section-desc {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.45);
+    color: var(--c-text-muted);
     margin: 0 0 12px;
   }
 
   .subsection-title {
     font-size: 12px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text-secondary);
     margin: 0 0 8px;
     display: flex;
     align-items: center;
@@ -892,27 +892,27 @@
     align-items: center;
     gap: 8px;
     padding: 6px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--c-border-subtle);
   }
 
   .conn-provider {
     font-size: 11px;
     padding: 1px 6px;
     border-radius: 4px;
-    background: rgba(116, 192, 252, 0.15);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
     flex-shrink: 0;
   }
 
   .conn-name {
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     flex-shrink: 0;
   }
 
   .conn-url {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-faint);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -922,9 +922,9 @@
   .add-form {
     margin-top: 8px;
     padding: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 8px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--c-bg-input);
   }
 
   .form-row {
@@ -936,7 +936,7 @@
 
   .form-label {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     width: 90px;
     flex-shrink: 0;
   }
@@ -946,10 +946,10 @@
   .form-textarea {
     flex: 1;
     padding: 5px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(0, 0, 0, 0.3);
-    color: #e0e0e0;
+    background: var(--c-bg-input);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     outline: none;
@@ -958,7 +958,7 @@
   .form-input:focus,
   .form-select:focus,
   .form-textarea:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .form-input.small {
@@ -1001,21 +1001,21 @@
   }
 
   .btn-primary {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-bg-hover);
   }
 
   .btn-secondary {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-active);
+    color: var(--c-text-secondary);
   }
 
   .btn-secondary:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--c-hover-strong);
   }
 
   .icon-btn {
@@ -1027,17 +1027,17 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     cursor: pointer;
   }
 
   .icon-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-hover);
+    color: var(--c-text-secondary);
   }
 
   .icon-btn.destructive:hover {
-    color: rgba(255, 100, 100, 0.8);
+    color: var(--c-danger-text);
   }
 
   .icon-btn:disabled {
@@ -1054,7 +1054,7 @@
     align-items: center;
     gap: 4px;
     font-size: 12px;
-    color: rgba(100, 220, 100, 0.8);
+    color: var(--c-success);
   }
 
   .test-fail {
@@ -1062,7 +1062,7 @@
     align-items: center;
     gap: 4px;
     font-size: 12px;
-    color: rgba(255, 100, 100, 0.8);
+    color: var(--c-danger-text);
   }
 
   .preview-row {
@@ -1074,13 +1074,13 @@
 
   .preview-label {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 
   .preview-value {
     font-size: 12px;
-    color: rgba(116, 192, 252, 0.9);
-    background: rgba(0, 0, 0, 0.3);
+    color: var(--c-accent-text);
+    background: var(--c-bg-input);
     padding: 2px 8px;
     border-radius: 4px;
   }
@@ -1095,25 +1095,25 @@
 
   .placeholder-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-faint);
   }
 
   .placeholder-tag {
     font-size: 11px;
     padding: 2px 7px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.6);
+    background: var(--c-hover);
+    color: var(--c-text-secondary);
     font-family: inherit;
     cursor: pointer;
     transition: all 0.1s;
   }
 
   .placeholder-tag:hover {
-    background: rgba(116, 192, 252, 0.1);
-    border-color: rgba(116, 192, 252, 0.3);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    border-color: var(--c-accent-muted);
+    color: var(--c-accent-text);
   }
 
   .placeholder-tag.used {
@@ -1130,8 +1130,8 @@
 
   .builder-label {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
-    width: 70px;
+    color: var(--c-text-muted);
+    width: 90px;
     flex-shrink: 0;
     padding-top: 5px;
   }
@@ -1143,9 +1143,9 @@
     flex: 1;
     min-height: 30px;
     padding: 4px 6px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--c-bg-input);
     align-items: center;
   }
 
@@ -1166,21 +1166,21 @@
   }
 
   .token.placeholder {
-    background: rgba(116, 192, 252, 0.15);
-    color: rgba(116, 192, 252, 0.9);
-    border: 1px solid rgba(116, 192, 252, 0.25);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+    border: 1px solid var(--c-accent-muted);
   }
 
   .token.separator {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.4);
+    background: var(--c-hover);
+    color: var(--c-text-muted);
     border: 1px solid transparent;
     font-family: monospace;
   }
 
   .token.drag-over {
-    border-color: rgba(116, 192, 252, 0.7);
-    box-shadow: 0 0 0 1px rgba(116, 192, 252, 0.3);
+    border-color: var(--c-focus-ring);
+    box-shadow: 0 0 0 1px var(--c-accent-muted);
   }
 
   .token-remove {
@@ -1192,7 +1192,7 @@
     border: none;
     border-radius: 50%;
     background: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     font-size: 12px;
     line-height: 1;
     cursor: pointer;
@@ -1200,13 +1200,13 @@
   }
 
   .token-remove:hover {
-    background: rgba(255, 100, 100, 0.3);
-    color: rgba(255, 100, 100, 0.9);
+    background: var(--c-danger-bg);
+    color: var(--c-danger-text);
   }
 
   .token-empty {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     padding: 2px 4px;
   }
 
@@ -1227,49 +1227,49 @@
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    background: rgba(40, 40, 40, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 16px var(--c-scrim);
     transform: translate(-50%, -100%) translateY(-8px);
   }
 
   .popup-hint {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     margin-right: 2px;
   }
 
   .popup-sep-btn {
     padding: 3px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-hover);
+    color: var(--c-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .popup-sep-btn:hover {
-    background: rgba(116, 192, 252, 0.15);
-    border-color: rgba(116, 192, 252, 0.3);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    border-color: var(--c-accent-muted);
+    color: var(--c-accent-text);
   }
 
   .popup-sep-btn.remove {
-    color: rgba(255, 100, 100, 0.7);
+    color: var(--c-danger-text);
   }
 
   .popup-sep-btn.remove:hover {
-    background: rgba(255, 100, 100, 0.15);
-    border-color: rgba(255, 100, 100, 0.3);
-    color: rgba(255, 100, 100, 0.9);
+    background: var(--c-danger-bg);
+    border-color: var(--c-danger-text);
+    color: var(--c-danger-text);
   }
 
   .advanced-template summary {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-faint);
     cursor: pointer;
     margin-bottom: 6px;
   }
@@ -1288,12 +1288,12 @@
 
   .var-key {
     font-size: 12px;
-    color: rgba(168, 130, 255, 0.8);
+    color: var(--c-generate);
   }
 
   .var-value {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     flex: 1;
   }
 
@@ -1310,18 +1310,18 @@
     gap: 8px;
     padding: 4px 0;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text-secondary);
     cursor: pointer;
   }
 
   .hint-text {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-faint);
     margin: 4px 0;
   }
 
   .loading-text {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 </style>
