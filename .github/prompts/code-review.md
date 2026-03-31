@@ -13,6 +13,17 @@ You are reviewing a pull request for Canopy, an Electron + Svelte 5 desktop app.
 
 Focus on issues that CI cannot catch. Categories are ordered by priority.
 
+### User privacy & data security
+
+- Secrets, passwords, tokens, or API keys logged to console, files, or crash reports.
+- Credentials stored in plaintext instead of OS keychain (`safeStorage`, Keychain, Credential Manager).
+- Sensitive user data (terminal history, file contents, clipboard) persisted without encryption.
+- Telemetry or analytics collecting or transmitting data without explicit user consent.
+- Network requests leaking user activity or environment details to third parties.
+- User data included in error reports, logs, or diagnostics without sanitization.
+- File system or OS-level data accessed beyond what the feature requires.
+- Passwords or secrets visible in UI (inputs not masked, values shown in plain text).
+
 ### UX/UI
 
 This is a desktop app for developers (terminal workstation). Prioritize keyboard-driven workflows and information density.
@@ -26,6 +37,16 @@ This is a desktop app for developers (terminal workstation). Prioritize keyboard
 - Text truncation hiding file paths, branch names, or error messages without tooltip or overflow strategy.
 - Terminal or editor panes not resizing properly on window resize.
 
+### Cross-platform consistency
+
+This app targets macOS, Windows, and Linux. Platform-specific labels and behaviors are acceptable only in platform-exclusive features.
+
+- OS-specific labels in shared features (e.g., "Reveal in Finder" in a context menu available on all platforms). Use platform-resolved text or a generic label ("Show in File Manager").
+- Hardcoded platform paths (`~/`, `%APPDATA%`, `/home/`) instead of `app.getPath()` or Node.js equivalents.
+- Platform-specific shell commands (`open`, `xdg-open`, `start`) without a cross-platform wrapper or `process.platform` guard.
+- Keyboard shortcut labels showing only `Cmd` or only `Ctrl` instead of adapting to the current OS.
+- Native APIs assumed to exist on all platforms (e.g., `systemPreferences.getUserDefault` is macOS-only).
+
 ### Security
 
 - `nodeIntegration: true`, `contextIsolation: false`.
@@ -35,7 +56,6 @@ This is a desktop app for developers (terminal workstation). Prioritize keyboard
 - Missing `setWindowOpenHandler` restrictions.
 - Missing input validation in `ipcMain.handle` handlers (renderer is untrusted).
 - User-supplied strings interpolated into shell commands, SQL, or HTML without sanitization.
-- Secrets, tokens, or credentials logged or stored in plaintext.
 
 ### Memory leaks
 
