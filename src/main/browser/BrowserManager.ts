@@ -62,6 +62,22 @@ export class BrowserManager {
         this.guestContents.delete(guestWc.id)
       })
     })
+
+    // Mouse back/forward buttons (button 4/5)
+    win.on('app-command', (_event, command) => {
+      // Find the focused browser webview in this window
+      for (const entry of this.entries.values()) {
+        if (entry.win !== win) continue
+        const wc = this.guestContents.get(entry.webContentsId)
+        if (!wc || wc.isDestroyed() || !wc.isFocused()) continue
+        if (command === 'browser-backward' && wc.canGoBack()) {
+          wc.goBack()
+        } else if (command === 'browser-forward' && wc.canGoForward()) {
+          wc.goForward()
+        }
+        break
+      }
+    })
   }
 
   /** One-time setup: permission handler on the shared browser session. */

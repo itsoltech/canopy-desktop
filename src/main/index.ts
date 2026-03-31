@@ -16,6 +16,7 @@ import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
+import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
@@ -38,6 +39,7 @@ const layoutStore = new LayoutStore(database)
 const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
+const credentialStore = new CredentialStore(database)
 let manualCheckInProgress = false
 let updateInstalling = false
 
@@ -425,6 +427,7 @@ app.whenReady().then(async () => {
     claudeSessionManager,
     windowManager,
     browserManager,
+    credentialStore,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {

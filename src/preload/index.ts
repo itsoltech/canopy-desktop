@@ -228,6 +228,25 @@ const api = {
       buffer: Buffer.from(buffer),
     }) as Promise<string>,
 
+  // Credentials
+  getCredentials: (domain: string) =>
+    ipcRenderer.invoke('credentials:getForDomain', { domain }) as Promise<
+      Array<{ id: string; domain: string; username: string; password: string }>
+    >,
+  saveCredential: (domain: string, username: string, password: string, title?: string) =>
+    ipcRenderer.invoke('credentials:save', { domain, username, password, title }),
+  getCredentialDecrypted: (id: string, domain: string) =>
+    ipcRenderer.invoke('credentials:getDecrypted', { id, domain }) as Promise<{
+      id: string
+      username: string
+      password: string
+    } | null>,
+  deleteCredential: (id: string) => ipcRenderer.invoke('credentials:delete', { id }),
+  listCredentials: () =>
+    ipcRenderer.invoke('credentials:getAll') as Promise<
+      Array<{ id: string; domain: string; username: string }>
+    >,
+
   // Browser push events (main → renderer, still needed for favicon + focus)
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,

@@ -7,8 +7,55 @@
   import type { ViewportPreset } from '../../lib/browser/browserState.svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import { onMount } from 'svelte'
+  import { Eye, EyeOff } from 'lucide-svelte'
 
   let urlOpenMode = $derived(prefs.urlOpenMode || 'ask')
+
+  // Saved passwords
+  let credentials: Array<{
+    id: string
+    domain: string
+    username: string
+    title: string
+    createdAt: string
+    updatedAt: string
+  }> = $state([])
+  let revealedId: string | null = $state(null)
+  let revealedPassword = $state('')
+  let revealTimer: ReturnType<typeof setTimeout> | null = null
+
+  async function loadCredentials(): Promise<void> {
+    credentials = await window.api.listCredentials()
+  }
+
+  async function deleteCredential(id: string): Promise<void> {
+    await window.api.deleteCredential(id)
+    await loadCredentials()
+  }
+
+  async function revealPassword(id: string, domain: string): Promise<void> {
+    if (revealedId === id) {
+      revealedId = null
+      revealedPassword = ''
+      if (revealTimer) clearTimeout(revealTimer)
+      return
+    }
+    const cred = await window.api.getCredentialDecrypted(id, domain)
+    if (cred) {
+      revealedId = id
+      revealedPassword = cred.password
+      if (revealTimer) clearTimeout(revealTimer)
+      revealTimer = setTimeout(() => {
+        revealedId = null
+        revealedPassword = ''
+      }, 5000)
+    }
+  }
+
+  onMount(() => {
+    loadCredentials()
+  })
 
   let showForm = $state(false)
   let newName = $state('')
@@ -134,6 +181,45 @@
       + Add Custom Viewport
     </button>
   {/if}
+
+  <h4 class="subsection-title">Saved Passwords</h4>
+
+  <div class="cred-list">
+    {#each credentials as cred (cred.id)}
+      <div class="cred-card">
+        <div class="cred-header">
+          <span class="cred-domain">{cred.domain}</span>
+          {#if cred.title}
+            <span class="cred-title">{cred.title}</span>
+          {/if}
+        </div>
+        <div class="cred-body">
+          <span class="cred-username">{cred.username}</span>
+          <span class="cred-password">
+            {#if revealedId === cred.id}
+              <code class="password-revealed">{revealedPassword}</code>
+            {:else}
+              <span class="password-masked">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
+            {/if}
+          </span>
+          <button
+            class="reveal-btn"
+            onclick={() => revealPassword(cred.id, cred.domain)}
+            title={revealedId === cred.id ? 'Hide password' : 'Show password (5s)'}
+          >
+            {#if revealedId === cred.id}
+              <EyeOff size={13} />
+            {:else}
+              <Eye size={13} />
+            {/if}
+          </button>
+          <button class="remove-btn" onclick={() => deleteCredential(cred.id)}>Remove</button>
+        </div>
+      </div>
+    {:else}
+      <p class="empty-text">No saved passwords</p>
+    {/each}
+  </div>
 </div>
 
 <style>
@@ -239,6 +325,96 @@
 
   .remove-btn:hover {
     background: rgba(255, 100, 100, 0.25);
+  }
+
+  .cred-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .cred-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .cred-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .cred-domain {
+    font-size: 13px;
+    font-weight: 500;
+    color: #e0e0e0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cred-title {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .cred-body {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .cred-username {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .cred-password {
+    flex-shrink: 0;
+  }
+
+  .password-masked {
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+
+  .password-revealed {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+
+  .reveal-btn {
+    padding: 2px 4px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+  }
+
+  .reveal-btn:hover {
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .add-form {

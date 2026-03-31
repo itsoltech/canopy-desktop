@@ -331,6 +331,32 @@ interface CanopyAPI {
   ) => Promise<void>
   saveBrowserCapture: (buffer: ArrayBuffer) => Promise<string>
 
+  // Credentials
+  getCredentials: (
+    domain: string,
+  ) => Promise<Array<{ id: string; domain: string; username: string; password: string }>>
+  saveCredential: (
+    domain: string,
+    username: string,
+    password: string,
+    title?: string,
+  ) => Promise<void>
+  getCredentialDecrypted: (
+    id: string,
+    domain: string,
+  ) => Promise<{ id: string; username: string; password: string } | null>
+  deleteCredential: (id: string) => Promise<void>
+  listCredentials: () => Promise<
+    Array<{
+      id: string
+      domain: string
+      username: string
+      title: string
+      createdAt: string
+      updatedAt: string
+    }>
+  >
+
   // Browser push events (main → renderer)
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,

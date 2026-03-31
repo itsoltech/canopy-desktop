@@ -84,6 +84,24 @@ export function removeFavorite(url: string): void {
   setPref('browser.favorites', JSON.stringify(list))
 }
 
+export function removeFavoritesByHost(url: string): void {
+  try {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const host = new URL(url).host
+    const list = getFavorites().filter((f) => {
+      try {
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity
+        return new URL(f.url).host !== host
+      } catch {
+        return true
+      }
+    })
+    setPref('browser.favorites', JSON.stringify(list))
+  } catch {
+    // invalid url
+  }
+}
+
 export function updateFavorite(oldUrl: string, updated: BrowserFavorite): void {
   const list = getFavorites().map((f) => (f.url === oldUrl ? updated : f))
   setPref('browser.favorites', JSON.stringify(list))
@@ -97,7 +115,20 @@ export function reorderFavorites(fromIndex: number, toIndex: number): void {
 }
 
 export function isFavorite(url: string): boolean {
-  return getFavorites().some((f) => f.url === url)
+  try {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const host = new URL(url).host
+    return getFavorites().some((f) => {
+      try {
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity
+        return new URL(f.url).host === host
+      } catch {
+        return false
+      }
+    })
+  } catch {
+    return false
+  }
 }
 
 export interface BrowserSessionState {
