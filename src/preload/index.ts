@@ -335,6 +335,7 @@ const api = {
   // Worktree Setup
   runWorktreeSetup: (workspaceId: string, repoRoot: string, newWorktreePath: string) =>
     ipcRenderer.invoke('worktree:runSetup', { workspaceId, repoRoot, newWorktreePath }),
+  abortWorktreeSetup: () => ipcRenderer.send('worktree:abortSetup'),
 
   // Layouts
   saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) =>
@@ -417,6 +418,7 @@ const api = {
       status: 'running' | 'done' | 'error'
       output?: string
       error?: string
+      outputChunk?: string
     }) => void,
   ) => {
     const handler = (
@@ -428,6 +430,7 @@ const api = {
         status: 'running' | 'done' | 'error'
         output?: string
         error?: string
+        outputChunk?: string
       },
     ): void => callback(data)
     ipcRenderer.on('worktree:setupProgress', handler)

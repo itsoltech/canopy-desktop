@@ -72,6 +72,7 @@ export interface WorktreeSetupProgress {
   status: 'running' | 'done' | 'error'
   output?: string
   error?: string
+  outputChunk?: string
 }
 
 // --- Runtime types (not persisted in Phase 2, used in Phase 3+) ---

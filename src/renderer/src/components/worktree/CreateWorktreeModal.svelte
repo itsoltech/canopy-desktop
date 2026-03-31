@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
+  import { Terminal } from '@xterm/xterm'
+  import { FitAddon } from '@xterm/addon-fit'
+  import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
+  import '@xterm/xterm/css/xterm.css'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
   import { getPref } from '../../lib/stores/preferences.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
+  import { getTheme } from '../../lib/terminal/themes'
 
   let {
     onClose,
@@ -35,6 +41,11 @@
   let setupTotal = $state(0)
   let setupErrors = $state<string[]>([])
   let cleanupProgressListener: (() => void) | null = null
+
+  // Setup terminal
+  let setupTerm: Terminal | null = null
+  let progressState = $state(0)
+  let progressValue = $state(0)
 
   let repoRoot = $derived(repoRootProp ?? workspaceState.repoRoot!)
   let projectName = $derived(repoRoot.split('/').pop() || 'project')
@@ -81,8 +92,44 @@
   }
 
   onDestroy(() => {
+    window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
+    disposeSetupTerminal()
   })
+
+  function initSetupTerminal(container: HTMLDivElement): void {
+    if (setupTerm) return
+    const currentTheme = getTheme(prefs.theme || 'Default')
+    const term = new Terminal({
+      fontSize: 11,
+      fontFamily: 'JetBrains Mono, JetBrainsMono Nerd Font, Fira Code, Menlo, monospace',
+      theme: currentTheme,
+      scrollback: 1000,
+      disableStdin: true,
+      cursorBlink: false,
+      cursorInactiveStyle: 'none',
+    })
+    const fitAddon = new FitAddon()
+    const progressAddon = new ProgressAddon()
+    term.open(container)
+    term.loadAddon(fitAddon)
+    term.loadAddon(progressAddon)
+    progressAddon.onChange(({ state, value }: IProgressState) => {
+      progressState = state
+      progressValue = value
+    })
+    requestAnimationFrame(() => fitAddon.fit())
+    setupTerm = term
+  }
+
+  function disposeSetupTerminal(): void {
+    if (setupTerm) {
+      setupTerm.dispose()
+      setupTerm = null
+      progressState = 0
+      progressValue = 0
+    }
+  }
 
   // Fuzzy match for branch search
   function fuzzyMatch(text: string, q: string): boolean {
@@ -157,6 +204,9 @@
       setupLabel = data.label
       setupCurrent = data.actionIndex + 1
       setupTotal = data.totalActions
+      if (data.outputChunk && setupTerm) {
+        setupTerm.write(data.outputChunk)
+      }
       if (data.status === 'error' && data.error) {
         setupErrors = [...setupErrors, `${data.label}: ${data.error}`]
       }
@@ -174,6 +224,7 @@
   }
 
   function finishCreation(): void {
+    if (step === 'done') return
     step = 'done'
     setTimeout(
       () => {
@@ -185,8 +236,10 @@
   }
 
   function skipSetup(): void {
+    window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     cleanupProgressListener = null
+    disposeSetupTerminal()
     finishCreation()
   }
 
@@ -213,17 +266,30 @@
     })
   }
 
+  function setupTerminalAction(node: HTMLDivElement): { destroy: () => void } {
+    initSetupTerminal(node)
+    return { destroy: disposeSetupTerminal }
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      onClose()
+      if (step === 'setup') {
+        skipSetup()
+      } else {
+        onClose()
+      }
     }
   }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="dialog-overlay" onkeydown={handleKeydown} onmousedown={onClose}>
+<div
+  class="dialog-overlay"
+  onkeydown={handleKeydown}
+  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
@@ -334,11 +400,23 @@
         <p class="status-text">Creating worktree...</p>
       </div>
     {:else if step === 'setup'}
-      <div class="modal-body center">
+      <div class="modal-body setup-body">
         <p class="status-text">Running setup... ({setupCurrent}/{setupTotal})</p>
         <p class="setup-label">{setupLabel}</p>
+        <div class="setup-terminal-wrapper">
+          {#if progressState > 0}
+            <div
+              class="progress-bar"
+              class:progress-error={progressState === 2}
+              class:progress-indeterminate={progressState === 3}
+              class:progress-warning={progressState === 4}
+              style:width={progressState === 3 ? '100%' : `${progressValue}%`}
+            ></div>
+          {/if}
+          <div class="setup-terminal" use:setupTerminalAction></div>
+        </div>
         {#if setupErrors.length > 0}
-          {#each setupErrors as err, i (i)}
+          {#each setupErrors as err (err)}
             <p class="field-error">{err}</p>
           {/each}
         {/if}
@@ -353,7 +431,7 @@
         {#if setupErrors.length > 0}
           <div class="setup-warnings">
             <p class="status-text warning">Setup completed with warnings:</p>
-            {#each setupErrors as err, i (i)}
+            {#each setupErrors as err (err)}
               <p class="field-error">{err}</p>
             {/each}
           </div>
@@ -386,7 +464,7 @@
   .modal-container {
     outline: none;
     width: 480px;
-    max-height: 500px;
+    max-height: 560px;
     display: flex;
     flex-direction: column;
     background: rgba(30, 30, 30, 0.98);
@@ -439,11 +517,70 @@
     color: rgba(255, 200, 100, 0.9);
   }
 
+  .setup-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0 20px 20px;
+    gap: 8px;
+  }
+
   .setup-label {
     font-size: 12px;
     font-family: monospace;
     color: rgba(255, 255, 255, 0.4);
     margin: 0;
+  }
+
+  .setup-terminal-wrapper {
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .setup-terminal {
+    height: 220px;
+    padding: 8px;
+    box-sizing: border-box;
+  }
+
+  .progress-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 2px;
+    background: #3b82f6;
+    transition: width 0.3s ease;
+    z-index: 5;
+  }
+
+  .progress-error {
+    background: #ef4444;
+  }
+
+  .progress-warning {
+    background: #eab308;
+  }
+
+  .progress-indeterminate {
+    animation: indeterminate 1.5s ease-in-out infinite;
+    background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+  }
+
+  @keyframes indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .progress-indeterminate {
+      animation: none;
+      background: #3b82f6;
+    }
   }
 
   .setup-warnings {

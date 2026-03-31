@@ -77,6 +77,7 @@ interface WorktreeSetupProgress {
   status: 'running' | 'done' | 'error'
   output?: string
   error?: string
+  outputChunk?: string
 }
 
 interface GitStatus {
@@ -367,6 +368,7 @@ interface CanopyAPI {
     repoRoot: string,
     newWorktreePath: string,
   ) => Promise<{ success: boolean; errors: string[] }>
+  abortWorktreeSetup: () => void
 
   // Layouts
   saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) => Promise<void>
