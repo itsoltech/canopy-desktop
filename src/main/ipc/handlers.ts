@@ -636,6 +636,13 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(
+    'browser:fillCredential',
+    (_event, payload: { browserId: string; username: string; password: string }) => {
+      browserManager.fillCredential(payload.browserId, payload.username, payload.password)
+    },
+  )
+
+  ipcMain.handle(
     'credentials:getDecrypted',
     async (event, payload: { id: string; domain: string }) => {
       // Require system authentication before revealing passwords

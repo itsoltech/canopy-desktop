@@ -285,6 +285,37 @@ export class BrowserManager {
     entry.devToolsView.setBounds({ x: 0, y: 0, width: 0, height: 0 })
   }
 
+  /**
+   * Fill credential into form fields using an isolated JS world (ID 999).
+   * Page scripts cannot intercept values set from an isolated world.
+   */
+  fillCredential(browserId: string, username: string, password: string): void {
+    const entry = this.entries.get(browserId)
+    if (!entry) return
+
+    const wc = this.guestContents.get(entry.webContentsId) ?? findWebContents(entry.webContentsId)
+    if (!wc || wc.isDestroyed()) return
+
+    const code = `
+      (function() {
+        const pw = document.querySelector('input[type="password"]')
+        if (!pw) return
+        const form = pw.closest('form') || pw.parentElement
+        const uf = form?.querySelector('input[type="email"],input[type="text"],input[name*="user"],input[name*="email"],input[name*="login"],input[autocomplete="username"]')
+        if (uf) {
+          uf.value = ${JSON.stringify(username)}
+          uf.dispatchEvent(new Event('input',{bubbles:true}))
+          uf.dispatchEvent(new Event('change',{bubbles:true}))
+        }
+        pw.value = ${JSON.stringify(password)}
+        pw.dispatchEvent(new Event('input',{bubbles:true}))
+        pw.dispatchEvent(new Event('change',{bubbles:true}))
+        document.getElementById('__canopy_autofill_icon')?.remove()
+      })()
+    `
+    wc.executeJavaScriptInIsolatedWorld(999, [{ code }]).catch(() => {})
+  }
+
   setDeviceEmulation(
     browserId: string,
     device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null,

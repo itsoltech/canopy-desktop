@@ -326,6 +326,9 @@ interface CanopyAPI {
   ) => Promise<void>
   saveBrowserCapture: (buffer: ArrayBuffer) => Promise<string>
 
+  // Credential autofill (isolated world)
+  fillBrowserCredential: (browserId: string, username: string, password: string) => Promise<void>
+
   // Credentials
   getCredentials: (
     domain: string,

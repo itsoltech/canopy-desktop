@@ -295,6 +295,20 @@
     password: string
     title: string
   } | null = null
+  let capturedCredsTimer: ReturnType<typeof setTimeout> | null = null
+
+  function setLastCapturedCreds(
+    data: { domain: string; username: string; password: string; title: string } | null,
+  ): void {
+    lastCapturedCreds = data
+    if (capturedCredsTimer) clearTimeout(capturedCredsTimer)
+    if (data) {
+      // Auto-clear password from memory after 30s
+      capturedCredsTimer = setTimeout(() => {
+        lastCapturedCreds = null
+      }, 30_000)
+    }
+  }
 
   async function checkCredentials(): Promise<void> {
     const w = wv()
@@ -439,25 +453,8 @@
     const domain = new URL(url).host
     const cred = await window.api.getCredentialDecrypted(credId, domain)
     if (!cred) return
-    w.executeJavaScript(
-      `
-      (function() {
-        const pw = document.querySelector('input[type="password"]')
-        if (!pw) return
-        const form = pw.closest('form') || pw.parentElement
-        const uf = form?.querySelector('input[type="email"],input[type="text"],input[name*="user"],input[name*="email"],input[name*="login"],input[autocomplete="username"]')
-        if (uf) {
-          uf.value = ${JSON.stringify(cred.username)}
-          uf.dispatchEvent(new Event('input',{bubbles:true}))
-          uf.dispatchEvent(new Event('change',{bubbles:true}))
-        }
-        pw.value = ${JSON.stringify(cred.password)}
-        pw.dispatchEvent(new Event('input',{bubbles:true}))
-        pw.dispatchEvent(new Event('change',{bubbles:true}))
-        document.getElementById('__canopy_autofill_icon')?.remove()
-      })()
-    `,
-    ).catch(() => {})
+    // Fill via main process isolated world — page scripts cannot intercept
+    await window.api.fillBrowserCredential(browserId, cred.username, cred.password)
   }
 
   /** Inject early capture script — stores credentials on form submit/button click */
@@ -505,7 +502,7 @@
   /** Check renderer-stored captured creds after navigation */
   async function checkCapturedCredentials(): Promise<void> {
     const captured = lastCapturedCreds
-    lastCapturedCreds = null
+    setLastCapturedCreds(null)
     if (!captured || !captured.password || !captured.domain) return
     try {
       const existing = await window.api.getCredentials(captured.domain)
@@ -908,7 +905,7 @@
         `,
         )
           .then((data) => {
-            if (data) lastCapturedCreds = data
+            if (data) setLastCapturedCreds(data)
           })
           .catch(() => {})
       } else if (msg.startsWith('__CANOPY_FILL__:')) {
