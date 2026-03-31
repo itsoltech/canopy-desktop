@@ -392,11 +392,12 @@
 
       const isMac = navigator.userAgent.includes('Mac')
 
-      // Keystroke visualizer — use setTimeout to fully defer Svelte reactive updates
-      // until after xterm completes its entire key processing + onData cycle
-      term.onKey(({ domEvent }) => {
-        setTimeout(() => recordKeyEvent(sessionId, domEvent), 0)
-      })
+      // Keystroke visualizer — capture keydown on container (avoids xterm API interference)
+      containerEl.addEventListener(
+        'keydown',
+        (e) => setTimeout(() => recordKeyEvent(sessionId, e), 0),
+        true,
+      )
 
       term.attachCustomKeyEventHandler((event) => {
         if (event.type === 'keydown') {
