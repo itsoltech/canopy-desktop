@@ -1,19 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { getTools, initToolStore } from '../../lib/stores/tools.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
 
-  interface ToolDef {
-    id: string
-    name: string
-    command: string
-    args: string[]
-    icon: string
-    category: string
-    isCustom: boolean
-  }
-
-  let tools: ToolDef[] = $state([])
   let showForm = $state(false)
   let newId = $state('')
   let newName = $state('')
@@ -22,8 +12,15 @@
   let newCategory = $state('system')
   let error = $state('')
 
-  onMount(async () => {
-    tools = await window.api.listTools()
+  let editingId: string | null = $state(null)
+  let editName = $state('')
+  let editCommand = $state('')
+  let editArgs = $state('')
+  let editCategory = $state('')
+  let editError = $state('')
+
+  onMount(() => {
+    initToolStore()
   })
 
   async function addTool(): Promise<void> {
@@ -31,13 +28,13 @@
       error = 'ID, name, and command are required'
       return
     }
-    if (tools.some((t) => t.id === newId.trim())) {
+    if (getTools().some((t) => t.id === newId.trim())) {
       error = 'Tool ID already exists'
       return
     }
 
     try {
-      tools = await window.api.addCustomTool({
+      await window.api.addCustomTool({
         id: newId.trim(),
         name: newName.trim(),
         command: newCommand.trim(),
@@ -60,7 +57,59 @@
   }
 
   async function removeTool(id: string): Promise<void> {
-    tools = await window.api.removeCustomTool(id)
+    await window.api.removeCustomTool(id)
+  }
+
+  function startEdit(tool: {
+    id: string
+    name: string
+    command: string
+    args: string[]
+    category: string
+  }): void {
+    editingId = tool.id
+    editName = tool.name
+    editCommand = tool.command
+    editArgs = tool.args.join(', ')
+    editCategory = tool.category
+    editError = ''
+  }
+
+  function cancelEdit(): void {
+    editingId = null
+    editError = ''
+  }
+
+  async function saveEdit(): Promise<void> {
+    if (!editingId) return
+    if (!editName.trim() || !editCommand.trim()) {
+      editError = 'Name and command are required'
+      return
+    }
+
+    try {
+      await window.api.updateCustomTool(editingId, {
+        name: editName.trim(),
+        command: editCommand.trim(),
+        args: editArgs
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        category: editCategory,
+      })
+      editingId = null
+      editError = ''
+    } catch (e) {
+      editError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function uploadIcon(toolId: string): Promise<void> {
+    const svgContent = await window.api.selectIconFile()
+    if (svgContent != null) {
+      await window.api.setToolIcon(toolId, svgContent)
+      await window.api.updateCustomTool(toolId, { icon: 'custom:' + toolId })
+    }
   }
 </script>
 
@@ -68,18 +117,50 @@
   <h3 class="section-title">Tools</h3>
 
   <div class="tool-list">
-    {#each tools as tool (tool.id)}
-      <div class="tool-row">
-        <ToolIcon icon={tool.icon} size={16} />
-        <span class="tool-name">{tool.name}</span>
-        <span class="tool-command">{tool.command}</span>
-        <span class="tool-category">{tool.category}</span>
-        {#if tool.isCustom}
-          <button class="remove-btn" onclick={() => removeTool(tool.id)}>Remove</button>
-        {:else}
-          <span class="builtin-badge">built-in</span>
-        {/if}
-      </div>
+    {#each getTools() as tool (tool.id)}
+      {#if editingId === tool.id}
+        <div class="edit-form">
+          <div class="edit-form-header">
+            <span class="edit-id-label">ID: {tool.id}</span>
+          </div>
+          <input class="form-input" bind:value={editName} placeholder="Display name" />
+          <input class="form-input" bind:value={editCommand} placeholder="Command (binary name)" />
+          <input class="form-input" bind:value={editArgs} placeholder="Args (comma-separated)" />
+          <CustomSelect
+            value={editCategory}
+            options={[
+              { value: 'ai', label: 'AI' },
+              { value: 'git', label: 'Git' },
+              { value: 'system', label: 'System' },
+              { value: 'shell', label: 'Shell' },
+            ]}
+            onchange={(v) => (editCategory = v)}
+          />
+          <button class="btn btn-icon-upload" onclick={() => uploadIcon(tool.id)}>
+            Upload Icon (SVG)
+          </button>
+          {#if editError}
+            <p class="form-error">{editError}</p>
+          {/if}
+          <div class="form-actions">
+            <button class="btn btn-cancel" onclick={cancelEdit}>Cancel</button>
+            <button class="btn btn-add" onclick={saveEdit}>Save</button>
+          </div>
+        </div>
+      {:else}
+        <div class="tool-row">
+          <ToolIcon icon={tool.icon} size={16} />
+          <span class="tool-name">{tool.name}</span>
+          <span class="tool-command">{tool.command}</span>
+          <span class="tool-category">{tool.category}</span>
+          {#if tool.isCustom}
+            <button class="edit-btn" onclick={() => startEdit(tool)}>Edit</button>
+            <button class="remove-btn" onclick={() => removeTool(tool.id)}>Remove</button>
+          {:else}
+            <span class="builtin-badge">built-in</span>
+          {/if}
+        </div>
+      {/if}
     {/each}
   </div>
 
@@ -99,6 +180,11 @@
         ]}
         onchange={(v) => (newCategory = v)}
       />
+      {#if newId.trim()}
+        <button class="btn btn-icon-upload" onclick={() => uploadIcon(newId.trim())}>
+          Upload Icon (SVG)
+        </button>
+      {/if}
       {#if error}
         <p class="form-error">{error}</p>
       {/if}
@@ -255,6 +341,54 @@
 
   .btn-add-tool:hover {
     background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid rgba(116, 192, 252, 0.2);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    width: 100%;
+  }
+
+  .edit-form-header {
+    margin-bottom: 4px;
+  }
+
+  .edit-id-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    font-family: monospace;
+  }
+
+  .edit-btn {
+    padding: 2px 8px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(116, 192, 252, 0.15);
+    color: rgba(116, 192, 252, 0.8);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .edit-btn:hover {
+    background: rgba(116, 192, 252, 0.25);
+  }
+
+  .btn-icon-upload {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.5);
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    font-size: 12px;
+  }
+
+  .btn-icon-upload:hover {
+    background: rgba(255, 255, 255, 0.1);
     color: rgba(255, 255, 255, 0.7);
   }
 </style>
