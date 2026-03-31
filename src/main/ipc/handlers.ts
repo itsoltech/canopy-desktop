@@ -777,6 +777,8 @@ export function registerIpcHandlers(
 
   // --- Worktree Setup ---
 
+  const setupAbortControllers = new Map<number, AbortController>()
+
   ipcMain.handle(
     'worktree:runSetup',
     async (event, payload: { workspaceId: string; repoRoot: string; newWorktreePath: string }) => {
@@ -797,19 +799,32 @@ export function registerIpcHandlers(
       const mainWorktreePath = mainWorktree?.path ?? payload.repoRoot
 
       const sender = event.sender
-      return runWorktreeSetup(
-        actions,
-        {
-          repoRoot: payload.repoRoot,
-          mainWorktreePath,
-          newWorktreePath: payload.newWorktreePath,
-        },
-        (progress) => {
-          if (!sender.isDestroyed()) {
-            sender.send('worktree:setupProgress', progress)
-          }
-        },
-      )
+      const controller = new AbortController()
+      setupAbortControllers.set(sender.id, controller)
+
+      try {
+        return await runWorktreeSetup(
+          actions,
+          {
+            repoRoot: payload.repoRoot,
+            mainWorktreePath,
+            newWorktreePath: payload.newWorktreePath,
+          },
+          (progress) => {
+            if (!sender.isDestroyed()) {
+              sender.send('worktree:setupProgress', progress)
+            }
+          },
+          controller.signal,
+        )
+      } finally {
+        setupAbortControllers.delete(sender.id)
+      }
     },
   )
+
+  ipcMain.on('worktree:abortSetup', (event) => {
+    const controller = setupAbortControllers.get(event.sender.id)
+    controller?.abort()
+  })
 }

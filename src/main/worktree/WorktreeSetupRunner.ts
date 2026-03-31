@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+import * as pty from 'node-pty'
 import { copyFile, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 import type { WorktreeSetupAction, WorktreeSetupProgress } from '../db/types'
@@ -29,26 +29,64 @@ function getLabel(action: WorktreeSetupAction): string {
   return action.type === 'command' ? action.command : `Copy ${action.source}`
 }
 
-function execCommand(cmd: string, cwd: string): Promise<string> {
+function spawnCommand(
+  cmd: string,
+  cwd: string,
+  onChunk: (raw: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   const loginEnv = getLoginEnv()
+  const isWin = process.platform === 'win32'
+  const shellPath = isWin ? 'powershell.exe' : loginEnv?.SHELL || process.env.SHELL || '/bin/sh'
+  const shellArgs = isWin ? ['-NoProfile', '-Command', cmd] : ['-c', cmd]
+  const env = {
+    ...(loginEnv ?? (process.env as Record<string, string>)),
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+  }
+
   return new Promise((resolve, reject) => {
-    exec(
-      cmd,
-      {
-        cwd,
-        shell: loginEnv?.SHELL || process.env.SHELL || '/bin/sh',
-        env: loginEnv ?? (process.env as Record<string, string>),
-        timeout: 60_000,
-        maxBuffer: 1024 * 1024,
-      },
-      (err, stdout, stderr) => {
-        if (err) {
-          reject(new Error(stderr || err.message))
+    const p = pty.spawn(shellPath, shellArgs, {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd,
+      env,
+    })
+
+    let settled = false
+    function settle(fn: () => void): void {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abortHandler)
+      fn()
+    }
+
+    const timeout = setTimeout(() => {
+      p.kill()
+      settle(() => reject(new Error('Command timed out after 5 minutes')))
+    }, 300_000)
+
+    const abortHandler = (): void => {
+      p.kill()
+      settle(() => reject(new Error('Setup aborted')))
+    }
+    signal?.addEventListener('abort', abortHandler, { once: true })
+
+    p.onData((data) => {
+      if (!settled) onChunk(data)
+    })
+
+    p.onExit(({ exitCode }) => {
+      settle(() => {
+        if (exitCode === 0) {
+          resolve()
         } else {
-          resolve(stdout)
+          reject(new Error(`Command exited with code ${exitCode}`))
         }
-      },
-    )
+      })
+    })
   })
 }
 
@@ -56,10 +94,15 @@ export async function runWorktreeSetup(
   actions: WorktreeSetupAction[],
   context: SetupContext,
   onProgress: (progress: WorktreeSetupProgress) => void,
+  signal?: AbortSignal,
 ): Promise<{ success: boolean; errors: string[] }> {
   const errors: string[] = []
 
   for (let i = 0; i < actions.length; i++) {
+    if (signal?.aborted) {
+      return { success: false, errors: ['Setup aborted'] }
+    }
+
     const action = actions[i]
     const label = getLabel(action)
 
@@ -73,13 +116,25 @@ export async function runWorktreeSetup(
     try {
       if (action.type === 'command') {
         const cmd = substituteVars(action.command, context)
-        const output = await execCommand(cmd, context.newWorktreePath)
+        await spawnCommand(
+          cmd,
+          context.newWorktreePath,
+          (raw) => {
+            onProgress({
+              actionIndex: i,
+              totalActions: actions.length,
+              label,
+              status: 'running',
+              outputChunk: raw,
+            })
+          },
+          signal,
+        )
         onProgress({
           actionIndex: i,
           totalActions: actions.length,
           label,
           status: 'done',
-          output,
         })
       } else {
         const sourcePath = join(context.mainWorktreePath, action.source)
