@@ -3,9 +3,26 @@
   import { Terminal, Globe, FileText } from 'lucide-svelte'
 
   let { icon, size = 14 }: { icon: string; size?: number } = $props()
+
+  let customSvg: string | null = $state(null)
+
+  $effect(() => {
+    if (icon.startsWith('custom:')) {
+      const toolId = icon.slice('custom:'.length)
+      window.api.getToolIcon(toolId).then((svg) => {
+        customSvg = svg
+      })
+    } else {
+      customSvg = null
+    }
+  })
 </script>
 
-{#if icon === 'ClaudeAI'}
+{#if icon.startsWith('custom:') && customSvg}
+  <span class="custom-icon" style:width="{size}px" style:height="{size}px">
+    {@html customSvg}
+  </span>
+{:else if icon === 'ClaudeAI'}
   <ClaudeAILogo width={size} height={size} />
 {:else if icon === 'OpenAI'}
   <OpenAILogo width={size} height={size} />
@@ -31,6 +48,19 @@
 {/if}
 
 <style>
+  .custom-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .custom-icon :global(svg) {
+    width: 100%;
+    height: 100%;
+  }
+
   .fallback {
     display: inline-flex;
     align-items: center;

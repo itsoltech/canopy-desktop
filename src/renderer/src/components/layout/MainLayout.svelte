@@ -59,6 +59,10 @@
     clearWorktreeBadge,
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
+  import { initToolStore } from '../../lib/stores/tools.svelte'
+
+  // Initialize tools store (registers onToolsChanged listener)
+  initToolStore()
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
