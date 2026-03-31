@@ -73,7 +73,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     margin: 0;
   }
 
@@ -86,7 +86,7 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -99,10 +99,10 @@
 
   .theme-btn {
     padding: 4px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-border-subtle);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -112,28 +112,28 @@
   }
 
   .theme-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: var(--c-active);
+    border-color: var(--c-text-faint);
   }
 
   .theme-btn.active {
-    background: rgba(116, 192, 252, 0.15);
-    border-color: rgba(116, 192, 252, 0.5);
-    color: #74c0fc;
+    background: var(--c-accent-bg);
+    border-color: var(--c-focus-ring);
+    color: var(--c-accent);
   }
 
   .text-input {
     padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
+    background: var(--c-hover);
+    color: var(--c-text);
     font-size: 13px;
     font-family: monospace;
     outline: none;
   }
 
   .text-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 </style>

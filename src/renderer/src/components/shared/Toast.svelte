@@ -53,10 +53,10 @@
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
-    background: rgba(30, 30, 30, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 16px var(--c-scrim);
     z-index: 9999;
     animation: slideIn 0.2s ease-out;
   }
@@ -80,7 +80,7 @@
 
   .toast-url {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -98,10 +98,10 @@
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover);
+    color: var(--c-text);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
@@ -109,7 +109,7 @@
   }
 
   .toast-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover-strong);
   }
 
   .toast-close {
@@ -121,14 +121,14 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     cursor: pointer;
     padding: 0;
   }
 
   .toast-close:hover {
-    color: rgba(255, 255, 255, 0.8);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--c-text);
+    background: var(--c-active);
   }
 
   .toast-message {

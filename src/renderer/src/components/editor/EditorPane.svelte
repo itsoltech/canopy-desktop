@@ -120,7 +120,7 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: var(--color-background);
+    background: var(--c-bg);
   }
 
   .toolbar {
@@ -130,8 +130,8 @@
     padding: 4px 10px;
     height: 32px;
     min-height: 32px;
-    background: rgba(30, 30, 30, 0.8);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--c-bg-glass-heavy);
+    border-bottom: 1px solid var(--c-border-subtle);
     user-select: none;
   }
 
@@ -146,13 +146,13 @@
   .file-name {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--c-text);
     white-space: nowrap;
   }
 
   .file-path {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -160,7 +160,7 @@
 
   .file-size {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     white-space: nowrap;
   }
 
@@ -179,13 +179,13 @@
     background: none;
     border: none;
     border-radius: 4px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     cursor: pointer;
   }
 
   .toolbar-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   .content-area {
@@ -200,11 +200,11 @@
     justify-content: center;
     height: 100%;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 
   .status-message.error {
-    color: #e05050;
+    color: var(--c-danger);
   }
 
   .code-view {
@@ -226,16 +226,16 @@
     z-index: 1;
     padding: 8px 10px 8px 10px;
     text-align: right;
-    color: rgba(255, 255, 255, 0.2);
-    background: #1e1e1e;
-    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--c-text-faint);
+    background: var(--c-bg);
+    border-right: 1px solid var(--c-border-subtle);
     user-select: none;
     flex-shrink: 0;
   }
 
   .code-content {
     padding: 8px 16px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     white-space: pre;
     overflow-x: visible;
     flex: 1;
@@ -248,9 +248,9 @@
     right: 0;
     padding: 6px 16px;
     font-size: 11px;
-    color: rgba(255, 180, 80, 0.8);
-    background: rgba(40, 35, 25, 0.95);
-    border-top: 1px solid rgba(255, 180, 80, 0.2);
+    color: var(--c-warning-text);
+    background: var(--c-bg-overlay);
+    border-top: 1px solid var(--c-border);
     text-align: center;
   }
 </style>

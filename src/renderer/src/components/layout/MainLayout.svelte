@@ -486,7 +486,7 @@
 
   .sidebar-resize-handle:hover,
   .sidebar-resize-handle.dragging {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-muted);
   }
 
   .center-area {
@@ -512,7 +512,7 @@
   .terminal-panel {
     position: absolute;
     inset: 0;
-    background: #1e1e1e;
+    background: var(--c-bg);
   }
 
   .terminal-panel.hidden {
@@ -524,7 +524,7 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .hint {
@@ -537,6 +537,6 @@
     font-size: 12px;
     font-weight: 400;
     margin: 6px 0 0;
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
   }
 </style>

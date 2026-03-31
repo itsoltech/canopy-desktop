@@ -76,7 +76,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     margin: 0;
   }
 
@@ -85,12 +85,12 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     cursor: pointer;
   }
 
   .checkbox-row input[type='checkbox'] {
-    accent-color: #74c0fc;
+    accent-color: var(--c-accent);
   }
 
   .select-row {
@@ -101,7 +101,7 @@
   }
 
   .select-label {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     min-width: 160px;
   }
 
@@ -113,19 +113,19 @@
   }
 
   .info-label {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     min-width: 80px;
   }
 
   .info-value {
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-family: monospace;
     font-size: 12px;
   }
 
   .hint-row {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;

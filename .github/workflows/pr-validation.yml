@@ -40,3 +40,9 @@ jobs:
           claude_args: |
             --model haiku
             --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr edit:*)"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}"
+              }
+            }

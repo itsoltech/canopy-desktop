@@ -52,7 +52,7 @@
   }
 
   .border-top {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--c-border-subtle);
   }
 
   .section-header {
@@ -80,18 +80,18 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 1px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     text-transform: uppercase;
   }
 
   .section-toggle:hover .section-title {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   .chevron {
     display: flex;
     align-items: center;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     transition: transform 0.15s ease;
     transform: rotate(0deg);
   }
