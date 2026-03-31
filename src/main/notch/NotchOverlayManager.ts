@@ -18,6 +18,8 @@ export class NotchOverlayManager {
   private displayChangeHandler: (() => void) | null = null
   private statusChangeHandler: ((status: NotchSessionStatus) => void) | null = null
   private sessionDestroyedHandler: ((id: string) => void) | null = null
+  private focusHandler: (() => void) | null = null
+  private warmupTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private agentSessionManager: AgentSessionManager,
@@ -66,6 +68,15 @@ export class NotchOverlayManager {
     ipcMain.removeHandler('notch:focusSession')
     ipcMain.removeAllListeners('notch:setMouseIgnore')
 
+    if (this.warmupTimer) {
+      clearTimeout(this.warmupTimer)
+      this.warmupTimer = null
+    }
+    if (this.focusHandler && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+      this.overlayWindow.removeListener('focus', this.focusHandler)
+    }
+    this.focusHandler = null
+
     if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
       this.overlayWindow.destroy()
     }
@@ -82,6 +93,7 @@ export class NotchOverlayManager {
       return menuBarHeight > 28
     }
     // Windows: simulated notch (no physical notch to detect)
+    // Linux: not supported
     return process.platform === 'win32'
   }
 
@@ -139,9 +151,10 @@ export class NotchOverlayManager {
     // On Windows the overlay must be focusable for clicks to register,
     // but we don't want it to steal focus from the main window.
     if (!isMac) {
-      this.overlayWindow.on('focus', () => {
+      this.focusHandler = (): void => {
         this.overlayWindow?.blur()
-      })
+      }
+      this.overlayWindow.on('focus', this.focusHandler)
     }
 
     const ready =
@@ -152,16 +165,21 @@ export class NotchOverlayManager {
     // Warm up the renderer on Windows so the first hover doesn't stutter.
     // Briefly show the (empty) overlay off-screen to force GPU compositing.
     if (process.platform === 'win32') {
-      ready.then(() => {
-        if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return
-        this.overlayWindow.setPosition(-WINDOW_WIDTH, 0)
-        this.overlayWindow.showInactive()
-        setTimeout(() => {
+      ready
+        .then(() => {
           if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return
-          this.overlayWindow.hide()
-          this.repositionWindow()
-        }, 200)
-      })
+          this.overlayWindow.setPosition(-WINDOW_WIDTH, 0)
+          this.overlayWindow.showInactive()
+          this.warmupTimer = setTimeout(() => {
+            this.warmupTimer = null
+            if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return
+            this.overlayWindow.hide()
+            this.repositionWindow()
+          }, 200)
+        })
+        .catch(() => {
+          // Load may fail if window was destroyed during startup
+        })
     }
   }
 

@@ -575,9 +575,9 @@ app.whenReady().then(async () => {
   }
 
   // Destroy notch overlay when all managed windows close so window-all-closed fires on Windows
-  windowManager.onAllWindowsClosed = () => {
+  windowManager.onAllWindowsClosed(() => {
     notchOverlay?.dispose()
-  }
+  })
 
   ipcMain.on('notch:setEnabled', (event, { enabled }: { enabled: boolean }) => {
     if (!notchOverlay) return
