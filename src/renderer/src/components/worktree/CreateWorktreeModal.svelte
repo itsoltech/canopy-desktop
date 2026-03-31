@@ -223,6 +223,7 @@
   }
 
   function finishCreation(): void {
+    if (step === 'done') return
     step = 'done'
     setTimeout(
       () => {
