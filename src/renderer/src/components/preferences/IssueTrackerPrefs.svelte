@@ -645,7 +645,7 @@
   {/if}
 
   <div class="token-builder">
-    <span class="builder-label">Template:</span>
+    <label class="form-label">Template</label>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="token-track" ondragover={onTrackDragOver} ondrop={onTrackDrop}>
       {#each templateTokens as token, i (i)}
@@ -1126,14 +1126,6 @@
     align-items: flex-start;
     gap: 8px;
     margin-bottom: 8px;
-  }
-
-  .builder-label {
-    font-size: 12px;
-    color: var(--c-text-muted);
-    width: 90px;
-    flex-shrink: 0;
-    padding-top: 5px;
   }
 
   .token-track {
