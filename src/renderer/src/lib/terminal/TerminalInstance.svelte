@@ -13,7 +13,7 @@
   import { openTool } from '../stores/tabs.svelte'
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
-  import { recordKeystroke } from '../stores/wpmTracker.svelte'
+  import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -370,6 +370,7 @@
     return () => {
       disposed = true
       clearConnectionStatus(sessionId)
+      cleanupSession(sessionId)
       if (writeRafId !== null) cancelAnimationFrame(writeRafId)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (dataDisposable) dataDisposable.dispose()

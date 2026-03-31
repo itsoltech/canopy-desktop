@@ -38,7 +38,7 @@ function countPrintable(data: string): number {
 }
 
 export function recordKeystroke(sessionId: string, data: string): void {
-  if (getPref('wpm.enabled', 'true') !== 'true') return
+  if (getPref('wpm.enabled') === 'false') return
 
   const printable = countPrintable(data)
   if (printable === 0) return
@@ -106,12 +106,23 @@ export function cleanupSession(sessionId: string): void {
   delete wpmValues[sessionId]
 }
 
-setInterval(() => {
-  const now = Date.now()
-  for (const [id, session] of sessions) {
-    if (now - session.lastActivity > 30_000) {
-      sessions.delete(id)
-      delete wpmValues[id]
+let cleanupIntervalId: ReturnType<typeof setInterval> | undefined
+
+export function startCleanupTimer(): void {
+  stopCleanupTimer()
+  cleanupIntervalId = setInterval(() => {
+    const now = Date.now()
+    for (const [id, session] of sessions) {
+      if (now - session.lastActivity > 30_000) {
+        sessions.delete(id)
+        delete wpmValues[id]
+      }
     }
-  }
-}, CLEANUP_INTERVAL_MS)
+  }, CLEANUP_INTERVAL_MS)
+}
+
+export function stopCleanupTimer(): void {
+  clearInterval(cleanupIntervalId)
+}
+
+startCleanupTimer()
