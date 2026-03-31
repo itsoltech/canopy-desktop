@@ -28,7 +28,7 @@ const DEFAULT_CONFIG: SidebarSectionConfig[] = [
   { id: 'git', visible: true },
   { id: 'files', visible: false },
   { id: 'tools', visible: true },
-  { id: 'issues', visible: true },
+  { id: 'issues', visible: false },
 ]
 
 export function getSidebarConfig(raw: string): SidebarSectionConfig[] {

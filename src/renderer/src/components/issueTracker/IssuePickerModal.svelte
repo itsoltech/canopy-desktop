@@ -109,6 +109,9 @@
     return result
   })
 
+  const DISPLAY_LIMIT = 200
+  let displayedIssues = $derived(filteredIssues.slice(0, DISPLAY_LIMIT))
+
   onMount(async () => {
     await loadBoards()
   })
@@ -194,14 +197,14 @@
       closeDialog()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      selectedIndex = Math.min(selectedIndex + 1, filteredIssues.length - 1)
+      selectedIndex = Math.min(selectedIndex + 1, displayedIssues.length - 1)
       scrollToSelected()
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       selectedIndex = Math.max(selectedIndex - 1, 0)
       scrollToSelected()
-    } else if (e.key === 'Enter' && filteredIssues[selectedIndex]) {
-      selectIssue(filteredIssues[selectedIndex])
+    } else if (e.key === 'Enter' && displayedIssues[selectedIndex]) {
+      selectIssue(displayedIssues[selectedIndex])
     }
   }
 
@@ -439,10 +442,10 @@
             <span>{error}</span>
             <button class="retry-btn" onclick={fetchIssues}>Retry</button>
           </div>
-        {:else if filteredIssues.length === 0}
+        {:else if displayedIssues.length === 0}
           <div class="state-msg">No issues found</div>
         {:else}
-          {#each filteredIssues as issue, i (issue.key)}
+          {#each displayedIssues as issue, i (issue.key)}
             <div
               class="issue-row"
               class:selected={i === selectedIndex}
@@ -482,7 +485,9 @@
       <div class="picker-footer">
         <span class="hint">↑↓ navigate · Enter select · Esc close</span>
         <span class="count"
-          >{filteredIssues.length} issue{filteredIssues.length !== 1 ? 's' : ''}</span
+          >{filteredIssues.length > DISPLAY_LIMIT
+            ? `${DISPLAY_LIMIT} of ${filteredIssues.length} issues`
+            : `${filteredIssues.length} issue${filteredIssues.length !== 1 ? 's' : ''}`}</span
         >
       </div>
     {/if}
