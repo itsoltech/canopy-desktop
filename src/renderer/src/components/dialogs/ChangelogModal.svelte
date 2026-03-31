@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+
+  let containerEl: HTMLDivElement | undefined = $state()
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -15,6 +17,7 @@
   let error = $state(false)
 
   onMount(async () => {
+    containerEl?.focus()
     const raw = await window.api.getChangelogSinceVersion(fromVersion)
     if (raw && raw.length > 0) {
       entries = await Promise.all(
@@ -46,14 +49,16 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" onkeydown={handleKeydown} onclick={closeDialog}>
+<div class="overlay" onkeydown={handleKeydown} onmousedown={closeDialog}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    bind:this={containerEl}
     class="container"
     role="dialog"
     aria-modal="true"
     aria-labelledby="changelog-dialog-title"
-    onclick={(e) => e.stopPropagation()}
+    tabindex="-1"
+    onmousedown={(e) => e.stopPropagation()}
   >
     <div class="header">
       <h2 id="changelog-dialog-title" class="title">What's New</h2>
@@ -111,6 +116,7 @@
   }
 
   .container {
+    outline: none;
     width: 560px;
     max-width: 90vw;
     max-height: 80vh;

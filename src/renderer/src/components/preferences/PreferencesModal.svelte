@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
+
+  let containerEl: HTMLDivElement | undefined = $state()
   import GeneralPrefs from './GeneralPrefs.svelte'
   import AppearancePrefs from './AppearancePrefs.svelte'
   import ToolPrefs from './ToolPrefs.svelte'
@@ -25,6 +28,10 @@
 
   let activeSection: Section = $state('General')
 
+  onMount(() => {
+    containerEl?.focus()
+  })
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -35,14 +42,16 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="prefs-overlay" onkeydown={handleKeydown} onclick={closeDialog}>
+<div class="prefs-overlay" onkeydown={handleKeydown} onmousedown={closeDialog}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    bind:this={containerEl}
     class="prefs-container"
     role="dialog"
     aria-modal="true"
     aria-labelledby="prefs-dialog-title"
-    onclick={(e) => e.stopPropagation()}
+    tabindex="-1"
+    onmousedown={(e) => e.stopPropagation()}
   >
     <div class="prefs-sidebar">
       <h2 id="prefs-dialog-title" class="prefs-title">Settings</h2>
@@ -93,6 +102,7 @@
   }
 
   .prefs-container {
+    outline: none;
     width: 700px;
     max-width: 90vw;
     height: 500px;

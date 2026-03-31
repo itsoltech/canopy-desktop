@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+
+  let containerEl: HTMLDivElement | undefined = $state()
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -9,6 +11,7 @@
   let licenseHtml = $state('')
 
   onMount(async () => {
+    containerEl?.focus()
     const info = await window.api.getAboutInfo()
     version = info.version
     homepage = info.homepage
@@ -35,14 +38,16 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="about-overlay" onkeydown={handleKeydown} onclick={closeDialog}>
+<div class="about-overlay" onkeydown={handleKeydown} onmousedown={closeDialog}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    bind:this={containerEl}
     class="about-container"
     role="dialog"
     aria-modal="true"
     aria-labelledby="about-dialog-title"
-    onclick={(e) => e.stopPropagation()}
+    tabindex="-1"
+    onmousedown={(e) => e.stopPropagation()}
   >
     <div class="about-header">
       <h2 id="about-dialog-title" class="app-name">Canopy</h2>
@@ -86,6 +91,7 @@
   }
 
   .about-container {
+    outline: none;
     width: 400px;
     max-width: 90vw;
     max-height: 80vh;
