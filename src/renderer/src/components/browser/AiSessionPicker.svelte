@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import type { AiSessionInfo } from '../../lib/stores/tabs.svelte'
+
+  let containerEl: HTMLDivElement | undefined = $state()
 
   let {
     sessions,
@@ -11,6 +14,10 @@
     onClose: () => void
   } = $props()
 
+  onMount(() => {
+    containerEl?.focus()
+  })
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -21,9 +28,14 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="picker-overlay" onclick={onClose} onkeydown={handleKeydown}>
+<div class="picker-overlay" onmousedown={onClose} onkeydown={handleKeydown}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="picker" onclick={(e) => e.stopPropagation()}>
+  <div
+    bind:this={containerEl}
+    class="picker"
+    tabindex="-1"
+    onmousedown={(e) => e.stopPropagation()}
+  >
     <div class="picker-title">Send to</div>
     {#each sessions as s (s.sessionId)}
       <button class="picker-item" onclick={() => onSelect(s.sessionId)}>
@@ -46,6 +58,7 @@
   }
 
   .picker {
+    outline: none;
     min-width: 220px;
     padding: 8px;
     background: rgba(30, 30, 30, 0.98);

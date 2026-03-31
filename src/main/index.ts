@@ -12,7 +12,7 @@ import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers } from './ipc/handlers'
-import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
+import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
@@ -20,7 +20,7 @@ import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { IssueTrackerManager } from './issueTracker/IssueTrackerManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
-import { fetchChangelogRange } from './changelog/fetchChangelog'
+import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -41,8 +41,28 @@ const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 let manualCheckInProgress = false
 let updateInstalling = false
+let updateCheckInFlight = false
 
-let claudeSessionManager: ClaudeSessionManager | null = null
+const checkWithChannelResolution = async (): Promise<void> => {
+  if (updateCheckInFlight) return
+  updateCheckInFlight = true
+  try {
+    const ch = preferencesStore.get('update.channel') ?? 'stable'
+    if (ch === 'next') {
+      const effective = await resolveUpdateChannel(app.getVersion())
+      autoUpdater.channel = effective
+      autoUpdater.allowPrerelease = true
+    } else {
+      autoUpdater.channel = 'latest'
+      autoUpdater.allowPrerelease = false
+    }
+    await autoUpdater.checkForUpdates()
+  } finally {
+    updateCheckInFlight = false
+  }
+}
+
+let agentSessionManager: AgentSessionManager | null = null
 let notchOverlay: NotchOverlayManager | null = null
 
 // Register canopy:// URL scheme
@@ -130,7 +150,7 @@ function buildAppMenu(): void {
   const checkForUpdatesClick = (): void => {
     if (app.isPackaged) {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -303,10 +323,8 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:setUpdateChannel', (_e, channel: string) => {
       if (channel !== 'stable' && channel !== 'next') return
-      const allowPrerelease = channel === 'next'
-      autoUpdater.allowPrerelease = allowPrerelease
       preferencesStore.set('update.channel', channel)
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         console.warn('Update check after channel switch failed:', err)
       })
     })
@@ -318,7 +336,7 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:checkForUpdates', () => {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -369,14 +387,14 @@ app.whenReady().then(async () => {
       }, 10_000)
     })
 
-    autoUpdater.checkForUpdates().catch((err) => {
+    checkWithChannelResolution().catch((err) => {
       console.warn('Auto-update check failed:', err)
     })
   }
 
-  claudeSessionManager = new ClaudeSessionManager()
-  claudeSessionManager.cleanupOrphans()
-  windowManager.setClaudeSessionManager(claudeSessionManager)
+  agentSessionManager = new AgentSessionManager()
+  agentSessionManager.cleanupOrphans()
+  windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
   const issueTrackerManager = new IssueTrackerManager(preferencesStore)
@@ -388,7 +406,7 @@ app.whenReady().then(async () => {
     preferencesStore,
     layoutStore,
     toolRegistry,
-    claudeSessionManager,
+    agentSessionManager,
     windowManager,
     browserManager,
     issueTrackerManager,
@@ -502,7 +520,7 @@ app.whenReady().then(async () => {
   }
 
   // Initialize notch overlay after main window so the panel doesn't suppress the dock icon
-  notchOverlay = new NotchOverlayManager(claudeSessionManager, windowManager)
+  notchOverlay = new NotchOverlayManager(agentSessionManager, windowManager)
   if (preferencesStore.get('notch.enabled') === 'true') {
     notchOverlay.initialize()
   }
@@ -543,7 +561,7 @@ app.on('before-quit', (event) => {
   // Window configs already saved; windows already destroyed.
   if (updateInstalling) {
     notchOverlay?.dispose()
-    claudeSessionManager?.dispose()
+    agentSessionManager?.dispose()
     database.close()
     return
   }
@@ -584,7 +602,7 @@ app.on('before-quit', (event) => {
   }
 
   notchOverlay?.dispose()
-  claudeSessionManager?.dispose()
+  agentSessionManager?.dispose()
   windowManager.disposeAll()
   database.close()
 })

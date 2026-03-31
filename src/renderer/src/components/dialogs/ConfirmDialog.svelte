@@ -40,14 +40,14 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="dialog-overlay" onkeydown={handleKeydown} onclick={onCancel}>
+<div class="dialog-overlay" onkeydown={handleKeydown} onmousedown={onCancel}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="dialog-container"
     role="dialog"
     aria-modal="true"
     aria-labelledby="confirm-dialog-title"
-    onclick={(e) => e.stopPropagation()}
+    onmousedown={(e) => e.stopPropagation()}
   >
     <h3 id="confirm-dialog-title" class="dialog-title">{title}</h3>
     <p class="dialog-message">{message}</p>

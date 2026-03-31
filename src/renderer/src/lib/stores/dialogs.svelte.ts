@@ -41,6 +41,7 @@ interface CreateWorktreeState {
   type: 'createWorktree'
   repoRoot?: string
   workspaceId?: string
+  baseBranch?: string
 }
 
 interface PreferencesState {
@@ -116,11 +117,16 @@ export function prompt(opts: PromptOptions): Promise<PromptResult | null> {
   })
 }
 
-export function showCreateWorktree(opts?: { repoRoot?: string; workspaceId?: string }): void {
+export function showCreateWorktree(opts?: {
+  repoRoot?: string
+  workspaceId?: string
+  baseBranch?: string
+}): void {
   dialogState.current = {
     type: 'createWorktree',
     repoRoot: opts?.repoRoot,
     workspaceId: opts?.workspaceId,
+    baseBranch: opts?.baseBranch,
   }
 }
 

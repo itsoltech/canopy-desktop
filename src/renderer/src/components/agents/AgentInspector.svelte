@@ -1,11 +1,16 @@
 <script lang="ts">
-  import type { ClaudeSessionState } from '../../lib/claude/claudeState.svelte'
+  import type { AgentSessionState } from '../../lib/agents/agentState.svelte'
+  import ClaudeExtras from './ClaudeExtras.svelte'
 
   let {
     state,
   }: {
-    state: ClaudeSessionState
+    state: AgentSessionState
   } = $props()
+
+  let inspectorTitle = $derived(
+    state.agentType.charAt(0).toUpperCase() + state.agentType.slice(1) + ' Inspector',
+  )
 
   let statusText = $derived.by(() => {
     switch (state.status.type) {
@@ -94,36 +99,10 @@
     const hours = Math.floor(minutes / 60)
     return `${hours}h ${minutes % 60}m`
   }
-
-  function formatResetTime(resetsAt: number | null): string {
-    if (resetsAt == null) return ''
-    const diff = resetsAt - Date.now()
-    if (diff <= 0) return ''
-    const minutes = Math.floor(diff / 60000)
-    if (minutes < 1) return 'in <1min'
-    const hours = Math.floor(minutes / 60)
-    const mins = minutes % 60
-    const days = Math.floor(hours / 24)
-    const remHours = hours % 24
-    if (days > 0) {
-      if (remHours === 0 && mins === 0) return `in ${days}d`
-      if (mins === 0) return `in ${days}d ${remHours}h`
-      return `in ${days}d ${remHours}h ${mins}min`
-    }
-    if (hours === 0) return `in ${mins}min`
-    if (mins === 0) return `in ${hours}h`
-    return `in ${hours}h ${mins}min`
-  }
-
-  function rateLimitBarClass(pct: number): string {
-    if (pct >= 90) return 'ctx-red'
-    if (pct >= 70) return 'ctx-yellow'
-    return 'ctx-green'
-  }
 </script>
 
 <aside class="inspector">
-  <h3 class="inspector-title">Claude Inspector</h3>
+  <h3 class="inspector-title">{inspectorTitle}</h3>
 
   <!-- Status -->
   <div class="status-badge {statusClass}">
@@ -188,53 +167,9 @@
     </div>
   </div>
 
-  <!-- Rate Limits -->
-  {#if state.rateLimitFiveHour != null || state.rateLimitSevenDay != null}
-    <div class="section">
-      <h4 class="section-label">Rate Limits</h4>
-      {#if state.rateLimitFiveHour != null}
-        <div class="rate-limit-row">
-          <div class="rate-limit-header">
-            <span class="rate-limit-label">5h window</span>
-            <span class="rate-limit-meta"
-              >{Math.round(
-                100 - state.rateLimitFiveHour,
-              )}%{#if formatResetTime(state.rateLimitFiveHourResetsAt)}
-                <span class="rate-limit-reset"
-                  >{formatResetTime(state.rateLimitFiveHourResetsAt)}</span
-                >{/if}</span
-            >
-          </div>
-          <div class="context-track">
-            <div
-              class="context-fill {rateLimitBarClass(state.rateLimitFiveHour)}"
-              style="width: {Math.max(100 - state.rateLimitFiveHour, 0)}%"
-            ></div>
-          </div>
-        </div>
-      {/if}
-      {#if state.rateLimitSevenDay != null}
-        <div class="rate-limit-row">
-          <div class="rate-limit-header">
-            <span class="rate-limit-label">7d window</span>
-            <span class="rate-limit-meta"
-              >{Math.round(
-                100 - state.rateLimitSevenDay,
-              )}%{#if formatResetTime(state.rateLimitSevenDayResetsAt)}
-                <span class="rate-limit-reset"
-                  >{formatResetTime(state.rateLimitSevenDayResetsAt)}</span
-                >{/if}</span
-            >
-          </div>
-          <div class="context-track">
-            <div
-              class="context-fill {rateLimitBarClass(state.rateLimitSevenDay)}"
-              style="width: {Math.max(100 - state.rateLimitSevenDay, 0)}%"
-            ></div>
-          </div>
-        </div>
-      {/if}
-    </div>
+  <!-- Agent-specific extras -->
+  {#if state.agentType === 'claude'}
+    <ClaudeExtras extra={state.extra} />
   {/if}
 
   <!-- Tasks -->
@@ -518,34 +453,6 @@
     border-radius: 50%;
     background: rgba(116, 192, 252, 0.6);
     flex-shrink: 0;
-  }
-
-  /* Rate limit rows */
-  .rate-limit-row {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .rate-limit-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-  }
-
-  .rate-limit-label {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .rate-limit-meta {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .rate-limit-reset {
-    color: rgba(255, 255, 255, 0.3);
-    margin-left: 0.3em;
   }
 
   /* Notifications */

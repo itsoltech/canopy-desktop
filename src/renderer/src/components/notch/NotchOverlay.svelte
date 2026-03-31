@@ -179,6 +179,8 @@
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .island {

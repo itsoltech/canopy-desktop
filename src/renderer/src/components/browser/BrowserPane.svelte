@@ -248,6 +248,9 @@
     window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
     window.api.writePty(sessionId, payload)
     focusSessionByPtyId(sessionId)
+    window.api.focusRendererWebContents().then(() => {
+      window.dispatchEvent(new CustomEvent('canopy:focus-terminal', { detail: { sessionId } }))
+    })
   }
 
   function handlePickerSelect(sessionId: string): void {

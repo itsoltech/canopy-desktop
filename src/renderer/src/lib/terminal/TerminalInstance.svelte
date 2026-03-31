@@ -65,7 +65,30 @@
     }
   })
 
-  // Re-attach WebGL addon after context loss when tab becomes active
+  // Listen for imperative focus requests (e.g. after browser screenshot delivery)
+  $effect(() => {
+    if (!termRef) return
+    const term = termRef
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ sessionId: string }>).detail
+      if (detail.sessionId === sessionId) {
+        requestAnimationFrame(() => term.focus())
+      }
+    }
+    window.addEventListener('canopy:focus-terminal', handler)
+    return () => window.removeEventListener('canopy:focus-terminal', handler)
+  })
+
+  // Dispose WebGL addon when tab becomes inactive to free GPU memory
+  $effect(() => {
+    if (!active && webglAddonRef) {
+      webglAddonRef.dispose()
+      webglAddonRef = null
+      webglAttached = false
+    }
+  })
+
+  // Re-attach WebGL addon when tab becomes active
   $effect(() => {
     if (active && termRef && !webglAttached) {
       attachWebgl(termRef)
@@ -124,6 +147,7 @@
 
     if (paths.length > 0 && termRef) {
       termRef.paste(paths.join(' '))
+      termRef.focus()
     }
   }
 
@@ -170,8 +194,13 @@
         reconnectAttempt = 0
       }
 
+      const MAX_PENDING_CHARS = 2 * 1024 * 1024 // ~2 MB for ASCII
+
       ws.onmessage = (e): void => {
         pendingData += e.data
+        if (pendingData.length > MAX_PENDING_CHARS) {
+          pendingData = pendingData.slice(-MAX_PENDING_CHARS)
+        }
         if (!writeScheduled) {
           writeScheduled = true
           writeRafId = requestAnimationFrame(() => {
@@ -231,6 +260,7 @@
         cursorBlink: true,
         allowProposedApi: true,
         theme: currentTheme,
+        scrollback: 5000,
       })
 
       const fitAddon = new FitAddon()

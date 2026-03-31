@@ -48,6 +48,8 @@ export class PtyManager {
     const baseEnv = {
       ...(getLoginEnv() ?? process.env),
       TERM_PROGRAM: 'canopy',
+      COLORTERM: 'truecolor',
+      TERM: 'xterm-256color',
     } as Record<string, string>
     const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv
 

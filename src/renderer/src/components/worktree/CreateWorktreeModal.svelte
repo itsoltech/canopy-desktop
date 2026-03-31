@@ -7,10 +7,12 @@
     onClose,
     repoRoot: repoRootProp,
     workspaceId: workspaceIdProp,
+    baseBranch: baseBranchProp,
   }: {
     onClose: () => void
     repoRoot?: string
     workspaceId?: string
+    baseBranch?: string
   } = $props()
 
   type Step = 'loading' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
@@ -25,6 +27,7 @@
   let createdPath = $state('')
   let homedir = $state('')
   let refreshing = $state(false)
+  let containerEl: HTMLDivElement | undefined = $state()
 
   // Setup progress state
   let setupLabel = $state('')
@@ -50,10 +53,14 @@
   )
 
   onMount(async () => {
+    containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
     try {
       const list = await window.api.gitBranches(repoRoot)
       branches = { local: list.local, remote: list.remote }
+      if (baseBranchProp) {
+        selectedBase = baseBranchProp
+      }
       step = 'pickBase'
     } catch (e) {
       errorMessage = e instanceof Error ? e.message : String(e)
@@ -216,14 +223,16 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="dialog-overlay" onkeydown={handleKeydown} onclick={onClose}>
+<div class="dialog-overlay" onkeydown={handleKeydown} onmousedown={onClose}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    bind:this={containerEl}
     class="modal-container"
     role="dialog"
     aria-modal="true"
     aria-labelledby="create-worktree-title"
-    onclick={(e) => e.stopPropagation()}
+    tabindex="-1"
+    onmousedown={(e) => e.stopPropagation()}
   >
     <h3 id="create-worktree-title" class="modal-title">Create Worktree</h3>
 
@@ -375,6 +384,7 @@
   }
 
   .modal-container {
+    outline: none;
     width: 480px;
     max-height: 500px;
     display: flex;

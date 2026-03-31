@@ -18,22 +18,57 @@ interface GitHubRelease {
 const GITHUB_RELEASES_URL =
   'https://api.github.com/repos/itsoltech/canopy-desktop/releases?per_page=100'
 
+async function fetchGitHubReleases(): Promise<GitHubRelease[]> {
+  const response = await net.fetch(GITHUB_RELEASES_URL, {
+    headers: {
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'Canopy-Desktop',
+    },
+  })
+  if (!response.ok) throw new Error(`GitHub API ${response.status}`)
+  return (await response.json()) as GitHubRelease[]
+}
+
+/**
+ * For the "next" update channel, determine whether electron-updater should
+ * look for `latest-mac.yml` (stable) or `next-mac.yml` (pre-release) by
+ * finding whichever pool contains the newest version above `currentVersion`.
+ */
+export async function resolveUpdateChannel(currentVersion: string): Promise<'latest' | 'next'> {
+  try {
+    const releases = await fetchGitHubReleases()
+
+    let latestStable: string | null = null
+    let latestPrerelease: string | null = null
+
+    for (const r of releases) {
+      if (r.draft) continue
+      const v = semver.valid(semver.clean(r.tag_name))
+      if (!v || !semver.gt(v, currentVersion)) continue
+
+      if (r.prerelease) {
+        if (!latestPrerelease || semver.gt(v, latestPrerelease)) latestPrerelease = v
+      } else {
+        if (!latestStable || semver.gt(v, latestStable)) latestStable = v
+      }
+    }
+
+    if (latestStable && (!latestPrerelease || semver.gte(latestStable, latestPrerelease))) {
+      return 'latest'
+    }
+    return 'next'
+  } catch {
+    return 'next'
+  }
+}
+
 export async function fetchChangelogRange(
   fromVersion: string,
   toVersion: string,
   channel: 'stable' | 'next',
 ): Promise<ChangelogEntry[] | null> {
   try {
-    const response = await net.fetch(GITHUB_RELEASES_URL, {
-      headers: {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'Canopy-Desktop',
-      },
-    })
-
-    if (!response.ok) return null
-
-    const releases = (await response.json()) as GitHubRelease[]
+    const releases = await fetchGitHubReleases()
 
     return releases
       .filter((r) => {
