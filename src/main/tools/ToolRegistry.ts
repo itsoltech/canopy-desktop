@@ -158,12 +158,16 @@ export class ToolRegistry {
     return dir
   }
 
-  private sanitizeSvg(svg: string): string {
+  sanitizeSvg(svg: string): string {
     return svg
       .replace(/<script[\s>][\s\S]*?<\/script\s*>/gi, '')
       .replace(/<foreignObject[\s>][\s\S]*?<\/foreignObject\s*>/gi, '')
+      .replace(/<style[\s>][\s\S]*?<\/style\s*>/gi, '')
       .replace(/\s+on\w+\s*=\s*"[^"]*"/gi, '')
       .replace(/\s+on\w+\s*=\s*'[^']*'/gi, '')
+      .replace(/\s+on\w+\s*=\s*[^\s>]*/gi, '')
+      .replace(/href\s*=\s*["']?\s*javascript:/gi, 'href="')
+      .replace(/href\s*=\s*["']?\s*data:/gi, 'href="')
   }
 
   setIcon(toolId: string, svgContent: string): void {

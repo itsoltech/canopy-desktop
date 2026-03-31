@@ -60,10 +60,13 @@
     clearWorktreeBadge,
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
-  import { initToolStore } from '../../lib/stores/tools.svelte'
+  import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
 
   onMount(() => {
     initToolStore()
+    return () => {
+      destroyToolStore()
+    }
   })
 
   const isMac = navigator.userAgent.includes('Mac')

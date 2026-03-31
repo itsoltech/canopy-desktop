@@ -590,6 +590,9 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('tools:setIcon', (_event, payload: { toolId: string; svgContent: string }) => {
+    if (typeof payload.svgContent !== 'string' || payload.svgContent.length > 256 * 1024) {
+      throw new Error('SVG content missing or too large (max 256 KB)')
+    }
     toolRegistry.setIcon(payload.toolId, payload.svgContent)
   })
 
@@ -614,7 +617,8 @@ export function registerIpcHandlers(
     if (stat.size > 256 * 1024) {
       throw new Error('SVG file too large (max 256 KB)')
     }
-    return fs.readFileSync(filePath, 'utf-8')
+    const raw = fs.readFileSync(filePath, 'utf-8')
+    return toolRegistry.sanitizeSvg(raw)
   })
 
   // --- Browser ---

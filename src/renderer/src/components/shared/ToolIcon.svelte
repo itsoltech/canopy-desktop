@@ -8,18 +8,20 @@
   let customSvg: string | null = $state(null)
 
   $effect(() => {
-    if (icon.startsWith('custom:')) {
-      const toolId = icon.slice('custom:'.length)
-      window.api
-        .getToolIcon(toolId)
-        .then((svg) => {
-          customSvg = svg
-        })
-        .catch(() => {
-          customSvg = null
-        })
-    } else {
-      customSvg = null
+    customSvg = null
+    if (!icon.startsWith('custom:')) return
+    const toolId = icon.slice('custom:'.length)
+    let active = true
+    window.api
+      .getToolIcon(toolId)
+      .then((svg) => {
+        if (active) customSvg = svg
+      })
+      .catch(() => {
+        if (active) customSvg = null
+      })
+    return () => {
+      active = false
     }
   })
 </script>
