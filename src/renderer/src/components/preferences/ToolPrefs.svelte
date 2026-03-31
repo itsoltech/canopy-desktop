@@ -42,11 +42,12 @@
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean),
-        icon: newIconSvg ? `custom:${id}` : 'terminal',
+        icon: 'terminal',
         category: newCategory,
       })
       if (newIconSvg) {
         await window.api.setToolIcon(id, newIconSvg)
+        await window.api.updateCustomTool(id, { icon: `custom:${id}` })
       }
       newId = ''
       newName = ''
@@ -119,13 +120,16 @@
         category: editCategory,
       }
       if (editIconSvg) {
-        await window.api.setToolIcon(editingId, editIconSvg)
         changes.icon = `custom:${editingId}`
       } else if (editHadIcon) {
-        await window.api.removeToolIcon(editingId)
         changes.icon = 'terminal'
       }
       await window.api.updateCustomTool(editingId, changes)
+      if (editIconSvg) {
+        await window.api.setToolIcon(editingId, editIconSvg)
+      } else if (editHadIcon) {
+        await window.api.removeToolIcon(editingId)
+      }
       editingId = null
       editIconSvg = null
       editHadIcon = false
