@@ -19,6 +19,7 @@ export class WindowManager {
   private focusedAgentSessions = new Map<number, string>()
   private agentSessionManager: AgentSessionManager | null = null
   private browserManager: BrowserManager | null = null
+  private allWindowsClosedCallback: (() => void) | null = null
 
   private ptyManager: PtyManager
   private wsBridge: WsBridge
@@ -117,6 +118,11 @@ export class WindowManager {
 
     win.on('closed', () => {
       this.disposeWindow(wcId)
+      // When the last managed window closes, destroy notch overlay
+      // before Electron checks window count for window-all-closed.
+      if (this.windows.size === 0 && this.allWindowsClosedCallback) {
+        this.allWindowsClosedCallback()
+      }
     })
 
     win.webContents.setWindowOpenHandler((details) => {
@@ -249,6 +255,10 @@ export class WindowManager {
       if (!win.isDestroyed()) result.push(win)
     }
     return result
+  }
+
+  onAllWindowsClosed(callback: () => void): void {
+    this.allWindowsClosedCallback = callback
   }
 
   get size(): number {
