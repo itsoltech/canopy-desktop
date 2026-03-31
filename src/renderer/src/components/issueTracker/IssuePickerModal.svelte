@@ -230,7 +230,11 @@
 
     // Get branch type info from main process (reads saved template + mapping)
     try {
-      const typeInfo = await window.api.issueTrackerResolveBranchType(issue.type)
+      const typeInfo = await window.api.issueTrackerResolveBranchType(
+        issue.type,
+        connectionId,
+        selectedBoardId || undefined,
+      )
       branchTypeOptions = typeInfo.options
       selectedBranchType = typeInfo.defaultType
       templateHasBranchType = typeInfo.hasBranchType

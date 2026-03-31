@@ -862,16 +862,29 @@ export function registerIpcHandlers(
         branchType?: string
       },
     ) => {
-      const templateJson = preferencesStore.get('issueTracker.branchTemplate')
+      // Resolve template: board → connection → global
       let template = '{issueKey}'
       let customVars: Record<string, string> = {}
-      if (templateJson) {
-        try {
-          const config = JSON.parse(templateJson)
-          if (config.template) template = config.template
-          if (config.customVars) customVars = config.customVars
-        } catch {
-          // use defaults
+
+      const keys = [
+        payload.boardId && `issueTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+        `issueTracker.branchTemplate.${payload.connectionId}`,
+        'issueTracker.branchTemplate',
+      ].filter(Boolean) as string[]
+
+      for (const key of keys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.template) {
+              template = config.template
+              customVars = config.customVars ?? {}
+              break
+            }
+          } catch {
+            // try next level
+          }
         }
       }
 
@@ -903,35 +916,49 @@ export function registerIpcHandlers(
     return validateTemplate(payload.template)
   })
 
-  ipcMain.handle('issueTracker:resolveBranchType', (_event, payload: { issueType: string }) => {
-    const typeMappingJson = preferencesStore.get('issueTracker.typeMapping')
-    let typeMapping: Record<string, string> | undefined
-    if (typeMappingJson) {
-      try {
-        typeMapping = JSON.parse(typeMappingJson)
-      } catch {
-        // use defaults
+  ipcMain.handle(
+    'issueTracker:resolveBranchType',
+    (_event, payload: { issueType: string; connectionId?: string; boardId?: string }) => {
+      const typeMappingJson = preferencesStore.get('issueTracker.typeMapping')
+      let typeMapping: Record<string, string> | undefined
+      if (typeMappingJson) {
+        try {
+          typeMapping = JSON.parse(typeMappingJson)
+        } catch {
+          // use defaults
+        }
       }
-    }
 
-    // Check if saved template contains {branchType}
-    const templateJson = preferencesStore.get('issueTracker.branchTemplate')
-    let hasBranchType = false
-    if (templateJson) {
-      try {
-        const config = JSON.parse(templateJson)
-        hasBranchType = (config.template ?? '').includes('{branchType}')
-      } catch {
-        // default false
+      // Check if resolved template contains {branchType}
+      const keys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `issueTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `issueTracker.branchTemplate.${payload.connectionId}`,
+        'issueTracker.branchTemplate',
+      ].filter(Boolean) as string[]
+
+      let hasBranchType = false
+      for (const key of keys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            hasBranchType = (config.template ?? '').includes('{branchType}')
+            break
+          } catch {
+            // try next level
+          }
+        }
       }
-    }
 
-    return {
-      defaultType: resolveBranchType(payload.issueType, typeMapping),
-      options: BRANCH_TYPE_OPTIONS,
-      hasBranchType,
-    }
-  })
+      return {
+        defaultType: resolveBranchType(payload.issueType, typeMapping),
+        options: BRANCH_TYPE_OPTIONS,
+        hasBranchType,
+      }
+    },
+  )
 
   ipcMain.handle(
     'issueTracker:createPR',

@@ -539,8 +539,12 @@ const api = {
       boardId,
       branchType,
     }),
-  issueTrackerResolveBranchType: (issueType: string) =>
-    ipcRenderer.invoke('issueTracker:resolveBranchType', { issueType }) as Promise<{
+  issueTrackerResolveBranchType: (issueType: string, connectionId?: string, boardId?: string) =>
+    ipcRenderer.invoke('issueTracker:resolveBranchType', {
+      issueType,
+      connectionId,
+      boardId,
+    }) as Promise<{
       defaultType: string
       options: string[]
       hasBranchType: boolean

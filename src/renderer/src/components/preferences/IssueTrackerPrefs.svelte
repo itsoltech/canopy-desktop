@@ -20,22 +20,36 @@
   let loadingBoards = $state(false)
 
   // --- Branch Template ---
+  type TemplateScope = 'global' | string // connectionId or connectionId.boardId
+  let templateScope = $state<TemplateScope>('global')
+
+  function templatePrefKey(scope: TemplateScope): string {
+    return scope === 'global'
+      ? 'issueTracker.branchTemplate'
+      : `issueTracker.branchTemplate.${scope}`
+  }
+
   let branchTemplate = $derived.by(() => {
-    const raw = prefs['issueTracker.branchTemplate']
-    if (!raw)
-      return {
-        template: '{branchType}/s{sprint}/{issueKey}',
-        customVars: {} as Record<string, string>,
-      }
+    const raw = prefs[templatePrefKey(templateScope)]
+    const fallback = { template: '', customVars: {} as Record<string, string> }
+    if (!raw) return fallback
     try {
       return JSON.parse(raw) as { template: string; customVars: Record<string, string> }
     } catch {
-      return {
-        template: '{branchType}/s{sprint}/{issueKey}',
-        customVars: {} as Record<string, string>,
-      }
+      return fallback
     }
   })
+
+  let globalTemplate = $derived.by(() => {
+    const raw = prefs['issueTracker.branchTemplate']
+    if (!raw) return ''
+    try {
+      return (JSON.parse(raw) as { template: string }).template ?? ''
+    } catch {
+      return ''
+    }
+  })
+
   let templateInput = $state('')
   let branchPreview = $state('')
   let newVarKey = $state('')
@@ -280,7 +294,7 @@
 
   function saveBranchTemplate(): void {
     setPref(
-      'issueTracker.branchTemplate',
+      templatePrefKey(templateScope),
       JSON.stringify({ template: templateInput, customVars: branchTemplate.customVars }),
     )
     updatePreview()
@@ -584,7 +598,33 @@
 
 <div class="section">
   <h3 class="section-title">Branch Naming</h3>
-  <p class="section-desc">Configure how branches are named when created from issues.</p>
+  <p class="section-desc">
+    Configure per board, connection, or globally. Board overrides connection, connection overrides
+    global.
+  </p>
+
+  <div class="form-row">
+    <label class="form-label">Scope</label>
+    <select
+      class="form-select"
+      bind:value={templateScope}
+      onchange={() => {
+        templateInput = branchTemplate.template
+        updatePreview()
+      }}
+    >
+      <option value="global">Global (default)</option>
+      {#each connections as conn (conn.id)}
+        <option value={conn.id}>{conn.name}</option>
+      {/each}
+    </select>
+  </div>
+  {#if templateScope !== 'global' && !branchTemplate.template}
+    <p class="section-desc">
+      No override set — uses {globalTemplate ? 'global' : 'default'} template. Edit below to create an
+      override.
+    </p>
+  {/if}
 
   <div class="token-builder">
     <span class="builder-label">Template:</span>

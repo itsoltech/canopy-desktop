@@ -442,7 +442,11 @@ interface CanopyAPI {
     boardId?: string,
     branchType?: string,
   ) => Promise<string>
-  issueTrackerResolveBranchType: (issueType: string) => Promise<{
+  issueTrackerResolveBranchType: (
+    issueType: string,
+    connectionId?: string,
+    boardId?: string,
+  ) => Promise<{
     defaultType: string
     options: string[]
     hasBranchType: boolean
