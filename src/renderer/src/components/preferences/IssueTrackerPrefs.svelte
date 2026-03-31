@@ -22,17 +22,98 @@
   // --- Branch Template ---
   let branchTemplate = $derived.by(() => {
     const raw = prefs['issueTracker.branchTemplate']
-    if (!raw) return { template: 's{sprint}/{issueKey}', customVars: {} as Record<string, string> }
+    if (!raw)
+      return {
+        template: '{branchType}/s{sprint}/{issueKey}',
+        customVars: {} as Record<string, string>,
+      }
     try {
       return JSON.parse(raw) as { template: string; customVars: Record<string, string> }
     } catch {
-      return { template: 's{sprint}/{issueKey}', customVars: {} as Record<string, string> }
+      return {
+        template: '{branchType}/s{sprint}/{issueKey}',
+        customVars: {} as Record<string, string>,
+      }
     }
   })
   let templateInput = $state('')
   let branchPreview = $state('')
   let newVarKey = $state('')
   let newVarValue = $state('')
+
+  // Template token builder
+  interface TemplateToken {
+    type: 'placeholder' | 'separator'
+    value: string
+  }
+
+  let templateTokens = $derived.by(() => parseTemplate(templateInput))
+  let dragIdx: number | null = $state(null)
+  let dragOverIdx: number | null = $state(null)
+
+  function parseTemplate(tpl: string): TemplateToken[] {
+    const tokens: TemplateToken[] = []
+    const regex = /(\{[^}]+\})|([^{]+)/g
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(tpl)) !== null) {
+      if (match[1]) {
+        tokens.push({ type: 'placeholder', value: match[1] })
+      } else if (match[2]) {
+        tokens.push({ type: 'separator', value: match[2] })
+      }
+    }
+    return tokens
+  }
+
+  function tokensToTemplate(tokens: TemplateToken[]): string {
+    return tokens.map((t) => t.value).join('')
+  }
+
+  function addPlaceholderToTemplate(key: string): void {
+    const tag = `{${key}}`
+    if (templateInput.includes(tag)) return
+    templateInput = templateInput ? templateInput + '/' + tag : tag
+    saveBranchTemplate()
+  }
+
+  function removeTokenAt(index: number): void {
+    const tokens = [...templateTokens]
+    tokens.splice(index, 1)
+    // Clean up double separators
+    templateInput = tokensToTemplate(tokens)
+      .replace(/\/\//g, '/')
+      .replace(/^\/|\/$/g, '')
+    saveBranchTemplate()
+  }
+
+  function onTokenDragStart(index: number): void {
+    dragIdx = index
+  }
+
+  function onTokenDragOver(index: number, e: DragEvent): void {
+    e.preventDefault()
+    dragOverIdx = index
+  }
+
+  function onTokenDrop(index: number): void {
+    if (dragIdx === null || dragIdx === index) {
+      dragIdx = null
+      dragOverIdx = null
+      return
+    }
+    const tokens = [...templateTokens]
+    const [moved] = tokens.splice(dragIdx, 1)
+    tokens.splice(index, 0, moved)
+    templateInput = tokensToTemplate(tokens)
+    dragIdx = null
+    dragOverIdx = null
+    saveBranchTemplate()
+  }
+
+  function onTokenDragEnd(): void {
+    dragIdx = null
+    dragOverIdx = null
+  }
 
   // --- PR Template ---
   let prTitleTemplate = $derived(
@@ -56,20 +137,25 @@
   })
   let availableStatuses = $state<string[]>([])
   let loadingStatuses = $state(false)
+  let placeholders = $state<Array<{ key: string; description: string; example: string }>>([])
 
   onMount(async () => {
     await loadConnections()
     if (connections.length === 0) showAddForm = true
+    try {
+      const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
+      placeholders = await window.api.issueTrackerGetAvailablePlaceholders(vars)
+    } catch {
+      // use empty
+    }
     templateInput = branchTemplate.template
     await updatePreview()
   })
 
   async function updatePreview(): Promise<void> {
     try {
-      branchPreview = await window.api.issueTrackerRenderBranchPreview(
-        templateInput,
-        branchTemplate.customVars,
-      )
+      const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
+      branchPreview = await window.api.issueTrackerRenderBranchPreview(templateInput, vars)
     } catch {
       branchPreview = '(invalid template)'
     }
@@ -83,6 +169,15 @@
     updatePreview()
   }
 
+  async function refreshPlaceholders(): Promise<void> {
+    try {
+      const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
+      placeholders = await window.api.issueTrackerGetAvailablePlaceholders(vars)
+    } catch {
+      // keep current
+    }
+  }
+
   function addCustomVar(): void {
     if (!newVarKey.trim()) return
     const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
@@ -93,6 +188,7 @@
     newVarKey = ''
     newVarValue = ''
     updatePreview()
+    refreshPlaceholders()
   }
 
   function removeCustomVar(key: string): void {
@@ -103,6 +199,7 @@
       JSON.stringify({ template: templateInput, customVars: vars }),
     )
     updatePreview()
+    refreshPlaceholders()
   }
 
   async function testNewConnection(): Promise<void> {
@@ -372,33 +469,77 @@
   <h3 class="section-title">Branch Naming</h3>
   <p class="section-desc">Configure how branches are named when created from issues.</p>
 
-  <div class="form-row">
-    <label class="form-label">Template</label>
-    <input
-      class="form-input"
-      bind:value={templateInput}
-      oninput={() => {
-        saveBranchTemplate()
-        updatePreview()
-      }}
-      placeholder={'s{sprint}/{issueKey}'}
-    />
+  <div class="token-builder">
+    <span class="builder-label">Template:</span>
+    <div class="token-track">
+      {#each templateTokens as token, i (i)}
+        <span
+          class="token"
+          class:placeholder={token.type === 'placeholder'}
+          class:separator={token.type === 'separator'}
+          class:drag-over={dragOverIdx === i}
+          draggable="true"
+          ondragstart={() => onTokenDragStart(i)}
+          ondragover={(e) => onTokenDragOver(i, e)}
+          ondrop={() => onTokenDrop(i)}
+          ondragend={onTokenDragEnd}
+          role="listitem"
+        >
+          {token.value}
+          {#if token.type === 'placeholder'}
+            <button class="token-remove" onclick={() => removeTokenAt(i)}>×</button>
+          {/if}
+        </span>
+      {/each}
+      {#if templateTokens.length === 0}
+        <span class="token-empty">Click a tag below to add</span>
+      {/if}
+    </div>
   </div>
+
+  <div class="separator-row">
+    <span class="builder-label">Separator:</span>
+    <div class="separator-options">
+      {#each ['/', '-', '_'] as sep (sep)}
+        <button
+          class="sep-btn"
+          onclick={() => {
+            templateInput += sep
+            saveBranchTemplate()
+          }}
+        >
+          <code>{sep}</code>
+        </button>
+      {/each}
+    </div>
+  </div>
+
+  <div class="placeholder-list">
+    <span class="placeholder-hint">Available tags: </span>
+    {#each placeholders as ph (ph.key)}
+      <button
+        class="placeholder-tag"
+        class:used={templateInput.includes('{' + ph.key + '}')}
+        title={ph.description + ' (e.g. ' + ph.example + ')'}
+        onclick={() => addPlaceholderToTemplate(ph.key)}
+      >
+        &#123;{ph.key}&#125;
+      </button>
+    {/each}
+  </div>
+
   <div class="preview-row">
     <span class="preview-label">Preview:</span>
     <code class="preview-value">{branchPreview}</code>
   </div>
 
-  <div class="placeholder-list">
-    <span class="placeholder-hint">Available: </span>
-    {#each ['{sprint}', '{sprintName}', '{issueKey}', '{parentKey}', '{issueType}', '{issueTitle}', '{boardKey}'] as ph (ph)}
-      <code class="placeholder-tag">{ph}</code>
-    {/each}
-  </div>
-
-  <p class="section-desc" style="margin-top: 12px;">
-    Conditional: <code>{'{?parentKey}...{/parentKey}'}</code> — only renders if parentKey exists.
-  </p>
+  <details class="advanced-template">
+    <summary>Manual edit</summary>
+    <input class="form-input" bind:value={templateInput} oninput={() => saveBranchTemplate()} />
+    <p class="section-desc" style="margin-top: 6px;">
+      Conditional: <code>{'{?parentKey}...{/parentKey}'}</code> — only renders if value exists.
+    </p>
+  </details>
 
   <h4 class="subsection-title">Custom Variables</h4>
   {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
@@ -749,10 +890,158 @@
 
   .placeholder-tag {
     font-size: 11px;
-    padding: 1px 5px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 7px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.6);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.1s;
+  }
+
+  .placeholder-tag:hover {
+    background: rgba(116, 192, 252, 0.1);
+    border-color: rgba(116, 192, 252, 0.3);
+    color: rgba(116, 192, 252, 0.9);
+  }
+
+  .placeholder-tag.used {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .token-builder {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .builder-label {
+    font-size: 12px;
     color: rgba(255, 255, 255, 0.5);
+    width: 70px;
+    flex-shrink: 0;
+    padding-top: 5px;
+  }
+
+  .token-track {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    flex: 1;
+    min-height: 30px;
+    padding: 4px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    align-items: center;
+  }
+
+  .token {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: grab;
+    user-select: none;
+    transition: all 0.1s;
+  }
+
+  .token:active {
+    cursor: grabbing;
+  }
+
+  .token.placeholder {
+    background: rgba(116, 192, 252, 0.15);
+    color: rgba(116, 192, 252, 0.9);
+    border: 1px solid rgba(116, 192, 252, 0.25);
+  }
+
+  .token.separator {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.4);
+    border: 1px solid transparent;
+    font-family: monospace;
+  }
+
+  .token.drag-over {
+    border-color: rgba(116, 192, 252, 0.7);
+    box-shadow: 0 0 0 1px rgba(116, 192, 252, 0.3);
+  }
+
+  .token-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .token-remove:hover {
+    background: rgba(255, 100, 100, 0.3);
+    color: rgba(255, 100, 100, 0.9);
+  }
+
+  .token-empty {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.25);
+    padding: 2px 4px;
+  }
+
+  .separator-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .separator-options {
+    display: flex;
+    gap: 4px;
+  }
+
+  .sep-btn {
+    padding: 2px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .sep-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .advanced-template {
+    margin-top: 8px;
+    margin-bottom: 8px;
+  }
+
+  .advanced-template summary {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.35);
+    cursor: pointer;
+    margin-bottom: 6px;
+  }
+
+  .advanced-template .form-input {
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .var-row {

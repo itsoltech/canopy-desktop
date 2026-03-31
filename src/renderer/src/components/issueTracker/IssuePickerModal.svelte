@@ -7,6 +7,26 @@
   import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
 
+  interface Issue {
+    key: string
+    summary: string
+    description: string
+    status: string
+    priority: string
+    type: string
+    parentKey?: string
+    sprintName?: string
+    sprintNumber?: number
+    assignee?: string
+    url?: string
+  }
+
+  interface Board {
+    id: string
+    name: string
+    projectKey?: string
+  }
+
   function filterPrefKey(connId: string, boardId: string): string {
     return `issueTracker.pickerFilters.${connId}.${boardId}`
   }
@@ -39,14 +59,14 @@
 
   let { connectionId }: { connectionId: string } = $props()
 
-  let allIssues: TrackerIssue[] = $state([])
+  let allIssues: Issue[] = $state([])
   let loading = $state(true)
   let error = $state('')
   let searchQuery = $state('')
   let selectedIndex = $state(0)
 
   // Board selector
-  let boards: TrackerBoard[] = $state([])
+  let boards: Board[] = $state([])
   let selectedBoardId = $state('')
 
   // Status filter
@@ -94,7 +114,6 @@
   })
 
   async function loadBoards(): Promise<void> {
-    loadingBoards = true
     try {
       const [boardList, userName] = await Promise.all([
         window.api.issueTrackerFetchBoards(connectionId),
@@ -191,50 +210,82 @@
     el?.scrollIntoView({ block: 'nearest' })
   }
 
-  async function selectIssue(issue: TrackerIssue): Promise<void> {
-    const repoRoot = workspaceState.repoRoot
-    const currentBranch = workspaceState.branch
-    if (!repoRoot || !currentBranch) return
+  // --- Branch creation dialog state ---
+  let creatingBranch = $state(false)
+  let selectedIssue: Issue | null = $state(null)
+  let branchTypeOptions: string[] = $state([])
+  let selectedBranchType = $state('feat')
+  let resolvedBranchName = $state('')
+  let creatingWorktree = $state(false)
+  let templateHasBranchType = $state(false)
 
-    // Clone issue to plain object — Svelte 5 Proxy can't be serialized by IPC
-    const plainIssue = JSON.parse(JSON.stringify(issue)) as TrackerIssue
+  async function selectIssue(issue: Issue): Promise<void> {
+    if (!workspaceState.repoRoot || !workspaceState.branch) return
 
-    // Resolve branch name while picker is still open
-    let branchName: string
+    const plainIssue = $state.snapshot(issue) as Issue
+    selectedIssue = plainIssue
+
+    // Get branch type info from main process (reads saved template + mapping)
     try {
-      branchName = await window.api.issueTrackerResolveBranchName(
-        connectionId,
-        plainIssue,
-        selectedBoardId || undefined,
-      )
+      const typeInfo = await window.api.issueTrackerResolveBranchType(issue.type)
+      branchTypeOptions = typeInfo.options
+      selectedBranchType = typeInfo.defaultType
+      templateHasBranchType = typeInfo.hasBranchType
     } catch {
-      return
+      branchTypeOptions = ['feat', 'fix', 'refactor', 'chore', 'docs', 'test']
+      selectedBranchType = 'feat'
+      templateHasBranchType = false
     }
 
-    // Build worktree path
+    // Resolve initial branch name
+    await updateBranchPreview()
+    creatingBranch = true
+  }
+
+  async function updateBranchPreview(): Promise<void> {
+    if (!selectedIssue) return
+    try {
+      resolvedBranchName = await window.api.issueTrackerResolveBranchName(
+        connectionId,
+        $state.snapshot(selectedIssue) as Issue,
+        selectedBoardId || undefined,
+        templateHasBranchType ? selectedBranchType : undefined,
+      )
+    } catch {
+      resolvedBranchName = selectedIssue.key
+    }
+  }
+
+  async function onBranchTypeChange(): Promise<void> {
+    await updateBranchPreview()
+  }
+
+  function cancelBranchCreation(): void {
+    creatingBranch = false
+    selectedIssue = null
+  }
+
+  async function confirmBranchCreation(): Promise<void> {
+    const repoRoot = workspaceState.repoRoot
+    const currentBranch = workspaceState.branch
+    if (!repoRoot || !currentBranch || !resolvedBranchName) return
+
     const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
     const projectName = repoRoot.split('/').pop() || 'project'
-    const safeBranchName = branchName.replace(/\//g, '-')
+    const safeBranchName = resolvedBranchName.replace(/\//g, '-')
     const worktreeDir = `${baseDir}/${projectName}/${safeBranchName}`
     const homedir = await window.api.getHomedir()
     const worktreePath = worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir
 
-    // Close picker, then open confirm
-    closeDialog()
-    await new Promise((r) => setTimeout(r, 0))
-
-    const confirmed = await confirm({
-      title: 'Create Branch',
-      message: `Create worktree with branch from ${issue.key}?`,
-      details: `Branch: ${branchName}\nPath: ${worktreeDir}`,
-      confirmLabel: 'Create & Switch',
-    })
-    if (!confirmed) return
-
+    creatingWorktree = true
     try {
-      await window.api.gitWorktreeAdd(repoRoot, worktreePath, branchName, currentBranch)
+      await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, currentBranch)
+      closeDialog()
       await selectWorktree(worktreePath)
     } catch (e) {
+      creatingWorktree = false
+      closeDialog()
+      await new Promise((r) => setTimeout(r, 0))
       await confirm({
         title: 'Worktree Creation Failed',
         message: e instanceof Error ? e.message : 'Failed to create worktree',
@@ -243,7 +294,7 @@
     }
   }
 
-  function sendToTerminal(issue: TrackerIssue, e: MouseEvent): void {
+  function sendToTerminal(issue: Issue, e: MouseEvent): void {
     e.stopPropagation()
     const sessionId = getActivePtySessionId()
     if (!sessionId) return
@@ -272,126 +323,169 @@
     aria-modal="true"
     aria-label="Issue Picker"
   >
-    <div class="picker-header">
-      <h3 class="picker-title">Select Issue</h3>
-      <div class="header-actions">
-        <button
-          class="filter-btn"
-          class:active={showFilters}
-          onclick={() => {
-            showFilters = !showFilters
-            saveFilters()
-          }}
-          title="Filters"
-        >
-          <Filter size={14} />
-        </button>
-        <button class="close-btn" onclick={closeDialog} aria-label="Close">
+    {#if creatingBranch && selectedIssue}
+      <div class="picker-header">
+        <h3 class="picker-title">Create Branch</h3>
+        <button class="close-btn" onclick={cancelBranchCreation} aria-label="Back">
           <X size={16} />
         </button>
       </div>
-    </div>
-
-    {#if boards.length > 1}
-      <div class="board-row">
-        <select class="board-select" bind:value={selectedBoardId} onchange={onBoardChange}>
-          {#each boards as board (board.id)}
-            <option value={board.id}>{board.name}</option>
-          {/each}
-        </select>
-      </div>
-    {/if}
-
-    {#if showFilters}
-      <div class="filters-panel">
-        <label class="filter-check">
-          <input type="checkbox" checked={assignedToMe} onchange={toggleAssignedToMe} />
-          <span>Only assigned to me</span>
-        </label>
-        {#if availableStatuses.length > 0}
-          <div class="status-filters">
-            {#each availableStatuses as status (status)}
-              <button
-                class="status-chip"
-                class:active={!excludedStatuses.has(status)}
-                class:excluded={excludedStatuses.has(status)}
-                onclick={() => toggleStatus(status)}
-              >
-                {status}
-              </button>
-            {/each}
+      <div class="branch-form">
+        <div class="branch-issue-info">
+          <span class="issue-key">{selectedIssue.key}</span>
+          <span class="issue-summary">{selectedIssue.summary}</span>
+        </div>
+        {#if templateHasBranchType}
+          <div class="branch-type-row">
+            <label class="branch-label">Type</label>
+            <select
+              class="branch-type-select"
+              bind:value={selectedBranchType}
+              onchange={onBranchTypeChange}
+            >
+              {#each branchTypeOptions as opt (opt)}
+                <option value={opt}>{opt}</option>
+              {/each}
+            </select>
           </div>
         {/if}
+        <div class="branch-preview-row">
+          <label class="branch-label">Branch</label>
+          <code class="branch-preview">{resolvedBranchName}</code>
+        </div>
+        <div class="branch-actions">
+          <button class="btn-cancel" onclick={cancelBranchCreation}>Back</button>
+          <button
+            class="btn-create"
+            onclick={confirmBranchCreation}
+            disabled={creatingWorktree || !resolvedBranchName}
+          >
+            {#if creatingWorktree}Creating...{:else}Create & Switch{/if}
+          </button>
+        </div>
+      </div>
+    {:else}
+      <div class="picker-header">
+        <h3 class="picker-title">Select Issue</h3>
+        <div class="header-actions">
+          <button
+            class="filter-btn"
+            class:active={showFilters}
+            onclick={() => {
+              showFilters = !showFilters
+              saveFilters()
+            }}
+            title="Filters"
+          >
+            <Filter size={14} />
+          </button>
+          <button class="close-btn" onclick={closeDialog} aria-label="Close">
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {#if boards.length > 1}
+        <div class="board-row">
+          <select class="board-select" bind:value={selectedBoardId} onchange={onBoardChange}>
+            {#each boards as board (board.id)}
+              <option value={board.id}>{board.name}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
+      {#if showFilters}
+        <div class="filters-panel">
+          <label class="filter-check">
+            <input type="checkbox" checked={assignedToMe} onchange={toggleAssignedToMe} />
+            <span>Only assigned to me</span>
+          </label>
+          {#if availableStatuses.length > 0}
+            <div class="status-filters">
+              {#each availableStatuses as status (status)}
+                <button
+                  class="status-chip"
+                  class:active={!excludedStatuses.has(status)}
+                  class:excluded={excludedStatuses.has(status)}
+                  onclick={() => toggleStatus(status)}
+                >
+                  {status}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <div class="search-row">
+        <Search size={14} />
+        <input
+          class="search-input"
+          bind:value={searchQuery}
+          placeholder="Search by key or title..."
+          oninput={() => (selectedIndex = 0)}
+        />
+      </div>
+
+      <div class="issue-list">
+        {#if loading}
+          <div class="state-msg">
+            <Loader2 size={16} class="spin" />
+            <span>Loading issues...</span>
+          </div>
+        {:else if error}
+          <div class="state-msg error">
+            <span>{error}</span>
+            <button class="retry-btn" onclick={fetchIssues}>Retry</button>
+          </div>
+        {:else if filteredIssues.length === 0}
+          <div class="state-msg">No issues found</div>
+        {:else}
+          {#each filteredIssues as issue, i (issue.key)}
+            <div
+              class="issue-row"
+              class:selected={i === selectedIndex}
+              role="button"
+              tabindex="0"
+              onclick={() => selectIssue(issue)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') selectIssue(issue)
+              }}
+              onmouseenter={() => (selectedIndex = i)}
+            >
+              <span class="issue-key">{issue.key}</span>
+              <span class="issue-summary">{issue.summary}</span>
+              <span class="status-badge">{issue.status}</span>
+              <span
+                class="priority-dot"
+                style="color: {priorityColor(issue.priority)}"
+                title={issue.priority}
+              >
+                ●
+              </span>
+              <button
+                class="send-btn"
+                onclick={(e) => {
+                  e.stopPropagation()
+                  sendToTerminal(issue, e)
+                }}
+                title="Send to active terminal"
+              >
+                <Send size={12} />
+              </button>
+            </div>
+          {/each}
+        {/if}
+      </div>
+
+      <div class="picker-footer">
+        <span class="hint">↑↓ navigate · Enter select · Esc close</span>
+        <span class="count"
+          >{filteredIssues.length} issue{filteredIssues.length !== 1 ? 's' : ''}</span
+        >
       </div>
     {/if}
-
-    <div class="search-row">
-      <Search size={14} />
-      <input
-        class="search-input"
-        bind:value={searchQuery}
-        placeholder="Search by key or title..."
-        oninput={() => (selectedIndex = 0)}
-      />
-    </div>
-
-    <div class="issue-list">
-      {#if loading}
-        <div class="state-msg">
-          <Loader2 size={16} class="spin" />
-          <span>Loading issues...</span>
-        </div>
-      {:else if error}
-        <div class="state-msg error">
-          <span>{error}</span>
-          <button class="retry-btn" onclick={fetchIssues}>Retry</button>
-        </div>
-      {:else if filteredIssues.length === 0}
-        <div class="state-msg">No issues found</div>
-      {:else}
-        {#each filteredIssues as issue, i (issue.key)}
-          <div
-            class="issue-row"
-            class:selected={i === selectedIndex}
-            role="button"
-            tabindex="0"
-            onclick={() => selectIssue(issue)}
-            onkeydown={(e) => {
-              if (e.key === 'Enter') selectIssue(issue)
-            }}
-            onmouseenter={() => (selectedIndex = i)}
-          >
-            <span class="issue-key">{issue.key}</span>
-            <span class="issue-summary">{issue.summary}</span>
-            <span class="status-badge">{issue.status}</span>
-            <span
-              class="priority-dot"
-              style="color: {priorityColor(issue.priority)}"
-              title={issue.priority}
-            >
-              ●
-            </span>
-            <button
-              class="send-btn"
-              onclick={(e) => {
-                e.stopPropagation()
-                sendToTerminal(issue, e)
-              }}
-              title="Send to active terminal"
-            >
-              <Send size={12} />
-            </button>
-          </div>
-        {/each}
-      {/if}
-    </div>
-
-    <div class="picker-footer">
-      <span class="hint">↑↓ navigate · Enter select · Esc close</span>
-      <span class="count"
-        >{filteredIssues.length} issue{filteredIssues.length !== 1 ? 's' : ''}</span
-      >
-    </div>
   </div>
 </div>
 
@@ -554,6 +648,121 @@
   .close-btn:hover {
     background: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.8);
+  }
+
+  .branch-form {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .branch-issue-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+  }
+
+  .branch-issue-info .issue-key {
+    font-weight: 600;
+    color: rgba(116, 192, 252, 0.9);
+    flex-shrink: 0;
+  }
+
+  .branch-issue-info .issue-summary {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .branch-type-row,
+  .branch-preview-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .branch-label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    width: 50px;
+    flex-shrink: 0;
+  }
+
+  .branch-type-select {
+    flex: 1;
+    padding: 5px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #e0e0e0;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .branch-type-select:focus {
+    border-color: rgba(116, 192, 252, 0.5);
+  }
+
+  .branch-preview {
+    font-size: 12px;
+    color: rgba(116, 192, 252, 0.9);
+    background: rgba(0, 0, 0, 0.3);
+    padding: 5px 10px;
+    border-radius: 6px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .branch-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .btn-cancel {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .btn-cancel:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .btn-create {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(116, 192, 252, 0.2);
+    color: rgba(116, 192, 252, 0.9);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .btn-create:hover:not(:disabled) {
+    background: rgba(116, 192, 252, 0.3);
+  }
+
+  .btn-create:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .search-row {

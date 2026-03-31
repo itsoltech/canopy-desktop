@@ -7,6 +7,7 @@ export interface PlaceholderInfo {
 }
 
 const BUILTIN_PLACEHOLDERS: PlaceholderInfo[] = [
+  { key: 'branchType', description: 'Branch type prefix (feat/fix/...)', example: 'feat' },
   { key: 'sprint', description: 'Sprint number', example: '10' },
   { key: 'sprintName', description: 'Sprint name', example: 'Sprint 10' },
   { key: 'issueKey', description: 'Issue key', example: 'GAKKO-21' },
@@ -15,6 +16,24 @@ const BUILTIN_PLACEHOLDERS: PlaceholderInfo[] = [
   { key: 'issueTitle', description: 'Issue title (slugified)', example: 'fix-login-bug' },
   { key: 'boardKey', description: 'Board/project key', example: 'GAKKO' },
 ]
+
+const DEFAULT_TYPE_MAPPING: Record<string, string> = {
+  bug: 'fix',
+  story: 'feat',
+  task: 'feat',
+  subtask: 'feat',
+  epic: 'feat',
+}
+
+export const BRANCH_TYPE_OPTIONS = ['feat', 'fix', 'refactor', 'chore', 'docs', 'test']
+
+export function resolveBranchType(
+  issueType: string,
+  customMapping?: Record<string, string>,
+): string {
+  const mapping = { ...DEFAULT_TYPE_MAPPING, ...customMapping }
+  return mapping[issueType.toLowerCase()] ?? 'feat'
+}
 
 export function getAvailablePlaceholders(
   customVars: Record<string, string> = {},
@@ -43,7 +62,6 @@ function sanitizeBranchName(name: string): string {
   return name
     .replace(/\.\./g, '.')
     .replace(/[~^:?*[\]\\@{}\s]/g, '-')
-    .replace(/\/\//g, '/')
     .replace(/\/{2,}/g, '/')
     .replace(/^\/|\/$/g, '')
     .replace(/-+/g, '-')
@@ -54,8 +72,10 @@ export function buildVariables(
   issue: TrackerIssue,
   sprint: TrackerSprint | null,
   customVars: Record<string, string> = {},
+  branchType?: string,
 ): Record<string, string> {
   const vars: Record<string, string> = {
+    ...(branchType !== undefined ? { branchType } : {}),
     sprint: String(sprint?.number ?? issue.sprintNumber ?? ''),
     sprintName: sprint?.name ?? issue.sprintName ?? '',
     issueKey: issue.key,
@@ -69,7 +89,6 @@ export function buildVariables(
 }
 
 export function renderBranchName(template: string, variables: Record<string, string>): string {
-  // Handle conditional segments: {?varName}content{/varName}
   let result = template.replace(
     /\{\?(\w+)\}(.*?)\{\/\1\}/g,
     (_match, varName: string, content: string) => {
@@ -77,12 +96,10 @@ export function renderBranchName(template: string, variables: Record<string, str
     },
   )
 
-  // Replace placeholders
   result = result.replace(/\{(\w+)\}/g, (_match, key: string) => {
     return variables[key] ?? ''
   })
 
-  // Clean up empty segments
   result = result.replace(/\/+/g, '/').replace(/^\/|\/$/g, '')
 
   return sanitizeBranchName(result)
@@ -103,17 +120,6 @@ export function validateTemplate(template: string): { valid: boolean; errors: st
     errors.push('Mismatched braces in template')
   }
 
-  // Check for unknown placeholders
-  const knownKeys = new Set(BUILTIN_PLACEHOLDERS.map((p) => p.key))
-  const usedKeys = template.match(/\{(\w+)\}/g) || []
-  for (const match of usedKeys) {
-    const key = match.slice(1, -1)
-    if (key.startsWith('?') || key.startsWith('/')) continue
-    if (!knownKeys.has(key)) {
-      // Not an error — could be a custom variable
-    }
-  }
-
   // Must contain at least {issueKey}
   if (!template.includes('{issueKey}')) {
     errors.push('Template should contain {issueKey} placeholder')
@@ -124,6 +130,7 @@ export function validateTemplate(template: string): { valid: boolean; errors: st
 
 export function renderPreview(template: string, customVars: Record<string, string> = {}): string {
   const mockVariables: Record<string, string> = {
+    branchType: 'feat',
     sprint: '10',
     sprintName: 'Sprint 10',
     issueKey: 'PROJ-42',

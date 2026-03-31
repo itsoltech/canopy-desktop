@@ -438,7 +438,13 @@ interface CanopyAPI {
     connectionId: string,
     issue: TrackerIssue,
     boardId?: string,
+    branchType?: string,
   ) => Promise<string>
+  issueTrackerResolveBranchType: (issueType: string) => Promise<{
+    defaultType: string
+    options: string[]
+    hasBranchType: boolean
+  }>
   issueTrackerRenderBranchPreview: (
     template: string,
     customVars?: Record<string, string>,

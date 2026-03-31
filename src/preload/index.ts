@@ -528,7 +528,20 @@ const api = {
     connectionId: string,
     issue: Record<string, unknown>,
     boardId?: string,
-  ) => ipcRenderer.invoke('issueTracker:resolveBranchName', { connectionId, issue, boardId }),
+    branchType?: string,
+  ) =>
+    ipcRenderer.invoke('issueTracker:resolveBranchName', {
+      connectionId,
+      issue,
+      boardId,
+      branchType,
+    }),
+  issueTrackerResolveBranchType: (issueType: string) =>
+    ipcRenderer.invoke('issueTracker:resolveBranchType', { issueType }) as Promise<{
+      defaultType: string
+      options: string[]
+      hasBranchType: boolean
+    }>,
   issueTrackerRenderBranchPreview: (template: string, customVars?: Record<string, string>) =>
     ipcRenderer.invoke('issueTracker:renderBranchPreview', { template, customVars }),
   issueTrackerGetAvailablePlaceholders: (customVars?: Record<string, string>) =>

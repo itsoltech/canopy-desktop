@@ -106,20 +106,26 @@ export const youtrackClient: IssueTrackerProviderClient = {
   },
 
   async fetchBoards(connection, token) {
-    const data = await ytFetch<Array<{ id: string; name: string }>>(
-      connection,
-      token,
-      `/api/agiles?fields=id,name&$top=50`,
-    )
+    const data = await ytFetch<
+      Array<{
+        id: string
+        name: string
+        projects?: Array<{ shortName?: string }>
+      }>
+    >(connection, token, `/api/agiles?fields=id,name,projects(shortName)&$top=50`)
     return data.map(
       (b): TrackerBoard => ({
         id: b.id,
         name: b.name,
+        projectKey: b.projects?.[0]?.shortName,
       }),
     )
   },
 
   async fetchStatuses(connection, token) {
+    const projectKey = connection.projectKey
+    if (!projectKey) return []
+
     const data = await ytFetch<
       Array<{
         id: string
@@ -129,7 +135,7 @@ export const youtrackClient: IssueTrackerProviderClient = {
     >(
       connection,
       token,
-      `/api/admin/projects/${encodeURIComponent(connection.projectKey)}/customFields?fields=id,name,bundle(values(name))&$top=50`,
+      `/api/admin/projects/${encodeURIComponent(projectKey)}/customFields?fields=id,name,bundle(values(name))&$top=50`,
     )
 
     const stateField = data.find(
@@ -146,24 +152,38 @@ export const youtrackClient: IssueTrackerProviderClient = {
   },
 
   async fetchIssues(connection, token, params) {
-    const queryParts: string[] = [`project: {${connection.projectKey}}`]
+    const queryParts: string[] = []
 
-    if (params.statuses && params.statuses.length > 0) {
-      const statusList = params.statuses.map((s) => `{${s}}`).join(', ')
-      queryParts.push(`State: ${statusList}`)
+    // Get project from connection or resolve from board
+    let projectKey = connection.projectKey
+    if (!projectKey && params.boardId) {
+      try {
+        const board = await ytFetch<{ projects?: Array<{ shortName?: string }> }>(
+          connection,
+          token,
+          `/api/agiles/${params.boardId}?fields=projects(shortName)`,
+        )
+        projectKey = board.projects?.[0]?.shortName ?? ''
+      } catch {
+        // can't determine project
+      }
+    }
+
+    if (projectKey) {
+      queryParts.push(`project: {${projectKey}}`)
     }
 
     if (params.assignedToMe) {
       queryParts.push('for: me')
     }
 
-    const query = queryParts.join(' ')
+    const query = queryParts.join(' ') + ' sort by: updated desc'
     const fields =
-      'id,idReadable,summary,description,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
+      'id,idReadable,summary,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
     const data = await ytFetch<YTIssue[]>(
       connection,
       token,
-      `/api/issues?query=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&$top=100`,
+      `/api/issues?query=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&$top=200`,
     )
 
     return data.map((i) => mapYTIssue(i, connection.baseUrl))
