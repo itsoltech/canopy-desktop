@@ -5,15 +5,21 @@
     errorDescription,
     validatedURL,
     onRetry,
+    onDismiss,
   }: {
     errorDescription: string
     validatedURL: string
     onRetry: () => void
+    onDismiss: () => void
   } = $props()
 </script>
 
-<div class="error-overlay">
-  <div class="error-content">
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="error-overlay" onclick={onDismiss}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="error-content" onclick={(e) => e.stopPropagation()}>
     <div class="error-title">Page failed to load</div>
     <div class="error-url">{validatedURL}</div>
     <div class="error-desc">{errorDescription}</div>
@@ -32,6 +38,7 @@
     align-items: center;
     justify-content: center;
     background: var(--c-scrim);
+    cursor: pointer;
     z-index: 1;
   }
 
@@ -43,6 +50,7 @@
     max-width: 400px;
     padding: 24px;
     text-align: center;
+    cursor: default;
   }
 
   .error-title {

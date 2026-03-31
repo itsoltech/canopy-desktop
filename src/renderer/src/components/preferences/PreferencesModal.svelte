@@ -9,6 +9,7 @@
   import ClaudePrefs from './ClaudePrefs.svelte'
   import GeminiPrefs from './GeminiPrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
+  import ViewportsPrefs from './ViewportsPrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
@@ -22,6 +23,7 @@
     'Claude',
     'Gemini',
     'Git',
+    'Web Browser',
     'Shortcuts',
   ] as const
   type Section = (typeof sections)[number]
@@ -83,6 +85,8 @@
         <GeminiPrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
+      {:else if activeSection === 'Web Browser'}
+        <ViewportsPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
       {/if}

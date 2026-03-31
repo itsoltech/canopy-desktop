@@ -86,6 +86,26 @@ const migrations: Migration[] = [
       VALUES ('browser', 'Browser', 'browser', '[]', 'Globe', 'browser', 0);
     `,
   },
+  {
+    id: 6,
+    up: `
+      CREATE TABLE IF NOT EXISTS credentials (
+        id TEXT PRIMARY KEY,
+        domain TEXT NOT NULL,
+        username TEXT NOT NULL,
+        password_enc TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_domain_user ON credentials(domain, username);
+    `,
+  },
+  {
+    id: 7,
+    up: `
+      ALTER TABLE credentials ADD COLUMN title TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ]
 
 export class Database {

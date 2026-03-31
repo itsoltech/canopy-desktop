@@ -1,3 +1,136 @@
+/** Minimal type for Electron <webview> element methods used in the renderer */
+export interface WebviewElement extends HTMLElement {
+  loadURL(url: string): Promise<void>
+  getURL(): string
+  getTitle(): string
+  canGoBack(): boolean
+  canGoForward(): boolean
+  goBack(): void
+  goForward(): void
+  reload(): void
+  isDevToolsOpened(): boolean
+  getWebContentsId(): number
+  openDevTools(): void
+  closeDevTools(): void
+  isDevToolsFocused(): boolean
+  executeJavaScript(code: string): Promise<unknown>
+  capturePage(rect?: { x: number; y: number; width: number; height: number }): Promise<{
+    toPNG(): Buffer
+    toDataURL(): string
+  }>
+}
+
+import { prefs, setPref } from '../stores/preferences.svelte'
+
+export interface ViewportPreset {
+  width: number
+  height: number
+  scaleFactor: number
+  mobile: boolean
+}
+
+export const DEFAULT_VIEWPORTS: Record<string, ViewportPreset> = {
+  'iPhone SE': { width: 375, height: 667, scaleFactor: 2, mobile: true },
+  'iPhone 14 Pro': { width: 393, height: 852, scaleFactor: 3, mobile: true },
+  'iPhone 14 Pro Max': { width: 430, height: 932, scaleFactor: 3, mobile: true },
+  'iPad Mini': { width: 768, height: 1024, scaleFactor: 2, mobile: true },
+  'iPad Pro 11"': { width: 834, height: 1194, scaleFactor: 2, mobile: true },
+  'Samsung Galaxy S24': { width: 360, height: 780, scaleFactor: 3, mobile: true },
+  'Pixel 8': { width: 412, height: 915, scaleFactor: 2.625, mobile: true },
+}
+
+export function getCustomViewports(): Record<string, ViewportPreset> {
+  const raw = prefs['viewports.custom']
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw) as Record<string, ViewportPreset>
+  } catch {
+    return {}
+  }
+}
+
+export function getAllViewports(): Record<string, ViewportPreset> {
+  return { ...DEFAULT_VIEWPORTS, ...getCustomViewports() }
+}
+
+export function saveCustomViewports(viewports: Record<string, ViewportPreset>): void {
+  setPref('viewports.custom', JSON.stringify(viewports))
+}
+
+export interface BrowserFavorite {
+  url: string
+  name: string
+  favicon: string | null
+}
+
+export function getFavorites(): BrowserFavorite[] {
+  const raw = prefs['browser.favorites']
+  if (!raw) return []
+  try {
+    return JSON.parse(raw) as BrowserFavorite[]
+  } catch {
+    return []
+  }
+}
+
+export function addFavorite(fav: BrowserFavorite): void {
+  const list = getFavorites().filter((f) => f.url !== fav.url)
+  list.push(fav)
+  setPref('browser.favorites', JSON.stringify(list))
+}
+
+export function removeFavorite(url: string): void {
+  const list = getFavorites().filter((f) => f.url !== url)
+  setPref('browser.favorites', JSON.stringify(list))
+}
+
+export function removeFavoritesByHost(url: string): void {
+  try {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const host = new URL(url).host
+    const list = getFavorites().filter((f) => {
+      try {
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity
+        return new URL(f.url).host !== host
+      } catch {
+        return true
+      }
+    })
+    setPref('browser.favorites', JSON.stringify(list))
+  } catch {
+    // invalid url
+  }
+}
+
+export function updateFavorite(oldUrl: string, updated: BrowserFavorite): void {
+  const list = getFavorites().map((f) => (f.url === oldUrl ? updated : f))
+  setPref('browser.favorites', JSON.stringify(list))
+}
+
+export function reorderFavorites(fromIndex: number, toIndex: number): void {
+  const list = getFavorites()
+  const [item] = list.splice(fromIndex, 1)
+  list.splice(toIndex, 0, item)
+  setPref('browser.favorites', JSON.stringify(list))
+}
+
+export function isFavorite(url: string): boolean {
+  try {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const host = new URL(url).host
+    return getFavorites().some((f) => {
+      try {
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity
+        return new URL(f.url).host === host
+      } catch {
+        return false
+      }
+    })
+  } catch {
+    return false
+  }
+}
+
 export interface BrowserSessionState {
   url: string
   title: string
@@ -6,7 +139,7 @@ export interface BrowserSessionState {
   canGoForward: boolean
   isLoading: boolean
   isDevToolsOpen: boolean
-  devToolsMode: 'bottom' | 'right'
+  devToolsMode: 'bottom' | 'left'
   error: { code: number; description: string; url: string } | null
 }
 
@@ -78,7 +211,7 @@ export function handleBrowserStateChanged(
     canGoBack: boolean
     canGoForward: boolean
     isDevToolsOpen: boolean
-    devToolsMode: 'bottom' | 'right'
+    devToolsMode: 'bottom' | 'left'
   },
 ): void {
   const session = browserSessions[browserId]
