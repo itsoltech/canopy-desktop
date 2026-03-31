@@ -141,7 +141,7 @@
   }
 
   .pane-wrapper.focused {
-    outline: 1px solid rgba(116, 192, 252, 0.4);
+    outline: 1px solid var(--c-focus-ring);
     outline-offset: -1px;
   }
 
@@ -162,8 +162,8 @@
 
   .drop-zone-overlay {
     position: absolute;
-    background: rgba(116, 192, 252, 0.15);
-    border: 2px solid rgba(116, 192, 252, 0.4);
+    background: var(--c-accent-bg);
+    border: 2px solid var(--c-focus-ring);
     border-radius: 4px;
     pointer-events: none;
     z-index: 10;

@@ -156,10 +156,10 @@
     gap: 8px;
     width: 100%;
     padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
+    background: var(--c-hover);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
@@ -168,7 +168,7 @@
   }
 
   .trigger:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .trigger-label {
@@ -192,8 +192,8 @@
   :global(.custom-select-dropdown) {
     position: fixed;
     padding: 4px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
     max-height: 200px;
@@ -206,17 +206,17 @@
     padding: 6px 10px;
     border-radius: 4px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     cursor: pointer;
     white-space: nowrap;
   }
 
   .option.focused {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .option.selected {
-    color: #74c0fc;
+    color: var(--c-accent);
   }
 </style>

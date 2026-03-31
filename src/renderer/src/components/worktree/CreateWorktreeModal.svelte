@@ -458,7 +458,7 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 80px;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
   }
 
   .modal-container {
@@ -467,8 +467,8 @@
     max-height: 560px;
     display: flex;
     flex-direction: column;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     overflow: hidden;
@@ -479,7 +479,7 @@
     padding: 16px 20px 12px;
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     flex-shrink: 0;
   }
 
@@ -501,20 +501,20 @@
 
   .status-text {
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     margin: 0;
   }
 
   .status-text.success {
-    color: rgba(100, 220, 100, 0.9);
+    color: var(--c-success);
   }
 
   .status-text.error {
-    color: rgba(255, 120, 120, 0.9);
+    color: var(--c-danger-text);
   }
 
   .status-text.warning {
-    color: rgba(255, 200, 100, 0.9);
+    color: var(--c-warning-text);
   }
 
   .setup-body {
@@ -527,7 +527,7 @@
   .setup-label {
     font-size: 12px;
     font-family: monospace;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     margin: 0;
   }
 
@@ -535,7 +535,7 @@
     position: relative;
     border-radius: 6px;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--c-border-subtle);
   }
 
   .setup-terminal {
@@ -549,22 +549,22 @@
     top: 0;
     left: 0;
     height: 2px;
-    background: #3b82f6;
+    background: var(--c-accent);
     transition: width 0.3s ease;
     z-index: 5;
   }
 
   .progress-error {
-    background: #ef4444;
+    background: var(--c-danger);
   }
 
   .progress-warning {
-    background: #eab308;
+    background: var(--c-warning);
   }
 
   .progress-indeterminate {
     animation: indeterminate 1.5s ease-in-out infinite;
-    background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+    background: linear-gradient(90deg, transparent, var(--c-accent), transparent);
   }
 
   @keyframes indeterminate {
@@ -579,7 +579,7 @@
   @media (prefers-reduced-motion: reduce) {
     .progress-indeterminate {
       animation: none;
-      background: #3b82f6;
+      background: var(--c-accent);
     }
   }
 
@@ -603,7 +603,7 @@
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.5px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     text-transform: uppercase;
   }
 
@@ -617,7 +617,7 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     cursor: pointer;
     transition:
       background 0.1s,
@@ -625,8 +625,8 @@
   }
 
   .btn-refresh:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.6);
+    background: var(--c-active);
+    color: var(--c-text-secondary);
   }
 
   .btn-refresh:disabled {
@@ -656,10 +656,10 @@
 
   .field-input {
     width: 100%;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(0, 0, 0, 0.3);
-    color: #e0e0e0;
+    background: var(--c-bg-input);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     padding: 8px 10px;
@@ -669,33 +669,33 @@
   }
 
   .field-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .field-input::placeholder {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .field-info {
     margin: 0 0 12px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   .field-info strong {
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--c-text);
   }
 
   .field-error {
     margin: 6px 0 0;
     font-size: 12px;
-    color: rgba(255, 120, 120, 0.9);
+    color: var(--c-danger-text);
   }
 
   .field-detail {
     margin: 6px 0 0;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     font-family: monospace;
     word-break: break-all;
   }
@@ -704,28 +704,28 @@
     margin-top: 8px;
     max-height: 260px;
     overflow-y: auto;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--c-border-subtle);
     border-radius: 6px;
   }
 
   .branch-item {
     padding: 6px 10px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     cursor: pointer;
     transition: background 0.05s;
   }
 
   .branch-item:hover,
   .branch-item.selected {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 
   .branch-empty {
     padding: 16px 10px;
     text-align: center;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .modal-actions {
@@ -747,7 +747,7 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 
@@ -757,20 +757,20 @@
   }
 
   .btn-cancel {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   .btn-cancel:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--c-border);
   }
 
   .btn-primary {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-muted);
   }
 </style>

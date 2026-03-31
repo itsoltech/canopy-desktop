@@ -158,13 +158,13 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 120px;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
   }
 
   .dialog-container {
     width: 420px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     padding: 20px;
@@ -174,16 +174,16 @@
     margin: 0 0 12px;
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
   }
 
   .dialog-input,
   .dialog-textarea {
     width: 100%;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(0, 0, 0, 0.3);
-    color: #e0e0e0;
+    background: var(--c-bg-input);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     padding: 8px 10px;
@@ -194,7 +194,7 @@
 
   .dialog-input:focus,
   .dialog-textarea:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .dialog-textarea {
@@ -204,13 +204,13 @@
 
   .dialog-input::placeholder,
   .dialog-textarea::placeholder {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .dialog-error {
     margin: 6px 0 0;
     font-size: 12px;
-    color: rgba(255, 120, 120, 0.9);
+    color: var(--c-danger-text);
   }
 
   .dialog-checkbox {
@@ -219,20 +219,20 @@
     gap: 6px;
     margin: 10px 0 0;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     cursor: pointer;
     user-select: none;
   }
 
   .dialog-checkbox input {
-    accent-color: rgba(116, 192, 252, 0.8);
+    accent-color: var(--c-accent-text);
     cursor: pointer;
   }
 
   .dialog-hint {
     margin: 6px 0 0;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .dialog-actions {
@@ -260,7 +260,7 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 
@@ -270,29 +270,29 @@
   }
 
   .btn-cancel {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   .btn-cancel:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--c-border);
   }
 
   .btn-submit {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
   }
 
   .btn-submit:hover:not(:disabled) {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-muted);
   }
 
   .btn-generate {
-    background: rgba(168, 130, 255, 0.2);
-    color: rgba(168, 130, 255, 0.9);
+    background: color-mix(in srgb, var(--c-generate) 20%, transparent);
+    color: var(--c-generate);
   }
 
   .btn-generate:hover:not(:disabled) {
-    background: rgba(168, 130, 255, 0.3);
+    background: color-mix(in srgb, var(--c-generate) 30%, transparent);
   }
 </style>

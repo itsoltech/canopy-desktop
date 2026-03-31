@@ -116,7 +116,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     cursor: pointer;
     transition:
       background 0.15s,
@@ -124,8 +124,8 @@
   }
 
   .hamburger:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   :global(.titlebar-menu-overlay) {
@@ -138,10 +138,10 @@
     position: fixed;
     min-width: 220px;
     padding: 4px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 16px var(--c-scrim);
   }
 
   .menu-item {
@@ -154,7 +154,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -164,8 +164,8 @@
   }
 
   .menu-item:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .label {
@@ -173,13 +173,13 @@
   }
 
   .shortcut {
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     font-size: 11px;
   }
 
   .separator {
     height: 1px;
     margin: 4px 6px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 </style>

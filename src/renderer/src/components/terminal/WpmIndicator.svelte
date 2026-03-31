@@ -43,7 +43,7 @@
     align-items: baseline;
     gap: 4px;
     padding: 4px 10px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
     border-radius: 6px;
     pointer-events: none;
     opacity: 0;
@@ -66,21 +66,21 @@
     font-size: 13px;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     letter-spacing: -0.01em;
   }
 
   .wpm-label {
     font-size: 10px;
     font-weight: 400;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     letter-spacing: 0.02em;
   }
 
   .wpm-sep {
     width: 1px;
     height: 10px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-border);
     margin: 0 2px;
     align-self: center;
   }
@@ -88,7 +88,7 @@
   .wpm-peak {
     font-size: 10px;
     font-weight: 400;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     letter-spacing: 0.02em;
   }
 </style>

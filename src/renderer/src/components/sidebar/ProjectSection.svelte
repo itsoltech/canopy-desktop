@@ -136,7 +136,7 @@
     font-size: 10px;
     font-weight: 500;
     font-family: inherit;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     background: none;
     border: none;
     padding: 1px 5px;
@@ -148,8 +148,8 @@
   }
 
   .new-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--c-text);
+    background: var(--c-active);
   }
 
   .project-list {
@@ -160,7 +160,7 @@
 
   .separator {
     height: 1px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-border-subtle);
     margin: 4px 12px;
   }
 
@@ -172,7 +172,7 @@
     padding: 4px 12px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -180,12 +180,12 @@
   }
 
   .project-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .project-item.active {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover-strong);
     color: #fff;
   }
 
@@ -226,14 +226,14 @@
     height: 18px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     border-radius: 3px;
     cursor: pointer;
     padding: 0;
   }
 
   .action-btn:hover {
-    color: rgba(255, 255, 255, 0.8);
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--c-text);
+    background: var(--c-hover-strong);
   }
 </style>

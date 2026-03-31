@@ -221,8 +221,8 @@
     gap: 4px;
     height: 36px;
     padding: 0 6px;
-    background: rgba(0, 0, 0, 0.3);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--c-bg-input);
+    border-bottom: 1px solid var(--c-active);
     flex-shrink: 0;
   }
 
@@ -243,24 +243,24 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     cursor: pointer;
     padding: 0;
   }
 
   .nav-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   .nav-btn:disabled {
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
     cursor: default;
   }
 
   .nav-btn.active {
-    color: rgb(116, 192, 252);
-    background: rgba(116, 192, 252, 0.12);
+    color: var(--c-accent);
+    background: var(--c-accent-bg);
   }
 
   .nav-btn.loading {
@@ -290,16 +290,16 @@
   }
 
   .cancel-btn {
-    color: rgb(255, 130, 130) !important;
+    color: var(--c-danger-text) !important;
   }
 
   .cancel-btn:hover {
-    background: rgba(255, 130, 130, 0.12) !important;
+    background: var(--c-danger-bg) !important;
   }
 
   .pick-label {
     font-size: 11px;
-    color: rgba(116, 192, 252, 0.8);
+    color: var(--c-accent-text);
     white-space: nowrap;
   }
 
@@ -316,8 +316,8 @@
     margin-top: 4px;
     min-width: 160px;
     padding: 4px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
     z-index: 100;
@@ -332,7 +332,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -340,17 +340,17 @@
   }
 
   .capture-option:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 
   .url-bar {
     flex: 1;
     height: 26px;
     padding: 0 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
-    background: rgba(0, 0, 0, 0.3);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-bg-input);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     outline: none;
@@ -358,11 +358,11 @@
   }
 
   .url-bar:focus {
-    border-color: rgba(116, 192, 252, 0.5);
-    color: rgba(255, 255, 255, 0.95);
+    border-color: var(--c-focus-ring);
+    color: var(--c-text);
   }
 
   .url-bar::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 </style>

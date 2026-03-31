@@ -112,7 +112,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
   }
 
   .container {
@@ -122,8 +122,8 @@
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     padding: 24px;
@@ -140,7 +140,7 @@
     margin: 0;
     font-size: 20px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     letter-spacing: 0.5px;
   }
 
@@ -148,7 +148,7 @@
     display: block;
     margin-top: 4px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 
   .content {
@@ -164,12 +164,12 @@
     padding: 24px;
     text-align: center;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 
   .separator {
     height: 1px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
     margin: 16px 0;
   }
 
@@ -183,8 +183,8 @@
   .version-badge {
     display: inline-block;
     padding: 2px 8px;
-    background: rgba(116, 192, 252, 0.15);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
     border-radius: 4px;
     font-size: 12px;
     font-weight: 600;
@@ -193,13 +193,13 @@
 
   .date {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .entry-body {
     font-size: 13px;
     line-height: 1.6;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   .entry-body :global(h1),
@@ -208,7 +208,7 @@
     margin: 10px 0 4px;
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
   }
 
   .entry-body :global(h1) {
@@ -230,18 +230,18 @@
   }
 
   .entry-body :global(strong) {
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
   }
 
   .entry-body :global(code) {
     padding: 1px 4px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
     border-radius: 3px;
     font-size: 12px;
   }
 
   .entry-body :global(a) {
-    color: rgba(116, 192, 252, 0.9);
+    color: var(--c-accent-text);
     text-decoration: none;
   }
 
@@ -264,17 +264,17 @@
     cursor: pointer;
     border: none;
     outline: none;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-active);
+    color: var(--c-text);
     transition: background 0.1s;
   }
 
   .btn-close:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--c-border);
   }
 
   .btn-close:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 </style>
