@@ -80,8 +80,8 @@ export function recordKeystroke(sessionId: string, data: string): void {
   const chars = session.timestamps.length
   const elapsed = Math.min(now - session.timestamps[0], WINDOW_MS)
 
-  // Require at least 2 seconds of typing data to avoid inflated initial readings
-  if (elapsed < 2000) {
+  // Require at least 1 second of typing data to avoid inflated initial readings
+  if (elapsed < 1000) {
     wpmValues[sessionId] = 0
     return
   }

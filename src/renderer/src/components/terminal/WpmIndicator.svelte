@@ -6,12 +6,13 @@
   let currentWpm = $derived(getWpm(sessionId))
   let stats = $derived(getSessionStats(sessionId))
   let active = $derived(isSessionActive(sessionId))
+  let showBadge = $derived(active && currentWpm > 0)
 
   let visible = $state(false)
   let fadeTimer: ReturnType<typeof setTimeout> | undefined
 
   $effect(() => {
-    if (currentWpm > 0 && active) {
+    if (showBadge) {
       visible = true
       clearTimeout(fadeTimer)
       fadeTimer = setTimeout(() => {
@@ -24,7 +25,7 @@
 </script>
 
 {#if active}
-  <div class="wpm-badge" class:visible>
+  <div class="wpm-badge" class:visible={visible || showBadge}>
     <span class="wpm-number">{currentWpm}</span>
     <span class="wpm-label">wpm</span>
     {#if stats.peakWpm > 0}
