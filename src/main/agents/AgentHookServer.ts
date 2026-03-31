@@ -1,14 +1,13 @@
 import http from 'http'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { is } from '@electron-toolkit/utils'
-import type { HookEvent } from './types'
 
-type HookEventHandler = (event: HookEvent) => Record<string, unknown> | void
+type HookEventHandler = (event: Record<string, unknown>) => Record<string, unknown> | void
 type StatusUpdateHandler = (data: Record<string, unknown>) => void
 
 const MAX_BODY_BYTES = 1_048_576 // 1 MB
 
-export class ClaudeHookServer {
+export class AgentHookServer {
   private server: http.Server
   private port = 0
   private authToken: string
@@ -73,7 +72,7 @@ export class ClaudeHookServer {
     if (req.url === '/status') {
       try {
         const data = JSON.parse(body)
-        if (is.dev) console.log(`[claude-status]`, JSON.stringify(data).slice(0, 300))
+        if (is.dev) console.log(`[agent-status]`, JSON.stringify(data).slice(0, 300))
         this.onStatusUpdate(data)
       } catch {
         // ignore parse errors
@@ -91,25 +90,23 @@ export class ClaudeHookServer {
 
     let response: Record<string, unknown> | void = undefined
     try {
-      const event: HookEvent = JSON.parse(body)
-      const eventName = event.hook_event_name ?? 'unknown'
+      const event: Record<string, unknown> = JSON.parse(body)
+      const eventName = (event.hook_event_name as string) ?? 'unknown'
       const toolName = event.tool_name ? ` [${event.tool_name}]` : ''
-      if (is.dev) console.log(`[claude-hook] ${eventName}${toolName}`)
+      if (is.dev) console.log(`[agent-hook] ${eventName}${toolName}`)
 
-      if (is.dev && event.tool_input) {
-        console.log(`[claude-hook]   input:`, JSON.stringify(event.tool_input).slice(0, 200))
-      }
-      if (is.dev && event.tool_response !== undefined) {
-        const respStr =
-          typeof event.tool_response === 'string'
-            ? event.tool_response
-            : JSON.stringify(event.tool_response)
-        console.log(`[claude-hook]   response:`, respStr.slice(0, 200))
+      if (is.dev) {
+        const skip = new Set(['hook_event_name', 'tool_name'])
+        for (const [k, v] of Object.entries(event)) {
+          if (skip.has(k) || v === undefined || v === null) continue
+          const str = typeof v === 'string' ? v : JSON.stringify(v)
+          console.log(`[agent-hook]   ${k}: ${str}`)
+        }
       }
 
       response = this.onHookEvent(event)
     } catch (err) {
-      if (is.dev) console.error(`[claude-hook] parse error:`, err)
+      if (is.dev) console.error(`[agent-hook] parse error:`, err)
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' })

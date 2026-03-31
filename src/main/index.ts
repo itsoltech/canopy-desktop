@@ -12,7 +12,7 @@ import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers } from './ipc/handlers'
-import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
+import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
@@ -20,7 +20,7 @@ import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
-import { fetchChangelogRange } from './changelog/fetchChangelog'
+import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -42,8 +42,28 @@ const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
 let manualCheckInProgress = false
 let updateInstalling = false
+let updateCheckInFlight = false
 
-let claudeSessionManager: ClaudeSessionManager | null = null
+const checkWithChannelResolution = async (): Promise<void> => {
+  if (updateCheckInFlight) return
+  updateCheckInFlight = true
+  try {
+    const ch = preferencesStore.get('update.channel') ?? 'stable'
+    if (ch === 'next') {
+      const effective = await resolveUpdateChannel(app.getVersion())
+      autoUpdater.channel = effective
+      autoUpdater.allowPrerelease = true
+    } else {
+      autoUpdater.channel = 'latest'
+      autoUpdater.allowPrerelease = false
+    }
+    await autoUpdater.checkForUpdates()
+  } finally {
+    updateCheckInFlight = false
+  }
+}
+
+let agentSessionManager: AgentSessionManager | null = null
 let notchOverlay: NotchOverlayManager | null = null
 
 // Register canopy:// URL scheme
@@ -131,7 +151,7 @@ function buildAppMenu(): void {
   const checkForUpdatesClick = (): void => {
     if (app.isPackaged) {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -145,6 +165,12 @@ function buildAppMenu(): void {
             label: app.name,
             submenu: [
               { label: 'About Canopy', click: showAboutClick },
+              { type: 'separator' as const },
+              {
+                label: 'Preferences…',
+                accelerator: 'CmdOrCtrl+,',
+                click: showPreferencesClick,
+              },
               { type: 'separator' as const },
               { role: 'hide' as const },
               { role: 'hideOthers' as const },
@@ -298,10 +324,8 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:setUpdateChannel', (_e, channel: string) => {
       if (channel !== 'stable' && channel !== 'next') return
-      const allowPrerelease = channel === 'next'
-      autoUpdater.allowPrerelease = allowPrerelease
       preferencesStore.set('update.channel', channel)
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         console.warn('Update check after channel switch failed:', err)
       })
     })
@@ -313,7 +337,7 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:checkForUpdates', () => {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -352,19 +376,10 @@ app.whenReady().then(async () => {
       await Promise.all(closePromises)
       console.log('[updater] all windows destroyed')
 
-      if (process.platform === 'darwin') {
-        // On macOS, autoUpdater.quitAndInstall() is unreliable due to
-        // dual-download architecture (Squirrel may not be ready).
-        // Release lock, relaunch, quit — autoInstallOnAppQuit handles the update.
-        app.releaseSingleInstanceLock()
-        app.relaunch()
-        app.quit()
-      } else {
-        // Windows/Linux: quitAndInstall works reliably
-        setImmediate(() => {
-          autoUpdater.quitAndInstall(true, true)
-        })
-      }
+      app.releaseSingleInstanceLock()
+      setImmediate(() => {
+        autoUpdater.quitAndInstall(true, true)
+      })
 
       // Safety net: force exit if quit hangs
       setTimeout(() => {
@@ -373,7 +388,7 @@ app.whenReady().then(async () => {
       }, 10_000)
     })
 
-    autoUpdater.checkForUpdates().catch((err) => {
+    checkWithChannelResolution().catch((err) => {
       console.warn('Auto-update check failed:', err)
     })
   }
@@ -412,9 +427,9 @@ app.whenReady().then(async () => {
   // isolated from the main app session to protect API keys)
   browserManager.ensurePartition()
 
-  claudeSessionManager = new ClaudeSessionManager()
-  claudeSessionManager.cleanupOrphans()
-  windowManager.setClaudeSessionManager(claudeSessionManager)
+  agentSessionManager = new AgentSessionManager()
+  agentSessionManager.cleanupOrphans()
+  windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
   registerIpcHandlers(
@@ -424,7 +439,7 @@ app.whenReady().then(async () => {
     preferencesStore,
     layoutStore,
     toolRegistry,
-    claudeSessionManager,
+    agentSessionManager,
     windowManager,
     browserManager,
     credentialStore,
@@ -538,7 +553,7 @@ app.whenReady().then(async () => {
   }
 
   // Initialize notch overlay after main window so the panel doesn't suppress the dock icon
-  notchOverlay = new NotchOverlayManager(claudeSessionManager, windowManager)
+  notchOverlay = new NotchOverlayManager(agentSessionManager, windowManager)
   if (preferencesStore.get('notch.enabled') === 'true') {
     notchOverlay.initialize()
   }
@@ -579,7 +594,7 @@ app.on('before-quit', (event) => {
   // Window configs already saved; windows already destroyed.
   if (updateInstalling) {
     notchOverlay?.dispose()
-    claudeSessionManager?.dispose()
+    agentSessionManager?.dispose()
     database.close()
     return
   }
@@ -620,7 +635,7 @@ app.on('before-quit', (event) => {
   }
 
   notchOverlay?.dispose()
-  claudeSessionManager?.dispose()
+  agentSessionManager?.dispose()
   windowManager.disposeAll()
   database.close()
 })

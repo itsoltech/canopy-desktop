@@ -13,6 +13,7 @@
   import { openTool } from '../stores/tabs.svelte'
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
+  import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -65,7 +66,30 @@
     }
   })
 
-  // Re-attach WebGL addon after context loss when tab becomes active
+  // Listen for imperative focus requests (e.g. after browser screenshot delivery)
+  $effect(() => {
+    if (!termRef) return
+    const term = termRef
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ sessionId: string }>).detail
+      if (detail.sessionId === sessionId) {
+        requestAnimationFrame(() => term.focus())
+      }
+    }
+    window.addEventListener('canopy:focus-terminal', handler)
+    return () => window.removeEventListener('canopy:focus-terminal', handler)
+  })
+
+  // Dispose WebGL addon when tab becomes inactive to free GPU memory
+  $effect(() => {
+    if (!active && webglAddonRef) {
+      webglAddonRef.dispose()
+      webglAddonRef = null
+      webglAttached = false
+    }
+  })
+
+  // Re-attach WebGL addon when tab becomes active
   $effect(() => {
     if (active && termRef && !webglAttached) {
       attachWebgl(termRef)
@@ -124,6 +148,7 @@
 
     if (paths.length > 0 && termRef) {
       termRef.paste(paths.join(' '))
+      termRef.focus()
     }
   }
 
@@ -170,8 +195,13 @@
         reconnectAttempt = 0
       }
 
+      const MAX_PENDING_CHARS = 2 * 1024 * 1024 // ~2 MB for ASCII
+
       ws.onmessage = (e): void => {
         pendingData += e.data
+        if (pendingData.length > MAX_PENDING_CHARS) {
+          pendingData = pendingData.slice(-MAX_PENDING_CHARS)
+        }
         if (!writeScheduled) {
           writeScheduled = true
           writeRafId = requestAnimationFrame(() => {
@@ -199,6 +229,7 @@
         if (wsRef && wsRef.readyState === WebSocket.OPEN) {
           wsRef.send(data)
         }
+        recordKeystroke(sessionId, data)
       })
     }
 
@@ -231,6 +262,7 @@
         cursorBlink: true,
         allowProposedApi: true,
         theme: currentTheme,
+        scrollback: 5000,
       })
 
       const fitAddon = new FitAddon()
@@ -338,6 +370,7 @@
     return () => {
       disposed = true
       clearConnectionStatus(sessionId)
+      cleanupSession(sessionId)
       if (writeRafId !== null) cancelAnimationFrame(writeRafId)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (dataDisposable) dataDisposable.dispose()

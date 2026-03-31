@@ -782,6 +782,9 @@
   function deliverToSession(sessionId: string, payload: string): void {
     window.api.writePty(sessionId, payload)
     focusSessionByPtyId(sessionId)
+    window.api.focusRendererWebContents().then(() => {
+      window.dispatchEvent(new CustomEvent('canopy:focus-terminal', { detail: { sessionId } }))
+    })
   }
 
   function handlePickerSelect(sessionId: string): void {

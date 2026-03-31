@@ -2,12 +2,14 @@
   import type { PaneSession } from '../../lib/stores/splitTree'
   import { restartPane, updatePaneTitle } from '../../lib/stores/tabs.svelte'
   import { dragState, setDropTarget, type DropZone } from '../../lib/stores/dragState.svelte'
-  import { claudeSessions } from '../../lib/claude/claudeState.svelte'
+  import { agentSessions } from '../../lib/agents/agentState.svelte'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
   import BrowserPane from '../browser/BrowserPane.svelte'
   import EditorPane from '../editor/EditorPane.svelte'
-  import ClaudeInspector from '../claude/ClaudeInspector.svelte'
+  import AgentInspector from '../agents/AgentInspector.svelte'
   import ExitBanner from './ExitBanner.svelte'
+  import WpmIndicator from './WpmIndicator.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
 
   let {
     pane,
@@ -28,12 +30,9 @@
   let wrapperEl: HTMLDivElement | undefined = $state()
   let hoveredZone: DropZone | null = $state(null)
 
-  let claudeState = $derived(
-    pane.toolId === 'claude' ? (claudeSessions[pane.sessionId] ?? null) : null,
-  )
-  let showInspector = $derived(
-    pane.inspectorOpen !== false && pane.toolId === 'claude' && claudeState !== null,
-  )
+  let agentState = $derived(agentSessions[pane.sessionId] ?? null)
+  let showInspector = $derived(pane.inspectorOpen !== false && agentState !== null)
+  let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
 
   // Whether this pane is a valid drop target
   let isValidTarget = $derived(
@@ -114,6 +113,9 @@
             onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
           />
         {/key}
+        {#if wpmEnabled}
+          <WpmIndicator sessionId={pane.sessionId} />
+        {/if}
         {#if !pane.isRunning}
           <ExitBanner
             exitCode={pane.exitCode}
@@ -122,7 +124,7 @@
         {/if}
       </div>
       {#if showInspector}
-        <ClaudeInspector state={claudeState} />
+        <AgentInspector state={agentState} />
       {/if}
     </div>
   {/if}

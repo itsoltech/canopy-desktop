@@ -56,9 +56,9 @@ const api = {
   }) => ipcRenderer.invoke('tools:addCustom', tool),
   removeCustomTool: (id: string) => ipcRenderer.invoke('tools:removeCustom', { id }),
 
-  // Claude session
-  updateClaudeTitle: (sessionId: string, title: string) =>
-    ipcRenderer.invoke('claude:updateTitle', { sessionId, title }),
+  // Agent session
+  updateAgentTitle: (sessionId: string, title: string) =>
+    ipcRenderer.invoke('agent:updateTitle', { sessionId, title }),
 
   // Auto-update
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
@@ -155,11 +155,12 @@ const api = {
   newWindow: () => ipcRenderer.invoke('app:newWindow'),
   setWorkspacePath: (path: string) => ipcRenderer.invoke('app:setWorkspacePath', { path }),
   setActiveWorktree: (path: string) => ipcRenderer.invoke('app:setActiveWorktree', { path }),
-  setFocusedClaudeSession: (ptySessionId: string | null) =>
-    ipcRenderer.invoke('app:setFocusedClaudeSession', { ptySessionId }),
+  setFocusedAgentSession: (ptySessionId: string | null) =>
+    ipcRenderer.invoke('app:setFocusedAgentSession', { ptySessionId }),
   detachProject: (path: string) => ipcRenderer.invoke('app:detachProject', { path }),
   focusWindowForPath: (path: string) =>
     ipcRenderer.invoke('app:focusWindowForPath', { path }) as Promise<boolean>,
+  focusRendererWebContents: () => ipcRenderer.invoke('app:focusRendererWebContents'),
 
   // Dialog
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
@@ -272,6 +273,7 @@ const api = {
   // Worktree Setup
   runWorktreeSetup: (workspaceId: string, repoRoot: string, newWorktreePath: string) =>
     ipcRenderer.invoke('worktree:runSetup', { workspaceId, repoRoot, newWorktreePath }),
+  abortWorktreeSetup: () => ipcRenderer.send('worktree:abortSetup'),
 
   // Layouts
   saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) =>
@@ -283,38 +285,46 @@ const api = {
     ipcRenderer.invoke('layout:delete', { workspaceId, worktreePath }),
 
   // Push events (main → renderer)
-  onClaudeHookEvent: (
-    callback: (data: { ptySessionId: string; event: Record<string, unknown> }) => void,
+  onAgentHookEvent: (
+    callback: (data: {
+      ptySessionId: string
+      agentType: string
+      event: Record<string, unknown>
+    }) => void,
   ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { ptySessionId: string; event: Record<string, unknown> },
+      data: { ptySessionId: string; agentType: string; event: Record<string, unknown> },
     ): void => callback(data)
-    ipcRenderer.on('claude:hookEvent', handler)
+    ipcRenderer.on('agent:hookEvent', handler)
     return (): void => {
-      ipcRenderer.removeListener('claude:hookEvent', handler)
+      ipcRenderer.removeListener('agent:hookEvent', handler)
     }
   },
 
-  onClaudeStatusUpdate: (
-    callback: (data: { ptySessionId: string; status: Record<string, unknown> }) => void,
+  onAgentStatusUpdate: (
+    callback: (data: {
+      ptySessionId: string
+      agentType: string
+      status: Record<string, unknown>
+    }) => void,
   ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { ptySessionId: string; status: Record<string, unknown> },
+      data: { ptySessionId: string; agentType: string; status: Record<string, unknown> },
     ): void => callback(data)
-    ipcRenderer.on('claude:statusUpdate', handler)
+    ipcRenderer.on('agent:statusUpdate', handler)
     return (): void => {
-      ipcRenderer.removeListener('claude:statusUpdate', handler)
+      ipcRenderer.removeListener('agent:statusUpdate', handler)
     }
   },
 
-  onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => {
+  onAgentFocusSession: (callback: (data: { ptySessionId: string }) => void) => {
     const handler = (_event: IpcRendererEvent, data: { ptySessionId: string }): void =>
       callback(data)
-    ipcRenderer.on('claude:focusSession', handler)
+    ipcRenderer.on('agent:focusSession', handler)
     return (): void => {
-      ipcRenderer.removeListener('claude:focusSession', handler)
+      ipcRenderer.removeListener('agent:focusSession', handler)
     }
   },
 
@@ -346,6 +356,7 @@ const api = {
       status: 'running' | 'done' | 'error'
       output?: string
       error?: string
+      outputChunk?: string
     }) => void,
   ) => {
     const handler = (
@@ -357,6 +368,7 @@ const api = {
         status: 'running' | 'done' | 'error'
         output?: string
         error?: string
+        outputChunk?: string
       },
     ): void => callback(data)
     ipcRenderer.on('worktree:setupProgress', handler)

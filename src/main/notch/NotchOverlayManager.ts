@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeImage, screen } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
+import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { NotchSessionStatus, NotchOverlayState, SessionStatusType } from './types'
 
@@ -20,7 +20,7 @@ export class NotchOverlayManager {
   private sessionDestroyedHandler: ((id: string) => void) | null = null
 
   constructor(
-    private claudeSessionManager: ClaudeSessionManager,
+    private agentSessionManager: AgentSessionManager,
     private windowManager: WindowManager,
   ) {}
 
@@ -30,22 +30,30 @@ export class NotchOverlayManager {
 
     const focusedWin = BrowserWindow.getFocusedWindow()
     this.createOverlayWindow()
-    // Panel windows cause macOS to hide the dock icon; restore it then refocus
+    // Panel windows cause macOS to hide the dock icon; restore it then refocus.
+    // After restoring, force-set the icon so the Dock refreshes its cached entry.
     app.dock?.show().then(() => {
+      const iconPath = app.isPackaged
+        ? join(process.resourcesPath, 'electron.icns')
+        : join(app.getAppPath(), 'build', 'icon.icns')
+      const icon = nativeImage.createFromPath(iconPath)
+      if (!icon.isEmpty()) {
+        app.dock?.setIcon(icon)
+      }
       if (focusedWin && !focusedWin.isDestroyed()) focusedWin.focus()
     })
-    this.bindClaudeEvents()
+    this.bindAgentEvents()
     this.bindIpcHandlers()
     this.watchDisplayChanges()
   }
 
   dispose(): void {
     if (this.statusChangeHandler) {
-      this.claudeSessionManager.removeListener('statusChange', this.statusChangeHandler)
+      this.agentSessionManager.removeListener('statusChange', this.statusChangeHandler)
       this.statusChangeHandler = null
     }
     if (this.sessionDestroyedHandler) {
-      this.claudeSessionManager.removeListener('sessionDestroyed', this.sessionDestroyedHandler)
+      this.agentSessionManager.removeListener('sessionDestroyed', this.sessionDestroyedHandler)
       this.sessionDestroyedHandler = null
     }
     if (this.displayChangeHandler) {
@@ -123,7 +131,7 @@ export class NotchOverlayManager {
     }
   }
 
-  private bindClaudeEvents(): void {
+  private bindAgentEvents(): void {
     this.statusChangeHandler = (status: NotchSessionStatus) => {
       const prev = this.previousStatuses.get(status.ptySessionId)
 
@@ -150,15 +158,15 @@ export class NotchOverlayManager {
       }
     }
 
-    this.claudeSessionManager.on('statusChange', this.statusChangeHandler)
-    this.claudeSessionManager.on('sessionDestroyed', this.sessionDestroyedHandler)
+    this.agentSessionManager.on('statusChange', this.statusChangeHandler)
+    this.agentSessionManager.on('sessionDestroyed', this.sessionDestroyedHandler)
   }
 
-  /** Check if the session is the focused Claude pane in a focused window */
+  /** Check if the session is the focused agent pane in a focused window */
   private isSessionVisibleInFocusedWindow(status: NotchSessionStatus): boolean {
     const win = this.windowManager.getWindowById(status.windowId)
     if (!win || !win.isFocused()) return false
-    return this.windowManager.getFocusedClaudeSession(status.windowId) === status.ptySessionId
+    return this.windowManager.getFocusedAgentSession(status.windowId) === status.ptySessionId
   }
 
   private isPeekWorthy(prev: SessionStatusType | undefined, next: SessionStatusType): boolean {
@@ -180,7 +188,7 @@ export class NotchOverlayManager {
 
         if (win.isMinimized()) win.restore()
         win.focus()
-        win.webContents.send('claude:focusSession', { ptySessionId })
+        win.webContents.send('agent:focusSession', { ptySessionId })
       },
     )
 

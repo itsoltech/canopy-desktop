@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import GeneralPrefs from './GeneralPrefs.svelte'
   import AppearancePrefs from './AppearancePrefs.svelte'
@@ -6,15 +7,21 @@
   import GitPrefs from './GitPrefs.svelte'
   import ShortcutsPrefs from './ShortcutsPrefs.svelte'
   import ClaudePrefs from './ClaudePrefs.svelte'
+  import GeminiPrefs from './GeminiPrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
   import ViewportsPrefs from './ViewportsPrefs.svelte'
+  import SidebarPrefs from './SidebarPrefs.svelte'
+
+  let containerEl: HTMLDivElement | undefined = $state()
 
   const sections = [
     'General',
     'Updates',
     'Appearance',
+    'Sidebar',
     'Tools',
     'Claude',
+    'Gemini',
     'Git',
     'Web Browser',
     'Shortcuts',
@@ -22,6 +29,10 @@
   type Section = (typeof sections)[number]
 
   let activeSection: Section = $state('General')
+
+  onMount(() => {
+    containerEl?.focus()
+  })
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
@@ -33,14 +44,16 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="prefs-overlay" onkeydown={handleKeydown} onclick={closeDialog}>
+<div class="prefs-overlay" onkeydown={handleKeydown} onmousedown={closeDialog}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    bind:this={containerEl}
     class="prefs-container"
     role="dialog"
     aria-modal="true"
     aria-labelledby="prefs-dialog-title"
-    onclick={(e) => e.stopPropagation()}
+    tabindex="-1"
+    onmousedown={(e) => e.stopPropagation()}
   >
     <div class="prefs-sidebar">
       <h2 id="prefs-dialog-title" class="prefs-title">Settings</h2>
@@ -62,10 +75,14 @@
         <UpdatePrefs />
       {:else if activeSection === 'Appearance'}
         <AppearancePrefs />
+      {:else if activeSection === 'Sidebar'}
+        <SidebarPrefs />
       {:else if activeSection === 'Tools'}
         <ToolPrefs />
       {:else if activeSection === 'Claude'}
         <ClaudePrefs />
+      {:else if activeSection === 'Gemini'}
+        <GeminiPrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
       {:else if activeSection === 'Web Browser'}
@@ -89,6 +106,7 @@
   }
 
   .prefs-container {
+    outline: none;
     width: 700px;
     max-width: 90vw;
     height: 500px;

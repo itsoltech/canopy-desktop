@@ -1,18 +1,18 @@
-import { claudeSessions } from './claudeState.svelte'
+import { agentSessions } from './agentState.svelte'
 import { getTabsForWorktree } from '../stores/tabs.svelte'
 import { allPanes } from '../stores/splitTree'
 
-export type AggregateClaudeStatus = 'none' | 'idle' | 'working' | 'waitingPermission' | 'error'
+export type AggregateAgentStatus = 'none' | 'idle' | 'working' | 'waitingPermission' | 'error'
 
-export function getWorktreeClaudeStatus(worktreePath: string): AggregateClaudeStatus {
+export function getWorktreeAgentStatus(worktreePath: string): AggregateAgentStatus {
   const tabs = getTabsForWorktree(worktreePath)
   const panes = tabs.flatMap((t) => allPanes(t.rootSplit))
-  const claudePanes = panes.filter((p) => p.toolId === 'claude')
-  if (claudePanes.length === 0) return 'none'
+  const agentPanes = panes.filter((p) => agentSessions[p.sessionId] !== undefined)
+  if (agentPanes.length === 0) return 'none'
 
-  let best: AggregateClaudeStatus = 'none'
-  for (const p of claudePanes) {
-    const s = claudeSessions[p.sessionId]
+  let best: AggregateAgentStatus = 'none'
+  for (const p of agentPanes) {
+    const s = agentSessions[p.sessionId]
     if (!s) continue
     const t = s.status.type
     if (t === 'waitingPermission') return 'waitingPermission'

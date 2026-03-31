@@ -1,5 +1,5 @@
 #!/bin/bash
-# canopy: Forward Claude Code status line JSON to canopy main process
+# canopy: Forward agent status line JSON to canopy main process
 [ -z "$CANOPY_HOOK_PORT" ] && exit 0
 INPUT=$(cat)
 curl -s -X POST "http://127.0.0.1:${CANOPY_HOOK_PORT}/status" \

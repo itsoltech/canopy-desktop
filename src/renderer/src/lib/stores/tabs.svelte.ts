@@ -16,14 +16,17 @@ import {
 import type { DropZone } from './dragState.svelte'
 import { workspaceState, getProjectForWorktree } from './workspace.svelte'
 import {
-  initClaudeSession,
-  removeClaudeSession,
-  claudeSessions,
-} from '../claude/claudeState.svelte'
+  initAgentSession,
+  removeAgentSession,
+  agentSessions,
+  type AgentType,
+} from '../agents/agentState.svelte'
 import { confirm } from './dialogs.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
 
 // --- Active process detection ---
+
+const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
 const ACTIVE_CLAUDE_STATUSES = new Set([
   'thinking',
@@ -39,8 +42,8 @@ async function getActiveProcessDescription(panes: PaneSession[]): Promise<string
   await Promise.all(
     panes.map(async (p) => {
       if (!p.isRunning) return
-      if (p.toolId === 'claude') {
-        const s = claudeSessions[p.sessionId]
+      if (AI_TOOL_IDS.has(p.toolId)) {
+        const s = agentSessions[p.sessionId]
         if (s && ACTIVE_CLAUDE_STATUSES.has(s.status.type)) busyClaude++
       } else {
         try {
@@ -82,6 +85,7 @@ type SerializedSplitNode =
       type: 'leaf'
       toolId: string
       toolName: string
+      agentSessionId?: string
       claudeSessionId?: string
       browserUrl?: string
       browserDevToolsMode?: 'bottom' | 'right'
@@ -151,7 +155,7 @@ export async function openTool(
     }
   } else {
     const options: { workspaceName?: string; branch?: string } = {}
-    if (toolId === 'claude') {
+    if (AI_TOOL_IDS.has(toolId)) {
       const project = getProjectForWorktree(worktreePath)
       options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
       options.branch = workspaceState.branch ?? undefined
@@ -168,8 +172,8 @@ export async function openTool(
       exitCode: null,
       title: null,
     }
-    if (toolId === 'claude') {
-      initClaudeSession(result.sessionId)
+    if (AI_TOOL_IDS.has(toolId)) {
+      initAgentSession(result.sessionId, toolId as AgentType)
     }
   }
 
@@ -230,8 +234,8 @@ export async function closeTab(tabId: string): Promise<void> {
 
     // Kill all PTYs / destroy browser views and cleanup sessions
     for (const p of panes) {
-      if (p.toolId === 'claude') {
-        removeClaudeSession(p.sessionId)
+      if (agentSessions[p.sessionId]) {
+        removeAgentSession(p.sessionId)
       }
       if (p.paneType === 'browser') {
         delete browserSessions[p.sessionId]
@@ -455,20 +459,20 @@ export async function restartPane(
       // Already exited or cleaned up
     }
 
-    if (pane.toolId === 'claude') {
-      removeClaudeSession(pane.sessionId)
+    if (AI_TOOL_IDS.has(pane.toolId)) {
+      removeAgentSession(pane.sessionId)
     }
 
     // Spawn new
     const options: { workspaceName?: string; branch?: string } = {}
-    if (pane.toolId === 'claude') {
+    if (AI_TOOL_IDS.has(pane.toolId)) {
       options.workspaceName = workspaceState.workspace?.name ?? ''
       options.branch = workspaceState.branch ?? undefined
     }
     const result = await window.api.spawnTool(pane.toolId, worktreePath, options)
 
-    if (pane.toolId === 'claude') {
-      initClaudeSession(result.sessionId)
+    if (AI_TOOL_IDS.has(pane.toolId)) {
+      initAgentSession(result.sessionId, pane.toolId as AgentType)
     }
 
     // Update pane in tree
@@ -508,7 +512,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
 
   const allSessions = tabs.flatMap((t) => allPanes(t.rootSplit))
   for (const p of allSessions) {
-    if (p.toolId === 'claude') removeClaudeSession(p.sessionId)
+    if (agentSessions[p.sessionId]) removeAgentSession(p.sessionId)
     if (p.paneType === 'browser') delete browserSessions[p.sessionId]
   }
   await Promise.allSettled(
@@ -584,8 +588,6 @@ export interface AiSessionInfo {
   status: string
 }
 
-const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
-
 export function getAiSessions(worktreePath: string): AiSessionInfo[] {
   const tabs = tabsByWorktree[worktreePath] ?? []
   const result: AiSessionInfo[] = []
@@ -593,7 +595,7 @@ export function getAiSessions(worktreePath: string): AiSessionInfo[] {
     const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
       if (AI_TOOL_IDS.has(p.toolId) && p.isRunning) {
-        const cs = p.toolId === 'claude' ? claudeSessions[p.sessionId] : null
+        const cs = agentSessions[p.sessionId] ?? null
         result.push({
           sessionId: p.sessionId,
           tabName: tab.name,
@@ -623,8 +625,11 @@ export function toggleFocusedInspector(): void {
   const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
   if (!tab) return
   const pane = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (pane?.toolId === 'claude') {
-    pane.inspectorOpen = pane.inspectorOpen === false ? true : false
+  if (pane && AI_TOOL_IDS.has(pane.toolId)) {
+    tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
+      ...p,
+      inspectorOpen: p.inspectorOpen === false,
+    }))
   }
 }
 
@@ -640,8 +645,8 @@ export function updatePaneTitle(sessionId: string, title: string): void {
           title,
         }))
         // Forward title to main process for the notch overlay
-        if (pane.toolId === 'claude') {
-          window.api.updateClaudeTitle(sessionId, title)
+        if (agentSessions[pane.sessionId]) {
+          window.api.updateAgentTitle(sessionId, title)
         }
         return
       }
@@ -912,9 +917,11 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode {
       toolId: node.pane.toolId,
       toolName: node.pane.toolName,
     }
-    if (node.pane.toolId === 'claude') {
-      const csid = claudeSessions[node.pane.sessionId]?.claudeSessionId
-      if (csid) leaf.claudeSessionId = csid
+    if (agentSessions[node.pane.sessionId]) {
+      const csid = agentSessions[node.pane.sessionId]?.agentSessionId
+      if (csid) leaf.agentSessionId = csid
+      // Backward compat: also write claudeSessionId for claude agents
+      if (node.pane.toolId === 'claude' && csid) leaf.claudeSessionId = csid
     }
     if (node.pane.paneType === 'browser') {
       leaf.browserUrl = node.pane.url ?? ''
@@ -1003,11 +1010,11 @@ async function restoreSplitNode(
       }
     } else {
       const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
-      if (node.toolId === 'claude') {
+      if (AI_TOOL_IDS.has(node.toolId)) {
         const project = getProjectForWorktree(worktreePath)
         options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
         options.branch = workspaceState.branch ?? undefined
-        if (node.claudeSessionId) options.resumeSessionId = node.claudeSessionId
+        options.resumeSessionId = node.agentSessionId ?? node.claudeSessionId
       }
       const result = await window.api.spawnTool(node.toolId, worktreePath, options)
       pane = {
@@ -1020,8 +1027,8 @@ async function restoreSplitNode(
         exitCode: null,
         title: null,
       }
-      if (node.toolId === 'claude') {
-        initClaudeSession(result.sessionId)
+      if (AI_TOOL_IDS.has(node.toolId)) {
+        initAgentSession(result.sessionId, node.toolId as AgentType)
       }
     }
     return createLeaf(pane)

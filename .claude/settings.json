@@ -5,8 +5,13 @@
         "hooks": [
           {
             "type": "command",
-            "statusMessage": "Running typecheck...",
-            "command": "git status --porcelain | grep -qE '\\.(ts|svelte)$' || exit 0; result=$(npm run typecheck 2>&1); [ $? -eq 0 ] && exit 0; jq -n --arg r \"$result\" '{decision: \"block\", reason: $r}'"
+            "statusMessage": "Running lint...",
+            "command": "git status --porcelain | grep -qE '\\.(ts|svelte)$' || exit 0; result=$(npm run lint 2>&1); [ $? -eq 0 ] && exit 0; jq -n --arg r \"$result\" '{decision: \"block\", reason: $r}'"
+          },
+          {
+            "type": "command",
+            "statusMessage": "Running build...",
+            "command": "git status --porcelain | grep -qE '\\.(ts|svelte)$' || exit 0; result=$(npm run build 2>&1); [ $? -eq 0 ] && exit 0; jq -n --arg r \"$result\" '{decision: \"block\", reason: $r}'"
           }
         ]
       }
