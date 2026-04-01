@@ -1,3 +1,9 @@
+## [0.8.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.7...v0.8.0-next.8) (2026-04-01)
+
+### Features
+
+* **terminal:** extend tmux to all tools and add mouse support ([#67](https://github.com/itsoltech/canopy-desktop/issues/67)) ([251379c](https://github.com/itsoltech/canopy-desktop/commit/251379ce6cb1010e318561cd27c590f03f5c80d4))
+
 ## [0.8.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.6...v0.8.0-next.7) (2026-04-01)
 
 ### Features
