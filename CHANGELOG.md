@@ -1,3 +1,9 @@
+## [0.8.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.5...v0.8.0-next.6) (2026-04-01)
+
+### Features
+
+* add task tracker integrations (Jira & YouTrack) ([#66](https://github.com/itsoltech/canopy-desktop/issues/66)) ([206d7b6](https://github.com/itsoltech/canopy-desktop/commit/206d7b6049620dfa3b0f90cd16bf517134cc9b18))
+
 ## [0.8.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.4...v0.8.0-next.5) (2026-04-01)
 
 ### Features
