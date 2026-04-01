@@ -52,9 +52,6 @@
   }
 
   async function removeTool(id: string): Promise<void> {
-    const tool = getTools().find((t) => t.id === id)
-    const name = tool?.name ?? id
-    if (!confirm(`Remove custom tool "${name}"? This cannot be undone.`)) return
     await window.api.removeCustomTool(id)
   }
 
