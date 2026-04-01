@@ -133,7 +133,7 @@
 
   .toast-message {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;

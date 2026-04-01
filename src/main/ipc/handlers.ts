@@ -847,7 +847,16 @@ export function registerIpcHandlers(
         throw new Error('Base URL must use http:// or https://')
       }
       const { token, ...connectionData } = payload
-      return taskTrackerManager.addConnection(connectionData, token)
+      const c = taskTrackerManager.addConnection(connectionData, token)
+      return {
+        id: c.id,
+        provider: c.provider,
+        name: c.name,
+        baseUrl: c.baseUrl,
+        projectKey: c.projectKey,
+        boardId: c.boardId,
+        username: c.username,
+      }
     },
   )
 
@@ -874,7 +883,17 @@ export function registerIpcHandlers(
         }
       }
       const { connectionId, token, ...updates } = payload
-      return taskTrackerManager.updateConnection(connectionId, updates, token)
+      const c = taskTrackerManager.updateConnection(connectionId, updates, token)
+      if (!c) return null
+      return {
+        id: c.id,
+        provider: c.provider,
+        name: c.name,
+        baseUrl: c.baseUrl,
+        projectKey: c.projectKey,
+        boardId: c.boardId,
+        username: c.username,
+      }
     },
   )
 
