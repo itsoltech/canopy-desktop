@@ -59,6 +59,7 @@
   let devtoolsRatio = $state(0.6) // browser gets 60%, devtools gets 40%
   let dividerDragging = $state(false)
   let activeDevice: string | null = $state(null)
+  let appOverlayOpen = $state(false)
   let wrapperEl: HTMLDivElement | undefined = $state()
   let wrapperSize = $state({ w: 0, h: 0 })
 
@@ -610,7 +611,8 @@
       !savePrompt &&
       !favModalOpen &&
       !starDropdownOpen &&
-      !favCtxMenu,
+      !favCtxMenu &&
+      !appOverlayOpen,
   )
 
   function sendDevToolsBounds(): void {
@@ -824,11 +826,24 @@
           onFocus?.()
         }
       }),
+      window.api.onBrowserDevToolsOpened((data) => {
+        if (data.browserId === browserId && !devtoolsOpen) {
+          devtoolsOpen = true
+          updateDevToolsState(true)
+        }
+      }),
     ]
+
+    // Listen for app-level overlays (Preferences, Command Palette, etc.)
+    const onAppOverlay = (e: Event): void => {
+      appOverlayOpen = (e as CustomEvent<{ open: boolean }>).detail.open
+    }
+    window.addEventListener('canopy:app-overlay', onAppOverlay)
 
     return () => {
       alive = false
       unsubs.forEach((fn) => fn())
+      window.removeEventListener('canopy:app-overlay', onAppOverlay)
       if (devtoolsOpen) {
         window.api.closeBrowserDevTools(browserId).catch(() => {})
       }
