@@ -184,7 +184,7 @@ export const youtrackClient: TaskTrackerProviderClient = {
       }
     }
 
-    if (projectKey) {
+    if (projectKey && /^[A-Za-z0-9_-]+$/.test(projectKey)) {
       queryParts.push(`project: {${projectKey}}`)
     }
 

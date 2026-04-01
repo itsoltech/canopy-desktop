@@ -132,8 +132,8 @@
         selectedBoardId = boards[0].id
         restoreSavedFilters()
       }
-    } catch {
-      // no boards available
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Failed to load boards'
     }
     await fetchTasks()
   }

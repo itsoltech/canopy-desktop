@@ -49,6 +49,15 @@ export const onboardingSteps: OnboardingStep[] = [
     category: 'first-launch',
     order: 4,
   },
+  // Feature onboarding steps (shown on upgrade)
+  {
+    id: 'task-tracker',
+    title: 'Connect your task tracker',
+    description:
+      'Link Jira or YouTrack to browse tasks, create branches, and open PRs — all from Canopy.',
+    introducedIn: '0.9.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {
