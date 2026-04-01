@@ -27,8 +27,6 @@
   }
 
   interface PRConfig {
-    titleTemplate: string
-    bodyTemplate: string
     defaultBranch: string
   }
 
@@ -37,20 +35,12 @@
     if (raw) {
       try {
         const c = JSON.parse(raw) as Partial<PRConfig>
-        return {
-          titleTemplate: c.titleTemplate || '[{taskKey}] {taskTitle}',
-          bodyTemplate: c.bodyTemplate || '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-          defaultBranch: c.defaultBranch || 'develop',
-        }
+        return { defaultBranch: c.defaultBranch || 'develop' }
       } catch {
         // fall through
       }
     }
-    return {
-      titleTemplate: prefs['taskTracker.prTitleTemplate'] || '[{taskKey}] {taskTitle}',
-      bodyTemplate: prefs['taskTracker.prBodyTemplate'] || '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-      defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop',
-    }
+    return { defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop' }
   })
 
   function savePRConfig(field: keyof PRConfig, value: string): void {
@@ -78,25 +68,6 @@
     </select>
   </div>
 
-  <div class="form-row">
-    <label class="form-label">Title Template</label>
-    <input
-      class="form-input"
-      value={prConfig.titleTemplate}
-      oninput={(e) => savePRConfig('titleTemplate', (e.target as HTMLInputElement).value)}
-      placeholder={'[{taskKey}] {taskTitle}'}
-    />
-  </div>
-  <div class="form-row">
-    <label class="form-label">Body Template</label>
-    <textarea
-      class="form-textarea"
-      value={prConfig.bodyTemplate}
-      oninput={(e) => savePRConfig('bodyTemplate', (e.target as HTMLTextAreaElement).value)}
-      placeholder={'## {taskKey}: {taskTitle}'}
-      rows="3"
-    ></textarea>
-  </div>
   <div class="form-row">
     <label class="form-label">Default Target Branch</label>
     <input
@@ -141,8 +112,7 @@
   }
 
   .form-input,
-  .form-select,
-  .form-textarea {
+  .form-select {
     flex: 1;
     padding: 5px 8px;
     border: 1px solid var(--c-border);
@@ -155,17 +125,11 @@
   }
 
   .form-input:focus,
-  .form-select:focus,
-  .form-textarea:focus {
+  .form-select:focus {
     border-color: var(--c-focus-ring);
   }
 
   .form-select {
     cursor: pointer;
-  }
-
-  .form-textarea {
-    resize: vertical;
-    min-height: 60px;
   }
 </style>
