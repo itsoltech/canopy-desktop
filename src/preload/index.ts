@@ -7,11 +7,34 @@ const api = {
     ipcRenderer.invoke('pty:spawn', options),
   resizePty: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', { sessionId, cols, rows }),
-  killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', { sessionId }),
+  killPty: (sessionId: string, killTmux?: boolean) =>
+    ipcRenderer.invoke('pty:kill', { sessionId, killTmux }),
   writePty: (sessionId: string, data: string) =>
     ipcRenderer.invoke('pty:write', { sessionId, data }),
   hasChildProcess: (sessionId: string) =>
     ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
+
+  // Tmux
+  tmuxIsAvailable: () => ipcRenderer.invoke('tmux:isAvailable') as Promise<boolean>,
+  tmuxGetVersion: () => ipcRenderer.invoke('tmux:getVersion') as Promise<string | null>,
+  tmuxListSessions: () =>
+    ipcRenderer.invoke('tmux:listSessions') as Promise<
+      Array<{ name: string; created: number; attached: boolean; cwd: string }>
+    >,
+  tmuxHasSession: (name: string) =>
+    ipcRenderer.invoke('tmux:hasSession', { name }) as Promise<boolean>,
+  tmuxAttach: (tmuxSessionName: string, options?: { cols?: number; rows?: number }) =>
+    ipcRenderer.invoke('tmux:attach', { tmuxSessionName, ...options }) as Promise<{
+      sessionId: string
+      wsUrl: string
+    }>,
+  tmuxDetach: (sessionId: string) =>
+    ipcRenderer.invoke('tmux:detach', { sessionId }) as Promise<{
+      tmuxSessionName?: string
+    }>,
+  tmuxKillSession: (name: string) => ipcRenderer.invoke('tmux:killSession', { name }),
+  tmuxRenameSession: (oldName: string, newName: string) =>
+    ipcRenderer.invoke('tmux:renameSession', { oldName, newName }),
 
   // Workspaces
   listWorkspaces: (limit?: number) => ipcRenderer.invoke('db:workspace:list', { limit }),
@@ -385,11 +408,16 @@ const api = {
     }
   },
   onPtyExit: (
-    callback: (data: { sessionId: string; exitCode: number; signal: number }) => void,
+    callback: (data: {
+      sessionId: string
+      exitCode: number
+      signal: number
+      tmuxSessionName?: string
+    }) => void,
   ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { sessionId: string; exitCode: number; signal: number },
+      data: { sessionId: string; exitCode: number; signal: number; tmuxSessionName?: string },
     ): void => callback(data)
     ipcRenderer.on('pty:exit', handler)
     return (): void => {

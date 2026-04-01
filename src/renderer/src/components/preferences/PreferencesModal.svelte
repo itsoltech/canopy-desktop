@@ -11,6 +11,7 @@
   import UpdatePrefs from './UpdatePrefs.svelte'
   import ViewportsPrefs from './ViewportsPrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
+  import TerminalPrefs from './TerminalPrefs.svelte'
   import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
@@ -22,6 +23,7 @@
     'Updates',
     'Appearance',
     'Sidebar',
+    'Terminal',
     'Tools',
     'Claude',
     'Gemini',
@@ -89,6 +91,8 @@
         <AppearancePrefs />
       {:else if activeSection === 'Sidebar'}
         <SidebarPrefs />
+      {:else if activeSection === 'Terminal'}
+        <TerminalPrefs />
       {:else if activeSection === 'Tools'}
         <ToolPrefs />
       {:else if activeSection === 'Claude'}

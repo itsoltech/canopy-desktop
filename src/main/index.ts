@@ -19,6 +19,7 @@ import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
+import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
@@ -43,6 +44,7 @@ const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
+const tmuxManager = new TmuxManager(app.getPath('userData'))
 let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false
@@ -450,6 +452,7 @@ app.whenReady().then(async () => {
     browserManager,
     credentialStore,
     onboardingStore,
+    tmuxManager,
     taskTrackerManager,
   )
 
@@ -652,11 +655,48 @@ app.on('before-quit', (event) => {
     }
   }
 
+  // Handle tmux close policy synchronously before any async work
+  const tmuxClosePolicy = preferencesStore.get('tmux.closePolicy') ?? 'detach'
+  if (tmuxClosePolicy === 'ask') {
+    // preventDefault must be called synchronously — cannot await before this
+    event.preventDefault()
+    tmuxManager
+      .listSessions()
+      .catch(() => [])
+      .then(async (tmuxSessions) => {
+        if (tmuxSessions.length > 0) {
+          const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
+          if (focusedWin && !focusedWin.isDestroyed()) {
+            const { response } = await dialog.showMessageBox(focusedWin, {
+              type: 'question',
+              buttons: ['Keep Running', 'Kill Sessions', 'Cancel'],
+              defaultId: 0,
+              cancelId: 2,
+              title: 'Tmux Sessions',
+              message: `${tmuxSessions.length} tmux session(s) are running`,
+              detail: 'Keep them running in the background or kill them?',
+            })
+            if (response === 2) return // Cancel — app stays open
+            if (response === 1) {
+              await tmuxManager.killServer().catch(() => {})
+            }
+          }
+        }
+        windowManager.isQuitting = true
+        app.quit()
+      })
+    return
+  }
+
   const configs = windowManager.getAllWindowConfigs()
   if (configs.length > 0) {
     preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
   } else {
     preferencesStore.delete('openWindowConfigs')
+  }
+
+  if (tmuxClosePolicy === 'kill') {
+    tmuxManager.killServer().catch(() => {})
   }
 
   notchOverlay?.dispose()

@@ -13,6 +13,7 @@
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
   import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
+  import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
@@ -141,7 +142,7 @@
   // Subscribe to pty:exit push events
   $effect(() => {
     const unsubscribe = window.api.onPtyExit((data) => {
-      handlePtyExit(data.sessionId, data.exitCode)
+      handlePtyExit(data.sessionId, data.exitCode, data.tmuxSessionName)
     })
     return unsubscribe
   })
@@ -444,6 +445,8 @@
   <OnboardingWizard />
 {:else if dialogState.current.type === 'featureOnboarding'}
   <FeatureOnboarding fromVersion={dialogState.current.fromVersion} />
+{:else if dialogState.current.type === 'tmuxBrowser'}
+  <TmuxSessionBrowser />
 {/if}
 
 <Toast />

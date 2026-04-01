@@ -8,8 +8,10 @@
   import EditorPane from '../editor/EditorPane.svelte'
   import AgentInspector from '../agents/AgentInspector.svelte'
   import ExitBanner from './ExitBanner.svelte'
+  import DetachedOverlay from './DetachedOverlay.svelte'
   import WpmIndicator from './WpmIndicator.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
+  import { reattachTmuxPane, killTmuxPane } from '../../lib/stores/tabs.svelte'
 
   let {
     pane,
@@ -116,7 +118,13 @@
         {#if wpmEnabled}
           <WpmIndicator sessionId={pane.sessionId} />
         {/if}
-        {#if !pane.isRunning}
+        {#if !pane.isRunning && pane.detached && pane.tmuxSessionName}
+          <DetachedOverlay
+            tmuxSessionName={pane.tmuxSessionName}
+            onReattach={() => reattachTmuxPane(worktreePath, tabId, pane.id)}
+            onKill={() => killTmuxPane(worktreePath, tabId, pane.id)}
+          />
+        {:else if !pane.isRunning}
           <ExitBanner
             exitCode={pane.exitCode}
             onRestart={() => restartPane(worktreePath, tabId, pane.id)}

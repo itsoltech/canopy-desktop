@@ -8,12 +8,21 @@ interface ToolSpawnResult {
   wsUrl: string
   toolId: string
   toolName: string
+  tmuxSessionName?: string
 }
 
 interface PtyExitData {
   sessionId: string
   exitCode: number
   signal: number
+  tmuxSessionName?: string
+}
+
+interface TmuxSessionInfo {
+  name: string
+  created: number
+  attached: boolean
+  cwd: string
 }
 
 interface WorkspaceRow {
@@ -230,9 +239,22 @@ interface CanopyAPI {
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
-  killPty: (sessionId: string) => Promise<void>
+  killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   hasChildProcess: (sessionId: string) => Promise<boolean>
+
+  // Tmux
+  tmuxIsAvailable: () => Promise<boolean>
+  tmuxGetVersion: () => Promise<string | null>
+  tmuxListSessions: () => Promise<TmuxSessionInfo[]>
+  tmuxHasSession: (name: string) => Promise<boolean>
+  tmuxAttach: (
+    tmuxSessionName: string,
+    options?: { cols?: number; rows?: number },
+  ) => Promise<{ sessionId: string; wsUrl: string }>
+  tmuxDetach: (sessionId: string) => Promise<{ tmuxSessionName?: string }>
+  tmuxKillSession: (name: string) => Promise<void>
+  tmuxRenameSession: (oldName: string, newName: string) => Promise<void>
 
   // Workspaces
   listWorkspaces: (limit?: number) => Promise<WorkspaceRow[]>

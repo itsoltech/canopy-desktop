@@ -22,6 +22,7 @@
     showCreateWorktree,
     showPreferences,
     showAbout,
+    showTmuxBrowser,
   } from '../../lib/stores/dialogs.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
 
@@ -41,8 +42,14 @@
   let selectedIndex = $state(0)
   let inputEl: HTMLInputElement | undefined = $state()
 
+  let tmuxAvailable = $state(false)
+
   onMount(() => {
     inputEl?.focus()
+    window.api
+      .tmuxIsAvailable()
+      .then((v) => (tmuxAvailable = v))
+      .catch(() => {})
   })
 
   const isMac = navigator.userAgent.includes('Mac')
@@ -137,6 +144,16 @@
       category: 'App',
       action: () => showAbout(),
     })
+
+    if (tmuxAvailable) {
+      items.push({
+        id: 'tmux:sessions',
+        label: 'Tmux Sessions',
+        category: 'Terminal',
+        description: 'Browse and manage tmux sessions',
+        action: () => showTmuxBrowser(),
+      })
+    }
 
     items.push({
       id: 'app:open-folder',

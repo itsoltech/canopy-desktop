@@ -72,6 +72,10 @@ interface FeatureOnboardingState {
   fromVersion: string
 }
 
+interface TmuxBrowserState {
+  type: 'tmuxBrowser'
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -87,6 +91,7 @@ type DialogState =
   | ChangelogState
   | OnboardingWizardState
   | FeatureOnboardingState
+  | TmuxBrowserState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -163,6 +168,10 @@ export function showOnboardingWizard(): void {
 
 export function showFeatureOnboarding(fromVersion: string): void {
   dialogState.current = { type: 'featureOnboarding', fromVersion }
+}
+
+export function showTmuxBrowser(): void {
+  dialogState.current = { type: 'tmuxBrowser' }
 }
 
 export function closeDialog(): void {
