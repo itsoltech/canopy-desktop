@@ -256,11 +256,44 @@
   }
 
   // --- PR Template ---
-  let prTitleTemplate = $derived(prefs['taskTracker.prTitleTemplate'] || '[{taskKey}] {taskTitle}')
-  let prBodyTemplate = $derived(
-    prefs['taskTracker.prBodyTemplate'] || '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-  )
-  let prDefaultBranch = $derived(prefs['taskTracker.prDefaultBranch'] || 'develop')
+  let prScope = $state<TemplateScope>('global')
+
+  function prPrefKey(scope: TemplateScope): string {
+    return scope === 'global' ? 'taskTracker.pr' : `taskTracker.pr.${scope}`
+  }
+
+  interface PRConfig {
+    titleTemplate: string
+    bodyTemplate: string
+    defaultBranch: string
+  }
+
+  let prConfig = $derived.by((): PRConfig => {
+    const raw = prefs[prPrefKey(prScope)]
+    if (raw) {
+      try {
+        const c = JSON.parse(raw) as Partial<PRConfig>
+        return {
+          titleTemplate: c.titleTemplate || '[{taskKey}] {taskTitle}',
+          bodyTemplate: c.bodyTemplate || '## {taskKey}: {taskTitle}\n\n{taskUrl}',
+          defaultBranch: c.defaultBranch || 'develop',
+        }
+      } catch {
+        // fall through
+      }
+    }
+    // Fallback: old flat keys or defaults
+    return {
+      titleTemplate: prefs['taskTracker.prTitleTemplate'] || '[{taskKey}] {taskTitle}',
+      bodyTemplate: prefs['taskTracker.prBodyTemplate'] || '## {taskKey}: {taskTitle}\n\n{taskUrl}',
+      defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop',
+    }
+  })
+
+  function savePRConfig(field: keyof PRConfig, value: string): void {
+    const current = { ...prConfig, [field]: value }
+    setPref(prPrefKey(prScope), JSON.stringify(current))
+  }
 
   // --- Filters ---
   let assignedToMe = $derived(prefs['taskTracker.assignedToMe'] !== 'false')
@@ -731,14 +764,29 @@
 
 <div class="section">
   <h3 class="section-title">Pull Request Naming</h3>
-  <p class="section-desc">Configure PR title and target branch.</p>
+  <p class="section-desc">Configure per board, connection, or globally.</p>
+
+  <div class="form-row">
+    <label class="form-label">Scope</label>
+    <select class="form-select" bind:value={prScope}>
+      <option value="global">Global (default)</option>
+      {#each connections as conn (conn.id)}
+        <optgroup label={conn.name}>
+          <option value={conn.id}>All boards</option>
+          {#each scopeBoards[conn.id] ?? [] as board (board.id)}
+            <option value="{conn.id}.{board.id}">{board.name}</option>
+          {/each}
+        </optgroup>
+      {/each}
+    </select>
+  </div>
 
   <div class="form-row">
     <label class="form-label">Title Template</label>
     <input
       class="form-input"
-      value={prTitleTemplate}
-      oninput={(e) => setPref('taskTracker.prTitleTemplate', (e.target as HTMLInputElement).value)}
+      value={prConfig.titleTemplate}
+      oninput={(e) => savePRConfig('titleTemplate', (e.target as HTMLInputElement).value)}
       placeholder={'[{taskKey}] {taskTitle}'}
     />
   </div>
@@ -746,9 +794,8 @@
     <label class="form-label">Body Template</label>
     <textarea
       class="form-textarea"
-      value={prBodyTemplate}
-      oninput={(e) =>
-        setPref('taskTracker.prBodyTemplate', (e.target as HTMLTextAreaElement).value)}
+      value={prConfig.bodyTemplate}
+      oninput={(e) => savePRConfig('bodyTemplate', (e.target as HTMLTextAreaElement).value)}
       placeholder={'## {taskKey}: {taskTitle}'}
       rows="3"
     ></textarea>
@@ -757,8 +804,8 @@
     <label class="form-label">Default Target Branch</label>
     <input
       class="form-input"
-      value={prDefaultBranch}
-      oninput={(e) => setPref('taskTracker.prDefaultBranch', (e.target as HTMLInputElement).value)}
+      value={prConfig.defaultBranch}
+      oninput={(e) => savePRConfig('defaultBranch', (e.target as HTMLInputElement).value)}
       placeholder="develop"
     />
   </div>

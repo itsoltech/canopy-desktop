@@ -557,8 +557,20 @@ const api = {
     ipcRenderer.invoke('taskTracker:validateTemplate', { template }),
   taskTrackerFindTaskByKey: (taskKey: string) =>
     ipcRenderer.invoke('taskTracker:findTaskByKey', { taskKey }),
-  taskTrackerCreatePR: (repoRoot: string, task: Record<string, unknown>, sourceBranch: string) =>
-    ipcRenderer.invoke('taskTracker:createPR', { repoRoot, task, sourceBranch }),
+  taskTrackerCreatePR: (
+    repoRoot: string,
+    task: Record<string, unknown>,
+    sourceBranch: string,
+    connectionId?: string,
+    boardId?: string,
+  ) =>
+    ipcRenderer.invoke('taskTracker:createPR', {
+      repoRoot,
+      task,
+      sourceBranch,
+      connectionId,
+      boardId,
+    }),
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

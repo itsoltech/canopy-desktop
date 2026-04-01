@@ -972,6 +972,8 @@ export function registerIpcHandlers(
         repoRoot: string
         task: TrackerTask
         sourceBranch: string
+        connectionId?: string
+        boardId?: string
       },
     ) => {
       let task = payload.task
@@ -980,20 +982,41 @@ export function registerIpcHandlers(
         if (found) task = found
       }
 
-      const titleTemplate =
-        preferencesStore.get('taskTracker.prTitleTemplate') || '[{taskKey}] {taskTitle}'
-      const bodyTemplate =
-        preferencesStore.get('taskTracker.prBodyTemplate') ||
-        '## {taskKey}: {taskTitle}\n\n{taskUrl}'
-      const defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || 'develop'
-      const targetRulesJson = preferencesStore.get('taskTracker.prTargetRules')
+      // Resolve PR config: board → connection → global
+      let titleTemplate = '[{taskKey}] {taskTitle}'
+      let bodyTemplate = '## {taskKey}: {taskTitle}\n\n{taskUrl}'
+      let defaultBranch = 'develop'
       let targetRules: Array<{ taskType: string; targetPattern: string }> = []
-      if (targetRulesJson) {
-        try {
-          targetRules = JSON.parse(targetRulesJson)
-        } catch {
-          // use empty
+
+      const prKeys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `taskTracker.pr.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.pr.${payload.connectionId}`,
+        'taskTracker.pr',
+      ].filter(Boolean) as string[]
+
+      for (const key of prKeys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.titleTemplate) titleTemplate = config.titleTemplate
+            if (config.bodyTemplate) bodyTemplate = config.bodyTemplate
+            if (config.defaultBranch) defaultBranch = config.defaultBranch
+            if (config.targetRules) targetRules = config.targetRules
+            break
+          } catch {
+            // try next level
+          }
         }
+      }
+
+      // Fallback: read old flat keys if no scoped config found
+      if (!prKeys.some((k) => preferencesStore.get(k))) {
+        titleTemplate = preferencesStore.get('taskTracker.prTitleTemplate') || titleTemplate
+        bodyTemplate = preferencesStore.get('taskTracker.prBodyTemplate') || bodyTemplate
+        defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
       }
 
       const branches = await GitRepository.listBranches(payload.repoRoot)

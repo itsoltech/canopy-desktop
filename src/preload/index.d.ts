@@ -464,6 +464,8 @@ interface CanopyAPI {
     repoRoot: string,
     task: TrackerTask,
     sourceBranch: string,
+    connectionId?: string,
+    boardId?: string,
   ) => Promise<{ url: string; title: string; targetBranch: string }>
 
   // File utilities
