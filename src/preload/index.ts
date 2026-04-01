@@ -285,6 +285,14 @@ const api = {
     }
   },
 
+  onBrowserDevToolsOpened: (callback: (data: { browserId: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string }): void => callback(data)
+    ipcRenderer.on('browser:devToolsOpened', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:devToolsOpened', handler)
+    }
+  },
+
   onBrowserFocused: (callback: (data: { browserId: string }) => void) => {
     const handler = (_event: IpcRendererEvent, data: { browserId: string }): void => callback(data)
     ipcRenderer.on('browser:focused', handler)

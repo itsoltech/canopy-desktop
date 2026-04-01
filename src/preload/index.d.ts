@@ -367,6 +367,7 @@ interface CanopyAPI {
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,
   ) => () => void
+  onBrowserDevToolsOpened: (callback: (data: { browserId: string }) => void) => () => void
   onBrowserFocused: (callback: (data: { browserId: string }) => void) => () => void
 
   // Worktree Setup
