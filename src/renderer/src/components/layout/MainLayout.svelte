@@ -208,6 +208,15 @@
     return unsubscribe
   })
 
+  // Notify browser panes when app-level overlays open/close so they can hide
+  // DevTools WebContentsView (native layer that paints above DOM modals)
+  $effect(() => {
+    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
+    window.dispatchEvent(
+      new CustomEvent('canopy:app-overlay', { detail: { open: anyOverlayOpen } }),
+    )
+  })
+
   // Restore last active worktree after all projects are attached
   $effect(() => {
     const unsubscribe = window.api.onRestoreActiveWorktree(async (path) => {
