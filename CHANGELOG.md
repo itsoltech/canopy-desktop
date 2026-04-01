@@ -1,3 +1,13 @@
+## [0.8.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.4...v0.8.0-next.5) (2026-04-01)
+
+### Features
+
+* custom tool editing and live refresh ([#65](https://github.com/itsoltech/canopy-desktop/issues/65)) ([2019720](https://github.com/itsoltech/canopy-desktop/commit/201972076470244745dfcf73ddb86ebb46abe492))
+
+### Bug Fixes
+
+* **browser:** hide devtools for overlays and unify inspect element flow ([#63](https://github.com/itsoltech/canopy-desktop/issues/63)) ([78d3a49](https://github.com/itsoltech/canopy-desktop/commit/78d3a49a41bd89e21c0b764146c17c3ed0080f36))
+
 ## [0.8.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.3...v0.8.0-next.4) (2026-04-01)
 
 ### Bug Fixes
