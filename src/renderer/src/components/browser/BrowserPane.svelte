@@ -550,20 +550,7 @@
   function handleSwitchDevToolsMode(): void {
     devtoolsMode = devtoolsMode === 'bottom' ? 'left' : 'bottom'
     updateDevToolsState(true)
-    // Force bounds update after layout reflow
-    requestAnimationFrame(() => {
-      if (devtoolsPlaceholder) {
-        const rect = devtoolsPlaceholder.getBoundingClientRect()
-        if (rect.width > 0 && rect.height > 0) {
-          window.api.setBrowserDevToolsBounds(browserId, {
-            x: Math.round(rect.x),
-            y: Math.round(rect.y),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-          })
-        }
-      }
-    })
+    requestAnimationFrame(() => sendDevToolsBounds())
   }
 
   function updateDevToolsState(isOpen: boolean): void {
@@ -615,27 +602,42 @@
     dividerDragging = false
   }
 
+  // DevTools should be hidden when tab is inactive or a modal overlay is open
+  let devtoolsVisible = $derived(
+    devtoolsOpen && active && !showPicker && !savePrompt && !favModalOpen,
+  )
+
+  function sendDevToolsBounds(): void {
+    if (!devtoolsPlaceholder || !devtoolsVisible) return
+    const rect = devtoolsPlaceholder.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+    window.api.setBrowserDevToolsBounds(browserId, {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    })
+  }
+
   // Track devtools placeholder bounds and send to main process
   $effect(() => {
     if (!devtoolsOpen || !devtoolsPlaceholder) return
-
-    function sendDevToolsBounds(): void {
-      if (!devtoolsPlaceholder) return
-      const rect = devtoolsPlaceholder.getBoundingClientRect()
-      if (rect.width <= 0 || rect.height <= 0) return
-      window.api.setBrowserDevToolsBounds(browserId, {
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      })
-    }
 
     const observer = new ResizeObserver(() => sendDevToolsBounds())
     observer.observe(devtoolsPlaceholder)
     sendDevToolsBounds()
 
     return () => observer.disconnect()
+  })
+
+  // Hide/show DevTools native view when tab becomes inactive/active or modal opens
+  $effect(() => {
+    if (devtoolsVisible) {
+      sendDevToolsBounds()
+    } else if (devtoolsOpen) {
+      // Hide the native view but keep DevTools alive
+      window.api.setBrowserDevToolsBounds(browserId, { x: 0, y: 0, width: 0, height: 0 })
+    }
   })
 
   // --- Capture ---
