@@ -1088,6 +1088,54 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(
+    'taskTracker:resolvePRPreview',
+    async (_event, payload: { taskKey: string; connectionId?: string; boardId?: string }) => {
+      let task: TrackerTask | null = null
+      if (payload.taskKey) {
+        task = await taskTrackerManager.findTaskByKey(payload.taskKey).catch(() => null)
+      }
+
+      let titleTemplate = '[{taskKey}] {taskTitle}'
+      let defaultBranch = 'develop'
+
+      const prKeys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `taskTracker.pr.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.pr.${payload.connectionId}`,
+        'taskTracker.pr',
+      ].filter(Boolean) as string[]
+
+      for (const key of prKeys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.titleTemplate) titleTemplate = config.titleTemplate
+            if (config.defaultBranch) defaultBranch = config.defaultBranch
+            break
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      if (!prKeys.some((k) => preferencesStore.get(k))) {
+        titleTemplate = preferencesStore.get('taskTracker.prTitleTemplate') || titleTemplate
+        defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
+      }
+
+      const title = titleTemplate
+        .replace(/\{taskKey\}/g, task?.key ?? payload.taskKey)
+        .replace(/\{taskTitle\}/g, task?.summary ?? '')
+        .replace(/\{taskType\}/g, task?.type ?? '')
+        .replace(/\{boardKey\}/g, (task?.key ?? payload.taskKey).split('-')[0] ?? '')
+
+      return { title, targetBranch: defaultBranch }
+    },
+  )
+
+  ipcMain.handle(
     'taskTracker:createPR',
     async (
       _event,

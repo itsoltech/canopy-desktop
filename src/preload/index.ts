@@ -546,6 +546,12 @@ const api = {
     ipcRenderer.invoke('taskTracker:validateTemplate', { template }),
   taskTrackerFindTaskByKey: (taskKey: string) =>
     ipcRenderer.invoke('taskTracker:findTaskByKey', { taskKey }),
+  taskTrackerResolvePRPreview: (taskKey: string, connectionId?: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:resolvePRPreview', {
+      taskKey,
+      connectionId,
+      boardId,
+    }) as Promise<{ title: string; targetBranch: string }>,
   taskTrackerCreatePR: (
     repoRoot: string,
     task: Record<string, unknown>,

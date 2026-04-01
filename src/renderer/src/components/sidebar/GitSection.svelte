@@ -127,41 +127,16 @@
     const taskKey = taskKeyFromBranch
     loading = 'pr'
 
-    // Fetch task data for PR title preview
-    let task: {
-      key: string
-      summary: string
-      description: string
-      status: string
-      priority: string
-      type: string
-    } = {
-      key: taskKey ?? '',
-      summary: '',
-      description: '',
-      status: '',
-      priority: '',
-      type: 'task',
+    // Resolve PR title and target using scoped config (board → connection → global)
+    let prTitle = taskKey ? `[${taskKey}]` : branch
+    let defaultTarget = 'develop'
+    try {
+      const preview = await window.api.taskTrackerResolvePRPreview(taskKey ?? '')
+      prTitle = preview.title
+      defaultTarget = preview.targetBranch
+    } catch {
+      // use defaults
     }
-
-    if (taskKey) {
-      try {
-        const found = await window.api.taskTrackerFindTaskByKey(taskKey)
-        if (found) task = found
-      } catch {
-        // use empty task
-      }
-    }
-
-    const titleTemplate =
-      (await window.api.getPref('taskTracker.prTitleTemplate')) || '[{taskKey}] {taskTitle}'
-    const defaultTarget = (await window.api.getPref('taskTracker.prDefaultBranch')) || 'develop'
-
-    const prTitle = titleTemplate
-      .replace(/\{taskKey\}/g, task.key)
-      .replace(/\{taskTitle\}/g, task.summary)
-      .replace(/\{taskType\}/g, task.type)
-      .replace(/\{boardKey\}/g, task.key.split('-')[0] ?? '')
 
     loading = null
 
@@ -175,7 +150,18 @@
 
     loading = 'pr'
     try {
-      const result = await window.api.taskTrackerCreatePR(worktreePath(), task, branch)
+      const result = await window.api.taskTrackerCreatePR(
+        worktreePath(),
+        {
+          key: taskKey ?? '',
+          summary: '',
+          description: '',
+          status: '',
+          priority: '',
+          type: 'task',
+        },
+        branch,
+      )
       addToast(`PR created`)
       window.api.openExternal(result.url)
     } catch (err) {

@@ -482,6 +482,11 @@ interface CanopyAPI {
   ) => Promise<Array<{ key: string; description: string; example: string }>>
   taskTrackerValidateTemplate: (template: string) => Promise<{ valid: boolean; errors: string[] }>
   taskTrackerFindTaskByKey: (taskKey: string) => Promise<TrackerTask | null>
+  taskTrackerResolvePRPreview: (
+    taskKey: string,
+    connectionId?: string,
+    boardId?: string,
+  ) => Promise<{ title: string; targetBranch: string }>
   taskTrackerCreatePR: (
     repoRoot: string,
     task: TrackerTask,
