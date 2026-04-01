@@ -106,7 +106,17 @@
   <div class="tool-list">
     {#each getTools() as tool (tool.id)}
       {#if editingId === tool.id}
-        <div class="edit-form">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="edit-form"
+          onkeydown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              saveEdit()
+            }
+            if (e.key === 'Escape') cancelEdit()
+          }}
+        >
           <div class="edit-form-header">
             <span class="edit-id-label">ID: {tool.id}</span>
           </div>
@@ -150,7 +160,17 @@
   </div>
 
   {#if showForm}
-    <div class="add-form">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="add-form"
+      onkeydown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          addTool()
+        }
+        if (e.key === 'Escape') showForm = false
+      }}
+    >
       <input class="form-input" bind:value={newId} placeholder="ID (e.g. my-tool)" />
       <input class="form-input" bind:value={newName} placeholder="Display name" />
       <input class="form-input" bind:value={newCommand} placeholder="Command (binary name)" />
