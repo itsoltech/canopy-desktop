@@ -817,7 +817,15 @@ export function registerIpcHandlers(
   // --- Task Tracker ---
 
   ipcMain.handle('taskTracker:getConnections', () => {
-    return taskTrackerManager.getConnections()
+    return taskTrackerManager.getConnections().map((c) => ({
+      id: c.id,
+      provider: c.provider,
+      name: c.name,
+      baseUrl: c.baseUrl,
+      projectKey: c.projectKey,
+      boardId: c.boardId,
+      username: c.username,
+    }))
   })
 
   ipcMain.handle(

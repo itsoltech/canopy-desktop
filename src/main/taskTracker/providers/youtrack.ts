@@ -36,7 +36,10 @@ async function ytFetch<T>(
   path: string,
 ): Promise<T> {
   const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
-  const res = await fetch(url, { headers: buildHeaders(token) })
+  const res = await fetch(url, {
+    headers: buildHeaders(token),
+    signal: AbortSignal.timeout(15_000),
+  })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`YouTrack API error ${res.status}: ${body || res.statusText}`)

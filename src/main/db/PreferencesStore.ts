@@ -50,14 +50,8 @@ export class PreferencesStore {
     }[]
     const result: Record<string, string> = {}
     for (const row of rows) {
-      if (isEncryptedKey(row.key) && safeStorage.isEncryptionAvailable()) {
-        try {
-          result[row.key] = safeStorage.decryptString(Buffer.from(row.value, 'base64'))
-          continue
-        } catch {
-          // Fallback: unencrypted legacy value
-        }
-      }
+      if (isEncryptedKey(row.key)) continue
+
       result[row.key] = row.value
     }
     return result

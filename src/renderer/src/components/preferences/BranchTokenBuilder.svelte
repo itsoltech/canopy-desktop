@@ -208,7 +208,7 @@
   <label class="form-label">{label}</label>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="token-track" ondragover={onTrackDragOver} ondrop={onTrackDrop}>
-    {#each templateTokens as token, i (i)}
+    {#each templateTokens as token, i (`${token.type}:${token.value}:${i}`)}
       {#if token.type === 'placeholder'}
         <span
           class="token placeholder"

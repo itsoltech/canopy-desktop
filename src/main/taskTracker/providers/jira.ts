@@ -46,7 +46,10 @@ async function jiraFetch<T>(
   path: string,
 ): Promise<T> {
   const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
-  const res = await fetch(url, { headers: buildAuthHeaders(connection, token) })
+  const res = await fetch(url, {
+    headers: buildAuthHeaders(connection, token),
+    signal: AbortSignal.timeout(15_000),
+  })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`Jira API error ${res.status}: ${body || res.statusText}`)
@@ -196,7 +199,7 @@ export const jiraClient: TaskTrackerProviderClient = {
       const data = await jiraFetch<{ issues: JiraTask[] }>(
         connection,
         token,
-        `/rest/agile/1.0/board/${resolvedBoardId}/issue?fields=${fields}&maxResults=200${jqlParam}`,
+        `/rest/agile/1.0/board/${encodeURIComponent(resolvedBoardId)}/issue?fields=${fields}&maxResults=200${jqlParam}`,
       )
       const allTasks = data.issues
 
@@ -205,7 +208,7 @@ export const jiraClient: TaskTrackerProviderClient = {
 
     // No board — fallback to JQL search for assigned tasks
     const jqlParts: string[] = []
-    if (connection.projectKey) {
+    if (connection.projectKey && /^[A-Za-z0-9_-]+$/.test(connection.projectKey)) {
       jqlParts.push(`project = "${connection.projectKey}"`)
     }
     jqlParts.push('assignee = currentUser()')

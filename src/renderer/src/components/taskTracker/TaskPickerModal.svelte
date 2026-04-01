@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { Search, X, Loader2, Send, Filter } from '@lucide/svelte'
+  import { Search, X, Loader2, Copy, Filter } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { setPref, prefs } from '../../lib/stores/preferences.svelte'
-  import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import BranchCreateForm from './BranchCreateForm.svelte'
 
@@ -226,12 +226,11 @@
     selectedTask = null
   }
 
-  function sendToTerminal(task: Task, e: MouseEvent): void {
+  function copyTaskToClipboard(task: Task, e: MouseEvent): void {
     e.stopPropagation()
-    const sessionId = getActivePtySessionId()
-    if (!sessionId) return
-    const text = `Task: ${task.key} - ${task.summary}\n\n${task.description || '(no description)'}`
-    window.api.writePty(sessionId, text)
+    const text = `${task.key}: ${task.summary}\n\n${task.description || ''}`
+    navigator.clipboard.writeText(text.trim())
+    addToast('Copied to clipboard')
     closeDialog()
   }
 
@@ -366,11 +365,11 @@
                 class="send-btn"
                 onclick={(e) => {
                   e.stopPropagation()
-                  sendToTerminal(task, e)
+                  copyTaskToClipboard(task, e)
                 }}
-                title="Send to active terminal"
+                title="Copy to clipboard"
               >
-                <Send size={12} />
+                <Copy size={12} />
               </button>
             </div>
           {/each}
