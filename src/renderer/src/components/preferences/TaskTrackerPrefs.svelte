@@ -214,10 +214,7 @@
   <h3 class="section-title">Task Filters</h3>
   <p class="section-desc">Configure which tasks to fetch from the tracker.</p>
 
-  <label
-    class="checkbox-row"
-    onclick={() => setPref('taskTracker.assignedToMe', assignedToMe ? 'false' : 'true')}
-  >
+  <label class="checkbox-row">
     <CustomCheckbox
       checked={assignedToMe}
       onchange={() => setPref('taskTracker.assignedToMe', assignedToMe ? 'false' : 'true')}
@@ -238,7 +235,7 @@
   </h4>
   {#if availableStatuses.length > 0}
     {#each availableStatuses as status (status)}
-      <label class="checkbox-row" onclick={() => toggleStatus(status)}>
+      <label class="checkbox-row">
         <CustomCheckbox
           checked={filterStatuses.includes(status)}
           onchange={() => toggleStatus(status)}

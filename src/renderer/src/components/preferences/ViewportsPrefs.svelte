@@ -165,7 +165,7 @@
         <span class="form-label">Scale</span>
         <input class="form-input scale" type="number" bind:value={newScale} min="0.5" step="0.5" />
       </div>
-      <label class="checkbox-row" onclick={() => (newMobile = !newMobile)}>
+      <label class="checkbox-row">
         <CustomCheckbox checked={newMobile} onchange={(v) => (newMobile = v)} />
         <span>Mobile device</span>
       </label>

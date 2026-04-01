@@ -54,7 +54,7 @@
     {#each config as item, i (item.id)}
       {@const def = SECTION_DEFS.find((d) => d.id === item.id)}
       <div class="section-row">
-        <label class="checkbox-row" onclick={() => toggleVisibility(i)}>
+        <label class="checkbox-row">
           <CustomCheckbox
             checked={item.visible}
             disabled={def?.forced}

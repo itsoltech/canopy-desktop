@@ -61,7 +61,7 @@
 <div class="section">
   <h3 class="section-title">Updates</h3>
 
-  <label class="checkbox-row" onclick={toggleAutoUpdate}>
+  <label class="checkbox-row">
     <CustomCheckbox checked={autoUpdate} onchange={toggleAutoUpdate} />
     <span>Automatically download and install updates</span>
   </label>

@@ -33,17 +33,17 @@
 <div class="section">
   <h3 class="section-title">General</h3>
 
-  <label class="checkbox-row" onclick={toggleReopen}>
+  <label class="checkbox-row">
     <CustomCheckbox checked={reopenLast} onchange={toggleReopen} />
     <span>Reopen last workspace on startup</span>
   </label>
 
-  <label class="checkbox-row" onclick={toggleNotch}>
+  <label class="checkbox-row">
     <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
     <span>Show session status in notch overlay</span>
   </label>
 
-  <label class="checkbox-row" onclick={toggleWpm}>
+  <label class="checkbox-row">
     <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
     <span>Show typing speed (WPM) in terminals</span>
   </label>

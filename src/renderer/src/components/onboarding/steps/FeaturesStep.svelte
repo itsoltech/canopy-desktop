@@ -24,7 +24,7 @@
   <p class="description">Toggle the features you want. All of these can be changed later.</p>
 
   <div class="toggles">
-    <label class="toggle-row" onclick={() => toggle('reopenLastWorkspace', reopenLast)}>
+    <label class="toggle-row">
       <CustomCheckbox
         checked={reopenLast}
         onchange={() => toggle('reopenLastWorkspace', reopenLast)}
@@ -36,7 +36,7 @@
     </label>
 
     {#if isMac}
-      <label class="toggle-row" onclick={toggleNotch}>
+      <label class="toggle-row">
         <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
         <div class="toggle-info">
           <span class="toggle-label">Notch overlay</span>
@@ -45,7 +45,7 @@
       </label>
     {/if}
 
-    <label class="toggle-row" onclick={() => toggle('wpm.enabled', wpmEnabled)}>
+    <label class="toggle-row">
       <CustomCheckbox checked={wpmEnabled} onchange={() => toggle('wpm.enabled', wpmEnabled)} />
       <div class="toggle-info">
         <span class="toggle-label">Typing speed (WPM)</span>

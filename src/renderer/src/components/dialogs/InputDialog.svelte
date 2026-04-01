@@ -124,7 +124,7 @@
     {/if}
 
     {#if checkbox}
-      <label class="dialog-checkbox" onclick={() => (checked = !checked)}>
+      <label class="dialog-checkbox">
         <CustomCheckbox {checked} onchange={(v) => (checked = v)} />
         <span>{checkbox.label}</span>
       </label>
