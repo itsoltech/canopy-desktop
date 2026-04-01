@@ -59,6 +59,7 @@
   let devtoolsRatio = $state(0.6) // browser gets 60%, devtools gets 40%
   let dividerDragging = $state(false)
   let activeDevice: string | null = $state(null)
+  let appOverlayOpen = $state(false)
   let wrapperEl: HTMLDivElement | undefined = $state()
   let wrapperSize = $state({ w: 0, h: 0 })
 
@@ -550,20 +551,7 @@
   function handleSwitchDevToolsMode(): void {
     devtoolsMode = devtoolsMode === 'bottom' ? 'left' : 'bottom'
     updateDevToolsState(true)
-    // Force bounds update after layout reflow
-    requestAnimationFrame(() => {
-      if (devtoolsPlaceholder) {
-        const rect = devtoolsPlaceholder.getBoundingClientRect()
-        if (rect.width > 0 && rect.height > 0) {
-          window.api.setBrowserDevToolsBounds(browserId, {
-            x: Math.round(rect.x),
-            y: Math.round(rect.y),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-          })
-        }
-      }
-    })
+    requestAnimationFrame(() => sendDevToolsBounds())
   }
 
   function updateDevToolsState(isOpen: boolean): void {
@@ -615,27 +603,49 @@
     dividerDragging = false
   }
 
+  // DevTools should be hidden when tab is inactive or a modal overlay is open
+  let devtoolsVisible = $derived(
+    devtoolsOpen &&
+      active &&
+      !showPicker &&
+      !savePrompt &&
+      !favModalOpen &&
+      !starDropdownOpen &&
+      !favCtxMenu &&
+      !appOverlayOpen,
+  )
+
+  function sendDevToolsBounds(): void {
+    if (!devtoolsPlaceholder || !devtoolsVisible) return
+    const rect = devtoolsPlaceholder.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+    window.api.setBrowserDevToolsBounds(browserId, {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    })
+  }
+
   // Track devtools placeholder bounds and send to main process
   $effect(() => {
     if (!devtoolsOpen || !devtoolsPlaceholder) return
-
-    function sendDevToolsBounds(): void {
-      if (!devtoolsPlaceholder) return
-      const rect = devtoolsPlaceholder.getBoundingClientRect()
-      if (rect.width <= 0 || rect.height <= 0) return
-      window.api.setBrowserDevToolsBounds(browserId, {
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      })
-    }
 
     const observer = new ResizeObserver(() => sendDevToolsBounds())
     observer.observe(devtoolsPlaceholder)
     sendDevToolsBounds()
 
     return () => observer.disconnect()
+  })
+
+  // Hide/show DevTools native view when tab becomes inactive/active or modal opens
+  $effect(() => {
+    if (devtoolsVisible) {
+      sendDevToolsBounds()
+    } else if (devtoolsOpen) {
+      // Hide the native view but keep DevTools alive
+      window.api.setBrowserDevToolsBounds(browserId, { x: 0, y: 0, width: 0, height: 0 })
+    }
   })
 
   // --- Capture ---
@@ -816,11 +826,24 @@
           onFocus?.()
         }
       }),
+      window.api.onBrowserDevToolsOpened((data) => {
+        if (data.browserId === browserId && !devtoolsOpen) {
+          devtoolsOpen = true
+          updateDevToolsState(true)
+        }
+      }),
     ]
+
+    // Listen for app-level overlays (Preferences, Command Palette, etc.)
+    const onAppOverlay = (e: Event): void => {
+      appOverlayOpen = (e as CustomEvent<{ open: boolean }>).detail.open
+    }
+    window.addEventListener('canopy:app-overlay', onAppOverlay)
 
     return () => {
       alive = false
       unsubs.forEach((fn) => fn())
+      window.removeEventListener('canopy:app-overlay', onAppOverlay)
       if (devtoolsOpen) {
         window.api.closeBrowserDevTools(browserId).catch(() => {})
       }

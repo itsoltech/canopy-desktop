@@ -1,3 +1,12 @@
+## [0.8.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.3...v0.8.0-next.4) (2026-04-01)
+
+### Bug Fixes
+
+* **browser:** hide devtools view when tab inactive or modal open ([#62](https://github.com/itsoltech/canopy-desktop/issues/62)) ([e5cc762](https://github.com/itsoltech/canopy-desktop/commit/e5cc7626ed984b8588ee97622a89a7d83a0f0a2e))
+* **ci:** add ANTHROPIC_AUTH_TOKEN env var to all Claude workflows ([0cd9527](https://github.com/itsoltech/canopy-desktop/commit/0cd9527f5220af3e79ebab67b8792e41e93baf87))
+* **notch:** enable notch overlay and hook scripts on Windows ([#60](https://github.com/itsoltech/canopy-desktop/issues/60)) ([072bc78](https://github.com/itsoltech/canopy-desktop/commit/072bc78cb147b0e1f9568eee962f20534b748cb1))
+* **terminal:** match container background with terminal theme ([6bf60ad](https://github.com/itsoltech/canopy-desktop/commit/6bf60adec8e167785ae8d52f6b2a9e9d1f752c44))
+
 ## [0.8.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.2...v0.8.0-next.3) (2026-03-31)
 
 ### Features

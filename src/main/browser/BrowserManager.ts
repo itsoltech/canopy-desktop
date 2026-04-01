@@ -220,6 +220,7 @@ export class BrowserManager {
         {
           label: 'Inspect Element',
           click: () => {
+            this.openDevTools(browserId)
             wc.inspectElement(params.x, params.y)
           },
         },
@@ -273,6 +274,8 @@ export class BrowserManager {
       devView.setBounds({ x: 0, y: 0, width: 0, height: 0 })
       browserWc.openDevTools({ mode: 'detach' })
     }
+    // Notify renderer so it shows the DevTools placeholder
+    this.sendToRenderer(browserId, 'browser:devToolsOpened', { browserId })
     // Bounds will be set by renderer via setDevToolsBounds
   }
 

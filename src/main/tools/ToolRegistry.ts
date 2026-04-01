@@ -17,6 +17,12 @@ export class ToolRegistry {
     return this.database.db
   }
 
+  private validateId(id: string): void {
+    if (!id || /[/\\]|\.\.|\0/.test(id)) {
+      throw new Error('Invalid tool ID: contains path separators or traversal characters')
+    }
+  }
+
   private reload(): void {
     this.tools.clear()
     const rows = this.db.prepare('SELECT * FROM tool_definitions').all() as ToolDefinitionRow[]
@@ -45,6 +51,7 @@ export class ToolRegistry {
     icon?: string
     category?: string
   }): void {
+    this.validateId(tool.id)
     if (!tool.command.trim()) {
       throw new Error('Command cannot be empty')
     }
@@ -76,7 +83,69 @@ export class ToolRegistry {
   }
 
   removeCustom(id: string): void {
+    this.validateId(id)
     this.db.prepare('DELETE FROM tool_definitions WHERE id = ? AND is_custom = 1').run(id)
+    this.reload()
+  }
+
+  updateCustom(
+    id: string,
+    changes: {
+      name?: string
+      command?: string
+      args?: string[]
+      icon?: string
+      category?: string
+    },
+  ): void {
+    this.validateId(id)
+    const existing = this.tools.get(id)
+    if (!existing || !existing.isCustom) {
+      throw new Error(`Custom tool not found: ${id}`)
+    }
+    if (changes.command !== undefined) {
+      if (!changes.command.trim()) {
+        throw new Error('Command cannot be empty')
+      }
+      if (/[/\\;|&$`<>%^!()"]/.test(changes.command)) {
+        throw new Error(
+          'Invalid command: must be a simple binary name without path separators or shell metacharacters',
+        )
+      }
+    }
+    const SHELL_META = /[;|&$`<>%^!()\\"]/
+    if (changes.args?.some((arg) => SHELL_META.test(arg))) {
+      throw new Error('Invalid args: contain shell metacharacters')
+    }
+    const setClauses: string[] = []
+    const values: unknown[] = []
+    if (changes.name !== undefined) {
+      setClauses.push('name = ?')
+      values.push(changes.name)
+    }
+    if (changes.command !== undefined) {
+      setClauses.push('command = ?')
+      values.push(changes.command)
+    }
+    if (changes.args !== undefined) {
+      setClauses.push('args_json = ?')
+      values.push(JSON.stringify(changes.args))
+    }
+    if (changes.icon !== undefined) {
+      setClauses.push('icon = ?')
+      values.push(changes.icon)
+    }
+    if (changes.category !== undefined) {
+      setClauses.push('category = ?')
+      values.push(changes.category)
+    }
+    if (setClauses.length === 0) return
+    values.push(id)
+    this.db
+      .prepare(
+        `UPDATE tool_definitions SET ${setClauses.join(', ')} WHERE id = ? AND is_custom = 1`,
+      )
+      .run(...values)
     this.reload()
   }
 

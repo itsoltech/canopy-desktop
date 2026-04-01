@@ -24,6 +24,7 @@
     showAbout,
     showTmuxBrowser,
   } from '../../lib/stores/dialogs.svelte'
+  import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -41,20 +42,14 @@
   let selectedIndex = $state(0)
   let inputEl: HTMLInputElement | undefined = $state()
 
-  let tools: { id: string; name: string; category: string }[] = $state([])
-  let availability: Record<string, boolean> = $state({})
   let tmuxAvailable = $state(false)
 
-  onMount(async () => {
+  onMount(() => {
     inputEl?.focus()
-    const [toolList, avail, tmuxAvail] = await Promise.all([
-      window.api.listTools(),
-      window.api.checkToolAvailability(),
-      window.api.tmuxIsAvailable().catch(() => false),
-    ])
-    tools = toolList
-    availability = avail
-    tmuxAvailable = tmuxAvail
+    window.api
+      .tmuxIsAvailable()
+      .then((v) => (tmuxAvailable = v))
+      .catch(() => {})
   })
 
   const isMac = navigator.userAgent.includes('Mac')
@@ -66,8 +61,8 @@
     const path = workspaceState.selectedWorktreePath
 
     // --- Tools ---
-    for (const tool of tools) {
-      const available = availability[tool.id] !== false
+    for (const tool of getTools()) {
+      const available = getToolAvailability()[tool.id] !== false
       items.push({
         id: `tool:${tool.id}`,
         label: `Launch ${tool.name}`,

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import SplitPaneContainer from '../terminal/SplitPaneContainer.svelte'
   import TabBar from '../terminal/TabBar.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
@@ -64,6 +65,14 @@
     clearWorktreeBadge,
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
+  import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
+
+  onMount(() => {
+    initToolStore()
+    return () => {
+      destroyToolStore()
+    }
+  })
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
@@ -198,6 +207,15 @@
       }
     })
     return unsubscribe
+  })
+
+  // Notify browser panes when app-level overlays open/close so they can hide
+  // DevTools WebContentsView (native layer that paints above DOM modals)
+  $effect(() => {
+    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
+    window.dispatchEvent(
+      new CustomEvent('canopy:app-overlay', { detail: { open: anyOverlayOpen } }),
+    )
   })
 
   // Restore last active worktree after all projects are attached

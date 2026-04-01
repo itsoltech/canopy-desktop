@@ -1,30 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getRunningCountByTool } from '../../lib/stores/tabs.svelte'
+  import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
   let { onLaunchTool }: { onLaunchTool: (toolId: string) => void } = $props()
-
-  interface ToolDef {
-    id: string
-    name: string
-    icon: string
-    category: string
-  }
-
-  let tools: ToolDef[] = $state([])
-  let availability: Record<string, boolean> = $state({})
-
-  onMount(async () => {
-    const [toolList, avail] = await Promise.all([
-      window.api.listTools(),
-      window.api.checkToolAvailability(),
-    ])
-    tools = toolList
-    availability = avail
-  })
 
   function runningCount(toolId: string): number {
     const path = workspaceState.selectedWorktreePath
@@ -35,15 +16,16 @@
 
 <CollapsibleSection title="TOOLS" sectionKey="tools" borderTop>
   <ul class="tool-list">
-    {#each tools as tool (tool.id)}
+    {#each getTools() as tool (tool.id)}
       {@const count = runningCount(tool.id)}
+      {@const available = getToolAvailability()[tool.id] !== false}
       <li>
         <button
           class="tool-item"
-          class:unavailable={!availability[tool.id]}
-          disabled={!availability[tool.id]}
+          class:unavailable={!available}
+          disabled={!available}
           onclick={() => onLaunchTool(tool.id)}
-          title={availability[tool.id] ? tool.name : `${tool.name} — not found in PATH`}
+          title={available ? tool.name : `${tool.name} — not found in PATH`}
         >
           <ToolIcon icon={tool.icon} size={14} />
           <span class="tool-name">{tool.name}</span>

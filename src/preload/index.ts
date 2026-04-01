@@ -78,7 +78,16 @@ const api = {
     category?: string
   }) => ipcRenderer.invoke('tools:addCustom', tool),
   removeCustomTool: (id: string) => ipcRenderer.invoke('tools:removeCustom', { id }),
-
+  updateCustomTool: (
+    id: string,
+    changes: {
+      name?: string
+      command?: string
+      args?: string[]
+      icon?: string
+      category?: string
+    },
+  ) => ipcRenderer.invoke('tools:updateCustom', { id, changes }),
   // Agent session
   updateAgentTitle: (sessionId: string, title: string) =>
     ipcRenderer.invoke('agent:updateTitle', { sessionId, title }),
@@ -308,6 +317,14 @@ const api = {
     }
   },
 
+  onBrowserDevToolsOpened: (callback: (data: { browserId: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string }): void => callback(data)
+    ipcRenderer.on('browser:devToolsOpened', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:devToolsOpened', handler)
+    }
+  },
+
   onBrowserFocused: (callback: (data: { browserId: string }) => void) => {
     const handler = (_event: IpcRendererEvent, data: { browserId: string }): void => callback(data)
     ipcRenderer.on('browser:focused', handler)
@@ -379,6 +396,13 @@ const api = {
     ipcRenderer.on('git:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('git:changed', handler)
+    }
+  },
+  onToolsChanged: (callback: (tools: unknown[]) => void) => {
+    const handler = (_event: IpcRendererEvent, tools: unknown[]): void => callback(tools)
+    ipcRenderer.on('tools:changed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('tools:changed', handler)
     }
   },
   onPtyExit: (
