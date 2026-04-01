@@ -173,6 +173,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'tmux:renameSession',
     async (_event, payload: { oldName: string; newName: string }) => {
+      validateTmuxName(payload.oldName)
       validateTmuxName(payload.newName)
       await tmuxManager.renameSession(payload.oldName, payload.newName)
     },
