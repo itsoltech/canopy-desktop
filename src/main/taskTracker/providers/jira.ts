@@ -232,7 +232,11 @@ export const jiraClient: TaskTrackerProviderClient = {
 
     const data = await jiraFetch<{
       values: Array<{ id: number; name: string; state: string }>
-    }>(connection, token, `/rest/agile/1.0/board/${boardId}/sprint?state=active&maxResults=1`)
+    }>(
+      connection,
+      token,
+      `/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=active&maxResults=1`,
+    )
 
     const sprint = data.values[0]
     if (!sprint) return null

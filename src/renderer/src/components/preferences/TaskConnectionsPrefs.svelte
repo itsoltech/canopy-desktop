@@ -85,9 +85,19 @@
 
   async function saveEditedConnection(): Promise<void> {
     if (!editingConnectionId) return
-    await window.api.taskTrackerRemoveConnection(editingConnectionId)
-    await addConnection()
-    editingConnectionId = null
+    try {
+      await window.api.taskTrackerUpdateConnection(editingConnectionId, {
+        name: newName,
+        baseUrl: newBaseUrl.replace(/\/$/, ''),
+        username: newUsername || undefined,
+        token: newToken || undefined,
+      })
+      await loadConnections()
+      resetAddForm()
+      addToast('Connection updated')
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to update connection')
+    }
   }
 
   function resetAddForm(): void {
@@ -170,7 +180,7 @@
         <button
           class="btn btn-primary"
           onclick={editingConnectionId ? saveEditedConnection : addConnection}
-          disabled={!newName || !newBaseUrl || !newToken}
+          disabled={!newName || !newBaseUrl || (!editingConnectionId && !newToken)}
         >
           {editingConnectionId ? 'Save' : 'Add'}
         </button>

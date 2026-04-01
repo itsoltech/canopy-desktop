@@ -425,6 +425,10 @@ interface CanopyAPI {
     token: string
   }) => Promise<TaskTrackerConnectionInfo>
   taskTrackerRemoveConnection: (connectionId: string) => Promise<void>
+  taskTrackerUpdateConnection: (
+    connectionId: string,
+    updates: { name?: string; baseUrl?: string; username?: string; token?: string },
+  ) => Promise<TaskTrackerConnectionInfo | null>
   taskTrackerTestConnection: (connectionId: string) => Promise<boolean>
   taskTrackerTestNewConnection: (connection: {
     provider: TaskTrackerProvider

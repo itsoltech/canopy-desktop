@@ -481,6 +481,10 @@ const api = {
   }) => ipcRenderer.invoke('taskTracker:addConnection', connection),
   taskTrackerRemoveConnection: (connectionId: string) =>
     ipcRenderer.invoke('taskTracker:removeConnection', { connectionId }),
+  taskTrackerUpdateConnection: (
+    connectionId: string,
+    updates: { name?: string; baseUrl?: string; username?: string; token?: string },
+  ) => ipcRenderer.invoke('taskTracker:updateConnection', { connectionId, ...updates }),
   taskTrackerTestConnection: (connectionId: string) =>
     ipcRenderer.invoke('taskTracker:testConnection', { connectionId }),
   taskTrackerTestNewConnection: (connection: {

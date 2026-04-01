@@ -179,7 +179,7 @@ export const youtrackClient: TaskTrackerProviderClient = {
         const board = await ytFetch<{ projects?: Array<{ shortName?: string }> }>(
           connection,
           token,
-          `/api/agiles/${params.boardId}?fields=projects(shortName)`,
+          `/api/agiles/${encodeURIComponent(params.boardId)}?fields=projects(shortName)`,
         )
         projectKey = board.projects?.[0]?.shortName ?? ''
       } catch {
@@ -219,7 +219,7 @@ export const youtrackClient: TaskTrackerProviderClient = {
     >(
       connection,
       token,
-      `/api/agiles/${boardId}/sprints?fields=id,name,isResolved,start,finish&$top=10`,
+      `/api/agiles/${encodeURIComponent(boardId)}/sprints?fields=id,name,isResolved,start,finish&$top=10`,
     )
 
     const now = Date.now()

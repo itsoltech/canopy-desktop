@@ -61,6 +61,26 @@ export class TaskTrackerManager {
     return newConn
   }
 
+  updateConnection(
+    connectionId: string,
+    updates: Partial<Omit<TaskTrackerConnection, 'id' | 'authPrefKey'>>,
+    newToken?: string,
+  ): TaskTrackerConnection | null {
+    const connections = this.getConnections()
+    const idx = connections.findIndex((c) => c.id === connectionId)
+    if (idx < 0) return null
+
+    const conn = connections[idx]
+    connections[idx] = { ...conn, ...updates }
+
+    if (newToken) {
+      this.preferencesStore.set(conn.authPrefKey, newToken)
+    }
+
+    this.saveConnections(connections)
+    return connections[idx]
+  }
+
   removeConnection(connectionId: string): void {
     const connections = this.getConnections()
     const conn = connections.find((c) => c.id === connectionId)

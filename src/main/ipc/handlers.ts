@@ -856,6 +856,29 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(
+    'taskTracker:updateConnection',
+    (
+      _event,
+      payload: {
+        connectionId: string
+        name?: string
+        baseUrl?: string
+        username?: string
+        token?: string
+      },
+    ) => {
+      if (payload.baseUrl) {
+        const parsed = new URL(payload.baseUrl)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('Base URL must use http:// or https://')
+        }
+      }
+      const { connectionId, token, ...updates } = payload
+      return taskTrackerManager.updateConnection(connectionId, updates, token)
+    },
+  )
+
+  ipcMain.handle(
     'taskTracker:testConnection',
     async (_event, payload: { connectionId: string }) => {
       return taskTrackerManager.testConnection(payload.connectionId)
