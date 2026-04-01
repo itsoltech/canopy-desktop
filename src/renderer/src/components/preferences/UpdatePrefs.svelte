@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
   let autoUpdate = $derived(prefs['update.autoUpdate'] !== 'false')
   let channel = $derived(prefs['update.channel'] || 'stable')
@@ -60,10 +61,10 @@
 <div class="section">
   <h3 class="section-title">Updates</h3>
 
-  <label class="checkbox-row">
-    <input type="checkbox" checked={autoUpdate} onchange={toggleAutoUpdate} />
+  <div class="checkbox-row">
+    <CustomCheckbox checked={autoUpdate} onchange={toggleAutoUpdate} />
     <span>Automatically download and install updates</span>
-  </label>
+  </div>
 
   <div class="select-row">
     <span class="select-label">Update channel</span>
@@ -110,11 +111,6 @@
     gap: 8px;
     font-size: 13px;
     color: var(--c-text);
-    cursor: pointer;
-  }
-
-  .checkbox-row input[type='checkbox'] {
-    accent-color: var(--c-accent);
   }
 
   .select-row {

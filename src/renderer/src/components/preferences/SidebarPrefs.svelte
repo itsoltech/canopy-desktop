@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { ChevronUp, ChevronDown } from '@lucide/svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import {
     SECTION_DEFS,
     getSidebarConfig,
@@ -53,9 +54,8 @@
     {#each config as item, i (item.id)}
       {@const def = SECTION_DEFS.find((d) => d.id === item.id)}
       <div class="section-row">
-        <label class="checkbox-row">
-          <input
-            type="checkbox"
+        <div class="checkbox-row">
+          <CustomCheckbox
             checked={item.visible}
             disabled={def?.forced}
             onchange={() => toggleVisibility(i)}
@@ -64,7 +64,7 @@
           {#if def?.forced}
             <span class="hint">Always visible</span>
           {/if}
-        </label>
+        </div>
         <div class="order-buttons">
           <button
             class="order-btn"
@@ -135,15 +135,6 @@
     gap: 8px;
     font-size: 13px;
     color: var(--c-text);
-    cursor: pointer;
-  }
-
-  .checkbox-row input[type='checkbox'] {
-    accent-color: var(--c-accent);
-  }
-
-  .checkbox-row input[type='checkbox']:disabled {
-    opacity: 0.4;
   }
 
   .forced {

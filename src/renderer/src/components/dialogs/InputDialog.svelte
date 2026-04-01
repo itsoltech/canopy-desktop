@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import type { PromptCheckbox, PromptResult } from '../../lib/stores/dialogs.svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
   let {
     title,
@@ -123,10 +124,10 @@
     {/if}
 
     {#if checkbox}
-      <label class="dialog-checkbox">
-        <input type="checkbox" bind:checked />
+      <div class="dialog-checkbox">
+        <CustomCheckbox {checked} onchange={(v) => (checked = v)} />
         <span>{checkbox.label}</span>
-      </label>
+      </div>
     {/if}
 
     {#if multiline}
@@ -220,13 +221,7 @@
     margin: 10px 0 0;
     font-size: 12px;
     color: var(--c-text-secondary);
-    cursor: pointer;
     user-select: none;
-  }
-
-  .dialog-checkbox input {
-    accent-color: var(--c-accent-text);
-    cursor: pointer;
   }
 
   .dialog-hint {

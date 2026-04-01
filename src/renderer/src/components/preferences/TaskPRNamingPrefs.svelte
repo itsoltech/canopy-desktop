@@ -1,6 +1,7 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
 
   interface ConnectionInfo {
     id: string
@@ -89,17 +90,24 @@
 
   <div class="form-row">
     <label class="form-label">Scope</label>
-    <select class="form-select" bind:value={prScope}>
-      <option value="global">Global (default)</option>
-      {#each connections as conn (conn.id)}
-        <optgroup label={conn.name}>
-          <option value={conn.id}>All boards</option>
-          {#each scopeBoards[conn.id] ?? [] as board (board.id)}
-            <option value="{conn.id}.{board.id}">{board.name}</option>
-          {/each}
-        </optgroup>
-      {/each}
-    </select>
+    <CustomSelect
+      value={prScope}
+      groups={[
+        { label: '', options: [{ value: 'global', label: 'Global (default)' }] },
+        ...connections.map((conn) => ({
+          label: conn.name,
+          options: [
+            { value: conn.id, label: 'All boards' },
+            ...(scopeBoards[conn.id] ?? []).map((b) => ({
+              value: `${conn.id}.${b.id}`,
+              label: b.name,
+            })),
+          ],
+        })),
+      ]}
+      onchange={(v) => (prScope = v)}
+      maxWidth="none"
+    />
   </div>
 
   <BranchTokenBuilder
@@ -171,8 +179,7 @@
     flex-shrink: 0;
   }
 
-  .form-input,
-  .form-select {
+  .form-input {
     flex: 1;
     padding: 5px 8px;
     border: 1px solid var(--c-border);
@@ -184,13 +191,8 @@
     outline: none;
   }
 
-  .form-input:focus,
-  .form-select:focus {
+  .form-input:focus {
     border-color: var(--c-focus-ring);
-  }
-
-  .form-select {
-    cursor: pointer;
   }
 
   .body-editor {

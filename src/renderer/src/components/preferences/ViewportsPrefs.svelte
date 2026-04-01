@@ -7,6 +7,7 @@
   import type { ViewportPreset } from '../../lib/browser/browserState.svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { onMount } from 'svelte'
   import { Eye, EyeOff } from 'lucide-svelte'
 
@@ -164,10 +165,10 @@
         <span class="form-label">Scale</span>
         <input class="form-input scale" type="number" bind:value={newScale} min="0.5" step="0.5" />
       </div>
-      <label class="checkbox-row">
-        <input type="checkbox" bind:checked={newMobile} />
+      <div class="checkbox-row">
+        <CustomCheckbox checked={newMobile} onchange={(v) => (newMobile = v)} />
         <span>Mobile device</span>
-      </label>
+      </div>
       {#if error}
         <p class="form-error">{error}</p>
       {/if}
@@ -473,7 +474,6 @@
     gap: 8px;
     font-size: 13px;
     color: rgba(255, 255, 255, 0.7);
-    cursor: pointer;
   }
 
   .form-error {
