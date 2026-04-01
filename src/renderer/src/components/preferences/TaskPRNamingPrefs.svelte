@@ -29,6 +29,7 @@
 
   interface PRConfig {
     titleTemplate: string
+    bodyTemplate: string
     defaultBranch: string
   }
 
@@ -46,6 +47,7 @@
         const c = JSON.parse(raw) as Partial<PRConfig>
         return {
           titleTemplate: c.titleTemplate || '',
+          bodyTemplate: c.bodyTemplate || '',
           defaultBranch: c.defaultBranch || 'develop',
         }
       } catch {
@@ -54,14 +56,17 @@
     }
     return {
       titleTemplate: prefs['taskTracker.prTitleTemplate'] || '',
+      bodyTemplate: prefs['taskTracker.prBodyTemplate'] || '',
       defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop',
     }
   })
 
   let titleTemplateInput = $state('')
+  let bodyTemplateInput = $state('')
 
   $effect(() => {
     titleTemplateInput = prConfig.titleTemplate
+    bodyTemplateInput = prConfig.bodyTemplate
   })
 
   function savePRConfig(field: keyof PRConfig, value: string): void {
@@ -71,6 +76,10 @@
 
   function onTitleTemplateSave(): void {
     savePRConfig('titleTemplate', titleTemplateInput)
+  }
+
+  function onBodyTemplateSave(): void {
+    savePRConfig('bodyTemplate', bodyTemplateInput)
   }
 </script>
 
@@ -99,6 +108,23 @@
     onSave={onTitleTemplateSave}
     label="Title"
   />
+
+  <BranchTokenBuilder
+    bind:templateInput={bodyTemplateInput}
+    placeholders={PR_TAGS}
+    onSave={onBodyTemplateSave}
+    label="Body"
+  />
+  <div class="body-editor">
+    <label class="form-label">Body edit</label>
+    <textarea
+      class="form-textarea"
+      bind:value={bodyTemplateInput}
+      oninput={onBodyTemplateSave}
+      rows="6"
+      placeholder="PR body template — use tags above or type freely"
+    ></textarea>
+  </div>
 
   <div class="form-row">
     <label class="form-label">Default Target Branch</label>
@@ -163,5 +189,33 @@
 
   .form-select {
     cursor: pointer;
+  }
+
+  .body-editor {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .form-textarea {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--c-border);
+    border-radius: 6px;
+    background: var(--c-bg-input);
+    color: var(--c-text);
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    resize: vertical;
+    min-height: 100px;
+  }
+
+  .form-textarea:focus {
+    border-color: var(--c-focus-ring);
+  }
+
+  .form-textarea::placeholder {
+    color: var(--c-text-faint);
   }
 </style>
