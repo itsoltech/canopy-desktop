@@ -173,12 +173,14 @@
           branchNamingRef?.initTemplate(config.branchTemplate.template || '')
         }
         if (config.prTemplate) {
-          if (config.prTemplate.titleTemplate)
-            setPref('taskTracker.prTitleTemplate', config.prTemplate.titleTemplate)
-          if (config.prTemplate.bodyTemplate)
-            setPref('taskTracker.prBodyTemplate', config.prTemplate.bodyTemplate)
-          if (config.prTemplate.defaultTargetBranch)
-            setPref('taskTracker.prDefaultBranch', config.prTemplate.defaultTargetBranch)
+          setPref(
+            'taskTracker.pr',
+            JSON.stringify({
+              titleTemplate: config.prTemplate.titleTemplate || '',
+              bodyTemplate: config.prTemplate.bodyTemplate || '',
+              defaultBranch: config.prTemplate.defaultTargetBranch || 'develop',
+            }),
+          )
         }
         if (config.filters) {
           if (config.filters.assignedToMe !== undefined)
