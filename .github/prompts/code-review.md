@@ -48,6 +48,7 @@ Every new feature must earn its place. Prioritize high-impact additions that sol
 - Feature targets a niche use case but affects the default experience for all users (should be opt-in or a plugin).
 - Added configuration or settings without evidence users need the customization.
 - Feature increases cognitive load (more things to learn/notice) disproportionate to its value.
+- New user-facing feature missing a corresponding onboarding step in `src/renderer/src/lib/onboarding/steps.ts`. Features that change defaults, add UI surfaces, or introduce new workflows should have a `category: 'feature'` step with the release version in `introducedIn` so users see it after upgrade. Keep the total step count low — onboarding must stay under 5 steps per release or users will skip it entirely.
 
 ### Cross-platform consistency
 
@@ -103,6 +104,16 @@ This app targets macOS, Windows, and Linux. Platform-specific labels and behavio
 - Mixing responsibilities across process boundaries.
 - Using `ipcRenderer.send`/`ipcMain.on` for request-response instead of `invoke`/`handle`.
 - IPC channels not following `feature:action` naming convention.
+
+### Theming
+
+All UI colors must use CSS custom properties from the `--c-*` system defined in `base.css` and applied dynamically by `src/renderer/src/lib/theme/appTheme.ts`. The app theme syncs with the terminal theme.
+
+- Hardcoded `rgba(...)`, `rgb(...)`, or hex color values in component `<style>` blocks or inline styles. Use the appropriate `var(--c-*)` variable instead.
+- Hardcoded white-alpha overlays (`rgba(255, 255, 255, 0.06)`) instead of semantic variables (`var(--c-hover)`, `var(--c-border-subtle)`).
+- Hardcoded accent blue (`#74c0fc`, `rgba(116, 192, 252, ...)`) instead of `var(--c-accent*)`.
+- Status colors (red, green, yellow) as literal values instead of `var(--c-danger*)`, `var(--c-success)`, `var(--c-warning*)`.
+- Exception: the notch overlay (`NotchOverlay.svelte`, `NotchNotificationRow.svelte`) uses fixed colors because it always renders on the macOS physical black notch. Box-shadow `rgba(0,0,0,...)` values are structural and exempt.
 
 ### Svelte 5 patterns
 

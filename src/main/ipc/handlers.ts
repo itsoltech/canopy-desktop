@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electron'
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
@@ -7,10 +7,12 @@ import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
+import type { OnboardingStore } from '../db/OnboardingStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
 import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { BrowserManager } from '../browser/BrowserManager'
+import type { CredentialStore } from '../db/CredentialStore'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { GitRepository } from '../git/GitRepository'
@@ -36,6 +38,8 @@ export function registerIpcHandlers(
   agentSessionManager: AgentSessionManager,
   windowManager: WindowManager,
   browserManager: BrowserManager,
+  credentialStore: CredentialStore,
+  onboardingStore: OnboardingStore,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -589,38 +593,31 @@ export function registerIpcHandlers(
     },
   )
 
-  // --- Browser ---
+  // --- Browser (<webview> management) ---
 
-  ipcMain.handle('browser:create', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) throw new Error('No window for browser view')
-    const browserId = crypto.randomUUID()
-    browserManager.create(browserId, win, event.sender)
-    return { browserId }
+  ipcMain.handle(
+    'browser:setup',
+    (event, payload: { browserId: string; webContentsId: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) throw new Error('No window for browser webview')
+      browserManager.setup(payload.browserId, payload.webContentsId, win, event.sender)
+    },
+  )
+
+  ipcMain.handle('browser:teardown', (_event, payload: { browserId: string }) => {
+    browserManager.teardown(payload.browserId)
   })
 
-  ipcMain.handle('browser:destroy', (_event, payload: { browserId: string }) => {
-    browserManager.destroy(payload.browserId)
+  ipcMain.handle('browser:openDevTools', (_event, payload: { browserId: string }) => {
+    browserManager.openDevTools(payload.browserId)
   })
 
-  ipcMain.handle('browser:navigate', (_event, payload: { browserId: string; url: string }) => {
-    browserManager.navigate(payload.browserId, payload.url)
-  })
-
-  ipcMain.handle('browser:back', (_event, payload: { browserId: string }) => {
-    browserManager.goBack(payload.browserId)
-  })
-
-  ipcMain.handle('browser:forward', (_event, payload: { browserId: string }) => {
-    browserManager.goForward(payload.browserId)
-  })
-
-  ipcMain.handle('browser:reload', (_event, payload: { browserId: string }) => {
-    browserManager.reload(payload.browserId)
+  ipcMain.handle('browser:closeDevTools', (_event, payload: { browserId: string }) => {
+    browserManager.closeDevTools(payload.browserId)
   })
 
   ipcMain.handle(
-    'browser:setBounds',
+    'browser:setDevToolsBounds',
     (
       _event,
       payload: {
@@ -628,43 +625,96 @@ export function registerIpcHandlers(
         bounds: { x: number; y: number; width: number; height: number }
       },
     ) => {
-      browserManager.setBounds(payload.browserId, payload.bounds)
+      browserManager.setDevToolsBounds(payload.browserId, payload.bounds)
     },
   )
 
   ipcMain.handle(
-    'browser:setVisible',
-    (_event, payload: { browserId: string; visible: boolean }) => {
-      browserManager.setVisible(payload.browserId, payload.visible)
+    'browser:setDeviceEmulation',
+    (
+      _event,
+      payload: {
+        browserId: string
+        device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null
+      },
+    ) => {
+      browserManager.setDeviceEmulation(payload.browserId, payload.device)
+    },
+  )
+
+  ipcMain.handle('browser:saveCaptureFile', (_event, payload: { buffer: Buffer }) => {
+    return browserManager.saveCaptureFile(Buffer.from(payload.buffer))
+  })
+
+  // --- Credentials ---
+
+  ipcMain.handle('credentials:getForDomain', (_event, payload: { domain: string }) => {
+    return credentialStore.getForDomainMasked(payload.domain)
+  })
+
+  ipcMain.handle(
+    'credentials:save',
+    (_event, payload: { domain: string; username: string; password: string; title?: string }) => {
+      credentialStore.save(payload.domain, payload.username, payload.password, payload.title)
+    },
+  )
+
+  ipcMain.handle('credentials:delete', (_event, payload: { id: string }) => {
+    credentialStore.delete(payload.id)
+  })
+
+  ipcMain.handle('credentials:getAll', () => {
+    return credentialStore.getAll()
+  })
+
+  ipcMain.handle(
+    'browser:fillCredential',
+    (_event, payload: { browserId: string; username: string; password: string }) => {
+      browserManager.fillCredential(payload.browserId, payload.username, payload.password)
     },
   )
 
   ipcMain.handle(
-    'browser:toggleDevTools',
-    (_event, payload: { browserId: string; mode?: 'bottom' | 'right' }) => {
-      browserManager.toggleDevTools(payload.browserId, payload.mode)
+    'credentials:getDecrypted',
+    async (event, payload: { id: string; domain: string }) => {
+      // Require system authentication before revealing passwords
+      if (process.platform === 'darwin') {
+        try {
+          await systemPreferences.promptTouchID('reveal a saved password')
+        } catch {
+          return null // User cancelled or auth failed
+        }
+      } else if (process.platform === 'win32') {
+        // Windows: native credential prompt via PowerShell
+        try {
+          const ps = `
+            Add-Type -AssemblyName System.Runtime.WindowsRuntime
+            $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
+            $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
+            if ($result -ne 'Verified') { exit 1 }
+          `
+          await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
+        } catch {
+          return null
+        }
+      } else {
+        // Linux: confirmation dialog (zenity/kdialog not guaranteed)
+        const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+        if (!win) return null
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'warning',
+          buttons: ['Reveal Password', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          title: 'Authentication Required',
+          message: 'Reveal saved password?',
+          detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
+        })
+        if (response !== 0) return null
+      }
+      return credentialStore.getForDomain(payload.domain).find((c) => c.id === payload.id) ?? null
     },
   )
-
-  ipcMain.handle('browser:getState', (_event, payload: { browserId: string }) => {
-    return browserManager.getState(payload.browserId)
-  })
-
-  ipcMain.handle('browser:capturePageFull', async (_event, payload: { browserId: string }) => {
-    return browserManager.capturePageFull(payload.browserId)
-  })
-
-  ipcMain.handle('browser:startElementPick', async (_event, payload: { browserId: string }) => {
-    return browserManager.startElementPick(payload.browserId)
-  })
-
-  ipcMain.handle('browser:startRegionCapture', async (_event, payload: { browserId: string }) => {
-    return browserManager.startRegionCapture(payload.browserId)
-  })
-
-  ipcMain.handle('browser:cancelPick', (_event, payload: { browserId: string }) => {
-    browserManager.cancelPick(payload.browserId)
-  })
 
   // --- Filesystem ---
 
@@ -798,5 +848,28 @@ export function registerIpcHandlers(
   ipcMain.on('worktree:abortSetup', (event) => {
     const controller = setupAbortControllers.get(event.sender.id)
     controller?.abort()
+  })
+
+  // --- Onboarding ---
+
+  ipcMain.handle('onboarding:getCompleted', () => {
+    return onboardingStore.getCompleted()
+  })
+
+  ipcMain.handle(
+    'onboarding:complete',
+    (_event, payload: { stepIds: string[]; appVersion: string }) => {
+      if (!Array.isArray(payload.stepIds) || typeof payload.appVersion !== 'string') return
+      if (payload.stepIds.length === 0 || !payload.appVersion) return
+      const safeIds = payload.stepIds.filter(
+        (id) => typeof id === 'string' && id.length > 0 && id.length < 100,
+      )
+      if (safeIds.length === 0) return
+      onboardingStore.completeMany(safeIds, payload.appVersion)
+    },
+  )
+
+  ipcMain.handle('onboarding:reset', () => {
+    onboardingStore.reset()
   })
 }

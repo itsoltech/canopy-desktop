@@ -177,14 +177,7 @@ interface BrowserState {
   canGoForward: boolean
   isLoading: boolean
   isDevToolsOpen: boolean
-  devToolsMode: 'bottom' | 'right'
-}
-
-interface BrowserBounds {
-  x: number
-  y: number
-  width: number
-  height: number
+  devToolsMode: 'bottom' | 'left'
 }
 
 interface DirEntry {
@@ -221,6 +214,14 @@ interface CanopyAPI {
   onUpdateNotAvailable: (callback: () => void) => () => void
   onUpdateError: (callback: (data: { message: string }) => void) => () => void
   onUpdateInstalling: (callback: () => void) => () => void
+
+  // Onboarding
+  getOnboardingCompleted: () => Promise<string[]>
+  completeOnboarding: (stepIds: string[], appVersion: string) => Promise<void>
+  resetOnboarding: () => Promise<void>
+  onShowOnboarding: (
+    callback: (data: { mode: 'first-launch' | 'upgrade'; fromVersion?: string }) => void,
+  ) => () => void
 
   // Changelog
   getChangelogSinceVersion: (fromVersion: string) => Promise<ChangelogEntry[] | null>
@@ -327,49 +328,55 @@ interface CanopyAPI {
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
   gitGenerateCommitMessage: (repoRoot: string) => Promise<string | null>
 
-  // Browser
-  createBrowser: () => Promise<{ browserId: string }>
-  destroyBrowser: (browserId: string) => Promise<void>
-  navigateBrowser: (browserId: string, url: string) => Promise<void>
-  browserBack: (browserId: string) => Promise<void>
-  browserForward: (browserId: string) => Promise<void>
-  browserReload: (browserId: string) => Promise<void>
-  setBrowserBounds: (browserId: string, bounds: BrowserBounds) => Promise<void>
-  setBrowserVisible: (browserId: string, visible: boolean) => Promise<void>
-  toggleBrowserDevTools: (browserId: string, mode?: 'bottom' | 'right') => Promise<void>
-  getBrowserState: (browserId: string) => Promise<BrowserState | null>
-  capturePageFull: (browserId: string) => Promise<string | null>
-  browserStartElementPick: (browserId: string) => Promise<string | null>
-  browserStartRegionCapture: (browserId: string) => Promise<string | null>
-  browserCancelPick: (browserId: string) => Promise<void>
-  onBrowserUrlChanged: (callback: (data: { browserId: string; url: string }) => void) => () => void
-  onBrowserTitleChanged: (
-    callback: (data: { browserId: string; title: string }) => void,
-  ) => () => void
+  // Browser (<webview> management)
+  setupBrowserWebview: (browserId: string, webContentsId: number) => Promise<void>
+  teardownBrowserWebview: (browserId: string) => Promise<void>
+  openBrowserDevTools: (browserId: string) => Promise<void>
+  closeBrowserDevTools: (browserId: string) => Promise<void>
+  setBrowserDevToolsBounds: (
+    browserId: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => Promise<void>
+  setBrowserDeviceEmulation: (
+    browserId: string,
+    device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null,
+  ) => Promise<void>
+  saveBrowserCapture: (buffer: ArrayBuffer) => Promise<string>
+
+  // Credential autofill (isolated world)
+  fillBrowserCredential: (browserId: string, username: string, password: string) => Promise<void>
+
+  // Credentials
+  getCredentials: (
+    domain: string,
+  ) => Promise<Array<{ id: string; domain: string; username: string; title: string }>>
+  saveCredential: (
+    domain: string,
+    username: string,
+    password: string,
+    title?: string,
+  ) => Promise<void>
+  getCredentialDecrypted: (
+    id: string,
+    domain: string,
+  ) => Promise<{ id: string; username: string; password: string } | null>
+  deleteCredential: (id: string) => Promise<void>
+  listCredentials: () => Promise<
+    Array<{
+      id: string
+      domain: string
+      username: string
+      title: string
+      createdAt: string
+      updatedAt: string
+    }>
+  >
+
+  // Browser push events (main → renderer)
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,
   ) => () => void
   onBrowserFocused: (callback: (data: { browserId: string }) => void) => () => void
-  onBrowserLoadingChanged: (
-    callback: (data: { browserId: string; isLoading: boolean }) => void,
-  ) => () => void
-  onBrowserLoadFailed: (
-    callback: (data: {
-      browserId: string
-      errorCode: number
-      errorDescription: string
-      validatedURL: string
-    }) => void,
-  ) => () => void
-  onBrowserStateChanged: (
-    callback: (data: {
-      browserId: string
-      canGoBack: boolean
-      canGoForward: boolean
-      isDevToolsOpen: boolean
-      devToolsMode: 'bottom' | 'right'
-    }) => void,
-  ) => () => void
 
   // Worktree Setup
   runWorktreeSetup: (

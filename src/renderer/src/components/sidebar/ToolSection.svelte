@@ -54,7 +54,7 @@
     padding: 0 12px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -63,7 +63,7 @@
   }
 
   .tool-item:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
   }
 
   .tool-item:disabled {
@@ -71,7 +71,7 @@
   }
 
   .tool-item.unavailable {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .tool-name {
@@ -89,8 +89,8 @@
     height: 16px;
     padding: 0 4px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-border);
+    color: var(--c-text);
     font-size: 10px;
     font-weight: 600;
     flex-shrink: 0;

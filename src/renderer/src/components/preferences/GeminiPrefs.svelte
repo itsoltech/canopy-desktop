@@ -159,7 +159,7 @@
   h3 {
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     margin: 0 0 12px;
   }
 
@@ -172,25 +172,25 @@
 
   .field-label {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .field-input {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--c-hover);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
     padding: 6px 8px;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
   }
 
   .field-textarea {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--c-hover);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
     padding: 6px 8px;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--c-text);
     font-size: 12px;
     font-family: 'SF Mono', 'Menlo', monospace;
     resize: vertical;
@@ -198,7 +198,7 @@
 
   .field-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .env-list {
@@ -216,15 +216,15 @@
   }
 
   .env-key {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   .env-eq {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .env-val {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -234,7 +234,7 @@
   .env-remove {
     background: none;
     border: none;
-    color: rgba(255, 100, 100, 0.6);
+    color: var(--c-danger-text);
     cursor: pointer;
     font-size: 14px;
     padding: 0 4px;
@@ -253,10 +253,10 @@
   }
 
   .btn {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--c-active);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     cursor: pointer;
     font-size: 12px;
     padding: 4px 10px;

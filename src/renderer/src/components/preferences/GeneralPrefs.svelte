@@ -1,11 +1,11 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
+  import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
+  import { initOnboarding } from '../../lib/stores/onboarding.svelte'
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
-  let urlOpenMode = $derived(prefs.urlOpenMode || 'ask')
 
   function toggleReopen(): void {
     setPref('reopenLastWorkspace', reopenLast ? 'false' : 'true')
@@ -19,6 +19,13 @@
 
   function toggleWpm(): void {
     setPref('wpm.enabled', wpmEnabled ? 'false' : 'true')
+  }
+
+  async function rerunSetupWizard(): Promise<void> {
+    await window.api.resetOnboarding()
+    await initOnboarding('first-launch')
+    closeDialog()
+    showOnboardingWizard()
   }
 </script>
 
@@ -46,23 +53,13 @@
     </div>
   {/if}
 
-  <div class="select-row">
-    <span class="select-label">Open URLs from terminal in</span>
-    <CustomSelect
-      value={urlOpenMode}
-      options={[
-        { value: 'ask', label: 'Always ask' },
-        { value: 'canopy', label: 'Canopy Browser' },
-        { value: 'system', label: 'System browser' },
-      ]}
-      onchange={(v) => setPref('urlOpenMode', v)}
-      maxWidth="180px"
-    />
-  </div>
-
   <div class="info-row">
     <span class="info-label">Shell</span>
     <span class="info-value">Resolved from $SHELL at launch</span>
+  </div>
+
+  <div class="action-row">
+    <button class="action-btn" onclick={rerunSetupWizard}>Re-run setup wizard</button>
   </div>
 </div>
 
@@ -76,7 +73,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     margin: 0;
   }
 
@@ -85,24 +82,12 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     cursor: pointer;
   }
 
   .checkbox-row input[type='checkbox'] {
-    accent-color: #74c0fc;
-  }
-
-  .select-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-  }
-
-  .select-label {
-    color: rgba(255, 255, 255, 0.8);
-    min-width: 160px;
+    accent-color: var(--c-accent);
   }
 
   .info-row {
@@ -113,21 +98,42 @@
   }
 
   .info-label {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     min-width: 80px;
   }
 
   .info-value {
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-family: monospace;
     font-size: 12px;
   }
 
   .hint-row {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;
+  }
+
+  .action-row {
+    padding-top: 4px;
+  }
+
+  .action-btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid var(--c-border);
+    background: var(--c-border-subtle);
+    color: var(--c-text-secondary);
+    transition: background 0.1s;
+  }
+
+  .action-btn:hover {
+    background: var(--c-active);
+    color: var(--c-text);
   }
 </style>

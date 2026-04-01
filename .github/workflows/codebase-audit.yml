@@ -56,3 +56,10 @@ jobs:
             --model opus[1m]
             --effort max
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout:*),Bash(git branch:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git status:*),Bash(gh pr create:*),Bash(npm run lint:*),Bash(npm run format:*)"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.ANTHROPIC_AUTH_TOKEN }}",
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}"
+              }
+            }

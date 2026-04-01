@@ -54,3 +54,20 @@ Please update the PR title and/or description to fix these issues.
 ```
 
 Keep the comment concise. Do not lecture or add unnecessary context.
+
+## Labels
+
+After validation, apply exactly one label to the PR:
+
+- `claude:pr-validation:passed` if all rules pass.
+- `claude:pr-validation:failed` if any rule fails.
+
+Always remove the opposite label first to handle re-runs:
+
+```bash
+# Passed
+gh pr edit $PR_NUMBER --repo $REPO --add-label "claude:pr-validation:passed" --remove-label "claude:pr-validation:failed"
+
+# Failed
+gh pr edit $PR_NUMBER --repo $REPO --add-label "claude:pr-validation:failed" --remove-label "claude:pr-validation:passed"
+```

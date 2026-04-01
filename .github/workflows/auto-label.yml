@@ -40,6 +40,13 @@ jobs:
           claude_args: |
             --model haiku
             --allowedTools "Bash(gh issue edit:*),Bash(gh issue view:*)"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.ANTHROPIC_AUTH_TOKEN }}",
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}"
+              }
+            }
 
       - name: Auto Label PR
         if: github.event_name == 'pull_request'
@@ -57,3 +64,10 @@ jobs:
           claude_args: |
             --model haiku
             --allowedTools "Bash(gh pr edit:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.ANTHROPIC_AUTH_TOKEN }}",
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}"
+              }
+            }

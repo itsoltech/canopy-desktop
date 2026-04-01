@@ -83,15 +83,15 @@
   function statusDotColor(status: WorstStatus): string {
     switch (status) {
       case 'waitingPermission':
-        return 'rgba(255, 160, 50, 0.9)'
+        return 'var(--c-warning-text)'
       case 'error':
-        return 'rgba(239, 68, 68, 0.8)'
+        return 'var(--c-danger-text)'
       case 'working':
-        return 'rgba(116, 192, 252, 0.8)'
+        return 'var(--c-accent-text)'
       case 'idle':
-        return 'rgba(80, 200, 120, 0.8)'
+        return 'var(--c-success)'
       default:
-        return 'rgba(255, 255, 255, 0.2)'
+        return 'var(--c-text-faint)'
     }
   }
 
@@ -119,9 +119,9 @@
   }
 
   function contextColor(pct: number): string {
-    if (pct >= 90) return 'rgba(239, 68, 68, 0.8)'
-    if (pct >= 70) return 'rgba(250, 200, 50, 0.8)'
-    return 'rgba(80, 200, 120, 0.8)'
+    if (pct >= 90) return 'var(--c-danger-text)'
+    if (pct >= 70) return 'var(--c-warning-text)'
+    return 'var(--c-success)'
   }
 
   function formatCost(usd: number): string {
@@ -326,10 +326,10 @@
     align-items: center;
     height: 24px;
     padding: 0 8px;
-    background: rgba(30, 30, 30, 0.85);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--c-bg-glass-heavy);
+    border-top: 1px solid var(--c-border-subtle);
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     user-select: none;
     -webkit-app-region: no-drag;
     flex-shrink: 0;
@@ -379,8 +379,8 @@
   }
 
   button.status-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .label {
@@ -397,7 +397,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: rgba(255, 200, 50, 0.7);
+    background: var(--c-warning-text);
     flex-shrink: 0;
   }
 
@@ -406,25 +406,25 @@
   }
 
   .dim {
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
   }
 
   /* Agent status in center */
   .agent-status {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     font-weight: 500;
   }
 
   .agent-status.working {
-    color: rgba(116, 192, 252, 0.9);
+    color: var(--c-accent-text);
   }
 
   .agent-status.permission {
-    color: rgba(255, 160, 50, 0.9);
+    color: var(--c-warning-text);
   }
 
   .agent-status.error {
-    color: rgba(239, 68, 68, 0.8);
+    color: var(--c-danger-text);
   }
 
   .context {
@@ -444,20 +444,20 @@
   }
 
   .permission-bell {
-    color: rgba(255, 160, 50, 0.9);
+    color: var(--c-warning-text);
     animation: badge-pulse 1.5s ease-in-out infinite;
   }
 
   .update {
-    color: rgba(116, 192, 252, 0.8);
+    color: var(--c-accent-text);
   }
 
   .inspector-toggle {
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
   }
 
   .inspector-toggle:hover {
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
   }
 
   @keyframes badge-pulse {

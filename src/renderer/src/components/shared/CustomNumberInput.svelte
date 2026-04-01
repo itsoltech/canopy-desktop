@@ -115,14 +115,14 @@
     display: inline-flex;
     align-items: center;
     width: fit-content;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
     overflow: hidden;
   }
 
   .number-wrapper:focus-within {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .number-field {
@@ -130,7 +130,7 @@
     text-align: center;
     border: none;
     background: transparent;
-    color: #e0e0e0;
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
@@ -145,7 +145,7 @@
     padding: 6px 0;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     font-size: 14px;
     font-family: inherit;
     cursor: pointer;
@@ -154,15 +154,15 @@
   }
 
   .spin-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .spin-btn:first-child {
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-right: 1px solid var(--c-active);
   }
 
   .spin-btn:last-child {
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    border-left: 1px solid var(--c-active);
   }
 </style>
