@@ -108,7 +108,7 @@ export const youtrackClient: TaskTrackerProviderClient = {
   async fetchTaskByKey(connection, token, taskKey) {
     try {
       const fields =
-        'id,idReadable,summary,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
+        'id,idReadable,summary,description,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
       const data = await ytFetch<YTTask>(
         connection,
         token,

@@ -68,12 +68,26 @@ function parseSprintNumber(name: string): number | undefined {
   return match ? parseInt(match[0], 10) : undefined
 }
 
+function adfToPlainText(node: unknown): string {
+  if (!node || typeof node !== 'object') return typeof node === 'string' ? node : ''
+  const n = node as { type?: string; text?: string; content?: unknown[] }
+  if (n.type === 'text') return n.text ?? ''
+  if (Array.isArray(n.content)) {
+    const parts = n.content.map(adfToPlainText)
+    if (n.type === 'paragraph' || n.type === 'heading') return parts.join('') + '\n'
+    if (n.type === 'listItem') return '• ' + parts.join('')
+    return parts.join('')
+  }
+  return ''
+}
+
 function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {
   const f = task.fields
   return {
     key: task.key,
     summary: f.summary ?? '',
-    description: f.description ?? '',
+    description:
+      typeof f.description === 'string' ? f.description : adfToPlainText(f.description).trim(),
     status: f.status?.name ?? '',
     priority: f.priority?.name ?? '',
     type: mapTaskType(f),
@@ -98,7 +112,7 @@ export const jiraClient: TaskTrackerProviderClient = {
 
   async fetchTaskByKey(connection, token, taskKey) {
     try {
-      const fields = 'summary,status,priority,issuetype,parent,assignee,sprint'
+      const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
       const data = await jiraFetch<JiraTask>(
         connection,
         token,

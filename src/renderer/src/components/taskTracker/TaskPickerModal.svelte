@@ -2,10 +2,11 @@
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { Search, X, Loader2, Send, Filter } from '@lucide/svelte'
-  import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
-  import { setPref, prefs, getPref } from '../../lib/stores/preferences.svelte'
+  import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { setPref, prefs } from '../../lib/stores/preferences.svelte'
   import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
-  import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import BranchCreateForm from './BranchCreateForm.svelte'
 
   interface Task {
     key: string
@@ -112,6 +113,9 @@
   const DISPLAY_LIMIT = 200
   let displayedTasks = $derived(filteredTasks.slice(0, DISPLAY_LIMIT))
 
+  // Branch creation state
+  let selectedTask: Task | null = $state(null)
+
   onMount(async () => {
     await loadBoards()
   })
@@ -213,92 +217,13 @@
     el?.scrollIntoView({ block: 'nearest' })
   }
 
-  // --- Branch creation dialog state ---
-  let creatingBranch = $state(false)
-  let selectedTask: Task | null = $state(null)
-  let branchTypeOptions: string[] = $state([])
-  let selectedBranchType = $state('feat')
-  let resolvedBranchName = $state('')
-  let creatingWorktree = $state(false)
-  let templateHasBranchType = $state(false)
-
-  async function selectTask(task: Task): Promise<void> {
+  function selectTask(task: Task): void {
     if (!workspaceState.repoRoot || !workspaceState.branch) return
-
-    const plainTask = $state.snapshot(task) as Task
-    selectedTask = plainTask
-
-    // Get branch type info from main process (reads saved template + mapping)
-    try {
-      const typeInfo = await window.api.taskTrackerResolveBranchType(
-        task.type,
-        connectionId,
-        selectedBoardId || undefined,
-      )
-      branchTypeOptions = typeInfo.options
-      selectedBranchType = typeInfo.defaultType
-      templateHasBranchType = typeInfo.hasBranchType
-    } catch {
-      branchTypeOptions = ['feat', 'fix', 'refactor', 'chore', 'docs', 'test']
-      selectedBranchType = 'feat'
-      templateHasBranchType = false
-    }
-
-    // Resolve initial branch name
-    await updateBranchPreview()
-    creatingBranch = true
-  }
-
-  async function updateBranchPreview(): Promise<void> {
-    if (!selectedTask) return
-    try {
-      resolvedBranchName = await window.api.taskTrackerResolveBranchName(
-        connectionId,
-        $state.snapshot(selectedTask) as Task,
-        selectedBoardId || undefined,
-        templateHasBranchType ? selectedBranchType : undefined,
-      )
-    } catch {
-      resolvedBranchName = selectedTask.key
-    }
-  }
-
-  async function onBranchTypeChange(): Promise<void> {
-    await updateBranchPreview()
+    selectedTask = $state.snapshot(task) as Task
   }
 
   function cancelBranchCreation(): void {
-    creatingBranch = false
     selectedTask = null
-  }
-
-  async function confirmBranchCreation(): Promise<void> {
-    const repoRoot = workspaceState.repoRoot
-    const currentBranch = workspaceState.branch
-    if (!repoRoot || !currentBranch || !resolvedBranchName) return
-
-    const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
-    const projectName = repoRoot.split('/').pop() || 'project'
-    const safeBranchName = resolvedBranchName.replace(/\//g, '-')
-    const worktreeDir = `${baseDir}/${projectName}/${safeBranchName}`
-    const homedir = await window.api.getHomedir()
-    const worktreePath = worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir
-
-    creatingWorktree = true
-    try {
-      await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, currentBranch)
-      closeDialog()
-      await selectWorktree(worktreePath)
-    } catch (e) {
-      creatingWorktree = false
-      closeDialog()
-      await new Promise((r) => setTimeout(r, 0))
-      await confirm({
-        title: 'Worktree Creation Failed',
-        message: e instanceof Error ? e.message : 'Failed to create worktree',
-        confirmLabel: 'OK',
-      })
-    }
   }
 
   function sendToTerminal(task: Task, e: MouseEvent): void {
@@ -330,47 +255,13 @@
     aria-modal="true"
     aria-label="Task Picker"
   >
-    {#if creatingBranch && selectedTask}
-      <div class="picker-header">
-        <h3 class="picker-title">Create Branch</h3>
-        <button class="close-btn" onclick={cancelBranchCreation} aria-label="Back">
-          <X size={16} />
-        </button>
-      </div>
-      <div class="branch-form">
-        <div class="branch-task-info">
-          <span class="task-key">{selectedTask.key}</span>
-          <span class="task-summary">{selectedTask.summary}</span>
-        </div>
-        {#if templateHasBranchType}
-          <div class="branch-type-row">
-            <label class="branch-label">Type</label>
-            <select
-              class="branch-type-select"
-              bind:value={selectedBranchType}
-              onchange={onBranchTypeChange}
-            >
-              {#each branchTypeOptions as opt (opt)}
-                <option value={opt}>{opt}</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
-        <div class="branch-preview-row">
-          <label class="branch-label">Branch</label>
-          <code class="branch-preview">{resolvedBranchName}</code>
-        </div>
-        <div class="branch-actions">
-          <button class="btn-cancel" onclick={cancelBranchCreation}>Back</button>
-          <button
-            class="btn-create"
-            onclick={confirmBranchCreation}
-            disabled={creatingWorktree || !resolvedBranchName}
-          >
-            {#if creatingWorktree}Creating...{:else}Create & Switch{/if}
-          </button>
-        </div>
-      </div>
+    {#if selectedTask}
+      <BranchCreateForm
+        {connectionId}
+        {selectedBoardId}
+        task={selectedTask}
+        onBack={cancelBranchCreation}
+      />
     {:else}
       <div class="picker-header">
         <h3 class="picker-title">Select Task</h3>
@@ -590,6 +481,7 @@
 
   .filters-panel {
     padding: 8px 16px;
+    margin: 0;
     border-bottom: 1px solid var(--c-border-subtle);
     display: flex;
     flex-direction: column;
@@ -599,7 +491,7 @@
   .filter-check {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-size: 12px;
     color: var(--c-text-secondary);
     cursor: pointer;
@@ -657,121 +549,6 @@
   .close-btn:hover {
     background: var(--c-hover);
     color: var(--c-text);
-  }
-
-  .branch-form {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .branch-task-info {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    background: var(--c-bg-input);
-    border-radius: 6px;
-  }
-
-  .branch-task-info .task-key {
-    font-weight: 600;
-    color: var(--c-accent-text);
-    flex-shrink: 0;
-  }
-
-  .branch-task-info .task-summary {
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .branch-type-row,
-  .branch-preview-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .branch-label {
-    font-size: 12px;
-    color: var(--c-text-muted);
-    width: 50px;
-    flex-shrink: 0;
-  }
-
-  .branch-type-select {
-    flex: 1;
-    padding: 5px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
-    cursor: pointer;
-  }
-
-  .branch-type-select:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .branch-preview {
-    font-size: 12px;
-    color: var(--c-accent-text);
-    background: var(--c-bg-input);
-    padding: 5px 10px;
-    border-radius: 6px;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .branch-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 4px;
-  }
-
-  .btn-cancel {
-    padding: 6px 14px;
-    border: none;
-    border-radius: 6px;
-    background: var(--c-active);
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-cancel:hover {
-    background: var(--c-hover-strong);
-  }
-
-  .btn-create {
-    padding: 6px 14px;
-    border: none;
-    border-radius: 6px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-create:hover:not(:disabled) {
-    background: var(--c-accent-bg-hover);
-  }
-
-  .btn-create:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 
   .search-row {
