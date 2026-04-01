@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { Terminal } from '@xterm/xterm'
   import { FitAddon } from '@xterm/addon-fit'
   import { WebglAddon } from '@xterm/addon-webgl'
@@ -34,7 +34,7 @@
   let termRef: Terminal | null = null
   let wsRef: WebSocket | null = null
   let webglAddonRef: WebglAddon | null = null
-  let webglAttached = $state(true)
+  let webglAttached = $state(false)
   let dragging = $state(false)
   let progressState = $state(0)
   let progressValue = $state(0)
@@ -89,9 +89,10 @@
     }
   })
 
-  // Re-attach WebGL addon when tab becomes active
+  // Re-attach WebGL addon when tab becomes active (untrack webglAttached
+  // so context-loss doesn't trigger an immediate retry loop)
   $effect(() => {
-    if (active && termRef && !webglAttached) {
+    if (active && termRef && !untrack(() => webglAttached)) {
       attachWebgl(termRef)
     }
   })
@@ -296,7 +297,7 @@
         progressValue = value
       })
 
-      attachWebgl(term)
+      if (active) attachWebgl(term)
 
       // Defer initial fit to after browser layout is complete
       requestAnimationFrame(() => fitAddon.fit())
