@@ -95,6 +95,12 @@ export function registerIpcHandlers(
 
   // --- Tmux ---
 
+  function validateTmuxName(name: string): void {
+    if (!/^[\w-]+$/.test(name)) {
+      throw new Error('Invalid tmux session name: only letters, digits, underscores, and dashes')
+    }
+  }
+
   ipcMain.handle('tmux:isAvailable', async () => {
     return tmuxManager.isAvailable()
   })
@@ -108,15 +114,14 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('tmux:hasSession', async (_event, payload: { name: string }) => {
+    validateTmuxName(payload.name)
     return tmuxManager.hasSession(payload.name)
   })
 
   ipcMain.handle(
     'tmux:attach',
     async (event, payload: { tmuxSessionName: string; cols?: number; rows?: number }) => {
-      if (!TmuxManager.isCanopySession(payload.tmuxSessionName)) {
-        throw new Error('Invalid tmux session name')
-      }
+      validateTmuxName(payload.tmuxSessionName)
       const sender = event.sender
       const attach = tmuxManager.attachArgs(payload.tmuxSessionName)
       const session = ptyManager.spawn({
@@ -154,17 +159,15 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('tmux:killSession', async (_event, payload: { name: string }) => {
+    validateTmuxName(payload.name)
     await tmuxManager.killSession(payload.name)
   })
 
   ipcMain.handle(
     'tmux:renameSession',
     async (_event, payload: { oldName: string; newName: string }) => {
-      if (!/^[\w-]+$/.test(payload.newName)) {
-        throw new Error(
-          'Invalid session name: only letters, digits, underscores, and dashes allowed',
-        )
-      }
+      validateTmuxName(payload.oldName)
+      validateTmuxName(payload.newName)
       await tmuxManager.renameSession(payload.oldName, payload.newName)
     },
   )

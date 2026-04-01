@@ -216,7 +216,7 @@
     background: var(--c-bg-overlay);
     border: 1px solid var(--c-border);
     border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 48px var(--c-shadow, rgba(0, 0, 0, 0.6));
     overflow: hidden;
   }
 
