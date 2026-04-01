@@ -270,7 +270,17 @@ export async function closeTab(tabId: string): Promise<void> {
         if (remaining.length > 0) {
           const newIdx = Math.min(idx, remaining.length - 1)
           const newActive = remaining[newIdx]
-          if (newActive.suspended) await resumeTab(newActive)
+          if (newActive.suspended && !(await resumeTab(newActive))) {
+            tabsByWorktree[path].splice(newIdx, 1)
+            const fallback = tabsByWorktree[path]
+            if (fallback.length > 0) {
+              activeTabId[path] = fallback[Math.min(newIdx, fallback.length - 1)].id
+            } else {
+              delete activeTabId[path]
+            }
+            scheduleSave(path)
+            return
+          }
           activeTabId[path] = newActive.id
         } else {
           delete activeTabId[path]
@@ -335,7 +345,17 @@ export async function closeTab(tabId: string): Promise<void> {
       if (remaining.length > 0) {
         const newIdx = Math.min(idx, remaining.length - 1)
         const newActive = remaining[newIdx]
-        if (newActive.suspended) await resumeTab(newActive)
+        if (newActive.suspended && !(await resumeTab(newActive))) {
+          tabsByWorktree[path].splice(newIdx, 1)
+          const fallback = tabsByWorktree[path]
+          if (fallback.length > 0) {
+            activeTabId[path] = fallback[Math.min(newIdx, fallback.length - 1)].id
+          } else {
+            delete activeTabId[path]
+          }
+          scheduleSave(path)
+          return
+        }
         activeTabId[path] = newActive.id
       } else {
         delete activeTabId[path]
@@ -1148,8 +1168,8 @@ export async function moveTabToSplit(
   const targetTab = tabs.find((t) => t.id === targetTabId)
   if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
 
-  if (sourceTab.suspended) await resumeTab(sourceTab)
-  if (targetTab.suspended) await resumeTab(targetTab)
+  if (sourceTab.suspended && !(await resumeTab(sourceTab))) return false
+  if (targetTab.suspended && !(await resumeTab(targetTab))) return false
 
   const { direction, position } = mapZone(zone)
   const newTree = graftSubtree(

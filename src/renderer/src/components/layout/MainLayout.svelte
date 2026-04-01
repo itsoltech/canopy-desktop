@@ -400,18 +400,20 @@
     // Cmd+1-9: switch to tab by index
     if (path && e.key >= '1' && e.key <= '9') {
       e.preventDefault()
-      switchTabByIndex(path, parseInt(e.key) - 1).catch(() => {})
+      switchTabByIndex(path, parseInt(e.key) - 1).catch((err) =>
+        console.error('switchTabByIndex failed:', err),
+      )
     }
 
     // Cmd+Shift+[ and Cmd+Shift+]
     if (e.key === '[' && e.shiftKey && path) {
       e.preventDefault()
-      prevTab(path).catch(() => {})
+      prevTab(path).catch((err) => console.error('prevTab failed:', err))
     }
 
     if (e.key === ']' && e.shiftKey && path) {
       e.preventDefault()
-      nextTab(path).catch(() => {})
+      nextTab(path).catch((err) => console.error('nextTab failed:', err))
     }
   }
 </script>
