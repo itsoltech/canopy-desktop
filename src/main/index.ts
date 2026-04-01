@@ -19,6 +19,7 @@ import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
+import { TmuxManager } from './pty/TmuxManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
@@ -42,6 +43,7 @@ const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
+const tmuxManager = new TmuxManager(app.getPath('userData'))
 let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false
@@ -447,6 +449,7 @@ app.whenReady().then(async () => {
     browserManager,
     credentialStore,
     onboardingStore,
+    tmuxManager,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
@@ -610,7 +613,7 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('before-quit', (event) => {
+app.on('before-quit', async (event) => {
   // During update install, skip cleanup that could interfere with Squirrel.
   // Window configs already saved; windows already destroyed.
   if (updateInstalling) {
@@ -653,6 +656,39 @@ app.on('before-quit', (event) => {
     preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
   } else {
     preferencesStore.delete('openWindowConfigs')
+  }
+
+  // Handle tmux sessions based on close policy
+  const tmuxClosePolicy = preferencesStore.get('tmux.closePolicy') ?? 'detach'
+  if (tmuxClosePolicy === 'kill') {
+    tmuxManager.killServer().catch(() => {})
+  } else if (tmuxClosePolicy === 'ask') {
+    // Must preventDefault synchronously — async gaps let the quit proceed
+    event.preventDefault()
+
+    const tmuxSessions = await tmuxManager.listSessions().catch(() => [])
+    if (tmuxSessions.length > 0) {
+      const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
+      if (focusedWin && !focusedWin.isDestroyed()) {
+        const { response } = await dialog.showMessageBox(focusedWin, {
+          type: 'question',
+          buttons: ['Keep Running', 'Kill Sessions', 'Cancel'],
+          defaultId: 0,
+          cancelId: 2,
+          title: 'Tmux Sessions',
+          message: `${tmuxSessions.length} tmux session(s) are running`,
+          detail: 'Keep them running in the background or kill them?',
+        })
+        if (response === 2) return // Cancel — app stays open
+        if (response === 1) {
+          await tmuxManager.killServer().catch(() => {})
+        }
+      }
+    }
+    // Re-trigger quit — cleanup runs on re-entry (windowManager.isQuitting bypasses dialogs)
+    windowManager.isQuitting = true
+    app.quit()
+    return
   }
 
   notchOverlay?.dispose()

@@ -13,6 +13,7 @@ import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { BrowserManager } from '../browser/BrowserManager'
 import type { CredentialStore } from '../db/CredentialStore'
+import { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { GitRepository } from '../git/GitRepository'
@@ -40,6 +41,7 @@ export function registerIpcHandlers(
   browserManager: BrowserManager,
   credentialStore: CredentialStore,
   onboardingStore: OnboardingStore,
+  tmuxManager: TmuxManager,
 ): void {
   // --- PTY ---
 
@@ -70,9 +72,17 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('pty:kill', (_event, payload: { sessionId: string }) => {
+  ipcMain.handle('pty:kill', async (_event, payload: { sessionId: string; killTmux?: boolean }) => {
+    const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
     wsBridge.destroy(payload.sessionId)
     ptyManager.kill(payload.sessionId)
+    if (payload.killTmux && tmuxName && TmuxManager.isCanopySession(tmuxName)) {
+      try {
+        await tmuxManager.killSession(tmuxName)
+      } catch {
+        // Session may already be gone
+      }
+    }
   })
 
   ipcMain.handle('pty:write', (_event, payload: { sessionId: string; data: string }) => {
@@ -82,6 +92,77 @@ export function registerIpcHandlers(
   ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
     return ptyManager.hasChildProcess(payload.sessionId)
   })
+
+  // --- Tmux ---
+
+  ipcMain.handle('tmux:isAvailable', async () => {
+    return tmuxManager.isAvailable()
+  })
+
+  ipcMain.handle('tmux:getVersion', async () => {
+    return tmuxManager.getVersion()
+  })
+
+  ipcMain.handle('tmux:listSessions', async () => {
+    return tmuxManager.listSessions()
+  })
+
+  ipcMain.handle('tmux:hasSession', async (_event, payload: { name: string }) => {
+    return tmuxManager.hasSession(payload.name)
+  })
+
+  ipcMain.handle(
+    'tmux:attach',
+    async (event, payload: { tmuxSessionName: string; cols?: number; rows?: number }) => {
+      if (!TmuxManager.isCanopySession(payload.tmuxSessionName)) {
+        throw new Error('Invalid tmux session name')
+      }
+      const sender = event.sender
+      const attach = tmuxManager.attachArgs(payload.tmuxSessionName)
+      const session = ptyManager.spawn({
+        command: attach.command,
+        args: attach.args,
+        cols: payload.cols,
+        rows: payload.rows,
+        tmuxSessionName: payload.tmuxSessionName,
+      })
+      const wsUrl = await wsBridge.create(session.id, session.pty)
+
+      windowManager.trackPtySession(sender.id, session.id)
+
+      session.pty.onExit(({ exitCode, signal }) => {
+        if (!sender.isDestroyed()) {
+          sender.send('pty:exit', {
+            sessionId: session.id,
+            exitCode,
+            signal,
+            tmuxSessionName: payload.tmuxSessionName,
+          })
+        }
+        windowManager.untrackPtySession(sender.id, session.id)
+      })
+
+      return { sessionId: session.id, wsUrl }
+    },
+  )
+
+  ipcMain.handle('tmux:detach', (_event, payload: { sessionId: string }) => {
+    const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
+    wsBridge.destroy(payload.sessionId)
+    ptyManager.kill(payload.sessionId)
+    return { tmuxSessionName: tmuxName }
+  })
+
+  ipcMain.handle('tmux:killSession', async (_event, payload: { name: string }) => {
+    await tmuxManager.killSession(payload.name)
+  })
+
+  ipcMain.handle(
+    'tmux:renameSession',
+    async (_event, payload: { oldName: string; newName: string }) => {
+      await tmuxManager.renameSession(payload.oldName, payload.newName)
+    },
+  )
 
   // --- Tool Spawning ---
 
@@ -103,7 +184,7 @@ export function registerIpcHandlers(
       const tool = toolRegistry.get(payload.toolId)
       if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
 
-      const command = toolRegistry.resolveCommand(tool)
+      let command = toolRegistry.resolveCommand(tool)
       const isShell = tool.id === 'shell' || tool.command === 'shell'
       const isAgent = agentSessionManager.isAgentTool(tool.id)
       let args = isShell ? resolveShellArgs() : [...tool.args]
@@ -147,6 +228,26 @@ export function registerIpcHandlers(
         agentTempId = agentSession.tempId
       }
 
+      // Tmux integration for shell sessions
+      let tmuxSessionName: string | undefined
+      const tmuxEnabled = isShell && preferencesStore.get('tmux.enabled') === 'true'
+      if (tmuxEnabled && (await tmuxManager.isAvailable())) {
+        const ws = workspaceStore.getByPath(payload.worktreePath)
+        const wsId = ws?.id ?? 'default'
+        tmuxSessionName = TmuxManager.sessionName(wsId)
+        await tmuxManager.newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+        })
+        const attach = tmuxManager.attachArgs(tmuxSessionName)
+        command = attach.command
+        args = attach.args
+      }
+
       const session = ptyManager.spawn({
         command,
         args,
@@ -154,6 +255,7 @@ export function registerIpcHandlers(
         cols: payload.cols,
         rows: payload.rows,
         env,
+        tmuxSessionName,
       })
 
       if (isAgent && agentTempId) {
@@ -166,7 +268,12 @@ export function registerIpcHandlers(
 
       session.pty.onExit(({ exitCode, signal }) => {
         if (!sender.isDestroyed()) {
-          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
+          sender.send('pty:exit', {
+            sessionId: session.id,
+            exitCode,
+            signal,
+            tmuxSessionName: session.tmuxSessionName,
+          })
         }
         windowManager.untrackPtySession(sender.id, session.id)
         if (isAgent) {
@@ -174,7 +281,13 @@ export function registerIpcHandlers(
         }
       })
 
-      return { sessionId: session.id, wsUrl, toolId: tool.id, toolName: tool.name }
+      return {
+        sessionId: session.id,
+        wsUrl,
+        toolId: tool.id,
+        toolName: tool.name,
+        tmuxSessionName,
+      }
     },
   )
 

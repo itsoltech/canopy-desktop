@@ -22,6 +22,7 @@
     showCreateWorktree,
     showPreferences,
     showAbout,
+    showTmuxBrowser,
   } from '../../lib/stores/dialogs.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
@@ -144,6 +145,14 @@
       label: 'About Canopy',
       category: 'App',
       action: () => showAbout(),
+    })
+
+    items.push({
+      id: 'tmux:sessions',
+      label: 'Tmux Sessions',
+      category: 'Terminal',
+      description: 'Browse and manage tmux sessions',
+      action: () => showTmuxBrowser(),
     })
 
     items.push({

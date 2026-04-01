@@ -12,6 +12,8 @@ export interface PaneSession {
   url?: string
   isLoading?: boolean
   inspectorOpen?: boolean
+  tmuxSessionName?: string
+  detached?: boolean
 }
 
 export type SplitNode =
