@@ -88,6 +88,9 @@ export class TmuxManager {
       throw new Error('Invalid tmux session name')
     }
     await this.ensureConfig({ mouse: opts.mouse })
+    // Config file is only read on server start; explicitly set mouse
+    // on the running server so preference changes take effect immediately.
+    await this.exec(['set-option', '-g', 'mouse', opts.mouse ? 'on' : 'off']).catch(() => {})
     const args = [
       '-f',
       this.configPath,
