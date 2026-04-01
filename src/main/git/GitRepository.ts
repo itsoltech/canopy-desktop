@@ -193,6 +193,12 @@ export class GitRepository {
     await git.raw(['branch', name, baseBranch])
   }
 
+  static async checkout(repoRoot: string, branch: string): Promise<void> {
+    assertSafeRef(branch)
+    const git = simpleGit(repoRoot)
+    await git.checkout(branch)
+  }
+
   static async deleteBranch(repoRoot: string, name: string, force: boolean): Promise<void> {
     assertSafeRef(name)
     const git = simpleGit(repoRoot)

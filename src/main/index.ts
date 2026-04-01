@@ -20,6 +20,7 @@ import { BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { TmuxManager } from './pty/TmuxManager'
+import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
@@ -437,6 +438,8 @@ app.whenReady().then(async () => {
   windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
+  const taskTrackerManager = new TaskTrackerManager(preferencesStore)
+
   registerIpcHandlers(
     ptyManager,
     wsBridge,
@@ -450,6 +453,7 @@ app.whenReady().then(async () => {
     credentialStore,
     onboardingStore,
     tmuxManager,
+    taskTrackerManager,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {

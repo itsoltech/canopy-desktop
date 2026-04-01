@@ -335,6 +335,7 @@ interface CanopyAPI {
   gitStashPop: (repoRoot: string) => Promise<void>
   gitBranches: (repoRoot: string) => Promise<GitBranchList>
   gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) => Promise<void>
+  gitCheckout: (repoRoot: string, branch: string) => Promise<void>
   gitBranchDelete: (repoRoot: string, name: string, force: boolean) => Promise<void>
   gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) => Promise<void>
   gitPushInfo: (repoRoot: string) => Promise<GitPushInfo | null>
@@ -434,8 +435,134 @@ interface CanopyAPI {
   readDir: (dirPath: string) => Promise<DirEntry[]>
   readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
 
+  // Task Tracker
+  taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
+  taskTrackerAddConnection: (connection: {
+    provider: TaskTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => Promise<TaskTrackerConnectionInfo>
+  taskTrackerRemoveConnection: (connectionId: string) => Promise<void>
+  taskTrackerUpdateConnection: (
+    connectionId: string,
+    updates: { name?: string; baseUrl?: string; username?: string; token?: string },
+  ) => Promise<TaskTrackerConnectionInfo | null>
+  taskTrackerTestConnection: (connectionId: string) => Promise<boolean>
+  taskTrackerTestNewConnection: (connection: {
+    provider: TaskTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => Promise<boolean>
+  taskTrackerFetchBoards: (connectionId: string) => Promise<TrackerBoard[]>
+  taskTrackerFetchBoardsForNew: (connection: {
+    provider: TaskTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey?: string
+    username?: string
+    token: string
+  }) => Promise<TrackerBoard[]>
+  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) => Promise<TrackerStatus[]>
+  taskTrackerFetchTasks: (
+    connectionId: string,
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => Promise<TrackerTask[]>
+  taskTrackerGetCurrentSprint: (
+    connectionId: string,
+    boardId?: string,
+  ) => Promise<TrackerSprint | null>
+  taskTrackerGetCurrentUser: (connectionId: string) => Promise<string>
+  taskTrackerResolveBranchName: (
+    connectionId: string,
+    task: TrackerTask,
+    boardId?: string,
+    branchType?: string,
+  ) => Promise<string>
+  taskTrackerResolveBranchType: (
+    taskType: string,
+    connectionId?: string,
+    boardId?: string,
+  ) => Promise<{
+    defaultType: string
+    options: string[]
+    hasBranchType: boolean
+  }>
+  taskTrackerRenderBranchPreview: (
+    template: string,
+    customVars?: Record<string, string>,
+  ) => Promise<string>
+  taskTrackerGetAvailablePlaceholders: (
+    customVars?: Record<string, string>,
+  ) => Promise<Array<{ key: string; description: string; example: string }>>
+  taskTrackerValidateTemplate: (template: string) => Promise<{ valid: boolean; errors: string[] }>
+  taskTrackerFindTaskByKey: (taskKey: string) => Promise<TrackerTask | null>
+  taskTrackerResolvePRPreview: (
+    taskKey: string,
+    connectionId?: string,
+    boardId?: string,
+  ) => Promise<{ title: string; targetBranch: string }>
+  taskTrackerCreatePR: (
+    repoRoot: string,
+    task: TrackerTask,
+    sourceBranch: string,
+    connectionId?: string,
+    boardId?: string,
+  ) => Promise<{ url: string; title: string; targetBranch: string }>
+
   // File utilities
   getPathForFile: (file: File) => string
+}
+
+type TaskTrackerProvider = 'jira' | 'youtrack'
+
+interface TaskTrackerConnectionInfo {
+  id: string
+  provider: TaskTrackerProvider
+  name: string
+  baseUrl: string
+  projectKey: string
+  boardId?: string
+  username?: string
+}
+
+interface TrackerTask {
+  key: string
+  summary: string
+  description: string
+  status: string
+  priority: string
+  type: string
+  parentKey?: string
+  sprintName?: string
+  sprintNumber?: number
+  assignee?: string
+  url?: string
+}
+
+interface TrackerBoard {
+  id: string
+  name: string
+  projectKey?: string
+}
+
+interface TrackerStatus {
+  id: string
+  name: string
+}
+
+interface TrackerSprint {
+  id: string
+  name: string
+  number?: number
+  state: 'active' | 'closed' | 'future'
 }
 
 type SessionStatusType =

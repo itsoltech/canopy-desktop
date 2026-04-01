@@ -23,6 +23,18 @@ import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 const execFileAsync = promisify(execFile)
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
+import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
+import type { TaskTrackerProvider, TrackerTask } from '../taskTracker/types'
+import {
+  buildVariables,
+  renderBranchName,
+  renderPreview,
+  getAvailablePlaceholders,
+  validateTemplate,
+  resolveBranchType,
+  BRANCH_TYPE_OPTIONS,
+} from '../taskTracker/branchTemplate'
+import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -42,6 +54,7 @@ export function registerIpcHandlers(
   credentialStore: CredentialStore,
   onboardingStore: OnboardingStore,
   tmuxManager: TmuxManager,
+  taskTrackerManager: TaskTrackerManager,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -568,6 +581,10 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle('git:checkout', async (_event, payload: { repoRoot: string; branch: string }) => {
+    return GitRepository.checkout(payload.repoRoot, payload.branch)
+  })
+
   ipcMain.handle(
     'git:branchDelete',
     async (_event, payload: { repoRoot: string; name: string; force: boolean }) => {
@@ -917,6 +934,415 @@ export function registerIpcHandlers(
       await fd.close()
     }
   })
+
+  // --- Task Tracker ---
+
+  ipcMain.handle('taskTracker:getConnections', () => {
+    return taskTrackerManager.getConnections().map((c) => ({
+      id: c.id,
+      provider: c.provider,
+      name: c.name,
+      baseUrl: c.baseUrl,
+      projectKey: c.projectKey,
+      boardId: c.boardId,
+      username: c.username,
+    }))
+  })
+
+  ipcMain.handle(
+    'taskTracker:addConnection',
+    async (
+      _event,
+      payload: {
+        provider: TaskTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey: string
+        boardId?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
+      const { token, ...connectionData } = payload
+      const c = taskTrackerManager.addConnection(connectionData, token)
+      return {
+        id: c.id,
+        provider: c.provider,
+        name: c.name,
+        baseUrl: c.baseUrl,
+        projectKey: c.projectKey,
+        boardId: c.boardId,
+        username: c.username,
+      }
+    },
+  )
+
+  ipcMain.handle('taskTracker:removeConnection', (_event, payload: { connectionId: string }) => {
+    taskTrackerManager.removeConnection(payload.connectionId)
+  })
+
+  ipcMain.handle(
+    'taskTracker:updateConnection',
+    (
+      _event,
+      payload: {
+        connectionId: string
+        name?: string
+        baseUrl?: string
+        username?: string
+        token?: string
+      },
+    ) => {
+      if (payload.baseUrl) {
+        const parsed = new URL(payload.baseUrl)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('Base URL must use http:// or https://')
+        }
+      }
+      const { connectionId, token, ...updates } = payload
+      const c = taskTrackerManager.updateConnection(connectionId, updates, token)
+      if (!c) return null
+      return {
+        id: c.id,
+        provider: c.provider,
+        name: c.name,
+        baseUrl: c.baseUrl,
+        projectKey: c.projectKey,
+        boardId: c.boardId,
+        username: c.username,
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:testConnection',
+    async (_event, payload: { connectionId: string }) => {
+      return taskTrackerManager.testConnection(payload.connectionId)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:testNewConnection',
+    async (
+      _event,
+      payload: {
+        provider: TaskTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey: string
+        boardId?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
+      const { token, ...connectionData } = payload
+      return taskTrackerManager.testNewConnection(connectionData, token)
+    },
+  )
+
+  ipcMain.handle('taskTracker:fetchBoards', async (_event, payload: { connectionId: string }) => {
+    return taskTrackerManager.fetchBoards(payload.connectionId)
+  })
+
+  ipcMain.handle(
+    'taskTracker:fetchBoardsForNew',
+    async (
+      _event,
+      payload: {
+        provider: TaskTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
+      const { token, ...connectionData } = payload
+      return taskTrackerManager.fetchBoardsForNew(
+        { ...connectionData, projectKey: connectionData.projectKey ?? '' },
+        token,
+      )
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:fetchStatuses',
+    async (_event, payload: { connectionId: string; boardId?: string }) => {
+      return taskTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:fetchTasks',
+    async (
+      _event,
+      payload: {
+        connectionId: string
+        statuses?: string[]
+        assignedToMe?: boolean
+        boardId?: string
+      },
+    ) => {
+      const { connectionId, ...params } = payload
+      return taskTrackerManager.fetchTasks(connectionId, params)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:getCurrentUser',
+    async (_event, payload: { connectionId: string }) => {
+      return taskTrackerManager.getCurrentUserDisplayName(payload.connectionId)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:getCurrentSprint',
+    async (_event, payload: { connectionId: string; boardId?: string }) => {
+      return taskTrackerManager.getCurrentSprint(payload.connectionId, payload.boardId)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:resolveBranchName',
+    async (
+      _event,
+      payload: {
+        connectionId: string
+        task: TrackerTask
+        boardId?: string
+        branchType?: string
+      },
+    ) => {
+      // Resolve template: board → connection → global
+      let template = '{taskKey}'
+      let customVars: Record<string, string> = {}
+
+      const keys = [
+        payload.boardId && `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+        `taskTracker.branchTemplate.${payload.connectionId}`,
+        'taskTracker.branchTemplate',
+      ].filter(Boolean) as string[]
+
+      for (const key of keys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.template) {
+              template = config.template
+              customVars = config.customVars ?? {}
+              break
+            }
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      // Get sprint: from task data or from API
+      const sprint = await taskTrackerManager
+        .getCurrentSprint(payload.connectionId, payload.boardId)
+        .catch(() => null)
+
+      const variables = buildVariables(payload.task, sprint, customVars, payload.branchType)
+      return renderBranchName(template, variables)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:renderBranchPreview',
+    (_event, payload: { template: string; customVars?: Record<string, string> }) => {
+      return renderPreview(payload.template, payload.customVars)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:getAvailablePlaceholders',
+    (_event, payload?: { customVars?: Record<string, string> }) => {
+      return getAvailablePlaceholders(payload?.customVars)
+    },
+  )
+
+  ipcMain.handle('taskTracker:validateTemplate', (_event, payload: { template: string }) => {
+    return validateTemplate(payload.template)
+  })
+
+  ipcMain.handle(
+    'taskTracker:resolveBranchType',
+    (_event, payload: { taskType: string; connectionId?: string; boardId?: string }) => {
+      const typeMappingJson = preferencesStore.get('taskTracker.typeMapping')
+      let typeMapping: Record<string, string> | undefined
+      if (typeMappingJson) {
+        try {
+          typeMapping = JSON.parse(typeMappingJson)
+        } catch {
+          // use defaults
+        }
+      }
+
+      // Check if resolved template contains {branchType}
+      const keys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.branchTemplate.${payload.connectionId}`,
+        'taskTracker.branchTemplate',
+      ].filter(Boolean) as string[]
+
+      let hasBranchType = false
+      for (const key of keys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            hasBranchType = (config.template ?? '').includes('{branchType}')
+            break
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      return {
+        defaultType: resolveBranchType(payload.taskType, typeMapping),
+        options: BRANCH_TYPE_OPTIONS,
+        hasBranchType,
+      }
+    },
+  )
+
+  ipcMain.handle('taskTracker:findTaskByKey', async (_event, payload: { taskKey: string }) => {
+    return taskTrackerManager.findTaskByKey(payload.taskKey)
+  })
+
+  ipcMain.handle(
+    'taskTracker:resolvePRPreview',
+    async (_event, payload: { taskKey: string; connectionId?: string; boardId?: string }) => {
+      let task: TrackerTask | null = null
+      if (payload.taskKey) {
+        task = await taskTrackerManager.findTaskByKey(payload.taskKey).catch(() => null)
+      }
+
+      let titleTemplate = '[{taskKey}] {taskTitle}'
+      let defaultBranch = 'develop'
+
+      const prKeys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `taskTracker.pr.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.pr.${payload.connectionId}`,
+        'taskTracker.pr',
+      ].filter(Boolean) as string[]
+
+      for (const key of prKeys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.titleTemplate) titleTemplate = config.titleTemplate
+            if (config.defaultBranch) defaultBranch = config.defaultBranch
+            break
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      if (!prKeys.some((k) => preferencesStore.get(k))) {
+        titleTemplate = preferencesStore.get('taskTracker.prTitleTemplate') || titleTemplate
+        defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
+      }
+
+      const title = titleTemplate
+        .replace(/\{taskKey\}/g, task?.key ?? payload.taskKey)
+        .replace(/\{taskTitle\}/g, task?.summary ?? '')
+        .replace(/\{taskType\}/g, task?.type ?? '')
+        .replace(/\{boardKey\}/g, (task?.key ?? payload.taskKey).split('-')[0] ?? '')
+
+      return { title, targetBranch: defaultBranch }
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:createPR',
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        task: TrackerTask
+        sourceBranch: string
+        connectionId?: string
+        boardId?: string
+      },
+    ) => {
+      let task = payload.task
+      if (task.key && !task.summary) {
+        const found = await taskTrackerManager.findTaskByKey(task.key)
+        if (found) task = found
+      }
+
+      // Resolve PR config: board → connection → global
+      let titleTemplate = '[{taskKey}] {taskTitle}'
+      let bodyTemplate = '## {taskKey}: {taskTitle}\n\n{taskUrl}'
+      let defaultBranch = 'develop'
+      let targetRules: Array<{ taskType: string; targetPattern: string }> = []
+
+      const prKeys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `taskTracker.pr.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.pr.${payload.connectionId}`,
+        'taskTracker.pr',
+      ].filter(Boolean) as string[]
+
+      for (const key of prKeys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.titleTemplate) titleTemplate = config.titleTemplate
+            if (config.bodyTemplate) bodyTemplate = config.bodyTemplate
+            if (config.defaultBranch) defaultBranch = config.defaultBranch
+            if (config.targetRules) targetRules = config.targetRules
+            break
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      // Fallback: read old flat keys if no scoped config found
+      if (!prKeys.some((k) => preferencesStore.get(k))) {
+        titleTemplate = preferencesStore.get('taskTracker.prTitleTemplate') || titleTemplate
+        bodyTemplate = preferencesStore.get('taskTracker.prBodyTemplate') || bodyTemplate
+        defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
+      }
+
+      const branches = await GitRepository.listBranches(payload.repoRoot)
+      const existingBranches = [...branches.local, ...branches.remote]
+
+      const prConfig = buildPRConfig(titleTemplate, bodyTemplate, defaultBranch, targetRules)
+      return createPullRequest({
+        repoRoot: payload.repoRoot,
+        task,
+        sourceBranch: payload.sourceBranch,
+        prConfig,
+        existingBranches,
+      })
+    },
+  )
 
   // --- Worktree Setup ---
 
