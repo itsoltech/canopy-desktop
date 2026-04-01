@@ -2,7 +2,13 @@ import { safeStorage } from 'electron'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
 
-const ENCRYPTED_KEYS = new Set(['claude.apiKey'])
+const ENCRYPTED_KEYS = new Set(['claude.apiKey', 'gemini.apiKey'])
+const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.']
+
+function isEncryptedKey(key: string): boolean {
+  if (ENCRYPTED_KEYS.has(key)) return true
+  return ENCRYPTED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
+}
 
 export class PreferencesStore {
   constructor(private database: Database) {}
@@ -16,7 +22,7 @@ export class PreferencesStore {
       | { value: string }
       | undefined
     if (!row) return null
-    if (ENCRYPTED_KEYS.has(key) && safeStorage.isEncryptionAvailable()) {
+    if (isEncryptedKey(key) && safeStorage.isEncryptionAvailable()) {
       try {
         return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
       } catch {
@@ -29,7 +35,7 @@ export class PreferencesStore {
 
   set(key: string, value: string): void {
     const stored =
-      ENCRYPTED_KEYS.has(key) && safeStorage.isEncryptionAvailable()
+      isEncryptedKey(key) && safeStorage.isEncryptionAvailable()
         ? safeStorage.encryptString(value).toString('base64')
         : value
     this.db
@@ -44,14 +50,8 @@ export class PreferencesStore {
     }[]
     const result: Record<string, string> = {}
     for (const row of rows) {
-      if (ENCRYPTED_KEYS.has(row.key) && safeStorage.isEncryptionAvailable()) {
-        try {
-          result[row.key] = safeStorage.decryptString(Buffer.from(row.value, 'base64'))
-          continue
-        } catch {
-          // Fallback: unencrypted legacy value
-        }
-      }
+      if (isEncryptedKey(row.key)) continue
+
       result[row.key] = row.value
     }
     return result

@@ -4,6 +4,7 @@
   import GitSection from './GitSection.svelte'
   import FileTreeSection from './FileTreeSection.svelte'
   import ToolSection from './ToolSection.svelte'
+  import TaskTrackerSection from './TaskTrackerSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
@@ -42,6 +43,8 @@
         <FileTreeSection />
       {:else if section.id === 'tools'}
         <ToolSection {onLaunchTool} />
+      {:else if section.id === 'tasks'}
+        <TaskTrackerSection />
       {/if}
     {/if}
   {/each}
@@ -56,10 +59,10 @@
   .sidebar {
     flex-shrink: 0;
     height: 100%;
-    background: rgba(30, 30, 30, 0.75);
+    background: var(--c-bg-glass);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    border-right: 1px solid var(--c-border-subtle);
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -69,12 +72,12 @@
   .sidebar-footer {
     margin-top: auto;
     padding: 8px 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--c-border-subtle);
   }
 
   .version-label {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     user-select: none;
   }
 </style>

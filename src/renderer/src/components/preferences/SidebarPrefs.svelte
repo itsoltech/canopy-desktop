@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { ChevronUp, ChevronDown } from '@lucide/svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import {
     SECTION_DEFS,
     getSidebarConfig,
@@ -54,8 +55,7 @@
       {@const def = SECTION_DEFS.find((d) => d.id === item.id)}
       <div class="section-row">
         <label class="checkbox-row">
-          <input
-            type="checkbox"
+          <CustomCheckbox
             checked={item.visible}
             disabled={def?.forced}
             onchange={() => toggleVisibility(i)}
@@ -100,13 +100,13 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     margin: 0;
   }
 
   .section-desc {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     margin: 0;
   }
 
@@ -126,7 +126,7 @@
   }
 
   .section-row:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
   }
 
   .checkbox-row {
@@ -134,25 +134,17 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     cursor: pointer;
   }
 
-  .checkbox-row input[type='checkbox'] {
-    accent-color: #74c0fc;
-  }
-
-  .checkbox-row input[type='checkbox']:disabled {
-    opacity: 0.4;
-  }
-
   .forced {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     margin-left: 4px;
   }
 
@@ -170,7 +162,7 @@
     background: none;
     border: 1px solid transparent;
     border-radius: 4px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     cursor: pointer;
     transition:
       background 0.1s,
@@ -178,8 +170,8 @@
   }
 
   .order-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .order-btn:disabled {

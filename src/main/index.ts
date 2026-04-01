@@ -10,16 +10,20 @@ import { Database } from './db/Database'
 import { WorkspaceStore } from './db/WorkspaceStore'
 import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
+import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { registerIpcHandlers } from './ipc/handlers'
-import { ClaudeSessionManager } from './claude/ClaudeSessionManager'
+import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
+import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
+import { TmuxManager } from './pty/TmuxManager'
+import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
-import { fetchChangelogRange } from './changelog/fetchChangelog'
+import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -35,13 +39,36 @@ const database = new Database()
 const workspaceStore = new WorkspaceStore(database)
 const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
+const onboardingStore = new OnboardingStore(database)
 const toolRegistry = new ToolRegistry(database)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
+const credentialStore = new CredentialStore(database)
+const tmuxManager = new TmuxManager(app.getPath('userData'))
 let manualCheckInProgress = false
 let updateInstalling = false
+let updateCheckInFlight = false
 
-let claudeSessionManager: ClaudeSessionManager | null = null
+const checkWithChannelResolution = async (): Promise<void> => {
+  if (updateCheckInFlight) return
+  updateCheckInFlight = true
+  try {
+    const ch = preferencesStore.get('update.channel') ?? 'stable'
+    if (ch === 'next') {
+      const effective = await resolveUpdateChannel(app.getVersion())
+      autoUpdater.channel = effective
+      autoUpdater.allowPrerelease = true
+    } else {
+      autoUpdater.channel = 'latest'
+      autoUpdater.allowPrerelease = false
+    }
+    await autoUpdater.checkForUpdates()
+  } finally {
+    updateCheckInFlight = false
+  }
+}
+
+let agentSessionManager: AgentSessionManager | null = null
 let notchOverlay: NotchOverlayManager | null = null
 
 // Register canopy:// URL scheme
@@ -129,7 +156,7 @@ function buildAppMenu(): void {
   const checkForUpdatesClick = (): void => {
     if (app.isPackaged) {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -247,10 +274,11 @@ app.whenReady().then(async () => {
 
   buildAppMenu()
 
-  // Track version changes for post-update changelog
+  // Track version changes for post-update changelog / onboarding
   const currentVersion = app.getVersion()
   const lastSeenVersion = preferencesStore.get('app.lastSeenVersion')
-  const versionChanged = lastSeenVersion !== null && lastSeenVersion !== currentVersion
+  const isFirstLaunch = lastSeenVersion === null
+  const versionChanged = !isFirstLaunch && lastSeenVersion !== currentVersion
   preferencesStore.set('app.lastSeenVersion', currentVersion)
 
   if (app.isPackaged) {
@@ -302,10 +330,8 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:setUpdateChannel', (_e, channel: string) => {
       if (channel !== 'stable' && channel !== 'next') return
-      const allowPrerelease = channel === 'next'
-      autoUpdater.allowPrerelease = allowPrerelease
       preferencesStore.set('update.channel', channel)
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         console.warn('Update check after channel switch failed:', err)
       })
     })
@@ -317,7 +343,7 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('app:checkForUpdates', () => {
       manualCheckInProgress = true
-      autoUpdater.checkForUpdates().catch((err) => {
+      checkWithChannelResolution().catch((err) => {
         manualCheckInProgress = false
         console.warn('Manual update check failed:', err)
       })
@@ -368,15 +394,51 @@ app.whenReady().then(async () => {
       }, 10_000)
     })
 
-    autoUpdater.checkForUpdates().catch((err) => {
+    checkWithChannelResolution().catch((err) => {
       console.warn('Auto-update check failed:', err)
     })
   }
 
-  claudeSessionManager = new ClaudeSessionManager()
-  claudeSessionManager.cleanupOrphans()
-  windowManager.setClaudeSessionManager(claudeSessionManager)
+  // SECURITY: Validate and harden all <webview> tags before they attach.
+  // Even if an attacker modifies webview attributes in the DOM, this handler
+  // forces safe webPreferences and blocks non-http(s) sources.
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-attach-webview', (event, webPreferences, params) => {
+      // Strip preload scripts — browser webviews must not have preload
+      delete webPreferences.preload
+
+      // Force secure defaults
+      webPreferences.nodeIntegration = false
+      webPreferences.contextIsolation = true
+      webPreferences.sandbox = true
+
+      // Only allow http(s) or about:blank as source
+      const src = params.src
+      if (src && src !== '' && src !== 'about:blank') {
+        try {
+          const url = new URL(src)
+          if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+            event.preventDefault()
+            return
+          }
+        } catch {
+          event.preventDefault()
+          return
+        }
+      }
+    })
+  })
+
+  // Initialize browser partition (shared session for all browser webviews,
+  // isolated from the main app session to protect API keys)
+  browserManager.ensurePartition()
+
+  agentSessionManager = new AgentSessionManager()
+  agentSessionManager.cleanupOrphans()
+  windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
+
+  const taskTrackerManager = new TaskTrackerManager(preferencesStore)
 
   registerIpcHandlers(
     ptyManager,
@@ -385,9 +447,13 @@ app.whenReady().then(async () => {
     preferencesStore,
     layoutStore,
     toolRegistry,
-    claudeSessionManager,
+    agentSessionManager,
     windowManager,
     browserManager,
+    credentialStore,
+    onboardingStore,
+    tmuxManager,
+    taskTrackerManager,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
@@ -463,11 +529,18 @@ app.whenReady().then(async () => {
       if (lastPath) windowConfigs = [{ paths: [lastPath] }]
     }
 
-    let changelogSent = false
-    const sendChangelog = (win: BrowserWindow): void => {
-      if (!changelogSent && versionChanged && lastSeenVersion) {
-        win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
-        changelogSent = true
+    let postLaunchSent = false
+    const sendPostLaunch = (win: BrowserWindow): void => {
+      if (postLaunchSent) return
+      postLaunchSent = true
+
+      if (isFirstLaunch) {
+        win.webContents.send('app:showOnboarding', { mode: 'first-launch' })
+      } else if (versionChanged && lastSeenVersion) {
+        win.webContents.send('app:showOnboarding', {
+          mode: 'upgrade',
+          fromVersion: lastSeenVersion,
+        })
       }
     }
 
@@ -481,27 +554,37 @@ app.whenReady().then(async () => {
           if (config.activeWorktreePath) {
             win.webContents.send('workspace:restoreActive', config.activeWorktreePath)
           }
-          sendChangelog(win)
+          sendPostLaunch(win)
         })
       }
     } else {
       const win = windowManager.createWindow()
-      win.once('ready-to-show', () => sendChangelog(win))
+      win.once('ready-to-show', () => sendPostLaunch(win))
     }
   } else {
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
-      if (versionChanged && lastSeenVersion) {
-        win.webContents.send('app:showChangelog', { fromVersion: lastSeenVersion })
+      if (isFirstLaunch) {
+        win.webContents.send('app:showOnboarding', { mode: 'first-launch' })
+      } else if (versionChanged && lastSeenVersion) {
+        win.webContents.send('app:showOnboarding', {
+          mode: 'upgrade',
+          fromVersion: lastSeenVersion,
+        })
       }
     })
   }
 
   // Initialize notch overlay after main window so the panel doesn't suppress the dock icon
-  notchOverlay = new NotchOverlayManager(claudeSessionManager, windowManager)
+  notchOverlay = new NotchOverlayManager(agentSessionManager, windowManager)
   if (preferencesStore.get('notch.enabled') === 'true') {
     notchOverlay.initialize()
   }
+
+  // Destroy notch overlay when all managed windows close so window-all-closed fires on Windows
+  windowManager.onAllWindowsClosed(() => {
+    notchOverlay?.dispose()
+  })
 
   ipcMain.on('notch:setEnabled', (event, { enabled }: { enabled: boolean }) => {
     if (!notchOverlay) return
@@ -539,7 +622,7 @@ app.on('before-quit', (event) => {
   // Window configs already saved; windows already destroyed.
   if (updateInstalling) {
     notchOverlay?.dispose()
-    claudeSessionManager?.dispose()
+    agentSessionManager?.dispose()
     database.close()
     return
   }
@@ -572,6 +655,39 @@ app.on('before-quit', (event) => {
     }
   }
 
+  // Handle tmux close policy synchronously before any async work
+  const tmuxClosePolicy = preferencesStore.get('tmux.closePolicy') ?? 'detach'
+  if (tmuxClosePolicy === 'ask') {
+    // preventDefault must be called synchronously — cannot await before this
+    event.preventDefault()
+    tmuxManager
+      .listSessions()
+      .catch(() => [])
+      .then(async (tmuxSessions) => {
+        if (tmuxSessions.length > 0) {
+          const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
+          if (focusedWin && !focusedWin.isDestroyed()) {
+            const { response } = await dialog.showMessageBox(focusedWin, {
+              type: 'question',
+              buttons: ['Keep Running', 'Kill Sessions', 'Cancel'],
+              defaultId: 0,
+              cancelId: 2,
+              title: 'Tmux Sessions',
+              message: `${tmuxSessions.length} tmux session(s) are running`,
+              detail: 'Keep them running in the background or kill them?',
+            })
+            if (response === 2) return // Cancel — app stays open
+            if (response === 1) {
+              await tmuxManager.killServer().catch(() => {})
+            }
+          }
+        }
+        windowManager.isQuitting = true
+        app.quit()
+      })
+    return
+  }
+
   const configs = windowManager.getAllWindowConfigs()
   if (configs.length > 0) {
     preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
@@ -579,8 +695,12 @@ app.on('before-quit', (event) => {
     preferencesStore.delete('openWindowConfigs')
   }
 
+  if (tmuxClosePolicy === 'kill') {
+    tmuxManager.killServer().catch(() => {})
+  }
+
   notchOverlay?.dispose()
-  claudeSessionManager?.dispose()
+  agentSessionManager?.dispose()
   windowManager.disposeAll()
   database.close()
 })

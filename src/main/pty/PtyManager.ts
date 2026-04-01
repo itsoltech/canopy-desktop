@@ -8,6 +8,7 @@ import { getLoginEnv } from '../shell/loginEnv'
 interface PtySession {
   id: string
   pty: IPty
+  tmuxSessionName?: string
 }
 
 export interface SpawnOptions {
@@ -17,6 +18,7 @@ export interface SpawnOptions {
   command?: string
   args?: string[]
   env?: Record<string, string>
+  tmuxSessionName?: string
 }
 
 function resolveShell(): { command: string; args: string[] } {
@@ -48,6 +50,8 @@ export class PtyManager {
     const baseEnv = {
       ...(getLoginEnv() ?? process.env),
       TERM_PROGRAM: 'canopy',
+      COLORTERM: 'truecolor',
+      TERM: 'xterm-256color',
     } as Record<string, string>
     const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv
 
@@ -59,13 +63,21 @@ export class PtyManager {
       env,
     })
 
-    const session: PtySession = { id, pty: p }
+    const session: PtySession = { id, pty: p, tmuxSessionName: options?.tmuxSessionName }
     this.sessions.set(id, session)
     return session
   }
 
   get(id: string): PtySession | undefined {
     return this.sessions.get(id)
+  }
+
+  getTmuxSessionName(id: string): string | undefined {
+    return this.sessions.get(id)?.tmuxSessionName
+  }
+
+  isTmuxSession(id: string): boolean {
+    return !!this.sessions.get(id)?.tmuxSessionName
   }
 
   resize(id: string, cols: number, rows: number): void {

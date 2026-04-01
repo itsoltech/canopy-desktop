@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import type { AiSessionInfo } from '../../lib/stores/tabs.svelte'
+
+  let containerEl: HTMLDivElement | undefined = $state()
 
   let {
     sessions,
@@ -11,6 +14,10 @@
     onClose: () => void
   } = $props()
 
+  onMount(() => {
+    containerEl?.focus()
+  })
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -21,9 +28,14 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="picker-overlay" onclick={onClose} onkeydown={handleKeydown}>
+<div class="picker-overlay" onmousedown={onClose} onkeydown={handleKeydown}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="picker" onclick={(e) => e.stopPropagation()}>
+  <div
+    bind:this={containerEl}
+    class="picker"
+    tabindex="-1"
+    onmousedown={(e) => e.stopPropagation()}
+  >
     <div class="picker-title">Send to</div>
     {#each sessions as s (s.sessionId)}
       <button class="picker-item" onclick={() => onSelect(s.sessionId)}>
@@ -42,14 +54,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--c-scrim);
   }
 
   .picker {
+    outline: none;
     min-width: 220px;
     padding: 8px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   }
@@ -58,7 +71,7 @@
     padding: 4px 8px 8px;
     font-size: 12px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .picker-item {
@@ -71,7 +84,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
@@ -79,7 +92,7 @@
   }
 
   .picker-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 
   .picker-name {
@@ -88,6 +101,6 @@
 
   .picker-status {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 </style>

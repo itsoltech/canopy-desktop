@@ -1,4 +1,4 @@
-import { restoreLayout } from './tabs.svelte'
+import { restoreLayout, cleanupOrphanedTmuxSessions } from './tabs.svelte'
 
 function basename(p: string): string {
   return p.split('/').pop() || p
@@ -149,6 +149,9 @@ async function attachProjectImpl(path: string): Promise<void> {
   } catch {
     // Layout restore failed, will fall back to ensureShellTab
   }
+
+  // Kill tmux sessions not attached to any pane (crash leftovers, stale layouts)
+  await cleanupOrphanedTmuxSessions().catch(() => {})
 }
 
 export async function detachProject(path: string): Promise<void> {
@@ -286,8 +289,8 @@ export async function selectWorktree(path: string): Promise<void> {
     workspaceState.worktrees = project.worktrees
   }
 
-  workspaceState.selectedWorktreePath = path
   window.api.setActiveWorktree(path)
+  workspaceState.selectedWorktreePath = path
 
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)

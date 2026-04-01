@@ -40,14 +40,14 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="dialog-overlay" onkeydown={handleKeydown} onclick={onCancel}>
+<div class="dialog-overlay" onkeydown={handleKeydown} onmousedown={onCancel}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="dialog-container"
     role="dialog"
     aria-modal="true"
     aria-labelledby="confirm-dialog-title"
-    onclick={(e) => e.stopPropagation()}
+    onmousedown={(e) => e.stopPropagation()}
   >
     <h3 id="confirm-dialog-title" class="dialog-title">{title}</h3>
     <p class="dialog-message">{message}</p>
@@ -72,13 +72,13 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 120px;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
   }
 
   .dialog-container {
     width: 420px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     padding: 20px;
@@ -88,13 +88,13 @@
     margin: 0 0 8px;
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
   }
 
   .dialog-message {
     margin: 0 0 4px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     line-height: 1.5;
     white-space: pre-wrap;
   }
@@ -102,7 +102,7 @@
   .dialog-details {
     margin: 0 0 4px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     font-family: monospace;
     word-break: break-all;
   }
@@ -126,34 +126,34 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 
   .btn-cancel {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   .btn-cancel:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--c-border);
   }
 
   .btn-confirm {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
   }
 
   .btn-confirm:hover {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-muted);
   }
 
   .btn-confirm.destructive {
-    background: rgba(255, 100, 100, 0.2);
-    color: rgba(255, 120, 120, 0.9);
+    background: var(--c-danger-bg);
+    color: var(--c-danger-text);
   }
 
   .btn-confirm.destructive:hover {
-    background: rgba(255, 100, 100, 0.3);
+    background: color-mix(in srgb, var(--c-danger) 30%, transparent);
   }
 </style>

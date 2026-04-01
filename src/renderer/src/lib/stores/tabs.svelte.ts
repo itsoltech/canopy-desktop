@@ -16,14 +16,17 @@ import {
 import type { DropZone } from './dragState.svelte'
 import { workspaceState, getProjectForWorktree } from './workspace.svelte'
 import {
-  initClaudeSession,
-  removeClaudeSession,
-  claudeSessions,
-} from '../claude/claudeState.svelte'
+  initAgentSession,
+  removeAgentSession,
+  agentSessions,
+  type AgentType,
+} from '../agents/agentState.svelte'
 import { confirm } from './dialogs.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
 
 // --- Active process detection ---
+
+const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
 const ACTIVE_CLAUDE_STATUSES = new Set([
   'thinking',
@@ -39,8 +42,8 @@ async function getActiveProcessDescription(panes: PaneSession[]): Promise<string
   await Promise.all(
     panes.map(async (p) => {
       if (!p.isRunning) return
-      if (p.toolId === 'claude') {
-        const s = claudeSessions[p.sessionId]
+      if (AI_TOOL_IDS.has(p.toolId)) {
+        const s = agentSessions[p.sessionId]
         if (s && ACTIVE_CLAUDE_STATUSES.has(s.status.type)) busyClaude++
       } else {
         try {
@@ -82,10 +85,12 @@ type SerializedSplitNode =
       type: 'leaf'
       toolId: string
       toolName: string
+      agentSessionId?: string
       claudeSessionId?: string
       browserUrl?: string
       browserDevToolsMode?: 'bottom' | 'right'
       filePath?: string
+      tmuxSessionName?: string
     }
   | { type: 'hsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
   | { type: 'vsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
@@ -135,11 +140,11 @@ export async function openTool(
   let toolName: string
 
   if (toolId === 'browser') {
-    const result = await window.api.createBrowser()
+    const browserId = crypto.randomUUID()
     toolName = 'Browser'
     pane = {
       id: paneId,
-      sessionId: result.browserId,
+      sessionId: browserId,
       wsUrl: '',
       toolId,
       toolName,
@@ -147,13 +152,11 @@ export async function openTool(
       exitCode: null,
       title: null,
       paneType: 'browser',
-    }
-    if (initialUrl) {
-      window.api.navigateBrowser(result.browserId, initialUrl)
+      url: initialUrl,
     }
   } else {
     const options: { workspaceName?: string; branch?: string } = {}
-    if (toolId === 'claude') {
+    if (AI_TOOL_IDS.has(toolId)) {
       const project = getProjectForWorktree(worktreePath)
       options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
       options.branch = workspaceState.branch ?? undefined
@@ -169,9 +172,10 @@ export async function openTool(
       isRunning: true,
       exitCode: null,
       title: null,
+      tmuxSessionName: result.tmuxSessionName,
     }
-    if (toolId === 'claude') {
-      initClaudeSession(result.sessionId)
+    if (AI_TOOL_IDS.has(toolId)) {
+      initAgentSession(result.sessionId, toolId as AgentType)
     }
   }
 
@@ -182,6 +186,48 @@ export async function openTool(
     id,
     toolId,
     toolName,
+    name,
+    worktreePath,
+    rootSplit: createLeaf(pane),
+    focusedPaneId: paneId,
+  }
+
+  if (!tabsByWorktree[worktreePath]) {
+    tabsByWorktree[worktreePath] = []
+  }
+  tabsByWorktree[worktreePath].push(tab)
+  activeTabId[worktreePath] = id
+
+  scheduleSave(worktreePath)
+  return tab
+}
+
+export function openTmuxTab(
+  tmuxSessionName: string,
+  sessionId: string,
+  wsUrl: string,
+  worktreePath: string,
+): TabInfo {
+  const paneId = nextPaneId()
+  const pane: PaneSession = {
+    id: paneId,
+    sessionId,
+    wsUrl,
+    toolId: 'shell',
+    toolName: 'Shell',
+    isRunning: true,
+    exitCode: null,
+    title: null,
+    tmuxSessionName,
+  }
+
+  const id = nextTabId()
+  const name = computeDisplayName('Shell', worktreePath, 'shell')
+
+  const tab: TabInfo = {
+    id,
+    toolId: 'shell',
+    toolName: 'Shell',
     name,
     worktreePath,
     rootSplit: createLeaf(pane),
@@ -232,8 +278,8 @@ export async function closeTab(tabId: string): Promise<void> {
 
     // Kill all PTYs / destroy browser views and cleanup sessions
     for (const p of panes) {
-      if (p.toolId === 'claude') {
-        removeClaudeSession(p.sessionId)
+      if (agentSessions[p.sessionId]) {
+        removeAgentSession(p.sessionId)
       }
       if (p.paneType === 'browser') {
         delete browserSessions[p.sessionId]
@@ -242,11 +288,12 @@ export async function closeTab(tabId: string): Promise<void> {
     await Promise.all(
       panes
         .filter((p) => p.paneType !== 'editor')
-        .map((p) =>
-          p.paneType === 'browser'
-            ? window.api.destroyBrowser(p.sessionId)
-            : window.api.killPty(p.sessionId),
-        ),
+        .map((p) => {
+          if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
+          // For tmux-backed panes, detach instead of kill (session survives)
+          if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
+          return window.api.killPty(p.sessionId)
+        }),
     )
 
     // Remove tab
@@ -395,16 +442,28 @@ export function getRunningCountByTool(worktreePath: string, toolId: string): num
   return count
 }
 
-export function handlePtyExit(sessionId: string, exitCode: number): void {
+export async function handlePtyExit(
+  sessionId: string,
+  exitCode: number,
+  tmuxSessionName?: string,
+): Promise<void> {
   for (const tabs of Object.values(tabsByWorktree)) {
     for (const tab of tabs) {
       const panes = allPanes(tab.rootSplit)
       const pane = panes.find((p) => p.sessionId === sessionId)
       if (pane) {
+        const tmuxName = tmuxSessionName || pane.tmuxSessionName
+        // Check if the tmux session is actually still alive before marking detached
+        let detached = false
+        if (tmuxName) {
+          detached = await window.api.tmuxHasSession(tmuxName).catch(() => false)
+        }
         tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
           ...p,
           isRunning: false,
           exitCode,
+          detached,
+          tmuxSessionName: detached ? p.tmuxSessionName : undefined,
         }))
         return
       }
@@ -436,21 +495,45 @@ export async function restartPane(
   if (pane.paneType === 'browser') {
     const oldUrl = pane.url
     try {
-      await window.api.destroyBrowser(pane.sessionId)
+      await window.api.teardownBrowserWebview(pane.sessionId)
     } catch {
       // Already destroyed
     }
-    const result = await window.api.createBrowser()
-    if (oldUrl) {
-      window.api.navigateBrowser(result.browserId, oldUrl)
-    }
+    const newBrowserId = crypto.randomUUID()
     tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
       ...p,
-      sessionId: result.browserId,
+      sessionId: newBrowserId,
+      url: oldUrl,
       isRunning: true,
       exitCode: null,
       title: null,
     }))
+  } else if (pane.tmuxSessionName && pane.detached) {
+    // Tmux pane: try to reattach to existing session
+    const exists = await window.api.tmuxHasSession(pane.tmuxSessionName)
+    if (exists) {
+      const result = await window.api.tmuxAttach(pane.tmuxSessionName)
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+        ...p,
+        sessionId: result.sessionId,
+        wsUrl: result.wsUrl,
+        isRunning: true,
+        exitCode: null,
+        detached: false,
+      }))
+    } else {
+      // Tmux session gone, spawn fresh
+      const result = await window.api.spawnTool(pane.toolId, worktreePath)
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+        ...p,
+        sessionId: result.sessionId,
+        wsUrl: result.wsUrl,
+        isRunning: true,
+        exitCode: null,
+        detached: false,
+        tmuxSessionName: result.tmuxSessionName,
+      }))
+    }
   } else {
     // Kill old PTY (may already be dead)
     try {
@@ -459,20 +542,20 @@ export async function restartPane(
       // Already exited or cleaned up
     }
 
-    if (pane.toolId === 'claude') {
-      removeClaudeSession(pane.sessionId)
+    if (AI_TOOL_IDS.has(pane.toolId)) {
+      removeAgentSession(pane.sessionId)
     }
 
     // Spawn new
     const options: { workspaceName?: string; branch?: string } = {}
-    if (pane.toolId === 'claude') {
+    if (AI_TOOL_IDS.has(pane.toolId)) {
       options.workspaceName = workspaceState.workspace?.name ?? ''
       options.branch = workspaceState.branch ?? undefined
     }
     const result = await window.api.spawnTool(pane.toolId, worktreePath, options)
 
-    if (pane.toolId === 'claude') {
-      initClaudeSession(result.sessionId)
+    if (AI_TOOL_IDS.has(pane.toolId)) {
+      initAgentSession(result.sessionId, pane.toolId as AgentType)
     }
 
     // Update pane in tree
@@ -483,9 +566,77 @@ export async function restartPane(
       isRunning: true,
       exitCode: null,
       title: null,
+      tmuxSessionName: result.tmuxSessionName,
     }))
   }
 
+  scheduleSave(worktreePath)
+}
+
+export async function reattachTmuxPane(
+  worktreePath: string,
+  tabId: string,
+  paneId: string,
+): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+  const panes = allPanes(tab.rootSplit)
+  const pane = panes.find((p) => p.id === paneId)
+  if (!pane?.tmuxSessionName) return
+
+  const exists = await window.api.tmuxHasSession(pane.tmuxSessionName)
+  if (exists) {
+    const result = await window.api.tmuxAttach(pane.tmuxSessionName)
+    tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+      ...p,
+      sessionId: result.sessionId,
+      wsUrl: result.wsUrl,
+      isRunning: true,
+      exitCode: null,
+      detached: false,
+    }))
+  } else {
+    // Tmux session gone, spawn fresh
+    const result = await window.api.spawnTool(pane.toolId, worktreePath)
+    tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+      ...p,
+      sessionId: result.sessionId,
+      wsUrl: result.wsUrl,
+      isRunning: true,
+      exitCode: null,
+      detached: false,
+      tmuxSessionName: result.tmuxSessionName,
+    }))
+  }
+  scheduleSave(worktreePath)
+}
+
+export async function killTmuxPane(
+  worktreePath: string,
+  tabId: string,
+  paneId: string,
+): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+  const panes = allPanes(tab.rootSplit)
+  const pane = panes.find((p) => p.id === paneId)
+  if (!pane?.tmuxSessionName) return
+
+  try {
+    await window.api.tmuxKillSession(pane.tmuxSessionName)
+  } catch {
+    // Session may already be gone
+  }
+  tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+    ...p,
+    isRunning: false,
+    detached: false,
+    tmuxSessionName: undefined,
+  }))
   scheduleSave(worktreePath)
 }
 
@@ -512,17 +663,17 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
 
   const allSessions = tabs.flatMap((t) => allPanes(t.rootSplit))
   for (const p of allSessions) {
-    if (p.toolId === 'claude') removeClaudeSession(p.sessionId)
+    if (agentSessions[p.sessionId]) removeAgentSession(p.sessionId)
     if (p.paneType === 'browser') delete browserSessions[p.sessionId]
   }
   await Promise.allSettled(
     allSessions
       .filter((p) => p.paneType !== 'editor')
-      .map((p) =>
-        p.paneType === 'browser'
-          ? window.api.destroyBrowser(p.sessionId)
-          : window.api.killPty(p.sessionId),
-      ),
+      .map((p) => {
+        if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
+        if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
+        return window.api.killPty(p.sessionId)
+      }),
   )
 
   delete tabsByWorktree[worktreePath]
@@ -540,11 +691,11 @@ export async function killAllTabs(): Promise<void> {
   await Promise.all(
     allSessions
       .filter((p) => p.paneType !== 'editor')
-      .map((p) =>
-        p.paneType === 'browser'
-          ? window.api.destroyBrowser(p.sessionId)
-          : window.api.killPty(p.sessionId),
-      ),
+      .map((p) => {
+        if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
+        if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
+        return window.api.killPty(p.sessionId)
+      }),
   )
   for (const path of Object.keys(tabsByWorktree)) {
     delete tabsByWorktree[path]
@@ -572,6 +723,32 @@ export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
 }
 
+export async function cleanupOrphanedTmuxSessions(): Promise<void> {
+  const available = await window.api.tmuxIsAvailable().catch(() => false)
+  if (!available) return
+
+  // Collect tmux session names claimed by any pane in the current layout
+  const claimedNames: string[] = []
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      for (const pane of allPanes(tab.rootSplit)) {
+        if (pane.tmuxSessionName) claimedNames.push(pane.tmuxSessionName)
+      }
+    }
+  }
+
+  // Only kill sessions that are both unclaimed by any pane AND not attached
+  // by any tmux client. This avoids killing sessions the user intentionally
+  // detached (e.g. closed a tab with "detach" policy). Unattached + unclaimed
+  // sessions are crash orphans.
+  const sessions = await window.api.tmuxListSessions().catch(() => [])
+  for (const s of sessions) {
+    if (!claimedNames.includes(s.name) && !s.attached) {
+      await window.api.tmuxKillSession(s.name).catch(() => {})
+    }
+  }
+}
+
 export function findWorktreeForSession(sessionId: string): string | null {
   for (const [path, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
@@ -588,8 +765,6 @@ export interface AiSessionInfo {
   status: string
 }
 
-const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
-
 export function getAiSessions(worktreePath: string): AiSessionInfo[] {
   const tabs = tabsByWorktree[worktreePath] ?? []
   const result: AiSessionInfo[] = []
@@ -597,7 +772,7 @@ export function getAiSessions(worktreePath: string): AiSessionInfo[] {
     const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
       if (AI_TOOL_IDS.has(p.toolId) && p.isRunning) {
-        const cs = p.toolId === 'claude' ? claudeSessions[p.sessionId] : null
+        const cs = agentSessions[p.sessionId] ?? null
         result.push({
           sessionId: p.sessionId,
           tabName: tab.name,
@@ -620,6 +795,16 @@ export function getTabFocusedToolId(tab: TabInfo): string {
   return focused?.toolId ?? tab.toolId
 }
 
+export function getActivePtySessionId(): string | null {
+  const path = workspaceState.selectedWorktreePath
+  if (!path) return null
+  const tabId = activeTabId[path]
+  const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
+  if (!tab) return null
+  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
+  return focused?.sessionId ?? null
+}
+
 export function toggleFocusedInspector(): void {
   const path = workspaceState.selectedWorktreePath
   if (!path) return
@@ -627,8 +812,28 @@ export function toggleFocusedInspector(): void {
   const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
   if (!tab) return
   const pane = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (pane?.toolId === 'claude') {
-    pane.inspectorOpen = pane.inspectorOpen === false ? true : false
+  if (pane && AI_TOOL_IDS.has(pane.toolId)) {
+    tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
+      ...p,
+      inspectorOpen: p.inspectorOpen === false,
+    }))
+  }
+}
+
+export function updateTmuxSessionName(oldName: string, newName: string): void {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const panes = allPanes(tab.rootSplit)
+      const pane = panes.find((p) => p.tmuxSessionName === oldName)
+      if (pane) {
+        tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
+          ...p,
+          tmuxSessionName: newName,
+        }))
+        scheduleSave(tab.worktreePath)
+        return
+      }
+    }
   }
 }
 
@@ -644,8 +849,8 @@ export function updatePaneTitle(sessionId: string, title: string): void {
           title,
         }))
         // Forward title to main process for the notch overlay
-        if (pane.toolId === 'claude') {
-          window.api.updateClaudeTitle(sessionId, title)
+        if (agentSessions[pane.sessionId]) {
+          window.api.updateAgentTitle(sessionId, title)
         }
         return
       }
@@ -758,7 +963,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     // No-op
   } else if (result.removed.paneType === 'browser') {
     delete browserSessions[result.removed.sessionId]
-    await window.api.destroyBrowser(result.removed.sessionId)
+    await window.api.teardownBrowserWebview(result.removed.sessionId)
   } else {
     await window.api.killPty(result.removed.sessionId)
   }
@@ -916,9 +1121,11 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode {
       toolId: node.pane.toolId,
       toolName: node.pane.toolName,
     }
-    if (node.pane.toolId === 'claude') {
-      const csid = claudeSessions[node.pane.sessionId]?.claudeSessionId
-      if (csid) leaf.claudeSessionId = csid
+    if (agentSessions[node.pane.sessionId]) {
+      const csid = agentSessions[node.pane.sessionId]?.agentSessionId
+      if (csid) leaf.agentSessionId = csid
+      // Backward compat: also write claudeSessionId for claude agents
+      if (node.pane.toolId === 'claude' && csid) leaf.claudeSessionId = csid
     }
     if (node.pane.paneType === 'browser') {
       leaf.browserUrl = node.pane.url ?? ''
@@ -927,6 +1134,9 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode {
     }
     if (node.pane.paneType === 'editor') {
       leaf.filePath = node.pane.filePath
+    }
+    if (node.pane.tmuxSessionName) {
+      leaf.tmuxSessionName = node.pane.tmuxSessionName
     }
     return leaf
   }
@@ -992,10 +1202,10 @@ async function restoreSplitNode(
         filePath: node.filePath,
       }
     } else if (node.toolId === 'browser') {
-      const result = await window.api.createBrowser()
+      const browserId = crypto.randomUUID()
       pane = {
         id: paneId,
-        sessionId: result.browserId,
+        sessionId: browserId,
         wsUrl: '',
         toolId: node.toolId,
         toolName: node.toolName,
@@ -1005,16 +1215,33 @@ async function restoreSplitNode(
         paneType: 'browser',
         url: node.browserUrl,
       }
-      if (node.browserUrl) {
-        window.api.navigateBrowser(result.browserId, node.browserUrl)
+    } else if (
+      node.tmuxSessionName &&
+      (await window.api.tmuxHasSession(node.tmuxSessionName).catch(() => false))
+    ) {
+      // Reattach to an existing tmux session
+      const result = await window.api.tmuxAttach(node.tmuxSessionName)
+      pane = {
+        id: paneId,
+        sessionId: result.sessionId,
+        wsUrl: result.wsUrl,
+        toolId: node.toolId,
+        toolName: node.toolName,
+        isRunning: true,
+        exitCode: null,
+        title: null,
+        tmuxSessionName: node.tmuxSessionName,
+      }
+      if (AI_TOOL_IDS.has(node.toolId)) {
+        initAgentSession(result.sessionId, node.toolId as AgentType)
       }
     } else {
       const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
-      if (node.toolId === 'claude') {
+      if (AI_TOOL_IDS.has(node.toolId)) {
         const project = getProjectForWorktree(worktreePath)
         options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
         options.branch = workspaceState.branch ?? undefined
-        if (node.claudeSessionId) options.resumeSessionId = node.claudeSessionId
+        options.resumeSessionId = node.agentSessionId ?? node.claudeSessionId
       }
       const result = await window.api.spawnTool(node.toolId, worktreePath, options)
       pane = {
@@ -1026,9 +1253,10 @@ async function restoreSplitNode(
         isRunning: true,
         exitCode: null,
         title: null,
+        tmuxSessionName: result.tmuxSessionName,
       }
-      if (node.toolId === 'claude') {
-        initClaudeSession(result.sessionId)
+      if (AI_TOOL_IDS.has(node.toolId)) {
+        initAgentSession(result.sessionId, node.toolId as AgentType)
       }
     }
     return createLeaf(pane)

@@ -17,6 +17,8 @@ export interface NotchSessionStatus {
   detail?: string
   /** First user prompt, used to distinguish sessions on the same worktree */
   title?: string
+  /** Which agent type this session belongs to */
+  agentType?: string
 }
 
 export interface NotchOverlayState {

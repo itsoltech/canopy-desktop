@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SvelteSet } from 'svelte/reactivity'
   import { ChevronRight, Square, Trash2, X } from '@lucide/svelte'
   import {
     projects,
@@ -12,8 +13,8 @@
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
-  import { worktreeBadges } from '../../lib/claude/claudeState.svelte'
-  import { getWorktreeClaudeStatus } from '../../lib/claude/worktreeStatus.svelte'
+  import { worktreeBadges } from '../../lib/agents/agentState.svelte'
+  import { getWorktreeAgentStatus } from '../../lib/agents/worktreeStatus.svelte'
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
     if (wt.branch !== '(detached)') return wt.branch
@@ -111,6 +112,39 @@
     return mergedBranches[project.workspace.path] ?? new Set()
   }
 
+  const removingPaths = new SvelteSet<string>()
+
+  async function doRemoveWorktree(
+    project: ProjectState,
+    wt: { path: string; branch: string },
+  ): Promise<void> {
+    if (!project.repoRoot || removingPaths.has(wt.path)) return
+    removingPaths.add(wt.path)
+
+    await closeAllTabsForWorktree(wt.path)
+
+    const isDetached = wt.branch === '(detached)'
+    try {
+      await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)
+      if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, false)
+    } catch {
+      try {
+        await window.api.gitWorktreeRemove(project.repoRoot, wt.path, true)
+        if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, true)
+      } catch {
+        removingPaths.delete(wt.path)
+        return
+      }
+    }
+
+    removingPaths.delete(wt.path)
+
+    if (workspaceState.selectedWorktreePath === wt.path) {
+      const main = project.worktrees.find((w) => w.isMain)
+      if (main) selectWorktree(main.path)
+    }
+  }
+
   async function removeWorktree(
     e: MouseEvent,
     project: ProjectState,
@@ -131,24 +165,7 @@
     })
     if (!ok) return
 
-    await closeAllTabsForWorktree(wt.path)
-
-    try {
-      await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)
-      if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, false)
-    } catch {
-      try {
-        await window.api.gitWorktreeRemove(project.repoRoot, wt.path, true)
-        if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, true)
-      } catch {
-        // Ignore — watcher will update the list
-      }
-    }
-
-    if (workspaceState.selectedWorktreePath === wt.path) {
-      const main = project.worktrees.find((w) => w.isMain)
-      if (main) selectWorktree(main.path)
-    }
+    await doRemoveWorktree(project, wt)
   }
 
   function handleNewWorktree(e: MouseEvent, project: ProjectState): void {
@@ -195,12 +212,10 @@
   ): void {
     e.preventDefault()
     ctxMenu = { x: e.clientX, y: e.clientY, project, wt }
-    window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
   }
 
   function closeCtxMenu(): void {
     ctxMenu = null
-    window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
   }
 
   function handleCtxKeydown(e: KeyboardEvent): void {
@@ -226,6 +241,17 @@
     if (!ctxMenu) return
     await navigator.clipboard.writeText(ctxMenu.wt.branch)
     closeCtxMenu()
+  }
+
+  function ctxNewWorktree(): void {
+    if (!ctxMenu) return
+    const { project, wt } = ctxMenu
+    closeCtxMenu()
+    showCreateWorktree({
+      repoRoot: project.repoRoot!,
+      workspaceId: project.workspace.id,
+      baseBranch: wt.branch,
+    })
   }
 
   async function ctxStopAll(): Promise<void> {
@@ -254,24 +280,7 @@
     })
     if (!ok) return
 
-    await closeAllTabsForWorktree(wt.path)
-
-    try {
-      await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)
-      if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, false)
-    } catch {
-      try {
-        await window.api.gitWorktreeRemove(project.repoRoot, wt.path, true)
-        if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, true)
-      } catch {
-        // Ignore — watcher will update the list
-      }
-    }
-
-    if (workspaceState.selectedWorktreePath === wt.path) {
-      const main = project.worktrees.find((w) => w.isMain)
-      if (main) selectWorktree(main.path)
-    }
+    await doRemoveWorktree(project, wt)
   }
 </script>
 
@@ -290,6 +299,8 @@
       <button class="ctx-item" onclick={ctxCopyPath}>Copy Path</button>
       {#if ctxMenu.wt.branch !== '(detached)'}
         <button class="ctx-item" onclick={ctxCopyBranch}>Copy Branch Name</button>
+        <div class="ctx-divider"></div>
+        <button class="ctx-item" onclick={ctxNewWorktree}>New Worktree from Branch</button>
       {/if}
       {#if isWorktreeActive(ctxMenu.wt.path)}
         <div class="ctx-divider"></div>
@@ -339,7 +350,6 @@
                   isBare: false,
                 },
               }
-              window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
             }
           }}
           aria-expanded={!collapsed}
@@ -380,9 +390,10 @@
         <ul class="worktree-list">
           {#each sortedWorktrees(project.worktrees) as wt (wt.path)}
             {@const wtActive = isWorktreeActive(wt.path)}
-            {@const claudeStatus = getWorktreeClaudeStatus(wt.path)}
+            {@const agentStatus = getWorktreeAgentStatus(wt.path)}
             {@const wtBadge = worktreeBadges[wt.path] ?? 'none'}
-            <li class="worktree-row">
+            {@const isRemoving = removingPaths.has(wt.path)}
+            <li class="worktree-row" class:removing={isRemoving}>
               <button
                 class="worktree-item"
                 class:active={wt.path === workspaceState.selectedWorktreePath}
@@ -391,12 +402,12 @@
               >
                 <span
                   class="indicator"
-                  class:has-dot={claudeStatus !== 'none'}
-                  title={claudeStatus !== 'none' ? `Agent: ${claudeStatus}` : undefined}
-                  aria-label={claudeStatus !== 'none' ? `Agent status: ${claudeStatus}` : undefined}
+                  class:has-dot={agentStatus !== 'none'}
+                  title={agentStatus !== 'none' ? `Agent: ${agentStatus}` : undefined}
+                  aria-label={agentStatus !== 'none' ? `Agent status: ${agentStatus}` : undefined}
                 >
-                  {#if claudeStatus !== 'none'}
-                    <span class="wt-status-dot {claudeStatus}" aria-hidden="true"></span>
+                  {#if agentStatus !== 'none'}
+                    <span class="wt-status-dot {agentStatus}" aria-hidden="true"></span>
                     {#if wtBadge !== 'none'}
                       <span
                         class="wt-notify-dot"
@@ -409,7 +420,9 @@
                   {/if}
                 </span>
                 <span class="branch-name" title={wt.path}>{worktreeLabel(wt)}</span>
-                {#if wt.branch === '(detached)'}
+                {#if isRemoving}
+                  <span class="removing-label">removing...</span>
+                {:else if wt.branch === '(detached)'}
                   <span class="detached-badge" title={wt.head}>{wt.head.slice(0, 7)}</span>
                 {:else if merged.has(wt.branch)}
                   <span class="merged-badge" title="Merged">merged</span>
@@ -430,7 +443,7 @@
                   </span>
                 {/if}
               </button>
-              {#if !wtActive && !wt.isMain && merged.has(wt.branch)}
+              {#if !wtActive && !wt.isMain && merged.has(wt.branch) && !isRemoving}
                 <button
                   class="remove-btn"
                   title="Remove worktree and delete branch"
@@ -465,7 +478,7 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 1px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     text-transform: uppercase;
   }
 
@@ -494,22 +507,22 @@
   }
 
   .project-toggle:hover .project-name {
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--c-text);
   }
 
   .project-toggle.active {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover-strong);
     border-radius: 4px;
   }
 
   .project-toggle.active .project-name {
-    color: #fff;
+    color: var(--c-text);
   }
 
   .chevron {
     display: flex;
     align-items: center;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     transition: transform 0.15s ease;
     transform: rotate(0deg);
     width: 12px;
@@ -523,7 +536,7 @@
   .project-name {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -540,7 +553,7 @@
     font-size: 10px;
     font-weight: 500;
     font-family: inherit;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     background: none;
     border: none;
     padding: 1px 5px;
@@ -552,8 +565,8 @@
   }
 
   .action-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--c-text);
+    background: var(--c-active);
   }
 
   .detach-btn {
@@ -565,7 +578,7 @@
     padding: 0;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.15);
+    color: var(--c-text-faint);
     cursor: pointer;
     border-radius: 3px;
     transition:
@@ -574,8 +587,8 @@
   }
 
   .detach-btn:hover {
-    color: rgba(255, 255, 255, 0.5);
-    background: rgba(255, 255, 255, 0.06);
+    color: var(--c-text-secondary);
+    background: var(--c-hover);
   }
 
   .worktree-list {
@@ -589,6 +602,11 @@
     align-items: center;
   }
 
+  .worktree-row.removing {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
   .worktree-item {
     display: flex;
     align-items: center;
@@ -598,7 +616,7 @@
     padding: 4px 8px 4px 28px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -606,19 +624,19 @@
   }
 
   .worktree-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .worktree-item.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .indicator {
     font-family: monospace;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     width: 10px;
     flex-shrink: 0;
   }
@@ -634,25 +652,25 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--c-text-faint);
   }
 
   .wt-status-dot.idle {
-    background: rgba(100, 200, 100, 0.6);
+    background: var(--c-success);
   }
 
   .wt-status-dot.working {
-    background: rgba(116, 192, 252, 0.8);
+    background: var(--c-accent-text);
     animation: wt-pulse 1.5s ease-in-out infinite;
   }
 
   .wt-status-dot.waitingPermission {
-    background: rgba(255, 160, 50, 0.9);
+    background: var(--c-warning-text);
     animation: wt-pulse 1s ease-in-out infinite;
   }
 
   .wt-status-dot.error {
-    background: rgba(255, 100, 100, 0.8);
+    background: var(--c-danger-text);
   }
 
   .wt-notify-dot {
@@ -662,11 +680,11 @@
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: rgba(116, 192, 252, 0.8);
+    background: var(--c-accent-text);
   }
 
   .wt-notify-dot.permission {
-    background: rgba(255, 160, 50, 0.9);
+    background: var(--c-warning-text);
     animation: wt-pulse 1.5s ease-in-out infinite;
   }
 
@@ -683,7 +701,8 @@
   @media (prefers-reduced-motion: reduce) {
     .wt-status-dot.working,
     .wt-status-dot.waitingPermission,
-    .wt-notify-dot.permission {
+    .wt-notify-dot.permission,
+    .removing-label {
       animation: none;
     }
   }
@@ -698,7 +717,7 @@
     font-size: 9px;
     font-weight: 500;
     font-family: monospace;
-    color: rgba(255, 180, 80, 0.7);
+    color: var(--c-warning-text);
     flex-shrink: 0;
     margin-left: auto;
   }
@@ -706,9 +725,18 @@
   .merged-badge {
     font-size: 9px;
     font-weight: 500;
-    color: rgba(100, 200, 120, 0.7);
+    color: var(--c-success);
     flex-shrink: 0;
     margin-left: auto;
+  }
+
+  .removing-label {
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--c-warning-text);
+    flex-shrink: 0;
+    margin-left: auto;
+    animation: wt-pulse 1.5s ease-in-out infinite;
   }
 
   .stop-btn {
@@ -718,7 +746,7 @@
     padding: 0;
     border: none;
     background: none;
-    color: rgba(255, 180, 80, 0.5);
+    color: var(--c-warning-text);
     cursor: pointer;
     flex-shrink: 0;
     margin-left: auto;
@@ -728,8 +756,8 @@
   }
 
   .stop-btn:hover {
-    color: #e05050;
-    background: rgba(224, 80, 80, 0.12);
+    color: var(--c-danger);
+    background: var(--c-danger-bg);
   }
 
   .remove-btn {
@@ -741,7 +769,7 @@
     padding: 0;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     cursor: pointer;
     flex-shrink: 0;
     border-radius: 4px;
@@ -752,15 +780,15 @@
   }
 
   .remove-btn:hover {
-    color: #e05050;
-    background: rgba(224, 80, 80, 0.12);
+    color: var(--c-danger);
+    background: var(--c-danger-bg);
   }
 
   .attach-btn {
     font-size: 10px;
     font-weight: 500;
     font-family: inherit;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     background: none;
     border: none;
     padding: 4px 12px;
@@ -772,7 +800,7 @@
   }
 
   .attach-btn:hover {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   .ctx-overlay {
@@ -784,8 +812,8 @@
   .ctx-menu {
     position: fixed;
     min-width: 180px;
-    background: rgba(40, 40, 40, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     padding: 4px;
@@ -799,7 +827,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
@@ -808,16 +836,16 @@
   }
 
   .ctx-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 
   .ctx-item.destructive {
-    color: rgba(255, 120, 120, 0.9);
+    color: var(--c-danger-text);
   }
 
   .ctx-divider {
     height: 1px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
     margin: 4px 8px;
   }
 </style>

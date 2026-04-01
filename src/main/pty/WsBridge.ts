@@ -32,22 +32,21 @@ export class WsBridge {
 
     const clients = new Set<WsWebSocket>()
 
-    // Buffer PTY output when no client is connected.
-    // Re-activates after all clients disconnect (e.g. sleep/wake).
-    let buffer: string[] = []
-    let bufferBytes = 0
-    let connected = false
+    // Rolling history buffer — always maintained so reconnecting clients
+    // (e.g. after worktree switch) can restore the terminal content.
+    const history: string[] = []
+    let historyBytes = 0
 
     const onData = ptyProcess.onData((data) => {
-      if (!connected) {
-        buffer.push(data)
-        bufferBytes += data.length
-        while (bufferBytes > MAX_BUFFER_BYTES && buffer.length > 0) {
-          bufferBytes -= buffer[0].length
-          buffer.shift()
-        }
-        return
+      // Always append to rolling history
+      history.push(data)
+      historyBytes += data.length
+      while (historyBytes > MAX_BUFFER_BYTES && history.length > 0) {
+        historyBytes -= history[0].length
+        history.shift()
       }
+
+      // Forward to connected clients
       for (const client of clients) {
         if (client.readyState === 1) {
           client.send(data)
@@ -75,14 +74,9 @@ export class WsBridge {
 
       ws.on('pong', () => alive.add(ws))
 
-      // Flush buffered data to the reconnecting client
-      if (!connected) {
-        connected = true
-        for (const chunk of buffer) {
-          ws.send(chunk)
-        }
-        buffer = []
-        bufferBytes = 0
+      // Send rolling history so reconnecting terminals restore their content
+      for (const chunk of history) {
+        ws.send(chunk)
       }
 
       ws.on('message', (data) => {
@@ -91,16 +85,10 @@ export class WsBridge {
 
       ws.on('close', () => {
         clients.delete(ws)
-        if (clients.size === 0) {
-          connected = false
-        }
       })
 
       ws.on('error', () => {
         clients.delete(ws)
-        if (clients.size === 0) {
-          connected = false
-        }
       })
     })
 

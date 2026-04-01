@@ -36,8 +36,8 @@
     align-items: center;
     justify-content: center;
     border-radius: 3px;
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.5);
+    background: var(--c-hover-strong);
+    color: var(--c-text-secondary);
     font-weight: 600;
     flex-shrink: 0;
   }

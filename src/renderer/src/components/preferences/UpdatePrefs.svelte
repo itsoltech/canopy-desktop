@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
   let autoUpdate = $derived(prefs['update.autoUpdate'] !== 'false')
   let channel = $derived(prefs['update.channel'] || 'stable')
@@ -61,7 +62,7 @@
   <h3 class="section-title">Updates</h3>
 
   <label class="checkbox-row">
-    <input type="checkbox" checked={autoUpdate} onchange={toggleAutoUpdate} />
+    <CustomCheckbox checked={autoUpdate} onchange={toggleAutoUpdate} />
     <span>Automatically download and install updates</span>
   </label>
 
@@ -100,7 +101,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     margin: 0;
   }
 
@@ -109,12 +110,8 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     cursor: pointer;
-  }
-
-  .checkbox-row input[type='checkbox'] {
-    accent-color: #74c0fc;
   }
 
   .select-row {
@@ -125,7 +122,7 @@
   }
 
   .select-label {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     min-width: 160px;
   }
 
@@ -137,10 +134,10 @@
 
   .check-btn {
     padding: 6px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid var(--c-text-faint);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
@@ -150,8 +147,8 @@
   }
 
   .check-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.25);
+    background: var(--c-hover-strong);
+    border-color: var(--c-text-faint);
   }
 
   .check-btn:disabled {
@@ -164,10 +161,10 @@
   }
 
   .check-status.ok {
-    color: #69db7c;
+    color: var(--c-success);
   }
 
   .check-status.err {
-    color: #ff6b6b;
+    color: var(--c-danger);
   }
 </style>

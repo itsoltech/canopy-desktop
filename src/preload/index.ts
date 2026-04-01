@@ -7,11 +7,34 @@ const api = {
     ipcRenderer.invoke('pty:spawn', options),
   resizePty: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', { sessionId, cols, rows }),
-  killPty: (sessionId: string) => ipcRenderer.invoke('pty:kill', { sessionId }),
+  killPty: (sessionId: string, killTmux?: boolean) =>
+    ipcRenderer.invoke('pty:kill', { sessionId, killTmux }),
   writePty: (sessionId: string, data: string) =>
     ipcRenderer.invoke('pty:write', { sessionId, data }),
   hasChildProcess: (sessionId: string) =>
     ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
+
+  // Tmux
+  tmuxIsAvailable: () => ipcRenderer.invoke('tmux:isAvailable') as Promise<boolean>,
+  tmuxGetVersion: () => ipcRenderer.invoke('tmux:getVersion') as Promise<string | null>,
+  tmuxListSessions: () =>
+    ipcRenderer.invoke('tmux:listSessions') as Promise<
+      Array<{ name: string; created: number; attached: boolean; cwd: string }>
+    >,
+  tmuxHasSession: (name: string) =>
+    ipcRenderer.invoke('tmux:hasSession', { name }) as Promise<boolean>,
+  tmuxAttach: (tmuxSessionName: string, options?: { cols?: number; rows?: number }) =>
+    ipcRenderer.invoke('tmux:attach', { tmuxSessionName, ...options }) as Promise<{
+      sessionId: string
+      wsUrl: string
+    }>,
+  tmuxDetach: (sessionId: string) =>
+    ipcRenderer.invoke('tmux:detach', { sessionId }) as Promise<{
+      tmuxSessionName?: string
+    }>,
+  tmuxKillSession: (name: string) => ipcRenderer.invoke('tmux:killSession', { name }),
+  tmuxRenameSession: (oldName: string, newName: string) =>
+    ipcRenderer.invoke('tmux:renameSession', { oldName, newName }),
 
   // Workspaces
   listWorkspaces: (limit?: number) => ipcRenderer.invoke('db:workspace:list', { limit }),
@@ -55,10 +78,19 @@ const api = {
     category?: string
   }) => ipcRenderer.invoke('tools:addCustom', tool),
   removeCustomTool: (id: string) => ipcRenderer.invoke('tools:removeCustom', { id }),
-
-  // Claude session
-  updateClaudeTitle: (sessionId: string, title: string) =>
-    ipcRenderer.invoke('claude:updateTitle', { sessionId, title }),
+  updateCustomTool: (
+    id: string,
+    changes: {
+      name?: string
+      command?: string
+      args?: string[]
+      icon?: string
+      category?: string
+    },
+  ) => ipcRenderer.invoke('tools:updateCustom', { id, changes }),
+  // Agent session
+  updateAgentTitle: (sessionId: string, title: string) =>
+    ipcRenderer.invoke('agent:updateTitle', { sessionId, title }),
 
   // Auto-update
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
@@ -130,6 +162,25 @@ const api = {
     }
   },
 
+  // Onboarding
+  getOnboardingCompleted: () => ipcRenderer.invoke('onboarding:getCompleted') as Promise<string[]>,
+  completeOnboarding: (stepIds: string[], appVersion: string) =>
+    ipcRenderer.invoke('onboarding:complete', { stepIds, appVersion }),
+  resetOnboarding: () => ipcRenderer.invoke('onboarding:reset'),
+
+  onShowOnboarding: (
+    callback: (data: { mode: 'first-launch' | 'upgrade'; fromVersion?: string }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { mode: 'first-launch' | 'upgrade'; fromVersion?: string },
+    ): void => callback(data)
+    ipcRenderer.on('app:showOnboarding', handler)
+    return (): void => {
+      ipcRenderer.removeListener('app:showOnboarding', handler)
+    }
+  },
+
   // Changelog
   getChangelogSinceVersion: (fromVersion: string) =>
     ipcRenderer.invoke('app:getChangelogSinceVersion', { fromVersion }),
@@ -155,11 +206,12 @@ const api = {
   newWindow: () => ipcRenderer.invoke('app:newWindow'),
   setWorkspacePath: (path: string) => ipcRenderer.invoke('app:setWorkspacePath', { path }),
   setActiveWorktree: (path: string) => ipcRenderer.invoke('app:setActiveWorktree', { path }),
-  setFocusedClaudeSession: (ptySessionId: string | null) =>
-    ipcRenderer.invoke('app:setFocusedClaudeSession', { ptySessionId }),
+  setFocusedAgentSession: (ptySessionId: string | null) =>
+    ipcRenderer.invoke('app:setFocusedAgentSession', { ptySessionId }),
   detachProject: (path: string) => ipcRenderer.invoke('app:detachProject', { path }),
   focusWindowForPath: (path: string) =>
     ipcRenderer.invoke('app:focusWindowForPath', { path }) as Promise<boolean>,
+  focusRendererWebContents: () => ipcRenderer.invoke('app:focusRendererWebContents'),
 
   // Dialog
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
@@ -188,6 +240,8 @@ const api = {
   gitBranches: (repoRoot: string) => ipcRenderer.invoke('git:branches', { repoRoot }),
   gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) =>
     ipcRenderer.invoke('git:branchCreate', { repoRoot, name, baseBranch }),
+  gitCheckout: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('git:checkout', { repoRoot, branch }),
   gitBranchDelete: (repoRoot: string, name: string, force: boolean) =>
     ipcRenderer.invoke('git:branchDelete', { repoRoot, name, force }),
   gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) =>
@@ -206,49 +260,52 @@ const api = {
   gitGenerateCommitMessage: (repoRoot: string) =>
     ipcRenderer.invoke('git:generateCommitMessage', { repoRoot }),
 
-  // Browser
-  createBrowser: () => ipcRenderer.invoke('browser:create') as Promise<{ browserId: string }>,
-  destroyBrowser: (browserId: string) => ipcRenderer.invoke('browser:destroy', { browserId }),
-  navigateBrowser: (browserId: string, url: string) =>
-    ipcRenderer.invoke('browser:navigate', { browserId, url }),
-  browserBack: (browserId: string) => ipcRenderer.invoke('browser:back', { browserId }),
-  browserForward: (browserId: string) => ipcRenderer.invoke('browser:forward', { browserId }),
-  browserReload: (browserId: string) => ipcRenderer.invoke('browser:reload', { browserId }),
-  setBrowserBounds: (
+  // Browser (<webview> management)
+  setupBrowserWebview: (browserId: string, webContentsId: number) =>
+    ipcRenderer.invoke('browser:setup', { browserId, webContentsId }),
+  teardownBrowserWebview: (browserId: string) =>
+    ipcRenderer.invoke('browser:teardown', { browserId }),
+  openBrowserDevTools: (browserId: string) =>
+    ipcRenderer.invoke('browser:openDevTools', { browserId }),
+  closeBrowserDevTools: (browserId: string) =>
+    ipcRenderer.invoke('browser:closeDevTools', { browserId }),
+  setBrowserDevToolsBounds: (
     browserId: string,
     bounds: { x: number; y: number; width: number; height: number },
-  ) => ipcRenderer.invoke('browser:setBounds', { browserId, bounds }),
-  setBrowserVisible: (browserId: string, visible: boolean) =>
-    ipcRenderer.invoke('browser:setVisible', { browserId, visible }),
-  toggleBrowserDevTools: (browserId: string, mode?: 'bottom' | 'right') =>
-    ipcRenderer.invoke('browser:toggleDevTools', { browserId, mode }),
-  getBrowserState: (browserId: string) => ipcRenderer.invoke('browser:getState', { browserId }),
-  capturePageFull: (browserId: string) =>
-    ipcRenderer.invoke('browser:capturePageFull', { browserId }) as Promise<string | null>,
-  browserStartElementPick: (browserId: string) =>
-    ipcRenderer.invoke('browser:startElementPick', { browserId }) as Promise<string | null>,
-  browserStartRegionCapture: (browserId: string) =>
-    ipcRenderer.invoke('browser:startRegionCapture', { browserId }) as Promise<string | null>,
-  browserCancelPick: (browserId: string) => ipcRenderer.invoke('browser:cancelPick', { browserId }),
+  ) => ipcRenderer.invoke('browser:setDevToolsBounds', { browserId, bounds }),
+  setBrowserDeviceEmulation: (
+    browserId: string,
+    device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null,
+  ) => ipcRenderer.invoke('browser:setDeviceEmulation', { browserId, device }),
+  saveBrowserCapture: (buffer: ArrayBuffer) =>
+    ipcRenderer.invoke('browser:saveCaptureFile', {
+      buffer: Buffer.from(buffer),
+    }) as Promise<string>,
 
-  onBrowserUrlChanged: (callback: (data: { browserId: string; url: string }) => void) => {
-    const handler = (_event: IpcRendererEvent, data: { browserId: string; url: string }): void =>
-      callback(data)
-    ipcRenderer.on('browser:urlChanged', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:urlChanged', handler)
-    }
-  },
+  // Credential autofill (isolated world)
+  fillBrowserCredential: (browserId: string, username: string, password: string) =>
+    ipcRenderer.invoke('browser:fillCredential', { browserId, username, password }),
 
-  onBrowserTitleChanged: (callback: (data: { browserId: string; title: string }) => void) => {
-    const handler = (_event: IpcRendererEvent, data: { browserId: string; title: string }): void =>
-      callback(data)
-    ipcRenderer.on('browser:titleChanged', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:titleChanged', handler)
-    }
-  },
+  // Credentials
+  getCredentials: (domain: string) =>
+    ipcRenderer.invoke('credentials:getForDomain', { domain }) as Promise<
+      Array<{ id: string; domain: string; username: string; title: string }>
+    >,
+  saveCredential: (domain: string, username: string, password: string, title?: string) =>
+    ipcRenderer.invoke('credentials:save', { domain, username, password, title }),
+  getCredentialDecrypted: (id: string, domain: string) =>
+    ipcRenderer.invoke('credentials:getDecrypted', { id, domain }) as Promise<{
+      id: string
+      username: string
+      password: string
+    } | null>,
+  deleteCredential: (id: string) => ipcRenderer.invoke('credentials:delete', { id }),
+  listCredentials: () =>
+    ipcRenderer.invoke('credentials:getAll') as Promise<
+      Array<{ id: string; domain: string; username: string }>
+    >,
 
+  // Browser push events (main → renderer, still needed for favicon + focus)
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,
   ) => {
@@ -262,6 +319,14 @@ const api = {
     }
   },
 
+  onBrowserDevToolsOpened: (callback: (data: { browserId: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string }): void => callback(data)
+    ipcRenderer.on('browser:devToolsOpened', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:devToolsOpened', handler)
+    }
+  },
+
   onBrowserFocused: (callback: (data: { browserId: string }) => void) => {
     const handler = (_event: IpcRendererEvent, data: { browserId: string }): void => callback(data)
     ipcRenderer.on('browser:focused', handler)
@@ -270,70 +335,10 @@ const api = {
     }
   },
 
-  onBrowserLoadingChanged: (
-    callback: (data: { browserId: string; isLoading: boolean }) => void,
-  ) => {
-    const handler = (
-      _event: IpcRendererEvent,
-      data: { browserId: string; isLoading: boolean },
-    ): void => callback(data)
-    ipcRenderer.on('browser:loadingChanged', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:loadingChanged', handler)
-    }
-  },
-
-  onBrowserLoadFailed: (
-    callback: (data: {
-      browserId: string
-      errorCode: number
-      errorDescription: string
-      validatedURL: string
-    }) => void,
-  ) => {
-    const handler = (
-      _event: IpcRendererEvent,
-      data: {
-        browserId: string
-        errorCode: number
-        errorDescription: string
-        validatedURL: string
-      },
-    ): void => callback(data)
-    ipcRenderer.on('browser:loadFailed', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:loadFailed', handler)
-    }
-  },
-
-  onBrowserStateChanged: (
-    callback: (data: {
-      browserId: string
-      canGoBack: boolean
-      canGoForward: boolean
-      isDevToolsOpen: boolean
-      devToolsMode: 'bottom' | 'right'
-    }) => void,
-  ) => {
-    const handler = (
-      _event: IpcRendererEvent,
-      data: {
-        browserId: string
-        canGoBack: boolean
-        canGoForward: boolean
-        isDevToolsOpen: boolean
-        devToolsMode: 'bottom' | 'right'
-      },
-    ): void => callback(data)
-    ipcRenderer.on('browser:stateChanged', handler)
-    return (): void => {
-      ipcRenderer.removeListener('browser:stateChanged', handler)
-    }
-  },
-
   // Worktree Setup
   runWorktreeSetup: (workspaceId: string, repoRoot: string, newWorktreePath: string) =>
     ipcRenderer.invoke('worktree:runSetup', { workspaceId, repoRoot, newWorktreePath }),
+  abortWorktreeSetup: () => ipcRenderer.send('worktree:abortSetup'),
 
   // Layouts
   saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) =>
@@ -345,38 +350,46 @@ const api = {
     ipcRenderer.invoke('layout:delete', { workspaceId, worktreePath }),
 
   // Push events (main → renderer)
-  onClaudeHookEvent: (
-    callback: (data: { ptySessionId: string; event: Record<string, unknown> }) => void,
+  onAgentHookEvent: (
+    callback: (data: {
+      ptySessionId: string
+      agentType: string
+      event: Record<string, unknown>
+    }) => void,
   ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { ptySessionId: string; event: Record<string, unknown> },
+      data: { ptySessionId: string; agentType: string; event: Record<string, unknown> },
     ): void => callback(data)
-    ipcRenderer.on('claude:hookEvent', handler)
+    ipcRenderer.on('agent:hookEvent', handler)
     return (): void => {
-      ipcRenderer.removeListener('claude:hookEvent', handler)
+      ipcRenderer.removeListener('agent:hookEvent', handler)
     }
   },
 
-  onClaudeStatusUpdate: (
-    callback: (data: { ptySessionId: string; status: Record<string, unknown> }) => void,
+  onAgentStatusUpdate: (
+    callback: (data: {
+      ptySessionId: string
+      agentType: string
+      status: Record<string, unknown>
+    }) => void,
   ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { ptySessionId: string; status: Record<string, unknown> },
+      data: { ptySessionId: string; agentType: string; status: Record<string, unknown> },
     ): void => callback(data)
-    ipcRenderer.on('claude:statusUpdate', handler)
+    ipcRenderer.on('agent:statusUpdate', handler)
     return (): void => {
-      ipcRenderer.removeListener('claude:statusUpdate', handler)
+      ipcRenderer.removeListener('agent:statusUpdate', handler)
     }
   },
 
-  onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => {
+  onAgentFocusSession: (callback: (data: { ptySessionId: string }) => void) => {
     const handler = (_event: IpcRendererEvent, data: { ptySessionId: string }): void =>
       callback(data)
-    ipcRenderer.on('claude:focusSession', handler)
+    ipcRenderer.on('agent:focusSession', handler)
     return (): void => {
-      ipcRenderer.removeListener('claude:focusSession', handler)
+      ipcRenderer.removeListener('agent:focusSession', handler)
     }
   },
 
@@ -387,12 +400,24 @@ const api = {
       ipcRenderer.removeListener('git:changed', handler)
     }
   },
+  onToolsChanged: (callback: (tools: unknown[]) => void) => {
+    const handler = (_event: IpcRendererEvent, tools: unknown[]): void => callback(tools)
+    ipcRenderer.on('tools:changed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('tools:changed', handler)
+    }
+  },
   onPtyExit: (
-    callback: (data: { sessionId: string; exitCode: number; signal: number }) => void,
+    callback: (data: {
+      sessionId: string
+      exitCode: number
+      signal: number
+      tmuxSessionName?: string
+    }) => void,
   ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { sessionId: string; exitCode: number; signal: number },
+      data: { sessionId: string; exitCode: number; signal: number; tmuxSessionName?: string },
     ): void => callback(data)
     ipcRenderer.on('pty:exit', handler)
     return (): void => {
@@ -408,6 +433,7 @@ const api = {
       status: 'running' | 'done' | 'error'
       output?: string
       error?: string
+      outputChunk?: string
     }) => void,
   ) => {
     const handler = (
@@ -419,6 +445,7 @@ const api = {
         status: 'running' | 'done' | 'error'
         output?: string
         error?: string
+        outputChunk?: string
       },
     ): void => callback(data)
     ipcRenderer.on('worktree:setupProgress', handler)
@@ -468,6 +495,105 @@ const api = {
   readDir: (dirPath: string) => ipcRenderer.invoke('fs:readDir', { dirPath }),
   readFile: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
+
+  // Task Tracker
+  taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),
+  taskTrackerAddConnection: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('taskTracker:addConnection', connection),
+  taskTrackerRemoveConnection: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:removeConnection', { connectionId }),
+  taskTrackerUpdateConnection: (
+    connectionId: string,
+    updates: { name?: string; baseUrl?: string; username?: string; token?: string },
+  ) => ipcRenderer.invoke('taskTracker:updateConnection', { connectionId, ...updates }),
+  taskTrackerTestConnection: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:testConnection', { connectionId }),
+  taskTrackerTestNewConnection: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('taskTracker:testNewConnection', connection),
+  taskTrackerFetchBoards: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:fetchBoards', { connectionId }),
+  taskTrackerFetchBoardsForNew: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('taskTracker:fetchBoardsForNew', connection),
+  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId }),
+  taskTrackerFetchTasks: (
+    connectionId: string,
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => ipcRenderer.invoke('taskTracker:fetchTasks', { connectionId, ...params }),
+  taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId }),
+  taskTrackerGetCurrentUser: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:getCurrentUser', { connectionId }) as Promise<string>,
+  taskTrackerResolveBranchName: (
+    connectionId: string,
+    task: { key: string; type: string; [k: string]: unknown },
+    boardId?: string,
+    branchType?: string,
+  ) =>
+    ipcRenderer.invoke('taskTracker:resolveBranchName', {
+      connectionId,
+      task,
+      boardId,
+      branchType,
+    }),
+  taskTrackerResolveBranchType: (taskType: string, connectionId?: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:resolveBranchType', {
+      taskType,
+      connectionId,
+      boardId,
+    }) as Promise<{
+      defaultType: string
+      options: string[]
+      hasBranchType: boolean
+    }>,
+  taskTrackerRenderBranchPreview: (template: string, customVars?: Record<string, string>) =>
+    ipcRenderer.invoke('taskTracker:renderBranchPreview', { template, customVars }),
+  taskTrackerGetAvailablePlaceholders: (customVars?: Record<string, string>) =>
+    ipcRenderer.invoke('taskTracker:getAvailablePlaceholders', { customVars }),
+  taskTrackerValidateTemplate: (template: string) =>
+    ipcRenderer.invoke('taskTracker:validateTemplate', { template }),
+  taskTrackerFindTaskByKey: (taskKey: string) =>
+    ipcRenderer.invoke('taskTracker:findTaskByKey', { taskKey }),
+  taskTrackerResolvePRPreview: (taskKey: string, connectionId?: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:resolvePRPreview', {
+      taskKey,
+      connectionId,
+      boardId,
+    }) as Promise<{ title: string; targetBranch: string }>,
+  taskTrackerCreatePR: (
+    repoRoot: string,
+    task: { key: string; [k: string]: unknown },
+    sourceBranch: string,
+    connectionId?: string,
+    boardId?: string,
+  ) =>
+    ipcRenderer.invoke('taskTracker:createPR', {
+      repoRoot,
+      task,
+      sourceBranch,
+      connectionId,
+      boardId,
+    }),
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

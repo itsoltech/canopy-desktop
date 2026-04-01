@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import SplitPaneContainer from '../terminal/SplitPaneContainer.svelte'
   import TabBar from '../terminal/TabBar.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
@@ -9,6 +10,10 @@
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
+  import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
+  import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
+  import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
+  import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
@@ -18,6 +23,8 @@
     showPreferences,
     showAbout,
     showChangelog,
+    showOnboardingWizard,
+    showFeatureOnboarding,
   } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -50,15 +57,23 @@
   } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
   import {
-    claudeSessions,
+    agentSessions,
     handleHookEvent,
     handleStatusUpdate,
     clearBadge,
     setBadge,
     setWorktreeBadge,
     clearWorktreeBadge,
-  } from '../../lib/claude/claudeState.svelte'
+  } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
+  import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
+
+  onMount(() => {
+    initToolStore()
+    return () => {
+      destroyToolStore()
+    }
+  })
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
@@ -127,36 +142,36 @@
   // Subscribe to pty:exit push events
   $effect(() => {
     const unsubscribe = window.api.onPtyExit((data) => {
-      handlePtyExit(data.sessionId, data.exitCode)
+      handlePtyExit(data.sessionId, data.exitCode, data.tmuxSessionName)
     })
     return unsubscribe
   })
 
-  // Subscribe to Claude hook events
+  // Subscribe to agent hook events
   $effect(() => {
-    const unsubscribe = window.api.onClaudeHookEvent((data) => {
-      const session = claudeSessions[data.ptySessionId]
-      const prevSessionId = session?.claudeSessionId
+    const unsubscribe = window.api.onAgentHookEvent((data) => {
+      const session = agentSessions[data.ptySessionId]
+      const prevSessionId = session?.agentSessionId
       handleHookEvent(data.ptySessionId, data.event as Parameters<typeof handleHookEvent>[1])
-      // Persist layout when Claude session ID changes (e.g. UUID -> slug)
-      if (session && session.claudeSessionId !== prevSessionId && session.claudeSessionId) {
+      // Persist layout when agent session ID changes (e.g. UUID -> slug)
+      if (session && session.agentSessionId !== prevSessionId && session.agentSessionId) {
         saveAllLayouts()
       }
-      const name = (data.event as { hook_event_name?: string }).hook_event_name
+      const normalized = data.event as { event?: string }
       // Only set badge if this session is NOT the active tab
-      if (data.ptySessionId !== activeClaudePtySessionId) {
-        if (name === 'PermissionRequest') {
+      if (data.ptySessionId !== activeAgentPtySessionId) {
+        if (normalized.event === 'PermissionRequest') {
           setBadge(data.ptySessionId, 'permission')
-        } else if (name === 'Stop' || name === 'PostToolUse') {
+        } else if (normalized.event === 'Idle' || normalized.event === 'AfterToolUse') {
           setBadge(data.ptySessionId, 'unread')
         }
       }
       // Set worktree badge if session is in a non-selected worktree
       const sessionWorktreePath = findWorktreeForSession(data.ptySessionId)
       if (sessionWorktreePath && sessionWorktreePath !== workspaceState.selectedWorktreePath) {
-        if (name === 'PermissionRequest') {
+        if (normalized.event === 'PermissionRequest') {
           setWorktreeBadge(sessionWorktreePath, 'permission')
-        } else if (name === 'Stop' || name === 'PostToolUse') {
+        } else if (normalized.event === 'Idle' || normalized.event === 'AfterToolUse') {
           setWorktreeBadge(sessionWorktreePath, 'unread')
         }
       }
@@ -164,17 +179,17 @@
     return unsubscribe
   })
 
-  // Subscribe to Claude status line updates
+  // Subscribe to agent status line updates
   $effect(() => {
-    const unsubscribe = window.api.onClaudeStatusUpdate((data) => {
+    const unsubscribe = window.api.onAgentStatusUpdate((data) => {
       handleStatusUpdate(data.ptySessionId, data.status as Parameters<typeof handleStatusUpdate>[1])
     })
     return unsubscribe
   })
 
-  // Subscribe to Claude focus-session requests (notification clicks)
+  // Subscribe to agent focus-session requests (notification clicks)
   $effect(() => {
-    const unsubscribe = window.api.onClaudeFocusSession((data) => {
+    const unsubscribe = window.api.onAgentFocusSession((data) => {
       focusSessionByPtyId(data.ptySessionId)
     })
     return unsubscribe
@@ -193,6 +208,15 @@
       }
     })
     return unsubscribe
+  })
+
+  // Notify browser panes when app-level overlays open/close so they can hide
+  // DevTools WebContentsView (native layer that paints above DOM modals)
+  $effect(() => {
+    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
+    window.dispatchEvent(
+      new CustomEvent('canopy:app-overlay', { detail: { open: anyOverlayOpen } }),
+    )
   })
 
   // Restore last active worktree after all projects are attached
@@ -214,6 +238,22 @@
     return window.api.onMenuShowPreferences(() => showPreferences())
   })
 
+  // Subscribe to onboarding push event
+  $effect(() => {
+    return window.api.onShowOnboarding(async (data) => {
+      const { initOnboarding, onboardingState } = await import('../../lib/stores/onboarding.svelte')
+      await initOnboarding(data.mode, data.fromVersion)
+      if (onboardingState.mode === 'none' && data.fromVersion) {
+        // No onboarding steps to show, fall back to changelog
+        showChangelog(data.fromVersion)
+      } else if (onboardingState.mode === 'first-launch') {
+        showOnboardingWizard()
+      } else if (onboardingState.mode === 'upgrade') {
+        showFeatureOnboarding(data.fromVersion ?? '')
+      }
+    })
+  })
+
   // Subscribe to post-update changelog push event
   $effect(() => {
     return window.api.onShowChangelog((data) => {
@@ -228,29 +268,21 @@
     return () => window.removeEventListener('beforeunload', handler)
   })
 
-  // Freeze/unfreeze browser views when modals/palette are open
-  $effect(() => {
-    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
-    window.dispatchEvent(
-      new CustomEvent(anyOverlayOpen ? 'canopy:freeze-browsers' : 'canopy:unfreeze-browsers'),
-    )
-  })
-
   // Derive active tab and focused pane info
   let activeTab = $derived(allTabs.find((t) => t.id === currentActiveTabId) ?? null)
   let focusedPane = $derived(
     activeTab ? findLeaf(activeTab.rootSplit, activeTab.focusedPaneId) : null,
   )
 
-  // Derive active Claude session from focused pane
-  let activeClaudePtySessionId = $derived(
-    focusedPane?.toolId === 'claude' ? focusedPane.sessionId : null,
+  // Derive active agent session from focused pane
+  let activeAgentPtySessionId = $derived(
+    focusedPane && agentSessions[focusedPane.sessionId] ? focusedPane.sessionId : null,
   )
 
-  // Clear badge when Claude pane is focused
+  // Clear badge when agent pane is focused
   $effect(() => {
-    if (activeClaudePtySessionId) {
-      clearBadge(activeClaudePtySessionId)
+    if (activeAgentPtySessionId) {
+      clearBadge(activeAgentPtySessionId)
     }
   })
 
@@ -260,9 +292,9 @@
     if (path) clearWorktreeBadge(path)
   })
 
-  // Notify main process about focused Claude session for notch peek suppression
+  // Notify main process about focused agent session for notch peek suppression
   $effect(() => {
-    window.api.setFocusedClaudeSession(activeClaudePtySessionId)
+    window.api.setFocusedAgentSession(activeAgentPtySessionId)
   })
 
   function handleLaunchTool(toolId: string): void {
@@ -309,7 +341,7 @@
       showPreferences()
     }
 
-    // Cmd+Shift+I: toggle Claude Inspector on focused pane
+    // Cmd+Shift+I: toggle Agent Inspector on focused pane
     if ((e.key === 'I' || e.key === 'i') && e.shiftKey) {
       e.preventDefault()
       toggleInspector()
@@ -399,13 +431,22 @@
     onClose={closeDialog}
     repoRoot={dialogState.current.repoRoot}
     workspaceId={dialogState.current.workspaceId}
+    baseBranch={dialogState.current.baseBranch}
   />
 {:else if dialogState.current.type === 'preferences'}
-  <PreferencesModal />
+  <PreferencesModal section={dialogState.current.section} />
+{:else if dialogState.current.type === 'taskPicker'}
+  <TaskPickerModal connectionId={dialogState.current.connectionId} />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}
   <ChangelogModal fromVersion={dialogState.current.fromVersion} />
+{:else if dialogState.current.type === 'onboardingWizard'}
+  <OnboardingWizard />
+{:else if dialogState.current.type === 'featureOnboarding'}
+  <FeatureOnboarding fromVersion={dialogState.current.fromVersion} />
+{:else if dialogState.current.type === 'tmuxBrowser'}
+  <TmuxSessionBrowser />
 {/if}
 
 <Toast />
@@ -482,7 +523,7 @@
 
   .sidebar-resize-handle:hover,
   .sidebar-resize-handle.dragging {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-muted);
   }
 
   .center-area {
@@ -508,7 +549,7 @@
   .terminal-panel {
     position: absolute;
     inset: 0;
-    background: #1e1e1e;
+    background: var(--c-bg);
   }
 
   .terminal-panel.hidden {
@@ -520,7 +561,7 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .hint {
@@ -533,6 +574,6 @@
     font-size: 12px;
     font-weight: 400;
     margin: 6px 0 0;
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
   }
 </style>

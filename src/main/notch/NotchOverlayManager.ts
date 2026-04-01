@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeImage, screen } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
+import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { NotchSessionStatus, NotchOverlayState, SessionStatusType } from './types'
 
@@ -18,9 +18,11 @@ export class NotchOverlayManager {
   private displayChangeHandler: (() => void) | null = null
   private statusChangeHandler: ((status: NotchSessionStatus) => void) | null = null
   private sessionDestroyedHandler: ((id: string) => void) | null = null
+  private focusHandler: (() => void) | null = null
+  private warmupTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
-    private claudeSessionManager: ClaudeSessionManager,
+    private agentSessionManager: AgentSessionManager,
     private windowManager: WindowManager,
   ) {}
 
@@ -30,22 +32,32 @@ export class NotchOverlayManager {
 
     const focusedWin = BrowserWindow.getFocusedWindow()
     this.createOverlayWindow()
-    // Panel windows cause macOS to hide the dock icon; restore it then refocus
-    app.dock?.show().then(() => {
-      if (focusedWin && !focusedWin.isDestroyed()) focusedWin.focus()
-    })
-    this.bindClaudeEvents()
+    // Panel windows cause macOS to hide the dock icon; restore it then refocus.
+    // After restoring, force-set the icon so the Dock refreshes its cached entry.
+    if (process.platform === 'darwin') {
+      app.dock?.show().then(() => {
+        const iconPath = app.isPackaged
+          ? join(process.resourcesPath, 'electron.icns')
+          : join(app.getAppPath(), 'build', 'icon.icns')
+        const icon = nativeImage.createFromPath(iconPath)
+        if (!icon.isEmpty()) {
+          app.dock?.setIcon(icon)
+        }
+        if (focusedWin && !focusedWin.isDestroyed()) focusedWin.focus()
+      })
+    }
+    this.bindAgentEvents()
     this.bindIpcHandlers()
     this.watchDisplayChanges()
   }
 
   dispose(): void {
     if (this.statusChangeHandler) {
-      this.claudeSessionManager.removeListener('statusChange', this.statusChangeHandler)
+      this.agentSessionManager.removeListener('statusChange', this.statusChangeHandler)
       this.statusChangeHandler = null
     }
     if (this.sessionDestroyedHandler) {
-      this.claudeSessionManager.removeListener('sessionDestroyed', this.sessionDestroyedHandler)
+      this.agentSessionManager.removeListener('sessionDestroyed', this.sessionDestroyedHandler)
       this.sessionDestroyedHandler = null
     }
     if (this.displayChangeHandler) {
@@ -55,6 +67,15 @@ export class NotchOverlayManager {
 
     ipcMain.removeHandler('notch:focusSession')
     ipcMain.removeAllListeners('notch:setMouseIgnore')
+
+    if (this.warmupTimer) {
+      clearTimeout(this.warmupTimer)
+      this.warmupTimer = null
+    }
+    if (this.focusHandler && this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+      this.overlayWindow.removeListener('focus', this.focusHandler)
+    }
+    this.focusHandler = null
 
     if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
       this.overlayWindow.destroy()
@@ -66,22 +87,31 @@ export class NotchOverlayManager {
   }
 
   private hasNotch(): boolean {
-    if (process.platform !== 'darwin') return false
-    const primary = screen.getPrimaryDisplay()
-    const menuBarHeight = primary.workArea.y - primary.bounds.y
-    return menuBarHeight > 28
+    if (process.platform === 'darwin') {
+      const primary = screen.getPrimaryDisplay()
+      const menuBarHeight = primary.workArea.y - primary.bounds.y
+      return menuBarHeight > 28
+    }
+    // Windows: simulated notch (no physical notch to detect)
+    // Linux: not supported
+    return process.platform === 'win32'
   }
 
   /** Estimate notch dimensions from display geometry.
-   *  Height = menu bar height (exact). Width = height * 5.5 (aspect ratio heuristic). */
+   *  macOS: Height = menu bar height (exact). Width = height * 5.5 (aspect ratio heuristic).
+   *  Windows: Fixed dimensions for simulated notch. */
   private getNotchDimensions(): { width: number; height: number } {
-    const primary = screen.getPrimaryDisplay()
-    const height = primary.workArea.y - primary.bounds.y
-    const width = Math.round(height * 5.5)
-    return { width, height }
+    if (process.platform === 'darwin') {
+      const primary = screen.getPrimaryDisplay()
+      const height = primary.workArea.y - primary.bounds.y
+      const width = Math.round(height * 5.5)
+      return { width, height }
+    }
+    return { width: 200, height: 32 }
   }
 
   private createOverlayWindow(): void {
+    const isMac = process.platform === 'darwin'
     const primary = screen.getPrimaryDisplay()
     const x = Math.round(primary.workArea.x + primary.workArea.width / 2 - WINDOW_WIDTH / 2)
     const y = 0
@@ -96,14 +126,14 @@ export class NotchOverlayManager {
       transparent: true,
       alwaysOnTop: true,
       skipTaskbar: true,
-      focusable: false,
+      focusable: isMac ? false : true,
       hasShadow: false,
       resizable: false,
       movable: false,
       minimizable: false,
       maximizable: false,
       closable: false,
-      type: 'panel',
+      ...(isMac ? { type: 'panel' as const } : {}),
       enableLargerThanScreen: true,
       webPreferences: {
         preload: join(__dirname, '../preload/notch.js'),
@@ -113,17 +143,47 @@ export class NotchOverlayManager {
     })
 
     this.overlayWindow.setAlwaysOnTop(true, 'pop-up-menu')
-    this.overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    if (isMac) {
+      this.overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    }
     this.overlayWindow.setIgnoreMouseEvents(true, { forward: true })
 
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      this.overlayWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/notch.html`)
-    } else {
-      this.overlayWindow.loadFile(join(__dirname, '../renderer/notch.html'))
+    // On Windows the overlay must be focusable for clicks to register,
+    // but we don't want it to steal focus from the main window.
+    if (!isMac) {
+      this.focusHandler = (): void => {
+        this.overlayWindow?.blur()
+      }
+      this.overlayWindow.on('focus', this.focusHandler)
+    }
+
+    const ready =
+      is.dev && process.env['ELECTRON_RENDERER_URL']
+        ? this.overlayWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/notch.html`)
+        : this.overlayWindow.loadFile(join(__dirname, '../renderer/notch.html'))
+
+    // Warm up the renderer on Windows so the first hover doesn't stutter.
+    // Briefly show the (empty) overlay off-screen to force GPU compositing.
+    if (process.platform === 'win32') {
+      ready
+        .then(() => {
+          if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return
+          this.overlayWindow.setPosition(-WINDOW_WIDTH, 0)
+          this.overlayWindow.showInactive()
+          this.warmupTimer = setTimeout(() => {
+            this.warmupTimer = null
+            if (!this.overlayWindow || this.overlayWindow.isDestroyed()) return
+            this.overlayWindow.hide()
+            this.repositionWindow()
+          }, 200)
+        })
+        .catch(() => {
+          // Load may fail if window was destroyed during startup
+        })
     }
   }
 
-  private bindClaudeEvents(): void {
+  private bindAgentEvents(): void {
     this.statusChangeHandler = (status: NotchSessionStatus) => {
       const prev = this.previousStatuses.get(status.ptySessionId)
 
@@ -150,15 +210,15 @@ export class NotchOverlayManager {
       }
     }
 
-    this.claudeSessionManager.on('statusChange', this.statusChangeHandler)
-    this.claudeSessionManager.on('sessionDestroyed', this.sessionDestroyedHandler)
+    this.agentSessionManager.on('statusChange', this.statusChangeHandler)
+    this.agentSessionManager.on('sessionDestroyed', this.sessionDestroyedHandler)
   }
 
-  /** Check if the session is the focused Claude pane in a focused window */
+  /** Check if the session is the focused agent pane in a focused window */
   private isSessionVisibleInFocusedWindow(status: NotchSessionStatus): boolean {
     const win = this.windowManager.getWindowById(status.windowId)
     if (!win || !win.isFocused()) return false
-    return this.windowManager.getFocusedClaudeSession(status.windowId) === status.ptySessionId
+    return this.windowManager.getFocusedAgentSession(status.windowId) === status.ptySessionId
   }
 
   private isPeekWorthy(prev: SessionStatusType | undefined, next: SessionStatusType): boolean {
@@ -180,7 +240,7 @@ export class NotchOverlayManager {
 
         if (win.isMinimized()) win.restore()
         win.focus()
-        win.webContents.send('claude:focusSession', { ptySessionId })
+        win.webContents.send('agent:focusSession', { ptySessionId })
       },
     )
 

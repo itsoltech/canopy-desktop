@@ -2,12 +2,16 @@
   import type { PaneSession } from '../../lib/stores/splitTree'
   import { restartPane, updatePaneTitle } from '../../lib/stores/tabs.svelte'
   import { dragState, setDropTarget, type DropZone } from '../../lib/stores/dragState.svelte'
-  import { claudeSessions } from '../../lib/claude/claudeState.svelte'
+  import { agentSessions } from '../../lib/agents/agentState.svelte'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
   import BrowserPane from '../browser/BrowserPane.svelte'
   import EditorPane from '../editor/EditorPane.svelte'
-  import ClaudeInspector from '../claude/ClaudeInspector.svelte'
+  import AgentInspector from '../agents/AgentInspector.svelte'
   import ExitBanner from './ExitBanner.svelte'
+  import DetachedOverlay from './DetachedOverlay.svelte'
+  import WpmIndicator from './WpmIndicator.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
+  import { reattachTmuxPane, killTmuxPane } from '../../lib/stores/tabs.svelte'
 
   let {
     pane,
@@ -28,12 +32,9 @@
   let wrapperEl: HTMLDivElement | undefined = $state()
   let hoveredZone: DropZone | null = $state(null)
 
-  let claudeState = $derived(
-    pane.toolId === 'claude' ? (claudeSessions[pane.sessionId] ?? null) : null,
-  )
-  let showInspector = $derived(
-    pane.inspectorOpen !== false && pane.toolId === 'claude' && claudeState !== null,
-  )
+  let agentState = $derived(agentSessions[pane.sessionId] ?? null)
+  let showInspector = $derived(pane.inspectorOpen !== false && agentState !== null)
+  let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
 
   // Whether this pane is a valid drop target
   let isValidTarget = $derived(
@@ -96,6 +97,8 @@
     <BrowserPane
       browserId={pane.sessionId}
       {active}
+      {focused}
+      initialUrl={pane.url}
       onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
       {onFocus}
     />
@@ -112,7 +115,16 @@
             onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
           />
         {/key}
-        {#if !pane.isRunning}
+        {#if wpmEnabled}
+          <WpmIndicator sessionId={pane.sessionId} />
+        {/if}
+        {#if !pane.isRunning && pane.detached && pane.tmuxSessionName}
+          <DetachedOverlay
+            tmuxSessionName={pane.tmuxSessionName}
+            onReattach={() => reattachTmuxPane(worktreePath, tabId, pane.id)}
+            onKill={() => killTmuxPane(worktreePath, tabId, pane.id)}
+          />
+        {:else if !pane.isRunning}
           <ExitBanner
             exitCode={pane.exitCode}
             onRestart={() => restartPane(worktreePath, tabId, pane.id)}
@@ -120,7 +132,7 @@
         {/if}
       </div>
       {#if showInspector}
-        <ClaudeInspector state={claudeState} />
+        <AgentInspector state={agentState} />
       {/if}
     </div>
   {/if}
@@ -139,7 +151,7 @@
   }
 
   .pane-wrapper.focused {
-    outline: 1px solid rgba(116, 192, 252, 0.4);
+    outline: 1px solid var(--c-focus-ring);
     outline-offset: -1px;
   }
 
@@ -160,8 +172,8 @@
 
   .drop-zone-overlay {
     position: absolute;
-    background: rgba(116, 192, 252, 0.15);
-    border: 2px solid rgba(116, 192, 252, 0.4);
+    background: var(--c-accent-bg);
+    border: 2px solid var(--c-focus-ring);
     border-radius: 4px;
     pointer-events: none;
     z-index: 10;

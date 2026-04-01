@@ -210,18 +210,18 @@
   }
 
   .tree-row:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
   }
 
   .tree-row.selected {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover-strong);
   }
 
   .chevron {
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     transition: transform 0.12s ease;
     transform: rotate(0deg);
   }
@@ -232,7 +232,7 @@
 
   .tree-row :global(.icon) {
     flex-shrink: 0;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
   }
 
   .tree-row :global(.folder-icon) {
@@ -243,13 +243,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
   }
 
   .empty-state {
     padding: 8px 12px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .ctx-overlay {
@@ -261,8 +261,8 @@
   .ctx-menu {
     position: fixed;
     min-width: 180px;
-    background: rgba(40, 40, 40, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
     padding: 4px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -275,7 +275,7 @@
     width: 100%;
     padding: 6px 12px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     background: none;
     border: none;
     border-radius: 4px;
@@ -284,6 +284,6 @@
   }
 
   .ctx-item:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover-strong);
   }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
   let loading: string | null = $state(null)
@@ -110,6 +111,74 @@
 
   let ahead = $derived(workspaceState.aheadBehind?.ahead ?? 0)
   let behind = $derived(workspaceState.aheadBehind?.behind ?? 0)
+
+  function extractTaskKeyFromBranch(branch: string | null): string | null {
+    if (!branch) return null
+    const match = branch.match(/([A-Z][A-Z0-9]+-\d+)/)
+    return match ? match[1] : null
+  }
+
+  let taskKeyFromBranch = $derived(extractTaskKeyFromBranch(workspaceState.branch))
+
+  async function doCreatePR(): Promise<void> {
+    const branch = workspaceState.branch
+    if (!branch) return
+
+    const taskKey = taskKeyFromBranch
+    loading = 'pr'
+
+    // Resolve PR title and target using scoped config (board → connection → global)
+    let prTitle = taskKey ? `[${taskKey}]` : branch
+    let defaultTarget = 'develop'
+    try {
+      const preview = await window.api.taskTrackerResolvePRPreview(taskKey ?? '')
+      prTitle = preview.title
+      defaultTarget = preview.targetBranch
+    } catch {
+      // use defaults
+    }
+
+    loading = null
+
+    const ok = await confirm({
+      title: 'Create Pull Request',
+      message: `Create PR from "${branch}"?`,
+      details: `Title: ${prTitle}\nTarget: ${defaultTarget}`,
+      confirmLabel: 'Create PR',
+    })
+    if (!ok) return
+
+    loading = 'pr'
+    try {
+      const result = await window.api.taskTrackerCreatePR(
+        worktreePath(),
+        {
+          key: taskKey ?? '',
+          summary: '',
+          description: '',
+          status: '',
+          priority: '',
+          type: 'task',
+        },
+        branch,
+      )
+      addToast(`PR created`)
+      window.api.openExternal(result.url)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('No commits between')) {
+        await confirm({
+          title: 'No Changes',
+          message: `No commits between target branch and "${branch}". Commit changes first.`,
+          confirmLabel: 'OK',
+        })
+      } else {
+        await gitError(err)
+      }
+    } finally {
+      loading = null
+    }
+  }
 </script>
 
 <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
@@ -177,6 +246,17 @@
     >
       <span class="action-label">Stash Pop</span>
     </button>
+    <button
+      class="action-item"
+      disabled={loading === 'pr' || !workspaceState.branch}
+      onclick={doCreatePR}
+      title={taskKeyFromBranch ? `Create PR for ${taskKeyFromBranch}` : 'Create Pull Request'}
+    >
+      <span class="action-label">Create PR</span>
+      {#if taskKeyFromBranch}
+        <span class="badge">{taskKeyFromBranch}</span>
+      {/if}
+    </button>
   </div>
 </CollapsibleSection>
 
@@ -190,7 +270,7 @@
 
   .branch-label {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -201,7 +281,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #e8a848;
+    background: var(--c-warning);
     flex-shrink: 0;
   }
 
@@ -219,7 +299,7 @@
     padding: 0 12px;
     border: none;
     background: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -228,11 +308,11 @@
   }
 
   .action-item:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
   }
 
   .action-item:disabled {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     cursor: default;
   }
 
@@ -248,8 +328,8 @@
     height: 16px;
     padding: 0 4px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-border);
+    color: var(--c-text);
     font-size: 10px;
     font-weight: 600;
     flex-shrink: 0;

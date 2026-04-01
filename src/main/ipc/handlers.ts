@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electron'
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
@@ -7,10 +7,13 @@ import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
+import type { OnboardingStore } from '../db/OnboardingStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
-import type { ClaudeSessionManager } from '../claude/ClaudeSessionManager'
+import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { BrowserManager } from '../browser/BrowserManager'
+import type { CredentialStore } from '../db/CredentialStore'
+import { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { GitRepository } from '../git/GitRepository'
@@ -20,7 +23,18 @@ import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 const execFileAsync = promisify(execFile)
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
-import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
+import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
+import type { TaskTrackerProvider, TrackerTask } from '../taskTracker/types'
+import {
+  buildVariables,
+  renderBranchName,
+  renderPreview,
+  getAvailablePlaceholders,
+  validateTemplate,
+  resolveBranchType,
+  BRANCH_TYPE_OPTIONS,
+} from '../taskTracker/branchTemplate'
+import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -34,10 +48,21 @@ export function registerIpcHandlers(
   preferencesStore: PreferencesStore,
   layoutStore: LayoutStore,
   toolRegistry: ToolRegistry,
-  claudeSessionManager: ClaudeSessionManager,
+  agentSessionManager: AgentSessionManager,
   windowManager: WindowManager,
   browserManager: BrowserManager,
+  credentialStore: CredentialStore,
+  onboardingStore: OnboardingStore,
+  tmuxManager: TmuxManager,
+  taskTrackerManager: TaskTrackerManager,
 ): void {
+  function broadcastToolsChanged(): void {
+    const tools = toolRegistry.getAll()
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('tools:changed', tools)
+    }
+  }
+
   // --- PTY ---
 
   ipcMain.handle(
@@ -67,9 +92,17 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('pty:kill', (_event, payload: { sessionId: string }) => {
+  ipcMain.handle('pty:kill', async (_event, payload: { sessionId: string; killTmux?: boolean }) => {
+    const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
     wsBridge.destroy(payload.sessionId)
     ptyManager.kill(payload.sessionId)
+    if (payload.killTmux && tmuxName && TmuxManager.isCanopySession(tmuxName)) {
+      try {
+        await tmuxManager.killSession(tmuxName)
+      } catch {
+        // Session may already be gone
+      }
+    }
   })
 
   ipcMain.handle('pty:write', (_event, payload: { sessionId: string; data: string }) => {
@@ -79,6 +112,85 @@ export function registerIpcHandlers(
   ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
     return ptyManager.hasChildProcess(payload.sessionId)
   })
+
+  // --- Tmux ---
+
+  function validateTmuxName(name: string): void {
+    if (!/^[\w-]+$/.test(name)) {
+      throw new Error('Invalid tmux session name: only letters, digits, underscores, and dashes')
+    }
+  }
+
+  ipcMain.handle('tmux:isAvailable', async () => {
+    return tmuxManager.isAvailable()
+  })
+
+  ipcMain.handle('tmux:getVersion', async () => {
+    return tmuxManager.getVersion()
+  })
+
+  ipcMain.handle('tmux:listSessions', async () => {
+    return tmuxManager.listSessions()
+  })
+
+  ipcMain.handle('tmux:hasSession', async (_event, payload: { name: string }) => {
+    validateTmuxName(payload.name)
+    return tmuxManager.hasSession(payload.name)
+  })
+
+  ipcMain.handle(
+    'tmux:attach',
+    async (event, payload: { tmuxSessionName: string; cols?: number; rows?: number }) => {
+      validateTmuxName(payload.tmuxSessionName)
+      const sender = event.sender
+      const attach = tmuxManager.attachArgs(payload.tmuxSessionName)
+      const session = ptyManager.spawn({
+        command: attach.command,
+        args: attach.args,
+        cols: payload.cols,
+        rows: payload.rows,
+        tmuxSessionName: payload.tmuxSessionName,
+      })
+      const wsUrl = await wsBridge.create(session.id, session.pty)
+
+      windowManager.trackPtySession(sender.id, session.id)
+
+      session.pty.onExit(({ exitCode, signal }) => {
+        if (!sender.isDestroyed()) {
+          sender.send('pty:exit', {
+            sessionId: session.id,
+            exitCode,
+            signal,
+            tmuxSessionName: payload.tmuxSessionName,
+          })
+        }
+        windowManager.untrackPtySession(sender.id, session.id)
+      })
+
+      return { sessionId: session.id, wsUrl }
+    },
+  )
+
+  ipcMain.handle('tmux:detach', (_event, payload: { sessionId: string }) => {
+    const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
+    wsBridge.destroy(payload.sessionId)
+    ptyManager.kill(payload.sessionId)
+    return { tmuxSessionName: tmuxName }
+  })
+
+  ipcMain.handle('tmux:killSession', async (_event, payload: { name: string }) => {
+    validateTmuxName(payload.name)
+    await tmuxManager.killSession(payload.name)
+  })
+
+  ipcMain.handle(
+    'tmux:renameSession',
+    async (_event, payload: { oldName: string; newName: string }) => {
+      validateTmuxName(payload.oldName)
+      validateTmuxName(payload.newName)
+      await tmuxManager.renameSession(payload.oldName, payload.newName)
+    },
+  )
 
   // --- Tool Spawning ---
 
@@ -100,20 +212,20 @@ export function registerIpcHandlers(
       const tool = toolRegistry.get(payload.toolId)
       if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
 
-      const command = toolRegistry.resolveCommand(tool)
+      let command = toolRegistry.resolveCommand(tool)
       const isShell = tool.id === 'shell' || tool.command === 'shell'
-      const isClaude = tool.id === 'claude'
+      const isAgent = agentSessionManager.isAgentTool(tool.id)
       let args = isShell ? resolveShellArgs() : [...tool.args]
       let env: Record<string, string> | undefined
 
-      let claudeTempId: string | undefined
-      if (isClaude) {
+      let agentTempId: string | undefined
+      if (isAgent) {
         const senderWindow = BrowserWindow.fromWebContents(sender)
-        if (!senderWindow) throw new Error('No window for Claude session')
+        if (!senderWindow) throw new Error('No window for agent session')
 
         // Parse settings.json overrides from prefs
         let settingsOverrides: Record<string, unknown> | undefined
-        const settingsJsonRaw = preferencesStore.get('claude.settingsJson')
+        const settingsJsonRaw = preferencesStore.get(`${tool.id}.settingsJson`)
         if (settingsJsonRaw) {
           try {
             settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
@@ -122,53 +234,48 @@ export function registerIpcHandlers(
           }
         }
 
-        const claudeSession = await claudeSessionManager.createSession(
+        const agentSession = await agentSessionManager.createSession(
+          tool.id,
           payload.worktreePath,
           payload.workspaceName ?? '',
           payload.branch ?? null,
           senderWindow,
           settingsOverrides,
         )
-        args = ['--settings', claudeSession.settingsPath, ...args]
-        if (payload.resumeSessionId) args.push('--resume', payload.resumeSessionId)
+        args = [...agentSession.settingsArgs, ...args]
+        if (payload.resumeSessionId) {
+          args.push(...agentSessionManager.getResumeArgs(tool.id, payload.resumeSessionId))
+        }
+        args.push(...agentSessionManager.getCliArgs(tool.id, preferencesStore))
         env = {
-          CANOPY_HOOK_PORT: String(claudeSession.hookPort),
-          CANOPY_HOOK_TOKEN: claudeSession.hookAuthToken,
+          CANOPY_HOOK_PORT: String(agentSession.hookPort),
+          CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
+          ...agentSession.settingsEnv,
+          ...agentSessionManager.getEnvVars(tool.id, preferencesStore),
         }
-        claudeTempId = claudeSession.tempId
+        agentTempId = agentSession.tempId
+      }
 
-        // CLI args from preferences
-        const claudeModel = preferencesStore.get('claude.model')
-        const claudePermMode = preferencesStore.get('claude.permissionMode')
-        const claudeEffort = preferencesStore.get('claude.effortLevel')
-        const claudeAppendPrompt = preferencesStore.get('claude.appendSystemPrompt')
-        if (claudeModel) args.push('--model', claudeModel)
-        if (claudePermMode) args.push('--permission-mode', claudePermMode)
-        if (claudeEffort) args.push('--effort', claudeEffort)
-        if (claudeAppendPrompt) args.push('--append-system-prompt', claudeAppendPrompt)
-
-        // Env vars from preferences
-        const claudeApiKey = preferencesStore.get('claude.apiKey')
-        const claudeBaseUrl = preferencesStore.get('claude.baseUrl')
-        const claudeProvider = preferencesStore.get('claude.provider')
-        const claudeCustomEnv = preferencesStore.get('claude.customEnv')
-        if (claudeApiKey) env.ANTHROPIC_API_KEY = claudeApiKey
-        if (claudeBaseUrl) env.ANTHROPIC_BASE_URL = claudeBaseUrl
-        if (claudeProvider === 'bedrock') env.CLAUDE_CODE_USE_BEDROCK = '1'
-        if (claudeProvider === 'vertex') env.CLAUDE_CODE_USE_VERTEX = '1'
-        if (claudeProvider === 'foundry') env.CLAUDE_CODE_USE_FOUNDRY = '1'
-        if (claudeCustomEnv) {
-          try {
-            const parsed = JSON.parse(claudeCustomEnv)
-            for (const [k, v] of Object.entries(parsed)) {
-              if (!BLOCKED_ENV_VARS.has(k.toUpperCase()) && typeof v === 'string') {
-                env[k] = v
-              }
-            }
-          } catch {
-            // Invalid JSON
-          }
-        }
+      // Tmux integration for all tool sessions
+      let tmuxSessionName: string | undefined
+      const tmuxEnabled = preferencesStore.get('tmux.enabled') === 'true'
+      if (tmuxEnabled && (await tmuxManager.isAvailable())) {
+        const ws = workspaceStore.getByPath(payload.worktreePath)
+        const wsId = ws?.id ?? 'default'
+        tmuxSessionName = TmuxManager.sessionName(wsId)
+        const tmuxMouse = preferencesStore.get('tmux.mouse') === 'true'
+        await tmuxManager.newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+          mouse: tmuxMouse,
+        })
+        const attach = tmuxManager.attachArgs(tmuxSessionName)
+        command = attach.command
+        args = attach.args
       }
 
       const session = ptyManager.spawn({
@@ -178,10 +285,11 @@ export function registerIpcHandlers(
         cols: payload.cols,
         rows: payload.rows,
         env,
+        tmuxSessionName,
       })
 
-      if (isClaude && claudeTempId) {
-        claudeSessionManager.rekey(claudeTempId, session.id)
+      if (isAgent && agentTempId) {
+        agentSessionManager.rekey(agentTempId, session.id)
       }
 
       const wsUrl = await wsBridge.create(session.id, session.pty)
@@ -190,20 +298,31 @@ export function registerIpcHandlers(
 
       session.pty.onExit(({ exitCode, signal }) => {
         if (!sender.isDestroyed()) {
-          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
+          sender.send('pty:exit', {
+            sessionId: session.id,
+            exitCode,
+            signal,
+            tmuxSessionName: session.tmuxSessionName,
+          })
         }
         windowManager.untrackPtySession(sender.id, session.id)
-        if (isClaude) {
-          claudeSessionManager.destroySession(session.id)
+        if (isAgent) {
+          agentSessionManager.destroySession(session.id)
         }
       })
 
-      return { sessionId: session.id, wsUrl, toolId: tool.id, toolName: tool.name }
+      return {
+        sessionId: session.id,
+        wsUrl,
+        toolId: tool.id,
+        toolName: tool.name,
+        tmuxSessionName,
+      }
     },
   )
 
-  ipcMain.handle('claude:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
-    claudeSessionManager.updateProcessTitle(payload.sessionId, payload.title)
+  ipcMain.handle('agent:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
+    agentSessionManager.updateProcessTitle(payload.sessionId, payload.title)
   })
 
   // --- Workspaces ---
@@ -296,9 +415,9 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(
-    'app:setFocusedClaudeSession',
+    'app:setFocusedAgentSession',
     (event, payload: { ptySessionId: string | null }) => {
-      windowManager.setFocusedClaudeSession(event.sender.id, payload.ptySessionId)
+      windowManager.setFocusedAgentSession(event.sender.id, payload.ptySessionId)
     },
   )
 
@@ -322,6 +441,13 @@ export function registerIpcHandlers(
       return true
     }
     return false
+  })
+
+  ipcMain.handle('app:focusRendererWebContents', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win && !win.isDestroyed()) {
+      win.webContents.focus()
+    }
   })
 
   // --- Dialog ---
@@ -457,6 +583,10 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle('git:checkout', async (_event, payload: { repoRoot: string; branch: string }) => {
+    return GitRepository.checkout(payload.repoRoot, payload.branch)
+  })
+
   ipcMain.handle(
     'git:branchDelete',
     async (_event, payload: { repoRoot: string; name: string; force: boolean }) => {
@@ -571,47 +701,63 @@ export function registerIpcHandlers(
       },
     ) => {
       toolRegistry.addCustom(payload)
+      broadcastToolsChanged()
       return toolRegistry.getAll()
     },
   )
 
   ipcMain.handle('tools:removeCustom', (_event, payload: { id: string }) => {
     toolRegistry.removeCustom(payload.id)
+    broadcastToolsChanged()
     return toolRegistry.getAll()
   })
 
-  // --- Browser ---
+  ipcMain.handle(
+    'tools:updateCustom',
+    (
+      _event,
+      payload: {
+        id: string
+        changes: {
+          name?: string
+          command?: string
+          args?: string[]
+          icon?: string
+          category?: string
+        }
+      },
+    ) => {
+      toolRegistry.updateCustom(payload.id, payload.changes)
+      broadcastToolsChanged()
+      return toolRegistry.getAll()
+    },
+  )
 
-  ipcMain.handle('browser:create', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) throw new Error('No window for browser view')
-    const browserId = crypto.randomUUID()
-    browserManager.create(browserId, win, event.sender)
-    return { browserId }
+  // --- Browser (<webview> management) ---
+
+  ipcMain.handle(
+    'browser:setup',
+    (event, payload: { browserId: string; webContentsId: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) throw new Error('No window for browser webview')
+      browserManager.setup(payload.browserId, payload.webContentsId, win, event.sender)
+    },
+  )
+
+  ipcMain.handle('browser:teardown', (_event, payload: { browserId: string }) => {
+    browserManager.teardown(payload.browserId)
   })
 
-  ipcMain.handle('browser:destroy', (_event, payload: { browserId: string }) => {
-    browserManager.destroy(payload.browserId)
+  ipcMain.handle('browser:openDevTools', (_event, payload: { browserId: string }) => {
+    browserManager.openDevTools(payload.browserId)
   })
 
-  ipcMain.handle('browser:navigate', (_event, payload: { browserId: string; url: string }) => {
-    browserManager.navigate(payload.browserId, payload.url)
-  })
-
-  ipcMain.handle('browser:back', (_event, payload: { browserId: string }) => {
-    browserManager.goBack(payload.browserId)
-  })
-
-  ipcMain.handle('browser:forward', (_event, payload: { browserId: string }) => {
-    browserManager.goForward(payload.browserId)
-  })
-
-  ipcMain.handle('browser:reload', (_event, payload: { browserId: string }) => {
-    browserManager.reload(payload.browserId)
+  ipcMain.handle('browser:closeDevTools', (_event, payload: { browserId: string }) => {
+    browserManager.closeDevTools(payload.browserId)
   })
 
   ipcMain.handle(
-    'browser:setBounds',
+    'browser:setDevToolsBounds',
     (
       _event,
       payload: {
@@ -619,43 +765,96 @@ export function registerIpcHandlers(
         bounds: { x: number; y: number; width: number; height: number }
       },
     ) => {
-      browserManager.setBounds(payload.browserId, payload.bounds)
+      browserManager.setDevToolsBounds(payload.browserId, payload.bounds)
     },
   )
 
   ipcMain.handle(
-    'browser:setVisible',
-    (_event, payload: { browserId: string; visible: boolean }) => {
-      browserManager.setVisible(payload.browserId, payload.visible)
+    'browser:setDeviceEmulation',
+    (
+      _event,
+      payload: {
+        browserId: string
+        device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null
+      },
+    ) => {
+      browserManager.setDeviceEmulation(payload.browserId, payload.device)
+    },
+  )
+
+  ipcMain.handle('browser:saveCaptureFile', (_event, payload: { buffer: Buffer }) => {
+    return browserManager.saveCaptureFile(Buffer.from(payload.buffer))
+  })
+
+  // --- Credentials ---
+
+  ipcMain.handle('credentials:getForDomain', (_event, payload: { domain: string }) => {
+    return credentialStore.getForDomainMasked(payload.domain)
+  })
+
+  ipcMain.handle(
+    'credentials:save',
+    (_event, payload: { domain: string; username: string; password: string; title?: string }) => {
+      credentialStore.save(payload.domain, payload.username, payload.password, payload.title)
+    },
+  )
+
+  ipcMain.handle('credentials:delete', (_event, payload: { id: string }) => {
+    credentialStore.delete(payload.id)
+  })
+
+  ipcMain.handle('credentials:getAll', () => {
+    return credentialStore.getAll()
+  })
+
+  ipcMain.handle(
+    'browser:fillCredential',
+    (_event, payload: { browserId: string; username: string; password: string }) => {
+      browserManager.fillCredential(payload.browserId, payload.username, payload.password)
     },
   )
 
   ipcMain.handle(
-    'browser:toggleDevTools',
-    (_event, payload: { browserId: string; mode?: 'bottom' | 'right' }) => {
-      browserManager.toggleDevTools(payload.browserId, payload.mode)
+    'credentials:getDecrypted',
+    async (event, payload: { id: string; domain: string }) => {
+      // Require system authentication before revealing passwords
+      if (process.platform === 'darwin') {
+        try {
+          await systemPreferences.promptTouchID('reveal a saved password')
+        } catch {
+          return null // User cancelled or auth failed
+        }
+      } else if (process.platform === 'win32') {
+        // Windows: native credential prompt via PowerShell
+        try {
+          const ps = `
+            Add-Type -AssemblyName System.Runtime.WindowsRuntime
+            $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
+            $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
+            if ($result -ne 'Verified') { exit 1 }
+          `
+          await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
+        } catch {
+          return null
+        }
+      } else {
+        // Linux: confirmation dialog (zenity/kdialog not guaranteed)
+        const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+        if (!win) return null
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'warning',
+          buttons: ['Reveal Password', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          title: 'Authentication Required',
+          message: 'Reveal saved password?',
+          detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
+        })
+        if (response !== 0) return null
+      }
+      return credentialStore.getForDomain(payload.domain).find((c) => c.id === payload.id) ?? null
     },
   )
-
-  ipcMain.handle('browser:getState', (_event, payload: { browserId: string }) => {
-    return browserManager.getState(payload.browserId)
-  })
-
-  ipcMain.handle('browser:capturePageFull', async (_event, payload: { browserId: string }) => {
-    return browserManager.capturePageFull(payload.browserId)
-  })
-
-  ipcMain.handle('browser:startElementPick', async (_event, payload: { browserId: string }) => {
-    return browserManager.startElementPick(payload.browserId)
-  })
-
-  ipcMain.handle('browser:startRegionCapture', async (_event, payload: { browserId: string }) => {
-    return browserManager.startRegionCapture(payload.browserId)
-  })
-
-  ipcMain.handle('browser:cancelPick', (_event, payload: { browserId: string }) => {
-    browserManager.cancelPick(payload.browserId)
-  })
 
   // --- Filesystem ---
 
@@ -738,7 +937,418 @@ export function registerIpcHandlers(
     }
   })
 
+  // --- Task Tracker ---
+
+  ipcMain.handle('taskTracker:getConnections', () => {
+    return taskTrackerManager.getConnections().map((c) => ({
+      id: c.id,
+      provider: c.provider,
+      name: c.name,
+      baseUrl: c.baseUrl,
+      projectKey: c.projectKey,
+      boardId: c.boardId,
+      username: c.username,
+    }))
+  })
+
+  ipcMain.handle(
+    'taskTracker:addConnection',
+    async (
+      _event,
+      payload: {
+        provider: TaskTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey: string
+        boardId?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
+      const { token, ...connectionData } = payload
+      const c = taskTrackerManager.addConnection(connectionData, token)
+      return {
+        id: c.id,
+        provider: c.provider,
+        name: c.name,
+        baseUrl: c.baseUrl,
+        projectKey: c.projectKey,
+        boardId: c.boardId,
+        username: c.username,
+      }
+    },
+  )
+
+  ipcMain.handle('taskTracker:removeConnection', (_event, payload: { connectionId: string }) => {
+    taskTrackerManager.removeConnection(payload.connectionId)
+  })
+
+  ipcMain.handle(
+    'taskTracker:updateConnection',
+    (
+      _event,
+      payload: {
+        connectionId: string
+        name?: string
+        baseUrl?: string
+        username?: string
+        token?: string
+      },
+    ) => {
+      if (payload.baseUrl) {
+        const parsed = new URL(payload.baseUrl)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('Base URL must use http:// or https://')
+        }
+      }
+      const { connectionId, token, ...updates } = payload
+      const c = taskTrackerManager.updateConnection(connectionId, updates, token)
+      if (!c) return null
+      return {
+        id: c.id,
+        provider: c.provider,
+        name: c.name,
+        baseUrl: c.baseUrl,
+        projectKey: c.projectKey,
+        boardId: c.boardId,
+        username: c.username,
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:testConnection',
+    async (_event, payload: { connectionId: string }) => {
+      return taskTrackerManager.testConnection(payload.connectionId)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:testNewConnection',
+    async (
+      _event,
+      payload: {
+        provider: TaskTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey: string
+        boardId?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
+      const { token, ...connectionData } = payload
+      return taskTrackerManager.testNewConnection(connectionData, token)
+    },
+  )
+
+  ipcMain.handle('taskTracker:fetchBoards', async (_event, payload: { connectionId: string }) => {
+    return taskTrackerManager.fetchBoards(payload.connectionId)
+  })
+
+  ipcMain.handle(
+    'taskTracker:fetchBoardsForNew',
+    async (
+      _event,
+      payload: {
+        provider: TaskTrackerProvider
+        name: string
+        baseUrl: string
+        projectKey?: string
+        username?: string
+        token: string
+      },
+    ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
+      const { token, ...connectionData } = payload
+      return taskTrackerManager.fetchBoardsForNew(
+        { ...connectionData, projectKey: connectionData.projectKey ?? '' },
+        token,
+      )
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:fetchStatuses',
+    async (_event, payload: { connectionId: string; boardId?: string }) => {
+      return taskTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:fetchTasks',
+    async (
+      _event,
+      payload: {
+        connectionId: string
+        statuses?: string[]
+        assignedToMe?: boolean
+        boardId?: string
+      },
+    ) => {
+      const { connectionId, ...params } = payload
+      return taskTrackerManager.fetchTasks(connectionId, params)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:getCurrentUser',
+    async (_event, payload: { connectionId: string }) => {
+      return taskTrackerManager.getCurrentUserDisplayName(payload.connectionId)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:getCurrentSprint',
+    async (_event, payload: { connectionId: string; boardId?: string }) => {
+      return taskTrackerManager.getCurrentSprint(payload.connectionId, payload.boardId)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:resolveBranchName',
+    async (
+      _event,
+      payload: {
+        connectionId: string
+        task: TrackerTask
+        boardId?: string
+        branchType?: string
+      },
+    ) => {
+      // Resolve template: board → connection → global
+      let template = '{taskKey}'
+      let customVars: Record<string, string> = {}
+
+      const keys = [
+        payload.boardId && `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+        `taskTracker.branchTemplate.${payload.connectionId}`,
+        'taskTracker.branchTemplate',
+      ].filter(Boolean) as string[]
+
+      for (const key of keys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.template) {
+              template = config.template
+              customVars = config.customVars ?? {}
+              break
+            }
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      // Get sprint: from task data or from API
+      const sprint = await taskTrackerManager
+        .getCurrentSprint(payload.connectionId, payload.boardId)
+        .catch(() => null)
+
+      const variables = buildVariables(payload.task, sprint, customVars, payload.branchType)
+      return renderBranchName(template, variables)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:renderBranchPreview',
+    (_event, payload: { template: string; customVars?: Record<string, string> }) => {
+      return renderPreview(payload.template, payload.customVars)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:getAvailablePlaceholders',
+    (_event, payload?: { customVars?: Record<string, string> }) => {
+      return getAvailablePlaceholders(payload?.customVars)
+    },
+  )
+
+  ipcMain.handle('taskTracker:validateTemplate', (_event, payload: { template: string }) => {
+    return validateTemplate(payload.template)
+  })
+
+  ipcMain.handle(
+    'taskTracker:resolveBranchType',
+    (_event, payload: { taskType: string; connectionId?: string; boardId?: string }) => {
+      const typeMappingJson = preferencesStore.get('taskTracker.typeMapping')
+      let typeMapping: Record<string, string> | undefined
+      if (typeMappingJson) {
+        try {
+          typeMapping = JSON.parse(typeMappingJson)
+        } catch {
+          // use defaults
+        }
+      }
+
+      // Check if resolved template contains {branchType}
+      const keys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.branchTemplate.${payload.connectionId}`,
+        'taskTracker.branchTemplate',
+      ].filter(Boolean) as string[]
+
+      let hasBranchType = false
+      for (const key of keys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            hasBranchType = (config.template ?? '').includes('{branchType}')
+            break
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      return {
+        defaultType: resolveBranchType(payload.taskType, typeMapping),
+        options: BRANCH_TYPE_OPTIONS,
+        hasBranchType,
+      }
+    },
+  )
+
+  ipcMain.handle('taskTracker:findTaskByKey', async (_event, payload: { taskKey: string }) => {
+    return taskTrackerManager.findTaskByKey(payload.taskKey)
+  })
+
+  ipcMain.handle(
+    'taskTracker:resolvePRPreview',
+    async (_event, payload: { taskKey: string; connectionId?: string; boardId?: string }) => {
+      let task: TrackerTask | null = null
+      if (payload.taskKey) {
+        task = await taskTrackerManager.findTaskByKey(payload.taskKey).catch(() => null)
+      }
+
+      let titleTemplate = '[{taskKey}] {taskTitle}'
+      let defaultBranch = 'develop'
+
+      const prKeys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `taskTracker.pr.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.pr.${payload.connectionId}`,
+        'taskTracker.pr',
+      ].filter(Boolean) as string[]
+
+      for (const key of prKeys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.titleTemplate) titleTemplate = config.titleTemplate
+            if (config.defaultBranch) defaultBranch = config.defaultBranch
+            break
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      if (!prKeys.some((k) => preferencesStore.get(k))) {
+        titleTemplate = preferencesStore.get('taskTracker.prTitleTemplate') || titleTemplate
+        defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
+      }
+
+      const title = titleTemplate
+        .replace(/\{taskKey\}/g, task?.key ?? payload.taskKey)
+        .replace(/\{taskTitle\}/g, task?.summary ?? '')
+        .replace(/\{taskType\}/g, task?.type ?? '')
+        .replace(/\{boardKey\}/g, (task?.key ?? payload.taskKey).split('-')[0] ?? '')
+
+      return { title, targetBranch: defaultBranch }
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:createPR',
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        task: TrackerTask
+        sourceBranch: string
+        connectionId?: string
+        boardId?: string
+      },
+    ) => {
+      let task = payload.task
+      if (task.key && !task.summary) {
+        const found = await taskTrackerManager.findTaskByKey(task.key)
+        if (found) task = found
+      }
+
+      // Resolve PR config: board → connection → global
+      let titleTemplate = '[{taskKey}] {taskTitle}'
+      let bodyTemplate = '## {taskKey}: {taskTitle}\n\n{taskUrl}'
+      let defaultBranch = 'develop'
+      let targetRules: Array<{ taskType: string; targetPattern: string }> = []
+
+      const prKeys = [
+        payload.boardId &&
+          payload.connectionId &&
+          `taskTracker.pr.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.pr.${payload.connectionId}`,
+        'taskTracker.pr',
+      ].filter(Boolean) as string[]
+
+      for (const key of prKeys) {
+        const raw = preferencesStore.get(key)
+        if (raw) {
+          try {
+            const config = JSON.parse(raw)
+            if (config.titleTemplate) titleTemplate = config.titleTemplate
+            if (config.bodyTemplate) bodyTemplate = config.bodyTemplate
+            if (config.defaultBranch) defaultBranch = config.defaultBranch
+            if (config.targetRules) targetRules = config.targetRules
+            break
+          } catch {
+            // try next level
+          }
+        }
+      }
+
+      // Fallback: read old flat keys if no scoped config found
+      if (!prKeys.some((k) => preferencesStore.get(k))) {
+        titleTemplate = preferencesStore.get('taskTracker.prTitleTemplate') || titleTemplate
+        bodyTemplate = preferencesStore.get('taskTracker.prBodyTemplate') || bodyTemplate
+        defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
+      }
+
+      const branches = await GitRepository.listBranches(payload.repoRoot)
+      const existingBranches = [...branches.local, ...branches.remote]
+
+      const prConfig = buildPRConfig(titleTemplate, bodyTemplate, defaultBranch, targetRules)
+      return createPullRequest({
+        repoRoot: payload.repoRoot,
+        task,
+        sourceBranch: payload.sourceBranch,
+        prConfig,
+        existingBranches,
+      })
+    },
+  )
+
   // --- Worktree Setup ---
+
+  const setupAbortControllers = new Map<number, AbortController>()
 
   ipcMain.handle(
     'worktree:runSetup',
@@ -760,19 +1370,55 @@ export function registerIpcHandlers(
       const mainWorktreePath = mainWorktree?.path ?? payload.repoRoot
 
       const sender = event.sender
-      return runWorktreeSetup(
-        actions,
-        {
-          repoRoot: payload.repoRoot,
-          mainWorktreePath,
-          newWorktreePath: payload.newWorktreePath,
-        },
-        (progress) => {
-          if (!sender.isDestroyed()) {
-            sender.send('worktree:setupProgress', progress)
-          }
-        },
-      )
+      const controller = new AbortController()
+      setupAbortControllers.set(sender.id, controller)
+
+      try {
+        return await runWorktreeSetup(
+          actions,
+          {
+            repoRoot: payload.repoRoot,
+            mainWorktreePath,
+            newWorktreePath: payload.newWorktreePath,
+          },
+          (progress) => {
+            if (!sender.isDestroyed()) {
+              sender.send('worktree:setupProgress', progress)
+            }
+          },
+          controller.signal,
+        )
+      } finally {
+        setupAbortControllers.delete(sender.id)
+      }
     },
   )
+
+  ipcMain.on('worktree:abortSetup', (event) => {
+    const controller = setupAbortControllers.get(event.sender.id)
+    controller?.abort()
+  })
+
+  // --- Onboarding ---
+
+  ipcMain.handle('onboarding:getCompleted', () => {
+    return onboardingStore.getCompleted()
+  })
+
+  ipcMain.handle(
+    'onboarding:complete',
+    (_event, payload: { stepIds: string[]; appVersion: string }) => {
+      if (!Array.isArray(payload.stepIds) || typeof payload.appVersion !== 'string') return
+      if (payload.stepIds.length === 0 || !payload.appVersion) return
+      const safeIds = payload.stepIds.filter(
+        (id) => typeof id === 'string' && id.length > 0 && id.length < 100,
+      )
+      if (safeIds.length === 0) return
+      onboardingStore.completeMany(safeIds, payload.appVersion)
+    },
+  )
+
+  ipcMain.handle('onboarding:reset', () => {
+    onboardingStore.reset()
+  })
 }

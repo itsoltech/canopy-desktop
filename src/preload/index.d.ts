@@ -8,12 +8,21 @@ interface ToolSpawnResult {
   wsUrl: string
   toolId: string
   toolName: string
+  tmuxSessionName?: string
 }
 
 interface PtyExitData {
   sessionId: string
   exitCode: number
   signal: number
+  tmuxSessionName?: string
+}
+
+interface TmuxSessionInfo {
+  name: string
+  created: number
+  attached: boolean
+  cwd: string
 }
 
 interface WorkspaceRow {
@@ -77,6 +86,7 @@ interface WorktreeSetupProgress {
   status: 'running' | 'done' | 'error'
   output?: string
   error?: string
+  outputChunk?: string
 }
 
 interface GitStatus {
@@ -102,54 +112,46 @@ interface GitBranchList {
   current: string | null
 }
 
-interface ClaudeHookEventData {
+interface AgentHookEventData {
   ptySessionId: string
+  agentType: string
   event: {
-    session_id: string
-    hook_event_name: string
-    tool_name?: string
-    tool_input?: Record<string, unknown>
-    tool_response?: string
+    agentType: string
+    sessionId: string
+    event: string
+    rawEventName: string
+    toolName?: string
+    toolInput?: Record<string, unknown>
+    toolResponse?: string
     error?: string
-    error_details?: string
+    errorDetails?: string
     message?: string
     title?: string
-    notification_type?: string
-    agent_id?: string
-    agent_type?: string
+    notificationType?: string
+    agentId?: string
+    agentSubtype?: string
     reason?: string
-    source?: string
     model?: string
-    permission_mode?: string
-    stop_hook_active?: boolean
-    is_interrupt?: boolean
+    permissionMode?: string
+    extra?: Record<string, unknown>
+    [key: string]: unknown
   }
 }
 
-interface ClaudeStatusData {
+interface AgentStatusData {
   ptySessionId: string
+  agentType: string
   status: {
-    model?: { id?: string; display_name?: string }
-    context_window?: {
-      used_percentage?: number | null
-      remaining_percentage?: number | null
-      context_window_size?: number
-      total_input_tokens?: number
-      total_output_tokens?: number
-    }
+    model?: { id?: string; displayName?: string }
+    contextWindow?: { usedPercent?: number; size?: number }
     cost?: {
-      total_cost_usd?: number
-      total_duration_ms?: number
-      total_api_duration_ms?: number
-      total_lines_added?: number
-      total_lines_removed?: number
-    }
-    rate_limits?: {
-      five_hour?: { used_percentage?: number; resets_at?: number }
-      seven_day?: { used_percentage?: number; resets_at?: number }
+      totalCostUsd?: number
+      durationMs?: number
+      linesAdded?: number
+      linesRemoved?: number
     }
     version?: string
-    session_id?: string
+    extra?: Record<string, unknown>
   }
 }
 
@@ -184,14 +186,7 @@ interface BrowserState {
   canGoForward: boolean
   isLoading: boolean
   isDevToolsOpen: boolean
-  devToolsMode: 'bottom' | 'right'
-}
-
-interface BrowserBounds {
-  x: number
-  y: number
-  width: number
-  height: number
+  devToolsMode: 'bottom' | 'left'
 }
 
 interface DirEntry {
@@ -211,8 +206,8 @@ interface CanopyAPI {
   openThirdPartyNotices: () => Promise<void>
   quit: () => Promise<void>
 
-  // Claude session
-  updateClaudeTitle: (sessionId: string, title: string) => Promise<void>
+  // Agent session
+  updateAgentTitle: (sessionId: string, title: string) => Promise<void>
 
   // Notch overlay
   setNotchEnabled: (enabled: boolean) => void
@@ -229,6 +224,14 @@ interface CanopyAPI {
   onUpdateError: (callback: (data: { message: string }) => void) => () => void
   onUpdateInstalling: (callback: () => void) => () => void
 
+  // Onboarding
+  getOnboardingCompleted: () => Promise<string[]>
+  completeOnboarding: (stepIds: string[], appVersion: string) => Promise<void>
+  resetOnboarding: () => Promise<void>
+  onShowOnboarding: (
+    callback: (data: { mode: 'first-launch' | 'upgrade'; fromVersion?: string }) => void,
+  ) => () => void
+
   // Changelog
   getChangelogSinceVersion: (fromVersion: string) => Promise<ChangelogEntry[] | null>
   onShowChangelog: (callback: (data: { fromVersion: string }) => void) => () => void
@@ -236,9 +239,22 @@ interface CanopyAPI {
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
-  killPty: (sessionId: string) => Promise<void>
+  killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   hasChildProcess: (sessionId: string) => Promise<boolean>
+
+  // Tmux
+  tmuxIsAvailable: () => Promise<boolean>
+  tmuxGetVersion: () => Promise<string | null>
+  tmuxListSessions: () => Promise<TmuxSessionInfo[]>
+  tmuxHasSession: (name: string) => Promise<boolean>
+  tmuxAttach: (
+    tmuxSessionName: string,
+    options?: { cols?: number; rows?: number },
+  ) => Promise<{ sessionId: string; wsUrl: string }>
+  tmuxDetach: (sessionId: string) => Promise<{ tmuxSessionName?: string }>
+  tmuxKillSession: (name: string) => Promise<void>
+  tmuxRenameSession: (oldName: string, newName: string) => Promise<void>
 
   // Workspaces
   listWorkspaces: (limit?: number) => Promise<WorkspaceRow[]>
@@ -276,13 +292,24 @@ interface CanopyAPI {
     category?: string
   }) => Promise<ToolDefinition[]>
   removeCustomTool: (id: string) => Promise<ToolDefinition[]>
-
+  updateCustomTool: (
+    id: string,
+    changes: {
+      name?: string
+      command?: string
+      args?: string[]
+      icon?: string
+      category?: string
+    },
+  ) => Promise<ToolDefinition[]>
   // App / Shell
   showInFolder: (path: string) => Promise<void>
   newWindow: () => Promise<void>
   setWorkspacePath: (path: string) => Promise<void>
   detachProject: (path: string) => Promise<void>
   focusWindowForPath: (path: string) => Promise<boolean>
+  focusRendererWebContents: () => Promise<void>
+  setFocusedAgentSession: (ptySessionId: string | null) => Promise<void>
 
   // Dialog
   openFolder: () => Promise<string | null>
@@ -308,6 +335,7 @@ interface CanopyAPI {
   gitStashPop: (repoRoot: string) => Promise<void>
   gitBranches: (repoRoot: string) => Promise<GitBranchList>
   gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) => Promise<void>
+  gitCheckout: (repoRoot: string, branch: string) => Promise<void>
   gitBranchDelete: (repoRoot: string, name: string, force: boolean) => Promise<void>
   gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) => Promise<void>
   gitPushInfo: (repoRoot: string) => Promise<GitPushInfo | null>
@@ -323,49 +351,56 @@ interface CanopyAPI {
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
   gitGenerateCommitMessage: (repoRoot: string) => Promise<string | null>
 
-  // Browser
-  createBrowser: () => Promise<{ browserId: string }>
-  destroyBrowser: (browserId: string) => Promise<void>
-  navigateBrowser: (browserId: string, url: string) => Promise<void>
-  browserBack: (browserId: string) => Promise<void>
-  browserForward: (browserId: string) => Promise<void>
-  browserReload: (browserId: string) => Promise<void>
-  setBrowserBounds: (browserId: string, bounds: BrowserBounds) => Promise<void>
-  setBrowserVisible: (browserId: string, visible: boolean) => Promise<void>
-  toggleBrowserDevTools: (browserId: string, mode?: 'bottom' | 'right') => Promise<void>
-  getBrowserState: (browserId: string) => Promise<BrowserState | null>
-  capturePageFull: (browserId: string) => Promise<string | null>
-  browserStartElementPick: (browserId: string) => Promise<string | null>
-  browserStartRegionCapture: (browserId: string) => Promise<string | null>
-  browserCancelPick: (browserId: string) => Promise<void>
-  onBrowserUrlChanged: (callback: (data: { browserId: string; url: string }) => void) => () => void
-  onBrowserTitleChanged: (
-    callback: (data: { browserId: string; title: string }) => void,
-  ) => () => void
+  // Browser (<webview> management)
+  setupBrowserWebview: (browserId: string, webContentsId: number) => Promise<void>
+  teardownBrowserWebview: (browserId: string) => Promise<void>
+  openBrowserDevTools: (browserId: string) => Promise<void>
+  closeBrowserDevTools: (browserId: string) => Promise<void>
+  setBrowserDevToolsBounds: (
+    browserId: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => Promise<void>
+  setBrowserDeviceEmulation: (
+    browserId: string,
+    device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null,
+  ) => Promise<void>
+  saveBrowserCapture: (buffer: ArrayBuffer) => Promise<string>
+
+  // Credential autofill (isolated world)
+  fillBrowserCredential: (browserId: string, username: string, password: string) => Promise<void>
+
+  // Credentials
+  getCredentials: (
+    domain: string,
+  ) => Promise<Array<{ id: string; domain: string; username: string; title: string }>>
+  saveCredential: (
+    domain: string,
+    username: string,
+    password: string,
+    title?: string,
+  ) => Promise<void>
+  getCredentialDecrypted: (
+    id: string,
+    domain: string,
+  ) => Promise<{ id: string; username: string; password: string } | null>
+  deleteCredential: (id: string) => Promise<void>
+  listCredentials: () => Promise<
+    Array<{
+      id: string
+      domain: string
+      username: string
+      title: string
+      createdAt: string
+      updatedAt: string
+    }>
+  >
+
+  // Browser push events (main → renderer)
   onBrowserFaviconChanged: (
     callback: (data: { browserId: string; favicon: string | null }) => void,
   ) => () => void
+  onBrowserDevToolsOpened: (callback: (data: { browserId: string }) => void) => () => void
   onBrowserFocused: (callback: (data: { browserId: string }) => void) => () => void
-  onBrowserLoadingChanged: (
-    callback: (data: { browserId: string; isLoading: boolean }) => void,
-  ) => () => void
-  onBrowserLoadFailed: (
-    callback: (data: {
-      browserId: string
-      errorCode: number
-      errorDescription: string
-      validatedURL: string
-    }) => void,
-  ) => () => void
-  onBrowserStateChanged: (
-    callback: (data: {
-      browserId: string
-      canGoBack: boolean
-      canGoForward: boolean
-      isDevToolsOpen: boolean
-      devToolsMode: 'bottom' | 'right'
-    }) => void,
-  ) => () => void
 
   // Worktree Setup
   runWorktreeSetup: (
@@ -373,6 +408,7 @@ interface CanopyAPI {
     repoRoot: string,
     newWorktreePath: string,
   ) => Promise<{ success: boolean; errors: string[] }>
+  abortWorktreeSetup: () => void
 
   // Layouts
   saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) => Promise<void>
@@ -380,10 +416,11 @@ interface CanopyAPI {
   getAllLayouts: (workspaceId: string) => Promise<{ worktree_path: string; layout_json: string }[]>
 
   // Push events (main → renderer)
-  onClaudeHookEvent: (callback: (data: ClaudeHookEventData) => void) => () => void
-  onClaudeStatusUpdate: (callback: (data: ClaudeStatusData) => void) => () => void
-  onClaudeFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
+  onAgentHookEvent: (callback: (data: AgentHookEventData) => void) => () => void
+  onAgentStatusUpdate: (callback: (data: AgentStatusData) => void) => () => void
+  onAgentFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
   onGitChanged: (callback: (info: GitInfo & { repoRoot: string }) => void) => () => void
+  onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void
   onUrlAction: (
@@ -398,8 +435,134 @@ interface CanopyAPI {
   readDir: (dirPath: string) => Promise<DirEntry[]>
   readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
 
+  // Task Tracker
+  taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
+  taskTrackerAddConnection: (connection: {
+    provider: TaskTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => Promise<TaskTrackerConnectionInfo>
+  taskTrackerRemoveConnection: (connectionId: string) => Promise<void>
+  taskTrackerUpdateConnection: (
+    connectionId: string,
+    updates: { name?: string; baseUrl?: string; username?: string; token?: string },
+  ) => Promise<TaskTrackerConnectionInfo | null>
+  taskTrackerTestConnection: (connectionId: string) => Promise<boolean>
+  taskTrackerTestNewConnection: (connection: {
+    provider: TaskTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => Promise<boolean>
+  taskTrackerFetchBoards: (connectionId: string) => Promise<TrackerBoard[]>
+  taskTrackerFetchBoardsForNew: (connection: {
+    provider: TaskTrackerProvider
+    name: string
+    baseUrl: string
+    projectKey?: string
+    username?: string
+    token: string
+  }) => Promise<TrackerBoard[]>
+  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) => Promise<TrackerStatus[]>
+  taskTrackerFetchTasks: (
+    connectionId: string,
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => Promise<TrackerTask[]>
+  taskTrackerGetCurrentSprint: (
+    connectionId: string,
+    boardId?: string,
+  ) => Promise<TrackerSprint | null>
+  taskTrackerGetCurrentUser: (connectionId: string) => Promise<string>
+  taskTrackerResolveBranchName: (
+    connectionId: string,
+    task: TrackerTask,
+    boardId?: string,
+    branchType?: string,
+  ) => Promise<string>
+  taskTrackerResolveBranchType: (
+    taskType: string,
+    connectionId?: string,
+    boardId?: string,
+  ) => Promise<{
+    defaultType: string
+    options: string[]
+    hasBranchType: boolean
+  }>
+  taskTrackerRenderBranchPreview: (
+    template: string,
+    customVars?: Record<string, string>,
+  ) => Promise<string>
+  taskTrackerGetAvailablePlaceholders: (
+    customVars?: Record<string, string>,
+  ) => Promise<Array<{ key: string; description: string; example: string }>>
+  taskTrackerValidateTemplate: (template: string) => Promise<{ valid: boolean; errors: string[] }>
+  taskTrackerFindTaskByKey: (taskKey: string) => Promise<TrackerTask | null>
+  taskTrackerResolvePRPreview: (
+    taskKey: string,
+    connectionId?: string,
+    boardId?: string,
+  ) => Promise<{ title: string; targetBranch: string }>
+  taskTrackerCreatePR: (
+    repoRoot: string,
+    task: TrackerTask,
+    sourceBranch: string,
+    connectionId?: string,
+    boardId?: string,
+  ) => Promise<{ url: string; title: string; targetBranch: string }>
+
   // File utilities
   getPathForFile: (file: File) => string
+}
+
+type TaskTrackerProvider = 'jira' | 'youtrack'
+
+interface TaskTrackerConnectionInfo {
+  id: string
+  provider: TaskTrackerProvider
+  name: string
+  baseUrl: string
+  projectKey: string
+  boardId?: string
+  username?: string
+}
+
+interface TrackerTask {
+  key: string
+  summary: string
+  description: string
+  status: string
+  priority: string
+  type: string
+  parentKey?: string
+  sprintName?: string
+  sprintNumber?: number
+  assignee?: string
+  url?: string
+}
+
+interface TrackerBoard {
+  id: string
+  name: string
+  projectKey?: string
+}
+
+interface TrackerStatus {
+  id: string
+  name: string
+}
+
+interface TrackerSprint {
+  id: string
+  name: string
+  number?: number
+  state: 'active' | 'closed' | 'future'
 }
 
 type SessionStatusType =

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { prefs, setPref, getPref } from '../../lib/stores/preferences.svelte'
+  import CustomRadio from '../shared/CustomRadio.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
 
   let pullRebase = $derived(prefs.gitPullRebase !== 'false')
@@ -90,22 +91,12 @@
     <span class="field-label">Pull Strategy</span>
     <div class="radio-group">
       <label class="radio-row">
-        <input
-          type="radio"
-          name="pull-strategy"
-          checked={pullRebase}
-          onchange={() => setPullStrategy(true)}
-        />
+        <CustomRadio checked={pullRebase} onchange={() => setPullStrategy(true)} />
         <span>Rebase</span>
         <span class="radio-desc">git pull --rebase</span>
       </label>
       <label class="radio-row">
-        <input
-          type="radio"
-          name="pull-strategy"
-          checked={!pullRebase}
-          onchange={() => setPullStrategy(false)}
-        />
+        <CustomRadio checked={!pullRebase} onchange={() => setPullStrategy(false)} />
         <span>Merge</span>
         <span class="radio-desc">git pull</span>
       </label>
@@ -199,7 +190,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     margin: 0;
   }
 
@@ -212,7 +203,7 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -228,26 +219,21 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
-    cursor: pointer;
-  }
-
-  .radio-row input[type='radio'] {
-    accent-color: #74c0fc;
+    color: var(--c-text);
   }
 
   .radio-desc {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     font-family: monospace;
   }
 
   .field-input {
     width: 100%;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(0, 0, 0, 0.3);
-    color: #e0e0e0;
+    background: var(--c-bg-input);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     padding: 8px 10px;
@@ -257,16 +243,16 @@
   }
 
   .field-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .field-input::placeholder {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .field-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .setup-list {
@@ -284,17 +270,17 @@
   .setup-type {
     font-size: 11px;
     font-family: monospace;
-    color: rgba(116, 192, 252, 0.7);
+    color: var(--c-accent-text);
     min-width: 32px;
     flex-shrink: 0;
   }
 
   .setup-input {
     flex: 1;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
-    background: rgba(0, 0, 0, 0.3);
-    color: #e0e0e0;
+    background: var(--c-bg-input);
+    color: var(--c-text);
     font-size: 12px;
     font-family: monospace;
     padding: 5px 8px;
@@ -304,11 +290,11 @@
   }
 
   .setup-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .setup-input::placeholder {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .setup-input-short {
@@ -318,14 +304,14 @@
 
   .setup-arrow {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     flex-shrink: 0;
   }
 
   .setup-remove {
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     font-size: 16px;
     cursor: pointer;
     padding: 0 4px;
@@ -335,7 +321,7 @@
   }
 
   .setup-remove:hover {
-    color: rgba(255, 120, 120, 0.9);
+    color: var(--c-danger-text);
   }
 
   .setup-actions {
@@ -344,10 +330,10 @@
   }
 
   .setup-add {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--c-hover);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     font-size: 12px;
     font-family: inherit;
     padding: 4px 10px;
@@ -358,7 +344,7 @@
   }
 
   .setup-add:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 </style>

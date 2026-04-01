@@ -41,10 +41,17 @@ interface CreateWorktreeState {
   type: 'createWorktree'
   repoRoot?: string
   workspaceId?: string
+  baseBranch?: string
 }
 
 interface PreferencesState {
   type: 'preferences'
+  section?: string
+}
+
+interface TaskPickerState {
+  type: 'taskPicker'
+  connectionId: string
 }
 
 interface AboutState {
@@ -54,6 +61,19 @@ interface AboutState {
 interface ChangelogState {
   type: 'changelog'
   fromVersion: string
+}
+
+interface OnboardingWizardState {
+  type: 'onboardingWizard'
+}
+
+interface FeatureOnboardingState {
+  type: 'featureOnboarding'
+  fromVersion: string
+}
+
+interface TmuxBrowserState {
+  type: 'tmuxBrowser'
 }
 
 interface NoneState {
@@ -66,8 +86,12 @@ type DialogState =
   | InputDialogState
   | CreateWorktreeState
   | PreferencesState
+  | TaskPickerState
   | AboutState
   | ChangelogState
+  | OnboardingWizardState
+  | FeatureOnboardingState
+  | TmuxBrowserState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -109,16 +133,25 @@ export function prompt(opts: PromptOptions): Promise<PromptResult | null> {
   })
 }
 
-export function showCreateWorktree(opts?: { repoRoot?: string; workspaceId?: string }): void {
+export function showCreateWorktree(opts?: {
+  repoRoot?: string
+  workspaceId?: string
+  baseBranch?: string
+}): void {
   dialogState.current = {
     type: 'createWorktree',
     repoRoot: opts?.repoRoot,
     workspaceId: opts?.workspaceId,
+    baseBranch: opts?.baseBranch,
   }
 }
 
-export function showPreferences(): void {
-  dialogState.current = { type: 'preferences' }
+export function showPreferences(section?: string): void {
+  dialogState.current = { type: 'preferences', section }
+}
+
+export function showTaskPicker(connectionId: string): void {
+  dialogState.current = { type: 'taskPicker', connectionId }
 }
 
 export function showAbout(): void {
@@ -127,6 +160,18 @@ export function showAbout(): void {
 
 export function showChangelog(fromVersion: string): void {
   dialogState.current = { type: 'changelog', fromVersion }
+}
+
+export function showOnboardingWizard(): void {
+  dialogState.current = { type: 'onboardingWizard' }
+}
+
+export function showFeatureOnboarding(fromVersion: string): void {
+  dialogState.current = { type: 'featureOnboarding', fromVersion }
+}
+
+export function showTmuxBrowser(): void {
+  dialogState.current = { type: 'tmuxBrowser' }
 }
 
 export function closeDialog(): void {
