@@ -330,9 +330,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border: 1px solid rgba(116, 192, 252, 0.2);
+    border: 1px solid var(--c-border);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--c-border-subtle);
     width: 100%;
   }
 
@@ -342,7 +342,7 @@
 
   .edit-id-label {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-faint);
     font-family: monospace;
   }
 
@@ -350,14 +350,14 @@
     padding: 2px 8px;
     border: none;
     border-radius: 4px;
-    background: rgba(116, 192, 252, 0.15);
-    color: rgba(116, 192, 252, 0.8);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .edit-btn:hover {
-    background: rgba(116, 192, 252, 0.25);
+    background: var(--c-accent-bg-hover);
   }
 </style>

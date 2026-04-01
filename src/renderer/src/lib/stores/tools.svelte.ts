@@ -39,9 +39,13 @@ export async function initToolStore(): Promise<void> {
   tools = fetchedTools
   availability = fetchedAvailability
 
+  let availabilityGen = 0
+
   unsubscribe = window.api.onToolsChanged(async (updated) => {
     tools = updated
-    availability = await window.api.checkToolAvailability()
+    const gen = ++availabilityGen
+    const avail = await window.api.checkToolAvailability()
+    if (gen === availabilityGen) availability = avail
   })
 }
 
