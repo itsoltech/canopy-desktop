@@ -9,6 +9,8 @@
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
+  import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
+  import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
@@ -18,6 +20,8 @@
     showPreferences,
     showAbout,
     showChangelog,
+    showOnboardingWizard,
+    showFeatureOnboarding,
   } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -214,6 +218,22 @@
     return window.api.onMenuShowPreferences(() => showPreferences())
   })
 
+  // Subscribe to onboarding push event
+  $effect(() => {
+    return window.api.onShowOnboarding(async (data) => {
+      const { initOnboarding, onboardingState } = await import('../../lib/stores/onboarding.svelte')
+      await initOnboarding(data.mode, data.fromVersion)
+      if (onboardingState.mode === 'none' && data.fromVersion) {
+        // No onboarding steps to show, fall back to changelog
+        showChangelog(data.fromVersion)
+      } else if (onboardingState.mode === 'first-launch') {
+        showOnboardingWizard()
+      } else if (onboardingState.mode === 'upgrade') {
+        showFeatureOnboarding(data.fromVersion ?? '')
+      }
+    })
+  })
+
   // Subscribe to post-update changelog push event
   $effect(() => {
     return window.api.onShowChangelog((data) => {
@@ -399,6 +419,10 @@
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}
   <ChangelogModal fromVersion={dialogState.current.fromVersion} />
+{:else if dialogState.current.type === 'onboardingWizard'}
+  <OnboardingWizard />
+{:else if dialogState.current.type === 'featureOnboarding'}
+  <FeatureOnboarding fromVersion={dialogState.current.fromVersion} />
 {/if}
 
 <Toast />

@@ -256,6 +256,9 @@
       const currentFontSize = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
       const currentFontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
 
+      // Set container bg before xterm renders to avoid flash of wrong color
+      containerEl.style.backgroundColor = currentTheme.background ?? '#1e1e1e'
+
       const term = new Terminal({
         fontSize: currentFontSize,
         fontFamily: currentFontFamily,
@@ -419,7 +422,7 @@
     height: 100%;
     padding: 8px;
     box-sizing: border-box;
-    background-color: var(--terminal-bg, #1e1e1e);
+    background-color: var(--c-bg, #1e1e1e);
     position: relative;
   }
 

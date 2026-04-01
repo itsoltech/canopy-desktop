@@ -1,3 +1,20 @@
+## [0.8.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.2...v0.8.0-next.3) (2026-03-31)
+
+### Features
+
+* add user onboarding system ([#58](https://github.com/itsoltech/canopy-desktop/issues/58)) ([b5536a4](https://github.com/itsoltech/canopy-desktop/commit/b5536a4f880e2af4cd0615ed799517c344c44019))
+* **browser:** migrate to webview, add credentials, favorites, viewports, and device emulation ([#55](https://github.com/itsoltech/canopy-desktop/issues/55)) ([8a01f52](https://github.com/itsoltech/canopy-desktop/commit/8a01f52277bc196191fade3ca1cc517908d6c27e))
+* sync app UI theme with terminal theme ([#57](https://github.com/itsoltech/canopy-desktop/issues/57)) ([3eba336](https://github.com/itsoltech/canopy-desktop/commit/3eba336a63b4e0277b0e7b1a126a3745f71d71ba))
+* **worktree:** stream setup command output in terminal ([#52](https://github.com/itsoltech/canopy-desktop/issues/52)) ([6fa5984](https://github.com/itsoltech/canopy-desktop/commit/6fa5984378e0420a4881a69cee9a23899529073f))
+
+### Bug Fixes
+
+* **notch:** restore Dock icon after panel window hides it ([#54](https://github.com/itsoltech/canopy-desktop/issues/54)) ([dc4cc3d](https://github.com/itsoltech/canopy-desktop/commit/dc4cc3d10d259bab0f89faa8b1e989cecb77ed45))
+
+### Refactoring
+
+* migrate commands to skills architecture and add self-review ([85803d0](https://github.com/itsoltech/canopy-desktop/commit/85803d081073a6054dd5651b3aa38ef94c9bbd1c))
+
 ## [0.8.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.1...v0.8.0-next.2) (2026-03-31)
 
 ### Features
