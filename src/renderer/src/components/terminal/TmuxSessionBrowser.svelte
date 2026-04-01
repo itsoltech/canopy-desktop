@@ -110,8 +110,7 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" onkeydown={handleKeydown} onmousedown={closeDialog}>
+<div class="overlay" role="presentation" onkeydown={handleKeydown} onmousedown={closeDialog}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}

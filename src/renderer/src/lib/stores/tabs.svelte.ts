@@ -727,20 +727,23 @@ export async function cleanupOrphanedTmuxSessions(): Promise<void> {
   const available = await window.api.tmuxIsAvailable().catch(() => false)
   if (!available) return
 
-  // Collect tmux session names attached to any pane
-  const attachedNames: string[] = []
+  // Collect tmux session names claimed by any pane in the current layout
+  const claimedNames: string[] = []
   for (const tabs of Object.values(tabsByWorktree)) {
     for (const tab of tabs) {
       for (const pane of allPanes(tab.rootSplit)) {
-        if (pane.tmuxSessionName) attachedNames.push(pane.tmuxSessionName)
+        if (pane.tmuxSessionName) claimedNames.push(pane.tmuxSessionName)
       }
     }
   }
 
-  // Kill any canopy session not attached to a pane
+  // Only kill sessions that are both unclaimed by any pane AND not attached
+  // by any tmux client. This avoids killing sessions the user intentionally
+  // detached (e.g. closed a tab with "detach" policy). Unattached + unclaimed
+  // sessions are crash orphans.
   const sessions = await window.api.tmuxListSessions().catch(() => [])
   for (const s of sessions) {
-    if (!attachedNames.includes(s.name)) {
+    if (!claimedNames.includes(s.name) && !s.attached) {
       await window.api.tmuxKillSession(s.name).catch(() => {})
     }
   }

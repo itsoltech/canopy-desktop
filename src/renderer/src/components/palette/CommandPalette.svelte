@@ -43,15 +43,18 @@
 
   let tools: { id: string; name: string; category: string }[] = $state([])
   let availability: Record<string, boolean> = $state({})
+  let tmuxAvailable = $state(false)
 
   onMount(async () => {
     inputEl?.focus()
-    const [toolList, avail] = await Promise.all([
+    const [toolList, avail, tmuxAvail] = await Promise.all([
       window.api.listTools(),
       window.api.checkToolAvailability(),
+      window.api.tmuxIsAvailable().catch(() => false),
     ])
     tools = toolList
     availability = avail
+    tmuxAvailable = tmuxAvail
   })
 
   const isMac = navigator.userAgent.includes('Mac')
@@ -147,13 +150,15 @@
       action: () => showAbout(),
     })
 
-    items.push({
-      id: 'tmux:sessions',
-      label: 'Tmux Sessions',
-      category: 'Terminal',
-      description: 'Browse and manage tmux sessions',
-      action: () => showTmuxBrowser(),
-    })
+    if (tmuxAvailable) {
+      items.push({
+        id: 'tmux:sessions',
+        label: 'Tmux Sessions',
+        category: 'Terminal',
+        description: 'Browse and manage tmux sessions',
+        action: () => showTmuxBrowser(),
+      })
+    }
 
     items.push({
       id: 'app:open-folder',

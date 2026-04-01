@@ -160,6 +160,11 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'tmux:renameSession',
     async (_event, payload: { oldName: string; newName: string }) => {
+      if (!/^[\w-]+$/.test(payload.newName)) {
+        throw new Error(
+          'Invalid session name: only letters, digits, underscores, and dashes allowed',
+        )
+      }
       await tmuxManager.renameSession(payload.oldName, payload.newName)
     },
   )

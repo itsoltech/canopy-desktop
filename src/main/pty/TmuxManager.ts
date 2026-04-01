@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { writeFile, access, constants } from 'fs/promises'
+import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import os from 'os'
 import { randomUUID } from 'crypto'
@@ -64,10 +64,12 @@ export class TmuxManager {
 
   async ensureConfig(): Promise<void> {
     try {
-      await access(this.configPath, constants.F_OK)
+      const existing = await readFile(this.configPath, 'utf-8')
+      if (existing === CANOPY_TMUX_CONFIG) return
     } catch {
-      await writeFile(this.configPath, CANOPY_TMUX_CONFIG, 'utf-8')
+      // File doesn't exist — fall through to write
     }
+    await writeFile(this.configPath, CANOPY_TMUX_CONFIG, 'utf-8')
   }
 
   async newSession(opts: {
@@ -78,6 +80,9 @@ export class TmuxManager {
     cols?: number
     rows?: number
   }): Promise<void> {
+    if (!/^[\w-]+$/.test(opts.name)) {
+      throw new Error('Invalid tmux session name')
+    }
     await this.ensureConfig()
     const args = [
       '-f',
