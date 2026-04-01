@@ -400,18 +400,18 @@
     // Cmd+1-9: switch to tab by index
     if (path && e.key >= '1' && e.key <= '9') {
       e.preventDefault()
-      switchTabByIndex(path, parseInt(e.key) - 1)
+      switchTabByIndex(path, parseInt(e.key) - 1).catch(() => {})
     }
 
     // Cmd+Shift+[ and Cmd+Shift+]
     if (e.key === '[' && e.shiftKey && path) {
       e.preventDefault()
-      prevTab(path)
+      prevTab(path).catch(() => {})
     }
 
     if (e.key === ']' && e.shiftKey && path) {
       e.preventDefault()
-      nextTab(path)
+      nextTab(path).catch(() => {})
     }
   }
 </script>
@@ -473,18 +473,20 @@
     <div class="content-row">
       <div class="terminal-area">
         {#each allTabs as tab (tab.id)}
-          <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
-            <SplitPaneContainer
-              node={tab.rootSplit}
-              tabId={tab.id}
-              worktreePath={tab.worktreePath}
-              focusedPaneId={tab.focusedPaneId}
-              active={tab.id === currentActiveTabId}
-              onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
-              onUpdateRatio={(paneId, ratio) =>
-                updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
-            />
-          </div>
+          {#if !tab.suspended}
+            <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
+              <SplitPaneContainer
+                node={tab.rootSplit}
+                tabId={tab.id}
+                worktreePath={tab.worktreePath}
+                focusedPaneId={tab.focusedPaneId}
+                active={tab.id === currentActiveTabId}
+                onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
+                onUpdateRatio={(paneId, ratio) =>
+                  updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
+              />
+            </div>
+          {/if}
         {/each}
 
         {#if projects.length === 0 && allTabs.length === 0}

@@ -155,7 +155,7 @@
     // Check for panel-split drop first (drag from tab bar to a panel)
     const dt = dragState.dropTarget
     if (dragActive && dragTabId && dt) {
-      moveTabToSplit(worktreePath, dragTabId, dt.tabId, dt.paneId, dt.zone)
+      await moveTabToSplit(worktreePath, dragTabId, dt.tabId, dt.paneId, dt.zone)
     } else if (dragActive && dragTabId && dropTargetId) {
       // Existing tab-reorder logic
       const fromIdx = tabs.findIndex((t) => t.id === dragTabId)
@@ -194,12 +194,12 @@
         <div
           class="tab"
           class:active={tab.id === currentActiveId}
-          class:exited={allPanes(tab.rootSplit).some((p) => !p.isRunning)}
+          class:exited={!tab.suspended && allPanes(tab.rootSplit).some((p) => !p.isRunning)}
           class:dragging={dragActive && dragTabId === tab.id}
           class:drop-target={dragActive && dropTargetId === tab.id}
           data-tab-id={tab.id}
-          onclick={() => {
-            if (!suppressClick) switchTab(tab.id)
+          onclick={async () => {
+            if (!suppressClick) await switchTab(tab.id)
           }}
           onauxclick={(e) => handleMiddleClick(e, tab.id)}
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
@@ -260,8 +260,8 @@
               <button
                 class="overflow-item"
                 class:active={tab.id === currentActiveId}
-                onclick={() => {
-                  switchTab(tab.id)
+                onclick={async () => {
+                  await switchTab(tab.id)
                   showOverflow = false
                 }}
               >
