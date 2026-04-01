@@ -27,6 +27,7 @@ import { browserSessions } from '../browser/browserState.svelte'
 // --- Active process detection ---
 
 const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
+export const isAiToolId = (id: string): boolean => AI_TOOL_IDS.has(id)
 
 const ACTIVE_CLAUDE_STATUSES = new Set([
   'thinking',
