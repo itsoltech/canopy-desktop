@@ -74,9 +74,17 @@
 
   {#if tmuxEnabled}
     <div class="hint-row">
-      Shell sessions run inside tmux and survive app close, crashes, and restarts. AI agent sessions
-      use their own resume mechanism and are not affected.
+      All sessions (shells and tools) run inside tmux and survive app close, crashes, and restarts.
     </div>
+
+    <label class="checkbox-row sub">
+      <input
+        type="checkbox"
+        checked={prefs['tmux.mouse'] === 'true'}
+        onchange={() => setPref('tmux.mouse', prefs['tmux.mouse'] === 'true' ? 'false' : 'true')}
+      />
+      <span>Enable mouse support</span>
+    </label>
 
     <div class="select-row">
       <span class="select-label">On app close</span>
@@ -130,6 +138,10 @@
     font-size: 13px;
     color: var(--c-text);
     cursor: pointer;
+  }
+
+  .checkbox-row.sub {
+    padding-left: 24px;
   }
 
   .checkbox-row input[type='checkbox'] {

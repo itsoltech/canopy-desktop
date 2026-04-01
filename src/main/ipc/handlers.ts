@@ -256,13 +256,14 @@ export function registerIpcHandlers(
         agentTempId = agentSession.tempId
       }
 
-      // Tmux integration for shell sessions
+      // Tmux integration for all tool sessions
       let tmuxSessionName: string | undefined
-      const tmuxEnabled = isShell && preferencesStore.get('tmux.enabled') === 'true'
+      const tmuxEnabled = preferencesStore.get('tmux.enabled') === 'true'
       if (tmuxEnabled && (await tmuxManager.isAvailable())) {
         const ws = workspaceStore.getByPath(payload.worktreePath)
         const wsId = ws?.id ?? 'default'
         tmuxSessionName = TmuxManager.sessionName(wsId)
+        const tmuxMouse = preferencesStore.get('tmux.mouse') === 'true'
         await tmuxManager.newSession({
           name: tmuxSessionName,
           cwd: payload.worktreePath,
@@ -270,6 +271,7 @@ export function registerIpcHandlers(
           shellArgs: args,
           cols: payload.cols,
           rows: payload.rows,
+          mouse: tmuxMouse,
         })
         const attach = tmuxManager.attachArgs(tmuxSessionName)
         command = attach.command
