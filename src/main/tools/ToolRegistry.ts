@@ -83,6 +83,7 @@ export class ToolRegistry {
   }
 
   removeCustom(id: string): void {
+    this.validateId(id)
     this.db.prepare('DELETE FROM tool_definitions WHERE id = ? AND is_custom = 1').run(id)
     this.reload()
   }
