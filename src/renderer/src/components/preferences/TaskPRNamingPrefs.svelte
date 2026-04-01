@@ -1,5 +1,6 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import BranchTokenBuilder from './BranchTokenBuilder.svelte'
 
   interface ConnectionInfo {
     id: string
@@ -27,25 +28,49 @@
   }
 
   interface PRConfig {
+    titleTemplate: string
     defaultBranch: string
   }
+
+  const PR_TAGS = [
+    { key: 'taskKey', description: 'Task key (e.g. ISSUE-123)', example: 'ISSUE-123' },
+    { key: 'taskTitle', description: 'Task title', example: 'Fix login bug' },
+    { key: 'taskType', description: 'Task type (task, bug, story)', example: 'task' },
+    { key: 'boardKey', description: 'Board/project key', example: 'ISSUE' },
+  ]
 
   let prConfig = $derived.by((): PRConfig => {
     const raw = prefs[prPrefKey(prScope)]
     if (raw) {
       try {
         const c = JSON.parse(raw) as Partial<PRConfig>
-        return { defaultBranch: c.defaultBranch || 'develop' }
+        return {
+          titleTemplate: c.titleTemplate || '',
+          defaultBranch: c.defaultBranch || 'develop',
+        }
       } catch {
         // fall through
       }
     }
-    return { defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop' }
+    return {
+      titleTemplate: prefs['taskTracker.prTitleTemplate'] || '',
+      defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop',
+    }
+  })
+
+  let titleTemplateInput = $state('')
+
+  $effect(() => {
+    titleTemplateInput = prConfig.titleTemplate
   })
 
   function savePRConfig(field: keyof PRConfig, value: string): void {
     const current = { ...prConfig, [field]: value }
     setPref(prPrefKey(prScope), JSON.stringify(current))
+  }
+
+  function onTitleTemplateSave(): void {
+    savePRConfig('titleTemplate', titleTemplateInput)
   }
 </script>
 
@@ -67,6 +92,13 @@
       {/each}
     </select>
   </div>
+
+  <BranchTokenBuilder
+    bind:templateInput={titleTemplateInput}
+    placeholders={PR_TAGS}
+    onSave={onTitleTemplateSave}
+    label="Title"
+  />
 
   <div class="form-row">
     <label class="form-label">Default Target Branch</label>

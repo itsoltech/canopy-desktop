@@ -8,10 +8,12 @@
     templateInput = $bindable(''),
     placeholders,
     onSave,
+    label = 'Template',
   }: {
     templateInput: string
     placeholders: Array<{ key: string; description: string; example: string }>
     onSave: () => void
+    label?: string
   } = $props()
 
   const SEPARATORS = ['/', '-', '_']
@@ -197,7 +199,7 @@
 </script>
 
 <div class="token-builder">
-  <label class="form-label">Template</label>
+  <label class="form-label">{label}</label>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="token-track" ondragover={onTrackDragOver} ondrop={onTrackDrop}>
     {#each templateTokens as token, i (i)}
