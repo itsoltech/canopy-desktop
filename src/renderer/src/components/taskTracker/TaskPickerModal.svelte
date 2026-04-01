@@ -7,6 +7,8 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import BranchCreateForm from './BranchCreateForm.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
   interface Task {
     key: string
@@ -284,18 +286,22 @@
 
       {#if boards.length > 1}
         <div class="board-row">
-          <select class="board-select" bind:value={selectedBoardId} onchange={onBoardChange}>
-            {#each boards as board (board.id)}
-              <option value={board.id}>{board.name}</option>
-            {/each}
-          </select>
+          <CustomSelect
+            value={selectedBoardId}
+            options={boards.map((b) => ({ value: b.id, label: b.name }))}
+            onchange={(v) => {
+              selectedBoardId = v
+              onBoardChange()
+            }}
+            maxWidth="none"
+          />
         </div>
       {/if}
 
       {#if showFilters}
         <div class="filters-panel">
           <label class="filter-check">
-            <input type="checkbox" checked={assignedToMe} onchange={toggleAssignedToMe} />
+            <CustomCheckbox checked={assignedToMe} onchange={toggleAssignedToMe} />
             <span>Only assigned to me</span>
           </label>
           {#if availableStatuses.length > 0}
@@ -459,23 +465,6 @@
   .board-row {
     padding: 6px 16px;
     border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .board-select {
-    width: 100%;
-    padding: 4px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
-    cursor: pointer;
-  }
-
-  .board-select:focus {
-    border-color: var(--c-focus-ring);
   }
 
   .filters-panel {

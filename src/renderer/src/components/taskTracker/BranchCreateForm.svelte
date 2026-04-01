@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { X, ExternalLink, ArrowLeft } from '@lucide/svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
   import { getPref } from '../../lib/stores/preferences.svelte'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
@@ -150,11 +151,15 @@
     {#if templateHasBranchType}
       <div class="field-row">
         <span class="field-label">Type</span>
-        <select class="field-select" bind:value={selectedBranchType} onchange={onBranchTypeChange}>
-          {#each branchTypeOptions as opt (opt)}
-            <option value={opt}>{opt}</option>
-          {/each}
-        </select>
+        <CustomSelect
+          value={selectedBranchType}
+          options={branchTypeOptions.map((o) => ({ value: o, label: o }))}
+          onchange={(v) => {
+            selectedBranchType = v
+            onBranchTypeChange()
+          }}
+          maxWidth="none"
+        />
       </div>
     {/if}
     <div class="field-row">
@@ -292,23 +297,6 @@
     color: var(--c-text-muted);
     width: 50px;
     flex-shrink: 0;
-  }
-
-  .field-select {
-    flex: 1;
-    padding: 5px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
-    cursor: pointer;
-  }
-
-  .field-select:focus {
-    border-color: var(--c-focus-ring);
   }
 
   .branch-preview {

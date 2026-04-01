@@ -1,5 +1,6 @@
 <script lang="ts">
   import { prefs, setPref, getPref } from '../../lib/stores/preferences.svelte'
+  import CustomRadio from '../shared/CustomRadio.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
 
   let pullRebase = $derived(prefs.gitPullRebase !== 'false')
@@ -90,22 +91,12 @@
     <span class="field-label">Pull Strategy</span>
     <div class="radio-group">
       <label class="radio-row">
-        <input
-          type="radio"
-          name="pull-strategy"
-          checked={pullRebase}
-          onchange={() => setPullStrategy(true)}
-        />
+        <CustomRadio checked={pullRebase} onchange={() => setPullStrategy(true)} />
         <span>Rebase</span>
         <span class="radio-desc">git pull --rebase</span>
       </label>
       <label class="radio-row">
-        <input
-          type="radio"
-          name="pull-strategy"
-          checked={!pullRebase}
-          onchange={() => setPullStrategy(false)}
-        />
+        <CustomRadio checked={!pullRebase} onchange={() => setPullStrategy(false)} />
         <span>Merge</span>
         <span class="radio-desc">git pull</span>
       </label>
@@ -229,11 +220,6 @@
     gap: 8px;
     font-size: 13px;
     color: var(--c-text);
-    cursor: pointer;
-  }
-
-  .radio-row input[type='radio'] {
-    accent-color: var(--c-accent);
   }
 
   .radio-desc {

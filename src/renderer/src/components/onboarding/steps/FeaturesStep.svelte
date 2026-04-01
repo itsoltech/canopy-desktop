@@ -1,5 +1,6 @@
 <script lang="ts">
   import { prefs, setPref } from '../../../lib/stores/preferences.svelte'
+  import CustomCheckbox from '../../shared/CustomCheckbox.svelte'
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
@@ -24,8 +25,7 @@
 
   <div class="toggles">
     <label class="toggle-row">
-      <input
-        type="checkbox"
+      <CustomCheckbox
         checked={reopenLast}
         onchange={() => toggle('reopenLastWorkspace', reopenLast)}
       />
@@ -37,7 +37,7 @@
 
     {#if isMac}
       <label class="toggle-row">
-        <input type="checkbox" checked={notchEnabled} onchange={toggleNotch} />
+        <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
         <div class="toggle-info">
           <span class="toggle-label">Notch overlay</span>
           <span class="toggle-hint">Show AI session status in the MacBook notch area.</span>
@@ -46,11 +46,7 @@
     {/if}
 
     <label class="toggle-row">
-      <input
-        type="checkbox"
-        checked={wpmEnabled}
-        onchange={() => toggle('wpm.enabled', wpmEnabled)}
-      />
+      <CustomCheckbox checked={wpmEnabled} onchange={() => toggle('wpm.enabled', wpmEnabled)} />
       <div class="toggle-info">
         <span class="toggle-label">Typing speed (WPM)</span>
         <span class="toggle-hint">Display words-per-minute in terminals.</span>
@@ -96,18 +92,11 @@
     gap: 10px;
     padding: 10px 12px;
     border-radius: 8px;
-    cursor: pointer;
     transition: background 0.1s;
   }
 
   .toggle-row:hover {
     background: var(--c-border-subtle);
-  }
-
-  .toggle-row input[type='checkbox'] {
-    margin-top: 2px;
-    flex-shrink: 0;
-    accent-color: var(--c-accent);
   }
 
   .toggle-info {

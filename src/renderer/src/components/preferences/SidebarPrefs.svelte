@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { ChevronUp, ChevronDown } from '@lucide/svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import {
     SECTION_DEFS,
     getSidebarConfig,
@@ -54,8 +55,7 @@
       {@const def = SECTION_DEFS.find((d) => d.id === item.id)}
       <div class="section-row">
         <label class="checkbox-row">
-          <input
-            type="checkbox"
+          <CustomCheckbox
             checked={item.visible}
             disabled={def?.forced}
             onchange={() => toggleVisibility(i)}
@@ -136,14 +136,6 @@
     font-size: 13px;
     color: var(--c-text);
     cursor: pointer;
-  }
-
-  .checkbox-row input[type='checkbox'] {
-    accent-color: var(--c-accent);
-  }
-
-  .checkbox-row input[type='checkbox']:disabled {
-    opacity: 0.4;
   }
 
   .forced {

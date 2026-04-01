@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Plus, Trash2, Check, X, Pencil } from '@lucide/svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
   import { loadConnections, getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
   import { confirm as confirmDialog } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -134,10 +135,15 @@
     <div class="add-form">
       <div class="form-row">
         <label class="form-label">Provider</label>
-        <select class="form-select" bind:value={newProvider}>
-          <option value="jira">Jira</option>
-          <option value="youtrack">YouTrack</option>
-        </select>
+        <CustomSelect
+          value={newProvider}
+          options={[
+            { value: 'jira', label: 'Jira' },
+            { value: 'youtrack', label: 'YouTrack' },
+          ]}
+          onchange={(v) => (newProvider = v as 'jira' | 'youtrack')}
+          maxWidth="none"
+        />
       </div>
       <div class="form-row">
         <label class="form-label">Name</label>
@@ -256,8 +262,7 @@
     flex-shrink: 0;
   }
 
-  .form-input,
-  .form-select {
+  .form-input {
     flex: 1;
     padding: 5px 8px;
     border: 1px solid var(--c-border);
@@ -268,12 +273,8 @@
     font-family: inherit;
     outline: none;
   }
-  .form-input:focus,
-  .form-select:focus {
+  .form-input:focus {
     border-color: var(--c-focus-ring);
-  }
-  .form-select {
-    cursor: pointer;
   }
   .form-actions {
     display: flex;

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { RefreshCw, Download, Upload } from '@lucide/svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { loadConnections, getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -214,8 +215,7 @@
   <p class="section-desc">Configure which tasks to fetch from the tracker.</p>
 
   <label class="checkbox-row">
-    <input
-      type="checkbox"
+    <CustomCheckbox
       checked={assignedToMe}
       onchange={() => setPref('taskTracker.assignedToMe', assignedToMe ? 'false' : 'true')}
     />
@@ -236,8 +236,7 @@
   {#if availableStatuses.length > 0}
     {#each availableStatuses as status (status)}
       <label class="checkbox-row">
-        <input
-          type="checkbox"
+        <CustomCheckbox
           checked={filterStatuses.includes(status)}
           onchange={() => toggleStatus(status)}
         />

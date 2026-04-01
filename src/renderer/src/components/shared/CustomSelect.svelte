@@ -1,13 +1,24 @@
 <script lang="ts">
+  interface Option {
+    value: string
+    label: string
+  }
+
+  interface OptionGroup {
+    label: string
+    options: Option[]
+  }
+
   interface Props {
     value: string
-    options: { value: string; label: string }[]
+    options?: Option[]
+    groups?: OptionGroup[]
     onchange?: (value: string) => void
     id?: string
     maxWidth?: string
   }
 
-  let { value, options, onchange, id, maxWidth = '240px' }: Props = $props()
+  let { value, options, groups, onchange, id, maxWidth = '240px' }: Props = $props()
 
   let open = $state(false)
   let focusedIndex = $state(-1)
@@ -17,7 +28,33 @@
   let left = $state(0)
   let width = $state(0)
 
-  const selectedLabel = $derived(options.find((o) => o.value === value)?.label ?? '')
+  interface FlatItem {
+    type: 'option' | 'group'
+    value?: string
+    label: string
+  }
+
+  const flatItems = $derived.by((): FlatItem[] => {
+    if (groups && groups.length > 0) {
+      const items: FlatItem[] = []
+      for (const g of groups) {
+        items.push({ type: 'group', label: g.label })
+        for (const o of g.options) {
+          items.push({ type: 'option', value: o.value, label: o.label })
+        }
+      }
+      return items
+    }
+    return (options ?? []).map((o) => ({ type: 'option' as const, value: o.value, label: o.label }))
+  })
+
+  const selectableIndices = $derived(
+    flatItems.map((item, i) => (item.type === 'option' ? i : -1)).filter((i) => i >= 0),
+  )
+
+  const selectedLabel = $derived(
+    flatItems.find((i) => i.type === 'option' && i.value === value)?.label ?? '',
+  )
 
   function portal(node: HTMLElement): { destroy(): void } {
     document.body.appendChild(node)
@@ -30,8 +67,8 @@
     top = rect.bottom + 4
     left = rect.left
     width = rect.width
-    focusedIndex = options.findIndex((o) => o.value === value)
-    if (focusedIndex < 0) focusedIndex = 0
+    focusedIndex = flatItems.findIndex((i) => i.type === 'option' && i.value === value)
+    if (focusedIndex < 0 && selectableIndices.length > 0) focusedIndex = selectableIndices[0]
     open = true
   }
 
@@ -45,6 +82,14 @@
     close()
   }
 
+  function nextSelectable(current: number, direction: 1 | -1): number {
+    const pos = selectableIndices.indexOf(current)
+    if (pos < 0) return selectableIndices[direction === 1 ? 0 : selectableIndices.length - 1]
+    const next = pos + direction
+    if (next < 0 || next >= selectableIndices.length) return current
+    return selectableIndices[next]
+  }
+
   function handleTriggerKeydown(e: KeyboardEvent): void {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
@@ -56,24 +101,26 @@
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
-        focusedIndex = (focusedIndex + 1) % options.length
+        focusedIndex = nextSelectable(focusedIndex, 1)
         break
       case 'ArrowUp':
         e.preventDefault()
-        focusedIndex = (focusedIndex - 1 + options.length) % options.length
+        focusedIndex = nextSelectable(focusedIndex, -1)
         break
       case 'Home':
         e.preventDefault()
-        focusedIndex = 0
+        focusedIndex = selectableIndices[0]
         break
       case 'End':
         e.preventDefault()
-        focusedIndex = options.length - 1
+        focusedIndex = selectableIndices[selectableIndices.length - 1]
         break
       case 'Enter':
       case ' ':
         e.preventDefault()
-        if (focusedIndex >= 0) select(options[focusedIndex].value)
+        if (focusedIndex >= 0 && flatItems[focusedIndex]?.type === 'option') {
+          select(flatItems[focusedIndex].value!)
+        }
         break
       case 'Escape':
         e.preventDefault()
@@ -130,19 +177,23 @@
       onclick={(e) => e.stopPropagation()}
       onkeydown={handleListKeydown}
     >
-      {#each options as opt, i (opt.value)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          class="option"
-          class:focused={i === focusedIndex}
-          class:selected={opt.value === value}
-          role="option"
-          aria-selected={opt.value === value}
-          onclick={() => select(opt.value)}
-          onpointerenter={() => (focusedIndex = i)}
-        >
-          {opt.label}
-        </div>
+      {#each flatItems as item, i (item.type === 'group' ? `g-${i}-${item.label}` : item.value)}
+        {#if item.type === 'group'}
+          <div class="group-label">{item.label}</div>
+        {:else}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="option"
+            class:focused={i === focusedIndex}
+            class:selected={item.value === value}
+            role="option"
+            aria-selected={item.value === value}
+            onclick={() => select(item.value!)}
+            onpointerenter={() => (focusedIndex = i)}
+          >
+            {item.label}
+          </div>
+        {/if}
       {/each}
     </div>
   </div>
@@ -200,6 +251,15 @@
     overflow-y: auto;
     outline: none;
     z-index: 10001;
+  }
+
+  .group-label {
+    padding: 6px 10px 2px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-text-muted);
+    white-space: nowrap;
+    user-select: none;
   }
 
   .option {

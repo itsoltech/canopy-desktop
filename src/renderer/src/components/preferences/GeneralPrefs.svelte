@@ -1,5 +1,6 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
   import { initOnboarding } from '../../lib/stores/onboarding.svelte'
 
@@ -33,17 +34,17 @@
   <h3 class="section-title">General</h3>
 
   <label class="checkbox-row">
-    <input type="checkbox" checked={reopenLast} onchange={toggleReopen} />
+    <CustomCheckbox checked={reopenLast} onchange={toggleReopen} />
     <span>Reopen last workspace on startup</span>
   </label>
 
   <label class="checkbox-row">
-    <input type="checkbox" checked={notchEnabled} onchange={toggleNotch} />
+    <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
     <span>Show session status in notch overlay</span>
   </label>
 
   <label class="checkbox-row">
-    <input type="checkbox" checked={wpmEnabled} onchange={toggleWpm} />
+    <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
     <span>Show typing speed (WPM) in terminals</span>
   </label>
   {#if wpmEnabled}
@@ -84,10 +85,6 @@
     font-size: 13px;
     color: var(--c-text);
     cursor: pointer;
-  }
-
-  .checkbox-row input[type='checkbox'] {
-    accent-color: var(--c-accent);
   }
 
   .info-row {
