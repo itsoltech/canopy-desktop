@@ -177,7 +177,7 @@
       onclick={(e) => e.stopPropagation()}
       onkeydown={handleListKeydown}
     >
-      {#each flatItems as item, i (item.type === 'group' ? `g-${item.label}` : item.value)}
+      {#each flatItems as item, i (item.type === 'group' ? `g-${i}-${item.label}` : item.value)}
         {#if item.type === 'group'}
           <div class="group-label">{item.label}</div>
         {:else}

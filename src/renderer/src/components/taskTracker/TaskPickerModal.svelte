@@ -300,10 +300,10 @@
 
       {#if showFilters}
         <div class="filters-panel">
-          <div class="filter-check">
+          <label class="filter-check" onclick={toggleAssignedToMe}>
             <CustomCheckbox checked={assignedToMe} onchange={toggleAssignedToMe} />
             <span>Only assigned to me</span>
-          </div>
+          </label>
           {#if availableStatuses.length > 0}
             <div class="status-filters">
               {#each availableStatuses as status (status)}

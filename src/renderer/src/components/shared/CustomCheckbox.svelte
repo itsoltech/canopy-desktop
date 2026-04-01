@@ -70,7 +70,7 @@
   .checkbox.checked {
     background: var(--c-accent);
     border-color: var(--c-accent);
-    color: #1e1e1e;
+    color: var(--c-bg);
   }
 
   .checkbox.checked:hover:not(.disabled) {

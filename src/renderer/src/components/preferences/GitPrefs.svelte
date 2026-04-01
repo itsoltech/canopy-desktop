@@ -90,16 +90,16 @@
   <div class="field">
     <span class="field-label">Pull Strategy</span>
     <div class="radio-group">
-      <div class="radio-row">
+      <label class="radio-row" onclick={() => setPullStrategy(true)}>
         <CustomRadio checked={pullRebase} onchange={() => setPullStrategy(true)} />
         <span>Rebase</span>
         <span class="radio-desc">git pull --rebase</span>
-      </div>
-      <div class="radio-row">
+      </label>
+      <label class="radio-row" onclick={() => setPullStrategy(false)}>
         <CustomRadio checked={!pullRebase} onchange={() => setPullStrategy(false)} />
         <span>Merge</span>
         <span class="radio-desc">git pull</span>
-      </div>
+      </label>
     </div>
   </div>
 

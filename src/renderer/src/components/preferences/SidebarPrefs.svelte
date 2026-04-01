@@ -54,7 +54,7 @@
     {#each config as item, i (item.id)}
       {@const def = SECTION_DEFS.find((d) => d.id === item.id)}
       <div class="section-row">
-        <div class="checkbox-row">
+        <label class="checkbox-row" onclick={() => toggleVisibility(i)}>
           <CustomCheckbox
             checked={item.visible}
             disabled={def?.forced}
@@ -64,7 +64,7 @@
           {#if def?.forced}
             <span class="hint">Always visible</span>
           {/if}
-        </div>
+        </label>
         <div class="order-buttons">
           <button
             class="order-btn"
@@ -135,6 +135,7 @@
     gap: 8px;
     font-size: 13px;
     color: var(--c-text);
+    cursor: pointer;
   }
 
   .forced {

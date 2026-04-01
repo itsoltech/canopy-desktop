@@ -165,10 +165,10 @@
         <span class="form-label">Scale</span>
         <input class="form-input scale" type="number" bind:value={newScale} min="0.5" step="0.5" />
       </div>
-      <div class="checkbox-row">
+      <label class="checkbox-row" onclick={() => (newMobile = !newMobile)}>
         <CustomCheckbox checked={newMobile} onchange={(v) => (newMobile = v)} />
         <span>Mobile device</span>
-      </div>
+      </label>
       {#if error}
         <p class="form-error">{error}</p>
       {/if}
@@ -474,6 +474,7 @@
     gap: 8px;
     font-size: 13px;
     color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
   }
 
   .form-error {

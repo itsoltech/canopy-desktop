@@ -24,7 +24,7 @@
   <p class="description">Toggle the features you want. All of these can be changed later.</p>
 
   <div class="toggles">
-    <div class="toggle-row">
+    <label class="toggle-row" onclick={() => toggle('reopenLastWorkspace', reopenLast)}>
       <CustomCheckbox
         checked={reopenLast}
         onchange={() => toggle('reopenLastWorkspace', reopenLast)}
@@ -33,25 +33,25 @@
         <span class="toggle-label">Reopen last workspace on startup</span>
         <span class="toggle-hint">Resume where you left off when launching Canopy.</span>
       </div>
-    </div>
+    </label>
 
     {#if isMac}
-      <div class="toggle-row">
+      <label class="toggle-row" onclick={toggleNotch}>
         <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
         <div class="toggle-info">
           <span class="toggle-label">Notch overlay</span>
           <span class="toggle-hint">Show AI session status in the MacBook notch area.</span>
         </div>
-      </div>
+      </label>
     {/if}
 
-    <div class="toggle-row">
+    <label class="toggle-row" onclick={() => toggle('wpm.enabled', wpmEnabled)}>
       <CustomCheckbox checked={wpmEnabled} onchange={() => toggle('wpm.enabled', wpmEnabled)} />
       <div class="toggle-info">
         <span class="toggle-label">Typing speed (WPM)</span>
         <span class="toggle-hint">Display words-per-minute in terminals.</span>
       </div>
-    </div>
+    </label>
   </div>
 </div>
 

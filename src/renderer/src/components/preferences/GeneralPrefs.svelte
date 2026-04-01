@@ -33,20 +33,20 @@
 <div class="section">
   <h3 class="section-title">General</h3>
 
-  <div class="checkbox-row">
+  <label class="checkbox-row" onclick={toggleReopen}>
     <CustomCheckbox checked={reopenLast} onchange={toggleReopen} />
     <span>Reopen last workspace on startup</span>
-  </div>
+  </label>
 
-  <div class="checkbox-row">
+  <label class="checkbox-row" onclick={toggleNotch}>
     <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
     <span>Show session status in notch overlay</span>
-  </div>
+  </label>
 
-  <div class="checkbox-row">
+  <label class="checkbox-row" onclick={toggleWpm}>
     <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
     <span>Show typing speed (WPM) in terminals</span>
-  </div>
+  </label>
   {#if wpmEnabled}
     <div class="hint-row">
       Tracks printable keystrokes in a 10-second sliding window. Control keys, arrows, and escape
@@ -84,6 +84,7 @@
     gap: 8px;
     font-size: 13px;
     color: var(--c-text);
+    cursor: pointer;
   }
 
   .info-row {

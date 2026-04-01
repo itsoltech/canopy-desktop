@@ -124,10 +124,10 @@
     {/if}
 
     {#if checkbox}
-      <div class="dialog-checkbox">
+      <label class="dialog-checkbox" onclick={() => (checked = !checked)}>
         <CustomCheckbox {checked} onchange={(v) => (checked = v)} />
         <span>{checkbox.label}</span>
-      </div>
+      </label>
     {/if}
 
     {#if multiline}
@@ -221,6 +221,7 @@
     margin: 10px 0 0;
     font-size: 12px;
     color: var(--c-text-secondary);
+    cursor: pointer;
     user-select: none;
   }
 

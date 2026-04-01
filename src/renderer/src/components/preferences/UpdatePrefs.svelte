@@ -61,10 +61,10 @@
 <div class="section">
   <h3 class="section-title">Updates</h3>
 
-  <div class="checkbox-row">
+  <label class="checkbox-row" onclick={toggleAutoUpdate}>
     <CustomCheckbox checked={autoUpdate} onchange={toggleAutoUpdate} />
     <span>Automatically download and install updates</span>
-  </div>
+  </label>
 
   <div class="select-row">
     <span class="select-label">Update channel</span>
@@ -111,6 +111,7 @@
     gap: 8px;
     font-size: 13px;
     color: var(--c-text);
+    cursor: pointer;
   }
 
   .select-row {

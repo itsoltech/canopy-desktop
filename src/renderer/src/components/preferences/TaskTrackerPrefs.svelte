@@ -214,13 +214,16 @@
   <h3 class="section-title">Task Filters</h3>
   <p class="section-desc">Configure which tasks to fetch from the tracker.</p>
 
-  <div class="checkbox-row">
+  <label
+    class="checkbox-row"
+    onclick={() => setPref('taskTracker.assignedToMe', assignedToMe ? 'false' : 'true')}
+  >
     <CustomCheckbox
       checked={assignedToMe}
       onchange={() => setPref('taskTracker.assignedToMe', assignedToMe ? 'false' : 'true')}
     />
     <span>Only show tasks assigned to me</span>
-  </div>
+  </label>
 
   <h4 class="subsection-title" style="margin-top: 12px;">
     Status Filter
@@ -235,13 +238,13 @@
   </h4>
   {#if availableStatuses.length > 0}
     {#each availableStatuses as status (status)}
-      <div class="checkbox-row">
+      <label class="checkbox-row" onclick={() => toggleStatus(status)}>
         <CustomCheckbox
           checked={filterStatuses.includes(status)}
           onchange={() => toggleStatus(status)}
         />
         <span>{status}</span>
-      </div>
+      </label>
     {/each}
   {:else}
     <p class="hint-text">Click refresh to load statuses from your tracker.</p>
