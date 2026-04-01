@@ -518,7 +518,7 @@ const api = {
     ipcRenderer.invoke('taskTracker:getCurrentUser', { connectionId }) as Promise<string>,
   taskTrackerResolveBranchName: (
     connectionId: string,
-    task: Record<string, unknown>,
+    task: { key: string; type: string; [k: string]: unknown },
     boardId?: string,
     branchType?: string,
   ) =>
@@ -554,7 +554,7 @@ const api = {
     }) as Promise<{ title: string; targetBranch: string }>,
   taskTrackerCreatePR: (
     repoRoot: string,
-    task: Record<string, unknown>,
+    task: { key: string; [k: string]: unknown },
     sourceBranch: string,
     connectionId?: string,
     boardId?: string,
