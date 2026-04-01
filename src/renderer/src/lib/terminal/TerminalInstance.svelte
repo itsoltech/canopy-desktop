@@ -22,11 +22,13 @@
     sessionId,
     wsUrl,
     active = true,
+    isAiTool = false,
     onTitleChange,
   }: {
     sessionId: string
     wsUrl: string
     active?: boolean
+    isAiTool?: boolean
     onTitleChange?: (title: string) => void
   } = $props()
 
@@ -328,6 +330,10 @@
             if (wsRef && wsRef.readyState === WebSocket.OPEN) {
               wsRef.send('\x15')
             }
+            return false
+          }
+          // Block Ctrl+Z in AI tool terminals to prevent unrecoverable SIGTSTP
+          if (isAiTool && event.ctrlKey && event.key === 'z') {
             return false
           }
         }
