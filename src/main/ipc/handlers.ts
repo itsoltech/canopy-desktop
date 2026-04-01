@@ -41,6 +41,13 @@ export function registerIpcHandlers(
   credentialStore: CredentialStore,
   onboardingStore: OnboardingStore,
 ): void {
+  function broadcastToolsChanged(): void {
+    const tools = toolRegistry.getAll()
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('tools:changed', tools)
+    }
+  }
+
   // --- PTY ---
 
   ipcMain.handle(
@@ -554,14 +561,37 @@ export function registerIpcHandlers(
       },
     ) => {
       toolRegistry.addCustom(payload)
+      broadcastToolsChanged()
       return toolRegistry.getAll()
     },
   )
 
   ipcMain.handle('tools:removeCustom', (_event, payload: { id: string }) => {
     toolRegistry.removeCustom(payload.id)
+    broadcastToolsChanged()
     return toolRegistry.getAll()
   })
+
+  ipcMain.handle(
+    'tools:updateCustom',
+    (
+      _event,
+      payload: {
+        id: string
+        changes: {
+          name?: string
+          command?: string
+          args?: string[]
+          icon?: string
+          category?: string
+        }
+      },
+    ) => {
+      toolRegistry.updateCustom(payload.id, payload.changes)
+      broadcastToolsChanged()
+      return toolRegistry.getAll()
+    },
+  )
 
   // --- Browser (<webview> management) ---
 

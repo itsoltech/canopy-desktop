@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import SplitPaneContainer from '../terminal/SplitPaneContainer.svelte'
   import TabBar from '../terminal/TabBar.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
@@ -63,6 +64,14 @@
     clearWorktreeBadge,
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
+  import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
+
+  onMount(() => {
+    initToolStore()
+    return () => {
+      destroyToolStore()
+    }
+  })
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
