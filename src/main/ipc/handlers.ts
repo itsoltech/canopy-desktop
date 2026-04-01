@@ -754,6 +754,10 @@ export function registerIpcHandlers(
         token: string
       },
     ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
       const { token, ...connectionData } = payload
       return taskTrackerManager.addConnection(connectionData, token)
     },
@@ -784,6 +788,10 @@ export function registerIpcHandlers(
         token: string
       },
     ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
       const { token, ...connectionData } = payload
       return taskTrackerManager.testNewConnection(connectionData, token)
     },
@@ -806,6 +814,10 @@ export function registerIpcHandlers(
         token: string
       },
     ) => {
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
+      }
       const { token, ...connectionData } = payload
       return taskTrackerManager.fetchBoardsForNew(
         { ...connectionData, projectKey: connectionData.projectKey ?? '' },

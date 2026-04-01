@@ -110,7 +110,7 @@
     <div class="conn-row">
       <span class="conn-provider">{conn.provider === 'jira' ? 'Jira' : 'YouTrack'}</span>
       <span class="conn-name">{conn.name}</span>
-      <span class="conn-url">{conn.baseUrl}</span>
+      <span class="conn-url" title={conn.baseUrl}>{conn.baseUrl}</span>
       <button class="icon-btn" onclick={() => editConnection(conn)} title="Edit">
         <Pencil size={14} />
       </button>
