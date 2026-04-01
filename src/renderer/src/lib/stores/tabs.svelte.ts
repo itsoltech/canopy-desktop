@@ -139,11 +139,11 @@ export async function openTool(
   let toolName: string
 
   if (toolId === 'browser') {
-    const result = await window.api.createBrowser()
+    const browserId = crypto.randomUUID()
     toolName = 'Browser'
     pane = {
       id: paneId,
-      sessionId: result.browserId,
+      sessionId: browserId,
       wsUrl: '',
       toolId,
       toolName,
@@ -151,9 +151,7 @@ export async function openTool(
       exitCode: null,
       title: null,
       paneType: 'browser',
-    }
-    if (initialUrl) {
-      window.api.navigateBrowser(result.browserId, initialUrl)
+      url: initialUrl,
     }
   } else {
     const options: { workspaceName?: string; branch?: string } = {}
@@ -248,7 +246,7 @@ export async function closeTab(tabId: string): Promise<void> {
         .filter((p) => p.paneType !== 'editor')
         .map((p) =>
           p.paneType === 'browser'
-            ? window.api.destroyBrowser(p.sessionId)
+            ? window.api.teardownBrowserWebview(p.sessionId)
             : window.api.killPty(p.sessionId),
         ),
     )
@@ -440,17 +438,15 @@ export async function restartPane(
   if (pane.paneType === 'browser') {
     const oldUrl = pane.url
     try {
-      await window.api.destroyBrowser(pane.sessionId)
+      await window.api.teardownBrowserWebview(pane.sessionId)
     } catch {
       // Already destroyed
     }
-    const result = await window.api.createBrowser()
-    if (oldUrl) {
-      window.api.navigateBrowser(result.browserId, oldUrl)
-    }
+    const newBrowserId = crypto.randomUUID()
     tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
       ...p,
-      sessionId: result.browserId,
+      sessionId: newBrowserId,
+      url: oldUrl,
       isRunning: true,
       exitCode: null,
       title: null,
@@ -524,7 +520,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
       .filter((p) => p.paneType !== 'editor')
       .map((p) =>
         p.paneType === 'browser'
-          ? window.api.destroyBrowser(p.sessionId)
+          ? window.api.teardownBrowserWebview(p.sessionId)
           : window.api.killPty(p.sessionId),
       ),
   )
@@ -546,7 +542,7 @@ export async function killAllTabs(): Promise<void> {
       .filter((p) => p.paneType !== 'editor')
       .map((p) =>
         p.paneType === 'browser'
-          ? window.api.destroyBrowser(p.sessionId)
+          ? window.api.teardownBrowserWebview(p.sessionId)
           : window.api.killPty(p.sessionId),
       ),
   )
@@ -773,7 +769,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     // No-op
   } else if (result.removed.paneType === 'browser') {
     delete browserSessions[result.removed.sessionId]
-    await window.api.destroyBrowser(result.removed.sessionId)
+    await window.api.teardownBrowserWebview(result.removed.sessionId)
   } else {
     await window.api.killPty(result.removed.sessionId)
   }
@@ -1009,10 +1005,10 @@ async function restoreSplitNode(
         filePath: node.filePath,
       }
     } else if (node.toolId === 'browser') {
-      const result = await window.api.createBrowser()
+      const browserId = crypto.randomUUID()
       pane = {
         id: paneId,
-        sessionId: result.browserId,
+        sessionId: browserId,
         wsUrl: '',
         toolId: node.toolId,
         toolName: node.toolName,
@@ -1021,9 +1017,6 @@ async function restoreSplitNode(
         title: null,
         paneType: 'browser',
         url: node.browserUrl,
-      }
-      if (node.browserUrl) {
-        window.api.navigateBrowser(result.browserId, node.browserUrl)
       }
     } else {
       const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}

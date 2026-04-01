@@ -63,6 +63,15 @@ interface ChangelogState {
   fromVersion: string
 }
 
+interface OnboardingWizardState {
+  type: 'onboardingWizard'
+}
+
+interface FeatureOnboardingState {
+  type: 'featureOnboarding'
+  fromVersion: string
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -76,6 +85,8 @@ type DialogState =
   | TaskPickerState
   | AboutState
   | ChangelogState
+  | OnboardingWizardState
+  | FeatureOnboardingState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -144,6 +155,14 @@ export function showAbout(): void {
 
 export function showChangelog(fromVersion: string): void {
   dialogState.current = { type: 'changelog', fromVersion }
+}
+
+export function showOnboardingWizard(): void {
+  dialogState.current = { type: 'onboardingWizard' }
+}
+
+export function showFeatureOnboarding(fromVersion: string): void {
+  dialogState.current = { type: 'featureOnboarding', fromVersion }
 }
 
 export function closeDialog(): void {

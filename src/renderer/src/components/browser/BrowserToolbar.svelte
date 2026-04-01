@@ -5,10 +5,12 @@
     RotateCw,
     Code,
     PanelBottom,
-    PanelRight,
+    PanelLeft,
     Crosshair,
     Camera,
     X,
+    Smartphone,
+    Star,
   } from 'lucide-svelte'
 
   let {
@@ -20,6 +22,8 @@
     devToolsMode,
     pickMode = 'none',
     hasAiSessions = false,
+    activeDevice = null,
+    viewports = {},
     onNavigate,
     onBack,
     onForward,
@@ -29,15 +33,23 @@
     onStartElementPick,
     onStartRegionCapture,
     onCancelPick,
+    onSetDevice,
+    isFavorited = false,
+    onToggleFavorite,
   }: {
     url: string
     canGoBack: boolean
     canGoForward: boolean
     isLoading: boolean
     isDevToolsOpen: boolean
-    devToolsMode: 'bottom' | 'right'
+    devToolsMode: 'bottom' | 'left'
     pickMode?: 'none' | 'element' | 'region'
     hasAiSessions?: boolean
+    activeDevice?: string | null
+    viewports?: Record<
+      string,
+      { width: number; height: number; scaleFactor: number; mobile: boolean }
+    >
     onNavigate: (url: string) => void
     onBack: () => void
     onForward: () => void
@@ -47,18 +59,20 @@
     onStartElementPick: () => void
     onStartRegionCapture: () => void
     onCancelPick: () => void
+    onSetDevice: (name: string | null) => void
+    isFavorited?: boolean
+    onToggleFavorite: () => void
   } = $props()
 
   let captureDropdownOpen = $state(false)
+  let deviceDropdownOpen = $state(false)
 
   function openDropdown(): void {
     captureDropdownOpen = true
-    window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
   }
 
   function closeDropdown(): void {
     captureDropdownOpen = false
-    window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
   }
 
   let inputValue = $state('')
@@ -133,6 +147,18 @@
     spellcheck="false"
   />
 
+  {#if url && url !== 'about:blank'}
+    <button
+      class="nav-btn star-btn"
+      class:favorited={isFavorited}
+      onclick={onToggleFavorite}
+      title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+      aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+    >
+      <Star size={14} fill={isFavorited ? 'currentColor' : 'none'} />
+    </button>
+  {/if}
+
   <div class="action-buttons">
     <div class="capture-wrapper">
       {#if pickMode !== 'none'}
@@ -188,15 +214,61 @@
       {/if}
     </div>
 
+    <div class="capture-wrapper">
+      <button
+        class="nav-btn"
+        class:active={activeDevice !== null || deviceDropdownOpen}
+        onclick={() => (deviceDropdownOpen = !deviceDropdownOpen)}
+        title="Responsive mode"
+        aria-label="Responsive mode"
+      >
+        <Smartphone size={14} />
+      </button>
+      {#if deviceDropdownOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="capture-backdrop" onclick={() => (deviceDropdownOpen = false)}></div>
+        <div class="capture-dropdown">
+          {#if activeDevice}
+            <button
+              class="capture-option active-device"
+              onclick={() => {
+                deviceDropdownOpen = false
+                onSetDevice(null)
+              }}
+            >
+              <X size={13} />
+              Reset to Desktop
+            </button>
+            <div class="dropdown-divider"></div>
+          {/if}
+          {#each Object.entries(viewports) as [name, preset] (name)}
+            <button
+              class="capture-option"
+              class:selected={activeDevice === name}
+              onclick={() => {
+                deviceDropdownOpen = false
+                onSetDevice(name)
+              }}
+            >
+              <Smartphone size={13} />
+              {name}
+              <span class="device-size">{preset.width}&times;{preset.height}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
     {#if isDevToolsOpen}
       <button
         class="nav-btn"
         onclick={onSwitchDevToolsMode}
-        title="Switch DevTools position ({devToolsMode === 'bottom' ? 'right' : 'bottom'})"
-        aria-label="Switch DevTools position to {devToolsMode === 'bottom' ? 'right' : 'bottom'}"
+        title="Switch DevTools position ({devToolsMode === 'bottom' ? 'left' : 'bottom'})"
+        aria-label="Switch DevTools position to {devToolsMode === 'bottom' ? 'left' : 'bottom'}"
       >
         {#if devToolsMode === 'bottom'}
-          <PanelRight size={14} />
+          <PanelLeft size={14} />
         {:else}
           <PanelBottom size={14} />
         {/if}
@@ -282,6 +354,10 @@
     }
   }
 
+  .star-btn.favorited {
+    color: rgb(250, 200, 60);
+  }
+
   .capture-wrapper {
     position: relative;
     display: flex;
@@ -341,6 +417,26 @@
 
   .capture-option:hover {
     background: var(--c-active);
+  }
+
+  .capture-option.selected {
+    color: rgb(116, 192, 252);
+  }
+
+  .capture-option.active-device {
+    color: rgba(255, 130, 130, 0.9);
+  }
+
+  .device-size {
+    margin-left: auto;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    margin: 2px 6px;
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .url-bar {
