@@ -1,0 +1,46 @@
+name: Bug Auto-Assign
+
+on:
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  assign:
+    if: contains(github.event.issue.labels.*.name, 'bug')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Read assign prompt
+        id: prompt
+        run: echo "content<<EOF" >> $GITHUB_OUTPUT && cat .github/prompts/bug-assign.md >> $GITHUB_OUTPUT && echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Auto-assign bug author
+        uses: anthropics/claude-code-action@v1
+        with:
+          allowed_bots: 'claude'
+          claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE_NUMBER: ${{ github.event.issue.number }}
+            TITLE: ${{ github.event.issue.title }}
+            BODY: ${{ github.event.issue.body }}
+
+            ${{ steps.prompt.outputs.content }}
+          claude_args: |
+            --model haiku
+            --allowedTools "Bash(gh issue edit:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(git blame:*),Read,Glob,Grep"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.ANTHROPIC_AUTH_TOKEN }}",
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}"
+              }
+            }

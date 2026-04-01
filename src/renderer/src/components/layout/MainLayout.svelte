@@ -9,6 +9,8 @@
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
+  import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
+  import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
@@ -18,6 +20,8 @@
     showPreferences,
     showAbout,
     showChangelog,
+    showOnboardingWizard,
+    showFeatureOnboarding,
   } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -195,6 +199,15 @@
     return unsubscribe
   })
 
+  // Notify browser panes when app-level overlays open/close so they can hide
+  // DevTools WebContentsView (native layer that paints above DOM modals)
+  $effect(() => {
+    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
+    window.dispatchEvent(
+      new CustomEvent('canopy:app-overlay', { detail: { open: anyOverlayOpen } }),
+    )
+  })
+
   // Restore last active worktree after all projects are attached
   $effect(() => {
     const unsubscribe = window.api.onRestoreActiveWorktree(async (path) => {
@@ -214,6 +227,22 @@
     return window.api.onMenuShowPreferences(() => showPreferences())
   })
 
+  // Subscribe to onboarding push event
+  $effect(() => {
+    return window.api.onShowOnboarding(async (data) => {
+      const { initOnboarding, onboardingState } = await import('../../lib/stores/onboarding.svelte')
+      await initOnboarding(data.mode, data.fromVersion)
+      if (onboardingState.mode === 'none' && data.fromVersion) {
+        // No onboarding steps to show, fall back to changelog
+        showChangelog(data.fromVersion)
+      } else if (onboardingState.mode === 'first-launch') {
+        showOnboardingWizard()
+      } else if (onboardingState.mode === 'upgrade') {
+        showFeatureOnboarding(data.fromVersion ?? '')
+      }
+    })
+  })
+
   // Subscribe to post-update changelog push event
   $effect(() => {
     return window.api.onShowChangelog((data) => {
@@ -226,14 +255,6 @@
     const handler = (): void => saveAllLayouts()
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  })
-
-  // Freeze/unfreeze browser views when modals/palette are open
-  $effect(() => {
-    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
-    window.dispatchEvent(
-      new CustomEvent(anyOverlayOpen ? 'canopy:freeze-browsers' : 'canopy:unfreeze-browsers'),
-    )
   })
 
   // Derive active tab and focused pane info
@@ -407,6 +428,10 @@
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}
   <ChangelogModal fromVersion={dialogState.current.fromVersion} />
+{:else if dialogState.current.type === 'onboardingWizard'}
+  <OnboardingWizard />
+{:else if dialogState.current.type === 'featureOnboarding'}
+  <FeatureOnboarding fromVersion={dialogState.current.fromVersion} />
 {/if}
 
 <Toast />
@@ -483,7 +508,7 @@
 
   .sidebar-resize-handle:hover,
   .sidebar-resize-handle.dragging {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-muted);
   }
 
   .center-area {
@@ -509,7 +534,7 @@
   .terminal-panel {
     position: absolute;
     inset: 0;
-    background: #1e1e1e;
+    background: var(--c-bg);
   }
 
   .terminal-panel.hidden {
@@ -521,7 +546,7 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .hint {
@@ -534,6 +559,6 @@
     font-size: 12px;
     font-weight: 400;
     margin: 6px 0 0;
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
   }
 </style>

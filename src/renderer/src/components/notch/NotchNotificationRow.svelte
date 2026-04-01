@@ -90,7 +90,7 @@
     border-radius: 10px;
     cursor: pointer;
     text-align: left;
-    color: rgba(255, 255, 255, 0.9);
+    color: rgba(255, 255, 255, 0.9); /* fixed: notch overlay always on black bg */
     transition:
       background 0.15s ease,
       transform 0.15s cubic-bezier(0.32, 0.72, 0, 1);

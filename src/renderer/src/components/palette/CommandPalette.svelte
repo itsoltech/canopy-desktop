@@ -659,7 +659,7 @@
     display: flex;
     justify-content: center;
     padding-top: 80px;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
   }
 
   .palette-container {
@@ -667,8 +667,8 @@
     max-height: 400px;
     display: flex;
     flex-direction: column;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     overflow: hidden;
@@ -677,7 +677,7 @@
 
   .palette-input-row {
     padding: 12px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--c-active);
     flex-shrink: 0;
   }
 
@@ -685,14 +685,14 @@
     width: 100%;
     border: none;
     background: transparent;
-    color: #e0e0e0;
+    color: var(--c-text);
     font-size: 14px;
     font-family: inherit;
     outline: none;
   }
 
   .palette-input::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .palette-results {
@@ -704,7 +704,7 @@
   .palette-empty {
     padding: 20px 14px;
     text-align: center;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     font-size: 13px;
   }
 
@@ -716,7 +716,7 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.8px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     padding: 6px 14px 4px;
     text-transform: uppercase;
   }
@@ -728,16 +728,16 @@
     padding: 6px 14px;
     cursor: pointer;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     transition: background 0.05s;
   }
 
   .palette-item.selected {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 
   .palette-item.disabled {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     cursor: default;
   }
 
@@ -750,16 +750,16 @@
 
   .item-desc {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     flex-shrink: 0;
   }
 
   .item-shortcut {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     padding: 1px 6px;
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
     flex-shrink: 0;
   }
 </style>

@@ -246,18 +246,18 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .context-value {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .context-track {
     height: 4px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
     overflow: hidden;
   }
 
@@ -268,25 +268,25 @@
   }
 
   .context-fill.ctx-green {
-    background: rgba(100, 200, 100, 0.6);
+    background: var(--c-success);
   }
 
   .context-fill.ctx-yellow {
-    background: rgba(255, 200, 50, 0.7);
+    background: var(--c-warning);
   }
 
   .context-fill.ctx-red {
-    background: rgba(255, 100, 100, 0.7);
+    background: var(--c-danger-text);
   }
 
   .inspector {
     width: 280px;
     min-width: 280px;
     height: 100%;
-    background: rgba(30, 30, 30, 0.75);
+    background: var(--c-bg-glass);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    border-left: 1px solid var(--c-border-subtle);
     overflow-y: auto;
     padding: 12px;
     display: flex;
@@ -299,7 +299,7 @@
     font-weight: 600;
     letter-spacing: 1px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     margin: 0;
   }
 
@@ -310,7 +310,7 @@
     gap: 8px;
     padding: 6px 10px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--c-border-subtle);
   }
 
   .status-dot {
@@ -318,25 +318,25 @@
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--c-text-faint);
   }
 
   .status-badge.idle .status-dot {
-    background: rgba(100, 200, 100, 0.6);
+    background: var(--c-success);
   }
 
   .status-badge.active .status-dot {
-    background: rgba(116, 192, 252, 0.8);
+    background: var(--c-accent-text);
     animation: pulse-dot 1.5s ease-in-out infinite;
   }
 
   .status-badge.permission .status-dot {
-    background: rgba(255, 160, 50, 0.9);
+    background: var(--c-warning-text);
     animation: pulse-dot 1s ease-in-out infinite;
   }
 
   .status-badge.error .status-dot {
-    background: rgba(255, 100, 100, 0.8);
+    background: var(--c-danger-text);
   }
 
   @keyframes pulse-dot {
@@ -357,7 +357,7 @@
 
   .status-text {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
   }
 
   /* Sections */
@@ -372,7 +372,7 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
     margin: 0;
   }
 
@@ -385,11 +385,11 @@
   }
 
   .info-key {
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
   }
 
   .info-val {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
   }
 
   /* Item lists */
@@ -416,15 +416,15 @@
   }
 
   .task-done {
-    color: rgba(100, 200, 100, 0.6);
+    color: var(--c-success);
   }
 
   .task-active {
-    color: rgba(116, 192, 252, 0.8);
+    color: var(--c-accent-text);
   }
 
   .task-pending {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .task-completed {
@@ -434,7 +434,7 @@
 
   .item-text {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--c-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -443,7 +443,7 @@
 
   .item-dim {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
     flex-shrink: 0;
   }
 
@@ -451,7 +451,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: rgba(116, 192, 252, 0.6);
+    background: var(--c-focus-ring);
     flex-shrink: 0;
   }
 
@@ -466,7 +466,7 @@
 
   .notif-msg {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -475,7 +475,7 @@
 
   .notif-time {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
     flex-shrink: 0;
   }
 </style>

@@ -138,13 +138,9 @@ export class AgentSessionManager extends EventEmitter {
 
     const hookPort = await hookServer.start()
 
-    // Resolve hook scripts
-    const hookScriptPath = this.getResourceScript(
-      process.platform === 'win32' ? 'canopy-agent-hook.cmd' : 'canopy-agent-hook.sh',
-    )
-    const statusLineScriptPath = this.getResourceScript(
-      process.platform === 'win32' ? 'canopy-agent-statusline.cmd' : 'canopy-agent-statusline.sh',
-    )
+    // Always use .sh scripts — Claude Code runs hooks via bash even on Windows
+    const hookScriptPath = this.getResourceScript('canopy-agent-hook.sh')
+    const statusLineScriptPath = this.getResourceScript('canopy-agent-statusline.sh')
 
     // Ensure scripts are executable
     if (process.platform !== 'win32') {

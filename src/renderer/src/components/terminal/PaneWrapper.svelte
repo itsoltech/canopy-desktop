@@ -8,6 +8,8 @@
   import EditorPane from '../editor/EditorPane.svelte'
   import AgentInspector from '../agents/AgentInspector.svelte'
   import ExitBanner from './ExitBanner.svelte'
+  import WpmIndicator from './WpmIndicator.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
 
   let {
     pane,
@@ -30,6 +32,7 @@
 
   let agentState = $derived(agentSessions[pane.sessionId] ?? null)
   let showInspector = $derived(pane.inspectorOpen !== false && agentState !== null)
+  let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
 
   // Whether this pane is a valid drop target
   let isValidTarget = $derived(
@@ -92,6 +95,8 @@
     <BrowserPane
       browserId={pane.sessionId}
       {active}
+      {focused}
+      initialUrl={pane.url}
       onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
       {onFocus}
     />
@@ -108,6 +113,9 @@
             onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
           />
         {/key}
+        {#if wpmEnabled}
+          <WpmIndicator sessionId={pane.sessionId} />
+        {/if}
         {#if !pane.isRunning}
           <ExitBanner
             exitCode={pane.exitCode}
@@ -135,7 +143,7 @@
   }
 
   .pane-wrapper.focused {
-    outline: 1px solid rgba(116, 192, 252, 0.4);
+    outline: 1px solid var(--c-focus-ring);
     outline-offset: -1px;
   }
 
@@ -156,8 +164,8 @@
 
   .drop-zone-overlay {
     position: absolute;
-    background: rgba(116, 192, 252, 0.15);
-    border: 2px solid rgba(116, 192, 252, 0.4);
+    background: var(--c-accent-bg);
+    border: 2px solid var(--c-focus-ring);
     border-radius: 4px;
     pointer-events: none;
     z-index: 10;

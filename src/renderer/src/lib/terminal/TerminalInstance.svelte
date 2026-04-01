@@ -13,6 +13,7 @@
   import { openTool } from '../stores/tabs.svelte'
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
+  import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -228,6 +229,7 @@
         if (wsRef && wsRef.readyState === WebSocket.OPEN) {
           wsRef.send(data)
         }
+        recordKeystroke(sessionId, data)
       })
     }
 
@@ -253,6 +255,9 @@
       const currentTheme = getTheme(prefs.theme || 'Default')
       const currentFontSize = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
       const currentFontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+
+      // Set container bg before xterm renders to avoid flash of wrong color
+      containerEl.style.backgroundColor = currentTheme.background ?? '#1e1e1e'
 
       const term = new Terminal({
         fontSize: currentFontSize,
@@ -368,6 +373,7 @@
     return () => {
       disposed = true
       clearConnectionStatus(sessionId)
+      cleanupSession(sessionId)
       if (writeRafId !== null) cancelAnimationFrame(writeRafId)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (dataDisposable) dataDisposable.dispose()
@@ -416,7 +422,7 @@
     height: 100%;
     padding: 8px;
     box-sizing: border-box;
-    background-color: var(--terminal-bg, #1e1e1e);
+    background-color: var(--c-bg, #1e1e1e);
     position: relative;
   }
 

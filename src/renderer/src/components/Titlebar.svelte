@@ -46,10 +46,10 @@
     justify-content: center;
     flex-shrink: 0;
     position: relative;
-    background: rgba(30, 30, 30, 0.75);
+    background: var(--c-bg-glass);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--c-border-subtle);
   }
 
   .titlebar.mac {
@@ -70,12 +70,12 @@
   .title {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     letter-spacing: 0.5px;
   }
 
   .branch {
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
     margin-left: 6px;
   }
 
@@ -84,7 +84,7 @@
   }
 
   .dirty {
-    color: rgba(255, 200, 50, 0.7);
+    color: var(--c-warning-text);
     margin-left: 2px;
   }
 </style>

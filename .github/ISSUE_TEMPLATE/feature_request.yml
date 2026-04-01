@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a new feature for Canopy
+title: 'feat: '
+labels: ['enhancement']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What workflow problem does this solve? Who runs into it and when?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How should this work from the user's perspective?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Who benefits?
+      description: How broad is the audience for this feature?
+      options:
+        - All users (core workflow)
+        - Most users (common scenario)
+        - Some users (specific workflow)
+        - Niche (power users only)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: opt_in
+    attributes:
+      label: Default behavior
+      description: Should this be enabled by default or opt-in?
+      options:
+        - 'Opt-in (off by default, user enables in settings)'
+        - 'Default on (core functionality, all users need it)'
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Mockups or references
+      description: Attach mockups, screenshots, or links to similar features in other apps.
+    validations:
+      required: false

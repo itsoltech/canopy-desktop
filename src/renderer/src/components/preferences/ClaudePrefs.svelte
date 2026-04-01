@@ -246,7 +246,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--c-text);
     margin: 0;
   }
 
@@ -261,7 +261,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--c-text-muted);
     margin: 0;
   }
 
@@ -274,27 +274,27 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
   }
 
   .field-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 
   .text-input {
     padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
+    background: var(--c-hover);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .text-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .textarea {
@@ -320,22 +320,22 @@
     gap: 6px;
     padding: 4px 10px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--c-border-subtle);
     font-size: 13px;
   }
 
   .env-key {
-    color: rgba(116, 192, 252, 0.8);
+    color: var(--c-accent-text);
     font-family: monospace;
     font-size: 12px;
   }
 
   .env-sep {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .env-value {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     font-family: monospace;
     font-size: 12px;
     flex: 1;
@@ -348,8 +348,8 @@
     padding: 2px 8px;
     border: none;
     border-radius: 4px;
-    background: rgba(255, 100, 100, 0.15);
-    color: rgba(255, 120, 120, 0.8);
+    background: var(--c-danger-bg);
+    color: var(--c-danger-text);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
@@ -357,7 +357,7 @@
   }
 
   .remove-btn:hover {
-    background: rgba(255, 100, 100, 0.25);
+    background: var(--c-danger-bg);
   }
 
   /* Env form */
@@ -366,24 +366,24 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--c-border-subtle);
   }
 
   .form-input {
     padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
+    background: var(--c-hover);
+    color: var(--c-text);
     font-size: 13px;
     font-family: monospace;
     outline: none;
   }
 
   .form-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: var(--c-focus-ring);
   }
 
   .form-actions {
@@ -402,33 +402,33 @@
   }
 
   .btn-cancel {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   .btn-add {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
   }
 
   .btn-add:hover {
-    background: rgba(116, 192, 252, 0.3);
+    background: var(--c-accent-bg-hover);
   }
 
   .btn-add-item {
     align-self: flex-start;
     padding: 6px 14px;
-    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border: 1px dashed var(--c-text-faint);
     border-radius: 6px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-add-item:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.7);
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 </style>

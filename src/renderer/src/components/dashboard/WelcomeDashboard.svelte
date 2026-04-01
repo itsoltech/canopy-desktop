@@ -229,7 +229,7 @@
   .logo {
     font-size: 28px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.15);
+    color: var(--c-text-faint);
     letter-spacing: 2px;
     text-align: center;
     margin: 0 0 40px;
@@ -240,7 +240,7 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
     margin: 0 0 8px;
   }
 
@@ -268,12 +268,12 @@
   }
 
   .workspace-card:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 
   .workspace-card:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
   }
 
   .card-row-top {
@@ -286,7 +286,7 @@
   .card-name {
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--c-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -301,21 +301,21 @@
   }
 
   .card-branch {
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--c-text-muted);
   }
 
   .card-dirty {
-    color: rgba(255, 200, 50, 0.8);
+    color: var(--c-warning-text);
     font-weight: 700;
   }
 
   .card-ahead {
-    color: rgba(100, 200, 100, 0.7);
+    color: var(--c-success);
     font-size: 11px;
   }
 
   .card-behind {
-    color: rgba(255, 150, 100, 0.7);
+    color: var(--c-warning-text);
     font-size: 11px;
   }
 
@@ -330,7 +330,7 @@
   .card-path {
     font-size: 11px;
     font-family: monospace;
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -342,15 +342,15 @@
     gap: 8px;
     flex-shrink: 0;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
   }
 
   .card-worktrees {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--c-text-faint);
   }
 
   .card-time {
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
   }
 
   .quick-actions {
@@ -367,23 +367,23 @@
     cursor: pointer;
     border: none;
     outline: none;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.6);
+    background: var(--c-hover);
+    color: var(--c-text-secondary);
     transition: background 0.1s;
   }
 
   .action-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-hover-strong);
   }
 
   .action-btn:focus-visible {
-    outline: 2px solid rgba(116, 192, 252, 0.6);
+    outline: 2px solid var(--c-focus-ring);
     outline-offset: 1px;
   }
 
   .action-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.15);
+    color: var(--c-text-faint);
     margin-left: 4px;
   }
 
@@ -398,8 +398,8 @@
   .ctx-menu {
     position: fixed;
     min-width: 180px;
-    background: rgba(40, 40, 40, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     padding: 4px;
@@ -413,7 +413,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
@@ -422,16 +422,16 @@
   }
 
   .ctx-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
   }
 
   .ctx-item.destructive {
-    color: rgba(255, 120, 120, 0.9);
+    color: var(--c-danger-text);
   }
 
   .ctx-divider {
     height: 1px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--c-active);
     margin: 4px 8px;
   }
 </style>

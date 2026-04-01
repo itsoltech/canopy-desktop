@@ -9,6 +9,7 @@
   import ClaudePrefs from './ClaudePrefs.svelte'
   import GeminiPrefs from './GeminiPrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
+  import ViewportsPrefs from './ViewportsPrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
@@ -22,6 +23,7 @@
     'Claude',
     'Gemini',
     'Git',
+    'Web Browser',
     'Shortcuts',
   ] as const
   type Section = (typeof sections)[number]
@@ -83,6 +85,8 @@
         <GeminiPrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
+      {:else if activeSection === 'Web Browser'}
+        <ViewportsPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
       {/if}
@@ -98,7 +102,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
   }
 
   .prefs-container {
@@ -108,8 +112,8 @@
     height: 500px;
     max-height: 80vh;
     display: flex;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
     overflow: hidden;
@@ -118,7 +122,7 @@
   .prefs-sidebar {
     width: 160px;
     flex-shrink: 0;
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-right: 1px solid var(--c-active);
     padding: 16px 0;
     display: flex;
     flex-direction: column;
@@ -128,7 +132,7 @@
   .prefs-title {
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--c-text-secondary);
     padding: 0 16px 12px;
     margin: 0;
     letter-spacing: 0.3px;
@@ -140,7 +144,7 @@
     padding: 6px 16px;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
     text-align: left;
@@ -149,12 +153,12 @@
   }
 
   .prefs-tab:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-hover);
   }
 
   .prefs-tab.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #e0e0e0;
+    background: var(--c-hover-strong);
+    color: var(--c-text);
   }
 
   .prefs-content {

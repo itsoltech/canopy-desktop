@@ -5,10 +5,12 @@
     RotateCw,
     Code,
     PanelBottom,
-    PanelRight,
+    PanelLeft,
     Crosshair,
     Camera,
     X,
+    Smartphone,
+    Star,
   } from 'lucide-svelte'
 
   let {
@@ -20,6 +22,8 @@
     devToolsMode,
     pickMode = 'none',
     hasAiSessions = false,
+    activeDevice = null,
+    viewports = {},
     onNavigate,
     onBack,
     onForward,
@@ -29,15 +33,23 @@
     onStartElementPick,
     onStartRegionCapture,
     onCancelPick,
+    onSetDevice,
+    isFavorited = false,
+    onToggleFavorite,
   }: {
     url: string
     canGoBack: boolean
     canGoForward: boolean
     isLoading: boolean
     isDevToolsOpen: boolean
-    devToolsMode: 'bottom' | 'right'
+    devToolsMode: 'bottom' | 'left'
     pickMode?: 'none' | 'element' | 'region'
     hasAiSessions?: boolean
+    activeDevice?: string | null
+    viewports?: Record<
+      string,
+      { width: number; height: number; scaleFactor: number; mobile: boolean }
+    >
     onNavigate: (url: string) => void
     onBack: () => void
     onForward: () => void
@@ -47,18 +59,20 @@
     onStartElementPick: () => void
     onStartRegionCapture: () => void
     onCancelPick: () => void
+    onSetDevice: (name: string | null) => void
+    isFavorited?: boolean
+    onToggleFavorite: () => void
   } = $props()
 
   let captureDropdownOpen = $state(false)
+  let deviceDropdownOpen = $state(false)
 
   function openDropdown(): void {
     captureDropdownOpen = true
-    window.dispatchEvent(new CustomEvent('canopy:freeze-browsers'))
   }
 
   function closeDropdown(): void {
     captureDropdownOpen = false
-    window.dispatchEvent(new CustomEvent('canopy:unfreeze-browsers'))
   }
 
   let inputValue = $state('')
@@ -133,6 +147,18 @@
     spellcheck="false"
   />
 
+  {#if url && url !== 'about:blank'}
+    <button
+      class="nav-btn star-btn"
+      class:favorited={isFavorited}
+      onclick={onToggleFavorite}
+      title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+      aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+    >
+      <Star size={14} fill={isFavorited ? 'currentColor' : 'none'} />
+    </button>
+  {/if}
+
   <div class="action-buttons">
     <div class="capture-wrapper">
       {#if pickMode !== 'none'}
@@ -188,15 +214,61 @@
       {/if}
     </div>
 
+    <div class="capture-wrapper">
+      <button
+        class="nav-btn"
+        class:active={activeDevice !== null || deviceDropdownOpen}
+        onclick={() => (deviceDropdownOpen = !deviceDropdownOpen)}
+        title="Responsive mode"
+        aria-label="Responsive mode"
+      >
+        <Smartphone size={14} />
+      </button>
+      {#if deviceDropdownOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="capture-backdrop" onclick={() => (deviceDropdownOpen = false)}></div>
+        <div class="capture-dropdown">
+          {#if activeDevice}
+            <button
+              class="capture-option active-device"
+              onclick={() => {
+                deviceDropdownOpen = false
+                onSetDevice(null)
+              }}
+            >
+              <X size={13} />
+              Reset to Desktop
+            </button>
+            <div class="dropdown-divider"></div>
+          {/if}
+          {#each Object.entries(viewports) as [name, preset] (name)}
+            <button
+              class="capture-option"
+              class:selected={activeDevice === name}
+              onclick={() => {
+                deviceDropdownOpen = false
+                onSetDevice(name)
+              }}
+            >
+              <Smartphone size={13} />
+              {name}
+              <span class="device-size">{preset.width}&times;{preset.height}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
     {#if isDevToolsOpen}
       <button
         class="nav-btn"
         onclick={onSwitchDevToolsMode}
-        title="Switch DevTools position ({devToolsMode === 'bottom' ? 'right' : 'bottom'})"
-        aria-label="Switch DevTools position to {devToolsMode === 'bottom' ? 'right' : 'bottom'}"
+        title="Switch DevTools position ({devToolsMode === 'bottom' ? 'left' : 'bottom'})"
+        aria-label="Switch DevTools position to {devToolsMode === 'bottom' ? 'left' : 'bottom'}"
       >
         {#if devToolsMode === 'bottom'}
-          <PanelRight size={14} />
+          <PanelLeft size={14} />
         {:else}
           <PanelBottom size={14} />
         {/if}
@@ -221,8 +293,8 @@
     gap: 4px;
     height: 36px;
     padding: 0 6px;
-    background: rgba(0, 0, 0, 0.3);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--c-bg-input);
+    border-bottom: 1px solid var(--c-active);
     flex-shrink: 0;
   }
 
@@ -243,24 +315,24 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--c-text-secondary);
     cursor: pointer;
     padding: 0;
   }
 
   .nav-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--c-active);
+    color: var(--c-text);
   }
 
   .nav-btn:disabled {
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--c-text-faint);
     cursor: default;
   }
 
   .nav-btn.active {
-    color: rgb(116, 192, 252);
-    background: rgba(116, 192, 252, 0.12);
+    color: var(--c-accent);
+    background: var(--c-accent-bg);
   }
 
   .nav-btn.loading {
@@ -282,6 +354,10 @@
     }
   }
 
+  .star-btn.favorited {
+    color: rgb(250, 200, 60);
+  }
+
   .capture-wrapper {
     position: relative;
     display: flex;
@@ -290,16 +366,16 @@
   }
 
   .cancel-btn {
-    color: rgb(255, 130, 130) !important;
+    color: var(--c-danger-text) !important;
   }
 
   .cancel-btn:hover {
-    background: rgba(255, 130, 130, 0.12) !important;
+    background: var(--c-danger-bg) !important;
   }
 
   .pick-label {
     font-size: 11px;
-    color: rgba(116, 192, 252, 0.8);
+    color: var(--c-accent-text);
     white-space: nowrap;
   }
 
@@ -316,8 +392,8 @@
     margin-top: 4px;
     min-width: 160px;
     padding: 4px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-overlay);
+    border: 1px solid var(--c-border);
     border-radius: 6px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
     z-index: 100;
@@ -332,7 +408,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -340,6 +416,26 @@
   }
 
   .capture-option:hover {
+    background: var(--c-active);
+  }
+
+  .capture-option.selected {
+    color: rgb(116, 192, 252);
+  }
+
+  .capture-option.active-device {
+    color: rgba(255, 130, 130, 0.9);
+  }
+
+  .device-size {
+    margin-left: auto;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    margin: 2px 6px;
     background: rgba(255, 255, 255, 0.08);
   }
 
@@ -347,10 +443,10 @@
     flex: 1;
     height: 26px;
     padding: 0 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
-    background: rgba(0, 0, 0, 0.3);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--c-bg-input);
+    color: var(--c-text);
     font-size: 12px;
     font-family: inherit;
     outline: none;
@@ -358,11 +454,11 @@
   }
 
   .url-bar:focus {
-    border-color: rgba(116, 192, 252, 0.5);
-    color: rgba(255, 255, 255, 0.95);
+    border-color: var(--c-focus-ring);
+    color: var(--c-text);
   }
 
   .url-bar::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--c-text-faint);
   }
 </style>
