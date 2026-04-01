@@ -2,11 +2,11 @@
   import { onMount } from 'svelte'
   import { Plus, Trash2, Check, X, RefreshCw, Download, Upload } from '@lucide/svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
-  import { loadConnections, getIssueTrackerConnections } from '../../lib/stores/issueTracker.svelte'
+  import { loadConnections, getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
 
   // --- Connections ---
-  let connections = $derived(getIssueTrackerConnections())
+  let connections = $derived(getTaskTrackerConnections())
   let showAddForm = $state(false)
   let newProvider = $state<'jira' | 'youtrack'>('jira')
   let newName = $state('')
@@ -27,7 +27,7 @@
   async function loadBoardsForConnection(connId: string): Promise<void> {
     if (scopeBoards[connId]) return
     try {
-      const boards = await window.api.issueTrackerFetchBoards(connId)
+      const boards = await window.api.taskTrackerFetchBoards(connId)
       scopeBoards = { ...scopeBoards, [connId]: boards }
     } catch {
       scopeBoards = { ...scopeBoards, [connId]: [] }
@@ -35,9 +35,7 @@
   }
 
   function templatePrefKey(scope: TemplateScope): string {
-    return scope === 'global'
-      ? 'issueTracker.branchTemplate'
-      : `issueTracker.branchTemplate.${scope}`
+    return scope === 'global' ? 'taskTracker.branchTemplate' : `taskTracker.branchTemplate.${scope}`
   }
 
   let branchTemplate = $derived.by(() => {
@@ -52,7 +50,7 @@
   })
 
   let globalTemplate = $derived.by(() => {
-    const raw = prefs['issueTracker.branchTemplate']
+    const raw = prefs['taskTracker.branchTemplate']
     if (!raw) return ''
     try {
       return (JSON.parse(raw) as { template: string }).template ?? ''
@@ -258,18 +256,16 @@
   }
 
   // --- PR Template ---
-  let prTitleTemplate = $derived(
-    prefs['issueTracker.prTitleTemplate'] || '[{issueKey}] {issueTitle}',
-  )
+  let prTitleTemplate = $derived(prefs['taskTracker.prTitleTemplate'] || '[{taskKey}] {taskTitle}')
   let prBodyTemplate = $derived(
-    prefs['issueTracker.prBodyTemplate'] || '## {issueKey}: {issueTitle}\n\n{issueUrl}',
+    prefs['taskTracker.prBodyTemplate'] || '## {taskKey}: {taskTitle}\n\n{taskUrl}',
   )
-  let prDefaultBranch = $derived(prefs['issueTracker.prDefaultBranch'] || 'develop')
+  let prDefaultBranch = $derived(prefs['taskTracker.prDefaultBranch'] || 'develop')
 
   // --- Filters ---
-  let assignedToMe = $derived(prefs['issueTracker.assignedToMe'] !== 'false')
+  let assignedToMe = $derived(prefs['taskTracker.assignedToMe'] !== 'false')
   let filterStatuses = $derived.by(() => {
-    const raw = prefs['issueTracker.filterStatuses']
+    const raw = prefs['taskTracker.filterStatuses']
     if (!raw) return [] as string[]
     try {
       return JSON.parse(raw) as string[]
@@ -288,7 +284,7 @@
     await Promise.all(connections.map((c) => loadBoardsForConnection(c.id)))
     try {
       const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
-      placeholders = await window.api.issueTrackerGetAvailablePlaceholders(vars)
+      placeholders = await window.api.taskTrackerGetAvailablePlaceholders(vars)
     } catch {
       // use empty
     }
@@ -299,7 +295,7 @@
   async function updatePreview(): Promise<void> {
     try {
       const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
-      branchPreview = await window.api.issueTrackerRenderBranchPreview(templateInput, vars)
+      branchPreview = await window.api.taskTrackerRenderBranchPreview(templateInput, vars)
     } catch {
       branchPreview = '(invalid template)'
     }
@@ -316,7 +312,7 @@
   async function refreshPlaceholders(): Promise<void> {
     try {
       const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
-      placeholders = await window.api.issueTrackerGetAvailablePlaceholders(vars)
+      placeholders = await window.api.taskTrackerGetAvailablePlaceholders(vars)
     } catch {
       // keep current
     }
@@ -326,7 +322,7 @@
     if (!newVarKey.trim()) return
     const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
     setPref(
-      'issueTracker.branchTemplate',
+      'taskTracker.branchTemplate',
       JSON.stringify({ template: templateInput, customVars: vars }),
     )
     newVarKey = ''
@@ -339,7 +335,7 @@
     const vars = { ...branchTemplate.customVars }
     delete vars[key]
     setPref(
-      'issueTracker.branchTemplate',
+      'taskTracker.branchTemplate',
       JSON.stringify({ template: templateInput, customVars: vars }),
     )
     updatePreview()
@@ -352,7 +348,7 @@
     availableBoards = []
     selectedBoardId = ''
     try {
-      await window.api.issueTrackerTestNewConnection({
+      await window.api.taskTrackerTestNewConnection({
         provider: newProvider,
         name: newName,
         baseUrl: newBaseUrl.replace(/\/$/, ''),
@@ -363,7 +359,7 @@
       testResult = 'success'
       loadingBoards = true
       try {
-        availableBoards = await window.api.issueTrackerFetchBoardsForNew({
+        availableBoards = await window.api.taskTrackerFetchBoardsForNew({
           provider: newProvider,
           name: newName,
           baseUrl: newBaseUrl.replace(/\/$/, ''),
@@ -388,7 +384,7 @@
   async function addConnection(): Promise<void> {
     const board = availableBoards.find((b) => b.id === selectedBoardId)
     try {
-      await window.api.issueTrackerAddConnection({
+      await window.api.taskTrackerAddConnection({
         provider: newProvider,
         name: newName,
         baseUrl: newBaseUrl.replace(/\/$/, ''),
@@ -406,7 +402,7 @@
   }
 
   async function removeConnection(id: string): Promise<void> {
-    await window.api.issueTrackerRemoveConnection(id)
+    await window.api.taskTrackerRemoveConnection(id)
     await loadConnections()
     addToast('Connection removed')
   }
@@ -427,7 +423,7 @@
     if (connections.length === 0) return
     loadingStatuses = true
     try {
-      const statuses = await window.api.issueTrackerFetchStatuses(connections[0].id)
+      const statuses = await window.api.taskTrackerFetchStatuses(connections[0].id)
       availableStatuses = statuses.map((s) => s.name)
     } catch {
       addToast('Failed to fetch statuses')
@@ -444,7 +440,7 @@
     } else {
       current.push(status)
     }
-    setPref('issueTracker.filterStatuses', JSON.stringify(current))
+    setPref('taskTracker.filterStatuses', JSON.stringify(current))
   }
 
   async function exportConfig(): Promise<void> {
@@ -474,7 +470,7 @@
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'canopy-issue-tracker-config.json'
+    a.download = 'canopy-task-tracker-config.json'
     a.click()
     URL.revokeObjectURL(url)
     addToast('Configuration exported')
@@ -491,22 +487,22 @@
         const text = await file.text()
         const config = JSON.parse(text)
         if (config.branchTemplate) {
-          setPref('issueTracker.branchTemplate', JSON.stringify(config.branchTemplate))
+          setPref('taskTracker.branchTemplate', JSON.stringify(config.branchTemplate))
           templateInput = config.branchTemplate.template || templateInput
         }
         if (config.prTemplate) {
           if (config.prTemplate.titleTemplate)
-            setPref('issueTracker.prTitleTemplate', config.prTemplate.titleTemplate)
+            setPref('taskTracker.prTitleTemplate', config.prTemplate.titleTemplate)
           if (config.prTemplate.bodyTemplate)
-            setPref('issueTracker.prBodyTemplate', config.prTemplate.bodyTemplate)
+            setPref('taskTracker.prBodyTemplate', config.prTemplate.bodyTemplate)
           if (config.prTemplate.defaultTargetBranch)
-            setPref('issueTracker.prDefaultBranch', config.prTemplate.defaultTargetBranch)
+            setPref('taskTracker.prDefaultBranch', config.prTemplate.defaultTargetBranch)
         }
         if (config.filters) {
           if (config.filters.assignedToMe !== undefined)
-            setPref('issueTracker.assignedToMe', String(config.filters.assignedToMe))
+            setPref('taskTracker.assignedToMe', String(config.filters.assignedToMe))
           if (config.filters.statuses)
-            setPref('issueTracker.filterStatuses', JSON.stringify(config.filters.statuses))
+            setPref('taskTracker.filterStatuses', JSON.stringify(config.filters.statuses))
         }
         updatePreview()
         addToast('Configuration imported')
@@ -520,7 +516,7 @@
 
 <div class="section">
   <h3 class="section-title">Connections</h3>
-  <p class="section-desc">Connect to issue tracking services.</p>
+  <p class="section-desc">Connect to task tracking services.</p>
 
   {#each connections as conn (conn.id)}
     <div class="conn-row">
@@ -742,8 +738,8 @@
     <input
       class="form-input"
       value={prTitleTemplate}
-      oninput={(e) => setPref('issueTracker.prTitleTemplate', (e.target as HTMLInputElement).value)}
-      placeholder={'[{issueKey}] {issueTitle}'}
+      oninput={(e) => setPref('taskTracker.prTitleTemplate', (e.target as HTMLInputElement).value)}
+      placeholder={'[{taskKey}] {taskTitle}'}
     />
   </div>
   <div class="form-row">
@@ -752,8 +748,8 @@
       class="form-textarea"
       value={prBodyTemplate}
       oninput={(e) =>
-        setPref('issueTracker.prBodyTemplate', (e.target as HTMLTextAreaElement).value)}
-      placeholder={'## {issueKey}: {issueTitle}'}
+        setPref('taskTracker.prBodyTemplate', (e.target as HTMLTextAreaElement).value)}
+      placeholder={'## {taskKey}: {taskTitle}'}
       rows="3"
     ></textarea>
   </div>
@@ -762,7 +758,7 @@
     <input
       class="form-input"
       value={prDefaultBranch}
-      oninput={(e) => setPref('issueTracker.prDefaultBranch', (e.target as HTMLInputElement).value)}
+      oninput={(e) => setPref('taskTracker.prDefaultBranch', (e.target as HTMLInputElement).value)}
       placeholder="develop"
     />
   </div>
@@ -776,7 +772,7 @@
     <input
       type="checkbox"
       checked={assignedToMe}
-      onchange={() => setPref('issueTracker.assignedToMe', assignedToMe ? 'false' : 'true')}
+      onchange={() => setPref('taskTracker.assignedToMe', assignedToMe ? 'false' : 'true')}
     />
     <span>Only show tasks assigned to me</span>
   </label>

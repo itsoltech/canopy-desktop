@@ -1,21 +1,21 @@
 import { workspaceState } from '../stores/workspace.svelte'
 import { confirm } from '../stores/dialogs.svelte'
 
-export async function createBranchFromIssue(
+export async function createBranchFromTask(
   connectionId: string,
-  issue: TrackerIssue,
+  task: TrackerTask,
 ): Promise<boolean> {
   const repoRoot = workspaceState.repoRoot
   const currentBranch = workspaceState.branch
   if (!repoRoot || !currentBranch) return false
 
   // Resolve branch name from template
-  const branchName = await window.api.issueTrackerResolveBranchName(connectionId, issue)
+  const branchName = await window.api.taskTrackerResolveBranchName(connectionId, task)
 
   // Confirm with user
   const confirmed = await confirm({
     title: 'Create Branch',
-    message: `Create and checkout branch from ${issue.key}?`,
+    message: `Create and checkout branch from ${task.key}?`,
     details: branchName,
     confirmLabel: 'Create & Checkout',
   })

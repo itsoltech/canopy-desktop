@@ -1,18 +1,18 @@
-let connections: IssueTrackerConnectionInfo[] = $state([])
+let connections: TaskTrackerConnectionInfo[] = $state([])
 let loading = $state(false)
 
-export function getIssueTrackerConnections(): IssueTrackerConnectionInfo[] {
+export function getTaskTrackerConnections(): TaskTrackerConnectionInfo[] {
   return connections
 }
 
-export function isIssueTrackerLoading(): boolean {
+export function isTaskTrackerLoading(): boolean {
   return loading
 }
 
 export async function loadConnections(): Promise<void> {
   loading = true
   try {
-    connections = await window.api.issueTrackerGetConnections()
+    connections = await window.api.taskTrackerGetConnections()
   } catch {
     connections = []
   } finally {
@@ -21,6 +21,6 @@ export async function loadConnections(): Promise<void> {
 }
 
 export async function removeConnection(connectionId: string): Promise<void> {
-  await window.api.issueTrackerRemoveConnection(connectionId)
+  await window.api.taskTrackerRemoveConnection(connectionId)
   connections = connections.filter((c) => c.id !== connectionId)
 }

@@ -1,12 +1,12 @@
 import type {
-  IssueTrackerConnection,
-  IssueTrackerProviderClient,
+  TaskTrackerConnection,
+  TaskTrackerProviderClient,
   TrackerBoard,
-  TrackerIssue,
+  TrackerTask,
   TrackerStatus,
 } from '../types'
 
-interface YTIssue {
+interface YTTask {
   id: string
   idReadable: string
   summary?: string
@@ -31,7 +31,7 @@ function buildHeaders(token: string): HeadersInit {
 }
 
 async function ytFetch<T>(
-  connection: IssueTrackerConnection,
+  connection: TaskTrackerConnection,
   token: string,
   path: string,
 ): Promise<T> {
@@ -44,8 +44,8 @@ async function ytFetch<T>(
   return res.json() as Promise<T>
 }
 
-function extractField(issue: YTIssue, fieldName: string): string {
-  const field = issue.fields?.find(
+function extractField(task: YTTask, fieldName: string): string {
+  const field = task.fields?.find(
     (f) => f.name === fieldName || f.projectCustomField?.field?.name === fieldName,
   )
   if (!field?.value) return ''
@@ -53,7 +53,7 @@ function extractField(issue: YTIssue, fieldName: string): string {
   return field.value.name ?? ''
 }
 
-function mapIssueType(typeStr: string): string {
+function mapTaskType(typeStr: string): string {
   const lower = typeStr.toLowerCase()
   if (lower.includes('story') || lower.includes('user story')) return 'story'
   if (lower.includes('bug')) return 'bug'
@@ -67,30 +67,30 @@ function parseSprintNumber(name: string): number | undefined {
   return match ? parseInt(match[0], 10) : undefined
 }
 
-function mapYTIssue(issue: YTIssue, baseUrl: string): TrackerIssue {
-  const status = extractField(issue, 'State')
-  const priority = extractField(issue, 'Priority')
-  const typeStr = extractField(issue, 'Type')
-  const assignee = extractField(issue, 'Assignee')
-  const sprintName = extractField(issue, 'Sprints') || extractField(issue, 'Sprint')
-  const parentKey = issue.parent?.issues?.[0]?.idReadable
+function mapYTTask(task: YTTask, baseUrl: string): TrackerTask {
+  const status = extractField(task, 'State')
+  const priority = extractField(task, 'Priority')
+  const typeStr = extractField(task, 'Type')
+  const assignee = extractField(task, 'Assignee')
+  const sprintName = extractField(task, 'Sprints') || extractField(task, 'Sprint')
+  const parentKey = task.parent?.issues?.[0]?.idReadable
 
   return {
-    key: issue.idReadable,
-    summary: issue.summary ?? '',
-    description: issue.description ?? '',
+    key: task.idReadable,
+    summary: task.summary ?? '',
+    description: task.description ?? '',
     status,
     priority,
-    type: mapIssueType(typeStr),
+    type: mapTaskType(typeStr),
     parentKey,
     sprintName: sprintName || undefined,
     sprintNumber: sprintName ? parseSprintNumber(sprintName) : undefined,
     assignee: assignee || undefined,
-    url: `${baseUrl.replace(/\/$/, '')}/issue/${issue.idReadable}`,
+    url: `${baseUrl.replace(/\/$/, '')}/issue/${task.idReadable}`,
   }
 }
 
-export const youtrackClient: IssueTrackerProviderClient = {
+export const youtrackClient: TaskTrackerProviderClient = {
   async testConnection(connection, token) {
     await ytFetch(connection, token, '/api/users/me?fields=id,login')
     return true
@@ -105,16 +105,16 @@ export const youtrackClient: IssueTrackerProviderClient = {
     return data.fullName ?? data.name ?? ''
   },
 
-  async fetchIssueByKey(connection, token, issueKey) {
+  async fetchTaskByKey(connection, token, taskKey) {
     try {
       const fields =
         'id,idReadable,summary,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
-      const data = await ytFetch<YTIssue>(
+      const data = await ytFetch<YTTask>(
         connection,
         token,
-        `/api/issues/${encodeURIComponent(issueKey)}?fields=${encodeURIComponent(fields)}`,
+        `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
       )
-      return mapYTIssue(data, connection.baseUrl)
+      return mapYTTask(data, connection.baseUrl)
     } catch {
       return null
     }
@@ -166,7 +166,7 @@ export const youtrackClient: IssueTrackerProviderClient = {
     )
   },
 
-  async fetchIssues(connection, token, params) {
+  async fetchTasks(connection, token, params) {
     const queryParts: string[] = []
 
     // Get project from connection or resolve from board
@@ -195,13 +195,13 @@ export const youtrackClient: IssueTrackerProviderClient = {
     const query = queryParts.join(' ') + ' sort by: updated desc'
     const fields =
       'id,idReadable,summary,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
-    const data = await ytFetch<YTIssue[]>(
+    const data = await ytFetch<YTTask[]>(
       connection,
       token,
       `/api/issues?query=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&$top=200`,
     )
 
-    return data.map((i) => mapYTIssue(i, connection.baseUrl))
+    return data.map((i) => mapYTTask(i, connection.baseUrl))
   },
 
   async getCurrentSprint(connection, token, boardId) {

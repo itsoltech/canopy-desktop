@@ -112,23 +112,23 @@
   let ahead = $derived(workspaceState.aheadBehind?.ahead ?? 0)
   let behind = $derived(workspaceState.aheadBehind?.behind ?? 0)
 
-  function extractIssueKeyFromBranch(branch: string | null): string | null {
+  function extractTaskKeyFromBranch(branch: string | null): string | null {
     if (!branch) return null
     const match = branch.match(/([A-Z][A-Z0-9]+-\d+)/)
     return match ? match[1] : null
   }
 
-  let issueKeyFromBranch = $derived(extractIssueKeyFromBranch(workspaceState.branch))
+  let taskKeyFromBranch = $derived(extractTaskKeyFromBranch(workspaceState.branch))
 
   async function doCreatePR(): Promise<void> {
     const branch = workspaceState.branch
     if (!branch) return
 
-    const issueKey = issueKeyFromBranch
+    const taskKey = taskKeyFromBranch
     loading = 'pr'
 
-    // Fetch issue data for PR title preview
-    let issue: {
+    // Fetch task data for PR title preview
+    let task: {
       key: string
       summary: string
       description: string
@@ -136,7 +136,7 @@
       priority: string
       type: string
     } = {
-      key: issueKey ?? '',
+      key: taskKey ?? '',
       summary: '',
       description: '',
       status: '',
@@ -144,24 +144,24 @@
       type: 'task',
     }
 
-    if (issueKey) {
+    if (taskKey) {
       try {
-        const found = await window.api.issueTrackerFindIssueByKey(issueKey)
-        if (found) issue = found
+        const found = await window.api.taskTrackerFindTaskByKey(taskKey)
+        if (found) task = found
       } catch {
-        // use empty issue
+        // use empty task
       }
     }
 
     const titleTemplate =
-      (await window.api.getPref('issueTracker.prTitleTemplate')) || '[{issueKey}] {issueTitle}'
-    const defaultTarget = (await window.api.getPref('issueTracker.prDefaultBranch')) || 'develop'
+      (await window.api.getPref('taskTracker.prTitleTemplate')) || '[{taskKey}] {taskTitle}'
+    const defaultTarget = (await window.api.getPref('taskTracker.prDefaultBranch')) || 'develop'
 
     const prTitle = titleTemplate
-      .replace(/\{issueKey\}/g, issue.key)
-      .replace(/\{issueTitle\}/g, issue.summary)
-      .replace(/\{issueType\}/g, issue.type)
-      .replace(/\{boardKey\}/g, issue.key.split('-')[0] ?? '')
+      .replace(/\{taskKey\}/g, task.key)
+      .replace(/\{taskTitle\}/g, task.summary)
+      .replace(/\{taskType\}/g, task.type)
+      .replace(/\{boardKey\}/g, task.key.split('-')[0] ?? '')
 
     loading = null
 
@@ -175,7 +175,7 @@
 
     loading = 'pr'
     try {
-      const result = await window.api.issueTrackerCreatePR(worktreePath(), issue, branch)
+      const result = await window.api.taskTrackerCreatePR(worktreePath(), task, branch)
       addToast(`PR created`)
       window.api.openExternal(result.url)
     } catch (err) {
@@ -264,11 +264,11 @@
       class="action-item"
       disabled={loading === 'pr' || !workspaceState.branch}
       onclick={doCreatePR}
-      title={issueKeyFromBranch ? `Create PR for ${issueKeyFromBranch}` : 'Create Pull Request'}
+      title={taskKeyFromBranch ? `Create PR for ${taskKeyFromBranch}` : 'Create Pull Request'}
     >
       <span class="action-label">Create PR</span>
-      {#if issueKeyFromBranch}
-        <span class="badge">{issueKeyFromBranch}</span>
+      {#if taskKeyFromBranch}
+        <span class="badge">{taskKeyFromBranch}</span>
       {/if}
     </button>
   </div>

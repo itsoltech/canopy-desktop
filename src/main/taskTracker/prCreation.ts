@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import type { TrackerIssue, PRTemplateConfig, PRTargetRule } from './types'
+import type { TrackerTask, PRTemplateConfig, PRTargetRule } from './types'
 import { renderPRTitle, renderPRBody, resolveTargetBranch } from './prTemplate'
 import { GitRepository } from '../git/GitRepository'
 
@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile)
 
 export interface CreatePRParams {
   repoRoot: string
-  issue: TrackerIssue
+  task: TrackerTask
   sourceBranch: string
   prConfig: PRTemplateConfig
   existingBranches?: string[]
@@ -30,12 +30,12 @@ async function detectGhCli(): Promise<boolean> {
 }
 
 export async function createPullRequest(params: CreatePRParams): Promise<CreatePRResult> {
-  const { repoRoot, issue, sourceBranch, prConfig, existingBranches } = params
+  const { repoRoot, task, sourceBranch, prConfig, existingBranches } = params
 
-  const title = renderPRTitle(prConfig.titleTemplate, issue)
-  const body = renderPRBody(prConfig.bodyTemplate, issue)
+  const title = renderPRTitle(prConfig.titleTemplate, task)
+  const body = renderPRBody(prConfig.bodyTemplate, task)
   const targetBranch = resolveTargetBranch(
-    issue,
+    task,
     prConfig.defaultTargetBranch,
     prConfig.targetRules,
     existingBranches,

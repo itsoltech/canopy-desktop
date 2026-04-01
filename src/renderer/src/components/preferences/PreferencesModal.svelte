@@ -10,7 +10,7 @@
   import GeminiPrefs from './GeminiPrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
-  import IssueTrackerPrefs from './IssueTrackerPrefs.svelte'
+  import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
 
@@ -25,7 +25,7 @@
     'Claude',
     'Gemini',
     'Git',
-    'Issues',
+    'Tasks',
     'Shortcuts',
   ] as const
   type Section = (typeof sections)[number]
@@ -95,8 +95,8 @@
         <GeminiPrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
-      {:else if activeSection === 'Issues'}
-        <IssueTrackerPrefs />
+      {:else if activeSection === 'Tasks'}
+        <TaskTrackerPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
       {/if}

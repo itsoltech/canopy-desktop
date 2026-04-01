@@ -483,9 +483,9 @@ const api = {
   readFile: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
 
-  // Issue Tracker
-  issueTrackerGetConnections: () => ipcRenderer.invoke('issueTracker:getConnections'),
-  issueTrackerAddConnection: (connection: {
+  // Task Tracker
+  taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),
+  taskTrackerAddConnection: (connection: {
     provider: string
     name: string
     baseUrl: string
@@ -493,12 +493,12 @@ const api = {
     boardId?: string
     username?: string
     token: string
-  }) => ipcRenderer.invoke('issueTracker:addConnection', connection),
-  issueTrackerRemoveConnection: (connectionId: string) =>
-    ipcRenderer.invoke('issueTracker:removeConnection', { connectionId }),
-  issueTrackerTestConnection: (connectionId: string) =>
-    ipcRenderer.invoke('issueTracker:testConnection', { connectionId }),
-  issueTrackerTestNewConnection: (connection: {
+  }) => ipcRenderer.invoke('taskTracker:addConnection', connection),
+  taskTrackerRemoveConnection: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:removeConnection', { connectionId }),
+  taskTrackerTestConnection: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:testConnection', { connectionId }),
+  taskTrackerTestNewConnection: (connection: {
     provider: string
     name: string
     baseUrl: string
@@ -506,42 +506,42 @@ const api = {
     boardId?: string
     username?: string
     token: string
-  }) => ipcRenderer.invoke('issueTracker:testNewConnection', connection),
-  issueTrackerFetchBoards: (connectionId: string) =>
-    ipcRenderer.invoke('issueTracker:fetchBoards', { connectionId }),
-  issueTrackerFetchBoardsForNew: (connection: {
+  }) => ipcRenderer.invoke('taskTracker:testNewConnection', connection),
+  taskTrackerFetchBoards: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:fetchBoards', { connectionId }),
+  taskTrackerFetchBoardsForNew: (connection: {
     provider: string
     name: string
     baseUrl: string
     projectKey?: string
     username?: string
     token: string
-  }) => ipcRenderer.invoke('issueTracker:fetchBoardsForNew', connection),
-  issueTrackerFetchStatuses: (connectionId: string, boardId?: string) =>
-    ipcRenderer.invoke('issueTracker:fetchStatuses', { connectionId, boardId }),
-  issueTrackerFetchIssues: (
+  }) => ipcRenderer.invoke('taskTracker:fetchBoardsForNew', connection),
+  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId }),
+  taskTrackerFetchTasks: (
     connectionId: string,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
-  ) => ipcRenderer.invoke('issueTracker:fetchIssues', { connectionId, ...params }),
-  issueTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
-    ipcRenderer.invoke('issueTracker:getCurrentSprint', { connectionId, boardId }),
-  issueTrackerGetCurrentUser: (connectionId: string) =>
-    ipcRenderer.invoke('issueTracker:getCurrentUser', { connectionId }) as Promise<string>,
-  issueTrackerResolveBranchName: (
+  ) => ipcRenderer.invoke('taskTracker:fetchTasks', { connectionId, ...params }),
+  taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId }),
+  taskTrackerGetCurrentUser: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:getCurrentUser', { connectionId }) as Promise<string>,
+  taskTrackerResolveBranchName: (
     connectionId: string,
-    issue: Record<string, unknown>,
+    task: Record<string, unknown>,
     boardId?: string,
     branchType?: string,
   ) =>
-    ipcRenderer.invoke('issueTracker:resolveBranchName', {
+    ipcRenderer.invoke('taskTracker:resolveBranchName', {
       connectionId,
-      issue,
+      task,
       boardId,
       branchType,
     }),
-  issueTrackerResolveBranchType: (issueType: string, connectionId?: string, boardId?: string) =>
-    ipcRenderer.invoke('issueTracker:resolveBranchType', {
-      issueType,
+  taskTrackerResolveBranchType: (taskType: string, connectionId?: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:resolveBranchType', {
+      taskType,
       connectionId,
       boardId,
     }) as Promise<{
@@ -549,16 +549,16 @@ const api = {
       options: string[]
       hasBranchType: boolean
     }>,
-  issueTrackerRenderBranchPreview: (template: string, customVars?: Record<string, string>) =>
-    ipcRenderer.invoke('issueTracker:renderBranchPreview', { template, customVars }),
-  issueTrackerGetAvailablePlaceholders: (customVars?: Record<string, string>) =>
-    ipcRenderer.invoke('issueTracker:getAvailablePlaceholders', { customVars }),
-  issueTrackerValidateTemplate: (template: string) =>
-    ipcRenderer.invoke('issueTracker:validateTemplate', { template }),
-  issueTrackerFindIssueByKey: (issueKey: string) =>
-    ipcRenderer.invoke('issueTracker:findIssueByKey', { issueKey }),
-  issueTrackerCreatePR: (repoRoot: string, issue: Record<string, unknown>, sourceBranch: string) =>
-    ipcRenderer.invoke('issueTracker:createPR', { repoRoot, issue, sourceBranch }),
+  taskTrackerRenderBranchPreview: (template: string, customVars?: Record<string, string>) =>
+    ipcRenderer.invoke('taskTracker:renderBranchPreview', { template, customVars }),
+  taskTrackerGetAvailablePlaceholders: (customVars?: Record<string, string>) =>
+    ipcRenderer.invoke('taskTracker:getAvailablePlaceholders', { customVars }),
+  taskTrackerValidateTemplate: (template: string) =>
+    ipcRenderer.invoke('taskTracker:validateTemplate', { template }),
+  taskTrackerFindTaskByKey: (taskKey: string) =>
+    ipcRenderer.invoke('taskTracker:findTaskByKey', { taskKey }),
+  taskTrackerCreatePR: (repoRoot: string, task: Record<string, unknown>, sourceBranch: string) =>
+    ipcRenderer.invoke('taskTracker:createPR', { repoRoot, task, sourceBranch }),
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

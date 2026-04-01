@@ -3,19 +3,19 @@
   import { SquareKanban, Plus, ExternalLink } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
-    getIssueTrackerConnections,
-    isIssueTrackerLoading,
+    getTaskTrackerConnections,
+    isTaskTrackerLoading,
     loadConnections,
-  } from '../../lib/stores/issueTracker.svelte'
+  } from '../../lib/stores/taskTracker.svelte'
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
-  import { showIssuePicker } from '../../lib/stores/dialogs.svelte'
+  import { showTaskPicker } from '../../lib/stores/dialogs.svelte'
 
   onMount(() => {
     loadConnections()
   })
 
-  let connections = $derived(getIssueTrackerConnections())
-  let loading = $derived(isIssueTrackerLoading())
+  let connections = $derived(getTaskTrackerConnections())
+  let loading = $derived(isTaskTrackerLoading())
 
   function providerLabel(provider: string): string {
     if (provider === 'jira') return 'Jira'
@@ -24,15 +24,15 @@
   }
 
   function openTrackerPrefs(): void {
-    showPreferences('issues')
+    showPreferences('tasks')
   }
 
-  function browseIssues(connectionId: string): void {
-    showIssuePicker(connectionId)
+  function browseTasks(connectionId: string): void {
+    showTaskPicker(connectionId)
   }
 </script>
 
-<CollapsibleSection title="ISSUES" sectionKey="issues" borderTop>
+<CollapsibleSection title="TASKS" sectionKey="tasks" borderTop>
   {#if loading}
     <div class="loading">Loading...</div>
   {:else if connections.length === 0}
@@ -48,8 +48,8 @@
         <li>
           <button
             class="tracker-item"
-            onclick={() => browseIssues(conn.id)}
-            title="Browse issues from {conn.name}"
+            onclick={() => browseTasks(conn.id)}
+            title="Browse tasks from {conn.name}"
           >
             <SquareKanban size={14} />
             <span class="tracker-name">{conn.name}</span>

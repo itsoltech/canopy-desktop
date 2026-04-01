@@ -1,8 +1,8 @@
-export type IssueTrackerProvider = 'jira' | 'youtrack'
+export type TaskTrackerProvider = 'jira' | 'youtrack'
 
-export interface IssueTrackerConnection {
+export interface TaskTrackerConnection {
   id: string
-  provider: IssueTrackerProvider
+  provider: TaskTrackerProvider
   name: string
   baseUrl: string
   projectKey: string
@@ -11,7 +11,7 @@ export interface IssueTrackerConnection {
   username?: string
 }
 
-export interface TrackerIssue {
+export interface TrackerTask {
   key: string
   summary: string
   description: string
@@ -49,7 +49,7 @@ export interface BranchTemplateConfig {
 }
 
 export interface PRTargetRule {
-  issueType: string
+  taskType: string
   targetPattern: string
 }
 
@@ -60,55 +60,55 @@ export interface PRTemplateConfig {
   targetRules: PRTargetRule[]
 }
 
-export interface IssueFilterConfig {
+export interface TaskFilterConfig {
   assignedToMe: boolean
   statuses: string[]
 }
 
-export interface IssueTrackerConfig {
-  connections: IssueTrackerConnection[]
+export interface TaskTrackerConfig {
+  connections: TaskTrackerConnection[]
   branchTemplate: BranchTemplateConfig
   prTemplate: PRTemplateConfig
-  filters: Record<string, IssueFilterConfig>
+  filters: Record<string, TaskFilterConfig>
 }
 
-export interface IssueTrackerExportData {
+export interface TaskTrackerExportData {
   version: number
   exportedAt: string
-  connections: Omit<IssueTrackerConnection, 'authPrefKey'>[]
+  connections: Omit<TaskTrackerConnection, 'authPrefKey'>[]
   branchTemplate: BranchTemplateConfig
   prTemplate: PRTemplateConfig
-  filters: Record<string, IssueFilterConfig>
+  filters: Record<string, TaskFilterConfig>
 }
 
-export interface FetchIssuesParams {
+export interface FetchTasksParams {
   connectionId: string
   statuses?: string[]
   assignedToMe?: boolean
   boardId?: string
 }
 
-export interface IssueTrackerProviderClient {
-  testConnection(connection: IssueTrackerConnection, token: string): Promise<boolean>
-  getCurrentUserDisplayName(connection: IssueTrackerConnection, token: string): Promise<string>
-  fetchIssueByKey(
-    connection: IssueTrackerConnection,
+export interface TaskTrackerProviderClient {
+  testConnection(connection: TaskTrackerConnection, token: string): Promise<boolean>
+  getCurrentUserDisplayName(connection: TaskTrackerConnection, token: string): Promise<string>
+  fetchTaskByKey(
+    connection: TaskTrackerConnection,
     token: string,
-    issueKey: string,
-  ): Promise<TrackerIssue | null>
-  fetchBoards(connection: IssueTrackerConnection, token: string): Promise<TrackerBoard[]>
+    taskKey: string,
+  ): Promise<TrackerTask | null>
+  fetchBoards(connection: TaskTrackerConnection, token: string): Promise<TrackerBoard[]>
   fetchStatuses(
-    connection: IssueTrackerConnection,
+    connection: TaskTrackerConnection,
     token: string,
     boardId?: string,
   ): Promise<TrackerStatus[]>
-  fetchIssues(
-    connection: IssueTrackerConnection,
+  fetchTasks(
+    connection: TaskTrackerConnection,
     token: string,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
-  ): Promise<TrackerIssue[]>
+  ): Promise<TrackerTask[]>
   getCurrentSprint(
-    connection: IssueTrackerConnection,
+    connection: TaskTrackerConnection,
     token: string,
     boardId?: string,
   ): Promise<TrackerSprint | null>

@@ -4,7 +4,7 @@
   import GitSection from './GitSection.svelte'
   import FileTreeSection from './FileTreeSection.svelte'
   import ToolSection from './ToolSection.svelte'
-  import IssueTrackerSection from './IssueTrackerSection.svelte'
+  import TaskTrackerSection from './TaskTrackerSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
@@ -43,8 +43,8 @@
         <FileTreeSection />
       {:else if section.id === 'tools'}
         <ToolSection {onLaunchTool} />
-      {:else if section.id === 'issues'}
-        <IssueTrackerSection />
+      {:else if section.id === 'tasks'}
+        <TaskTrackerSection />
       {/if}
     {/if}
   {/each}

@@ -7,7 +7,7 @@
   import { getActivePtySessionId } from '../../lib/stores/tabs.svelte'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
 
-  interface Issue {
+  interface Task {
     key: string
     summary: string
     description: string
@@ -28,7 +28,7 @@
   }
 
   function filterPrefKey(connId: string, boardId: string): string {
-    return `issueTracker.pickerFilters.${connId}.${boardId}`
+    return `taskTracker.pickerFilters.${connId}.${boardId}`
   }
 
   interface SavedFilters {
@@ -59,7 +59,7 @@
 
   let { connectionId }: { connectionId: string } = $props()
 
-  let allIssues: Issue[] = $state([])
+  let allTasks: Task[] = $state([])
   let loading = $state(true)
   let error = $state('')
   let searchQuery = $state('')
@@ -72,7 +72,7 @@
   // Status filter
   let availableStatuses: string[] = $derived.by(() => {
     const seen: string[] = []
-    for (const i of allIssues) {
+    for (const i of allTasks) {
       if (i.status && !seen.includes(i.status)) seen.push(i.status)
     }
     return seen.sort()
@@ -88,8 +88,8 @@
     return board?.projectKey ?? ''
   })
 
-  let filteredIssues = $derived.by(() => {
-    let result = allIssues
+  let filteredTasks = $derived.by(() => {
+    let result = allTasks
     // Filter by board's project key
     if (selectedBoardProjectKey) {
       result = result.filter((i) => i.key.startsWith(selectedBoardProjectKey + '-'))
@@ -110,7 +110,7 @@
   })
 
   const DISPLAY_LIMIT = 200
-  let displayedIssues = $derived(filteredIssues.slice(0, DISPLAY_LIMIT))
+  let displayedTasks = $derived(filteredTasks.slice(0, DISPLAY_LIMIT))
 
   onMount(async () => {
     await loadBoards()
@@ -119,8 +119,8 @@
   async function loadBoards(): Promise<void> {
     try {
       const [boardList, userName] = await Promise.all([
-        window.api.issueTrackerFetchBoards(connectionId),
-        window.api.issueTrackerGetCurrentUser(connectionId).catch(() => ''),
+        window.api.taskTrackerFetchBoards(connectionId),
+        window.api.taskTrackerGetCurrentUser(connectionId).catch(() => ''),
       ])
       boards = boardList
       currentUserName = userName
@@ -131,7 +131,7 @@
     } catch {
       // no boards available
     }
-    await fetchIssues()
+    await fetchTasks()
   }
 
   function restoreSavedFilters(): void {
@@ -151,28 +151,28 @@
 
   async function onBoardChange(): Promise<void> {
     restoreSavedFilters()
-    await fetchIssues()
+    await fetchTasks()
   }
 
-  async function fetchIssues(): Promise<void> {
+  async function fetchTasks(): Promise<void> {
     loading = true
     error = ''
     try {
-      allIssues = await window.api.issueTrackerFetchIssues(connectionId, {
+      allTasks = await window.api.taskTrackerFetchTasks(connectionId, {
         boardId: selectedBoardId || undefined,
       })
       // Auto-exclude done/closed only if no saved filters
-      if (!hasSavedFilters && excludedStatuses.size === 0 && allIssues.length > 0) {
+      if (!hasSavedFilters && excludedStatuses.size === 0 && allTasks.length > 0) {
         const donePattern = /^(done|closed|resolved|cancelled|rejected|complete|gotowe|zamkni)/i
-        for (const issue of allIssues) {
-          if (donePattern.test(issue.status)) {
-            excludedStatuses.add(issue.status)
+        for (const task of allTasks) {
+          if (donePattern.test(task.status)) {
+            excludedStatuses.add(task.status)
           }
         }
         saveFilters()
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to fetch issues'
+      error = e instanceof Error ? e.message : 'Failed to fetch tasks'
     } finally {
       loading = false
     }
@@ -197,41 +197,41 @@
       closeDialog()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      selectedIndex = Math.min(selectedIndex + 1, displayedIssues.length - 1)
+      selectedIndex = Math.min(selectedIndex + 1, displayedTasks.length - 1)
       scrollToSelected()
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       selectedIndex = Math.max(selectedIndex - 1, 0)
       scrollToSelected()
-    } else if (e.key === 'Enter' && displayedIssues[selectedIndex]) {
-      selectIssue(displayedIssues[selectedIndex])
+    } else if (e.key === 'Enter' && displayedTasks[selectedIndex]) {
+      selectTask(displayedTasks[selectedIndex])
     }
   }
 
   function scrollToSelected(): void {
-    const el = document.querySelector('.issue-row.selected')
+    const el = document.querySelector('.task-row.selected')
     el?.scrollIntoView({ block: 'nearest' })
   }
 
   // --- Branch creation dialog state ---
   let creatingBranch = $state(false)
-  let selectedIssue: Issue | null = $state(null)
+  let selectedTask: Task | null = $state(null)
   let branchTypeOptions: string[] = $state([])
   let selectedBranchType = $state('feat')
   let resolvedBranchName = $state('')
   let creatingWorktree = $state(false)
   let templateHasBranchType = $state(false)
 
-  async function selectIssue(issue: Issue): Promise<void> {
+  async function selectTask(task: Task): Promise<void> {
     if (!workspaceState.repoRoot || !workspaceState.branch) return
 
-    const plainIssue = $state.snapshot(issue) as Issue
-    selectedIssue = plainIssue
+    const plainTask = $state.snapshot(task) as Task
+    selectedTask = plainTask
 
     // Get branch type info from main process (reads saved template + mapping)
     try {
-      const typeInfo = await window.api.issueTrackerResolveBranchType(
-        issue.type,
+      const typeInfo = await window.api.taskTrackerResolveBranchType(
+        task.type,
         connectionId,
         selectedBoardId || undefined,
       )
@@ -250,16 +250,16 @@
   }
 
   async function updateBranchPreview(): Promise<void> {
-    if (!selectedIssue) return
+    if (!selectedTask) return
     try {
-      resolvedBranchName = await window.api.issueTrackerResolveBranchName(
+      resolvedBranchName = await window.api.taskTrackerResolveBranchName(
         connectionId,
-        $state.snapshot(selectedIssue) as Issue,
+        $state.snapshot(selectedTask) as Task,
         selectedBoardId || undefined,
         templateHasBranchType ? selectedBranchType : undefined,
       )
     } catch {
-      resolvedBranchName = selectedIssue.key
+      resolvedBranchName = selectedTask.key
     }
   }
 
@@ -269,7 +269,7 @@
 
   function cancelBranchCreation(): void {
     creatingBranch = false
-    selectedIssue = null
+    selectedTask = null
   }
 
   async function confirmBranchCreation(): Promise<void> {
@@ -301,11 +301,11 @@
     }
   }
 
-  function sendToTerminal(issue: Issue, e: MouseEvent): void {
+  function sendToTerminal(task: Task, e: MouseEvent): void {
     e.stopPropagation()
     const sessionId = getActivePtySessionId()
     if (!sessionId) return
-    const text = `Issue: ${issue.key} - ${issue.summary}\n\n${issue.description || '(no description)'}`
+    const text = `Task: ${task.key} - ${task.summary}\n\n${task.description || '(no description)'}`
     window.api.writePty(sessionId, text)
     closeDialog()
   }
@@ -328,9 +328,9 @@
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
-    aria-label="Issue Picker"
+    aria-label="Task Picker"
   >
-    {#if creatingBranch && selectedIssue}
+    {#if creatingBranch && selectedTask}
       <div class="picker-header">
         <h3 class="picker-title">Create Branch</h3>
         <button class="close-btn" onclick={cancelBranchCreation} aria-label="Back">
@@ -338,9 +338,9 @@
         </button>
       </div>
       <div class="branch-form">
-        <div class="branch-issue-info">
-          <span class="issue-key">{selectedIssue.key}</span>
-          <span class="issue-summary">{selectedIssue.summary}</span>
+        <div class="branch-task-info">
+          <span class="task-key">{selectedTask.key}</span>
+          <span class="task-summary">{selectedTask.summary}</span>
         </div>
         {#if templateHasBranchType}
           <div class="branch-type-row">
@@ -373,7 +373,7 @@
       </div>
     {:else}
       <div class="picker-header">
-        <h3 class="picker-title">Select Issue</h3>
+        <h3 class="picker-title">Select Task</h3>
         <div class="header-actions">
           <button
             class="filter-btn"
@@ -435,39 +435,39 @@
         />
       </div>
 
-      <div class="issue-list">
+      <div class="task-list">
         {#if loading}
           <div class="state-msg">
             <Loader2 size={16} class="spin" />
-            <span>Loading issues...</span>
+            <span>Loading tasks...</span>
           </div>
         {:else if error}
           <div class="state-msg error">
             <span>{error}</span>
-            <button class="retry-btn" onclick={fetchIssues}>Retry</button>
+            <button class="retry-btn" onclick={fetchTasks}>Retry</button>
           </div>
-        {:else if displayedIssues.length === 0}
-          <div class="state-msg">No issues found</div>
+        {:else if displayedTasks.length === 0}
+          <div class="state-msg">No tasks found</div>
         {:else}
-          {#each displayedIssues as issue, i (issue.key)}
+          {#each displayedTasks as task, i (task.key)}
             <div
-              class="issue-row"
+              class="task-row"
               class:selected={i === selectedIndex}
               role="button"
               tabindex="0"
-              onclick={() => selectIssue(issue)}
+              onclick={() => selectTask(task)}
               onkeydown={(e) => {
-                if (e.key === 'Enter') selectIssue(issue)
+                if (e.key === 'Enter') selectTask(task)
               }}
               onmouseenter={() => (selectedIndex = i)}
             >
-              <span class="issue-key">{issue.key}</span>
-              <span class="issue-summary">{issue.summary}</span>
-              <span class="status-badge">{issue.status}</span>
+              <span class="task-key">{task.key}</span>
+              <span class="task-summary">{task.summary}</span>
+              <span class="status-badge">{task.status}</span>
               <span
                 class="priority-dot"
-                style="color: {priorityColor(issue.priority)}"
-                title={issue.priority}
+                style="color: {priorityColor(task.priority)}"
+                title={task.priority}
               >
                 ●
               </span>
@@ -475,7 +475,7 @@
                 class="send-btn"
                 onclick={(e) => {
                   e.stopPropagation()
-                  sendToTerminal(issue, e)
+                  sendToTerminal(task, e)
                 }}
                 title="Send to active terminal"
               >
@@ -489,9 +489,9 @@
       <div class="picker-footer">
         <span class="hint">↑↓ navigate · Enter select · Esc close</span>
         <span class="count"
-          >{filteredIssues.length > DISPLAY_LIMIT
-            ? `${DISPLAY_LIMIT} of ${filteredIssues.length} issues`
-            : `${filteredIssues.length} issue${filteredIssues.length !== 1 ? 's' : ''}`}</span
+          >{filteredTasks.length > DISPLAY_LIMIT
+            ? `${DISPLAY_LIMIT} of ${filteredTasks.length} tasks`
+            : `${filteredTasks.length} task${filteredTasks.length !== 1 ? 's' : ''}`}</span
         >
       </div>
     {/if}
@@ -666,7 +666,7 @@
     gap: 12px;
   }
 
-  .branch-issue-info {
+  .branch-task-info {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -675,13 +675,13 @@
     border-radius: 6px;
   }
 
-  .branch-issue-info .issue-key {
+  .branch-task-info .task-key {
     font-weight: 600;
     color: var(--c-accent-text);
     flex-shrink: 0;
   }
 
-  .branch-issue-info .issue-summary {
+  .branch-task-info .task-summary {
     color: var(--c-text-secondary);
     font-size: 12px;
     overflow: hidden;
@@ -797,7 +797,7 @@
     color: var(--c-text-faint);
   }
 
-  .issue-list {
+  .task-list {
     flex: 1;
     overflow-y: auto;
     padding: 4px 0;
@@ -834,7 +834,7 @@
     background: var(--c-hover);
   }
 
-  .issue-row {
+  .task-row {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -850,19 +850,19 @@
     transition: background 0.05s;
   }
 
-  .issue-row:hover,
-  .issue-row.selected {
+  .task-row:hover,
+  .task-row.selected {
     background: var(--c-hover);
   }
 
-  .issue-key {
+  .task-key {
     flex-shrink: 0;
     font-weight: 600;
     color: var(--c-accent-text);
     min-width: 80px;
   }
 
-  .issue-summary {
+  .task-summary {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -900,8 +900,8 @@
     transition: opacity 0.1s;
   }
 
-  .issue-row:hover .send-btn,
-  .issue-row.selected .send-btn {
+  .task-row:hover .send-btn,
+  .task-row.selected .send-btn {
     opacity: 1;
   }
 

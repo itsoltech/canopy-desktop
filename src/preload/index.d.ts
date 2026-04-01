@@ -395,21 +395,21 @@ interface CanopyAPI {
   readDir: (dirPath: string) => Promise<DirEntry[]>
   readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
 
-  // Issue Tracker
-  issueTrackerGetConnections: () => Promise<IssueTrackerConnectionInfo[]>
-  issueTrackerAddConnection: (connection: {
-    provider: IssueTrackerProvider
+  // Task Tracker
+  taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
+  taskTrackerAddConnection: (connection: {
+    provider: TaskTrackerProvider
     name: string
     baseUrl: string
     projectKey: string
     boardId?: string
     username?: string
     token: string
-  }) => Promise<IssueTrackerConnectionInfo>
-  issueTrackerRemoveConnection: (connectionId: string) => Promise<void>
-  issueTrackerTestConnection: (connectionId: string) => Promise<boolean>
-  issueTrackerTestNewConnection: (connection: {
-    provider: IssueTrackerProvider
+  }) => Promise<TaskTrackerConnectionInfo>
+  taskTrackerRemoveConnection: (connectionId: string) => Promise<void>
+  taskTrackerTestConnection: (connectionId: string) => Promise<boolean>
+  taskTrackerTestNewConnection: (connection: {
+    provider: TaskTrackerProvider
     name: string
     baseUrl: string
     projectKey: string
@@ -417,33 +417,33 @@ interface CanopyAPI {
     username?: string
     token: string
   }) => Promise<boolean>
-  issueTrackerFetchBoards: (connectionId: string) => Promise<TrackerBoard[]>
-  issueTrackerFetchBoardsForNew: (connection: {
-    provider: IssueTrackerProvider
+  taskTrackerFetchBoards: (connectionId: string) => Promise<TrackerBoard[]>
+  taskTrackerFetchBoardsForNew: (connection: {
+    provider: TaskTrackerProvider
     name: string
     baseUrl: string
     projectKey?: string
     username?: string
     token: string
   }) => Promise<TrackerBoard[]>
-  issueTrackerFetchStatuses: (connectionId: string, boardId?: string) => Promise<TrackerStatus[]>
-  issueTrackerFetchIssues: (
+  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) => Promise<TrackerStatus[]>
+  taskTrackerFetchTasks: (
     connectionId: string,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
-  ) => Promise<TrackerIssue[]>
-  issueTrackerGetCurrentSprint: (
+  ) => Promise<TrackerTask[]>
+  taskTrackerGetCurrentSprint: (
     connectionId: string,
     boardId?: string,
   ) => Promise<TrackerSprint | null>
-  issueTrackerGetCurrentUser: (connectionId: string) => Promise<string>
-  issueTrackerResolveBranchName: (
+  taskTrackerGetCurrentUser: (connectionId: string) => Promise<string>
+  taskTrackerResolveBranchName: (
     connectionId: string,
-    issue: TrackerIssue,
+    task: TrackerTask,
     boardId?: string,
     branchType?: string,
   ) => Promise<string>
-  issueTrackerResolveBranchType: (
-    issueType: string,
+  taskTrackerResolveBranchType: (
+    taskType: string,
     connectionId?: string,
     boardId?: string,
   ) => Promise<{
@@ -451,18 +451,18 @@ interface CanopyAPI {
     options: string[]
     hasBranchType: boolean
   }>
-  issueTrackerRenderBranchPreview: (
+  taskTrackerRenderBranchPreview: (
     template: string,
     customVars?: Record<string, string>,
   ) => Promise<string>
-  issueTrackerGetAvailablePlaceholders: (
+  taskTrackerGetAvailablePlaceholders: (
     customVars?: Record<string, string>,
   ) => Promise<Array<{ key: string; description: string; example: string }>>
-  issueTrackerValidateTemplate: (template: string) => Promise<{ valid: boolean; errors: string[] }>
-  issueTrackerFindIssueByKey: (issueKey: string) => Promise<TrackerIssue | null>
-  issueTrackerCreatePR: (
+  taskTrackerValidateTemplate: (template: string) => Promise<{ valid: boolean; errors: string[] }>
+  taskTrackerFindTaskByKey: (taskKey: string) => Promise<TrackerTask | null>
+  taskTrackerCreatePR: (
     repoRoot: string,
-    issue: TrackerIssue,
+    task: TrackerTask,
     sourceBranch: string,
   ) => Promise<{ url: string; title: string; targetBranch: string }>
 
@@ -470,11 +470,11 @@ interface CanopyAPI {
   getPathForFile: (file: File) => string
 }
 
-type IssueTrackerProvider = 'jira' | 'youtrack'
+type TaskTrackerProvider = 'jira' | 'youtrack'
 
-interface IssueTrackerConnectionInfo {
+interface TaskTrackerConnectionInfo {
   id: string
-  provider: IssueTrackerProvider
+  provider: TaskTrackerProvider
   name: string
   baseUrl: string
   projectKey: string
@@ -482,7 +482,7 @@ interface IssueTrackerConnectionInfo {
   username?: string
 }
 
-interface TrackerIssue {
+interface TrackerTask {
   key: string
   summary: string
   description: string

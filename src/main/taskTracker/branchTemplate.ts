@@ -1,4 +1,4 @@
-import type { TrackerIssue, TrackerSprint } from './types'
+import type { TrackerTask, TrackerSprint } from './types'
 
 export interface PlaceholderInfo {
   key: string
@@ -10,10 +10,10 @@ const BUILTIN_PLACEHOLDERS: PlaceholderInfo[] = [
   { key: 'branchType', description: 'Branch type prefix (feat/fix/...)', example: 'feat' },
   { key: 'sprint', description: 'Sprint number', example: '10' },
   { key: 'sprintName', description: 'Sprint name', example: 'Sprint 10' },
-  { key: 'issueKey', description: 'Issue key', example: 'GAKKO-21' },
-  { key: 'parentKey', description: 'Parent issue key (story)', example: 'GAKKO-20' },
-  { key: 'issueType', description: 'Issue type', example: 'subtask' },
-  { key: 'issueTitle', description: 'Issue title (slugified)', example: 'fix-login-bug' },
+  { key: 'taskKey', description: 'Task key', example: 'GAKKO-21' },
+  { key: 'parentKey', description: 'Parent task key (story)', example: 'GAKKO-20' },
+  { key: 'taskType', description: 'Task type', example: 'subtask' },
+  { key: 'taskTitle', description: 'Task title (slugified)', example: 'fix-login-bug' },
   { key: 'boardKey', description: 'Board/project key', example: 'GAKKO' },
 ]
 
@@ -28,11 +28,11 @@ const DEFAULT_TYPE_MAPPING: Record<string, string> = {
 export const BRANCH_TYPE_OPTIONS = ['feat', 'fix', 'refactor', 'chore', 'docs', 'test']
 
 export function resolveBranchType(
-  issueType: string,
+  taskType: string,
   customMapping?: Record<string, string>,
 ): string {
   const mapping = { ...DEFAULT_TYPE_MAPPING, ...customMapping }
-  return mapping[issueType.toLowerCase()] ?? 'feat'
+  return mapping[taskType.toLowerCase()] ?? 'feat'
 }
 
 export function getAvailablePlaceholders(
@@ -69,20 +69,20 @@ function sanitizeBranchName(name: string): string {
 }
 
 export function buildVariables(
-  issue: TrackerIssue,
+  task: TrackerTask,
   sprint: TrackerSprint | null,
   customVars: Record<string, string> = {},
   branchType?: string,
 ): Record<string, string> {
   const vars: Record<string, string> = {
     ...(branchType !== undefined ? { branchType } : {}),
-    sprint: String(sprint?.number ?? issue.sprintNumber ?? ''),
-    sprintName: sprint?.name ?? issue.sprintName ?? '',
-    issueKey: issue.key,
-    parentKey: issue.parentKey ?? '',
-    issueType: issue.type,
-    issueTitle: slugify(issue.summary),
-    boardKey: issue.key.split('-')[0] ?? '',
+    sprint: String(sprint?.number ?? task.sprintNumber ?? ''),
+    sprintName: sprint?.name ?? task.sprintName ?? '',
+    taskKey: task.key,
+    parentKey: task.parentKey ?? '',
+    taskType: task.type,
+    taskTitle: slugify(task.summary),
+    boardKey: task.key.split('-')[0] ?? '',
     ...customVars,
   }
   return vars
@@ -120,9 +120,9 @@ export function validateTemplate(template: string): { valid: boolean; errors: st
     errors.push('Mismatched braces in template')
   }
 
-  // Must contain at least {issueKey}
-  if (!template.includes('{issueKey}')) {
-    errors.push('Template should contain {issueKey} placeholder')
+  // Must contain at least {taskKey}
+  if (!template.includes('{taskKey}')) {
+    errors.push('Template should contain {taskKey} placeholder')
   }
 
   return { valid: errors.length === 0, errors }
@@ -133,10 +133,10 @@ export function renderPreview(template: string, customVars: Record<string, strin
     branchType: 'feat',
     sprint: '10',
     sprintName: 'Sprint 10',
-    issueKey: 'PROJ-42',
+    taskKey: 'PROJ-42',
     parentKey: 'PROJ-40',
-    issueType: 'subtask',
-    issueTitle: 'fix-login-validation',
+    taskType: 'subtask',
+    taskTitle: 'fix-login-validation',
     boardKey: 'PROJ',
     ...customVars,
   }

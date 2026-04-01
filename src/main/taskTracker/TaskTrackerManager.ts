@@ -1,52 +1,52 @@
 import type { PreferencesStore } from '../db/PreferencesStore'
 import { createProviderClient } from './providers'
 import type {
-  IssueTrackerConnection,
+  TaskTrackerConnection,
   TrackerBoard,
-  TrackerIssue,
+  TrackerTask,
   TrackerSprint,
   TrackerStatus,
 } from './types'
 
-const CONNECTIONS_PREF_KEY = 'issueTracker.connections'
+const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
 
-export class IssueTrackerManager {
+export class TaskTrackerManager {
   constructor(private preferencesStore: PreferencesStore) {}
 
-  getConnections(): IssueTrackerConnection[] {
+  getConnections(): TaskTrackerConnection[] {
     const raw = this.preferencesStore.get(CONNECTIONS_PREF_KEY)
     if (!raw) return []
     try {
-      return JSON.parse(raw) as IssueTrackerConnection[]
+      return JSON.parse(raw) as TaskTrackerConnection[]
     } catch {
       return []
     }
   }
 
-  private saveConnections(connections: IssueTrackerConnection[]): void {
+  private saveConnections(connections: TaskTrackerConnection[]): void {
     this.preferencesStore.set(CONNECTIONS_PREF_KEY, JSON.stringify(connections))
   }
 
-  private getConnection(connectionId: string): IssueTrackerConnection {
+  private getConnection(connectionId: string): TaskTrackerConnection {
     const conn = this.getConnections().find((c) => c.id === connectionId)
     if (!conn) throw new Error(`Connection not found: ${connectionId}`)
     return conn
   }
 
-  private getToken(connection: IssueTrackerConnection): string {
+  private getToken(connection: TaskTrackerConnection): string {
     const token = this.preferencesStore.get(connection.authPrefKey)
     if (!token) throw new Error(`No auth token for connection: ${connection.name}`)
     return token
   }
 
   addConnection(
-    connection: Omit<IssueTrackerConnection, 'id' | 'authPrefKey'>,
+    connection: Omit<TaskTrackerConnection, 'id' | 'authPrefKey'>,
     token: string,
-  ): IssueTrackerConnection {
+  ): TaskTrackerConnection {
     const id = crypto.randomUUID()
-    const authPrefKey = `issueTracker.token.${id}`
+    const authPrefKey = `taskTracker.token.${id}`
 
-    const newConn: IssueTrackerConnection = {
+    const newConn: TaskTrackerConnection = {
       ...connection,
       id,
       authPrefKey,
@@ -78,10 +78,10 @@ export class IssueTrackerManager {
   }
 
   async testNewConnection(
-    connection: Omit<IssueTrackerConnection, 'id' | 'authPrefKey'>,
+    connection: Omit<TaskTrackerConnection, 'id' | 'authPrefKey'>,
     token: string,
   ): Promise<boolean> {
-    const tempConn: IssueTrackerConnection = {
+    const tempConn: TaskTrackerConnection = {
       ...connection,
       id: 'temp',
       authPrefKey: 'temp',
@@ -91,10 +91,10 @@ export class IssueTrackerManager {
   }
 
   async fetchBoardsForNew(
-    connection: Omit<IssueTrackerConnection, 'id' | 'authPrefKey'>,
+    connection: Omit<TaskTrackerConnection, 'id' | 'authPrefKey'>,
     token: string,
   ): Promise<TrackerBoard[]> {
-    const tempConn: IssueTrackerConnection = {
+    const tempConn: TaskTrackerConnection = {
       ...connection,
       id: 'temp',
       authPrefKey: 'temp',
@@ -103,14 +103,14 @@ export class IssueTrackerManager {
     return client.fetchBoards(tempConn, token)
   }
 
-  async findIssueByKey(issueKey: string): Promise<TrackerIssue | null> {
+  async findTaskByKey(taskKey: string): Promise<TrackerTask | null> {
     const connections = this.getConnections()
     for (const conn of connections) {
       try {
         const token = this.getToken(conn)
         const client = createProviderClient(conn.provider)
-        const issue = await client.fetchIssueByKey(conn, token, issueKey)
-        if (issue) return issue
+        const found = await client.fetchTaskByKey(conn, token, taskKey)
+        if (found) return found
       } catch {
         // try next connection
       }
@@ -139,14 +139,14 @@ export class IssueTrackerManager {
     return client.fetchStatuses(conn, token, boardId)
   }
 
-  async fetchIssues(
+  async fetchTasks(
     connectionId: string,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
-  ): Promise<TrackerIssue[]> {
+  ): Promise<TrackerTask[]> {
     const conn = this.getConnection(connectionId)
     const token = this.getToken(conn)
     const client = createProviderClient(conn.provider)
-    return client.fetchIssues(conn, token, params)
+    return client.fetchTasks(conn, token, params)
   }
 
   async getCurrentSprint(connectionId: string, boardId?: string): Promise<TrackerSprint | null> {

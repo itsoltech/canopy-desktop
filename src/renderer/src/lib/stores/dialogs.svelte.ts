@@ -49,8 +49,8 @@ interface PreferencesState {
   section?: string
 }
 
-interface IssuePickerState {
-  type: 'issuePicker'
+interface TaskPickerState {
+  type: 'taskPicker'
   connectionId: string
 }
 
@@ -73,7 +73,7 @@ type DialogState =
   | InputDialogState
   | CreateWorktreeState
   | PreferencesState
-  | IssuePickerState
+  | TaskPickerState
   | AboutState
   | ChangelogState
 
@@ -134,8 +134,8 @@ export function showPreferences(section?: string): void {
   dialogState.current = { type: 'preferences', section }
 }
 
-export function showIssuePicker(connectionId: string): void {
-  dialogState.current = { type: 'issuePicker', connectionId }
+export function showTaskPicker(connectionId: string): void {
+  dialogState.current = { type: 'taskPicker', connectionId }
 }
 
 export function showAbout(): void {

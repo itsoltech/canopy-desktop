@@ -20,8 +20,8 @@ import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 const execFileAsync = promisify(execFile)
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
-import type { IssueTrackerManager } from '../issueTracker/IssueTrackerManager'
-import type { IssueTrackerProvider, TrackerIssue } from '../issueTracker/types'
+import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
+import type { TaskTrackerProvider, TrackerTask } from '../taskTracker/types'
 import {
   buildVariables,
   renderBranchName,
@@ -30,8 +30,8 @@ import {
   validateTemplate,
   resolveBranchType,
   BRANCH_TYPE_OPTIONS,
-} from '../issueTracker/branchTemplate'
-import { createPullRequest, buildPRConfig } from '../issueTracker/prCreation'
+} from '../taskTracker/branchTemplate'
+import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -48,7 +48,7 @@ export function registerIpcHandlers(
   agentSessionManager: AgentSessionManager,
   windowManager: WindowManager,
   browserManager: BrowserManager,
-  issueTrackerManager: IssueTrackerManager,
+  taskTrackerManager: TaskTrackerManager,
 ): void {
   // --- PTY ---
 
@@ -734,18 +734,18 @@ export function registerIpcHandlers(
     }
   })
 
-  // --- Issue Tracker ---
+  // --- Task Tracker ---
 
-  ipcMain.handle('issueTracker:getConnections', () => {
-    return issueTrackerManager.getConnections()
+  ipcMain.handle('taskTracker:getConnections', () => {
+    return taskTrackerManager.getConnections()
   })
 
   ipcMain.handle(
-    'issueTracker:addConnection',
+    'taskTracker:addConnection',
     async (
       _event,
       payload: {
-        provider: IssueTrackerProvider
+        provider: TaskTrackerProvider
         name: string
         baseUrl: string
         projectKey: string
@@ -755,27 +755,27 @@ export function registerIpcHandlers(
       },
     ) => {
       const { token, ...connectionData } = payload
-      return issueTrackerManager.addConnection(connectionData, token)
+      return taskTrackerManager.addConnection(connectionData, token)
     },
   )
 
-  ipcMain.handle('issueTracker:removeConnection', (_event, payload: { connectionId: string }) => {
-    issueTrackerManager.removeConnection(payload.connectionId)
+  ipcMain.handle('taskTracker:removeConnection', (_event, payload: { connectionId: string }) => {
+    taskTrackerManager.removeConnection(payload.connectionId)
   })
 
   ipcMain.handle(
-    'issueTracker:testConnection',
+    'taskTracker:testConnection',
     async (_event, payload: { connectionId: string }) => {
-      return issueTrackerManager.testConnection(payload.connectionId)
+      return taskTrackerManager.testConnection(payload.connectionId)
     },
   )
 
   ipcMain.handle(
-    'issueTracker:testNewConnection',
+    'taskTracker:testNewConnection',
     async (
       _event,
       payload: {
-        provider: IssueTrackerProvider
+        provider: TaskTrackerProvider
         name: string
         baseUrl: string
         projectKey: string
@@ -785,20 +785,20 @@ export function registerIpcHandlers(
       },
     ) => {
       const { token, ...connectionData } = payload
-      return issueTrackerManager.testNewConnection(connectionData, token)
+      return taskTrackerManager.testNewConnection(connectionData, token)
     },
   )
 
-  ipcMain.handle('issueTracker:fetchBoards', async (_event, payload: { connectionId: string }) => {
-    return issueTrackerManager.fetchBoards(payload.connectionId)
+  ipcMain.handle('taskTracker:fetchBoards', async (_event, payload: { connectionId: string }) => {
+    return taskTrackerManager.fetchBoards(payload.connectionId)
   })
 
   ipcMain.handle(
-    'issueTracker:fetchBoardsForNew',
+    'taskTracker:fetchBoardsForNew',
     async (
       _event,
       payload: {
-        provider: IssueTrackerProvider
+        provider: TaskTrackerProvider
         name: string
         baseUrl: string
         projectKey?: string
@@ -807,7 +807,7 @@ export function registerIpcHandlers(
       },
     ) => {
       const { token, ...connectionData } = payload
-      return issueTrackerManager.fetchBoardsForNew(
+      return taskTrackerManager.fetchBoardsForNew(
         { ...connectionData, projectKey: connectionData.projectKey ?? '' },
         token,
       )
@@ -815,14 +815,14 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle(
-    'issueTracker:fetchStatuses',
+    'taskTracker:fetchStatuses',
     async (_event, payload: { connectionId: string; boardId?: string }) => {
-      return issueTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)
+      return taskTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)
     },
   )
 
   ipcMain.handle(
-    'issueTracker:fetchIssues',
+    'taskTracker:fetchTasks',
     async (
       _event,
       payload: {
@@ -833,43 +833,43 @@ export function registerIpcHandlers(
       },
     ) => {
       const { connectionId, ...params } = payload
-      return issueTrackerManager.fetchIssues(connectionId, params)
+      return taskTrackerManager.fetchTasks(connectionId, params)
     },
   )
 
   ipcMain.handle(
-    'issueTracker:getCurrentUser',
+    'taskTracker:getCurrentUser',
     async (_event, payload: { connectionId: string }) => {
-      return issueTrackerManager.getCurrentUserDisplayName(payload.connectionId)
+      return taskTrackerManager.getCurrentUserDisplayName(payload.connectionId)
     },
   )
 
   ipcMain.handle(
-    'issueTracker:getCurrentSprint',
+    'taskTracker:getCurrentSprint',
     async (_event, payload: { connectionId: string; boardId?: string }) => {
-      return issueTrackerManager.getCurrentSprint(payload.connectionId, payload.boardId)
+      return taskTrackerManager.getCurrentSprint(payload.connectionId, payload.boardId)
     },
   )
 
   ipcMain.handle(
-    'issueTracker:resolveBranchName',
+    'taskTracker:resolveBranchName',
     async (
       _event,
       payload: {
         connectionId: string
-        issue: TrackerIssue
+        task: TrackerTask
         boardId?: string
         branchType?: string
       },
     ) => {
       // Resolve template: board → connection → global
-      let template = '{issueKey}'
+      let template = '{taskKey}'
       let customVars: Record<string, string> = {}
 
       const keys = [
-        payload.boardId && `issueTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
-        `issueTracker.branchTemplate.${payload.connectionId}`,
-        'issueTracker.branchTemplate',
+        payload.boardId && `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+        `taskTracker.branchTemplate.${payload.connectionId}`,
+        'taskTracker.branchTemplate',
       ].filter(Boolean) as string[]
 
       for (const key of keys) {
@@ -888,38 +888,38 @@ export function registerIpcHandlers(
         }
       }
 
-      // Get sprint: from issue data or from API
-      const sprint = await issueTrackerManager
+      // Get sprint: from task data or from API
+      const sprint = await taskTrackerManager
         .getCurrentSprint(payload.connectionId, payload.boardId)
         .catch(() => null)
 
-      const variables = buildVariables(payload.issue, sprint, customVars, payload.branchType)
+      const variables = buildVariables(payload.task, sprint, customVars, payload.branchType)
       return renderBranchName(template, variables)
     },
   )
 
   ipcMain.handle(
-    'issueTracker:renderBranchPreview',
+    'taskTracker:renderBranchPreview',
     (_event, payload: { template: string; customVars?: Record<string, string> }) => {
       return renderPreview(payload.template, payload.customVars)
     },
   )
 
   ipcMain.handle(
-    'issueTracker:getAvailablePlaceholders',
+    'taskTracker:getAvailablePlaceholders',
     (_event, payload?: { customVars?: Record<string, string> }) => {
       return getAvailablePlaceholders(payload?.customVars)
     },
   )
 
-  ipcMain.handle('issueTracker:validateTemplate', (_event, payload: { template: string }) => {
+  ipcMain.handle('taskTracker:validateTemplate', (_event, payload: { template: string }) => {
     return validateTemplate(payload.template)
   })
 
   ipcMain.handle(
-    'issueTracker:resolveBranchType',
-    (_event, payload: { issueType: string; connectionId?: string; boardId?: string }) => {
-      const typeMappingJson = preferencesStore.get('issueTracker.typeMapping')
+    'taskTracker:resolveBranchType',
+    (_event, payload: { taskType: string; connectionId?: string; boardId?: string }) => {
+      const typeMappingJson = preferencesStore.get('taskTracker.typeMapping')
       let typeMapping: Record<string, string> | undefined
       if (typeMappingJson) {
         try {
@@ -933,9 +933,9 @@ export function registerIpcHandlers(
       const keys = [
         payload.boardId &&
           payload.connectionId &&
-          `issueTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
-        payload.connectionId && `issueTracker.branchTemplate.${payload.connectionId}`,
-        'issueTracker.branchTemplate',
+          `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+        payload.connectionId && `taskTracker.branchTemplate.${payload.connectionId}`,
+        'taskTracker.branchTemplate',
       ].filter(Boolean) as string[]
 
       let hasBranchType = false
@@ -953,41 +953,41 @@ export function registerIpcHandlers(
       }
 
       return {
-        defaultType: resolveBranchType(payload.issueType, typeMapping),
+        defaultType: resolveBranchType(payload.taskType, typeMapping),
         options: BRANCH_TYPE_OPTIONS,
         hasBranchType,
       }
     },
   )
 
-  ipcMain.handle('issueTracker:findIssueByKey', async (_event, payload: { issueKey: string }) => {
-    return issueTrackerManager.findIssueByKey(payload.issueKey)
+  ipcMain.handle('taskTracker:findTaskByKey', async (_event, payload: { taskKey: string }) => {
+    return taskTrackerManager.findTaskByKey(payload.taskKey)
   })
 
   ipcMain.handle(
-    'issueTracker:createPR',
+    'taskTracker:createPR',
     async (
       _event,
       payload: {
         repoRoot: string
-        issue: TrackerIssue
+        task: TrackerTask
         sourceBranch: string
       },
     ) => {
-      let issue = payload.issue
-      if (issue.key && !issue.summary) {
-        const found = await issueTrackerManager.findIssueByKey(issue.key)
-        if (found) issue = found
+      let task = payload.task
+      if (task.key && !task.summary) {
+        const found = await taskTrackerManager.findTaskByKey(task.key)
+        if (found) task = found
       }
 
       const titleTemplate =
-        preferencesStore.get('issueTracker.prTitleTemplate') || '[{issueKey}] {issueTitle}'
+        preferencesStore.get('taskTracker.prTitleTemplate') || '[{taskKey}] {taskTitle}'
       const bodyTemplate =
-        preferencesStore.get('issueTracker.prBodyTemplate') ||
-        '## {issueKey}: {issueTitle}\n\n{issueUrl}'
-      const defaultBranch = preferencesStore.get('issueTracker.prDefaultBranch') || 'develop'
-      const targetRulesJson = preferencesStore.get('issueTracker.prTargetRules')
-      let targetRules: Array<{ issueType: string; targetPattern: string }> = []
+        preferencesStore.get('taskTracker.prBodyTemplate') ||
+        '## {taskKey}: {taskTitle}\n\n{taskUrl}'
+      const defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || 'develop'
+      const targetRulesJson = preferencesStore.get('taskTracker.prTargetRules')
+      let targetRules: Array<{ taskType: string; targetPattern: string }> = []
       if (targetRulesJson) {
         try {
           targetRules = JSON.parse(targetRulesJson)
@@ -1002,7 +1002,7 @@ export function registerIpcHandlers(
       const prConfig = buildPRConfig(titleTemplate, bodyTemplate, defaultBranch, targetRules)
       return createPullRequest({
         repoRoot: payload.repoRoot,
-        issue,
+        task,
         sourceBranch: payload.sourceBranch,
         prConfig,
         existingBranches,

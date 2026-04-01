@@ -17,7 +17,7 @@ import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
-import { IssueTrackerManager } from './issueTracker/IssueTrackerManager'
+import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
@@ -397,7 +397,7 @@ app.whenReady().then(async () => {
   windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
-  const issueTrackerManager = new IssueTrackerManager(preferencesStore)
+  const taskTrackerManager = new TaskTrackerManager(preferencesStore)
 
   registerIpcHandlers(
     ptyManager,
@@ -409,7 +409,7 @@ app.whenReady().then(async () => {
     agentSessionManager,
     windowManager,
     browserManager,
-    issueTrackerManager,
+    taskTrackerManager,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {

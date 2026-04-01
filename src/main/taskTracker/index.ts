@@ -1,17 +1,17 @@
-export { IssueTrackerManager } from './IssueTrackerManager'
+export { TaskTrackerManager } from './TaskTrackerManager'
 export { createProviderClient } from './providers'
 export { renderBranchName, buildVariables, renderPreview, validateTemplate } from './branchTemplate'
 export { renderPR, renderPRTitle, renderPRBody, resolveTargetBranch } from './prTemplate'
 export { createPullRequest, buildPRConfig } from './prCreation'
 export type {
-  IssueTrackerProvider,
-  IssueTrackerConnection,
-  TrackerIssue,
+  TaskTrackerProvider,
+  TaskTrackerConnection,
+  TrackerTask,
   TrackerBoard,
   TrackerStatus,
   TrackerSprint,
   BranchTemplateConfig,
   PRTemplateConfig,
-  IssueTrackerConfig,
-  IssueTrackerExportData,
+  TaskTrackerConfig,
+  TaskTrackerExportData,
 } from './types'

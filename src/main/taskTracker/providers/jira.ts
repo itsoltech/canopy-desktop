@@ -1,13 +1,13 @@
 import type {
-  IssueTrackerConnection,
-  IssueTrackerProviderClient,
+  TaskTrackerConnection,
+  TaskTrackerProviderClient,
   TrackerBoard,
-  TrackerIssue,
+  TrackerTask,
   TrackerSprint,
   TrackerStatus,
 } from '../types'
 
-interface JiraIssueFields {
+interface JiraTaskFields {
   summary?: string
   description?: string
   status?: { name?: string }
@@ -18,13 +18,13 @@ interface JiraIssueFields {
   sprint?: { id?: number; name?: string; state?: string }
 }
 
-interface JiraIssue {
+interface JiraTask {
   key: string
-  fields: JiraIssueFields
+  fields: JiraTaskFields
   self?: string
 }
 
-function buildAuthHeaders(connection: IssueTrackerConnection, token: string): HeadersInit {
+function buildAuthHeaders(connection: TaskTrackerConnection, token: string): HeadersInit {
   if (connection.username) {
     const encoded = Buffer.from(`${connection.username}:${token}`).toString('base64')
     return {
@@ -41,7 +41,7 @@ function buildAuthHeaders(connection: IssueTrackerConnection, token: string): He
 }
 
 async function jiraFetch<T>(
-  connection: IssueTrackerConnection,
+  connection: TaskTrackerConnection,
   token: string,
   path: string,
 ): Promise<T> {
@@ -54,7 +54,7 @@ async function jiraFetch<T>(
   return res.json() as Promise<T>
 }
 
-function mapIssueType(fields: JiraIssueFields): string {
+function mapTaskType(fields: JiraTaskFields): string {
   const name = fields.issuetype?.name?.toLowerCase() ?? ''
   if (fields.issuetype?.subtask) return 'subtask'
   if (name.includes('story') || name.includes('user story')) return 'story'
@@ -68,24 +68,24 @@ function parseSprintNumber(name: string): number | undefined {
   return match ? parseInt(match[0], 10) : undefined
 }
 
-function mapJiraIssue(issue: JiraIssue, baseUrl: string): TrackerIssue {
-  const f = issue.fields
+function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {
+  const f = task.fields
   return {
-    key: issue.key,
+    key: task.key,
     summary: f.summary ?? '',
     description: f.description ?? '',
     status: f.status?.name ?? '',
     priority: f.priority?.name ?? '',
-    type: mapIssueType(f),
+    type: mapTaskType(f),
     parentKey: f.parent?.key,
     sprintName: f.sprint?.name,
     sprintNumber: f.sprint?.name ? parseSprintNumber(f.sprint.name) : undefined,
     assignee: f.assignee?.displayName,
-    url: `${baseUrl.replace(/\/$/, '')}/browse/${issue.key}`,
+    url: `${baseUrl.replace(/\/$/, '')}/browse/${task.key}`,
   }
 }
 
-export const jiraClient: IssueTrackerProviderClient = {
+export const jiraClient: TaskTrackerProviderClient = {
   async testConnection(connection, token) {
     await jiraFetch(connection, token, '/rest/api/3/myself')
     return true
@@ -96,15 +96,15 @@ export const jiraClient: IssueTrackerProviderClient = {
     return data.displayName ?? ''
   },
 
-  async fetchIssueByKey(connection, token, issueKey) {
+  async fetchTaskByKey(connection, token, taskKey) {
     try {
       const fields = 'summary,status,priority,issuetype,parent,assignee,sprint'
-      const data = await jiraFetch<JiraIssue>(
+      const data = await jiraFetch<JiraTask>(
         connection,
         token,
-        `/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=${fields}`,
+        `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=${fields}`,
       )
-      return mapJiraIssue(data, connection.baseUrl)
+      return mapJiraTask(data, connection.baseUrl)
     } catch {
       return null
     }
@@ -131,7 +131,7 @@ export const jiraClient: IssueTrackerProviderClient = {
   },
 
   async fetchStatuses(connection, token) {
-    // Use /rest/api/3/statuses to get all actual issue statuses
+    // Use /rest/api/3/statuses to get all actual task statuses
     try {
       const data = await jiraFetch<
         Array<{ id: string; name: string; statusCategory?: { key?: string } }>
@@ -169,27 +169,27 @@ export const jiraClient: IssueTrackerProviderClient = {
     }
   },
 
-  async fetchIssues(connection, token, params) {
+  async fetchTasks(connection, token, params) {
     const resolvedBoardId = params.boardId || connection.boardId
     const fields = 'summary,status,priority,issuetype,parent,assignee,sprint'
 
-    // Board endpoint returns ONLY issues belonging to this board's filter
+    // Board endpoint returns ONLY tasks belonging to this board's filter
     if (resolvedBoardId) {
-      // Exclude done issues, sort by recent, single request
+      // Exclude done tasks, sort by recent, single request
       const jql = 'statusCategory != Done ORDER BY updated DESC'
       const jqlParam = `&jql=${encodeURIComponent(jql)}`
 
-      const data = await jiraFetch<{ issues: JiraIssue[] }>(
+      const data = await jiraFetch<{ issues: JiraTask[] }>(
         connection,
         token,
         `/rest/agile/1.0/board/${resolvedBoardId}/issue?fields=${fields}&maxResults=200${jqlParam}`,
       )
-      const allIssues = data.issues
+      const allTasks = data.issues
 
-      return allIssues.map((i) => mapJiraIssue(i, connection.baseUrl))
+      return allTasks.map((i) => mapJiraTask(i, connection.baseUrl))
     }
 
-    // No board — fallback to JQL search for assigned issues
+    // No board — fallback to JQL search for assigned tasks
     const jqlParts: string[] = []
     if (connection.projectKey) {
       jqlParts.push(`project = "${connection.projectKey}"`)
@@ -197,13 +197,13 @@ export const jiraClient: IssueTrackerProviderClient = {
     jqlParts.push('assignee = currentUser()')
 
     const jql = jqlParts.join(' AND ') + ' ORDER BY updated DESC'
-    const data = await jiraFetch<{ issues: JiraIssue[] }>(
+    const data = await jiraFetch<{ issues: JiraTask[] }>(
       connection,
       token,
       `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=200`,
     )
 
-    return data.issues.map((i) => mapJiraIssue(i, connection.baseUrl))
+    return data.issues.map((i) => mapJiraTask(i, connection.baseUrl))
   },
 
   async getCurrentSprint(connection, token, boardId) {
