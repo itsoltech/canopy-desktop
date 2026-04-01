@@ -17,6 +17,11 @@ asarUnpack:
   - resources/**
 win:
   executableName: canopy
+  azureSignOptions:
+    publisherName: 'IT SOL SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ'
+    endpoint: https://plc.codesigning.azure.net/
+    certificateProfileName: canopy
+    codeSigningAccountName: ITSOL
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
