@@ -1,3 +1,9 @@
+## [0.8.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.6...v0.8.0-next.7) (2026-04-01)
+
+### Features
+
+* **terminal:** add tmux session persistence for shell sessions ([#64](https://github.com/itsoltech/canopy-desktop/issues/64)) ([c33704d](https://github.com/itsoltech/canopy-desktop/commit/c33704d89a9ff26aa5cd3856c26171068b70daf1))
+
 ## [0.8.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.5...v0.8.0-next.6) (2026-04-01)
 
 ### Features
