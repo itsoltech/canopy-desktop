@@ -669,11 +669,11 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
   await Promise.allSettled(
     allSessions
       .filter((p) => p.paneType !== 'editor')
-      .map((p) =>
-        p.paneType === 'browser'
-          ? window.api.teardownBrowserWebview(p.sessionId)
-          : window.api.killPty(p.sessionId),
-      ),
+      .map((p) => {
+        if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
+        if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
+        return window.api.killPty(p.sessionId)
+      }),
   )
 
   delete tabsByWorktree[worktreePath]
@@ -691,11 +691,11 @@ export async function killAllTabs(): Promise<void> {
   await Promise.all(
     allSessions
       .filter((p) => p.paneType !== 'editor')
-      .map((p) =>
-        p.paneType === 'browser'
-          ? window.api.teardownBrowserWebview(p.sessionId)
-          : window.api.killPty(p.sessionId),
-      ),
+      .map((p) => {
+        if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
+        if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
+        return window.api.killPty(p.sessionId)
+      }),
   )
   for (const path of Object.keys(tabsByWorktree)) {
     delete tabsByWorktree[path]
