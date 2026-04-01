@@ -14,15 +14,17 @@ export interface TmuxSessionInfo {
 
 const SOCKET_NAME = 'canopy'
 
-const CANOPY_TMUX_CONFIG = `\
+function buildTmuxConfig(mouse: boolean): string {
+  return `\
 set -g status off
 set -g prefix None
 unbind-key -a
 set -g escape-time 0
 set -g default-terminal xterm-256color
-set -g mouse off
+set -g mouse ${mouse ? 'on' : 'off'}
 set -g history-limit 10000
 `
+}
 
 export class TmuxManager {
   private tmuxPath: string | null = null
@@ -62,14 +64,15 @@ export class TmuxManager {
     }
   }
 
-  async ensureConfig(): Promise<void> {
+  async ensureConfig(opts?: { mouse?: boolean }): Promise<void> {
+    const config = buildTmuxConfig(opts?.mouse ?? false)
     try {
       const existing = await readFile(this.configPath, 'utf-8')
-      if (existing === CANOPY_TMUX_CONFIG) return
+      if (existing === config) return
     } catch {
       // File doesn't exist — fall through to write
     }
-    await writeFile(this.configPath, CANOPY_TMUX_CONFIG, 'utf-8')
+    await writeFile(this.configPath, config, 'utf-8')
   }
 
   async newSession(opts: {
@@ -79,11 +82,12 @@ export class TmuxManager {
     shellArgs?: string[]
     cols?: number
     rows?: number
+    mouse?: boolean
   }): Promise<void> {
     if (!/^[\w-]+$/.test(opts.name)) {
       throw new Error('Invalid tmux session name')
     }
-    await this.ensureConfig()
+    await this.ensureConfig({ mouse: opts.mouse })
     const args = [
       '-f',
       this.configPath,

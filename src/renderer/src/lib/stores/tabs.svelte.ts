@@ -1215,36 +1215,25 @@ async function restoreSplitNode(
         paneType: 'browser',
         url: node.browserUrl,
       }
-    } else if (node.tmuxSessionName && node.toolId === 'shell') {
-      // Try to reattach to an existing tmux session
-      const exists = await window.api.tmuxHasSession(node.tmuxSessionName)
-      if (exists) {
-        const result = await window.api.tmuxAttach(node.tmuxSessionName)
-        pane = {
-          id: paneId,
-          sessionId: result.sessionId,
-          wsUrl: result.wsUrl,
-          toolId: node.toolId,
-          toolName: node.toolName,
-          isRunning: true,
-          exitCode: null,
-          title: null,
-          tmuxSessionName: node.tmuxSessionName,
-        }
-      } else {
-        // Tmux session gone, spawn fresh
-        const result = await window.api.spawnTool(node.toolId, worktreePath)
-        pane = {
-          id: paneId,
-          sessionId: result.sessionId,
-          wsUrl: result.wsUrl,
-          toolId: node.toolId,
-          toolName: result.toolName,
-          isRunning: true,
-          exitCode: null,
-          title: null,
-          tmuxSessionName: result.tmuxSessionName,
-        }
+    } else if (
+      node.tmuxSessionName &&
+      (await window.api.tmuxHasSession(node.tmuxSessionName).catch(() => false))
+    ) {
+      // Reattach to an existing tmux session
+      const result = await window.api.tmuxAttach(node.tmuxSessionName)
+      pane = {
+        id: paneId,
+        sessionId: result.sessionId,
+        wsUrl: result.wsUrl,
+        toolId: node.toolId,
+        toolName: node.toolName,
+        isRunning: true,
+        exitCode: null,
+        title: null,
+        tmuxSessionName: node.tmuxSessionName,
+      }
+      if (AI_TOOL_IDS.has(node.toolId)) {
+        initAgentSession(result.sessionId, node.toolId as AgentType)
       }
     } else {
       const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
