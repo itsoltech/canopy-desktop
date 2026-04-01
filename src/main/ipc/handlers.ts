@@ -589,39 +589,6 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('tools:setIcon', (_event, payload: { toolId: string; svgContent: string }) => {
-    if (typeof payload.svgContent !== 'string' || payload.svgContent.length > 256 * 1024) {
-      throw new Error('SVG content missing or too large (max 256 KB)')
-    }
-    toolRegistry.setIcon(payload.toolId, payload.svgContent)
-  })
-
-  ipcMain.handle('tools:getIcon', (_event, payload: { toolId: string }) => {
-    const svg = toolRegistry.getIcon(payload.toolId)
-    return svg ? toolRegistry.sanitizeSvg(svg) : null
-  })
-
-  ipcMain.handle('tools:removeIcon', (_event, payload: { toolId: string }) => {
-    toolRegistry.removeIcon(payload.toolId)
-  })
-
-  ipcMain.handle('tools:selectIconFile', async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win || win.isDestroyed()) return null
-    const result = await dialog.showOpenDialog(win, {
-      properties: ['openFile'],
-      filters: [{ name: 'SVG Images', extensions: ['svg'] }],
-    })
-    if (result.canceled || result.filePaths.length === 0) return null
-    const filePath = result.filePaths[0]
-    const stat = fs.statSync(filePath)
-    if (stat.size > 256 * 1024) {
-      throw new Error('SVG file too large (max 256 KB)')
-    }
-    const raw = fs.readFileSync(filePath, 'utf-8')
-    return toolRegistry.sanitizeSvg(raw)
-  })
-
   // --- Browser ---
 
   ipcMain.handle('browser:create', (event) => {

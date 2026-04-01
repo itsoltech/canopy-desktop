@@ -1,34 +1,11 @@
 <script lang="ts">
   import { ClaudeAILogo, OpenAILogo, GeminiLogo, GitLogo } from '@selemondev/svgl-svelte'
   import { Terminal, Globe, FileText } from 'lucide-svelte'
-  import SvgPreview from './SvgPreview.svelte'
 
   let { icon, size = 14 }: { icon: string; size?: number } = $props()
-
-  let customSvg: string | null = $state(null)
-
-  $effect(() => {
-    customSvg = null
-    if (!icon.startsWith('custom:')) return
-    const toolId = icon.slice('custom:'.length)
-    let active = true
-    window.api
-      .getToolIcon(toolId)
-      .then((svg) => {
-        if (active) customSvg = svg
-      })
-      .catch(() => {
-        if (active) customSvg = null
-      })
-    return () => {
-      active = false
-    }
-  })
 </script>
 
-{#if icon.startsWith('custom:') && customSvg}
-  <SvgPreview svg={customSvg} {size} />
-{:else if icon === 'ClaudeAI'}
+{#if icon === 'ClaudeAI'}
   <ClaudeAILogo width={size} height={size} />
 {:else if icon === 'OpenAI'}
   <OpenAILogo width={size} height={size} />

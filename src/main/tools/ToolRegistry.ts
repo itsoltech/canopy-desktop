@@ -1,8 +1,5 @@
 import { execFile } from 'child_process'
-import { app } from 'electron'
-import fs from 'fs'
 import os from 'os'
-import path from 'path'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from '../db/Database'
 import type { ToolDefinition, ToolDefinitionRow } from '../db/types'
@@ -87,7 +84,6 @@ export class ToolRegistry {
 
   removeCustom(id: string): void {
     this.db.prepare('DELETE FROM tool_definitions WHERE id = ? AND is_custom = 1').run(id)
-    this.removeIcon(id)
     this.reload()
   }
 
@@ -150,43 +146,6 @@ export class ToolRegistry {
       )
       .run(...values)
     this.reload()
-  }
-
-  private get iconDir(): string {
-    const dir = path.join(app.getPath('userData'), 'tool-icons')
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    return dir
-  }
-
-  sanitizeSvg(svg: string): string {
-    return svg
-      .replace(/<script[\s>][\s\S]*?<\/script\s*>/gi, '')
-      .replace(/<foreignObject[\s>][\s\S]*?<\/foreignObject\s*>/gi, '')
-      .replace(/<style[\s>][\s\S]*?<\/style\s*>/gi, '')
-      .replace(/\s+on\w+\s*=\s*"[^"]*"/gi, '')
-      .replace(/\s+on\w+\s*=\s*'[^']*'/gi, '')
-      .replace(/\s+on\w+\s*=\s*[^\s>]*/gi, '')
-      .replace(/(?:xlink:)?href\s*=\s*["']?\s*javascript:/gi, 'href="')
-      .replace(/(?:xlink:)?href\s*=\s*["']?\s*data:/gi, 'href="')
-  }
-
-  setIcon(toolId: string, svgContent: string): void {
-    this.validateId(toolId)
-    const filePath = path.join(this.iconDir, `${toolId}.svg`)
-    fs.writeFileSync(filePath, this.sanitizeSvg(svgContent), 'utf-8')
-  }
-
-  getIcon(toolId: string): string | null {
-    this.validateId(toolId)
-    const filePath = path.join(this.iconDir, `${toolId}.svg`)
-    if (!fs.existsSync(filePath)) return null
-    return fs.readFileSync(filePath, 'utf-8')
-  }
-
-  removeIcon(toolId: string): void {
-    this.validateId(toolId)
-    const filePath = path.join(this.iconDir, `${toolId}.svg`)
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
   }
 
   resolveCommand(tool: ToolDefinition): string {

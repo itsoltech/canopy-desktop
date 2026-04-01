@@ -65,12 +65,6 @@ const api = {
       category?: string
     },
   ) => ipcRenderer.invoke('tools:updateCustom', { id, changes }),
-  setToolIcon: (toolId: string, svgContent: string) =>
-    ipcRenderer.invoke('tools:setIcon', { toolId, svgContent }),
-  getToolIcon: (toolId: string) => ipcRenderer.invoke('tools:getIcon', { toolId }),
-  removeToolIcon: (toolId: string) => ipcRenderer.invoke('tools:removeIcon', { toolId }),
-  selectIconFile: () => ipcRenderer.invoke('tools:selectIconFile'),
-
   // Agent session
   updateAgentTitle: (sessionId: string, title: string) =>
     ipcRenderer.invoke('agent:updateTitle', { sessionId, title }),

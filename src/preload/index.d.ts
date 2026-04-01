@@ -279,11 +279,6 @@ interface CanopyAPI {
       category?: string
     },
   ) => Promise<ToolDefinition[]>
-  setToolIcon: (toolId: string, svgContent: string) => Promise<void>
-  getToolIcon: (toolId: string) => Promise<string | null>
-  removeToolIcon: (toolId: string) => Promise<void>
-  selectIconFile: () => Promise<string | null>
-
   // App / Shell
   showInFolder: (path: string) => Promise<void>
   newWindow: () => Promise<void>
