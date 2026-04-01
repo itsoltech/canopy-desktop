@@ -10,6 +10,7 @@
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
+  import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
   import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
@@ -432,7 +433,9 @@
     baseBranch={dialogState.current.baseBranch}
   />
 {:else if dialogState.current.type === 'preferences'}
-  <PreferencesModal />
+  <PreferencesModal section={dialogState.current.section} />
+{:else if dialogState.current.type === 'taskPicker'}
+  <TaskPickerModal connectionId={dialogState.current.connectionId} />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}

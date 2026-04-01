@@ -618,6 +618,16 @@ export function getTabFocusedToolId(tab: TabInfo): string {
   return focused?.toolId ?? tab.toolId
 }
 
+export function getActivePtySessionId(): string | null {
+  const path = workspaceState.selectedWorktreePath
+  if (!path) return null
+  const tabId = activeTabId[path]
+  const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
+  if (!tab) return null
+  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
+  return focused?.sessionId ?? null
+}
+
 export function toggleFocusedInspector(): void {
   const path = workspaceState.selectedWorktreePath
   if (!path) return

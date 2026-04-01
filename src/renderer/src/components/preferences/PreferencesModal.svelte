@@ -11,6 +11,9 @@
   import UpdatePrefs from './UpdatePrefs.svelte'
   import ViewportsPrefs from './ViewportsPrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
+  import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
+
+  let { section: initialSection }: { section?: string } = $props()
 
   let containerEl: HTMLDivElement | undefined = $state()
 
@@ -24,11 +27,20 @@
     'Gemini',
     'Git',
     'Web Browser',
+    'Tasks',
     'Shortcuts',
   ] as const
   type Section = (typeof sections)[number]
 
-  let activeSection: Section = $state('General')
+  function resolveInitialSection(): Section {
+    if (initialSection) {
+      const match = sections.find((s) => s.toLowerCase() === initialSection!.toLowerCase())
+      if (match) return match
+    }
+    return 'General'
+  }
+
+  let activeSection: Section = $state(resolveInitialSection())
 
   onMount(() => {
     containerEl?.focus()
@@ -87,6 +99,8 @@
         <GitPrefs />
       {:else if activeSection === 'Web Browser'}
         <ViewportsPrefs />
+      {:else if activeSection === 'Tasks'}
+        <TaskTrackerPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
       {/if}

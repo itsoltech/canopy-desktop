@@ -217,6 +217,8 @@ const api = {
   gitBranches: (repoRoot: string) => ipcRenderer.invoke('git:branches', { repoRoot }),
   gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) =>
     ipcRenderer.invoke('git:branchCreate', { repoRoot, name, baseBranch }),
+  gitCheckout: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('git:checkout', { repoRoot, branch }),
   gitBranchDelete: (repoRoot: string, name: string, force: boolean) =>
     ipcRenderer.invoke('git:branchDelete', { repoRoot, name, force }),
   gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) =>
@@ -465,6 +467,105 @@ const api = {
   readDir: (dirPath: string) => ipcRenderer.invoke('fs:readDir', { dirPath }),
   readFile: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
+
+  // Task Tracker
+  taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),
+  taskTrackerAddConnection: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('taskTracker:addConnection', connection),
+  taskTrackerRemoveConnection: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:removeConnection', { connectionId }),
+  taskTrackerUpdateConnection: (
+    connectionId: string,
+    updates: { name?: string; baseUrl?: string; username?: string; token?: string },
+  ) => ipcRenderer.invoke('taskTracker:updateConnection', { connectionId, ...updates }),
+  taskTrackerTestConnection: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:testConnection', { connectionId }),
+  taskTrackerTestNewConnection: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey: string
+    boardId?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('taskTracker:testNewConnection', connection),
+  taskTrackerFetchBoards: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:fetchBoards', { connectionId }),
+  taskTrackerFetchBoardsForNew: (connection: {
+    provider: string
+    name: string
+    baseUrl: string
+    projectKey?: string
+    username?: string
+    token: string
+  }) => ipcRenderer.invoke('taskTracker:fetchBoardsForNew', connection),
+  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId }),
+  taskTrackerFetchTasks: (
+    connectionId: string,
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => ipcRenderer.invoke('taskTracker:fetchTasks', { connectionId, ...params }),
+  taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId }),
+  taskTrackerGetCurrentUser: (connectionId: string) =>
+    ipcRenderer.invoke('taskTracker:getCurrentUser', { connectionId }) as Promise<string>,
+  taskTrackerResolveBranchName: (
+    connectionId: string,
+    task: { key: string; type: string; [k: string]: unknown },
+    boardId?: string,
+    branchType?: string,
+  ) =>
+    ipcRenderer.invoke('taskTracker:resolveBranchName', {
+      connectionId,
+      task,
+      boardId,
+      branchType,
+    }),
+  taskTrackerResolveBranchType: (taskType: string, connectionId?: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:resolveBranchType', {
+      taskType,
+      connectionId,
+      boardId,
+    }) as Promise<{
+      defaultType: string
+      options: string[]
+      hasBranchType: boolean
+    }>,
+  taskTrackerRenderBranchPreview: (template: string, customVars?: Record<string, string>) =>
+    ipcRenderer.invoke('taskTracker:renderBranchPreview', { template, customVars }),
+  taskTrackerGetAvailablePlaceholders: (customVars?: Record<string, string>) =>
+    ipcRenderer.invoke('taskTracker:getAvailablePlaceholders', { customVars }),
+  taskTrackerValidateTemplate: (template: string) =>
+    ipcRenderer.invoke('taskTracker:validateTemplate', { template }),
+  taskTrackerFindTaskByKey: (taskKey: string) =>
+    ipcRenderer.invoke('taskTracker:findTaskByKey', { taskKey }),
+  taskTrackerResolvePRPreview: (taskKey: string, connectionId?: string, boardId?: string) =>
+    ipcRenderer.invoke('taskTracker:resolvePRPreview', {
+      taskKey,
+      connectionId,
+      boardId,
+    }) as Promise<{ title: string; targetBranch: string }>,
+  taskTrackerCreatePR: (
+    repoRoot: string,
+    task: { key: string; [k: string]: unknown },
+    sourceBranch: string,
+    connectionId?: string,
+    boardId?: string,
+  ) =>
+    ipcRenderer.invoke('taskTracker:createPR', {
+      repoRoot,
+      task,
+      sourceBranch,
+      connectionId,
+      boardId,
+    }),
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

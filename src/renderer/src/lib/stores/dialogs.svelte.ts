@@ -46,6 +46,12 @@ interface CreateWorktreeState {
 
 interface PreferencesState {
   type: 'preferences'
+  section?: string
+}
+
+interface TaskPickerState {
+  type: 'taskPicker'
+  connectionId: string
 }
 
 interface AboutState {
@@ -76,6 +82,7 @@ type DialogState =
   | InputDialogState
   | CreateWorktreeState
   | PreferencesState
+  | TaskPickerState
   | AboutState
   | ChangelogState
   | OnboardingWizardState
@@ -134,8 +141,12 @@ export function showCreateWorktree(opts?: {
   }
 }
 
-export function showPreferences(): void {
-  dialogState.current = { type: 'preferences' }
+export function showPreferences(section?: string): void {
+  dialogState.current = { type: 'preferences', section }
+}
+
+export function showTaskPicker(connectionId: string): void {
+  dialogState.current = { type: 'taskPicker', connectionId }
 }
 
 export function showAbout(): void {

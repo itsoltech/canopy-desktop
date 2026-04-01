@@ -20,20 +20,27 @@
 
 {#if toastState.visible}
   <div class="toast" role="status" aria-live="polite">
-    <span class="toast-url">{toastState.url}</span>
-    <div class="toast-actions">
-      <button class="toast-btn" onclick={openInBrowser} title="Open in Browser pane">
-        <Globe size={13} />
-        Browser
-      </button>
-      <button class="toast-btn" onclick={openInSystem} title="Open in system browser">
-        <ExternalLink size={13} />
-        System
-      </button>
+    {#if toastState.url}
+      <span class="toast-url">{toastState.url}</span>
+      <div class="toast-actions">
+        <button class="toast-btn" onclick={openInBrowser} title="Open in Browser pane">
+          <Globe size={13} />
+          Browser
+        </button>
+        <button class="toast-btn" onclick={openInSystem} title="Open in system browser">
+          <ExternalLink size={13} />
+          System
+        </button>
+        <button class="toast-close" onclick={dismissToast} title="Dismiss" aria-label="Dismiss">
+          <X size={13} />
+        </button>
+      </div>
+    {:else}
+      <span class="toast-message">{toastState.message}</span>
       <button class="toast-close" onclick={dismissToast} title="Dismiss" aria-label="Dismiss">
         <X size={13} />
       </button>
-    </div>
+    {/if}
   </div>
 {/if}
 
@@ -122,5 +129,14 @@
   .toast-close:hover {
     color: var(--c-text);
     background: var(--c-active);
+  }
+
+  .toast-message {
+    font-size: 12px;
+    color: var(--c-text);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>
