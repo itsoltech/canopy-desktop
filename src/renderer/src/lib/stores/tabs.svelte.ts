@@ -104,6 +104,7 @@ export interface TabInfo {
   worktreePath: string
   rootSplit: SplitNode
   focusedPaneId: string
+  suspended?: SerializedSplitNode
 }
 
 interface ClosedTab {
@@ -252,6 +253,45 @@ export async function closeTab(tabId: string): Promise<void> {
 
     const tab = tabs[idx]
 
+    if (tab.suspended) {
+      // Suspended tab: no live resources to clean up
+      if (!closedTabs[path]) closedTabs[path] = []
+      closedTabs[path].push({
+        toolId: tab.toolId,
+        toolName: tab.toolName,
+        worktreePath: path,
+        closedAt: Date.now(),
+      })
+      if (closedTabs[path].length > MAX_CLOSED_TABS) closedTabs[path].shift()
+
+      tabsByWorktree[path].splice(idx, 1)
+
+      if (activeTabId[path] === tabId) {
+        const remaining = tabsByWorktree[path]
+        if (remaining.length > 0) {
+          const newIdx = Math.min(idx, remaining.length - 1)
+          const newActive = remaining[newIdx]
+          if (newActive.suspended && !(await resumeTab(newActive))) {
+            tabsByWorktree[path].splice(newIdx, 1)
+            const fallback = tabsByWorktree[path]
+            if (fallback.length > 0) {
+              activeTabId[path] = fallback[Math.min(newIdx, fallback.length - 1)].id
+            } else {
+              delete activeTabId[path]
+            }
+            scheduleSave(path)
+            return
+          }
+          activeTabId[path] = newActive.id
+        } else {
+          delete activeTabId[path]
+        }
+      }
+
+      scheduleSave(path)
+      return
+    }
+
     // Check for active processes before closing
     const panes = allPanes(tab.rootSplit)
     const description = await getActiveProcessDescription(panes)
@@ -305,7 +345,19 @@ export async function closeTab(tabId: string): Promise<void> {
       const remaining = tabsByWorktree[path]
       if (remaining.length > 0) {
         const newIdx = Math.min(idx, remaining.length - 1)
-        activeTabId[path] = remaining[newIdx].id
+        const newActive = remaining[newIdx]
+        if (newActive.suspended && !(await resumeTab(newActive))) {
+          tabsByWorktree[path].splice(newIdx, 1)
+          const fallback = tabsByWorktree[path]
+          if (fallback.length > 0) {
+            activeTabId[path] = fallback[Math.min(newIdx, fallback.length - 1)].id
+          } else {
+            delete activeTabId[path]
+          }
+          scheduleSave(path)
+          return
+        }
+        activeTabId[path] = newActive.id
       } else {
         delete activeTabId[path]
       }
@@ -316,9 +368,11 @@ export async function closeTab(tabId: string): Promise<void> {
   }
 }
 
-export function switchTab(tabId: string): void {
+export async function switchTab(tabId: string): Promise<void> {
   for (const [path, tabs] of Object.entries(tabsByWorktree)) {
-    if (tabs.some((t) => t.id === tabId)) {
+    const tab = tabs.find((t) => t.id === tabId)
+    if (tab) {
+      if (tab.suspended && !(await resumeTab(tab))) return
       activeTabId[path] = tabId
       scheduleSave(path)
       return
@@ -336,31 +390,37 @@ export function moveTab(worktreePath: string, fromIndex: number, toIndex: number
   scheduleSave(worktreePath)
 }
 
-export function switchTabByIndex(worktreePath: string, index: number): void {
+export async function switchTabByIndex(worktreePath: string, index: number): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (tabs && index >= 0 && index < tabs.length) {
-    activeTabId[worktreePath] = tabs[index].id
+    const tab = tabs[index]
+    if (tab.suspended && !(await resumeTab(tab))) return
+    activeTabId[worktreePath] = tab.id
   }
 }
 
-export function nextTab(worktreePath: string): void {
+export async function nextTab(worktreePath: string): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs || tabs.length <= 1) return
 
   const currentId = activeTabId[worktreePath]
   const idx = tabs.findIndex((t) => t.id === currentId)
   const nextIdx = (idx + 1) % tabs.length
-  activeTabId[worktreePath] = tabs[nextIdx].id
+  const tab = tabs[nextIdx]
+  if (tab.suspended && !(await resumeTab(tab))) return
+  activeTabId[worktreePath] = tab.id
 }
 
-export function prevTab(worktreePath: string): void {
+export async function prevTab(worktreePath: string): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs || tabs.length <= 1) return
 
   const currentId = activeTabId[worktreePath]
   const idx = tabs.findIndex((t) => t.id === currentId)
   const prevIdx = (idx - 1 + tabs.length) % tabs.length
-  activeTabId[worktreePath] = tabs[prevIdx].id
+  const tab = tabs[prevIdx]
+  if (tab.suspended && !(await resumeTab(tab))) return
+  activeTabId[worktreePath] = tab.id
 }
 
 export async function reopenClosedTab(worktreePath: string): Promise<void> {
@@ -372,8 +432,8 @@ export async function reopenClosedTab(worktreePath: string): Promise<void> {
 }
 
 export function openFile(filePath: string, worktreePath: string): void {
-  // Check if already open - focus it
-  const tabs = tabsByWorktree[worktreePath] ?? []
+  // Check if already open in a live (non-suspended) tab - focus it
+  const tabs = (tabsByWorktree[worktreePath] ?? []).filter((t) => !t.suspended)
   for (const tab of tabs) {
     const panes = allPanes(tab.rootSplit)
     const existing = panes.find((p) => p.paneType === 'editor' && p.filePath === filePath)
@@ -433,7 +493,7 @@ export function getTabsForWorktree(worktreePath: string): TabInfo[] {
 }
 
 export function getRunningCountByTool(worktreePath: string, toolId: string): number {
-  const tabs = tabsByWorktree[worktreePath] ?? []
+  const tabs = (tabsByWorktree[worktreePath] ?? []).filter((t) => !t.suspended)
   let count = 0
   for (const tab of tabs) {
     for (const pane of allPanes(tab.rootSplit)) {
@@ -646,6 +706,11 @@ export async function restartTab(tabId: string): Promise<void> {
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) continue
 
+    if (tab.suspended) {
+      await resumeTab(tab)
+      return
+    }
+
     // Restart the focused pane
     await restartPane(tab.worktreePath, tabId, tab.focusedPaneId)
     return
@@ -658,11 +723,26 @@ export async function ensureShellTab(worktreePath: string): Promise<void> {
   await openTool('shell', worktreePath)
 }
 
+async function resumeTab(tab: TabInfo): Promise<boolean> {
+  if (!tab.suspended) return true
+  const serialized = tab.suspended
+  try {
+    const rootSplit = await restoreSplitNode(serialized, tab.worktreePath)
+    tab.rootSplit = rootSplit
+    tab.focusedPaneId = firstLeaf(rootSplit).id
+    tab.suspended = undefined
+    return true
+  } catch (err) {
+    console.error('Failed to resume suspended tab:', err)
+    return false
+  }
+}
+
 export async function closeAllTabsForWorktree(worktreePath: string): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs || tabs.length === 0) return
 
-  const allSessions = tabs.flatMap((t) => allPanes(t.rootSplit))
+  const allSessions = tabs.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
   for (const p of allSessions) {
     if (agentSessions[p.sessionId]) removeAgentSession(p.sessionId)
     if (p.paneType === 'browser') delete browserSessions[p.sessionId]
@@ -688,7 +768,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
 
 export async function killAllTabs(): Promise<void> {
   const allTabsList = Object.values(tabsByWorktree).flat()
-  const allSessions = allTabsList.flatMap((t) => allPanes(t.rootSplit))
+  const allSessions = allTabsList.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
   await Promise.all(
     allSessions
       .filter((p) => p.paneType !== 'editor')
@@ -724,6 +804,15 @@ export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
 }
 
+function collectTmuxNamesFromSerialized(node: SerializedSplitNode, names: string[]): void {
+  if (node.type === 'leaf') {
+    if (node.tmuxSessionName) names.push(node.tmuxSessionName)
+  } else {
+    collectTmuxNamesFromSerialized(node.first, names)
+    collectTmuxNamesFromSerialized(node.second, names)
+  }
+}
+
 export async function cleanupOrphanedTmuxSessions(): Promise<void> {
   const available = await window.api.tmuxIsAvailable().catch(() => false)
   if (!available) return
@@ -732,8 +821,12 @@ export async function cleanupOrphanedTmuxSessions(): Promise<void> {
   const claimedNames: string[] = []
   for (const tabs of Object.values(tabsByWorktree)) {
     for (const tab of tabs) {
-      for (const pane of allPanes(tab.rootSplit)) {
-        if (pane.tmuxSessionName) claimedNames.push(pane.tmuxSessionName)
+      if (tab.suspended) {
+        collectTmuxNamesFromSerialized(tab.suspended, claimedNames)
+      } else {
+        for (const pane of allPanes(tab.rootSplit)) {
+          if (pane.tmuxSessionName) claimedNames.push(pane.tmuxSessionName)
+        }
       }
     }
   }
@@ -1062,19 +1155,22 @@ function mapZone(zone: DropZone): { direction: 'hsplit' | 'vsplit'; position: 'f
   }
 }
 
-export function moveTabToSplit(
+export async function moveTabToSplit(
   worktreePath: string,
   sourceTabId: string,
   targetTabId: string,
   targetPaneId: string,
   zone: DropZone,
-): boolean {
+): Promise<boolean> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return false
 
   const sourceTab = tabs.find((t) => t.id === sourceTabId)
   const targetTab = tabs.find((t) => t.id === targetTabId)
   if (!sourceTab || !targetTab || sourceTabId === targetTabId) return false
+
+  if (sourceTab.suspended && !(await resumeTab(sourceTab))) return false
+  if (targetTab.suspended && !(await resumeTab(targetTab))) return false
 
   const { direction, position } = mapZone(zone)
   const newTree = graftSubtree(
@@ -1161,7 +1257,7 @@ function saveLayoutForWorktree(worktreePath: string): void {
     tabs: tabs.map((tab) => ({
       toolId: tab.toolId,
       toolName: tab.toolName,
-      rootSplit: serializeSplitNode(tab.rootSplit),
+      rootSplit: tab.suspended ? tab.suspended : serializeSplitNode(tab.rootSplit),
     })),
     activeTabIndex: activeIndex >= 0 ? activeIndex : 0,
   }
@@ -1286,34 +1382,88 @@ export async function restoreLayout(worktreePath: string, layoutJson: string): P
 
   if (!layout.tabs || layout.tabs.length === 0) return false
 
+  const activeIdx = Math.min(Math.max(0, layout.activeTabIndex), layout.tabs.length - 1)
   const restoredTabs: TabInfo[] = []
 
-  for (const serializedTab of layout.tabs) {
-    try {
-      const rootSplit = await restoreSplitNode(serializedTab.rootSplit, worktreePath)
+  for (let i = 0; i < layout.tabs.length; i++) {
+    const serializedTab = layout.tabs[i]
+
+    if (i === activeIdx) {
+      // Fully restore the active tab
+      try {
+        const rootSplit = await restoreSplitNode(serializedTab.rootSplit, worktreePath)
+        const id = nextTabId()
+        const name = computeDisplayName(serializedTab.toolName, worktreePath, serializedTab.toolId)
+        const firstPane = firstLeaf(rootSplit)
+
+        restoredTabs.push({
+          id,
+          toolId: serializedTab.toolId,
+          toolName: serializedTab.toolName,
+          name,
+          worktreePath,
+          rootSplit,
+          focusedPaneId: firstPane.id,
+        })
+      } catch {
+        // Active tab failed; create as suspended instead
+        const id = nextTabId()
+        const name = computeDisplayName(serializedTab.toolName, worktreePath, serializedTab.toolId)
+        const placeholderPaneId = nextPaneId()
+        restoredTabs.push({
+          id,
+          toolId: serializedTab.toolId,
+          toolName: serializedTab.toolName,
+          name,
+          worktreePath,
+          rootSplit: createLeaf({
+            id: placeholderPaneId,
+            sessionId: '',
+            wsUrl: '',
+            toolId: serializedTab.toolId,
+            toolName: serializedTab.toolName,
+            isRunning: false,
+            exitCode: null,
+            title: null,
+          }),
+          focusedPaneId: placeholderPaneId,
+          suspended: serializedTab.rootSplit,
+        })
+      }
+    } else {
+      // Create suspended tab with placeholder
       const id = nextTabId()
       const name = computeDisplayName(serializedTab.toolName, worktreePath, serializedTab.toolId)
-      const firstPane = firstLeaf(rootSplit)
-
+      const placeholderPaneId = nextPaneId()
       restoredTabs.push({
         id,
         toolId: serializedTab.toolId,
         toolName: serializedTab.toolName,
         name,
         worktreePath,
-        rootSplit,
-        focusedPaneId: firstPane.id,
+        rootSplit: createLeaf({
+          id: placeholderPaneId,
+          sessionId: '',
+          wsUrl: '',
+          toolId: serializedTab.toolId,
+          toolName: serializedTab.toolName,
+          isRunning: false,
+          exitCode: null,
+          title: null,
+        }),
+        focusedPaneId: placeholderPaneId,
+        suspended: serializedTab.rootSplit,
       })
-    } catch {
-      // Skip tabs that fail to restore
     }
   }
 
   if (restoredTabs.length === 0) return false
 
   tabsByWorktree[worktreePath] = restoredTabs
-  const activeIdx = Math.min(layout.activeTabIndex, restoredTabs.length - 1)
-  activeTabId[worktreePath] = restoredTabs[Math.max(0, activeIdx)].id
+
+  // Prefer a non-suspended tab as active; fall back to first tab
+  const activeTab = restoredTabs.find((t) => !t.suspended) ?? restoredTabs[0]
+  activeTabId[worktreePath] = activeTab.id
 
   return true
 }

@@ -101,7 +101,7 @@
         label: getTabDisplayName(tab),
         category: 'Tabs',
         description: tab.worktreePath.split('/').pop() || '',
-        action: () => switchTab(tab.id),
+        action: async () => await switchTab(tab.id),
       })
     }
 
