@@ -604,7 +604,13 @@
 
   // DevTools should be hidden when tab is inactive or a modal overlay is open
   let devtoolsVisible = $derived(
-    devtoolsOpen && active && !showPicker && !savePrompt && !favModalOpen,
+    devtoolsOpen &&
+      active &&
+      !showPicker &&
+      !savePrompt &&
+      !favModalOpen &&
+      !starDropdownOpen &&
+      !favCtxMenu,
   )
 
   function sendDevToolsBounds(): void {
