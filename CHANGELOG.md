@@ -1,3 +1,9 @@
+## [0.8.1](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0...v0.8.1) (2026-04-01)
+
+### Bug Fixes
+
+* **terminal:** prevent WebGL crash on session restore ([#70](https://github.com/itsoltech/canopy-desktop/issues/70)) ([d321a69](https://github.com/itsoltech/canopy-desktop/commit/d321a69ba815cce81f6c2a47abe0a2149748df68))
+
 ## [0.8.0](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0...v0.8.0) (2026-04-01)
 
 ### Features
