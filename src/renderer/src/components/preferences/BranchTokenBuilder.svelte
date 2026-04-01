@@ -9,11 +9,13 @@
     placeholders,
     onSave,
     label = 'Template',
+    autoSeparators = true,
   }: {
     templateInput: string
     placeholders: Array<{ key: string; description: string; example: string }>
     onSave: () => void
     label?: string
+    autoSeparators?: boolean
   } = $props()
 
   const SEPARATORS = ['/', '-', '_']
@@ -64,7 +66,10 @@
     const tag = `{${key}}`
     if (templateInput.includes(tag)) return
 
-    if (!templateInput || lastTokenIsSeparator) {
+    if (!autoSeparators) {
+      templateInput = templateInput ? templateInput + ' ' + tag : tag
+      onSave()
+    } else if (!templateInput || lastTokenIsSeparator) {
       templateInput = templateInput + tag
       onSave()
     } else {
@@ -110,6 +115,7 @@
   }
 
   function ensureSeparators(tokens: TemplateToken[]): TemplateToken[] {
+    if (!autoSeparators) return tokens
     const result: TemplateToken[] = []
     for (let i = 0; i < tokens.length; i++) {
       result.push(tokens[i])

@@ -107,6 +107,7 @@
     placeholders={PR_TAGS}
     onSave={onTitleTemplateSave}
     label="Title"
+    autoSeparators={false}
   />
 
   <BranchTokenBuilder
@@ -114,6 +115,7 @@
     placeholders={PR_TAGS}
     onSave={onBodyTemplateSave}
     label="Body"
+    autoSeparators={false}
   />
   <div class="body-editor">
     <label class="form-label">Body edit</label>
