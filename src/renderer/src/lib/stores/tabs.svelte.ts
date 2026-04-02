@@ -331,8 +331,7 @@ export async function closeTab(tabId: string): Promise<void> {
         .filter((p) => p.paneType !== 'editor')
         .map((p) => {
           if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-          if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
-          return window.api.killPty(p.sessionId)
+          return window.api.killPty(p.sessionId, !!p.tmuxSessionName)
         }),
     )
 
@@ -831,9 +830,8 @@ export async function cleanupOrphanedTmuxSessions(): Promise<void> {
   }
 
   // Only kill sessions that are both unclaimed by any pane AND not attached
-  // by any tmux client. This avoids killing sessions the user intentionally
-  // detached (e.g. closed a tab with "detach" policy). Unattached + unclaimed
-  // sessions are crash orphans.
+  // by any tmux client. This avoids killing sessions intentionally kept alive
+  // across app close while still cleaning up crash leftovers.
   const sessions = await window.api.tmuxListSessions().catch(() => [])
   for (const s of sessions) {
     if (!claimedNames.includes(s.name) && !s.attached) {
