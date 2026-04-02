@@ -22,8 +22,22 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Auto-pass bot-authored PRs
-        if: github.event.pull_request.user.type == 'Bot'
+      - name: Detect validation bypass
+        id: skip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event.pull_request.user.type }}" = "Bot" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif gh pr diff "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --name-only \
+            | grep -Eq '^(.github/workflows/pr-validation\.yml|.github/prompts/pr-validation\.md)$'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auto-pass bypassed PR validation
+        if: steps.skip.outputs.skip == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -33,12 +47,12 @@ jobs:
             --remove-label "claude:pr-validation:failed"
 
       - name: Read validation prompt
-        if: github.event.pull_request.user.type != 'Bot'
+        if: steps.skip.outputs.skip != 'true'
         id: prompt
         run: echo "content<<EOF" >> $GITHUB_OUTPUT && cat .github/prompts/pr-validation.md >> $GITHUB_OUTPUT && echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Validate PR
-        if: github.event.pull_request.user.type != 'Bot'
+        if: steps.skip.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           allowed_bots: 'claude,dependabot'
