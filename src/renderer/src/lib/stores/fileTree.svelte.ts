@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 
 interface DirEntry {
   name: string
@@ -54,16 +54,12 @@ function createFileTreeStore() {
       const previousPaths = [...gitFileStatus.keys()]
       const porcelain = await window.api.gitStatusPorcelain(repoRoot, rootPath)
       const nextStatuses: Record<string, string> = {}
-      const affectedPaths: string[] = []
-
-      const pushUnique = (list: string[], value: string): void => {
-        if (!list.includes(value)) list.push(value)
-      }
+      const affectedPaths = new SvelteSet<string>()
 
       const collectPaths = (rawPath: string): void => {
         for (const part of rawPath.split(' -> ')) {
           const normalized = part.trim()
-          if (normalized) pushUnique(affectedPaths, normalized)
+          if (normalized) affectedPaths.add(normalized)
         }
       }
 
@@ -81,26 +77,26 @@ function createFileTreeStore() {
 
       for (const prevPath of previousPaths) {
         if (!(prevPath in nextStatuses)) {
-          pushUnique(affectedPaths, prevPath)
+          affectedPaths.add(prevPath)
         }
       }
 
-      const dirsToRefresh: string[] = []
+      const dirsToRefresh = new SvelteSet<string>()
       for (const relPath of affectedPaths) {
         let currentDir = rootPath
-        if (expandedDirs[currentDir]) pushUnique(dirsToRefresh, currentDir)
+        if (expandedDirs[currentDir]) dirsToRefresh.add(currentDir)
 
         const segments = relPath.split('/').slice(0, -1)
         for (const segment of segments) {
           currentDir = `${currentDir}/${segment}`
           if (expandedDirs[currentDir]) {
-            pushUnique(dirsToRefresh, currentDir)
+            dirsToRefresh.add(currentDir)
           }
         }
       }
 
-      if (dirsToRefresh.length > 0) {
-        await Promise.all(dirsToRefresh.map((dirPath) => expandDir(dirPath)))
+      if (dirsToRefresh.size > 0) {
+        await Promise.all([...dirsToRefresh].map((dirPath) => expandDir(dirPath)))
       }
     } catch {
       // Git status unavailable

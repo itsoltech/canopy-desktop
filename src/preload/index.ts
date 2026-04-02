@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
+import type { GitInfo } from '../main/git/GitRepository'
 
 const api = {
   // PTY
@@ -223,23 +224,8 @@ const api = {
   gitDetect: (path: string) => ipcRenderer.invoke('git:detect', { path }),
   gitWorktrees: (repoRoot: string) => ipcRenderer.invoke('git:worktrees', { repoRoot }),
   gitStatus: (path: string) => ipcRenderer.invoke('git:status', { path }),
-  gitWatch: (
-    repoRoot: string,
-    snapshot?: {
-      isGitRepo: boolean
-      repoRoot: string | null
-      branch: string | null
-      worktrees: {
-        path: string
-        head: string
-        branch: string
-        isMain: boolean
-        isBare: boolean
-      }[]
-      isDirty: boolean
-      aheadBehind: { ahead: number; behind: number } | null
-    },
-  ) => ipcRenderer.invoke('git:watch', { repoRoot, snapshot }),
+  gitWatch: (repoRoot: string, snapshot?: GitInfo) =>
+    ipcRenderer.invoke('git:watch', { repoRoot, snapshot }),
   gitUnwatch: (repoRoot?: string) => ipcRenderer.invoke('git:unwatch', { repoRoot }),
   gitInit: (path: string) => ipcRenderer.invoke('git:init', { path }),
 

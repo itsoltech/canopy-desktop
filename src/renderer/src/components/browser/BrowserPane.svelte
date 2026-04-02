@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import BrowserToolbar from './BrowserToolbar.svelte'
   import BrowserError from './BrowserError.svelte'
   import {
@@ -62,6 +62,7 @@
   let appOverlayOpen = $state(false)
   let wrapperEl: HTMLDivElement | undefined = $state()
   let wrapperSize = $state({ w: 0, h: 0 })
+  let backgroundThrottlingInitialized = false
 
   // Compute scale factor so device frame fits in wrapper while preserving aspect ratio.
   // The webview always renders at full device resolution; CSS transform scales it down.
@@ -585,7 +586,15 @@
   })
 
   $effect(() => {
-    window.api.setBrowserBackgroundThrottling(browserId, !active).catch(() => {})
+    const nextActive = active
+    const stableBrowserId = untrack(() => browserId)
+
+    if (!backgroundThrottlingInitialized) {
+      backgroundThrottlingInitialized = true
+      if (nextActive) return
+    }
+
+    window.api.setBrowserBackgroundThrottling(stableBrowserId, !nextActive).catch(() => {})
   })
 
   // --- DevTools divider drag (pointer capture pattern from SplitDivider) ---

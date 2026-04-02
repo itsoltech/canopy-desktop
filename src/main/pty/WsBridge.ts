@@ -100,9 +100,10 @@ export class WsBridge {
   private async ensureServer(): Promise<number> {
     if (this.serverReady) return this.serverReady
 
-    this.wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+    this.wss = wss
 
-    this.wss.on('connection', (ws, req) => {
+    wss.on('connection', (ws, req) => {
       const sessionId = this.parseSessionId(req.url)
       if (!sessionId) {
         ws.close()
@@ -135,18 +136,35 @@ export class WsBridge {
       ws.on('error', removeClient)
     })
 
-    this.startHeartbeat()
+    this.serverReady = new Promise<number>((resolve, reject) => {
+      let startupPending = true
 
-    this.serverReady = new Promise<number>((resolve) => {
-      this.wss?.on('listening', () => {
-        const addr = this.wss?.address()
+      const handleServerError = (error: Error): void => {
+        if (!startupPending) {
+          console.error('WebSocket bridge server error:', error)
+          return
+        }
+
+        startupPending = false
+        wss.off('listening', handleListening)
+        this.closeServerIfIdle()
+        reject(error)
+      }
+
+      const handleListening = (): void => {
+        startupPending = false
+        const addr = wss.address()
         if (!addr || typeof addr === 'string') {
           this.port = 0
         } else {
           this.port = addr.port
         }
+        this.startHeartbeat()
         resolve(this.port)
-      })
+      }
+
+      wss.on('error', handleServerError)
+      wss.once('listening', handleListening)
     })
 
     return this.serverReady

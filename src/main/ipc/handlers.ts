@@ -16,7 +16,7 @@ import type { CredentialStore } from '../db/CredentialStore'
 import { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { GitRepository } from '../git/GitRepository'
+import { GitRepository, type GitInfo } from '../git/GitRepository'
 import { GitWatcher, type GitRefreshFlags } from '../git/GitWatcher'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 
@@ -483,60 +483,38 @@ export function registerIpcHandlers(
     return { branch, isDirty, aheadBehind }
   })
 
-  ipcMain.handle(
-    'git:watch',
-    async (
-      event,
-      payload: {
-        repoRoot: string
-        snapshot?: {
-          isGitRepo: boolean
-          repoRoot: string | null
-          branch: string | null
-          worktrees: {
-            path: string
-            head: string
-            branch: string
-            isMain: boolean
-            isBare: boolean
-          }[]
-          isDirty: boolean
-          aheadBehind: { ahead: number; behind: number } | null
+  ipcMain.handle('git:watch', async (event, payload: { repoRoot: string; snapshot?: GitInfo }) => {
+    const senderId = event.sender.id
+
+    // Dispose previous watcher for this specific repo only
+    windowManager.disposeGitWatcher(senderId, payload.repoRoot)
+
+    // Find workspace ID for cache updates
+    const ws = workspaceStore.getByPath(payload.repoRoot)
+    const workspaceId = ws?.id ?? null
+
+    const watcher = new GitWatcher(
+      payload.repoRoot,
+      (info, changes: GitRefreshFlags) => {
+        if (workspaceId) {
+          workspaceStore.updateGitCache(workspaceId, {
+            branch: info.branch,
+            dirty: info.isDirty,
+            aheadBehind: info.aheadBehind
+              ? `${info.aheadBehind.ahead}/${info.aheadBehind.behind}`
+              : null,
+            worktreeCount: info.worktrees.length,
+          })
+        }
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('git:changed', { ...info, repoRoot: payload.repoRoot, changes })
         }
       },
-    ) => {
-      const senderId = event.sender.id
-
-      // Dispose previous watcher for this specific repo only
-      windowManager.disposeGitWatcher(senderId, payload.repoRoot)
-
-      // Find workspace ID for cache updates
-      const ws = workspaceStore.getByPath(payload.repoRoot)
-      const workspaceId = ws?.id ?? null
-
-      const watcher = new GitWatcher(
-        payload.repoRoot,
-        (info, changes: GitRefreshFlags) => {
-          if (workspaceId) {
-            workspaceStore.updateGitCache(workspaceId, {
-              branch: info.branch,
-              dirty: info.isDirty,
-              aheadBehind: info.aheadBehind
-                ? `${info.aheadBehind.ahead}/${info.aheadBehind.behind}`
-                : null,
-              worktreeCount: info.worktrees.length,
-            })
-          }
-          if (!event.sender.isDestroyed()) {
-            event.sender.send('git:changed', { ...info, repoRoot: payload.repoRoot, changes })
-          }
-        },
-        payload.snapshot,
-      )
-      watcher.start()
-      windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
-    },
-  )
+      payload.snapshot,
+    )
+    watcher.start()
+    windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
+  })
 
   ipcMain.handle('git:unwatch', (event, payload?: { repoRoot?: string }) => {
     if (payload?.repoRoot) {

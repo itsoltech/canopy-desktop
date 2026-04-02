@@ -306,11 +306,14 @@
       startTerminal?.()
       return
     }
+    // termRef is assigned inside initTerminal() and is not tracked by this
+    // effect. initTerminal() handles the initial visible=true connection path.
     if (!termRef) return
+    const term = termRef
     if (visible) {
       // Becoming visible: ensure WS is connected and flush buffered output
-      connectWs(termRef)
-      flushPendingData(termRef)
+      connectWs(term)
+      flushPendingData(term)
     } else {
       // Becoming hidden: cancel pending RAF writes but keep WS connected
       // so background output is still buffered via receivedChars/pendingData

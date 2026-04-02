@@ -47,22 +47,8 @@ interface ToolDefinition {
   isCustom: boolean
 }
 
-interface GitInfo {
-  isGitRepo: boolean
-  repoRoot: string | null
-  branch: string | null
-  worktrees: GitWorktreeInfo[]
-  isDirty: boolean
-  aheadBehind: { ahead: number; behind: number } | null
-}
-
-interface GitWorktreeInfo {
-  path: string
-  head: string
-  branch: string
-  isMain: boolean
-  isBare: boolean
-}
+type GitInfo = import('../main/git/GitRepository').GitInfo
+type GitWorktreeInfo = import('../main/git/GitRepository').GitWorktreeInfo
 
 interface WorktreeSetupCommandAction {
   type: 'command'
