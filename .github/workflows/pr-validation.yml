@@ -22,14 +22,26 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Auto-pass bot-authored PRs
+        if: github.event.pull_request.user.type == 'Bot'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --add-label "claude:pr-validation:passed" \
+            --remove-label "claude:pr-validation:failed"
+
       - name: Read validation prompt
+        if: github.event.pull_request.user.type != 'Bot'
         id: prompt
         run: echo "content<<EOF" >> $GITHUB_OUTPUT && cat .github/prompts/pr-validation.md >> $GITHUB_OUTPUT && echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Validate PR
+        if: github.event.pull_request.user.type != 'Bot'
         uses: anthropics/claude-code-action@v1
         with:
-          allowed_bots: 'claude'
+          allowed_bots: 'claude,dependabot'
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
