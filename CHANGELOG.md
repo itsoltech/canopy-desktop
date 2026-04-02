@@ -1,3 +1,12 @@
+## [0.9.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.1...v0.9.0-next.2) (2026-04-02)
+
+### Bug Fixes
+
+* **session:** clean up orphaned tmux sessions and restore lifecycle ([#74](https://github.com/itsoltech/canopy-desktop/issues/74)) ([76914a5](https://github.com/itsoltech/canopy-desktop/commit/76914a5f48561d7f72dab0f970ef7e53f4044672))
+* **terminal:** forward process titles through tmux to tab names ([#76](https://github.com/itsoltech/canopy-desktop/issues/76)) ([05dbbdd](https://github.com/itsoltech/canopy-desktop/commit/05dbbdd47f9fb2e5d8ad3690c2ef5a1475021bcf))
+* **terminal:** isolate tmux socket between dev and prod runs ([972c4be](https://github.com/itsoltech/canopy-desktop/commit/972c4beb6678e852a56bbbcf357c2d872919051b))
+* **terminal:** pass agent env vars to tmux sessions ([#73](https://github.com/itsoltech/canopy-desktop/issues/73)) ([e46e44a](https://github.com/itsoltech/canopy-desktop/commit/e46e44ae086e00c97a4b3097c50c33b21f96634b))
+
 ## [0.9.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.8.1...v0.9.0-next.1) (2026-04-02)
 
 ### Features
