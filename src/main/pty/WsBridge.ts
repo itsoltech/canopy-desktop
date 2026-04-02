@@ -5,48 +5,56 @@ import type { IPty } from 'node-pty'
 const MAX_BUFFER_BYTES = 1_048_576 // 1 MB
 const HEARTBEAT_INTERVAL = 30_000 // 30 s
 
+interface HistoryChunk {
+  start: number
+  end: number
+  data: string
+}
+
 interface Bridge {
   sessionId: string
-  wss: WebSocketServer
-  port: number
   clients: Set<WsWebSocket>
+  history: HistoryChunk[]
+  historyBytes: number
+  totalChars: number
+  write: (data: string) => void
   cleanup: () => void
 }
 
 export class WsBridge {
   private bridges = new Map<string, Bridge>()
+  private wss: WebSocketServer | null = null
+  private serverReady: Promise<number> | null = null
+  private port = 0
+  private heartbeat: ReturnType<typeof setInterval> | null = null
+  private alive = new WeakSet<WsWebSocket>()
 
   async create(sessionId: string, ptyProcess: IPty): Promise<string> {
-    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
-
-    const port = await new Promise<number>((resolve) => {
-      wss.on('listening', () => {
-        const addr = wss.address()
-        if (!addr || typeof addr === 'string') {
-          resolve(0)
-        } else {
-          resolve(addr.port)
-        }
-      })
-    })
-
+    const port = await this.ensureServer()
     const clients = new Set<WsWebSocket>()
 
-    // Rolling history buffer — always maintained so reconnecting clients
-    // (e.g. after worktree switch) can restore the terminal content.
-    const history: string[] = []
-    let historyBytes = 0
+    const bridge: Bridge = {
+      sessionId,
+      clients,
+      history: [],
+      historyBytes: 0,
+      totalChars: 0,
+      write: (data: string) => ptyProcess.write(data),
+      cleanup: () => {},
+    }
 
     const onData = ptyProcess.onData((data) => {
-      // Always append to rolling history
-      history.push(data)
-      historyBytes += data.length
-      while (historyBytes > MAX_BUFFER_BYTES && history.length > 0) {
-        historyBytes -= history[0].length
-        history.shift()
+      const start = bridge.totalChars
+      bridge.totalChars += data.length
+      bridge.history.push({ start, end: bridge.totalChars, data })
+      bridge.historyBytes += data.length
+
+      while (bridge.historyBytes > MAX_BUFFER_BYTES && bridge.history.length > 0) {
+        const removed = bridge.history.shift()
+        if (!removed) break
+        bridge.historyBytes -= removed.data.length
       }
 
-      // Forward to connected clients
       for (const client of clients) {
         if (client.readyState === 1) {
           client.send(data)
@@ -54,51 +62,12 @@ export class WsBridge {
       }
     })
 
-    // Ping/pong heartbeat to detect dead connections
-    const alive = new WeakSet<WsWebSocket>()
-
-    const heartbeat = setInterval(() => {
-      for (const client of clients) {
-        if (!alive.has(client)) {
-          client.terminate()
-          return
-        }
-        alive.delete(client)
-        client.ping()
-      }
-    }, HEARTBEAT_INTERVAL)
-
-    wss.on('connection', (ws) => {
-      clients.add(ws)
-      alive.add(ws)
-
-      ws.on('pong', () => alive.add(ws))
-
-      // Send rolling history so reconnecting terminals restore their content
-      for (const chunk of history) {
-        ws.send(chunk)
-      }
-
-      ws.on('message', (data) => {
-        ptyProcess.write(typeof data === 'string' ? data : data.toString())
-      })
-
-      ws.on('close', () => {
-        clients.delete(ws)
-      })
-
-      ws.on('error', () => {
-        clients.delete(ws)
-      })
-    })
-
-    const cleanup = (): void => {
-      clearInterval(heartbeat)
+    bridge.cleanup = () => {
       onData.dispose()
     }
 
-    this.bridges.set(sessionId, { sessionId, wss, port, clients, cleanup })
-    return `ws://127.0.0.1:${port}`
+    this.bridges.set(sessionId, bridge)
+    return `ws://127.0.0.1:${port}/${encodeURIComponent(sessionId)}`
   }
 
   /** Terminate all WS clients across all bridges (triggers renderer reconnection) */
@@ -112,19 +81,140 @@ export class WsBridge {
 
   destroy(sessionId: string): void {
     const bridge = this.bridges.get(sessionId)
-    if (bridge) {
-      bridge.cleanup()
-      for (const client of bridge.clients) {
-        client.close()
-      }
-      bridge.wss.close()
-      this.bridges.delete(sessionId)
+    if (!bridge) return
+
+    bridge.cleanup()
+    for (const client of bridge.clients) {
+      client.close()
     }
+    this.bridges.delete(sessionId)
+    this.closeServerIfIdle()
   }
 
   disposeAll(): void {
     for (const [id] of this.bridges) {
       this.destroy(id)
+    }
+  }
+
+  private async ensureServer(): Promise<number> {
+    if (this.serverReady) return this.serverReady
+
+    this.wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+
+    this.wss.on('connection', (ws, req) => {
+      const sessionId = this.parseSessionId(req.url)
+      if (!sessionId) {
+        ws.close()
+        return
+      }
+
+      const bridge = this.bridges.get(sessionId)
+      if (!bridge) {
+        ws.close()
+        return
+      }
+
+      bridge.clients.add(ws)
+      this.alive.add(ws)
+
+      ws.on('pong', () => this.alive.add(ws))
+
+      const offset = this.parseOffset(req.url)
+      this.sendHistory(ws, bridge, offset)
+
+      ws.on('message', (data) => {
+        bridge.write(typeof data === 'string' ? data : data.toString())
+      })
+
+      const removeClient = (): void => {
+        bridge.clients.delete(ws)
+      }
+
+      ws.on('close', removeClient)
+      ws.on('error', removeClient)
+    })
+
+    this.startHeartbeat()
+
+    this.serverReady = new Promise<number>((resolve) => {
+      this.wss?.on('listening', () => {
+        const addr = this.wss?.address()
+        if (!addr || typeof addr === 'string') {
+          this.port = 0
+        } else {
+          this.port = addr.port
+        }
+        resolve(this.port)
+      })
+    })
+
+    return this.serverReady
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeat) return
+
+    this.heartbeat = setInterval(() => {
+      for (const bridge of this.bridges.values()) {
+        for (const client of bridge.clients) {
+          if (!this.alive.has(client)) {
+            client.terminate()
+            continue
+          }
+          this.alive.delete(client)
+          client.ping()
+        }
+      }
+    }, HEARTBEAT_INTERVAL)
+  }
+
+  private closeServerIfIdle(): void {
+    if (this.bridges.size > 0) return
+
+    if (this.heartbeat) {
+      clearInterval(this.heartbeat)
+      this.heartbeat = null
+    }
+
+    if (this.wss) {
+      this.wss.close()
+      this.wss = null
+    }
+
+    this.serverReady = null
+    this.port = 0
+    this.alive = new WeakSet<WsWebSocket>()
+  }
+
+  private parseSessionId(rawUrl?: string): string | null {
+    try {
+      const url = new URL(rawUrl ?? '/', 'ws://127.0.0.1')
+      const sessionId = decodeURIComponent(url.pathname.slice(1))
+      return sessionId || null
+    } catch {
+      return null
+    }
+  }
+
+  private parseOffset(rawUrl?: string): number {
+    try {
+      const url = new URL(rawUrl ?? '/', 'ws://127.0.0.1')
+      const offset = Number(url.searchParams.get('offset') ?? '0')
+      return Number.isFinite(offset) && offset >= 0 ? offset : 0
+    } catch {
+      return 0
+    }
+  }
+
+  private sendHistory(ws: WsWebSocket, bridge: Bridge, offset: number): void {
+    for (const chunk of bridge.history) {
+      if (chunk.end <= offset) continue
+      if (offset > chunk.start) {
+        ws.send(chunk.data.slice(offset - chunk.start))
+      } else {
+        ws.send(chunk.data)
+      }
     }
   }
 }

@@ -122,7 +122,9 @@
     onmousedown={(e) => e.stopPropagation()}
   >
     <div class="header">
-      <h2 id="tmux-browser-title" class="title">Tmux Sessions</h2>
+      <h2 id="tmux-browser-title" class="title">
+        Tmux Sessions <span class="badge-experimental">Experimental</span>
+      </h2>
       <button class="close-btn" onclick={closeDialog}>&#x2715;</button>
     </div>
 
@@ -233,6 +235,18 @@
     font-weight: 600;
     color: var(--c-text);
     margin: 0;
+  }
+
+  .badge-experimental {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--c-warning, #f0a020) 15%, transparent);
+    color: var(--c-warning, #f0a020);
+    vertical-align: middle;
   }
 
   .close-btn {

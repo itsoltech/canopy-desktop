@@ -31,8 +31,13 @@
   $effect(() => {
     const repoRoot = workspaceState.repoRoot
     if (!repoRoot) return
-    const unsub = window.api.onGitChanged(() => {
-      fileTree.refreshAll(repoRoot)
+    const unsub = window.api.onGitChanged((info) => {
+      if (info.repoRoot !== repoRoot) return
+      if (info.changes.branch || info.changes.worktrees) {
+        fileTree.refreshAll(repoRoot)
+      } else {
+        fileTree.refreshGitStatus(repoRoot)
+      }
     })
     return unsub
   })

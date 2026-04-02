@@ -223,7 +223,23 @@ const api = {
   gitDetect: (path: string) => ipcRenderer.invoke('git:detect', { path }),
   gitWorktrees: (repoRoot: string) => ipcRenderer.invoke('git:worktrees', { repoRoot }),
   gitStatus: (path: string) => ipcRenderer.invoke('git:status', { path }),
-  gitWatch: (repoRoot: string) => ipcRenderer.invoke('git:watch', { repoRoot }),
+  gitWatch: (
+    repoRoot: string,
+    snapshot?: {
+      isGitRepo: boolean
+      repoRoot: string | null
+      branch: string | null
+      worktrees: {
+        path: string
+        head: string
+        branch: string
+        isMain: boolean
+        isBare: boolean
+      }[]
+      isDirty: boolean
+      aheadBehind: { ahead: number; behind: number } | null
+    },
+  ) => ipcRenderer.invoke('git:watch', { repoRoot, snapshot }),
   gitUnwatch: (repoRoot?: string) => ipcRenderer.invoke('git:unwatch', { repoRoot }),
   gitInit: (path: string) => ipcRenderer.invoke('git:init', { path }),
 
@@ -277,6 +293,8 @@ const api = {
     browserId: string,
     device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null,
   ) => ipcRenderer.invoke('browser:setDeviceEmulation', { browserId, device }),
+  setBrowserBackgroundThrottling: (browserId: string, allowed: boolean) =>
+    ipcRenderer.invoke('browser:setBackgroundThrottling', { browserId, allowed }),
   saveBrowserCapture: (buffer: ArrayBuffer) =>
     ipcRenderer.invoke('browser:saveCaptureFile', {
       buffer: Buffer.from(buffer),

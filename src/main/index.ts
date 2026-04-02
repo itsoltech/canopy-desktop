@@ -698,6 +698,11 @@ app.on('before-quit', (event) => {
     tmuxManager.killServer().catch(() => {})
   }
 
+  // From this point onward we are intentionally shutting down the app.
+  // Window teardown should detach tmux-backed PTYs unless the policy above
+  // explicitly killed the tmux server.
+  windowManager.isQuitting = true
+
   notchOverlay?.dispose()
   agentSessionManager?.dispose()
   windowManager.disposeAll()

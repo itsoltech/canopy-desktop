@@ -112,6 +112,7 @@
             sessionId={pane.sessionId}
             wsUrl={pane.wsUrl}
             active={active && focused}
+            visible={active}
             isAiTool={isAiToolId(pane.toolId)}
             onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
           />

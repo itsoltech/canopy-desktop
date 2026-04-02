@@ -1,4 +1,4 @@
-import { restoreLayout, cleanupOrphanedTmuxSessions } from './tabs.svelte'
+import { restoreLayout } from './tabs.svelte'
 
 function basename(p: string): string {
   return p.split('/').pop() || p
@@ -44,7 +44,6 @@ export interface ProjectState {
 
 interface AttachProjectOptions {
   selectIfEmpty?: boolean
-  cleanupTmux?: boolean
   batchOrder?: Map<string, number>
   restoreIndex?: number
 }
@@ -144,7 +143,6 @@ async function restoreProjectsImpl(paths: string[], activeWorktreePath?: string)
     uniquePaths.map((path, index) =>
       attachProjectImpl(path, {
         selectIfEmpty: false,
-        cleanupTmux: false,
         batchOrder,
         restoreIndex: index,
       }),
@@ -159,15 +157,13 @@ async function restoreProjectsImpl(paths: string[], activeWorktreePath?: string)
   if (targetPath) {
     await selectWorktree(targetPath)
   }
-
-  await cleanupOrphanedTmuxSessions().catch(() => {})
 }
 
 async function attachProjectImpl(
   path: string,
   options: AttachProjectOptions = {},
 ): Promise<AttachProjectResult | undefined> {
-  const { selectIfEmpty = true, cleanupTmux = true, batchOrder, restoreIndex } = options
+  const { selectIfEmpty = true, batchOrder, restoreIndex } = options
   // Dedupe: if another window already has this path, focus it instead
   const focused = await window.api.focusWindowForPath(path)
   if (focused) return
@@ -213,7 +209,7 @@ async function attachProjectImpl(
 
   // Start git watcher if git repo
   if (info.isGitRepo && info.repoRoot) {
-    await window.api.gitWatch(info.repoRoot)
+    await window.api.gitWatch(info.repoRoot, info)
   }
 
   // Restore saved layouts BEFORE selecting worktree so that ensureShellTab
@@ -234,11 +230,6 @@ async function attachProjectImpl(
 
   if (selectIfEmpty && !workspaceState.selectedWorktreePath) {
     await selectWorktree(defaultWorktreePath)
-  }
-
-  // Kill tmux sessions not attached to any pane (crash leftovers, stale layouts)
-  if (cleanupTmux) {
-    await cleanupOrphanedTmuxSessions().catch(() => {})
   }
 
   return {
@@ -309,7 +300,7 @@ export async function initGitRepo(projectPath: string): Promise<void> {
 
   // Start git watcher
   if (info.isGitRepo && info.repoRoot) {
-    await window.api.gitWatch(info.repoRoot)
+    await window.api.gitWatch(info.repoRoot, info)
   }
 
   // If this project is the active selection, update workspaceState
@@ -353,10 +344,19 @@ export async function updateGitInfoForProject(repoRoot: string, info: GitInfo): 
     // Fetch status for the currently selected worktree
     const selectedPath = workspaceState.selectedWorktreePath
     if (selectedPath) {
-      const status = await window.api.gitStatus(selectedPath)
-      workspaceState.branch = status.branch ?? workspaceState.branch
-      workspaceState.isDirty = status.isDirty
-      workspaceState.aheadBehind = status.aheadBehind
+      const mainWorktreePath =
+        info.worktrees.find((wt) => wt.isMain)?.path ?? project.repoRoot ?? project.workspace.path
+
+      if (selectedPath === mainWorktreePath) {
+        workspaceState.branch = info.branch ?? workspaceState.branch
+        workspaceState.isDirty = info.isDirty
+        workspaceState.aheadBehind = info.aheadBehind
+      } else {
+        const status = await window.api.gitStatus(selectedPath)
+        workspaceState.branch = status.branch ?? workspaceState.branch
+        workspaceState.isDirty = status.isDirty
+        workspaceState.aheadBehind = status.aheadBehind
+      }
     } else {
       workspaceState.branch = info.branch
       workspaceState.isDirty = info.isDirty
