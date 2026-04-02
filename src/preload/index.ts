@@ -467,14 +467,6 @@ const api = {
     }
   },
 
-  onRestoreActiveWorktree: (callback: (path: string) => void) => {
-    const handler = (_event: IpcRendererEvent, path: string): void => callback(path)
-    ipcRenderer.on('workspace:restoreActive', handler)
-    return (): void => {
-      ipcRenderer.removeListener('workspace:restoreActive', handler)
-    }
-  },
-
   onRestoreWindow: (callback: (data: { paths: string[]; activeWorktreePath?: string }) => void) => {
     const handler = (
       _event: IpcRendererEvent,
