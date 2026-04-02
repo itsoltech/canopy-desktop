@@ -83,6 +83,7 @@ export class TmuxManager {
     cols?: number
     rows?: number
     mouse?: boolean
+    env?: Record<string, string>
   }): Promise<void> {
     if (!/^[\w-]+$/.test(opts.name)) {
       throw new Error('Invalid tmux session name')
@@ -91,6 +92,7 @@ export class TmuxManager {
     // Config file is only read on server start; explicitly set mouse
     // on the running server so preference changes take effect immediately.
     await this.exec(['set-option', '-g', 'mouse', opts.mouse ? 'on' : 'off']).catch(() => {})
+    const envArgs = Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`])
     const args = [
       '-f',
       this.configPath,
@@ -104,6 +106,7 @@ export class TmuxManager {
       String(opts.cols ?? 80),
       '-y',
       String(opts.rows ?? 30),
+      ...envArgs,
       opts.shell,
       ...(opts.shellArgs ?? []),
     ]
