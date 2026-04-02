@@ -84,6 +84,20 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.badge-experimental {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--c-warning, #f0a020) 15%, transparent);
+  color: var(--c-warning, #f0a020);
+  vertical-align: middle;
+}
+
 /* Non-Retina (1x DPI) displays: adjust font rendering to reduce
    the thick/blurry appearance caused by macOS font dilation */
 @media (max-resolution: 1.5dppx) {

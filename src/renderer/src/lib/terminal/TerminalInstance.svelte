@@ -22,12 +22,14 @@
     sessionId,
     wsUrl,
     active = true,
+    visible = true,
     isAiTool = false,
     onTitleChange,
   }: {
     sessionId: string
     wsUrl: string
     active?: boolean
+    visible?: boolean
     isAiTool?: boolean
     onTitleChange?: (title: string) => void
   } = $props()
@@ -40,6 +42,20 @@
   let dragging = $state(false)
   let progressState = $state(0)
   let progressValue = $state(0)
+  let disposed = false
+  let reconnectAttempt = 0
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let dataDisposable: { dispose(): void } | null = null
+  let resizeObserver: ResizeObserver | null = null
+  let pendingData = ''
+  let writeScheduled = false
+  let writeRafId: number | null = null
+  let receivedChars = 0
+  let startTerminal: (() => void) | null = null
+
+  const MAX_RECONNECT_ATTEMPTS = 30
+  const MAX_RECONNECT_DELAY = 8000
+  const MAX_PENDING_CHARS = 2 * 1024 * 1024 // ~2 MB for ASCII
 
   function attachWebgl(term: Terminal): void {
     if (webglAddonRef) return
@@ -125,6 +141,136 @@
     return "'" + path.replace(/'/g, "'\\''") + "'"
   }
 
+  function scrollPreservingWrite(term: Terminal, data: string): void {
+    const buffer = term.buffer.active
+    const isAtBottom = buffer.viewportY >= buffer.baseY
+
+    if (isAtBottom) {
+      term.write(data)
+    } else {
+      const savedY = buffer.viewportY
+      term.write(data, () => {
+        const currentY = term.buffer.active.viewportY
+        if (currentY !== savedY) {
+          term.scrollLines(savedY - currentY)
+        }
+      })
+    }
+  }
+
+  function disconnectWs(options: { suppressStatus?: boolean } = {}): void {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    reconnectAttempt = 0
+
+    cancelPendingWrite()
+
+    const ws = wsRef
+    wsRef = null
+    if (ws) {
+      ws.onopen = null
+      ws.onmessage = null
+      ws.onclose = null
+      ws.onerror = null
+      ws.close()
+    }
+
+    if (!options.suppressStatus) {
+      clearConnectionStatus(sessionId)
+    }
+  }
+
+  function cancelPendingWrite(): void {
+    if (writeRafId !== null) {
+      cancelAnimationFrame(writeRafId)
+      writeRafId = null
+    }
+    writeScheduled = false
+  }
+
+  /** Flush buffered data to the terminal and schedule a RAF write. */
+  function flushPendingData(term: Terminal): void {
+    if (!pendingData || writeScheduled) return
+    writeScheduled = true
+    writeRafId = requestAnimationFrame(() => {
+      writeRafId = null
+      const frameData = pendingData
+      pendingData = ''
+      writeScheduled = false
+      scrollPreservingWrite(term, frameData)
+    })
+  }
+
+  function scheduleReconnect(term: Terminal): void {
+    if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+      setConnectionStatus(sessionId, 'disconnected')
+      return
+    }
+    if (reconnectAttempt === 0) {
+      setConnectionStatus(sessionId, 'reconnecting')
+    }
+    const delay = Math.min(500 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY)
+    reconnectAttempt++
+    reconnectTimer = setTimeout(() => {
+      if (disposed) return
+      connectWs(term)
+    }, delay)
+  }
+
+  function connectWs(term: Terminal): void {
+    if (disposed) return
+    if (
+      wsRef &&
+      (wsRef.readyState === WebSocket.OPEN || wsRef.readyState === WebSocket.CONNECTING)
+    ) {
+      return
+    }
+
+    const url = new URL(wsUrl)
+    url.searchParams.set('offset', String(receivedChars))
+    const ws = new WebSocket(url)
+    wsRef = ws
+
+    ws.onopen = (): void => {
+      if (reconnectAttempt > 0) {
+        clearConnectionStatus(sessionId)
+      }
+      reconnectAttempt = 0
+    }
+
+    ws.onmessage = (e): void => {
+      const chunk = typeof e.data === 'string' ? e.data : String(e.data)
+      receivedChars += chunk.length
+      pendingData += chunk
+      if (pendingData.length > MAX_PENDING_CHARS) {
+        pendingData = pendingData.slice(-MAX_PENDING_CHARS)
+      }
+      // Only schedule writes when the pane is visible
+      if (visible && !writeScheduled) {
+        writeScheduled = true
+        writeRafId = requestAnimationFrame(() => {
+          writeRafId = null
+          const frameData = pendingData
+          pendingData = ''
+          writeScheduled = false
+          scrollPreservingWrite(term, frameData)
+        })
+      }
+    }
+
+    ws.onclose = (): void => {
+      if (disposed) return
+      wsRef = null
+      scheduleReconnect(term)
+    }
+
+    ws.onerror = (): void => {
+      // onclose fires after onerror, reconnect handled there
+    }
+  }
+
   function handleDragOver(event: DragEvent): void {
     if (event.dataTransfer?.types.includes('Files')) {
       event.preventDefault()
@@ -155,102 +301,29 @@
     }
   }
 
+  $effect(() => {
+    if (visible && !termRef) {
+      startTerminal?.()
+      return
+    }
+    // termRef is assigned inside initTerminal() and is not tracked by this
+    // effect. initTerminal() handles the initial visible=true connection path.
+    if (!termRef) return
+    const term = termRef
+    if (visible) {
+      // Becoming visible: ensure WS is connected and flush buffered output
+      connectWs(term)
+      flushPendingData(term)
+    } else {
+      // Becoming hidden: cancel pending RAF writes but keep WS connected
+      // so background output is still buffered via receivedChars/pendingData
+      cancelPendingWrite()
+    }
+  })
+
   onMount(() => {
-    let resizeObserver: ResizeObserver | null = null
-    let disposed = false
-    let reconnectAttempt = 0
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-    let dataDisposable: { dispose(): void } | null = null
-
-    const MAX_RECONNECT_ATTEMPTS = 30
-    const MAX_RECONNECT_DELAY = 8000
-
-    // Write batching: coalesce rapid WebSocket messages into one term.write() per frame
-    let pendingData = ''
-    let writeScheduled = false
-    let writeRafId: number | null = null
-
-    function scrollPreservingWrite(term: Terminal, data: string): void {
-      const buffer = term.buffer.active
-      const isAtBottom = buffer.viewportY >= buffer.baseY
-
-      if (isAtBottom) {
-        term.write(data)
-      } else {
-        const savedY = buffer.viewportY
-        term.write(data, () => {
-          const currentY = term.buffer.active.viewportY
-          if (currentY !== savedY) {
-            term.scrollLines(savedY - currentY)
-          }
-        })
-      }
-    }
-
-    function connectWs(term: Terminal): void {
-      const ws = new WebSocket(wsUrl)
-      wsRef = ws
-
-      ws.onopen = (): void => {
-        if (reconnectAttempt > 0) {
-          clearConnectionStatus(sessionId)
-        }
-        reconnectAttempt = 0
-      }
-
-      const MAX_PENDING_CHARS = 2 * 1024 * 1024 // ~2 MB for ASCII
-
-      ws.onmessage = (e): void => {
-        pendingData += e.data
-        if (pendingData.length > MAX_PENDING_CHARS) {
-          pendingData = pendingData.slice(-MAX_PENDING_CHARS)
-        }
-        if (!writeScheduled) {
-          writeScheduled = true
-          writeRafId = requestAnimationFrame(() => {
-            writeRafId = null
-            const chunk = pendingData
-            pendingData = ''
-            writeScheduled = false
-            scrollPreservingWrite(term, chunk)
-          })
-        }
-      }
-
-      ws.onclose = (): void => {
-        if (disposed) return
-        scheduleReconnect(term)
-      }
-
-      ws.onerror = (): void => {
-        // onclose fires after onerror, reconnect handled there
-      }
-
-      // Dispose previous data listener to avoid duplicates on reconnect
-      if (dataDisposable) dataDisposable.dispose()
-      dataDisposable = term.onData((data) => {
-        if (wsRef && wsRef.readyState === WebSocket.OPEN) {
-          wsRef.send(data)
-        }
-        recordKeystroke(sessionId, data)
-      })
-    }
-
-    function scheduleReconnect(term: Terminal): void {
-      if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-        setConnectionStatus(sessionId, 'disconnected')
-        return
-      }
-      if (reconnectAttempt === 0) {
-        setConnectionStatus(sessionId, 'reconnecting')
-      }
-      const delay = Math.min(500 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY)
-      reconnectAttempt++
-      reconnectTimer = setTimeout(() => {
-        if (disposed) return
-        connectWs(term)
-      }, delay)
-    }
+    let fontsReady = false
+    let initScheduled = false
 
     function initTerminal(): void {
       if (disposed) return
@@ -305,7 +378,16 @@
       requestAnimationFrame(() => fitAddon.fit())
       termRef = term
 
-      connectWs(term)
+      dataDisposable = term.onData((data) => {
+        if (wsRef && wsRef.readyState === WebSocket.OPEN) {
+          wsRef.send(data)
+        }
+        recordKeystroke(sessionId, data)
+      })
+
+      if (visible) {
+        connectWs(term)
+      }
 
       const isMac = navigator.userAgent.includes('Mac')
 
@@ -374,27 +456,44 @@
       term.focus()
     }
 
+    function maybeInitTerminal(): void {
+      if (disposed || termRef || !visible || !fontsReady || initScheduled) return
+      initScheduled = true
+
+      requestAnimationFrame(() => {
+        initScheduled = false
+        if (disposed || termRef || !visible || !fontsReady) return
+        if (!containerEl.clientWidth || !containerEl.clientHeight) {
+          maybeInitTerminal()
+          return
+        }
+        initTerminal()
+      })
+    }
+
+    startTerminal = maybeInitTerminal
+
     // Wait for system fonts to be available before initializing xterm.js
-    document.fonts.ready.then(() => initTerminal())
+    document.fonts.ready.then(() => {
+      fontsReady = true
+      maybeInitTerminal()
+    })
 
     return () => {
       disposed = true
-      clearConnectionStatus(sessionId)
+      startTerminal = null
       cleanupSession(sessionId)
-      if (writeRafId !== null) cancelAnimationFrame(writeRafId)
-      if (reconnectTimer) clearTimeout(reconnectTimer)
+      disconnectWs({ suppressStatus: true })
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
-      const ws = wsRef
       termRef = null
-      wsRef = null
       if (resizeObserver) resizeObserver.disconnect()
       if (webglAddonRef) {
         webglAddonRef.dispose()
         webglAddonRef = null
         webglAttached = false
       }
-      if (ws) ws.close()
+      clearConnectionStatus(sessionId)
       if (term) term.dispose()
     }
   })

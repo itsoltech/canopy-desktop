@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { openWorkspace } from '../../lib/stores/workspace.svelte'
   import { prompt } from '../../lib/stores/dialogs.svelte'
 
@@ -18,6 +18,7 @@
   const isMac = navigator.userAgent.includes('Mac')
   let workspaces = $state<WorkspaceRow[]>([])
   let contextMenu = $state<{ x: number; y: number; workspace: WorkspaceRow } | null>(null)
+  let disposed = false
 
   function relativeTime(dateStr: string | null): string {
     if (!dateStr) return ''
@@ -60,24 +61,27 @@
   onMount(async () => {
     workspaces = await window.api.listWorkspaces(10)
 
-    // Background refresh git status for each git repo
-    for (const ws of workspaces) {
+    // Refresh a few recent repos sequentially so the welcome screen stays cheap to render.
+    for (const ws of workspaces.slice(0, 3)) {
+      if (disposed) break
       if (ws.is_git_repo) {
-        window.api
-          .refreshWorkspaceGitStatus(ws.id, ws.path)
-          .then((fresh) => {
-            if (fresh) {
-              const idx = workspaces.findIndex((w) => w.id === fresh.id)
-              if (idx !== -1) {
-                workspaces[idx] = fresh
-              }
+        try {
+          const fresh = await window.api.refreshWorkspaceGitStatus(ws.id, ws.path)
+          if (fresh && !disposed) {
+            const idx = workspaces.findIndex((w) => w.id === fresh.id)
+            if (idx !== -1) {
+              workspaces[idx] = fresh
             }
-          })
-          .catch(() => {
-            // Path may no longer exist — ignore
-          })
+          }
+        } catch {
+          // Path may no longer exist — ignore
+        }
       }
     }
+  })
+
+  onDestroy(() => {
+    disposed = true
   })
 
   function handleOpen(ws: WorkspaceRow): void {

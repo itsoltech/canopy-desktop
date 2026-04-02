@@ -16,8 +16,8 @@ import type { CredentialStore } from '../db/CredentialStore'
 import { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { GitRepository } from '../git/GitRepository'
-import { GitWatcher } from '../git/GitWatcher'
+import { GitRepository, type GitInfo } from '../git/GitRepository'
+import { GitWatcher, type GitRefreshFlags } from '../git/GitWatcher'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 
 const execFileAsync = promisify(execFile)
@@ -483,7 +483,7 @@ export function registerIpcHandlers(
     return { branch, isDirty, aheadBehind }
   })
 
-  ipcMain.handle('git:watch', async (event, payload: { repoRoot: string }) => {
+  ipcMain.handle('git:watch', async (event, payload: { repoRoot: string; snapshot?: GitInfo }) => {
     const senderId = event.sender.id
 
     // Dispose previous watcher for this specific repo only
@@ -493,21 +493,25 @@ export function registerIpcHandlers(
     const ws = workspaceStore.getByPath(payload.repoRoot)
     const workspaceId = ws?.id ?? null
 
-    const watcher = new GitWatcher(payload.repoRoot, (info) => {
-      if (workspaceId) {
-        workspaceStore.updateGitCache(workspaceId, {
-          branch: info.branch,
-          dirty: info.isDirty,
-          aheadBehind: info.aheadBehind
-            ? `${info.aheadBehind.ahead}/${info.aheadBehind.behind}`
-            : null,
-          worktreeCount: info.worktrees.length,
-        })
-      }
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('git:changed', { ...info, repoRoot: payload.repoRoot })
-      }
-    })
+    const watcher = new GitWatcher(
+      payload.repoRoot,
+      (info, changes: GitRefreshFlags) => {
+        if (workspaceId) {
+          workspaceStore.updateGitCache(workspaceId, {
+            branch: info.branch,
+            dirty: info.isDirty,
+            aheadBehind: info.aheadBehind
+              ? `${info.aheadBehind.ahead}/${info.aheadBehind.behind}`
+              : null,
+            worktreeCount: info.worktrees.length,
+          })
+        }
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('git:changed', { ...info, repoRoot: payload.repoRoot, changes })
+        }
+      },
+      payload.snapshot,
+    )
     watcher.start()
     windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
@@ -813,6 +817,19 @@ export function registerIpcHandlers(
       },
     ) => {
       browserManager.setDeviceEmulation(payload.browserId, payload.device)
+    },
+  )
+
+  ipcMain.handle(
+    'browser:setBackgroundThrottling',
+    (
+      _event,
+      payload: {
+        browserId: string
+        allowed: boolean
+      },
+    ) => {
+      browserManager.setBackgroundThrottling(payload.browserId, payload.allowed)
     },
   )
 

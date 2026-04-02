@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import BrowserToolbar from './BrowserToolbar.svelte'
   import BrowserError from './BrowserError.svelte'
   import {
@@ -62,6 +62,7 @@
   let appOverlayOpen = $state(false)
   let wrapperEl: HTMLDivElement | undefined = $state()
   let wrapperSize = $state({ w: 0, h: 0 })
+  let backgroundThrottlingInitialized = false
 
   // Compute scale factor so device frame fits in wrapper while preserving aspect ratio.
   // The webview always renders at full device resolution; CSS transform scales it down.
@@ -140,15 +141,26 @@
     w.executeJavaScript(
       `
       (function() {
-        if (window.__canopyPwObserverInstalled) return
-        window.__canopyPwObserverInstalled = true
+        if (window.__canopyPwObserverCleanup) {
+          window.__canopyPwObserverCleanup()
+        }
+
+        const cleanup = () => {
+          obs.disconnect()
+          clearTimeout(timeoutId)
+          delete window.__canopyPwObserverCleanup
+        }
+
         const obs = new MutationObserver(() => {
           const pw = document.querySelector('input[type="password"]')
           if (pw && !document.getElementById('__canopy_autofill_icon')) {
+            cleanup()
             console.log('__CANOPY_PW_FIELD_FOUND__')
           }
         })
         obs.observe(document.body, { childList: true, subtree: true })
+        const timeoutId = setTimeout(cleanup, 10000)
+        window.__canopyPwObserverCleanup = cleanup
       })()
     `,
     ).catch(() => {})
@@ -573,6 +585,18 @@
     return () => observer.disconnect()
   })
 
+  $effect(() => {
+    const nextActive = active
+    const stableBrowserId = untrack(() => browserId)
+
+    if (!backgroundThrottlingInitialized) {
+      backgroundThrottlingInitialized = true
+      if (nextActive) return
+    }
+
+    window.api.setBrowserBackgroundThrottling(stableBrowserId, !nextActive).catch(() => {})
+  })
+
   // --- DevTools divider drag (pointer capture pattern from SplitDivider) ---
 
   let dragStartPos = 0
@@ -661,6 +685,17 @@
         + 'border:2px solid #74c0fc;background:rgba(116,192,252,0.12);transition:all 0.05s'
       document.body.appendChild(hl)
       document.body.appendChild(ov)
+      const cleanup = () => {
+        ov.remove()
+        hl.remove()
+        document.removeEventListener('keydown', handler)
+      }
+      const handler = (e) => {
+        if (e.key === 'Escape') {
+          cleanup()
+          resolve(null)
+        }
+      }
       ov.addEventListener('mousemove', (e) => {
         ov.style.pointerEvents = 'none'
         const el = document.elementFromPoint(e.clientX, e.clientY)
@@ -676,16 +711,10 @@
         ov.style.pointerEvents = 'none'
         const el = document.elementFromPoint(e.clientX, e.clientY)
         ov.style.pointerEvents = 'auto'
-        ov.remove(); hl.remove()
+        cleanup()
         resolve(el ? el.outerHTML : null)
       })
-      document.addEventListener('keydown', function handler(e) {
-        if (e.key === 'Escape') {
-          ov.remove(); hl.remove()
-          document.removeEventListener('keydown', handler)
-          resolve(null)
-        }
-      })
+      document.addEventListener('keydown', handler)
     })
   `
 
@@ -699,6 +728,17 @@
         + 'border:2px solid #74c0fc;background:rgba(116,192,252,0.15)'
       document.body.appendChild(sel)
       document.body.appendChild(ov)
+      const cleanup = () => {
+        ov.remove()
+        sel.remove()
+        document.removeEventListener('keydown', handler)
+      }
+      const handler = (e) => {
+        if (e.key === 'Escape') {
+          cleanup()
+          resolve(null)
+        }
+      }
       let startX, startY, dragging = false
       ov.addEventListener('mousedown', (e) => {
         startX = e.clientX; startY = e.clientY; dragging = true
@@ -717,17 +757,11 @@
         dragging = false
         const x = Math.min(e.clientX, startX), y = Math.min(e.clientY, startY)
         const w = Math.abs(e.clientX - startX), h = Math.abs(e.clientY - startY)
-        ov.remove(); sel.remove()
+        cleanup()
         if (w < 5 || h < 5) { resolve(null); return }
         resolve({ x, y, width: w, height: h })
       })
-      document.addEventListener('keydown', function handler(e) {
-        if (e.key === 'Escape') {
-          ov.remove(); sel.remove()
-          document.removeEventListener('keydown', handler)
-          resolve(null)
-        }
-      })
+      document.addEventListener('keydown', handler)
     })
   `
 

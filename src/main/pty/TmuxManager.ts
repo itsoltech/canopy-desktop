@@ -42,6 +42,12 @@ export class TmuxManager {
   async isAvailable(): Promise<boolean> {
     if (this.available !== null) return this.available
 
+    // Tmux integration is experimental — disabled in production builds
+    if (!is.dev) {
+      this.available = false
+      return false
+    }
+
     if (os.platform() === 'win32') {
       this.available = false
       return false

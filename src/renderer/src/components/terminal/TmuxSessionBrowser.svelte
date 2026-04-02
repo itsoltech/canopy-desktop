@@ -122,7 +122,9 @@
     onmousedown={(e) => e.stopPropagation()}
   >
     <div class="header">
-      <h2 id="tmux-browser-title" class="title">Tmux Sessions</h2>
+      <h2 id="tmux-browser-title" class="title">
+        Tmux Sessions <span class="badge-experimental">Experimental</span>
+      </h2>
       <button class="close-btn" onclick={closeDialog}>&#x2715;</button>
     </div>
 

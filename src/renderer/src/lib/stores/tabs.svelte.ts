@@ -802,44 +802,6 @@ export function getAllTabs(): TabInfo[] {
   return Object.values(tabsByWorktree).flat()
 }
 
-function collectTmuxNamesFromSerialized(node: SerializedSplitNode, names: string[]): void {
-  if (node.type === 'leaf') {
-    if (node.tmuxSessionName) names.push(node.tmuxSessionName)
-  } else {
-    collectTmuxNamesFromSerialized(node.first, names)
-    collectTmuxNamesFromSerialized(node.second, names)
-  }
-}
-
-export async function cleanupOrphanedTmuxSessions(): Promise<void> {
-  const available = await window.api.tmuxIsAvailable().catch(() => false)
-  if (!available) return
-
-  // Collect tmux session names claimed by any pane in the current layout
-  const claimedNames: string[] = []
-  for (const tabs of Object.values(tabsByWorktree)) {
-    for (const tab of tabs) {
-      if (tab.suspended) {
-        collectTmuxNamesFromSerialized(tab.suspended, claimedNames)
-      } else {
-        for (const pane of allPanes(tab.rootSplit)) {
-          if (pane.tmuxSessionName) claimedNames.push(pane.tmuxSessionName)
-        }
-      }
-    }
-  }
-
-  // Only kill sessions that are both unclaimed by any pane AND not attached
-  // by any tmux client. This avoids killing sessions intentionally kept alive
-  // across app close while still cleaning up crash leftovers.
-  const sessions = await window.api.tmuxListSessions().catch(() => [])
-  for (const s of sessions) {
-    if (!claimedNames.includes(s.name) && !s.attached) {
-      await window.api.tmuxKillSession(s.name).catch(() => {})
-    }
-  }
-}
-
 export function findWorktreeForSession(sessionId: string): string | null {
   for (const [path, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {

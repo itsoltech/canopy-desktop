@@ -47,22 +47,9 @@ interface ToolDefinition {
   isCustom: boolean
 }
 
-interface GitInfo {
-  isGitRepo: boolean
-  repoRoot: string | null
-  branch: string | null
-  worktrees: GitWorktreeInfo[]
-  isDirty: boolean
-  aheadBehind: { ahead: number; behind: number } | null
-}
-
-interface GitWorktreeInfo {
-  path: string
-  head: string
-  branch: string
-  isMain: boolean
-  isBare: boolean
-}
+type GitInfo = import('../main/git/GitRepository').GitInfo
+type GitWorktreeInfo = import('../main/git/GitRepository').GitWorktreeInfo
+type GitRefreshFlags = import('../main/git/GitWatcher').GitRefreshFlags
 
 interface WorktreeSetupCommandAction {
   type: 'command'
@@ -321,7 +308,7 @@ interface CanopyAPI {
   gitDetect: (path: string) => Promise<GitInfo>
   gitWorktrees: (repoRoot: string) => Promise<GitWorktreeInfo[]>
   gitStatus: (path: string) => Promise<GitStatus>
-  gitWatch: (repoRoot: string) => Promise<void>
+  gitWatch: (repoRoot: string, snapshot?: GitInfo) => Promise<void>
   gitUnwatch: (repoRoot?: string) => Promise<void>
   gitInit: (path: string) => Promise<GitInfo>
 
@@ -364,6 +351,7 @@ interface CanopyAPI {
     browserId: string,
     device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null,
   ) => Promise<void>
+  setBrowserBackgroundThrottling: (browserId: string, allowed: boolean) => Promise<void>
   saveBrowserCapture: (buffer: ArrayBuffer) => Promise<string>
 
   // Credential autofill (isolated world)
@@ -419,7 +407,14 @@ interface CanopyAPI {
   onAgentHookEvent: (callback: (data: AgentHookEventData) => void) => () => void
   onAgentStatusUpdate: (callback: (data: AgentStatusData) => void) => () => void
   onAgentFocusSession: (callback: (data: { ptySessionId: string }) => void) => () => void
-  onGitChanged: (callback: (info: GitInfo & { repoRoot: string }) => void) => () => void
+  onGitChanged: (
+    callback: (
+      info: GitInfo & {
+        repoRoot: string
+        changes: GitRefreshFlags
+      },
+    ) => void,
+  ) => () => void
   onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void
