@@ -1,4 +1,4 @@
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 
 interface DirEntry {
   name: string
@@ -54,7 +54,8 @@ function createFileTreeStore() {
       const previousPaths = [...gitFileStatus.keys()]
       const porcelain = await window.api.gitStatusPorcelain(repoRoot, rootPath)
       const nextStatuses: Record<string, string> = {}
-      const affectedPaths = new SvelteSet<string>()
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      const affectedPaths = new Set<string>()
 
       const collectPaths = (rawPath: string): void => {
         for (const part of rawPath.split(' -> ')) {
@@ -81,7 +82,8 @@ function createFileTreeStore() {
         }
       }
 
-      const dirsToRefresh = new SvelteSet<string>()
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      const dirsToRefresh = new Set<string>()
       for (const relPath of affectedPaths) {
         let currentDir = rootPath
         if (expandedDirs[currentDir]) dirsToRefresh.add(currentDir)
