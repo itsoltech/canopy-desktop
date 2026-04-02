@@ -3,6 +3,7 @@ import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import os from 'os'
 import { randomUUID } from 'crypto'
+import { is } from '@electron-toolkit/utils'
 import { getLoginEnv } from '../shell/loginEnv'
 
 export interface TmuxSessionInfo {
@@ -12,7 +13,7 @@ export interface TmuxSessionInfo {
   cwd: string
 }
 
-const SOCKET_NAME = 'canopy'
+const SOCKET_NAME = is.dev ? 'canopy-dev' : 'canopy'
 
 function buildTmuxConfig(mouse: boolean): string {
   return `\
