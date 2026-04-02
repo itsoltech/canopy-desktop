@@ -272,6 +272,7 @@ export function registerIpcHandlers(
           cols: payload.cols,
           rows: payload.rows,
           mouse: tmuxMouse,
+          env,
         })
         const attach = tmuxManager.attachArgs(tmuxSessionName)
         command = attach.command
