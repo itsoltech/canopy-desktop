@@ -667,8 +667,12 @@ export function registerIpcHandlers(
     (_event, payload: { workspaceId: string; worktreePath: string; layoutJson: string }) => {
       try {
         layoutStore.save(payload.workspaceId, payload.worktreePath, payload.layoutJson)
-      } catch {
-        // DB may already be closed during shutdown
+      } catch (error) {
+        if (layoutStore.isClosed()) {
+          // DB may already be closed during shutdown
+          return
+        }
+        console.error('Failed to save layout:', error)
       }
     },
   )
@@ -676,18 +680,26 @@ export function registerIpcHandlers(
   ipcMain.handle('layout:get', (_event, payload: { workspaceId: string; worktreePath: string }) => {
     try {
       return layoutStore.get(payload.workspaceId, payload.worktreePath)
-    } catch {
-      // DB may already be closed during shutdown
-      return null
+    } catch (error) {
+      if (layoutStore.isClosed()) {
+        // DB may already be closed during shutdown
+        return null
+      }
+      console.error('Failed to load layout:', error)
+      throw error
     }
   })
 
   ipcMain.handle('layout:getAll', (_event, payload: { workspaceId: string }) => {
     try {
       return layoutStore.getAll(payload.workspaceId)
-    } catch {
-      // DB may already be closed during shutdown
-      return []
+    } catch (error) {
+      if (layoutStore.isClosed()) {
+        // DB may already be closed during shutdown
+        return []
+      }
+      console.error('Failed to load layouts:', error)
+      throw error
     }
   })
 
@@ -696,8 +708,13 @@ export function registerIpcHandlers(
     (_event, payload: { workspaceId: string; worktreePath: string }) => {
       try {
         layoutStore.delete(payload.workspaceId, payload.worktreePath)
-      } catch {
-        // DB may already be closed during shutdown
+      } catch (error) {
+        if (layoutStore.isClosed()) {
+          // DB may already be closed during shutdown
+          return
+        }
+        console.error('Failed to delete layout:', error)
+        throw error
       }
     },
   )

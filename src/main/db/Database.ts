@@ -168,4 +168,8 @@ export class Database {
     this.closed = true
     this.db.close()
   }
+
+  isClosed(): boolean {
+    return this.closed
+  }
 }

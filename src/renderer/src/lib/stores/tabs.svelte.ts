@@ -331,7 +331,8 @@ export async function closeTab(tabId: string): Promise<void> {
         .filter((p) => p.paneType !== 'editor')
         .map((p) => {
           if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-          return window.api.killPty(p.sessionId, true)
+          if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
+          return window.api.killPty(p.sessionId)
         }),
     )
 
@@ -1056,14 +1057,16 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
   } else if (result.removed.paneType === 'browser') {
     delete browserSessions[result.removed.sessionId]
     await window.api.teardownBrowserWebview(result.removed.sessionId)
+  } else if (result.removed.tmuxSessionName) {
+    await window.api.tmuxDetach(result.removed.sessionId).catch(() => {})
   } else {
-    await window.api.killPty(result.removed.sessionId, true)
+    await window.api.killPty(result.removed.sessionId)
   }
 
   if (!result.tree) {
     // Last pane — close the tab entirely
     // Remove from closed tabs push since closeTab will handle it
-    // But we already killed the PTY, so we handle manually
+    // But we already cleaned up the session, so we handle it manually
     if (!closedTabs[worktreePath]) closedTabs[worktreePath] = []
     closedTabs[worktreePath].push({
       toolId: tab.toolId,
