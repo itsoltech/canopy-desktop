@@ -1,3 +1,9 @@
+## [0.9.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.2...v0.9.0-next.3) (2026-04-02)
+
+### Bug Fixes
+
+* **perf:** selective git refresh, shared WS server, terminal fixes ([#77](https://github.com/itsoltech/canopy-desktop/issues/77)) ([b77d0fd](https://github.com/itsoltech/canopy-desktop/commit/b77d0fdbddd4bb985aeb57743210146818b6edfc))
+
 ## [0.9.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.1...v0.9.0-next.2) (2026-04-02)
 
 ### Bug Fixes
