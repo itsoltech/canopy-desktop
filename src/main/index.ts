@@ -549,12 +549,10 @@ app.whenReady().then(async () => {
       for (const config of windowConfigs) {
         const win = windowManager.createWindow()
         win.once('ready-to-show', () => {
-          for (const path of config.paths) {
-            win.webContents.send('url:action', { action: 'open', path })
-          }
-          if (config.activeWorktreePath) {
-            win.webContents.send('workspace:restoreActive', config.activeWorktreePath)
-          }
+          win.webContents.send('workspace:restoreWindow', {
+            paths: config.paths,
+            activeWorktreePath: config.activeWorktreePath,
+          })
           sendPostLaunch(win)
         })
       }

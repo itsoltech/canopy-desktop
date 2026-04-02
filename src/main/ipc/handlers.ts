@@ -94,8 +94,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle('pty:kill', async (_event, payload: { sessionId: string; killTmux?: boolean }) => {
     const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
-    wsBridge.destroy(payload.sessionId)
-    ptyManager.kill(payload.sessionId)
+    // Kill tmux BEFORE PTY so the pty:exit handler sees the session as dead
+    // (otherwise handlePtyExit checks tmuxHasSession while it's still alive)
     if (payload.killTmux && tmuxName && TmuxManager.isCanopySession(tmuxName)) {
       try {
         await tmuxManager.killSession(tmuxName)
@@ -103,6 +103,8 @@ export function registerIpcHandlers(
         // Session may already be gone
       }
     }
+    wsBridge.destroy(payload.sessionId)
+    ptyManager.kill(payload.sessionId)
   })
 
   ipcMain.handle('pty:write', (_event, payload: { sessionId: string; data: string }) => {
@@ -672,17 +674,31 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('layout:get', (_event, payload: { workspaceId: string; worktreePath: string }) => {
-    return layoutStore.get(payload.workspaceId, payload.worktreePath)
+    try {
+      return layoutStore.get(payload.workspaceId, payload.worktreePath)
+    } catch {
+      // DB may already be closed during shutdown
+      return null
+    }
   })
 
   ipcMain.handle('layout:getAll', (_event, payload: { workspaceId: string }) => {
-    return layoutStore.getAll(payload.workspaceId)
+    try {
+      return layoutStore.getAll(payload.workspaceId)
+    } catch {
+      // DB may already be closed during shutdown
+      return []
+    }
   })
 
   ipcMain.handle(
     'layout:delete',
     (_event, payload: { workspaceId: string; worktreePath: string }) => {
-      layoutStore.delete(payload.workspaceId, payload.worktreePath)
+      try {
+        layoutStore.delete(payload.workspaceId, payload.worktreePath)
+      } catch {
+        // DB may already be closed during shutdown
+      }
     },
   )
 

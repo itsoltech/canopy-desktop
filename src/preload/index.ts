@@ -475,6 +475,17 @@ const api = {
     }
   },
 
+  onRestoreWindow: (callback: (data: { paths: string[]; activeWorktreePath?: string }) => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { paths: string[]; activeWorktreePath?: string },
+    ): void => callback(data)
+    ipcRenderer.on('workspace:restoreWindow', handler)
+    return (): void => {
+      ipcRenderer.removeListener('workspace:restoreWindow', handler)
+    }
+  },
+
   // Menu events (from native menu)
   onMenuShowAbout: (callback: () => void) => {
     const handler = (): void => callback()
