@@ -30,8 +30,7 @@
     workspaceState,
     projects,
     attachProject,
-    waitForAttachQueue,
-    selectWorktree,
+    restoreProjects,
     updateGitInfoForProject,
     toggleSidebar,
     toggleInspector,
@@ -219,11 +218,10 @@
     )
   })
 
-  // Restore last active worktree after all projects are attached
+  // Restore a whole window's projects in parallel, then focus the saved worktree once.
   $effect(() => {
-    const unsubscribe = window.api.onRestoreActiveWorktree(async (path) => {
-      await waitForAttachQueue()
-      await selectWorktree(path)
+    const unsubscribe = window.api.onRestoreWindow(async (data) => {
+      await restoreProjects(data.paths, data.activeWorktreePath)
     })
     return unsubscribe
   })

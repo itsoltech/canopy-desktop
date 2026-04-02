@@ -331,9 +331,7 @@ export async function closeTab(tabId: string): Promise<void> {
         .filter((p) => p.paneType !== 'editor')
         .map((p) => {
           if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-          // For tmux-backed panes, detach instead of kill (session survives)
-          if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
-          return window.api.killPty(p.sessionId)
+          return window.api.killPty(p.sessionId, !!p.tmuxSessionName)
         }),
     )
 
@@ -508,7 +506,7 @@ export async function handlePtyExit(
   exitCode: number,
   tmuxSessionName?: string,
 ): Promise<void> {
-  for (const tabs of Object.values(tabsByWorktree)) {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const panes = allPanes(tab.rootSplit)
       const pane = panes.find((p) => p.sessionId === sessionId)
@@ -526,6 +524,8 @@ export async function handlePtyExit(
           detached,
           tmuxSessionName: detached ? p.tmuxSessionName : undefined,
         }))
+        // Persist updated state so dead tabs are excluded from saved layout
+        scheduleSave(worktreePath)
         return
       }
     }
@@ -752,8 +752,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
       .filter((p) => p.paneType !== 'editor')
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-        if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
-        return window.api.killPty(p.sessionId)
+        return window.api.killPty(p.sessionId, true)
       }),
   )
 
@@ -774,8 +773,7 @@ export async function killAllTabs(): Promise<void> {
       .filter((p) => p.paneType !== 'editor')
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-        if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
-        return window.api.killPty(p.sessionId)
+        return window.api.killPty(p.sessionId, true)
       }),
   )
   for (const path of Object.keys(tabsByWorktree)) {
@@ -832,9 +830,8 @@ export async function cleanupOrphanedTmuxSessions(): Promise<void> {
   }
 
   // Only kill sessions that are both unclaimed by any pane AND not attached
-  // by any tmux client. This avoids killing sessions the user intentionally
-  // detached (e.g. closed a tab with "detach" policy). Unattached + unclaimed
-  // sessions are crash orphans.
+  // by any tmux client. This avoids killing sessions intentionally kept alive
+  // across app close while still cleaning up crash leftovers.
   const sessions = await window.api.tmuxListSessions().catch(() => [])
   for (const s of sessions) {
     if (!claimedNames.includes(s.name) && !s.attached) {
@@ -1059,13 +1056,13 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     delete browserSessions[result.removed.sessionId]
     await window.api.teardownBrowserWebview(result.removed.sessionId)
   } else {
-    await window.api.killPty(result.removed.sessionId)
+    await window.api.killPty(result.removed.sessionId, !!result.removed.tmuxSessionName)
   }
 
   if (!result.tree) {
     // Last pane — close the tab entirely
     // Remove from closed tabs push since closeTab will handle it
-    // But we already killed the PTY, so we handle manually
+    // But we already cleaned up the session, so we handle it manually
     if (!closedTabs[worktreePath]) closedTabs[worktreePath] = []
     closedTabs[worktreePath].push({
       toolId: tab.toolId,
@@ -1211,8 +1208,17 @@ function scheduleSave(worktreePath: string): void {
   }, 500)
 }
 
-function serializeSplitNode(node: SplitNode): SerializedSplitNode {
+function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
   if (node.type === 'leaf') {
+    // Skip dead terminal panes — they would respawn as new sessions on restore
+    if (
+      node.pane.paneType !== 'editor' &&
+      node.pane.paneType !== 'browser' &&
+      !node.pane.isRunning &&
+      !node.pane.tmuxSessionName
+    ) {
+      return null
+    }
     const leaf: SerializedSplitNode = {
       type: 'leaf',
       toolId: node.pane.toolId,
@@ -1237,10 +1243,16 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode {
     }
     return leaf
   }
+  // Collapse splits when one or both children are dead
+  const first = serializeSplitNode(node.first)
+  const second = serializeSplitNode(node.second)
+  if (!first && !second) return null
+  if (!first) return second
+  if (!second) return first
   return {
     type: node.type,
-    first: serializeSplitNode(node.first),
-    second: serializeSplitNode(node.second),
+    first,
+    second,
     ratio: node.ratio,
   }
 }
@@ -1253,13 +1265,31 @@ function saveLayoutForWorktree(worktreePath: string): void {
   const activeId = activeTabId[worktreePath]
   const activeIndex = tabs.findIndex((t) => t.id === activeId)
 
+  // Filter out tabs where all panes are dead (stopped processes, no tmux session)
+  const serializedTabs: Array<{
+    toolId: string
+    toolName: string
+    rootSplit: SerializedSplitNode
+  }> = []
+  let adjustedActiveIndex = 0
+  for (let i = 0; i < tabs.length; i++) {
+    const tab = tabs[i]
+    const rootSplit = tab.suspended ? tab.suspended : serializeSplitNode(tab.rootSplit)
+    if (!rootSplit) continue
+    if (i === activeIndex) adjustedActiveIndex = serializedTabs.length
+    serializedTabs.push({ toolId: tab.toolId, toolName: tab.toolName, rootSplit })
+  }
+
+  if (serializedTabs.length === 0) {
+    window.api.deleteLayout(wsId, worktreePath).catch(() => {
+      // Ignore delete errors silently
+    })
+    return
+  }
+
   const layout: SerializedLayout = {
-    tabs: tabs.map((tab) => ({
-      toolId: tab.toolId,
-      toolName: tab.toolName,
-      rootSplit: tab.suspended ? tab.suspended : serializeSplitNode(tab.rootSplit),
-    })),
-    activeTabIndex: activeIndex >= 0 ? activeIndex : 0,
+    tabs: serializedTabs,
+    activeTabIndex: adjustedActiveIndex,
   }
 
   window.api.saveLayout(wsId, worktreePath, JSON.stringify(layout)).catch(() => {

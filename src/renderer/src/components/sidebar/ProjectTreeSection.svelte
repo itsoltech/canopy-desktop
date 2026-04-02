@@ -42,7 +42,7 @@
     const panes = tabs.flatMap((t) => allPanes(t.rootSplit))
     const running = panes.filter((p) => p.isRunning)
     if (running.length === 0) return
-    await Promise.all(running.map((p) => window.api.killPty(p.sessionId)))
+    await Promise.all(running.map((p) => window.api.killPty(p.sessionId, true)))
   }
 
   // Per-project collapse state
@@ -258,7 +258,7 @@
     if (!ctxMenu) return
     const tabs = getTabsForWorktree(ctxMenu.wt.path)
     const running = tabs.flatMap((t) => allPanes(t.rootSplit)).filter((p) => p.isRunning)
-    await Promise.all(running.map((p) => window.api.killPty(p.sessionId)))
+    await Promise.all(running.map((p) => window.api.killPty(p.sessionId, true)))
     closeCtxMenu()
   }
 

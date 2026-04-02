@@ -42,6 +42,18 @@ export interface ProjectState {
   worktrees: GitWorktreeInfo[]
 }
 
+interface AttachProjectOptions {
+  selectIfEmpty?: boolean
+  cleanupTmux?: boolean
+  batchOrder?: Map<string, number>
+  restoreIndex?: number
+}
+
+interface AttachProjectResult {
+  projectPath: string
+  defaultWorktreePath: string
+}
+
 interface WorkspaceState {
   workspace: WorkspaceRow | null
   isGitRepo: boolean
@@ -76,21 +88,86 @@ export const projects: ProjectState[] = $state([])
 
 // --- Multi-project functions ---
 
-// Serialize concurrent attachProject calls to prevent race conditions during restore
+// Serialize concurrent attachProject calls to preserve project ordering
 let attachQueue: Promise<void> = Promise.resolve()
-
-/** Wait for all pending attachProject calls to complete */
-export function waitForAttachQueue(): Promise<void> {
-  return attachQueue
-}
 
 export async function attachProject(path: string): Promise<void> {
   const result = attachQueue.then(() => attachProjectImpl(path))
-  attachQueue = result.catch(() => {})
-  return result
+  attachQueue = result.then(() => undefined).catch(() => {})
+  await result
 }
 
-async function attachProjectImpl(path: string): Promise<void> {
+export async function restoreProjects(paths: string[], activeWorktreePath?: string): Promise<void> {
+  const result = attachQueue.then(() => restoreProjectsImpl(paths, activeWorktreePath))
+  attachQueue = result.then(() => undefined).catch(() => {})
+  await result
+}
+
+function getProjectKey(project: ProjectState): string {
+  return project.repoRoot ?? project.workspace.path
+}
+
+function getDefaultWorktreePath(project: ProjectState): string {
+  if (!project.isGitRepo) return project.workspace.path
+  const main = project.worktrees.find((wt) => wt.isMain)
+  return main?.path ?? project.repoRoot ?? project.workspace.path
+}
+
+function reorderProjects(batchOrder: Map<string, number>): void {
+  const ordered = [...projects]
+    .map((project, index) => ({
+      project,
+      index,
+      order: batchOrder.get(getProjectKey(project)),
+    }))
+    .sort((a, b) => {
+      if (a.order === undefined && b.order === undefined) return a.index - b.index
+      if (a.order === undefined) return 1
+      if (b.order === undefined) return -1
+      if (a.order !== b.order) return a.order - b.order
+      return a.index - b.index
+    })
+    .map((entry) => entry.project)
+
+  projects.splice(0, projects.length, ...ordered)
+}
+
+async function restoreProjectsImpl(paths: string[], activeWorktreePath?: string): Promise<void> {
+  const uniquePaths = [...new Set(paths)]
+  if (uniquePaths.length === 0) {
+    if (activeWorktreePath) await selectWorktree(activeWorktreePath)
+    return
+  }
+
+  const batchOrder = new Map<string, number>()
+  const results = await Promise.all(
+    uniquePaths.map((path, index) =>
+      attachProjectImpl(path, {
+        selectIfEmpty: false,
+        cleanupTmux: false,
+        batchOrder,
+        restoreIndex: index,
+      }),
+    ),
+  )
+
+  let targetPath = activeWorktreePath
+  if (!targetPath || !getProjectForWorktree(targetPath)) {
+    targetPath = results.find((result) => result)?.defaultWorktreePath
+  }
+
+  if (targetPath) {
+    await selectWorktree(targetPath)
+  }
+
+  await cleanupOrphanedTmuxSessions().catch(() => {})
+}
+
+async function attachProjectImpl(
+  path: string,
+  options: AttachProjectOptions = {},
+): Promise<AttachProjectResult | undefined> {
+  const { selectIfEmpty = true, cleanupTmux = true, batchOrder, restoreIndex } = options
   // Dedupe: if another window already has this path, focus it instead
   const focused = await window.api.focusWindowForPath(path)
   if (focused) return
@@ -100,7 +177,14 @@ async function attachProjectImpl(path: string): Promise<void> {
   const projectPath = info.repoRoot ?? path
 
   // Already attached in this window?
-  if (projects.some((p) => (p.repoRoot ?? p.workspace.path) === projectPath)) return
+  if (projects.some((p) => (p.repoRoot ?? p.workspace.path) === projectPath)) {
+    const existing = projects.find((p) => (p.repoRoot ?? p.workspace.path) === projectPath)
+    if (!existing) return
+    return {
+      projectPath,
+      defaultWorktreePath: getDefaultWorktreePath(existing),
+    }
+  }
 
   // Upsert workspace in DB
   const name = basename(projectPath)
@@ -122,23 +206,18 @@ async function attachProjectImpl(path: string): Promise<void> {
     worktrees: info.worktrees,
   }
   projects.push(project)
+  if (batchOrder && restoreIndex !== undefined) {
+    batchOrder.set(projectPath, restoreIndex)
+    reorderProjects(batchOrder)
+  }
 
   // Start git watcher if git repo
   if (info.isGitRepo && info.repoRoot) {
     await window.api.gitWatch(info.repoRoot)
   }
 
-  // Auto-select if this is the first project or no active selection
-  if (!workspaceState.selectedWorktreePath) {
-    if (info.isGitRepo) {
-      const main = info.worktrees.find((wt) => wt.isMain)
-      await selectWorktree(main?.path ?? projectPath)
-    } else {
-      await selectWorktree(projectPath)
-    }
-  }
-
-  // Restore saved layouts
+  // Restore saved layouts BEFORE selecting worktree so that ensureShellTab
+  // (triggered by selectWorktree) finds existing tabs and doesn't spawn extras
   try {
     const layouts = await window.api.getAllLayouts(ws.id)
     if (layouts.length > 0) {
@@ -150,8 +229,22 @@ async function attachProjectImpl(path: string): Promise<void> {
     // Layout restore failed, will fall back to ensureShellTab
   }
 
+  // Auto-select if this is the first project or no active selection
+  const defaultWorktreePath = getDefaultWorktreePath(project)
+
+  if (selectIfEmpty && !workspaceState.selectedWorktreePath) {
+    await selectWorktree(defaultWorktreePath)
+  }
+
   // Kill tmux sessions not attached to any pane (crash leftovers, stale layouts)
-  await cleanupOrphanedTmuxSessions().catch(() => {})
+  if (cleanupTmux) {
+    await cleanupOrphanedTmuxSessions().catch(() => {})
+  }
+
+  return {
+    projectPath,
+    defaultWorktreePath,
+  }
 }
 
 export async function detachProject(path: string): Promise<void> {
