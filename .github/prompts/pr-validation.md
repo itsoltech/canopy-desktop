@@ -11,13 +11,14 @@ You are validating a pull request title and description for Canopy.
 ## Steps
 
 1. Run `gh pr view $PR_NUMBER --repo $REPO --json title,body,assignees` to get PR details.
-2. Validate each rule below. Collect all failures before responding.
-3. If the PR has no assignee, auto-assign the author:
+2. If `PR_AUTHOR` is a bot account, skip the title, description, and checklist rules. Do not post a comment. Mark the PR as passed and exit.
+3. Validate each rule below. Collect all failures before responding.
+4. If the PR has no assignee, auto-assign the author:
    ```
    gh pr edit $PR_NUMBER --repo $REPO --add-assignee $PR_AUTHOR
    ```
-4. If all rules pass, do nothing (no comment needed).
-5. If any rule fails, post a single comment listing every failure with a short explanation of how to fix it.
+5. If all rules pass, do nothing (no comment needed).
+6. If any rule fails, post a single comment listing every failure with a short explanation of how to fix it.
 
 ## Rules
 
