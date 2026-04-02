@@ -49,6 +49,7 @@ interface ToolDefinition {
 
 type GitInfo = import('../main/git/GitRepository').GitInfo
 type GitWorktreeInfo = import('../main/git/GitRepository').GitWorktreeInfo
+type GitRefreshFlags = import('../main/git/GitWatcher').GitRefreshFlags
 
 interface WorktreeSetupCommandAction {
   type: 'command'
@@ -410,12 +411,7 @@ interface CanopyAPI {
     callback: (
       info: GitInfo & {
         repoRoot: string
-        changes: {
-          branch: boolean
-          worktrees: boolean
-          dirty: boolean
-          aheadBehind: boolean
-        }
+        changes: GitRefreshFlags
       },
     ) => void,
   ) => () => void
