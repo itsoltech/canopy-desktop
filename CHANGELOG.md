@@ -1,3 +1,13 @@
+## [0.9.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.8.1...v0.9.0-next.1) (2026-04-02)
+
+### Features
+
+* **session:** lazy restore tabs on startup ([#72](https://github.com/itsoltech/canopy-desktop/issues/72)) ([058fe87](https://github.com/itsoltech/canopy-desktop/commit/058fe878072d058f291707677e22270fba5bdc4d))
+
+### Bug Fixes
+
+* **terminal:** block Ctrl+Z in AI terminals to prevent suspend ([#71](https://github.com/itsoltech/canopy-desktop/issues/71)) ([ca4d6c1](https://github.com/itsoltech/canopy-desktop/commit/ca4d6c1ea15ff9c990e5222e161ce914f9278c62))
+
 ## [0.8.1](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0...v0.8.1) (2026-04-01)
 
 ### Bug Fixes
