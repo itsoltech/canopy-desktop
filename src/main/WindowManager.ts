@@ -7,6 +7,7 @@ import type { WsBridge } from './pty/WsBridge'
 import type { GitWatcher } from './git/GitWatcher'
 import type { AgentSessionManager } from './agents/AgentSessionManager'
 import type { BrowserManager } from './browser/BrowserManager'
+import { TmuxManager } from './pty/TmuxManager'
 import { isSafeExternalUrl } from './security/validateUrl'
 
 export class WindowManager {
@@ -19,6 +20,7 @@ export class WindowManager {
   private focusedAgentSessions = new Map<number, string>()
   private agentSessionManager: AgentSessionManager | null = null
   private browserManager: BrowserManager | null = null
+  private tmuxManager: TmuxManager | null = null
   private allWindowsClosedCallback: (() => void) | null = null
 
   private ptyManager: PtyManager
@@ -36,6 +38,10 @@ export class WindowManager {
 
   setBrowserManager(bm: BrowserManager): void {
     this.browserManager = bm
+  }
+
+  setTmuxManager(tm: TmuxManager): void {
+    this.tmuxManager = tm
   }
 
   createWindow(): BrowserWindow {
@@ -315,10 +321,16 @@ export class WindowManager {
       this.browserManager.teardownAllForWindow(win)
     }
 
-    // Kill PTY sessions for this window
+    // Kill PTY sessions (and their tmux sessions) for this window
     const sessions = this.ptySessions.get(wcId)
     if (sessions) {
       for (const sid of sessions) {
+        if (!this.isQuitting && this.tmuxManager) {
+          const tmuxName = this.ptyManager.getTmuxSessionName(sid)
+          if (tmuxName && TmuxManager.isCanopySession(tmuxName)) {
+            this.tmuxManager.killSession(tmuxName).catch(() => {})
+          }
+        }
         this.wsBridge.destroy(sid)
         this.ptyManager.kill(sid)
       }

@@ -331,9 +331,7 @@ export async function closeTab(tabId: string): Promise<void> {
         .filter((p) => p.paneType !== 'editor')
         .map((p) => {
           if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-          // For tmux-backed panes, detach instead of kill (session survives)
-          if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
-          return window.api.killPty(p.sessionId)
+          return window.api.killPty(p.sessionId, true)
         }),
     )
 
@@ -752,8 +750,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
       .filter((p) => p.paneType !== 'editor')
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-        if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
-        return window.api.killPty(p.sessionId)
+        return window.api.killPty(p.sessionId, true)
       }),
   )
 
@@ -774,8 +771,7 @@ export async function killAllTabs(): Promise<void> {
       .filter((p) => p.paneType !== 'editor')
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-        if (p.tmuxSessionName) return window.api.tmuxDetach(p.sessionId).catch(() => {})
-        return window.api.killPty(p.sessionId)
+        return window.api.killPty(p.sessionId, true)
       }),
   )
   for (const path of Object.keys(tabsByWorktree)) {
@@ -1059,7 +1055,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     delete browserSessions[result.removed.sessionId]
     await window.api.teardownBrowserWebview(result.removed.sessionId)
   } else {
-    await window.api.killPty(result.removed.sessionId)
+    await window.api.killPty(result.removed.sessionId, true)
   }
 
   if (!result.tree) {

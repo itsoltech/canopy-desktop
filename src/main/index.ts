@@ -45,6 +45,7 @@ const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
 const tmuxManager = new TmuxManager(app.getPath('userData'))
+windowManager.setTmuxManager(tmuxManager)
 let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false
