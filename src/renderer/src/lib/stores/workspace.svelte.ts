@@ -91,11 +91,6 @@ export const projects: ProjectState[] = $state([])
 // Serialize concurrent attachProject calls to preserve project ordering
 let attachQueue: Promise<void> = Promise.resolve()
 
-/** Wait for all pending attachProject calls to complete */
-export function waitForAttachQueue(): Promise<void> {
-  return attachQueue
-}
-
 export async function attachProject(path: string): Promise<void> {
   const result = attachQueue.then(() => attachProjectImpl(path))
   attachQueue = result.then(() => undefined).catch(() => {})
