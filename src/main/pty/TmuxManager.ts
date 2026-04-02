@@ -24,6 +24,8 @@ set -g escape-time 0
 set -g default-terminal xterm-256color
 set -g mouse ${mouse ? 'on' : 'off'}
 set -g history-limit 10000
+set -g set-titles-string "#T"
+set -g set-titles on
 `
 }
 
@@ -93,6 +95,8 @@ export class TmuxManager {
     // Config file is only read on server start; explicitly set mouse
     // on the running server so preference changes take effect immediately.
     await this.exec(['set-option', '-g', 'mouse', opts.mouse ? 'on' : 'off']).catch(() => {})
+    await this.exec(['set-option', '-g', 'set-titles-string', '#T']).catch(() => {})
+    await this.exec(['set-option', '-g', 'set-titles', 'on']).catch(() => {})
     const envArgs = Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`])
     const args = [
       '-f',
