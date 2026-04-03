@@ -227,11 +227,11 @@
     if (step === 'done') return
     step = 'done'
     setTimeout(
-      () => {
-        selectWorktree(worktreeDirDisplay)
-        openTool(getPref('newWorktree.toolId', 'shell'), worktreeDirDisplay).catch((err) => {
+      async () => {
+        await openTool(getPref('newWorktree.toolId', 'shell'), worktreeDirDisplay).catch((err) => {
           console.error('Failed to launch tool after worktree creation:', err)
         })
+        selectWorktree(worktreeDirDisplay)
         onClose()
       },
       setupErrors.length > 0 ? 2000 : 400,
