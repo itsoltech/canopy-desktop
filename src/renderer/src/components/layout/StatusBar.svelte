@@ -80,6 +80,21 @@
 
   // --- Helpers ---
 
+  function globalStatusLabel(status: WorstStatus): string {
+    switch (status) {
+      case 'waitingPermission':
+        return 'waiting for permission'
+      case 'error':
+        return 'error'
+      case 'working':
+        return 'working'
+      case 'idle':
+        return 'idle'
+      default:
+        return ''
+    }
+  }
+
   function statusDotColor(status: WorstStatus): string {
     switch (status) {
       case 'waitingPermission':
@@ -173,7 +188,9 @@
       {#if workspaceState.isGitRepo && workspaceState.branch}
         <button
           class="status-item branch"
-          aria-label="Branch: {workspaceState.branch}"
+          aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
+            ? ', uncommitted changes'
+            : ''}"
           title="Branch: {workspaceState.branch}"
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
@@ -183,17 +200,28 @@
           </svg>
           <span class="label">{workspaceState.branch}</span>
           {#if workspaceState.isDirty}
-            <span class="dirty-dot"></span>
+            <span class="dirty-dot" title="Uncommitted changes" aria-hidden="true"></span>
           {/if}
         </button>
 
         {#if workspaceState.aheadBehind && (workspaceState.aheadBehind.ahead > 0 || workspaceState.aheadBehind.behind > 0)}
-          <button class="status-item sync" aria-label="Sync status" title="Sync status">
-            {#if workspaceState.aheadBehind.ahead > 0}
-              <span class="sync-label">&#8593;{workspaceState.aheadBehind.ahead}</span>
+          {@const ahead = workspaceState.aheadBehind.ahead}
+          {@const behind = workspaceState.aheadBehind.behind}
+          <button
+            class="status-item sync"
+            aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
+              ? ', '
+              : ''}{behind > 0 ? `${behind} behind` : ''}"
+            title="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0 ? ', ' : ''}{behind >
+            0
+              ? `${behind} behind`
+              : ''}"
+          >
+            {#if ahead > 0}
+              <span class="sync-label" aria-hidden="true">&#8593;{ahead}</span>
             {/if}
-            {#if workspaceState.aheadBehind.behind > 0}
-              <span class="sync-label">&#8595;{workspaceState.aheadBehind.behind}</span>
+            {#if behind > 0}
+              <span class="sync-label" aria-hidden="true">&#8595;{behind}</span>
             {/if}
           </button>
         {/if}
@@ -260,8 +288,12 @@
       {#if agentCount > 0}
         <button
           class="status-item agents"
-          aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}"
-          title="{agentCount} agent{agentCount !== 1 ? 's' : ''}"
+          aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+            ? `, ${globalStatusLabel(globalWorstStatus)}`
+            : ''}"
+          title="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+            ? ` — ${globalStatusLabel(globalWorstStatus)}`
+            : ''}"
           onclick={focusWorstAgent}
         >
           <span
