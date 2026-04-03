@@ -1,3 +1,13 @@
+## [0.10.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0...v0.10.0-next.1) (2026-04-03)
+
+### Features
+
+* **tasks:** send task context to agent sessions ([#90](https://github.com/itsoltech/canopy-desktop/issues/90)) ([7f05068](https://github.com/itsoltech/canopy-desktop/commit/7f05068316538421d649a6821bde47bb71041f98))
+
+### Refactoring
+
+* replace try/catch with neverthrow typed error handling ([#91](https://github.com/itsoltech/canopy-desktop/issues/91)) ([5612434](https://github.com/itsoltech/canopy-desktop/commit/561243412379aa5d8f28e36c13e68d1830a9e955))
+
 ## [0.9.0](https://github.com/itsoltech/canopy-desktop/compare/v0.8.1...v0.9.0) (2026-04-03)
 
 ### Features
