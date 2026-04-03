@@ -3,7 +3,7 @@
   import { SvelteSet } from 'svelte/reactivity'
   import { Search, X, Loader2, Copy, Filter } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
-  import { setPref, prefs } from '../../lib/stores/preferences.svelte'
+  import { setPref, getPref, prefs } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import BranchCreateForm from './BranchCreateForm.svelte'
@@ -133,7 +133,8 @@
       boards = boardList
       currentUserName = userName
       if (boards.length > 0) {
-        selectedBoardId = boards[0].id
+        const lastBoard = getPref(`taskTracker.lastBoard.${connectionId}`)
+        selectedBoardId = boards.some((b) => b.id === lastBoard) ? lastBoard : boards[0].id
         restoreSavedFilters()
       }
     } catch (e) {
@@ -158,6 +159,7 @@
   }
 
   async function onBoardChange(): Promise<void> {
+    setPref(`taskTracker.lastBoard.${connectionId}`, selectedBoardId)
     restoreSavedFilters()
     await fetchTasks()
   }
