@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { X, ExternalLink, ArrowLeft } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
@@ -142,11 +142,14 @@
     }
   }
 
+  const abortController = new AbortController()
+
   async function waitForAgentReady(sessionId: string, timeoutMs = 30000): Promise<boolean> {
-    // Give the agent session time to register in the store
+    const signal = abortController.signal
     await new Promise((r) => setTimeout(r, 500))
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
+      if (signal.aborted) return false
       const session = agentSessions[sessionId]
       if (session?.status.type === 'idle') return true
       if (session?.status.type === 'ended' || session?.status.type === 'error') return false
@@ -157,6 +160,10 @@
 
   onMount(() => {
     init()
+  })
+
+  onDestroy(() => {
+    abortController.abort()
   })
 </script>
 

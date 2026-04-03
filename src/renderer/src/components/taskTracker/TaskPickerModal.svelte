@@ -394,6 +394,7 @@
                   class="send-btn"
                   onclick={(e) => sendTaskToAgent(task, e)}
                   title="Send to agent"
+                  aria-label="Send to agent"
                 >
                   <Send size={12} />
                 </button>

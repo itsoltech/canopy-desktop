@@ -1284,7 +1284,7 @@ export function registerIpcHandlers(
       if (!payload.url || typeof payload.url !== 'string' || !/^https?:\/\//.test(payload.url)) {
         throw new Error('Invalid URL')
       }
-      if (!payload.filename || /[\0]/.test(payload.filename)) {
+      if (!payload.filename || /[\0/\\]/.test(payload.filename)) {
         throw new Error('Invalid filename')
       }
       return taskTrackerManager.downloadAttachment(
@@ -1296,7 +1296,9 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('taskTracker:cleanupAttachments', (_event, payload: { filePaths: string[] }) => {
+    if (!Array.isArray(payload.filePaths)) throw new Error('Invalid filePaths')
     for (const fp of payload.filePaths) {
+      if (typeof fp !== 'string') continue
       taskTrackerManager.cleanupAttachmentDir(fp)
     }
   })
