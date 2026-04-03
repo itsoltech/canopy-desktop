@@ -1,3 +1,19 @@
+## [0.9.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.4...v0.9.0-next.5) (2026-04-03)
+
+### Features
+
+* configurable startup tool for new tabs and worktrees ([#85](https://github.com/itsoltech/canopy-desktop/issues/85)) ([b90377c](https://github.com/itsoltech/canopy-desktop/commit/b90377cbc8d14c1074b4a431fd686e1c1e0e91cc))
+* **tasks:** persist last selected board in task picker ([#88](https://github.com/itsoltech/canopy-desktop/issues/88)) ([8828516](https://github.com/itsoltech/canopy-desktop/commit/8828516bcb8467f06f03fb456744a92e7c03b82f))
+
+### Bug Fixes
+
+* code review corrections across terminal and task tracker ([#80](https://github.com/itsoltech/canopy-desktop/issues/80)) ([8277373](https://github.com/itsoltech/canopy-desktop/commit/82773734b37fe70145783d19e159522cc2a66d86))
+* **terminal:** fix Shift+Enter inserting newline in all terminals ([#82](https://github.com/itsoltech/canopy-desktop/issues/82)) ([86db02c](https://github.com/itsoltech/canopy-desktop/commit/86db02c9558a1f794498089b3f5f828d286e3cc7)), closes [#81](https://github.com/itsoltech/canopy-desktop/issues/81)
+
+### Refactoring
+
+* adopt ts-pattern for exhaustive pattern matching ([#83](https://github.com/itsoltech/canopy-desktop/issues/83)) ([4e0b185](https://github.com/itsoltech/canopy-desktop/commit/4e0b18551c6c4ff1fc5546f65caa850bae1875d3))
+
 ## [0.9.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.3...v0.9.0-next.4) (2026-04-03)
 
 ### Bug Fixes
