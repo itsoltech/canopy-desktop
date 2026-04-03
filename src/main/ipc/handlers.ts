@@ -394,6 +394,9 @@ export function registerIpcHandlers(
   // --- Environment / Dependencies ---
 
   ipcMain.handle('env:checkDependencies', async (_event, payload: { tools: string[] }) => {
+    const KNOWN_TOOLS = new Set(['claude', 'codex', 'gemini'])
+    const requested = (payload.tools ?? []).filter((t) => KNOWN_TOOLS.has(t))
+
     const cmd = os.platform() === 'win32' ? 'where' : 'which'
     const env = getLoginEnv() ?? (process.env as Record<string, string>)
 
@@ -404,7 +407,7 @@ export function registerIpcHandlers(
         })
       })
 
-    const binaries = [...new Set([...payload.tools, 'git'])]
+    const binaries = [...new Set([...requested, 'git'])]
     const statuses = await Promise.all(binaries.map((b) => check(b)))
     const results: Record<string, { found: boolean; path?: string }> = {}
     binaries.forEach((b, i) => {

@@ -149,13 +149,19 @@
                     <div class="install-row">
                       <span class="install-method">{opt.label}</span>
                       {#if opt.cmd.startsWith('http')}
-                        <a class="install-link" href={opt.cmd} target="_blank">{opt.cmd}</a>
+                        <button
+                          class="install-link"
+                          onclick={() => window.api.openExternal(opt.cmd)}
+                        >
+                          {opt.cmd}
+                        </button>
                       {:else}
                         <code class="install-cmd">{opt.cmd}</code>
                         <button
                           class="copy-btn"
                           onclick={() => copyCommand(opt.cmd)}
                           title="Copy to clipboard"
+                          aria-label="Copy install command"
                         >
                           {#if copiedCmd === opt.cmd}
                             <Check size={14} />
@@ -298,6 +304,11 @@
   .install-link {
     font-size: 11px;
     color: var(--c-accent);
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: monospace;
+    cursor: pointer;
     text-decoration: none;
   }
 
@@ -356,7 +367,8 @@
     justify-content: center;
   }
 
-  :global(.spin) {
+  .recheck-btn :global(.spin),
+  .loading :global(.spin) {
     animation: spin 1s linear infinite;
   }
 

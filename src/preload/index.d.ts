@@ -271,6 +271,9 @@ interface CanopyAPI {
   getAllPrefs: () => Promise<Record<string, string>>
   deletePref: (key: string) => Promise<void>
 
+  // Environment / Dependencies
+  checkDependencies: (tools: string[]) => Promise<DependencyCheckResult>
+
   // Tools
   listTools: () => Promise<ToolDefinition[]>
   getTool: (id: string) => Promise<ToolDefinition | null>
