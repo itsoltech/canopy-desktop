@@ -55,6 +55,13 @@ const api = {
   // Notch overlay
   setNotchEnabled: (enabled: boolean) => ipcRenderer.send('notch:setEnabled', { enabled }),
 
+  // Environment / Dependencies
+  checkDependencies: (tools: string[]) =>
+    ipcRenderer.invoke('env:checkDependencies', { tools }) as Promise<{
+      results: Record<string, { found: boolean; path?: string }>
+      platform: string
+    }>,
+
   // Tools
   listTools: () => ipcRenderer.invoke('tools:list'),
   getTool: (id: string) => ipcRenderer.invoke('tools:get', { id }),

@@ -18,6 +18,7 @@ import { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { GitRepository, type GitInfo } from '../git/GitRepository'
+import { getLoginEnv } from '../shell/loginEnv'
 import { GitWatcher, type GitRefreshFlags } from '../git/GitWatcher'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 
@@ -388,6 +389,32 @@ export function registerIpcHandlers(
 
   ipcMain.handle('tools:checkAvailability', async () => {
     return toolRegistry.checkAvailability()
+  })
+
+  // --- Environment / Dependencies ---
+
+  ipcMain.handle('env:checkDependencies', async (_event, payload: { tools: string[] }) => {
+    const KNOWN_TOOLS = new Set(['claude', 'codex', 'gemini'])
+    const requested = (payload.tools ?? []).filter((t) => KNOWN_TOOLS.has(t))
+
+    const cmd = os.platform() === 'win32' ? 'where' : 'which'
+    const env = getLoginEnv() ?? (process.env as Record<string, string>)
+
+    const check = (binary: string): Promise<{ found: boolean; path?: string }> =>
+      new Promise((resolve) => {
+        execFile(cmd, [binary], { env }, (err, stdout) => {
+          resolve(err ? { found: false } : { found: true, path: stdout.trim().split('\n')[0] })
+        })
+      })
+
+    const binaries = [...new Set([...requested, 'git'])]
+    const statuses = await Promise.all(binaries.map((b) => check(b)))
+    const results: Record<string, { found: boolean; path?: string }> = {}
+    binaries.forEach((b, i) => {
+      results[b] = statuses[i]
+    })
+
+    return { results, platform: process.platform }
   })
 
   // --- App / Shell ---

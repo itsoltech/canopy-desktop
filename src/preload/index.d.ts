@@ -25,6 +25,16 @@ interface TmuxSessionInfo {
   cwd: string
 }
 
+interface DependencyStatus {
+  found: boolean
+  path?: string
+}
+
+interface DependencyCheckResult {
+  results: Record<string, DependencyStatus>
+  platform: string
+}
+
 interface WorkspaceRow {
   id: string
   path: string
@@ -260,6 +270,9 @@ interface CanopyAPI {
   setPref: (key: string, value: string) => Promise<void>
   getAllPrefs: () => Promise<Record<string, string>>
   deletePref: (key: string) => Promise<void>
+
+  // Environment / Dependencies
+  checkDependencies: (tools: string[]) => Promise<DependencyCheckResult>
 
   // Tools
   listTools: () => Promise<ToolDefinition[]>
