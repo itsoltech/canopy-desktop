@@ -12,6 +12,8 @@
   import { openWorkspace } from '../../lib/stores/workspace.svelte'
   import StepIndicator from './StepIndicator.svelte'
   import WelcomeStep from './steps/WelcomeStep.svelte'
+  import ToolSelectionStep from './steps/ToolSelectionStep.svelte'
+  import EnvironmentCheckStep from './steps/EnvironmentCheckStep.svelte'
   import ThemeStep from './steps/ThemeStep.svelte'
   import AiSetupStep from './steps/AiSetupStep.svelte'
   import FeaturesStep from './steps/FeaturesStep.svelte'
@@ -105,6 +107,10 @@
     <div class="wizard-content">
       {#if step?.id === 'welcome'}
         <WelcomeStep />
+      {:else if step?.id === 'tool-selection'}
+        <ToolSelectionStep />
+      {:else if step?.id === 'environment-check'}
+        <EnvironmentCheckStep />
       {:else if step?.id === 'theme'}
         <ThemeStep />
       {:else if step?.id === 'ai-setup'}

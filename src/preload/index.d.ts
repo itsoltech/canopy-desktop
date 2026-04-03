@@ -25,6 +25,16 @@ interface TmuxSessionInfo {
   cwd: string
 }
 
+interface DependencyStatus {
+  found: boolean
+  path?: string
+}
+
+interface DependencyCheckResult {
+  results: Record<string, DependencyStatus>
+  platform: string
+}
+
 interface WorkspaceRow {
   id: string
   path: string

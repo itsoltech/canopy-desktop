@@ -16,6 +16,7 @@ interface OnboardingState {
   currentStep: number
   steps: OnboardingStep[]
   completedIds: SvelteSet<string>
+  selectedTools: SvelteSet<string>
   fromVersion?: string
 }
 
@@ -24,6 +25,7 @@ export const onboardingState: OnboardingState = $state({
   currentStep: 0,
   steps: [],
   completedIds: new SvelteSet(),
+  selectedTools: new SvelteSet(['claude']),
 })
 
 export async function initOnboarding(
@@ -86,6 +88,7 @@ export async function finishOnboarding(): Promise<void> {
   onboardingState.mode = 'none'
   onboardingState.steps = []
   onboardingState.currentStep = 0
+  onboardingState.selectedTools = new SvelteSet(['claude'])
 }
 
 export async function skipOnboarding(): Promise<void> {
