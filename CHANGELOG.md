@@ -1,3 +1,50 @@
+## [0.9.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.4...v0.9.0-next.5) (2026-04-03)
+
+### Features
+
+* configurable startup tool for new tabs and worktrees ([#85](https://github.com/itsoltech/canopy-desktop/issues/85)) ([b90377c](https://github.com/itsoltech/canopy-desktop/commit/b90377cbc8d14c1074b4a431fd686e1c1e0e91cc))
+* **tasks:** persist last selected board in task picker ([#88](https://github.com/itsoltech/canopy-desktop/issues/88)) ([8828516](https://github.com/itsoltech/canopy-desktop/commit/8828516bcb8467f06f03fb456744a92e7c03b82f))
+
+### Bug Fixes
+
+* code review corrections across terminal and task tracker ([#80](https://github.com/itsoltech/canopy-desktop/issues/80)) ([8277373](https://github.com/itsoltech/canopy-desktop/commit/82773734b37fe70145783d19e159522cc2a66d86))
+* **terminal:** fix Shift+Enter inserting newline in all terminals ([#82](https://github.com/itsoltech/canopy-desktop/issues/82)) ([86db02c](https://github.com/itsoltech/canopy-desktop/commit/86db02c9558a1f794498089b3f5f828d286e3cc7)), closes [#81](https://github.com/itsoltech/canopy-desktop/issues/81)
+
+### Refactoring
+
+* adopt ts-pattern for exhaustive pattern matching ([#83](https://github.com/itsoltech/canopy-desktop/issues/83)) ([4e0b185](https://github.com/itsoltech/canopy-desktop/commit/4e0b18551c6c4ff1fc5546f65caa850bae1875d3))
+
+## [0.9.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.3...v0.9.0-next.4) (2026-04-03)
+
+### Bug Fixes
+
+* unblock dependabot PR automation ([#78](https://github.com/itsoltech/canopy-desktop/issues/78)) ([90b2ccb](https://github.com/itsoltech/canopy-desktop/commit/90b2ccbb6d3f201bab30a4f927ae5b5e7f458ec9)), closes [#75](https://github.com/itsoltech/canopy-desktop/issues/75)
+
+## [0.9.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.2...v0.9.0-next.3) (2026-04-02)
+
+### Bug Fixes
+
+* **perf:** selective git refresh, shared WS server, terminal fixes ([#77](https://github.com/itsoltech/canopy-desktop/issues/77)) ([b77d0fd](https://github.com/itsoltech/canopy-desktop/commit/b77d0fdbddd4bb985aeb57743210146818b6edfc))
+
+## [0.9.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.1...v0.9.0-next.2) (2026-04-02)
+
+### Bug Fixes
+
+* **session:** clean up orphaned tmux sessions and restore lifecycle ([#74](https://github.com/itsoltech/canopy-desktop/issues/74)) ([76914a5](https://github.com/itsoltech/canopy-desktop/commit/76914a5f48561d7f72dab0f970ef7e53f4044672))
+* **terminal:** forward process titles through tmux to tab names ([#76](https://github.com/itsoltech/canopy-desktop/issues/76)) ([05dbbdd](https://github.com/itsoltech/canopy-desktop/commit/05dbbdd47f9fb2e5d8ad3690c2ef5a1475021bcf))
+* **terminal:** isolate tmux socket between dev and prod runs ([972c4be](https://github.com/itsoltech/canopy-desktop/commit/972c4beb6678e852a56bbbcf357c2d872919051b))
+* **terminal:** pass agent env vars to tmux sessions ([#73](https://github.com/itsoltech/canopy-desktop/issues/73)) ([e46e44a](https://github.com/itsoltech/canopy-desktop/commit/e46e44ae086e00c97a4b3097c50c33b21f96634b))
+
+## [0.9.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.8.1...v0.9.0-next.1) (2026-04-02)
+
+### Features
+
+* **session:** lazy restore tabs on startup ([#72](https://github.com/itsoltech/canopy-desktop/issues/72)) ([058fe87](https://github.com/itsoltech/canopy-desktop/commit/058fe878072d058f291707677e22270fba5bdc4d))
+
+### Bug Fixes
+
+* **terminal:** block Ctrl+Z in AI terminals to prevent suspend ([#71](https://github.com/itsoltech/canopy-desktop/issues/71)) ([ca4d6c1](https://github.com/itsoltech/canopy-desktop/commit/ca4d6c1ea15ff9c990e5222e161ce914f9278c62))
+
 ## [0.8.1](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0...v0.8.1) (2026-04-01)
 
 ### Bug Fixes

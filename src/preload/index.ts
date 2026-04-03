@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
+import type { GitInfo } from '../main/git/GitRepository'
 
 const api = {
   // PTY
@@ -53,6 +54,13 @@ const api = {
 
   // Notch overlay
   setNotchEnabled: (enabled: boolean) => ipcRenderer.send('notch:setEnabled', { enabled }),
+
+  // Environment / Dependencies
+  checkDependencies: (tools: string[]) =>
+    ipcRenderer.invoke('env:checkDependencies', { tools }) as Promise<{
+      results: Record<string, { found: boolean; path?: string }>
+      platform: string
+    }>,
 
   // Tools
   listTools: () => ipcRenderer.invoke('tools:list'),
@@ -223,7 +231,8 @@ const api = {
   gitDetect: (path: string) => ipcRenderer.invoke('git:detect', { path }),
   gitWorktrees: (repoRoot: string) => ipcRenderer.invoke('git:worktrees', { repoRoot }),
   gitStatus: (path: string) => ipcRenderer.invoke('git:status', { path }),
-  gitWatch: (repoRoot: string) => ipcRenderer.invoke('git:watch', { repoRoot }),
+  gitWatch: (repoRoot: string, snapshot?: GitInfo) =>
+    ipcRenderer.invoke('git:watch', { repoRoot, snapshot }),
   gitUnwatch: (repoRoot?: string) => ipcRenderer.invoke('git:unwatch', { repoRoot }),
   gitInit: (path: string) => ipcRenderer.invoke('git:init', { path }),
 
@@ -277,6 +286,8 @@ const api = {
     browserId: string,
     device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null,
   ) => ipcRenderer.invoke('browser:setDeviceEmulation', { browserId, device }),
+  setBrowserBackgroundThrottling: (browserId: string, allowed: boolean) =>
+    ipcRenderer.invoke('browser:setBackgroundThrottling', { browserId, allowed }),
   saveBrowserCapture: (buffer: ArrayBuffer) =>
     ipcRenderer.invoke('browser:saveCaptureFile', {
       buffer: Buffer.from(buffer),
@@ -467,11 +478,14 @@ const api = {
     }
   },
 
-  onRestoreActiveWorktree: (callback: (path: string) => void) => {
-    const handler = (_event: IpcRendererEvent, path: string): void => callback(path)
-    ipcRenderer.on('workspace:restoreActive', handler)
+  onRestoreWindow: (callback: (data: { paths: string[]; activeWorktreePath?: string }) => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { paths: string[]; activeWorktreePath?: string },
+    ): void => callback(data)
+    ipcRenderer.on('workspace:restoreWindow', handler)
     return (): void => {
-      ipcRenderer.removeListener('workspace:restoreActive', handler)
+      ipcRenderer.removeListener('workspace:restoreWindow', handler)
     }
   },
 

@@ -45,6 +45,7 @@ const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
 const tmuxManager = new TmuxManager(app.getPath('userData'))
+windowManager.setTmuxManager(tmuxManager)
 let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false
@@ -548,12 +549,10 @@ app.whenReady().then(async () => {
       for (const config of windowConfigs) {
         const win = windowManager.createWindow()
         win.once('ready-to-show', () => {
-          for (const path of config.paths) {
-            win.webContents.send('url:action', { action: 'open', path })
-          }
-          if (config.activeWorktreePath) {
-            win.webContents.send('workspace:restoreActive', config.activeWorktreePath)
-          }
+          win.webContents.send('workspace:restoreWindow', {
+            paths: config.paths,
+            activeWorktreePath: config.activeWorktreePath,
+          })
           sendPostLaunch(win)
         })
       }
@@ -698,6 +697,11 @@ app.on('before-quit', (event) => {
   if (tmuxClosePolicy === 'kill') {
     tmuxManager.killServer().catch(() => {})
   }
+
+  // From this point onward we are intentionally shutting down the app.
+  // Window teardown should detach tmux-backed PTYs unless the policy above
+  // explicitly killed the tmux server.
+  windowManager.isQuitting = true
 
   notchOverlay?.dispose()
   agentSessionManager?.dispose()

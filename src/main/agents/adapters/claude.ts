@@ -1,3 +1,4 @@
+import { match, P } from 'ts-pattern'
 import { writeFileSync, unlinkSync } from 'fs'
 import type {
   AgentAdapter,
@@ -238,42 +239,23 @@ export const claudeAdapter: AgentAdapter = {
   },
 
   toNotchStatus(event: NormalizedHookEvent): { status: SessionStatusType; detail?: string } | null {
-    switch (event.event) {
-      case 'SessionStart':
-      case 'Idle':
-        return { status: 'idle' }
+    const toolDetail = event.toolName
+      ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
+      : undefined
 
-      case 'AfterToolUse':
-      case 'AfterToolUseFailure':
-      case 'PromptSubmit':
-      case 'AfterCompact':
-        return { status: 'thinking' }
-
-      case 'BeforeToolUse': {
-        const detail = event.toolName
-          ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
-          : undefined
-        return { status: 'toolCalling', detail }
-      }
-
-      case 'PermissionRequest': {
-        const detail = event.toolName
-          ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
-          : undefined
-        return { status: 'waitingPermission', detail }
-      }
-
-      case 'BeforeCompact':
-        return { status: 'compacting' }
-
-      case 'IdleFailure':
-        return { status: 'error', detail: event.error }
-
-      case 'SessionEnd':
-        return { status: 'ended', detail: event.reason }
-
-      default:
-        return null
-    }
+    return match(event.event)
+      .with(P.union('SessionStart', 'Idle'), () => ({ status: 'idle' as const }))
+      .with(P.union('AfterToolUse', 'AfterToolUseFailure', 'PromptSubmit', 'AfterCompact'), () => ({
+        status: 'thinking' as const,
+      }))
+      .with('BeforeToolUse', () => ({ status: 'toolCalling' as const, detail: toolDetail }))
+      .with('PermissionRequest', () => ({
+        status: 'waitingPermission' as const,
+        detail: toolDetail,
+      }))
+      .with('BeforeCompact', () => ({ status: 'compacting' as const }))
+      .with('IdleFailure', () => ({ status: 'error' as const, detail: event.error }))
+      .with('SessionEnd', () => ({ status: 'ended' as const, detail: event.reason }))
+      .otherwise(() => null)
   },
 }

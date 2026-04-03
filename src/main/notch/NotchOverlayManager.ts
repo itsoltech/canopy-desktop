@@ -142,6 +142,7 @@ export class NotchOverlayManager {
       },
     })
 
+    this.overlayWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     this.overlayWindow.setAlwaysOnTop(true, 'pop-up-menu')
     if (isMac) {
       this.overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })

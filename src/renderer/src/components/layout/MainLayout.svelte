@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
   import { onMount } from 'svelte'
   import SplitPaneContainer from '../terminal/SplitPaneContainer.svelte'
   import TabBar from '../terminal/TabBar.svelte'
@@ -30,15 +31,14 @@
     workspaceState,
     projects,
     attachProject,
-    waitForAttachQueue,
-    selectWorktree,
+    restoreProjects,
     updateGitInfoForProject,
     toggleSidebar,
     toggleInspector,
   } from '../../lib/stores/workspace.svelte'
   import {
     activeTabId,
-    ensureShellTab,
+    ensureDefaultTab,
     openTool,
     reopenClosedTab,
     switchTabByIndex,
@@ -121,11 +121,11 @@
       : [],
   )
 
-  // Auto-create shell tab when selected worktree changes
+  // Auto-create default tab when selected worktree changes
   $effect(() => {
     const path = workspaceState.selectedWorktreePath
     if (path) {
-      ensureShellTab(path)
+      ensureDefaultTab(path)
     }
   })
 
@@ -158,22 +158,22 @@
         saveAllLayouts()
       }
       const normalized = data.event as { event?: string }
+      const badge = match(normalized.event)
+        .with('PermissionRequest', () => 'permission' as const)
+        .with('Idle', 'AfterToolUse', () => 'unread' as const)
+        .otherwise(() => null)
       // Only set badge if this session is NOT the active tab
-      if (data.ptySessionId !== activeAgentPtySessionId) {
-        if (normalized.event === 'PermissionRequest') {
-          setBadge(data.ptySessionId, 'permission')
-        } else if (normalized.event === 'Idle' || normalized.event === 'AfterToolUse') {
-          setBadge(data.ptySessionId, 'unread')
-        }
+      if (badge && data.ptySessionId !== activeAgentPtySessionId) {
+        setBadge(data.ptySessionId, badge)
       }
       // Set worktree badge if session is in a non-selected worktree
       const sessionWorktreePath = findWorktreeForSession(data.ptySessionId)
-      if (sessionWorktreePath && sessionWorktreePath !== workspaceState.selectedWorktreePath) {
-        if (normalized.event === 'PermissionRequest') {
-          setWorktreeBadge(sessionWorktreePath, 'permission')
-        } else if (normalized.event === 'Idle' || normalized.event === 'AfterToolUse') {
-          setWorktreeBadge(sessionWorktreePath, 'unread')
-        }
+      if (
+        badge &&
+        sessionWorktreePath &&
+        sessionWorktreePath !== workspaceState.selectedWorktreePath
+      ) {
+        setWorktreeBadge(sessionWorktreePath, badge)
       }
     })
     return unsubscribe
@@ -219,11 +219,10 @@
     )
   })
 
-  // Restore last active worktree after all projects are attached
+  // Restore a whole window's projects in parallel, then focus the saved worktree once.
   $effect(() => {
-    const unsubscribe = window.api.onRestoreActiveWorktree(async (path) => {
-      await waitForAttachQueue()
-      await selectWorktree(path)
+    const unsubscribe = window.api.onRestoreWindow(async (data) => {
+      await restoreProjects(data.paths, data.activeWorktreePath)
     })
     return unsubscribe
   })
@@ -366,7 +365,9 @@
       if (e.shiftKey) {
         reopenClosedTab(path)
       } else {
-        openTool('shell', path)
+        openTool(getPref('newTab.toolId', 'shell'), path).catch((err) => {
+          console.error('Failed to open new tab:', err)
+        })
       }
     }
 
@@ -400,18 +401,20 @@
     // Cmd+1-9: switch to tab by index
     if (path && e.key >= '1' && e.key <= '9') {
       e.preventDefault()
-      switchTabByIndex(path, parseInt(e.key) - 1)
+      switchTabByIndex(path, parseInt(e.key) - 1).catch((err) =>
+        console.error('switchTabByIndex failed:', err),
+      )
     }
 
     // Cmd+Shift+[ and Cmd+Shift+]
     if (e.key === '[' && e.shiftKey && path) {
       e.preventDefault()
-      prevTab(path)
+      prevTab(path).catch((err) => console.error('prevTab failed:', err))
     }
 
     if (e.key === ']' && e.shiftKey && path) {
       e.preventDefault()
-      nextTab(path)
+      nextTab(path).catch((err) => console.error('nextTab failed:', err))
     }
   }
 </script>
@@ -473,18 +476,20 @@
     <div class="content-row">
       <div class="terminal-area">
         {#each allTabs as tab (tab.id)}
-          <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
-            <SplitPaneContainer
-              node={tab.rootSplit}
-              tabId={tab.id}
-              worktreePath={tab.worktreePath}
-              focusedPaneId={tab.focusedPaneId}
-              active={tab.id === currentActiveTabId}
-              onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
-              onUpdateRatio={(paneId, ratio) =>
-                updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
-            />
-          </div>
+          {#if !tab.suspended}
+            <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
+              <SplitPaneContainer
+                node={tab.rootSplit}
+                tabId={tab.id}
+                worktreePath={tab.worktreePath}
+                focusedPaneId={tab.focusedPaneId}
+                active={tab.id === currentActiveTabId}
+                onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
+                onUpdateRatio={(paneId, ratio) =>
+                  updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
+              />
+            </div>
+          {/if}
         {/each}
 
         {#if projects.length === 0 && allTabs.length === 0}
@@ -492,7 +497,7 @@
         {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
           <div class="empty-state">
             <p class="hint">
-              Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a shell
+              Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a new tab
             </p>
             <p class="hint-sub">
               {isMac ? 'Cmd' : 'Ctrl'}+K to open command palette

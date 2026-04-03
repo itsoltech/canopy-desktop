@@ -52,6 +52,12 @@ Focus on issues that CI cannot catch. Categories ordered by priority.
 - Using `ipcRenderer.send`/`ipcMain.on` for request-response instead of `invoke`/`handle`.
 - IPC channels not following `feature:action` naming convention.
 
+### Pattern matching
+
+- `switch` or `if/else if` chain (3+ branches) on a discriminated union or string literal type instead of `ts-pattern` `match().with()`.
+- Missing `.exhaustive()` when all union members are handled.
+- Exception: 1-2 branch conditionals and numeric threshold comparisons do not need `ts-pattern`.
+
 ### Svelte 5 patterns
 
 - Using `$effect` for data transformations instead of `$derived`.
@@ -149,6 +155,7 @@ Create a pull request targeting `next` using `gh pr create --base next`:
 - Memory leaks
 - Performance
 - Architecture
+- Pattern matching
 - Svelte 5 patterns
 - UX/UI
 - Accessibility

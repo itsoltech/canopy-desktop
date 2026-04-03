@@ -356,6 +356,16 @@ export class BrowserManager {
     }
   }
 
+  setBackgroundThrottling(browserId: string, allowed: boolean): void {
+    const entry = this.entries.get(browserId)
+    if (!entry) return
+
+    const wc = this.guestContents.get(entry.webContentsId) ?? findWebContents(entry.webContentsId)
+    if (!wc || wc.isDestroyed()) return
+
+    wc.setBackgroundThrottling(allowed)
+  }
+
   setDevToolsBounds(
     browserId: string,
     bounds: { x: number; y: number; width: number; height: number },

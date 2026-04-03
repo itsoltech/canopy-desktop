@@ -52,6 +52,10 @@ Prettier handles formatting. Run `npm run format` before committing.
 - Use `import type` for type-only imports (`verbatimModuleSyntax` is enabled)
 - Avoid bare `any` without `// eslint-disable` and a justification comment
 
+### Pattern matching
+
+Use `ts-pattern` for branching on discriminated unions, string literal types, or object shapes (3+ branches). Use `.exhaustive()` when all cases are handled, `.otherwise()` for defaults. Do not use it for simple 1-2 branch conditionals or numeric comparisons.
+
 ### Architecture
 
 - Renderer (`src/renderer/`) never imports Node.js modules. All Node.js access goes through the preload bridge

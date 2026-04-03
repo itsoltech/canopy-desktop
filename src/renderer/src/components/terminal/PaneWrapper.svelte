@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PaneSession } from '../../lib/stores/splitTree'
-  import { restartPane, updatePaneTitle } from '../../lib/stores/tabs.svelte'
+  import { restartPane, updatePaneTitle, isAiToolId } from '../../lib/stores/tabs.svelte'
   import { dragState, setDropTarget, type DropZone } from '../../lib/stores/dragState.svelte'
   import { agentSessions } from '../../lib/agents/agentState.svelte'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
@@ -112,6 +112,8 @@
             sessionId={pane.sessionId}
             wsUrl={pane.wsUrl}
             active={active && focused}
+            visible={active}
+            isAiTool={isAiToolId(pane.toolId)}
             onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
           />
         {/key}

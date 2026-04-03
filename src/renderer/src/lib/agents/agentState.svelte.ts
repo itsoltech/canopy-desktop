@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import { SvelteDate } from 'svelte/reactivity'
 
 export type AgentType = 'claude' | 'gemini'
@@ -140,8 +141,8 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
     if (typeof extra.contextSize === 'number') session.contextSize = extra.contextSize
   }
 
-  switch (event.event) {
-    case 'SessionStart':
+  match(event.event)
+    .with('SessionStart', () => {
       session.status = { type: 'idle' }
       session.startTime = new SvelteDate()
       session.permissionMode = event.permissionMode ?? null
@@ -157,59 +158,49 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
       session.durationMs = null
       session.linesAdded = null
       session.linesRemoved = null
-      break
-
-    case 'PromptSubmit':
+    })
+    .with('PromptSubmit', () => {
       session.status = { type: 'thinking' }
-      break
-
-    case 'BeforeToolUse':
+    })
+    .with('BeforeToolUse', () => {
       session.status = {
         type: 'toolCalling',
         toolName: event.toolName ?? 'unknown',
       }
-      break
-
-    case 'PermissionRequest':
+    })
+    .with('PermissionRequest', () => {
       session.status = {
         type: 'waitingPermission',
         toolName: event.toolName ?? 'unknown',
       }
-      break
-
-    case 'AfterToolUse':
+    })
+    .with('AfterToolUse', () => {
       session.toolCallCount++
       handleTaskToolUse(session, event)
-      break
-
-    case 'AfterToolUseFailure':
+    })
+    .with('AfterToolUseFailure', () => {
       session.toolCallCount++
-      break
-
-    case 'Idle':
+    })
+    .with('Idle', () => {
       session.status = { type: 'idle' }
-      break
-
-    case 'IdleFailure':
+    })
+    .with('IdleFailure', () => {
       session.status = {
         type: 'error',
         errorType: event.error ?? 'unknown',
         details: event.errorDetails ?? '',
       }
-      break
-
-    case 'SubagentStart':
+    })
+    .with('SubagentStart', () => {
       session.activeSubagents = [
         ...session.activeSubagents,
         { agentId: event.agentId ?? '', agentType: event.agentSubtype ?? '' },
       ]
-      break
-
-    case 'SubagentStop':
+    })
+    .with('SubagentStop', () => {
       session.activeSubagents = session.activeSubagents.filter((a) => a.agentId !== event.agentId)
-      break
-
-    case 'TaskCompleted': {
+    })
+    .with('TaskCompleted', () => {
       const taskId = event.taskId ?? ''
       const existing = session.tasks.find((t) => t.id === taskId)
       if (existing) {
@@ -227,10 +218,8 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
           },
         ]
       }
-      break
-    }
-
-    case 'Notification':
+    })
+    .with('Notification', () => {
       session.notifications = [
         ...session.notifications.slice(-(MAX_NOTIFICATIONS - 1)),
         {
@@ -240,21 +229,18 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
           timestamp: Date.now(),
         },
       ]
-      break
-
-    case 'BeforeCompact':
+    })
+    .with('BeforeCompact', () => {
       session.status = { type: 'compacting' }
-      break
-
-    case 'AfterCompact':
+    })
+    .with('AfterCompact', () => {
       session.compactCount++
       session.status = { type: 'thinking' }
-      break
-
-    case 'SessionEnd':
+    })
+    .with('SessionEnd', () => {
       session.status = { type: 'ended', reason: event.reason ?? 'unknown' }
-      break
-  }
+    })
+    .otherwise(() => {})
 }
 
 function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEvent): void {
@@ -262,31 +248,36 @@ function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEven
   if (!toolName) return
 
   const input = event.toolInput as Record<string, unknown> | undefined
+  if (!input) return
 
-  if (toolName === 'TaskCreate' && input) {
-    const resp = event.toolResponse as { task?: { id?: string } } | undefined
-    const id = resp?.task?.id ?? `t-${Date.now()}`
-    session.tasks = [
-      ...session.tasks,
-      {
-        id,
-        subject: (input.subject as string) ?? '',
-        status: 'pending',
-        activeForm: (input.activeForm as string) ?? null,
-        owner: null,
-      },
-    ]
-  } else if (toolName === 'TaskUpdate' && input) {
-    const taskId = String(input.taskId ?? '')
-    const existing = session.tasks.find((t) => t.id === taskId)
-    if (existing) {
-      if (input.status) existing.status = input.status as TaskRecord['status']
-      if (input.subject) existing.subject = input.subject as string
-      if (input.owner !== undefined) existing.owner = (input.owner as string) ?? null
-      if (input.activeForm !== undefined) existing.activeForm = (input.activeForm as string) ?? null
-      session.tasks = [...session.tasks]
-    }
-  }
+  match(toolName)
+    .with('TaskCreate', () => {
+      const resp = event.toolResponse as { task?: { id?: string } } | undefined
+      const id = resp?.task?.id ?? `t-${Date.now()}`
+      session.tasks = [
+        ...session.tasks,
+        {
+          id,
+          subject: (input.subject as string) ?? '',
+          status: 'pending',
+          activeForm: (input.activeForm as string) ?? null,
+          owner: null,
+        },
+      ]
+    })
+    .with('TaskUpdate', () => {
+      const taskId = String(input.taskId ?? '')
+      const existing = session.tasks.find((t) => t.id === taskId)
+      if (existing) {
+        if (input.status) existing.status = input.status as TaskRecord['status']
+        if (input.subject) existing.subject = input.subject as string
+        if (input.owner !== undefined) existing.owner = (input.owner as string) ?? null
+        if (input.activeForm !== undefined)
+          existing.activeForm = (input.activeForm as string) ?? null
+        session.tasks = [...session.tasks]
+      }
+    })
+    .otherwise(() => {})
 }
 
 /** Normalized status data from the main process */

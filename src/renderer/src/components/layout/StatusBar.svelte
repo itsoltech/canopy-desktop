@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
   import { workspaceState, projects, toggleInspector } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
   import { getAllTabs, activeTabId, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
@@ -80,42 +81,35 @@
 
   // --- Helpers ---
 
+  function globalStatusLabel(status: WorstStatus): string {
+    return match(status)
+      .with('waitingPermission', () => 'waiting for permission')
+      .with('error', () => 'error')
+      .with('working', () => 'working')
+      .with('idle', () => 'idle')
+      .otherwise(() => '')
+  }
+
   function statusDotColor(status: WorstStatus): string {
-    switch (status) {
-      case 'waitingPermission':
-        return 'var(--c-warning-text)'
-      case 'error':
-        return 'var(--c-danger-text)'
-      case 'working':
-        return 'var(--c-accent-text)'
-      case 'idle':
-        return 'var(--c-success)'
-      default:
-        return 'var(--c-text-faint)'
-    }
+    return match(status)
+      .with('waitingPermission', () => 'var(--c-warning-text)')
+      .with('error', () => 'var(--c-danger-text)')
+      .with('working', () => 'var(--c-accent-text)')
+      .with('idle', () => 'var(--c-success)')
+      .otherwise(() => 'var(--c-text-faint)')
   }
 
   function agentStatusLabel(s: AgentSessionState): string {
-    switch (s.status.type) {
-      case 'idle':
-        return 'Idle'
-      case 'thinking':
-        return 'Thinking'
-      case 'compacting':
-        return 'Compacting'
-      case 'toolCalling':
-        return `Tool: ${s.status.toolName}`
-      case 'waitingPermission':
-        return `Permission: ${s.status.toolName}`
-      case 'error':
-        return 'Error'
-      case 'starting':
-        return 'Starting'
-      case 'ended':
-        return 'Ended'
-      default:
-        return ''
-    }
+    return match(s.status)
+      .with({ type: 'idle' }, () => 'Idle')
+      .with({ type: 'thinking' }, () => 'Thinking')
+      .with({ type: 'compacting' }, () => 'Compacting')
+      .with({ type: 'toolCalling' }, (st) => `Tool: ${st.toolName}`)
+      .with({ type: 'waitingPermission' }, (st) => `Permission: ${st.toolName}`)
+      .with({ type: 'error' }, () => 'Error')
+      .with({ type: 'starting' }, () => 'Starting')
+      .with({ type: 'ended' }, () => 'Ended')
+      .otherwise(() => '')
   }
 
   function contextColor(pct: number): string {
@@ -173,7 +167,9 @@
       {#if workspaceState.isGitRepo && workspaceState.branch}
         <button
           class="status-item branch"
-          aria-label="Branch: {workspaceState.branch}"
+          aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
+            ? ', uncommitted changes'
+            : ''}"
           title="Branch: {workspaceState.branch}"
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
@@ -183,17 +179,28 @@
           </svg>
           <span class="label">{workspaceState.branch}</span>
           {#if workspaceState.isDirty}
-            <span class="dirty-dot"></span>
+            <span class="dirty-dot" title="Uncommitted changes" aria-hidden="true"></span>
           {/if}
         </button>
 
         {#if workspaceState.aheadBehind && (workspaceState.aheadBehind.ahead > 0 || workspaceState.aheadBehind.behind > 0)}
-          <button class="status-item sync" aria-label="Sync status" title="Sync status">
-            {#if workspaceState.aheadBehind.ahead > 0}
-              <span class="sync-label">&#8593;{workspaceState.aheadBehind.ahead}</span>
+          {@const ahead = workspaceState.aheadBehind.ahead}
+          {@const behind = workspaceState.aheadBehind.behind}
+          <button
+            class="status-item sync"
+            aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
+              ? ', '
+              : ''}{behind > 0 ? `${behind} behind` : ''}"
+            title="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0 ? ', ' : ''}{behind >
+            0
+              ? `${behind} behind`
+              : ''}"
+          >
+            {#if ahead > 0}
+              <span class="sync-label" aria-hidden="true">&#8593;{ahead}</span>
             {/if}
-            {#if workspaceState.aheadBehind.behind > 0}
-              <span class="sync-label">&#8595;{workspaceState.aheadBehind.behind}</span>
+            {#if behind > 0}
+              <span class="sync-label" aria-hidden="true">&#8595;{behind}</span>
             {/if}
           </button>
         {/if}
@@ -260,8 +267,12 @@
       {#if agentCount > 0}
         <button
           class="status-item agents"
-          aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}"
-          title="{agentCount} agent{agentCount !== 1 ? 's' : ''}"
+          aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+            ? `, ${globalStatusLabel(globalWorstStatus)}`
+            : ''}"
+          title="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+            ? ` — ${globalStatusLabel(globalWorstStatus)}`
+            : ''}"
           onclick={focusWorstAgent}
         >
           <span

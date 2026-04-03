@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electron'
 import os from 'os'
 import fs from 'fs'
@@ -16,8 +17,9 @@ import type { CredentialStore } from '../db/CredentialStore'
 import { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { GitRepository } from '../git/GitRepository'
-import { GitWatcher } from '../git/GitWatcher'
+import { GitRepository, type GitInfo } from '../git/GitRepository'
+import { getLoginEnv } from '../shell/loginEnv'
+import { GitWatcher, type GitRefreshFlags } from '../git/GitWatcher'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 
 const execFileAsync = promisify(execFile)
@@ -94,8 +96,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle('pty:kill', async (_event, payload: { sessionId: string; killTmux?: boolean }) => {
     const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
-    wsBridge.destroy(payload.sessionId)
-    ptyManager.kill(payload.sessionId)
+    // Kill tmux BEFORE PTY so the pty:exit handler sees the session as dead
+    // (otherwise handlePtyExit checks tmuxHasSession while it's still alive)
     if (payload.killTmux && tmuxName && TmuxManager.isCanopySession(tmuxName)) {
       try {
         await tmuxManager.killSession(tmuxName)
@@ -103,6 +105,8 @@ export function registerIpcHandlers(
         // Session may already be gone
       }
     }
+    wsBridge.destroy(payload.sessionId)
+    ptyManager.kill(payload.sessionId)
   })
 
   ipcMain.handle('pty:write', (_event, payload: { sessionId: string; data: string }) => {
@@ -272,6 +276,7 @@ export function registerIpcHandlers(
           cols: payload.cols,
           rows: payload.rows,
           mouse: tmuxMouse,
+          env,
         })
         const attach = tmuxManager.attachArgs(tmuxSessionName)
         command = attach.command
@@ -386,6 +391,32 @@ export function registerIpcHandlers(
     return toolRegistry.checkAvailability()
   })
 
+  // --- Environment / Dependencies ---
+
+  ipcMain.handle('env:checkDependencies', async (_event, payload: { tools: string[] }) => {
+    const KNOWN_TOOLS = new Set(['claude', 'codex', 'gemini'])
+    const requested = (payload.tools ?? []).filter((t) => KNOWN_TOOLS.has(t))
+
+    const cmd = os.platform() === 'win32' ? 'where' : 'which'
+    const env = getLoginEnv() ?? (process.env as Record<string, string>)
+
+    const check = (binary: string): Promise<{ found: boolean; path?: string }> =>
+      new Promise((resolve) => {
+        execFile(cmd, [binary], { env }, (err, stdout) => {
+          resolve(err ? { found: false } : { found: true, path: stdout.trim().split('\n')[0] })
+        })
+      })
+
+    const binaries = [...new Set([...requested, 'git'])]
+    const statuses = await Promise.all(binaries.map((b) => check(b)))
+    const results: Record<string, { found: boolean; path?: string }> = {}
+    binaries.forEach((b, i) => {
+      results[b] = statuses[i]
+    })
+
+    return { results, platform: process.platform }
+  })
+
   // --- App / Shell ---
 
   ipcMain.handle('app:homedir', () => os.homedir())
@@ -480,7 +511,7 @@ export function registerIpcHandlers(
     return { branch, isDirty, aheadBehind }
   })
 
-  ipcMain.handle('git:watch', async (event, payload: { repoRoot: string }) => {
+  ipcMain.handle('git:watch', async (event, payload: { repoRoot: string; snapshot?: GitInfo }) => {
     const senderId = event.sender.id
 
     // Dispose previous watcher for this specific repo only
@@ -490,21 +521,25 @@ export function registerIpcHandlers(
     const ws = workspaceStore.getByPath(payload.repoRoot)
     const workspaceId = ws?.id ?? null
 
-    const watcher = new GitWatcher(payload.repoRoot, (info) => {
-      if (workspaceId) {
-        workspaceStore.updateGitCache(workspaceId, {
-          branch: info.branch,
-          dirty: info.isDirty,
-          aheadBehind: info.aheadBehind
-            ? `${info.aheadBehind.ahead}/${info.aheadBehind.behind}`
-            : null,
-          worktreeCount: info.worktrees.length,
-        })
-      }
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('git:changed', { ...info, repoRoot: payload.repoRoot })
-      }
-    })
+    const watcher = new GitWatcher(
+      payload.repoRoot,
+      (info, changes: GitRefreshFlags) => {
+        if (workspaceId) {
+          workspaceStore.updateGitCache(workspaceId, {
+            branch: info.branch,
+            dirty: info.isDirty,
+            aheadBehind: info.aheadBehind
+              ? `${info.aheadBehind.ahead}/${info.aheadBehind.behind}`
+              : null,
+            worktreeCount: info.worktrees.length,
+          })
+        }
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('git:changed', { ...info, repoRoot: payload.repoRoot, changes })
+        }
+      },
+      payload.snapshot,
+    )
     watcher.start()
     windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
@@ -664,24 +699,55 @@ export function registerIpcHandlers(
     (_event, payload: { workspaceId: string; worktreePath: string; layoutJson: string }) => {
       try {
         layoutStore.save(payload.workspaceId, payload.worktreePath, payload.layoutJson)
-      } catch {
-        // DB may already be closed during shutdown
+      } catch (error) {
+        if (layoutStore.isClosed()) {
+          // DB may already be closed during shutdown
+          return
+        }
+        console.error('Failed to save layout:', error)
       }
     },
   )
 
   ipcMain.handle('layout:get', (_event, payload: { workspaceId: string; worktreePath: string }) => {
-    return layoutStore.get(payload.workspaceId, payload.worktreePath)
+    try {
+      return layoutStore.get(payload.workspaceId, payload.worktreePath)
+    } catch (error) {
+      if (layoutStore.isClosed()) {
+        // DB may already be closed during shutdown
+        return null
+      }
+      console.error('Failed to load layout:', error)
+      throw error
+    }
   })
 
   ipcMain.handle('layout:getAll', (_event, payload: { workspaceId: string }) => {
-    return layoutStore.getAll(payload.workspaceId)
+    try {
+      return layoutStore.getAll(payload.workspaceId)
+    } catch (error) {
+      if (layoutStore.isClosed()) {
+        // DB may already be closed during shutdown
+        return []
+      }
+      console.error('Failed to load layouts:', error)
+      throw error
+    }
   })
 
   ipcMain.handle(
     'layout:delete',
     (_event, payload: { workspaceId: string; worktreePath: string }) => {
-      layoutStore.delete(payload.workspaceId, payload.worktreePath)
+      try {
+        layoutStore.delete(payload.workspaceId, payload.worktreePath)
+      } catch (error) {
+        if (layoutStore.isClosed()) {
+          // DB may already be closed during shutdown
+          return
+        }
+        console.error('Failed to delete layout:', error)
+        throw error
+      }
     },
   )
 
@@ -782,6 +848,19 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle(
+    'browser:setBackgroundThrottling',
+    (
+      _event,
+      payload: {
+        browserId: string
+        allowed: boolean
+      },
+    ) => {
+      browserManager.setBackgroundThrottling(payload.browserId, payload.allowed)
+    },
+  )
+
   ipcMain.handle('browser:saveCaptureFile', (_event, payload: { buffer: Buffer }) => {
     return browserManager.saveCaptureFile(Buffer.from(payload.buffer))
   })
@@ -818,40 +897,45 @@ export function registerIpcHandlers(
     'credentials:getDecrypted',
     async (event, payload: { id: string; domain: string }) => {
       // Require system authentication before revealing passwords
-      if (process.platform === 'darwin') {
-        try {
-          await systemPreferences.promptTouchID('reveal a saved password')
-        } catch {
-          return null // User cancelled or auth failed
-        }
-      } else if (process.platform === 'win32') {
-        // Windows: native credential prompt via PowerShell
-        try {
-          const ps = `
-            Add-Type -AssemblyName System.Runtime.WindowsRuntime
-            $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
-            $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
-            if ($result -ne 'Verified') { exit 1 }
-          `
-          await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
-        } catch {
-          return null
-        }
-      } else {
-        // Linux: confirmation dialog (zenity/kdialog not guaranteed)
-        const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
-        if (!win) return null
-        const { response } = await dialog.showMessageBox(win, {
-          type: 'warning',
-          buttons: ['Reveal Password', 'Cancel'],
-          defaultId: 1,
-          cancelId: 1,
-          title: 'Authentication Required',
-          message: 'Reveal saved password?',
-          detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
+      const authed = await match(process.platform)
+        .with('darwin', async () => {
+          try {
+            await systemPreferences.promptTouchID('reveal a saved password')
+            return true
+          } catch {
+            return false
+          }
         })
-        if (response !== 0) return null
-      }
+        .with('win32', async () => {
+          try {
+            const ps = `
+              Add-Type -AssemblyName System.Runtime.WindowsRuntime
+              $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
+              $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
+              if ($result -ne 'Verified') { exit 1 }
+            `
+            await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
+            return true
+          } catch {
+            return false
+          }
+        })
+        .otherwise(async () => {
+          const win =
+            BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+          if (!win) return false
+          const { response } = await dialog.showMessageBox(win, {
+            type: 'warning',
+            buttons: ['Reveal Password', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'Authentication Required',
+            message: 'Reveal saved password?',
+            detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
+          })
+          return response === 0
+        })
+      if (!authed) return null
       return credentialStore.getForDomain(payload.domain).find((c) => c.id === payload.id) ?? null
     },
   )

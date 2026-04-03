@@ -101,7 +101,7 @@
         label: getTabDisplayName(tab),
         category: 'Tabs',
         description: tab.worktreePath.split('/').pop() || '',
-        action: () => switchTab(tab.id),
+        action: async () => await switchTab(tab.id),
       })
     }
 
@@ -148,9 +148,9 @@
     if (tmuxAvailable) {
       items.push({
         id: 'tmux:sessions',
-        label: 'Tmux Sessions',
+        label: 'Tmux Sessions (Experimental)',
         category: 'Terminal',
-        description: 'Browse and manage tmux sessions',
+        description: 'Browse and manage tmux sessions — unstable, dev-only',
         action: () => showTmuxBrowser(),
       })
     }

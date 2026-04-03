@@ -1,3 +1,4 @@
+import { match, P } from 'ts-pattern'
 import os from 'os'
 import {
   readFileSync,
@@ -314,34 +315,19 @@ export const geminiAdapter: AgentAdapter = {
   },
 
   toNotchStatus(event: NormalizedHookEvent): { status: SessionStatusType; detail?: string } | null {
-    switch (event.event) {
-      case 'SessionStart':
-      case 'Idle':
-        return { status: 'idle' }
+    const toolDetail = event.toolName
+      ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
+      : undefined
 
-      case 'PromptSubmit':
-      case 'AfterToolUse':
-        return { status: 'thinking' }
-
-      case 'BeforeToolUse': {
-        const detail = event.toolName
-          ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
-          : undefined
-        return { status: 'toolCalling', detail }
-      }
-
-      case 'PermissionRequest': {
-        const detail = event.toolName
-          ? `${event.toolName}: ${summarizeToolInput(event.toolInput)}`
-          : undefined
-        return { status: 'waitingPermission', detail }
-      }
-
-      case 'SessionEnd':
-        return { status: 'ended', detail: event.reason }
-
-      default:
-        return null
-    }
+    return match(event.event)
+      .with(P.union('SessionStart', 'Idle'), () => ({ status: 'idle' as const }))
+      .with(P.union('PromptSubmit', 'AfterToolUse'), () => ({ status: 'thinking' as const }))
+      .with('BeforeToolUse', () => ({ status: 'toolCalling' as const, detail: toolDetail }))
+      .with('PermissionRequest', () => ({
+        status: 'waitingPermission' as const,
+        detail: toolDetail,
+      }))
+      .with('SessionEnd', () => ({ status: 'ended' as const, detail: event.reason }))
+      .otherwise(() => null)
   },
 }

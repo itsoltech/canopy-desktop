@@ -41,4 +41,8 @@ export class LayoutStore {
   deleteAll(workspaceId: string): void {
     this.db.prepare('DELETE FROM workspace_layouts WHERE workspace_id = ?').run(workspaceId)
   }
+
+  isClosed(): boolean {
+    return this.database.isClosed()
+  }
 }

@@ -3,6 +3,7 @@ import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import os from 'os'
 import { randomUUID } from 'crypto'
+import { is } from '@electron-toolkit/utils'
 import { getLoginEnv } from '../shell/loginEnv'
 
 export interface TmuxSessionInfo {
@@ -12,7 +13,7 @@ export interface TmuxSessionInfo {
   cwd: string
 }
 
-const SOCKET_NAME = 'canopy'
+const SOCKET_NAME = is.dev ? 'canopy-dev' : 'canopy'
 
 function buildTmuxConfig(mouse: boolean): string {
   return `\
@@ -23,6 +24,8 @@ set -g escape-time 0
 set -g default-terminal xterm-256color
 set -g mouse ${mouse ? 'on' : 'off'}
 set -g history-limit 10000
+set -g set-titles-string "#T"
+set -g set-titles on
 `
 }
 
@@ -38,6 +41,12 @@ export class TmuxManager {
   // Cached for the lifetime of the process (tmux availability won't change mid-session)
   async isAvailable(): Promise<boolean> {
     if (this.available !== null) return this.available
+
+    // Tmux integration is experimental — disabled in production builds
+    if (!is.dev) {
+      this.available = false
+      return false
+    }
 
     if (os.platform() === 'win32') {
       this.available = false
@@ -83,6 +92,7 @@ export class TmuxManager {
     cols?: number
     rows?: number
     mouse?: boolean
+    env?: Record<string, string>
   }): Promise<void> {
     if (!/^[\w-]+$/.test(opts.name)) {
       throw new Error('Invalid tmux session name')
@@ -91,6 +101,9 @@ export class TmuxManager {
     // Config file is only read on server start; explicitly set mouse
     // on the running server so preference changes take effect immediately.
     await this.exec(['set-option', '-g', 'mouse', opts.mouse ? 'on' : 'off']).catch(() => {})
+    await this.exec(['set-option', '-g', 'set-titles-string', '#T']).catch(() => {})
+    await this.exec(['set-option', '-g', 'set-titles', 'on']).catch(() => {})
+    const envArgs = Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`])
     const args = [
       '-f',
       this.configPath,
@@ -104,6 +117,7 @@ export class TmuxManager {
       String(opts.cols ?? 80),
       '-y',
       String(opts.rows ?? 30),
+      ...envArgs,
       opts.shell,
       ...(opts.shellArgs ?? []),
     ]

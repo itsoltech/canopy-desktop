@@ -18,12 +18,28 @@ export const onboardingSteps: OnboardingStep[] = [
     order: 0,
   },
   {
+    id: 'tool-selection',
+    title: 'Choose your tools',
+    description: 'Select the AI assistants you plan to use with Canopy.',
+    introducedIn: '0.9.0',
+    category: 'first-launch',
+    order: 1,
+  },
+  {
+    id: 'environment-check',
+    title: 'Environment check',
+    description: 'Verify that selected tools are installed and accessible.',
+    introducedIn: '0.9.0',
+    category: 'first-launch',
+    order: 2,
+  },
+  {
     id: 'theme',
     title: 'Choose your theme',
     description: 'Pick a terminal color scheme that fits your style.',
     introducedIn: '0.9.0',
     category: 'first-launch',
-    order: 1,
+    order: 3,
   },
   {
     id: 'ai-setup',
@@ -31,7 +47,7 @@ export const onboardingSteps: OnboardingStep[] = [
     description: 'Configure Claude Code to work from within Canopy.',
     introducedIn: '0.9.0',
     category: 'first-launch',
-    order: 2,
+    order: 4,
   },
   {
     id: 'features',
@@ -39,7 +55,7 @@ export const onboardingSteps: OnboardingStep[] = [
     description: 'Toggle features to match how you work.',
     introducedIn: '0.9.0',
     category: 'first-launch',
-    order: 3,
+    order: 5,
   },
   {
     id: 'ready',
@@ -47,7 +63,7 @@ export const onboardingSteps: OnboardingStep[] = [
     description: 'Open a project folder to get started.',
     introducedIn: '0.9.0',
     category: 'first-launch',
-    order: 4,
+    order: 6,
   },
   // Feature onboarding steps (shown on upgrade)
   {

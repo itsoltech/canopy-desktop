@@ -66,6 +66,7 @@
   <label class="checkbox-row">
     <input type="checkbox" checked={tmuxEnabled} onchange={toggleTmux} />
     <span>Enable tmux session persistence</span>
+    <span class="badge-experimental">Experimental</span>
   </label>
 
   {#if tmuxAvailable === false}
@@ -75,6 +76,9 @@
   {#if tmuxEnabled}
     <div class="hint-row">
       All sessions (shells and tools) run inside tmux and survive app close, crashes, and restarts.
+    </div>
+    <div class="warning-row">
+      This integration is experimental and may be unstable. Use at your own risk.
     </div>
 
     <label class="checkbox-row sub">
@@ -142,6 +146,10 @@
 
   .checkbox-row.sub {
     padding-left: 24px;
+  }
+
+  .checkbox-row .badge-experimental {
+    margin-left: 4px;
   }
 
   .checkbox-row input[type='checkbox'] {

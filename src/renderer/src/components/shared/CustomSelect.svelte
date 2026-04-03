@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
+
   interface Option {
     value: string
     label: string
@@ -98,39 +100,38 @@
   }
 
   function handleListKeydown(e: KeyboardEvent): void {
-    switch (e.key) {
-      case 'ArrowDown':
+    match(e.key)
+      .with('ArrowDown', () => {
         e.preventDefault()
         focusedIndex = nextSelectable(focusedIndex, 1)
-        break
-      case 'ArrowUp':
+      })
+      .with('ArrowUp', () => {
         e.preventDefault()
         focusedIndex = nextSelectable(focusedIndex, -1)
-        break
-      case 'Home':
+      })
+      .with('Home', () => {
         e.preventDefault()
         focusedIndex = selectableIndices[0]
-        break
-      case 'End':
+      })
+      .with('End', () => {
         e.preventDefault()
         focusedIndex = selectableIndices[selectableIndices.length - 1]
-        break
-      case 'Enter':
-      case ' ':
+      })
+      .with('Enter', ' ', () => {
         e.preventDefault()
         if (focusedIndex >= 0 && flatItems[focusedIndex]?.type === 'option') {
           select(flatItems[focusedIndex].value!)
         }
-        break
-      case 'Escape':
+      })
+      .with('Escape', () => {
         e.preventDefault()
         e.stopPropagation()
         close()
-        break
-      case 'Tab':
+      })
+      .with('Tab', () => {
         close()
-        break
-    }
+      })
+      .otherwise(() => {})
   }
 
   $effect(() => {

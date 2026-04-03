@@ -51,14 +51,54 @@ function createFileTreeStore() {
   async function refreshGitStatus(repoRoot: string): Promise<void> {
     if (!rootPath) return
     try {
+      const previousPaths = [...gitFileStatus.keys()]
       const porcelain = await window.api.gitStatusPorcelain(repoRoot, rootPath)
+      const nextStatuses: Record<string, string> = {}
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      const affectedPaths = new Set<string>()
+
+      const collectPaths = (rawPath: string): void => {
+        for (const part of rawPath.split(' -> ')) {
+          const normalized = part.trim()
+          if (normalized) affectedPaths.add(normalized)
+        }
+      }
+
       gitFileStatus.clear()
       for (const line of porcelain.split('\n')) {
         if (line.length < 4) continue
         const xy = line.substring(0, 2)
         const fp = line.substring(3)
         const status = xy[0] !== ' ' && xy[0] !== '?' ? xy[0] : xy[1]
-        gitFileStatus.set(fp, status === '?' ? '?' : status)
+        const normalizedStatus = status === '?' ? '?' : status
+        nextStatuses[fp] = normalizedStatus
+        gitFileStatus.set(fp, normalizedStatus)
+        collectPaths(fp)
+      }
+
+      for (const prevPath of previousPaths) {
+        if (!(prevPath in nextStatuses)) {
+          affectedPaths.add(prevPath)
+        }
+      }
+
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      const dirsToRefresh = new Set<string>()
+      for (const relPath of affectedPaths) {
+        let currentDir = rootPath
+        if (expandedDirs[currentDir]) dirsToRefresh.add(currentDir)
+
+        const segments = relPath.split('/').slice(0, -1)
+        for (const segment of segments) {
+          currentDir = `${currentDir}/${segment}`
+          if (expandedDirs[currentDir]) {
+            dirsToRefresh.add(currentDir)
+          }
+        }
+      }
+
+      if (dirsToRefresh.size > 0) {
+        await Promise.all([...dirsToRefresh].map((dirPath) => expandDir(dirPath)))
       }
     } catch {
       // Git status unavailable
@@ -69,8 +109,12 @@ function createFileTreeStore() {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(async () => {
       refreshTimer = null
+      // Re-read all expanded directories (branch/worktree switches can
+      // add or remove files that don't show up in git status porcelain)
       const dirs = Object.keys(expandedDirs)
-      await Promise.all(dirs.map((d) => expandDir(d)))
+      if (dirs.length > 0) {
+        await Promise.all(dirs.map((dirPath) => expandDir(dirPath)))
+      }
       await refreshGitStatus(repoRoot)
     }, 300)
   }
