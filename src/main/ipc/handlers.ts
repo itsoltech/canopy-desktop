@@ -3,6 +3,7 @@ import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electr
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
+import type { Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
@@ -27,6 +28,13 @@ import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
 import type { TaskTrackerProvider, TrackerTask } from '../taskTracker/types'
+import { taskTrackerErrorMessage } from '../taskTracker/errors'
+import { gitErrorMessage } from '../git/errors'
+
+function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
+  if (result.isErr()) throw new Error(toMessage(result.error))
+  return result.value
+}
 import {
   buildVariables,
   renderBranchName,
@@ -494,20 +502,27 @@ export function registerIpcHandlers(
 
   // --- Git ---
 
+  const defaultGitInfo: GitInfo = {
+    isGitRepo: false,
+    repoRoot: null,
+    branch: null,
+    worktrees: [],
+    isDirty: false,
+    aheadBehind: null,
+  }
+
   ipcMain.handle('git:detect', async (_event, payload: { path: string }) => {
-    return GitRepository.detect(payload.path)
+    return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
   })
 
   ipcMain.handle('git:worktrees', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.listWorktrees(payload.repoRoot)
+    return GitRepository.listWorktrees(payload.repoRoot).unwrapOr([])
   })
 
   ipcMain.handle('git:status', async (_event, payload: { path: string }) => {
-    const [branch, isDirty, aheadBehind] = await Promise.all([
-      GitRepository.getBranch(payload.path),
-      GitRepository.isDirty(payload.path),
-      GitRepository.getAheadBehind(payload.path),
-    ])
+    const branch = await GitRepository.getBranch(payload.path).unwrapOr(null)
+    const isDirty = await GitRepository.isDirty(payload.path).unwrapOr(false)
+    const aheadBehind = await GitRepository.getAheadBehind(payload.path).unwrapOr(null)
     return { branch, isDirty, aheadBehind }
   })
 
@@ -554,7 +569,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle('git:init', async (_event, payload: { path: string }) => {
     await execFileAsync('git', ['init'], { cwd: payload.path })
-    return GitRepository.detect(payload.path)
+    return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
   })
 
   // --- Workspace Git Status Refresh ---
@@ -562,7 +577,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'db:workspace:refreshGitStatus',
     async (_event, payload: { id: string; path: string }) => {
-      const info = await GitRepository.detect(payload.path)
+      const info = await GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
       const aheadBehind = info.aheadBehind ? JSON.stringify(info.aheadBehind) : null
       workspaceStore.updateGitCache(payload.id, {
         branch: info.branch,
@@ -579,71 +594,91 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:commit',
     async (_event, payload: { repoRoot: string; message: string; stageAll?: boolean }) => {
-      return GitRepository.commit(payload.repoRoot, payload.message, payload.stageAll)
+      const result = await GitRepository.commit(payload.repoRoot, payload.message, payload.stageAll)
+      return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle('git:push', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.push(payload.repoRoot)
+    const result = await GitRepository.push(payload.repoRoot)
+    return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle('git:pull', async (_event, payload: { repoRoot: string; rebase: boolean }) => {
-    return GitRepository.pull(payload.repoRoot, payload.rebase)
+    const result = await GitRepository.pull(payload.repoRoot, payload.rebase)
+    return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle('git:fetch', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.fetch(payload.repoRoot)
+    const result = await GitRepository.fetch(payload.repoRoot)
+    return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle('git:fetchAll', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.fetchAll(payload.repoRoot)
+    const result = await GitRepository.fetchAll(payload.repoRoot)
+    return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle('git:stash', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.stash(payload.repoRoot)
+    const result = await GitRepository.stash(payload.repoRoot)
+    return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle('git:stashPop', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.stashPop(payload.repoRoot)
+    const result = await GitRepository.stashPop(payload.repoRoot)
+    return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle('git:branches', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.listBranches(payload.repoRoot)
+    const result = await GitRepository.listBranches(payload.repoRoot)
+    return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle(
     'git:branchCreate',
     async (_event, payload: { repoRoot: string; name: string; baseBranch: string }) => {
-      return GitRepository.createBranch(payload.repoRoot, payload.name, payload.baseBranch)
+      const result = await GitRepository.createBranch(
+        payload.repoRoot,
+        payload.name,
+        payload.baseBranch,
+      )
+      return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle('git:checkout', async (_event, payload: { repoRoot: string; branch: string }) => {
-    return GitRepository.checkout(payload.repoRoot, payload.branch)
+    const result = await GitRepository.checkout(payload.repoRoot, payload.branch)
+    return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle(
     'git:branchDelete',
     async (_event, payload: { repoRoot: string; name: string; force: boolean }) => {
-      return GitRepository.deleteBranch(payload.repoRoot, payload.name, payload.force)
+      const result = await GitRepository.deleteBranch(payload.repoRoot, payload.name, payload.force)
+      return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle(
     'git:branchDeleteRemote',
     async (_event, payload: { repoRoot: string; remote: string; name: string }) => {
-      return GitRepository.deleteRemoteBranch(payload.repoRoot, payload.remote, payload.name)
+      const result = await GitRepository.deleteRemoteBranch(
+        payload.repoRoot,
+        payload.remote,
+        payload.name,
+      )
+      return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle('git:pushInfo', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.getPushInfo(payload.repoRoot)
+    return GitRepository.getPushInfo(payload.repoRoot).unwrapOr(null)
   })
 
   ipcMain.handle(
     'git:branchMerged',
     async (_event, payload: { repoRoot: string; branch: string }) => {
-      return GitRepository.isBranchMerged(payload.repoRoot, payload.branch)
+      return GitRepository.isBranchMerged(payload.repoRoot, payload.branch).unwrapOr(false)
     },
   )
 
@@ -656,38 +691,44 @@ export function registerIpcHandlers(
       const resolvedPath = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
-      return GitRepository.worktreeAdd(
+      const result = await GitRepository.worktreeAdd(
         payload.repoRoot,
         resolvedPath,
         payload.branch,
         payload.baseBranch,
       )
+      return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle(
     'git:worktreeRemove',
     async (_event, payload: { repoRoot: string; path: string; force: boolean }) => {
-      return GitRepository.worktreeRemove(payload.repoRoot, payload.path, payload.force)
+      const result = await GitRepository.worktreeRemove(
+        payload.repoRoot,
+        payload.path,
+        payload.force,
+      )
+      return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle(
     'git:unmergedCommits',
     async (_event, payload: { repoRoot: string; branch: string }) => {
-      return GitRepository.getUnmergedCommits(payload.repoRoot, payload.branch)
+      return GitRepository.getUnmergedCommits(payload.repoRoot, payload.branch).unwrapOr([])
     },
   )
 
   ipcMain.handle(
     'git:statusPorcelain',
     async (_event, payload: { repoRoot: string; worktreePath?: string }) => {
-      return GitRepository.getStatusPorcelain(payload.repoRoot, payload.worktreePath)
+      return GitRepository.getStatusPorcelain(payload.repoRoot, payload.worktreePath).unwrapOr('')
     },
   )
 
   ipcMain.handle('git:generateCommitMessage', async (_event, payload: { repoRoot: string }) => {
-    const diff = await GitRepository.getDiff(payload.repoRoot)
+    const diff = await GitRepository.getDiff(payload.repoRoot).unwrapOr('')
     if (!diff.trim()) return null
     return generateCommitMessage(diff, preferencesStore)
   })
@@ -1107,7 +1148,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:testConnection',
     async (_event, payload: { connectionId: string }) => {
-      return taskTrackerManager.testConnection(payload.connectionId)
+      const result = await taskTrackerManager.testConnection(payload.connectionId)
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
@@ -1130,12 +1172,14 @@ export function registerIpcHandlers(
         throw new Error('Base URL must use http:// or https://')
       }
       const { token, ...connectionData } = payload
-      return taskTrackerManager.testNewConnection(connectionData, token)
+      const result = await taskTrackerManager.testNewConnection(connectionData, token)
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
   ipcMain.handle('taskTracker:fetchBoards', async (_event, payload: { connectionId: string }) => {
-    return taskTrackerManager.fetchBoards(payload.connectionId)
+    const result = await taskTrackerManager.fetchBoards(payload.connectionId)
+    return unwrapOrThrow(result, taskTrackerErrorMessage)
   })
 
   ipcMain.handle(
@@ -1156,17 +1200,19 @@ export function registerIpcHandlers(
         throw new Error('Base URL must use http:// or https://')
       }
       const { token, ...connectionData } = payload
-      return taskTrackerManager.fetchBoardsForNew(
+      const result = await taskTrackerManager.fetchBoardsForNew(
         { ...connectionData, projectKey: connectionData.projectKey ?? '' },
         token,
       )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
   ipcMain.handle(
     'taskTracker:fetchStatuses',
     async (_event, payload: { connectionId: string; boardId?: string }) => {
-      return taskTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)
+      const result = await taskTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
@@ -1182,21 +1228,27 @@ export function registerIpcHandlers(
       },
     ) => {
       const { connectionId, ...params } = payload
-      return taskTrackerManager.fetchTasks(connectionId, params)
+      const result = await taskTrackerManager.fetchTasks(connectionId, params)
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
   ipcMain.handle(
     'taskTracker:getCurrentUser',
     async (_event, payload: { connectionId: string }) => {
-      return taskTrackerManager.getCurrentUserDisplayName(payload.connectionId)
+      const result = await taskTrackerManager.getCurrentUserDisplayName(payload.connectionId)
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
   ipcMain.handle(
     'taskTracker:getCurrentSprint',
     async (_event, payload: { connectionId: string; boardId?: string }) => {
-      return taskTrackerManager.getCurrentSprint(payload.connectionId, payload.boardId)
+      const result = await taskTrackerManager.getCurrentSprint(
+        payload.connectionId,
+        payload.boardId,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
@@ -1240,7 +1292,7 @@ export function registerIpcHandlers(
       // Get sprint: from task data or from API
       const sprint = await taskTrackerManager
         .getCurrentSprint(payload.connectionId, payload.boardId)
-        .catch(() => null)
+        .unwrapOr(null)
 
       const variables = buildVariables(payload.task, sprint, customVars, payload.branchType)
       return renderBranchName(template, variables)
@@ -1416,7 +1468,8 @@ export function registerIpcHandlers(
         defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
       }
 
-      const branches = await GitRepository.listBranches(payload.repoRoot)
+      const branchResult = await GitRepository.listBranches(payload.repoRoot)
+      const branches = unwrapOrThrow(branchResult, gitErrorMessage)
       const existingBranches = [...branches.local, ...branches.remote]
 
       const prConfig = buildPRConfig(titleTemplate, bodyTemplate, defaultBranch, targetRules)
@@ -1449,7 +1502,7 @@ export function registerIpcHandlers(
 
       if (actions.length === 0) return { success: true, errors: [] }
 
-      const worktrees = await GitRepository.listWorktrees(payload.repoRoot)
+      const worktrees = await GitRepository.listWorktrees(payload.repoRoot).unwrapOr([])
       const mainWorktree = worktrees.find((wt) => wt.isMain)
       const mainWorktreePath = mainWorktree?.path ?? payload.repoRoot
 

@@ -3,6 +3,7 @@ import { join } from 'path'
 import type { FSWatcher } from 'chokidar'
 import { GitRepository } from './GitRepository'
 import type { GitInfo } from './GitRepository'
+import { gitErrorMessage } from './errors'
 
 export interface GitRefreshFlags {
   branch: boolean
@@ -132,21 +133,24 @@ export class GitWatcher {
 
   private async refreshInfo(changes: GitRefreshFlags): Promise<GitInfo> {
     if (!this.lastInfo) {
-      const info = await GitRepository.detect(this.repoRoot)
-      this.lastInfo = info
-      return info
+      const result = await GitRepository.detect(this.repoRoot)
+      if (result.isErr()) throw new Error(gitErrorMessage(result.error))
+      this.lastInfo = result.value
+      return result.value
     }
 
     const [branch, worktrees, isDirty, aheadBehind] = await Promise.all([
       changes.branch
-        ? GitRepository.getBranch(this.repoRoot)
+        ? GitRepository.getBranch(this.repoRoot).unwrapOr(this.lastInfo.branch)
         : Promise.resolve(this.lastInfo.branch),
       changes.worktrees
-        ? GitRepository.listWorktrees(this.repoRoot)
+        ? GitRepository.listWorktrees(this.repoRoot).unwrapOr(this.lastInfo.worktrees)
         : Promise.resolve(this.lastInfo.worktrees),
-      changes.dirty ? GitRepository.isDirty(this.repoRoot) : Promise.resolve(this.lastInfo.isDirty),
+      changes.dirty
+        ? GitRepository.isDirty(this.repoRoot).unwrapOr(this.lastInfo.isDirty)
+        : Promise.resolve(this.lastInfo.isDirty),
       changes.aheadBehind
-        ? GitRepository.getAheadBehind(this.repoRoot)
+        ? GitRepository.getAheadBehind(this.repoRoot).unwrapOr(this.lastInfo.aheadBehind)
         : Promise.resolve(this.lastInfo.aheadBehind),
     ])
 

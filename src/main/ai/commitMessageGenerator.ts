@@ -4,6 +4,9 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import { getLoginEnv } from '../shell/loginEnv'
 import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
+import type { AiError } from './errors'
+import type { ResultAsyncType } from '../errors'
+import { fromExternalCall } from '../errors'
 
 let cachedClaudePath: string | undefined
 
@@ -49,11 +52,48 @@ const OUTPUT_SCHEMA = {
   required: ['subject', 'body'] as const,
 }
 
+function generateCommitMessageInner(diff: string): ResultAsyncType<string | null, AiError> {
+  const truncatedDiff = diff.length > MAX_DIFF_LENGTH ? diff.slice(0, MAX_DIFF_LENGTH) : diff
+  const prompt = PROMPT_TEMPLATE.replace('{diff}', truncatedDiff)
+
+  return fromExternalCall(
+    (async () => {
+      const claudePath = await resolveClaudeExecutable()
+
+      const q = query({
+        prompt,
+        options: {
+          model: 'haiku',
+          pathToClaudeCodeExecutable: claudePath,
+          outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+        },
+      })
+
+      let structuredOutput: CommitOutput | null = null
+      for await (const message of q) {
+        if (message.type === 'result' && (message as { subtype?: string }).subtype === 'success') {
+          structuredOutput = (message as Record<string, unknown>)
+            .structured_output as CommitOutput | null
+        }
+      }
+
+      return structuredOutput
+    })(),
+    (e): AiError => ({
+      _tag: 'AiRequestFailed',
+      message: e instanceof Error ? e.message : String(e),
+    }),
+  ).map((output) => {
+    if (!output?.subject) return null
+    const { subject, body } = output
+    return body ? `${subject}\n\n${body}` : subject
+  })
+}
+
 export async function generateCommitMessage(
   diff: string,
   preferencesStore: PreferencesStore,
 ): Promise<string | null> {
-  // Build env overrides from preferences (same pattern as handlers.ts for PTY sessions)
   const envOverrides: Record<string, string> = {}
 
   const claudeApiKey = preferencesStore.get('claude.apiKey')
@@ -79,9 +119,6 @@ export async function generateCommitMessage(
     }
   }
 
-  const model = 'haiku'
-
-  // Save current env, apply overrides, restore in finally
   const savedEnv: Record<string, string | undefined> = {}
 
   try {
@@ -90,33 +127,7 @@ export async function generateCommitMessage(
       process.env[key] = val
     }
 
-    const truncatedDiff = diff.length > MAX_DIFF_LENGTH ? diff.slice(0, MAX_DIFF_LENGTH) : diff
-    const prompt = PROMPT_TEMPLATE.replace('{diff}', truncatedDiff)
-    const claudePath = await resolveClaudeExecutable()
-
-    const q = query({
-      prompt,
-      options: {
-        model,
-        pathToClaudeCodeExecutable: claudePath,
-        outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
-      },
-    })
-
-    let structuredOutput: CommitOutput | null = null
-    for await (const message of q) {
-      if (message.type === 'result' && (message as { subtype?: string }).subtype === 'success') {
-        structuredOutput = (message as Record<string, unknown>)
-          .structured_output as CommitOutput | null
-      }
-    }
-
-    if (!structuredOutput?.subject) return null
-    const { subject, body } = structuredOutput
-    return body ? `${subject}\n\n${body}` : subject
-  } catch (err) {
-    console.error('[ai-commit] Error:', err)
-    return null
+    return await generateCommitMessageInner(diff).unwrapOr(null)
   } finally {
     for (const [key, val] of Object.entries(savedEnv)) {
       if (val !== undefined) {

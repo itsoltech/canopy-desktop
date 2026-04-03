@@ -1,5 +1,7 @@
 import { net } from 'electron'
 import semver from 'semver'
+import type { ChangelogError } from './errors'
+import { fromExternalCall, errorMessage, type ResultAsyncType } from '../errors'
 
 export interface ChangelogEntry {
   version: string
@@ -18,26 +20,26 @@ interface GitHubRelease {
 const GITHUB_RELEASES_URL =
   'https://api.github.com/repos/itsoltech/canopy-desktop/releases?per_page=100'
 
-async function fetchGitHubReleases(): Promise<GitHubRelease[]> {
-  const response = await net.fetch(GITHUB_RELEASES_URL, {
-    headers: {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'Canopy-Desktop',
-    },
-  })
-  if (!response.ok) throw new Error(`GitHub API ${response.status}`)
-  return (await response.json()) as GitHubRelease[]
+function fetchGitHubReleases(): ResultAsyncType<GitHubRelease[], ChangelogError> {
+  return fromExternalCall(
+    (async () => {
+      const response = await net.fetch(GITHUB_RELEASES_URL, {
+        headers: {
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'Canopy-Desktop',
+        },
+      })
+      if (!response.ok) throw new Error(`GitHub API ${response.status}`)
+      return (await response.json()) as GitHubRelease[]
+    })(),
+    (e): ChangelogError => ({ _tag: 'FetchFailed', message: errorMessage(e) }),
+  )
 }
 
-/**
- * For the "next" update channel, determine whether electron-updater should
- * look for `latest-mac.yml` (stable) or `next-mac.yml` (pre-release) by
- * finding whichever pool contains the newest version above `currentVersion`.
- */
-export async function resolveUpdateChannel(currentVersion: string): Promise<'latest' | 'next'> {
-  try {
-    const releases = await fetchGitHubReleases()
-
+export function resolveUpdateChannel(
+  currentVersion: string,
+): ResultAsyncType<'latest' | 'next', ChangelogError> {
+  return fetchGitHubReleases().map((releases) => {
     let latestStable: string | null = null
     let latestPrerelease: string | null = null
 
@@ -57,20 +59,16 @@ export async function resolveUpdateChannel(currentVersion: string): Promise<'lat
       return 'latest'
     }
     return 'next'
-  } catch {
-    return 'next'
-  }
+  })
 }
 
-export async function fetchChangelogRange(
+export function fetchChangelogRange(
   fromVersion: string,
   toVersion: string,
   channel: 'stable' | 'next',
-): Promise<ChangelogEntry[] | null> {
-  try {
-    const releases = await fetchGitHubReleases()
-
-    return releases
+): ResultAsyncType<ChangelogEntry[], ChangelogError> {
+  return fetchGitHubReleases().map((releases) =>
+    releases
       .filter((r) => {
         if (r.draft || !r.body) return false
         if (channel === 'stable' && r.prerelease) return false
@@ -89,8 +87,6 @@ export async function fetchChangelogRange(
         version: semver.clean(r.tag_name)!,
         date: r.published_at.split('T')[0],
         body: r.body!,
-      }))
-  } catch {
-    return null
-  }
+      })),
+  )
 }

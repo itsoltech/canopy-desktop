@@ -105,6 +105,17 @@ This app targets macOS, Windows, and Linux. Platform-specific labels and behavio
 - Using `ipcRenderer.send`/`ipcMain.on` for request-response instead of `invoke`/`handle`.
 - IPC channels not following `feature:action` naming convention.
 
+### Error handling
+
+The codebase uses `neverthrow` for typed error handling. Business logic must not use `try/catch`.
+
+- `try/catch` in a service, manager, or domain module instead of returning `Result<T, E>` / `ResultAsync<T, E>`. Exception: process boundaries (PTY cleanup, HTTP body parsing, `JSON.parse` on untrusted input, `contextBridge` init, renderer event handlers).
+- Untyped errors: throwing `new Error(string)` from business logic instead of returning an error variant from a typed union.
+- Missing error type: new domain logic that can fail without a corresponding `errors.ts` defining a discriminated union with `_tag` fields.
+- Error message formatter not co-located with error type definition. Each `errors.ts` should export its own message formatter using `ts-pattern` `.exhaustive()`.
+- Swallowing errors silently (`catch {}` with no fallback value or logging) in non-boundary code.
+- Using `.unwrapOr()` where the caller needs to distinguish error cases (should use `.match()` or `isErr()` instead).
+
 ### Theming
 
 All UI colors must use CSS custom properties from the `--c-*` system defined in `base.css` and applied dynamically by `src/renderer/src/lib/theme/appTheme.ts`. The app theme syncs with the terminal theme.
