@@ -121,7 +121,7 @@
       : [],
   )
 
-  // Auto-create shell tab when selected worktree changes
+  // Auto-create default tab when selected worktree changes
   $effect(() => {
     const path = workspaceState.selectedWorktreePath
     if (path) {
