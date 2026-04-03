@@ -20,6 +20,7 @@
   } = $props()
 
   let cancelBtn: HTMLButtonElement | undefined = $state()
+  let confirmBtn: HTMLButtonElement | undefined = $state()
 
   onMount(() => {
     cancelBtn?.focus()
@@ -34,6 +35,11 @@
     if (e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
+      // When destructive, only confirm if the confirm button is explicitly focused
+      if (destructive && document.activeElement !== confirmBtn) {
+        if (document.activeElement === cancelBtn) onCancel()
+        return
+      }
       onConfirm()
     }
   }
@@ -56,7 +62,7 @@
     {/if}
     <div class="dialog-actions">
       <button bind:this={cancelBtn} class="btn btn-cancel" onclick={onCancel}>Cancel</button>
-      <button class="btn btn-confirm" class:destructive onclick={onConfirm}>
+      <button bind:this={confirmBtn} class="btn btn-confirm" class:destructive onclick={onConfirm}>
         {confirmLabel}
       </button>
     </div>
