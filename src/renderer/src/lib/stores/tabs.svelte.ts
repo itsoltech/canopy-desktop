@@ -23,6 +23,7 @@ import {
   type AgentType,
 } from '../agents/agentState.svelte'
 import { confirm } from './dialogs.svelte'
+import { getPref } from './preferences.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
 
 // --- Active process detection ---
@@ -719,7 +720,7 @@ export async function restartTab(tabId: string): Promise<void> {
 export async function ensureShellTab(worktreePath: string): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (tabs && tabs.length > 0) return
-  await openTool('shell', worktreePath)
+  await openTool(getPref('newTab.toolId', 'shell'), worktreePath)
 }
 
 async function resumeTab(tab: TabInfo): Promise<boolean> {

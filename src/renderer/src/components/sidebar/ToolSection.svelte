@@ -7,6 +7,8 @@
 
   let { onLaunchTool }: { onLaunchTool: (toolId: string) => void } = $props()
 
+  let availableTools = $derived(getTools().filter((t) => getToolAvailability()[t.id] !== false))
+
   function runningCount(toolId: string): number {
     const path = workspaceState.selectedWorktreePath
     if (!path) return 0
@@ -16,17 +18,10 @@
 
 <CollapsibleSection title="TOOLS" sectionKey="tools" borderTop>
   <ul class="tool-list">
-    {#each getTools() as tool (tool.id)}
+    {#each availableTools as tool (tool.id)}
       {@const count = runningCount(tool.id)}
-      {@const available = getToolAvailability()[tool.id] !== false}
       <li>
-        <button
-          class="tool-item"
-          class:unavailable={!available}
-          disabled={!available}
-          onclick={() => onLaunchTool(tool.id)}
-          title={available ? tool.name : `${tool.name} — not found in PATH`}
-        >
+        <button class="tool-item" onclick={() => onLaunchTool(tool.id)} title={tool.name}>
           <ToolIcon icon={tool.icon} size={14} />
           <span class="tool-name">{tool.name}</span>
           {#if count > 0}
@@ -62,16 +57,8 @@
     transition: background 0.1s;
   }
 
-  .tool-item:hover:not(:disabled) {
+  .tool-item:hover {
     background: var(--c-hover);
-  }
-
-  .tool-item:disabled {
-    cursor: default;
-  }
-
-  .tool-item.unavailable {
-    color: var(--c-text-faint);
   }
 
   .tool-name {

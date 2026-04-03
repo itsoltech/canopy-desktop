@@ -5,8 +5,8 @@
   import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
   import '@xterm/xterm/css/xterm.css'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
-  import { getPref } from '../../lib/stores/preferences.svelte'
-  import { prefs } from '../../lib/stores/preferences.svelte'
+  import { getPref, prefs } from '../../lib/stores/preferences.svelte'
+  import { openTool } from '../../lib/stores/tabs.svelte'
   import { getTheme } from '../../lib/terminal/themes'
 
   let {
@@ -229,6 +229,9 @@
     setTimeout(
       () => {
         selectWorktree(worktreeDirDisplay)
+        openTool(getPref('newWorktree.toolId', 'shell'), worktreeDirDisplay).catch((err) => {
+          console.error('Failed to launch tool after worktree creation:', err)
+        })
         onClose()
       },
       setupErrors.length > 0 ? 2000 : 400,
