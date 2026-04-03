@@ -4,6 +4,10 @@ on:
   issues:
     types: [opened, labeled]
 
+concurrency:
+  group: bug-assign-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
   assign:
     if: contains(github.event.issue.labels.*.name, 'bug')
