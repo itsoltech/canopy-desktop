@@ -491,6 +491,20 @@ interface CanopyAPI {
     boardId?: string,
   ) => Promise<TrackerSprint | null>
   taskTrackerGetCurrentUser: (connectionId: string) => Promise<string>
+  taskTrackerFetchTaskComments: (
+    connectionId: string,
+    taskKey: string,
+  ) => Promise<Array<{ id: string; author: string; body: string; created: string }>>
+  taskTrackerFetchTaskAttachments: (
+    connectionId: string,
+    taskKey: string,
+  ) => Promise<Array<{ id: string; name: string; mimeType: string; size: number; url: string }>>
+  taskTrackerDownloadAttachment: (
+    connectionId: string,
+    url: string,
+    filename: string,
+  ) => Promise<string>
+  taskTrackerCleanupAttachments: (filePaths: string[]) => Promise<void>
   taskTrackerResolveBranchName: (
     connectionId: string,
     task: TrackerTask,

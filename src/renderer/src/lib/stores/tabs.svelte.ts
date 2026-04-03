@@ -134,6 +134,17 @@ function computeDisplayName(toolName: string, worktreePath: string, toolId: stri
   return `${toolName} #${sameToolCount + 1}`
 }
 
+export function getActiveAgentPane(): PaneSession | null {
+  const path = workspaceState.selectedWorktreePath
+  if (!path) return null
+  const tabId = activeTabId[path]
+  const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
+  if (!tab) return null
+  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
+  if (!focused || !isAiToolId(focused.toolId)) return null
+  return focused
+}
+
 export async function openTool(
   toolId: string,
   worktreePath: string,

@@ -1,7 +1,9 @@
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
+  TrackerAttachment,
   TrackerBoard,
+  TrackerComment,
   TrackerTask,
   TrackerStatus,
 } from '../types'
@@ -242,6 +244,64 @@ export const youtrackClient: TaskTrackerProviderClient = {
       name: active.name,
       number: parseSprintNumber(active.name),
       state: 'active' as const,
+    }
+  },
+
+  async fetchTaskComments(connection, token, taskKey) {
+    try {
+      const fields = 'id,text,author(name,fullName),created'
+      const data = await ytFetch<
+        Array<{
+          id: string
+          text?: string
+          author?: { name?: string; fullName?: string }
+          created?: number
+        }>
+      >(
+        connection,
+        token,
+        `/api/issues/${encodeURIComponent(taskKey)}/comments?fields=${encodeURIComponent(fields)}`,
+      )
+      return data.map(
+        (c): TrackerComment => ({
+          id: c.id,
+          author: c.author?.fullName ?? c.author?.name ?? '',
+          body: c.text ?? '',
+          created: c.created ? new Date(c.created).toISOString() : '',
+        }),
+      )
+    } catch {
+      return []
+    }
+  },
+
+  async fetchTaskAttachments(connection, token, taskKey) {
+    try {
+      const fields = 'attachments(id,name,size,mimeType)'
+      const data = await ytFetch<{
+        attachments?: Array<{
+          id: string
+          name?: string
+          size?: number
+          mimeType?: string
+        }>
+      }>(
+        connection,
+        token,
+        `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
+      )
+      const baseUrl = connection.baseUrl.replace(/\/$/, '')
+      return (data.attachments ?? []).map(
+        (a): TrackerAttachment => ({
+          id: a.id,
+          name: a.name ?? '',
+          mimeType: a.mimeType ?? '',
+          size: a.size ?? 0,
+          url: `${baseUrl}/api/issues/${encodeURIComponent(taskKey)}/attachments/${a.id}/file`,
+        }),
+      )
+    } catch {
+      return []
     }
   },
 }

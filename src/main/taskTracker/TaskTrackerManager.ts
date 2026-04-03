@@ -1,8 +1,16 @@
+import { join, basename } from 'path'
+import { mkdirSync, createWriteStream, rmSync } from 'fs'
+import os from 'os'
+import { randomUUID } from 'crypto'
+import { pipeline } from 'stream/promises'
+import { Readable } from 'stream'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import { createProviderClient } from './providers'
 import type {
   TaskTrackerConnection,
+  TrackerAttachment,
   TrackerBoard,
+  TrackerComment,
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
@@ -174,5 +182,61 @@ export class TaskTrackerManager {
     const token = this.getToken(conn)
     const client = createProviderClient(conn.provider)
     return client.getCurrentSprint(conn, token, boardId)
+  }
+
+  async fetchTaskComments(connectionId: string, taskKey: string): Promise<TrackerComment[]> {
+    const conn = this.getConnection(connectionId)
+    const token = this.getToken(conn)
+    const client = createProviderClient(conn.provider)
+    return client.fetchTaskComments(conn, token, taskKey)
+  }
+
+  async fetchTaskAttachments(connectionId: string, taskKey: string): Promise<TrackerAttachment[]> {
+    const conn = this.getConnection(connectionId)
+    const token = this.getToken(conn)
+    const client = createProviderClient(conn.provider)
+    return client.fetchTaskAttachments(conn, token, taskKey)
+  }
+
+  async downloadAttachment(connectionId: string, url: string, filename: string): Promise<string> {
+    const conn = this.getConnection(connectionId)
+    const token = this.getToken(conn)
+
+    const connBase = conn.baseUrl.replace(/\/$/, '')
+    if (!url.startsWith(connBase)) {
+      throw new Error('Attachment URL does not match connection base URL')
+    }
+
+    const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
+    mkdirSync(dir, { recursive: true })
+
+    const safeName = basename(filename.replace(/[/\\]/g, '_'))
+    const filePath = join(dir, safeName)
+
+    const headers: Record<string, string> = {
+      Authorization: conn.username
+        ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
+        : `Bearer ${token}`,
+    }
+
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(60_000) })
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`)
+    if (!res.body) throw new Error('Empty response body')
+
+    const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
+    await pipeline(nodeStream, createWriteStream(filePath))
+
+    return filePath
+  }
+
+  cleanupAttachmentDir(filePath: string): void {
+    const tmpBase = os.tmpdir()
+    const dir = join(filePath, '..')
+    if (!dir.startsWith(tmpBase) || !basename(dir).startsWith('canopy-attachments-')) return
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }

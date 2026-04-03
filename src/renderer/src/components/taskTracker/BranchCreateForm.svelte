@@ -3,8 +3,13 @@
   import { X, ExternalLink, ArrowLeft } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
-  import { getPref } from '../../lib/stores/preferences.svelte'
+  import { getPref, setPref } from '../../lib/stores/preferences.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
+  import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
+  import { isAiToolId, openTool } from '../../lib/stores/tabs.svelte'
+  import { agentSessions } from '../../lib/agents/agentState.svelte'
+  import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
 
   interface Task {
     key: string
@@ -39,6 +44,13 @@
   let templateHasBranchType = $state(false)
   let initialized = $state(false)
   let fullTask = $state<Task>(task)
+  let selectedAgentId = $state(getPref('taskTracker.lastAgent', ''))
+
+  let availableAgents = $derived.by(() => {
+    const tools = getTools()
+    const avail = getToolAvailability()
+    return tools.filter((t) => isAiToolId(t.id) && avail[t.id])
+  })
 
   async function init(): Promise<void> {
     // Fetch full task data (with description) in parallel with branch type
@@ -96,10 +108,28 @@
     const worktreePath = worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir
 
     creatingWorktree = true
+    setPref('taskTracker.lastAgent', selectedAgentId)
     try {
       await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, currentBranch)
       closeDialog()
       await selectWorktree(worktreePath)
+
+      if (selectedAgentId) {
+        try {
+          const tab = await openTool(selectedAgentId, worktreePath)
+          const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
+          if (pane) {
+            const sessionId = pane.sessionId
+            const ready = await waitForAgentReady(sessionId)
+            if (ready) {
+              const context = await fetchAndFormatTaskContext(connectionId, fullTask)
+              await window.api.writePty(sessionId, context + '\n')
+            }
+          }
+        } catch {
+          addToast('Failed to send task context to agent')
+        }
+      }
     } catch (e) {
       creatingWorktree = false
       closeDialog()
@@ -110,6 +140,19 @@
         confirmLabel: 'OK',
       })
     }
+  }
+
+  async function waitForAgentReady(sessionId: string, timeoutMs = 30000): Promise<boolean> {
+    // Give the agent session time to register in the store
+    await new Promise((r) => setTimeout(r, 500))
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      const session = agentSessions[sessionId]
+      if (session?.status.type === 'idle') return true
+      if (session?.status.type === 'ended' || session?.status.type === 'error') return false
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    return false
   }
 
   onMount(() => {
@@ -166,6 +209,22 @@
       <span class="field-label">Branch</span>
       <code class="branch-preview">{resolvedBranchName}</code>
     </div>
+    {#if availableAgents.length > 0}
+      <div class="field-row">
+        <span class="field-label">Agent</span>
+        <CustomSelect
+          value={selectedAgentId}
+          options={[
+            { value: '', label: 'None' },
+            ...availableAgents.map((t) => ({ value: t.id, label: t.name })),
+          ]}
+          onchange={(v) => {
+            selectedAgentId = v
+          }}
+          maxWidth="none"
+        />
+      </div>
+    {/if}
     <div class="branch-actions">
       <button class="btn-cancel" onclick={onBack}>Back</button>
       <button
@@ -173,7 +232,8 @@
         onclick={confirmBranchCreation}
         disabled={creatingWorktree || !resolvedBranchName}
       >
-        {#if creatingWorktree}Creating...{:else}Create & Switch{/if}
+        {#if creatingWorktree}Creating...{:else if selectedAgentId}Create & Start Agent{:else}Create
+          & Switch{/if}
       </button>
     </div>
   </div>

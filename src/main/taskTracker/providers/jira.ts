@@ -1,7 +1,9 @@
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
+  TrackerAttachment,
   TrackerBoard,
+  TrackerComment,
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
@@ -246,6 +248,60 @@ export const jiraClient: TaskTrackerProviderClient = {
       name: sprint.name,
       number: parseSprintNumber(sprint.name),
       state: sprint.state as TrackerSprint['state'],
+    }
+  },
+
+  async fetchTaskComments(connection, token, taskKey) {
+    try {
+      const data = await jiraFetch<{
+        comments: Array<{
+          id: string
+          body?: unknown
+          author?: { displayName?: string }
+          created?: string
+        }>
+      }>(
+        connection,
+        token,
+        `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment?maxResults=50`,
+      )
+      return (data.comments ?? []).map(
+        (c): TrackerComment => ({
+          id: c.id,
+          author: c.author?.displayName ?? '',
+          body: typeof c.body === 'string' ? c.body : adfToPlainText(c.body).trim(),
+          created: c.created ?? '',
+        }),
+      )
+    } catch {
+      return []
+    }
+  },
+
+  async fetchTaskAttachments(connection, token, taskKey) {
+    try {
+      const data = await jiraFetch<{
+        fields: {
+          attachment?: Array<{
+            id: string
+            filename?: string
+            mimeType?: string
+            size?: number
+            content?: string
+          }>
+        }
+      }>(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=attachment`)
+      return (data.fields.attachment ?? []).map(
+        (a): TrackerAttachment => ({
+          id: a.id,
+          name: a.filename ?? '',
+          mimeType: a.mimeType ?? '',
+          size: a.size ?? 0,
+          url: a.content ?? '',
+        }),
+      )
+    } catch {
+      return []
     }
   },
 }

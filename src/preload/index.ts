@@ -558,6 +558,18 @@ const api = {
     ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId }),
   taskTrackerGetCurrentUser: (connectionId: string) =>
     ipcRenderer.invoke('taskTracker:getCurrentUser', { connectionId }) as Promise<string>,
+  taskTrackerFetchTaskComments: (connectionId: string, taskKey: string) =>
+    ipcRenderer.invoke('taskTracker:fetchTaskComments', { connectionId, taskKey }),
+  taskTrackerFetchTaskAttachments: (connectionId: string, taskKey: string) =>
+    ipcRenderer.invoke('taskTracker:fetchTaskAttachments', { connectionId, taskKey }),
+  taskTrackerDownloadAttachment: (connectionId: string, url: string, filename: string) =>
+    ipcRenderer.invoke('taskTracker:downloadAttachment', {
+      connectionId,
+      url,
+      filename,
+    }) as Promise<string>,
+  taskTrackerCleanupAttachments: (filePaths: string[]) =>
+    ipcRenderer.invoke('taskTracker:cleanupAttachments', { filePaths }),
   taskTrackerResolveBranchName: (
     connectionId: string,
     task: { key: string; type: string; [k: string]: unknown },
