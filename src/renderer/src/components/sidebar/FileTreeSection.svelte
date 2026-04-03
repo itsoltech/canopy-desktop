@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
   import { ChevronRight, Folder, FolderOpen, File } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import { fileTree } from '../../lib/stores/fileTree.svelte'
@@ -45,20 +46,13 @@
   function getStatusColor(relativePath: string): string | null {
     const status = fileTree.gitFileStatus.get(relativePath)
     if (!status) return null
-    switch (status) {
-      case 'M':
-        return 'rgba(230, 180, 80, 0.9)'
-      case 'A':
-        return 'rgba(80, 200, 120, 0.9)'
-      case 'D':
-        return 'rgba(224, 80, 80, 0.9)'
-      case '?':
-        return 'rgba(120, 190, 120, 0.6)'
-      case 'R':
-        return 'rgba(130, 170, 255, 0.9)'
-      default:
-        return 'rgba(230, 180, 80, 0.7)'
-    }
+    return match(status)
+      .with('M', () => 'var(--c-warning-text)')
+      .with('A', () => 'var(--c-success)')
+      .with('D', () => 'var(--c-danger-text)')
+      .with('?', () => 'var(--c-text-faint)')
+      .with('R', () => 'var(--c-accent-text)')
+      .otherwise(() => 'var(--c-warning-text)')
   }
 
   function getRelativePath(absPath: string): string {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match, P } from 'ts-pattern'
   import type { AgentSessionState } from '../../lib/agents/agentState.svelte'
   import ClaudeExtras from './ClaudeExtras.svelte'
 
@@ -12,41 +13,27 @@
     state.agentType.charAt(0).toUpperCase() + state.agentType.slice(1) + ' Inspector',
   )
 
-  let statusText = $derived.by(() => {
-    switch (state.status.type) {
-      case 'inactive':
-        return 'Inactive'
-      case 'starting':
-        return 'Starting...'
-      case 'idle':
-        return 'Idle'
-      case 'thinking':
-        return 'Thinking...'
-      case 'compacting':
-        return 'Compacting...'
-      case 'toolCalling':
-        return `Calling ${state.status.toolName}`
-      case 'waitingPermission':
-        return 'Permission Required'
-      case 'error':
-        return `Error`
-      case 'ended':
-        return 'Ended'
-    }
-  })
+  let statusText = $derived(
+    match(state.status)
+      .with({ type: 'inactive' }, () => 'Inactive')
+      .with({ type: 'starting' }, () => 'Starting...')
+      .with({ type: 'idle' }, () => 'Idle')
+      .with({ type: 'thinking' }, () => 'Thinking...')
+      .with({ type: 'compacting' }, () => 'Compacting...')
+      .with({ type: 'toolCalling' }, (s) => `Calling ${s.toolName}`)
+      .with({ type: 'waitingPermission' }, () => 'Permission Required')
+      .with({ type: 'error' }, () => 'Error')
+      .with({ type: 'ended' }, () => 'Ended')
+      .exhaustive(),
+  )
 
   let statusClass = $derived(
-    state.status.type === 'waitingPermission'
-      ? 'permission'
-      : state.status.type === 'error'
-        ? 'error'
-        : state.status.type === 'toolCalling' ||
-            state.status.type === 'thinking' ||
-            state.status.type === 'compacting'
-          ? 'active'
-          : state.status.type === 'idle'
-            ? 'idle'
-            : 'dim',
+    match(state.status.type)
+      .with('waitingPermission', () => 'permission')
+      .with('error', () => 'error')
+      .with(P.union('toolCalling', 'thinking', 'compacting'), () => 'active')
+      .with('idle', () => 'idle')
+      .otherwise(() => 'dim'),
   )
 
   function relativeTime(ts: number): string {

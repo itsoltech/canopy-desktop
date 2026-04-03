@@ -41,6 +41,10 @@ npm run svelte-check     # renderer only
 - `tsconfig.web.json` — renderer (DOM types, strict mode OFF)
 - Use `verbatimModuleSyntax: true` — type-only imports must use `import type`
 
+## Pattern matching
+
+Use `ts-pattern` (`match`/`with`) instead of `switch` or `if/else` chains when branching on discriminated unions, string literal types, or object shapes. Prefer `.exhaustive()` when all cases are handled (compile-time safety), `.otherwise()` when a default is needed. Use `P.union()` for grouped cases, `P.when()` for predicate guards. Do not use `ts-pattern` for simple 1-2 branch conditionals or numeric threshold checks.
+
 ## Commits
 
 Use conventional commits: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`, `build:`

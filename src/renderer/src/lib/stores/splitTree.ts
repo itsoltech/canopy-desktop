@@ -1,3 +1,5 @@
+import { match } from 'ts-pattern'
+
 export interface PaneSession {
   id: string
   sessionId: string
@@ -381,16 +383,12 @@ export function navigateFrom(
     const cx = r.x + r.w / 2
     const cy = r.y + r.h / 2
 
-    switch (direction) {
-      case 'right':
-        return cx > srcCx + eps
-      case 'left':
-        return cx < srcCx - eps
-      case 'down':
-        return cy > srcCy + eps
-      case 'up':
-        return cy < srcCy - eps
-    }
+    return match(direction)
+      .with('right', () => cx > srcCx + eps)
+      .with('left', () => cx < srcCx - eps)
+      .with('down', () => cy > srcCy + eps)
+      .with('up', () => cy < srcCy - eps)
+      .exhaustive()
   })
 
   if (candidates.length === 0) return null

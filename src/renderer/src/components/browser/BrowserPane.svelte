@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match, P } from 'ts-pattern'
   import { onMount, untrack } from 'svelte'
   import BrowserToolbar from './BrowserToolbar.svelte'
   import BrowserError from './BrowserError.svelte'
@@ -944,37 +945,45 @@
     const onConsoleMessage = (e: Event): void => {
       const msg = (e as CustomEvent & { message: string }).message
       if (typeof msg !== 'string') return
-      if (msg === '__CANOPY_CREDS_READY__') {
-        w.executeJavaScript(
-          `
-          (function() {
-            const pw = document.querySelector('input[type="password"]')
-            if (!pw || !pw.value) return null
-            const form = pw.closest('form') || pw.parentElement
-            const uf = form?.querySelector('input[type="email"],input[type="text"],input[name*="user"],input[name*="email"],input[name*="login"],input[autocomplete="username"]')
-            return {
-              username: uf?.value || '',
-              password: pw.value,
-              domain: location.host,
-              title: document.title || '',
-            }
-          })()
-        `,
+      match(msg)
+        .with('__CANOPY_CREDS_READY__', () => {
+          w.executeJavaScript(
+            `
+            (function() {
+              const pw = document.querySelector('input[type="password"]')
+              if (!pw || !pw.value) return null
+              const form = pw.closest('form') || pw.parentElement
+              const uf = form?.querySelector('input[type="email"],input[type="text"],input[name*="user"],input[name*="email"],input[name*="login"],input[autocomplete="username"]')
+              return {
+                username: uf?.value || '',
+                password: pw.value,
+                domain: location.host,
+                title: document.title || '',
+              }
+            })()
+          `,
+          )
+            .then((data) => {
+              if (data) setLastCapturedCreds(data)
+            })
+            .catch(() => {})
+        })
+        .with('__CANOPY_PW_FIELD_FOUND__', () => {
+          checkCredentials()
+        })
+        .with('__CANOPY_NAV__:back', () => {
+          if (w.canGoBack()) w.goBack()
+        })
+        .with('__CANOPY_NAV__:forward', () => {
+          if (w.canGoForward()) w.goForward()
+        })
+        .with(
+          P.when((m) => m.startsWith('__CANOPY_FILL__:')),
+          (m) => {
+            handleAutofillCredential(m.slice('__CANOPY_FILL__:'.length))
+          },
         )
-          .then((data) => {
-            if (data) setLastCapturedCreds(data)
-          })
-          .catch(() => {})
-      } else if (msg.startsWith('__CANOPY_FILL__:')) {
-        const credId = msg.slice('__CANOPY_FILL__:'.length)
-        handleAutofillCredential(credId)
-      } else if (msg === '__CANOPY_PW_FIELD_FOUND__') {
-        checkCredentials()
-      } else if (msg === '__CANOPY_NAV__:back') {
-        if (w.canGoBack()) w.goBack()
-      } else if (msg === '__CANOPY_NAV__:forward') {
-        if (w.canGoForward()) w.goForward()
-      }
+        .otherwise(() => {})
     }
 
     w.addEventListener('dom-ready', onDomReady)
