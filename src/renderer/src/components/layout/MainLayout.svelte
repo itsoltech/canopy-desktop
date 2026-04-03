@@ -38,7 +38,7 @@
   } from '../../lib/stores/workspace.svelte'
   import {
     activeTabId,
-    ensureShellTab,
+    ensureDefaultTab,
     openTool,
     reopenClosedTab,
     switchTabByIndex,
@@ -125,7 +125,7 @@
   $effect(() => {
     const path = workspaceState.selectedWorktreePath
     if (path) {
-      ensureShellTab(path)
+      ensureDefaultTab(path)
     }
   })
 

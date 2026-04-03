@@ -6,6 +6,8 @@
   import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
   import { initOnboarding } from '../../lib/stores/onboarding.svelte'
 
+  const isMac = navigator.userAgent.includes('Mac')
+
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
@@ -73,7 +75,7 @@
   {/if}
 
   <div class="select-row">
-    <span class="select-label">New tab (⌘T)</span>
+    <span class="select-label">New tab ({isMac ? '⌘T' : 'Ctrl+T'})</span>
     <CustomSelect
       value={newTabTool}
       options={startupToolOptions}

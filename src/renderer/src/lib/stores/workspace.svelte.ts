@@ -212,7 +212,7 @@ async function attachProjectImpl(
     await window.api.gitWatch(info.repoRoot, info)
   }
 
-  // Restore saved layouts BEFORE selecting worktree so that ensureShellTab
+  // Restore saved layouts BEFORE selecting worktree so that ensureDefaultTab
   // (triggered by selectWorktree) finds existing tabs and doesn't spawn extras
   try {
     const layouts = await window.api.getAllLayouts(ws.id)
@@ -222,7 +222,7 @@ async function attachProjectImpl(
       }
     }
   } catch {
-    // Layout restore failed, will fall back to ensureShellTab
+    // Layout restore failed, will fall back to ensureDefaultTab
   }
 
   // Auto-select if this is the first project or no active selection

@@ -717,7 +717,7 @@ export async function restartTab(tabId: string): Promise<void> {
   }
 }
 
-export async function ensureShellTab(worktreePath: string): Promise<void> {
+export async function ensureDefaultTab(worktreePath: string): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (tabs && tabs.length > 0) return
   await openTool(getPref('newTab.toolId', 'shell'), worktreePath)
