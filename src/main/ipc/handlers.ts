@@ -1287,11 +1287,12 @@ export function registerIpcHandlers(
       if (!payload.filename || /[\0/\\]/.test(payload.filename)) {
         throw new Error('Invalid filename')
       }
-      return taskTrackerManager.downloadAttachment(
+      const result = await taskTrackerManager.downloadAttachment(
         payload.connectionId,
         payload.url,
         payload.filename,
       )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 

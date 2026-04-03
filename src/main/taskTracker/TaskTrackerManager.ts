@@ -4,9 +4,10 @@ import os from 'os'
 import { randomUUID } from 'crypto'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
-import { ok, err, type Result, type ResultAsync } from 'neverthrow'
+import { ok, err, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { TaskTrackerError } from './errors'
+import { fromExternalCall, errorMessage } from '../errors'
 import { createProviderClient } from './providers'
 import type {
   TaskTrackerConnection,
@@ -225,37 +226,50 @@ export class TaskTrackerManager {
       })
   }
 
-  async downloadAttachment(connectionId: string, url: string, filename: string): Promise<string> {
-    const connResult = this.getConnection(connectionId)
-    const tokenResult = connResult.andThen((conn) => this.getToken(conn).map((t) => ({ conn, t })))
-    if (tokenResult.isErr()) throw new Error('Connection or auth error')
-    const { conn, t: token } = tokenResult.value
+  downloadAttachment(
+    connectionId: string,
+    url: string,
+    filename: string,
+  ): ResultAsync<string, TaskTrackerError> {
+    const dlErr = (reason: string): TaskTrackerError => ({
+      _tag: 'AttachmentDownloadFailed',
+      filename,
+      reason,
+    })
 
-    const connBase = conn.baseUrl.replace(/\/$/, '')
-    if (!url.startsWith(connBase)) {
-      throw new Error('Attachment URL does not match connection base URL')
-    }
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .andThen(({ conn, token }) => {
+        const connBase = conn.baseUrl.replace(/\/$/, '')
+        if (!url.startsWith(connBase)) {
+          return err(dlErr('URL does not match connection base URL'))
+        }
+        return ok({ conn, token })
+      })
+      .asyncAndThen(({ conn, token }) => {
+        const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
+        mkdirSync(dir, { recursive: true })
 
-    const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
-    mkdirSync(dir, { recursive: true })
+        const safeName = basename(filename.replace(/[/\\]/g, '_'))
+        const filePath = join(dir, safeName)
 
-    const safeName = basename(filename.replace(/[/\\]/g, '_'))
-    const filePath = join(dir, safeName)
+        const headers: Record<string, string> = {
+          Authorization: conn.username
+            ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
+            : `Bearer ${token}`,
+        }
 
-    const headers: Record<string, string> = {
-      Authorization: conn.username
-        ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
-        : `Bearer ${token}`,
-    }
-
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(60_000) })
-    if (!res.ok) throw new Error(`Download failed: ${res.status}`)
-    if (!res.body) throw new Error('Empty response body')
-
-    const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
-    await pipeline(nodeStream, createWriteStream(filePath))
-
-    return filePath
+        return fromExternalCall(fetch(url, { headers, signal: AbortSignal.timeout(60_000) }), (e) =>
+          dlErr(errorMessage(e)),
+        ).andThen((res) => {
+          if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
+          if (!res.body) return errAsync(dlErr('Empty response body'))
+          const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
+          return fromExternalCall(pipeline(nodeStream, createWriteStream(filePath)), (e) =>
+            dlErr(errorMessage(e)),
+          ).map(() => filePath)
+        })
+      })
   }
 
   cleanupAttachmentDir(filePath: string): void {
