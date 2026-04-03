@@ -1,12 +1,32 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
   import { initOnboarding } from '../../lib/stores/onboarding.svelte'
+
+  const isMac = navigator.userAgent.includes('Mac')
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
+  let startupToolOptions = $derived(
+    getTools()
+      .filter((t) => t.category !== 'browser' && getToolAvailability()[t.id] !== false)
+      .map((t) => ({ value: t.id, label: t.name })),
+  )
+
+  let newTabTool = $derived(
+    startupToolOptions.some((o) => o.value === (prefs['newTab.toolId'] ?? 'shell'))
+      ? (prefs['newTab.toolId'] ?? 'shell')
+      : 'shell',
+  )
+  let newWorktreeTool = $derived(
+    startupToolOptions.some((o) => o.value === (prefs['newWorktree.toolId'] ?? 'shell'))
+      ? (prefs['newWorktree.toolId'] ?? 'shell')
+      : 'shell',
+  )
 
   function toggleReopen(): void {
     setPref('reopenLastWorkspace', reopenLast ? 'false' : 'true')
@@ -54,6 +74,26 @@
     </div>
   {/if}
 
+  <div class="select-row">
+    <span class="select-label">New tab ({isMac ? '⌘T' : 'Ctrl+T'})</span>
+    <CustomSelect
+      value={newTabTool}
+      options={startupToolOptions}
+      onchange={(v) => setPref('newTab.toolId', v)}
+      maxWidth="180px"
+    />
+  </div>
+
+  <div class="select-row">
+    <span class="select-label">New worktree</span>
+    <CustomSelect
+      value={newWorktreeTool}
+      options={startupToolOptions}
+      onchange={(v) => setPref('newWorktree.toolId', v)}
+      maxWidth="180px"
+    />
+  </div>
+
   <div class="info-row">
     <span class="info-label">Shell</span>
     <span class="info-value">Resolved from $SHELL at launch</span>
@@ -85,6 +125,18 @@
     font-size: 13px;
     color: var(--c-text);
     cursor: pointer;
+  }
+
+  .select-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+
+  .select-label {
+    color: var(--c-text-secondary);
+    min-width: 110px;
   }
 
   .info-row {

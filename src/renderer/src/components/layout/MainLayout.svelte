@@ -38,7 +38,7 @@
   } from '../../lib/stores/workspace.svelte'
   import {
     activeTabId,
-    ensureShellTab,
+    ensureDefaultTab,
     openTool,
     reopenClosedTab,
     switchTabByIndex,
@@ -121,11 +121,11 @@
       : [],
   )
 
-  // Auto-create shell tab when selected worktree changes
+  // Auto-create default tab when selected worktree changes
   $effect(() => {
     const path = workspaceState.selectedWorktreePath
     if (path) {
-      ensureShellTab(path)
+      ensureDefaultTab(path)
     }
   })
 
@@ -365,7 +365,9 @@
       if (e.shiftKey) {
         reopenClosedTab(path)
       } else {
-        openTool('shell', path)
+        openTool(getPref('newTab.toolId', 'shell'), path).catch((err) => {
+          console.error('Failed to open new tab:', err)
+        })
       }
     }
 
@@ -495,7 +497,7 @@
         {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
           <div class="empty-state">
             <p class="hint">
-              Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a shell
+              Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a new tab
             </p>
             <p class="hint-sub">
               {isMac ? 'Cmd' : 'Ctrl'}+K to open command palette
