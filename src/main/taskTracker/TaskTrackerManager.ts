@@ -259,11 +259,17 @@ export class TaskTrackerManager {
             : `Bearer ${token}`,
         }
 
+        const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+
         return fromExternalCall(fetch(url, { headers, signal: AbortSignal.timeout(60_000) }), (e) =>
           dlErr(errorMessage(e)),
         ).andThen((res) => {
           if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
           if (!res.body) return errAsync(dlErr('Empty response body'))
+          const contentLength = Number(res.headers.get('content-length') || 0)
+          if (contentLength > MAX_ATTACHMENT_BYTES) {
+            return errAsync(dlErr(`Attachment too large: ${contentLength} bytes`))
+          }
           const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
           return fromExternalCall(pipeline(nodeStream, createWriteStream(filePath)), (e) =>
             dlErr(errorMessage(e)),
