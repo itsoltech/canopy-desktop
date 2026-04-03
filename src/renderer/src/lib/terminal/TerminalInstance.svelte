@@ -345,12 +345,12 @@
       })
 
       const fitAddon = new FitAddon()
-      const lightures = new LigaturesAddon()
+      const ligaturesAddon = new LigaturesAddon()
       const progressAddon = new ProgressAddon()
       term.open(containerEl)
       term.loadAddon(progressAddon)
       term.loadAddon(fitAddon)
-      term.loadAddon(lightures)
+      term.loadAddon(ligaturesAddon)
 
       // URL detection — open based on urlOpenMode preference
       term.loadAddon(

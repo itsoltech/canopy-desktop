@@ -10,6 +10,8 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
+  const DONE_STATUS_PATTERN = /^(done|closed|resolved|cancelled|rejected|complete|gotowe|zamkni)/i
+
   interface Task {
     key: string
     summary: string
@@ -74,11 +76,11 @@
 
   // Status filter
   let availableStatuses: string[] = $derived.by(() => {
-    const seen: string[] = []
-    for (const i of allTasks) {
-      if (i.status && !seen.includes(i.status)) seen.push(i.status)
+    const seen = new SvelteSet<string>()
+    for (const task of allTasks) {
+      if (task.status) seen.add(task.status)
     }
-    return seen.sort()
+    return Array.from(seen).sort()
   })
   let excludedStatuses = new SvelteSet<string>()
   let showFilters = $state(false)
@@ -169,9 +171,8 @@
       })
       // Auto-exclude done/closed only if no saved filters
       if (!hasSavedFilters && excludedStatuses.size === 0 && allTasks.length > 0) {
-        const donePattern = /^(done|closed|resolved|cancelled|rejected|complete|gotowe|zamkni)/i
         for (const task of allTasks) {
-          if (donePattern.test(task.status)) {
+          if (DONE_STATUS_PATTERN.test(task.status)) {
             excludedStatuses.add(task.status)
           }
         }
@@ -228,12 +229,17 @@
     selectedTask = null
   }
 
-  function copyTaskToClipboard(task: Task, e: MouseEvent): void {
+  async function copyTaskToClipboard(task: Task, e: MouseEvent): Promise<void> {
     e.stopPropagation()
     const text = `${task.key}: ${task.summary}\n\n${task.description || ''}`
-    navigator.clipboard.writeText(text.trim())
-    addToast('Copied to clipboard')
-    closeDialog()
+    try {
+      await navigator.clipboard.writeText(text.trim())
+      addToast('Copied to clipboard')
+      closeDialog()
+    } catch (err) {
+      console.error('Failed to copy task to clipboard', err)
+      addToast('Failed to copy to clipboard')
+    }
   }
 
   function priorityColor(priority: string): string {
