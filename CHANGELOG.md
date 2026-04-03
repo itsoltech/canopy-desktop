@@ -1,3 +1,9 @@
+## [0.9.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.3...v0.9.0-next.4) (2026-04-03)
+
+### Bug Fixes
+
+* unblock dependabot PR automation ([#78](https://github.com/itsoltech/canopy-desktop/issues/78)) ([90b2ccb](https://github.com/itsoltech/canopy-desktop/commit/90b2ccbb6d3f201bab30a4f927ae5b5e7f458ec9)), closes [#75](https://github.com/itsoltech/canopy-desktop/issues/75)
+
 ## [0.9.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.2...v0.9.0-next.3) (2026-04-02)
 
 ### Bug Fixes
