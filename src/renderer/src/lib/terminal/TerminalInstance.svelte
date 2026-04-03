@@ -401,8 +401,11 @@
           if (!isMac && event.ctrlKey && event.key === 'c' && term.hasSelection()) {
             return false
           }
-          // Shift+Enter → insert newline
+          // Shift+Enter → insert newline (same sequence as Option+Enter)
+          // event.preventDefault() is required to suppress the keypress event that xterm.js
+          // would otherwise fire (since returning false skips xterm's own preventDefault call)
           if (event.key === 'Enter' && event.shiftKey) {
+            event.preventDefault()
             if (wsRef && wsRef.readyState === WebSocket.OPEN) {
               wsRef.send('\x1b\r')
             }
