@@ -1252,6 +1252,58 @@ export function registerIpcHandlers(
     },
   )
 
+  const TASK_KEY_RE = /^[A-Za-z0-9_-]+-\d+$/
+
+  ipcMain.handle(
+    'taskTracker:fetchTaskComments',
+    async (_event, payload: { connectionId: string; taskKey: string }) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      const result = await taskTrackerManager.fetchTaskComments(
+        payload.connectionId,
+        payload.taskKey,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:fetchTaskAttachments',
+    async (_event, payload: { connectionId: string; taskKey: string }) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      const result = await taskTrackerManager.fetchTaskAttachments(
+        payload.connectionId,
+        payload.taskKey,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:downloadAttachment',
+    async (_event, payload: { connectionId: string; url: string; filename: string }) => {
+      if (!payload.url || typeof payload.url !== 'string' || !/^https?:\/\//.test(payload.url)) {
+        throw new Error('Invalid URL')
+      }
+      if (!payload.filename || /[\0/\\]/.test(payload.filename)) {
+        throw new Error('Invalid filename')
+      }
+      const result = await taskTrackerManager.downloadAttachment(
+        payload.connectionId,
+        payload.url,
+        payload.filename,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle('taskTracker:cleanupAttachments', (_event, payload: { filePaths: string[] }) => {
+    if (!Array.isArray(payload.filePaths)) throw new Error('Invalid filePaths')
+    for (const fp of payload.filePaths) {
+      if (typeof fp !== 'string') continue
+      taskTrackerManager.cleanupAttachmentDir(fp)
+    }
+  })
+
   ipcMain.handle(
     'taskTracker:resolveBranchName',
     async (

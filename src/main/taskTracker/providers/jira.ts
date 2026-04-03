@@ -4,7 +4,9 @@ import { fromExternalCall, errorMessage } from '../../errors'
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
+  TrackerAttachment,
   TrackerBoard,
+  TrackerComment,
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
@@ -252,6 +254,55 @@ export const jiraClient: TaskTrackerProviderClient = {
           state: sprint.state as TrackerSprint['state'],
         }
       }),
+    )
+  },
+
+  fetchTaskComments(connection, token, taskKey) {
+    return jiraFetch<{
+      comments: Array<{
+        id: string
+        body?: unknown
+        author?: { displayName?: string }
+        created?: string
+      }>
+    }>(
+      connection,
+      token,
+      `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment?maxResults=50`,
+    ).map((data) =>
+      (data.comments ?? []).map(
+        (c): TrackerComment => ({
+          id: c.id,
+          author: c.author?.displayName ?? '',
+          body: typeof c.body === 'string' ? c.body : adfToPlainText(c.body).trim(),
+          created: c.created ?? '',
+        }),
+      ),
+    )
+  },
+
+  fetchTaskAttachments(connection, token, taskKey) {
+    return jiraFetch<{
+      fields: {
+        attachment?: Array<{
+          id: string
+          filename?: string
+          mimeType?: string
+          size?: number
+          content?: string
+        }>
+      }
+    }>(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=attachment`).map(
+      (data) =>
+        (data.fields.attachment ?? []).map(
+          (a): TrackerAttachment => ({
+            id: a.id,
+            name: a.filename ?? '',
+            mimeType: a.mimeType ?? '',
+            size: a.size ?? 0,
+            url: a.content ?? '',
+          }),
+        ),
     )
   },
 }

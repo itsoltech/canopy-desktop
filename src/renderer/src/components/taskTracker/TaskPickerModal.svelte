@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { Search, X, Loader2, Copy, Filter } from '@lucide/svelte'
+  import { Search, X, Loader2, Copy, Filter, Send } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { setPref, getPref, prefs } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { getActiveAgentPane } from '../../lib/stores/tabs.svelte'
+  import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
@@ -244,6 +246,18 @@
     }
   }
 
+  let hasActiveAgent = $derived(!!getActiveAgentPane())
+
+  async function sendTaskToAgent(task: Task, e: MouseEvent): Promise<void> {
+    e.stopPropagation()
+    const pane = getActiveAgentPane()
+    if (!pane) return
+    const context = await fetchAndFormatTaskContext(connectionId, task)
+    await window.api.writePty(pane.sessionId, context + '\n')
+    addToast('Task sent to agent')
+    closeDialog()
+  }
+
   function priorityColor(priority: string): string {
     const p = priority.toLowerCase()
     if (p.includes('critical') || p.includes('highest')) return 'var(--c-danger)'
@@ -375,6 +389,16 @@
               >
                 ●
               </span>
+              {#if hasActiveAgent}
+                <button
+                  class="send-btn"
+                  onclick={(e) => sendTaskToAgent(task, e)}
+                  title="Send to agent"
+                  aria-label="Send to agent"
+                >
+                  <Send size={12} />
+                </button>
+              {/if}
               <button
                 class="send-btn"
                 onclick={(e) => {

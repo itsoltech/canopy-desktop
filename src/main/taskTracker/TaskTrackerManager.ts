@@ -1,10 +1,19 @@
-import { ok, err, type Result, type ResultAsync } from 'neverthrow'
+import { join, basename } from 'path'
+import { mkdirSync, createWriteStream, rmSync } from 'fs'
+import os from 'os'
+import { randomUUID } from 'crypto'
+import { pipeline } from 'stream/promises'
+import { Readable } from 'stream'
+import { ok, err, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { TaskTrackerError } from './errors'
+import { fromExternalCall, errorMessage } from '../errors'
 import { createProviderClient } from './providers'
 import type {
   TaskTrackerConnection,
+  TrackerAttachment,
   TrackerBoard,
+  TrackerComment,
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
@@ -191,5 +200,92 @@ export class TaskTrackerManager {
         const client = createProviderClient(conn.provider)
         return client.getCurrentSprint(conn, token, boardId)
       })
+  }
+
+  fetchTaskComments(
+    connectionId: string,
+    taskKey: string,
+  ): ResultAsync<TrackerComment[], TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskComments(conn, token, taskKey)
+      })
+  }
+
+  fetchTaskAttachments(
+    connectionId: string,
+    taskKey: string,
+  ): ResultAsync<TrackerAttachment[], TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskAttachments(conn, token, taskKey)
+      })
+  }
+
+  downloadAttachment(
+    connectionId: string,
+    url: string,
+    filename: string,
+  ): ResultAsync<string, TaskTrackerError> {
+    const dlErr = (reason: string): TaskTrackerError => ({
+      _tag: 'AttachmentDownloadFailed',
+      filename,
+      reason,
+    })
+
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .andThen(({ conn, token }) => {
+        const connBase = conn.baseUrl.replace(/\/$/, '')
+        if (!url.startsWith(connBase)) {
+          return err(dlErr('URL does not match connection base URL'))
+        }
+        return ok({ conn, token })
+      })
+      .asyncAndThen(({ conn, token }) => {
+        const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
+        mkdirSync(dir, { recursive: true })
+
+        const safeName = basename(filename.replace(/[/\\]/g, '_'))
+        const filePath = join(dir, safeName)
+
+        const headers: Record<string, string> = {
+          Authorization: conn.username
+            ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
+            : `Bearer ${token}`,
+        }
+
+        const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+
+        return fromExternalCall(fetch(url, { headers, signal: AbortSignal.timeout(60_000) }), (e) =>
+          dlErr(errorMessage(e)),
+        ).andThen((res) => {
+          if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
+          if (!res.body) return errAsync(dlErr('Empty response body'))
+          const contentLength = Number(res.headers.get('content-length') || 0)
+          if (contentLength > MAX_ATTACHMENT_BYTES) {
+            return errAsync(dlErr(`Attachment too large: ${contentLength} bytes`))
+          }
+          const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
+          return fromExternalCall(pipeline(nodeStream, createWriteStream(filePath)), (e) =>
+            dlErr(errorMessage(e)),
+          ).map(() => filePath)
+        })
+      })
+  }
+
+  cleanupAttachmentDir(filePath: string): void {
+    const tmpBase = os.tmpdir()
+    const dir = join(filePath, '..')
+    if (!dir.startsWith(tmpBase) || !basename(dir).startsWith('canopy-attachments-')) return
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }

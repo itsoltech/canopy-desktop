@@ -4,7 +4,9 @@ import { fromExternalCall, errorMessage } from '../../errors'
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
+  TrackerAttachment,
   TrackerBoard,
+  TrackerComment,
   TrackerTask,
   TrackerStatus,
 } from '../types'
@@ -254,5 +256,57 @@ export const youtrackClient: TaskTrackerProviderClient = {
         }
       }),
     )
+  },
+
+  fetchTaskComments(connection, token, taskKey) {
+    const fields = 'id,text,author(name,fullName),created'
+    return ytFetch<
+      Array<{
+        id: string
+        text?: string
+        author?: { name?: string; fullName?: string }
+        created?: number
+      }>
+    >(
+      connection,
+      token,
+      `/api/issues/${encodeURIComponent(taskKey)}/comments?fields=${encodeURIComponent(fields)}`,
+    ).map((data) =>
+      data.map(
+        (c): TrackerComment => ({
+          id: c.id,
+          author: c.author?.fullName ?? c.author?.name ?? '',
+          body: c.text ?? '',
+          created: c.created ? new Date(c.created).toISOString() : '',
+        }),
+      ),
+    )
+  },
+
+  fetchTaskAttachments(connection, token, taskKey) {
+    const fields = 'attachments(id,name,size,mimeType)'
+    return ytFetch<{
+      attachments?: Array<{
+        id: string
+        name?: string
+        size?: number
+        mimeType?: string
+      }>
+    }>(
+      connection,
+      token,
+      `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
+    ).map((data) => {
+      const baseUrl = connection.baseUrl.replace(/\/$/, '')
+      return (data.attachments ?? []).map(
+        (a): TrackerAttachment => ({
+          id: a.id,
+          name: a.name ?? '',
+          mimeType: a.mimeType ?? '',
+          size: a.size ?? 0,
+          url: `${baseUrl}/api/issues/${encodeURIComponent(taskKey)}/attachments/${a.id}/file`,
+        }),
+      )
+    })
   },
 }

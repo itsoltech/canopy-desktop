@@ -39,6 +39,21 @@ export interface TrackerStatus {
   name: string
 }
 
+export interface TrackerComment {
+  id: string
+  author: string
+  body: string
+  created: string
+}
+
+export interface TrackerAttachment {
+  id: string
+  name: string
+  mimeType: string
+  size: number
+  url: string
+}
+
 export interface TrackerSprint {
   id: string
   name: string
@@ -124,4 +139,14 @@ export interface TaskTrackerProviderClient {
     token: string,
     boardId?: string,
   ): ResultAsync<TrackerSprint | null, TaskTrackerError>
+  fetchTaskComments(
+    connection: TaskTrackerConnection,
+    token: string,
+    taskKey: string,
+  ): ResultAsync<TrackerComment[], TaskTrackerError>
+  fetchTaskAttachments(
+    connection: TaskTrackerConnection,
+    token: string,
+    taskKey: string,
+  ): ResultAsync<TrackerAttachment[], TaskTrackerError>
 }
