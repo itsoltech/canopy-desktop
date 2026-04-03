@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electron'
 import os from 'os'
 import fs from 'fs'
@@ -869,40 +870,45 @@ export function registerIpcHandlers(
     'credentials:getDecrypted',
     async (event, payload: { id: string; domain: string }) => {
       // Require system authentication before revealing passwords
-      if (process.platform === 'darwin') {
-        try {
-          await systemPreferences.promptTouchID('reveal a saved password')
-        } catch {
-          return null // User cancelled or auth failed
-        }
-      } else if (process.platform === 'win32') {
-        // Windows: native credential prompt via PowerShell
-        try {
-          const ps = `
-            Add-Type -AssemblyName System.Runtime.WindowsRuntime
-            $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
-            $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
-            if ($result -ne 'Verified') { exit 1 }
-          `
-          await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
-        } catch {
-          return null
-        }
-      } else {
-        // Linux: confirmation dialog (zenity/kdialog not guaranteed)
-        const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
-        if (!win) return null
-        const { response } = await dialog.showMessageBox(win, {
-          type: 'warning',
-          buttons: ['Reveal Password', 'Cancel'],
-          defaultId: 1,
-          cancelId: 1,
-          title: 'Authentication Required',
-          message: 'Reveal saved password?',
-          detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
+      const authed = await match(process.platform)
+        .with('darwin', async () => {
+          try {
+            await systemPreferences.promptTouchID('reveal a saved password')
+            return true
+          } catch {
+            return false
+          }
         })
-        if (response !== 0) return null
-      }
+        .with('win32', async () => {
+          try {
+            const ps = `
+              Add-Type -AssemblyName System.Runtime.WindowsRuntime
+              $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
+              $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
+              if ($result -ne 'Verified') { exit 1 }
+            `
+            await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
+            return true
+          } catch {
+            return false
+          }
+        })
+        .otherwise(async () => {
+          const win =
+            BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+          if (!win) return false
+          const { response } = await dialog.showMessageBox(win, {
+            type: 'warning',
+            buttons: ['Reveal Password', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'Authentication Required',
+            message: 'Reveal saved password?',
+            detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
+          })
+          return response === 0
+        })
+      if (!authed) return null
       return credentialStore.getForDomain(payload.domain).find((c) => c.id === payload.id) ?? null
     },
   )

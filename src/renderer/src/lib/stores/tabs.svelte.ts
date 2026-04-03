@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import {
   type PaneSession,
   type SplitNode,
@@ -547,89 +548,87 @@ export async function restartPane(
   const pane = panes.find((p) => p.id === paneId)
   if (!pane) return
 
-  if (pane.paneType === 'editor') {
-    // Editor panes have no session to restart. The component re-reads on mount.
-    scheduleSave(worktreePath)
-    return
-  }
-
-  if (pane.paneType === 'browser') {
-    const oldUrl = pane.url
-    try {
-      await window.api.teardownBrowserWebview(pane.sessionId)
-    } catch {
-      // Already destroyed
-    }
-    const newBrowserId = crypto.randomUUID()
-    tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-      ...p,
-      sessionId: newBrowserId,
-      url: oldUrl,
-      isRunning: true,
-      exitCode: null,
-      title: null,
-    }))
-  } else if (pane.tmuxSessionName && pane.detached) {
-    // Tmux pane: try to reattach to existing session
-    const exists = await window.api.tmuxHasSession(pane.tmuxSessionName)
-    if (exists) {
-      const result = await window.api.tmuxAttach(pane.tmuxSessionName)
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-        ...p,
-        sessionId: result.sessionId,
-        wsUrl: result.wsUrl,
+  await match(pane)
+    .with({ paneType: 'editor' }, () => {
+      // Editor panes have no session to restart. The component re-reads on mount.
+    })
+    .with({ paneType: 'browser' }, async (p) => {
+      const oldUrl = p.url
+      try {
+        await window.api.teardownBrowserWebview(p.sessionId)
+      } catch {
+        // Already destroyed
+      }
+      const newBrowserId = crypto.randomUUID()
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
+        ...prev,
+        sessionId: newBrowserId,
+        url: oldUrl,
         isRunning: true,
         exitCode: null,
-        detached: false,
+        title: null,
       }))
-    } else {
-      // Tmux session gone, spawn fresh
-      const result = await window.api.spawnTool(pane.toolId, worktreePath)
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-        ...p,
+    })
+    .when(
+      (p) => !!(p.tmuxSessionName && p.detached),
+      async (p) => {
+        const exists = await window.api.tmuxHasSession(p.tmuxSessionName!)
+        if (exists) {
+          const result = await window.api.tmuxAttach(p.tmuxSessionName!)
+          tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
+            ...prev,
+            sessionId: result.sessionId,
+            wsUrl: result.wsUrl,
+            isRunning: true,
+            exitCode: null,
+            detached: false,
+          }))
+        } else {
+          const result = await window.api.spawnTool(p.toolId, worktreePath)
+          tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
+            ...prev,
+            sessionId: result.sessionId,
+            wsUrl: result.wsUrl,
+            isRunning: true,
+            exitCode: null,
+            detached: false,
+            tmuxSessionName: result.tmuxSessionName,
+          }))
+        }
+      },
+    )
+    .otherwise(async (p) => {
+      try {
+        await window.api.killPty(p.sessionId)
+      } catch {
+        // Already exited or cleaned up
+      }
+
+      if (AI_TOOL_IDS.has(p.toolId)) {
+        removeAgentSession(p.sessionId)
+      }
+
+      const options: { workspaceName?: string; branch?: string } = {}
+      if (AI_TOOL_IDS.has(p.toolId)) {
+        options.workspaceName = workspaceState.workspace?.name ?? ''
+        options.branch = workspaceState.branch ?? undefined
+      }
+      const result = await window.api.spawnTool(p.toolId, worktreePath, options)
+
+      if (AI_TOOL_IDS.has(p.toolId)) {
+        initAgentSession(result.sessionId, p.toolId as AgentType)
+      }
+
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
+        ...prev,
         sessionId: result.sessionId,
         wsUrl: result.wsUrl,
         isRunning: true,
         exitCode: null,
-        detached: false,
+        title: null,
         tmuxSessionName: result.tmuxSessionName,
       }))
-    }
-  } else {
-    // Kill old PTY (may already be dead)
-    try {
-      await window.api.killPty(pane.sessionId)
-    } catch {
-      // Already exited or cleaned up
-    }
-
-    if (AI_TOOL_IDS.has(pane.toolId)) {
-      removeAgentSession(pane.sessionId)
-    }
-
-    // Spawn new
-    const options: { workspaceName?: string; branch?: string } = {}
-    if (AI_TOOL_IDS.has(pane.toolId)) {
-      options.workspaceName = workspaceState.workspace?.name ?? ''
-      options.branch = workspaceState.branch ?? undefined
-    }
-    const result = await window.api.spawnTool(pane.toolId, worktreePath, options)
-
-    if (AI_TOOL_IDS.has(pane.toolId)) {
-      initAgentSession(result.sessionId, pane.toolId as AgentType)
-    }
-
-    // Update pane in tree
-    tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-      ...p,
-      sessionId: result.sessionId,
-      wsUrl: result.wsUrl,
-      isRunning: true,
-      exitCode: null,
-      title: null,
-      tmuxSessionName: result.tmuxSessionName,
-    }))
-  }
+    })
 
   scheduleSave(worktreePath)
 }
@@ -1102,16 +1101,12 @@ export function updateSplitRatio(
 // --- Move tab to split ---
 
 function mapZone(zone: DropZone): { direction: 'hsplit' | 'vsplit'; position: 'first' | 'second' } {
-  switch (zone) {
-    case 'left':
-      return { direction: 'vsplit', position: 'first' }
-    case 'right':
-      return { direction: 'vsplit', position: 'second' }
-    case 'top':
-      return { direction: 'hsplit', position: 'first' }
-    case 'bottom':
-      return { direction: 'hsplit', position: 'second' }
-  }
+  return match(zone)
+    .with('left', () => ({ direction: 'vsplit' as const, position: 'first' as const }))
+    .with('right', () => ({ direction: 'vsplit' as const, position: 'second' as const }))
+    .with('top', () => ({ direction: 'hsplit' as const, position: 'first' as const }))
+    .with('bottom', () => ({ direction: 'hsplit' as const, position: 'second' as const }))
+    .exhaustive()
 }
 
 export async function moveTabToSplit(

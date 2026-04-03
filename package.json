@@ -43,6 +43,7 @@
     "node-pty": "^1.1.0",
     "semver": "^7.7.4",
     "simple-git": "^3.33.0",
+    "ts-pattern": "^5.9.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {

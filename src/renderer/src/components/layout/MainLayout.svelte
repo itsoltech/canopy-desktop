@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
   import { onMount } from 'svelte'
   import SplitPaneContainer from '../terminal/SplitPaneContainer.svelte'
   import TabBar from '../terminal/TabBar.svelte'
@@ -157,22 +158,22 @@
         saveAllLayouts()
       }
       const normalized = data.event as { event?: string }
+      const badge = match(normalized.event)
+        .with('PermissionRequest', () => 'permission' as const)
+        .with('Idle', 'AfterToolUse', () => 'unread' as const)
+        .otherwise(() => null)
       // Only set badge if this session is NOT the active tab
-      if (data.ptySessionId !== activeAgentPtySessionId) {
-        if (normalized.event === 'PermissionRequest') {
-          setBadge(data.ptySessionId, 'permission')
-        } else if (normalized.event === 'Idle' || normalized.event === 'AfterToolUse') {
-          setBadge(data.ptySessionId, 'unread')
-        }
+      if (badge && data.ptySessionId !== activeAgentPtySessionId) {
+        setBadge(data.ptySessionId, badge)
       }
       // Set worktree badge if session is in a non-selected worktree
       const sessionWorktreePath = findWorktreeForSession(data.ptySessionId)
-      if (sessionWorktreePath && sessionWorktreePath !== workspaceState.selectedWorktreePath) {
-        if (normalized.event === 'PermissionRequest') {
-          setWorktreeBadge(sessionWorktreePath, 'permission')
-        } else if (normalized.event === 'Idle' || normalized.event === 'AfterToolUse') {
-          setWorktreeBadge(sessionWorktreePath, 'unread')
-        }
+      if (
+        badge &&
+        sessionWorktreePath &&
+        sessionWorktreePath !== workspaceState.selectedWorktreePath
+      ) {
+        setWorktreeBadge(sessionWorktreePath, badge)
       }
     })
     return unsubscribe

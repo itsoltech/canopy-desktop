@@ -115,6 +115,15 @@ All UI colors must use CSS custom properties from the `--c-*` system defined in 
 - Status colors (red, green, yellow) as literal values instead of `var(--c-danger*)`, `var(--c-success)`, `var(--c-warning*)`.
 - Exception: the notch overlay (`NotchOverlay.svelte`, `NotchNotificationRow.svelte`) uses fixed colors because it always renders on the macOS physical black notch. Box-shadow `rgba(0,0,0,...)` values are structural and exempt.
 
+### Pattern matching
+
+The codebase uses `ts-pattern` for branching logic. New code should follow existing conventions.
+
+- `switch` or `if/else if` chain (3+ branches) on a discriminated union, string literal type, or object shape instead of `match().with()`. Use `ts-pattern` for these cases.
+- Missing `.exhaustive()` when all union members are handled (should enforce compile-time exhaustiveness).
+- Using `.exhaustive()` when a default/fallback exists (use `.otherwise()` instead).
+- Exception: simple 1-2 branch conditionals and numeric threshold comparisons (`if (pct >= 90)`) do not need `ts-pattern`.
+
 ### Svelte 5 patterns
 
 - Using `$effect` for data transformations instead of `$derived`.
