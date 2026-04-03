@@ -5,7 +5,7 @@
   // Model & behavior
   let model = $derived(prefs['claude.model'] || '')
   let permissionMode = $derived(prefs['claude.permissionMode'] || '')
-  let effortLevel = $derived(prefs['claude.effortLevel'] || 'auto')
+  let effortLevel = $derived(prefs['claude.effortLevel'] || '')
 
   // API / Provider
   let apiKey = $derived(prefs['claude.apiKey'] || '')
@@ -106,11 +106,11 @@
         id="claude-effort"
         value={effortLevel}
         options={[
-          { value: 'low', label: 'low' },
-          { value: 'medium', label: 'medium' },
-          { value: 'high', label: 'high' },
-          { value: 'max', label: 'max' },
-          { value: 'auto', label: 'auto' },
+          { value: '', label: 'Default' },
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'high', label: 'High' },
+          { value: 'max', label: 'Max' },
         ]}
         onchange={(v) => setPref('claude.effortLevel', v)}
       />
