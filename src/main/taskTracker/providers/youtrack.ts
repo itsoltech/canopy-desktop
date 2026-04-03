@@ -1,3 +1,6 @@
+import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
+import type { TaskTrackerError } from '../errors'
+import { fromExternalCall, errorMessage } from '../../errors'
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
@@ -32,21 +35,31 @@ function buildHeaders(token: string): HeadersInit {
   }
 }
 
-async function ytFetch<T>(
+function apiError(status: number, message: string): TaskTrackerError {
+  return { _tag: 'ProviderApiError', status, message, provider: 'youtrack' }
+}
+
+function ytFetch<T>(
   connection: TaskTrackerConnection,
   token: string,
   path: string,
-): Promise<T> {
+): ResultAsync<T, TaskTrackerError> {
   const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
-  const res = await fetch(url, {
-    headers: buildHeaders(token),
-    signal: AbortSignal.timeout(15_000),
+  return fromExternalCall(
+    fetch(url, {
+      headers: buildHeaders(token),
+      signal: AbortSignal.timeout(15_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  ).andThen((res) => {
+    if (!res.ok) {
+      return fromExternalCall(
+        res.text().catch(() => ''),
+        (e) => apiError(res.status, errorMessage(e)),
+      ).andThen((body) => errAsync(apiError(res.status, body || res.statusText)))
+    }
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`YouTrack API error ${res.status}: ${body || res.statusText}`)
-  }
-  return res.json() as Promise<T>
 }
 
 function extractField(task: YTTask, fieldName: string): string {
@@ -96,57 +109,51 @@ function mapYTTask(task: YTTask, baseUrl: string): TrackerTask {
 }
 
 export const youtrackClient: TaskTrackerProviderClient = {
-  async testConnection(connection, token) {
-    await ytFetch(connection, token, '/api/users/me?fields=id,login')
-    return true
+  testConnection(connection, token) {
+    return ytFetch(connection, token, '/api/users/me?fields=id,login').map(() => true)
   },
 
-  async getCurrentUserDisplayName(connection, token) {
-    const data = await ytFetch<{ name?: string; fullName?: string }>(
+  getCurrentUserDisplayName(connection, token) {
+    return ytFetch<{ name?: string; fullName?: string }>(
       connection,
       token,
       '/api/users/me?fields=name,fullName',
-    )
-    return data.fullName ?? data.name ?? ''
+    ).map((data) => data.fullName ?? data.name ?? '')
   },
 
-  async fetchTaskByKey(connection, token, taskKey) {
-    try {
-      const fields =
-        'id,idReadable,summary,description,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
-      const data = await ytFetch<YTTask>(
-        connection,
-        token,
-        `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
-      )
-      return mapYTTask(data, connection.baseUrl)
-    } catch {
-      return null
-    }
+  fetchTaskByKey(connection, token, taskKey) {
+    const fields =
+      'id,idReadable,summary,description,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
+    return ytFetch<YTTask>(
+      connection,
+      token,
+      `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
+    ).map((data) => mapYTTask(data, connection.baseUrl) as TrackerTask | null)
   },
 
-  async fetchBoards(connection, token) {
-    const data = await ytFetch<
+  fetchBoards(connection, token) {
+    return ytFetch<
       Array<{
         id: string
         name: string
         projects?: Array<{ shortName?: string }>
       }>
-    >(connection, token, `/api/agiles?fields=id,name,projects(shortName)&$top=50`)
-    return data.map(
-      (b): TrackerBoard => ({
-        id: b.id,
-        name: b.name,
-        projectKey: b.projects?.[0]?.shortName,
-      }),
+    >(connection, token, `/api/agiles?fields=id,name,projects(shortName)&$top=50`).map((data) =>
+      data.map(
+        (b): TrackerBoard => ({
+          id: b.id,
+          name: b.name,
+          projectKey: b.projects?.[0]?.shortName,
+        }),
+      ),
     )
   },
 
-  async fetchStatuses(connection, token) {
+  fetchStatuses(connection, token) {
     const projectKey = connection.projectKey
-    if (!projectKey) return []
+    if (!projectKey) return okAsync([])
 
-    const data = await ytFetch<
+    return ytFetch<
       Array<{
         id: string
         name: string
@@ -156,140 +163,140 @@ export const youtrackClient: TaskTrackerProviderClient = {
       connection,
       token,
       `/api/admin/projects/${encodeURIComponent(projectKey)}/customFields?fields=id,name,bundle(values(name))&$top=50`,
-    )
+    ).map((data) => {
+      const stateField = data.find(
+        (f) => f.name === 'State' || f.name.toLowerCase().includes('state'),
+      )
+      if (!stateField?.values) return []
 
-    const stateField = data.find(
-      (f) => f.name === 'State' || f.name.toLowerCase().includes('state'),
-    )
-    if (!stateField?.values) return []
-
-    return stateField.values.map(
-      (v): TrackerStatus => ({
-        id: v.name,
-        name: v.name,
-      }),
-    )
+      return stateField.values.map(
+        (v): TrackerStatus => ({
+          id: v.name,
+          name: v.name,
+        }),
+      )
+    })
   },
 
-  async fetchTasks(connection, token, params) {
-    const queryParts: string[] = []
-
-    // Get project from connection or resolve from board
-    let projectKey = connection.projectKey
-    if (!projectKey && params.boardId) {
-      try {
-        const board = await ytFetch<{ projects?: Array<{ shortName?: string }> }>(
+  fetchTasks(connection, token, params) {
+    const projectFromBoard = params.boardId
+      ? ytFetch<{ projects?: Array<{ shortName?: string }> }>(
           connection,
           token,
           `/api/agiles/${encodeURIComponent(params.boardId)}?fields=projects(shortName)`,
         )
-        projectKey = board.projects?.[0]?.shortName ?? ''
-      } catch {
-        // can't determine project
-      }
-    }
+          .map((board) => board.projects?.[0]?.shortName ?? '')
+          .unwrapOr('')
+      : Promise.resolve('')
 
-    if (projectKey && /^[A-Za-z0-9_-]+$/.test(projectKey)) {
-      queryParts.push(`project: {${projectKey}}`)
-    }
+    const resolvedProject = connection.projectKey
+      ? Promise.resolve(connection.projectKey)
+      : projectFromBoard
 
-    if (params.assignedToMe) {
-      queryParts.push('for: me')
-    }
+    return fromExternalCall(resolvedProject, (e) => apiError(0, errorMessage(e))).andThen(
+      (projectKey) => {
+        const queryParts: string[] = []
 
-    const query = queryParts.join(' ') + ' sort by: updated desc'
-    const fields =
-      'id,idReadable,summary,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
-    const data = await ytFetch<YTTask[]>(
-      connection,
-      token,
-      `/api/issues?query=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&$top=200`,
+        if (projectKey && /^[A-Za-z0-9_-]+$/.test(projectKey)) {
+          queryParts.push(`project: {${projectKey}}`)
+        }
+
+        if (params.assignedToMe) {
+          queryParts.push('for: me')
+        }
+
+        const query = queryParts.join(' ') + ' sort by: updated desc'
+        const fields =
+          'id,idReadable,summary,fields(name,projectCustomField(field(name)),value(name,login)),parent(issues(idReadable))'
+        return ytFetch<YTTask[]>(
+          connection,
+          token,
+          `/api/issues?query=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&$top=200`,
+        ).map((data) => data.map((i) => mapYTTask(i, connection.baseUrl)))
+      },
     )
-
-    return data.map((i) => mapYTTask(i, connection.baseUrl))
   },
 
-  async getCurrentSprint(connection, token, boardId) {
-    if (!boardId) {
-      const boards = await youtrackClient.fetchBoards(connection, token)
-      if (boards.length === 0) return null
-      boardId = boards[0].id
-    }
+  getCurrentSprint(connection, token, boardId) {
+    const getBoardId = boardId
+      ? okAsync<string, TaskTrackerError>(boardId)
+      : youtrackClient.fetchBoards(connection, token).andThen((boards) => {
+          if (boards.length === 0) return errAsync(apiError(0, 'No boards found'))
+          return okAsync<string, TaskTrackerError>(boards[0].id)
+        })
 
-    const data = await ytFetch<
-      Array<{ id: string; name: string; isResolved?: boolean; start?: number; finish?: number }>
-    >(
-      connection,
-      token,
-      `/api/agiles/${encodeURIComponent(boardId)}/sprints?fields=id,name,isResolved,start,finish&$top=10`,
-    )
-
-    const now = Date.now()
-    const active = data.find(
-      (s) => !s.isResolved && s.start && s.finish && s.start <= now && s.finish >= now,
-    )
-    if (!active) {
-      const unresolved = data.find((s) => !s.isResolved)
-      if (!unresolved) return null
-      return {
-        id: unresolved.id,
-        name: unresolved.name,
-        number: parseSprintNumber(unresolved.name),
-        state: 'active' as const,
-      }
-    }
-
-    return {
-      id: active.id,
-      name: active.name,
-      number: parseSprintNumber(active.name),
-      state: 'active' as const,
-    }
-  },
-
-  async fetchTaskComments(connection, token, taskKey) {
-    try {
-      const fields = 'id,text,author(name,fullName),created'
-      const data = await ytFetch<
-        Array<{
-          id: string
-          text?: string
-          author?: { name?: string; fullName?: string }
-          created?: number
-        }>
+    return getBoardId.andThen((resolvedBoardId) =>
+      ytFetch<
+        Array<{ id: string; name: string; isResolved?: boolean; start?: number; finish?: number }>
       >(
         connection,
         token,
-        `/api/issues/${encodeURIComponent(taskKey)}/comments?fields=${encodeURIComponent(fields)}`,
-      )
-      return data.map(
+        `/api/agiles/${encodeURIComponent(resolvedBoardId)}/sprints?fields=id,name,isResolved,start,finish&$top=10`,
+      ).map((data) => {
+        const now = Date.now()
+        const active = data.find(
+          (s) => !s.isResolved && s.start && s.finish && s.start <= now && s.finish >= now,
+        )
+        if (!active) {
+          const unresolved = data.find((s) => !s.isResolved)
+          if (!unresolved) return null
+          return {
+            id: unresolved.id,
+            name: unresolved.name,
+            number: parseSprintNumber(unresolved.name),
+            state: 'active' as const,
+          }
+        }
+
+        return {
+          id: active.id,
+          name: active.name,
+          number: parseSprintNumber(active.name),
+          state: 'active' as const,
+        }
+      }),
+    )
+  },
+
+  fetchTaskComments(connection, token, taskKey) {
+    const fields = 'id,text,author(name,fullName),created'
+    return ytFetch<
+      Array<{
+        id: string
+        text?: string
+        author?: { name?: string; fullName?: string }
+        created?: number
+      }>
+    >(
+      connection,
+      token,
+      `/api/issues/${encodeURIComponent(taskKey)}/comments?fields=${encodeURIComponent(fields)}`,
+    ).map((data) =>
+      data.map(
         (c): TrackerComment => ({
           id: c.id,
           author: c.author?.fullName ?? c.author?.name ?? '',
           body: c.text ?? '',
           created: c.created ? new Date(c.created).toISOString() : '',
         }),
-      )
-    } catch {
-      return []
-    }
+      ),
+    )
   },
 
-  async fetchTaskAttachments(connection, token, taskKey) {
-    try {
-      const fields = 'attachments(id,name,size,mimeType)'
-      const data = await ytFetch<{
-        attachments?: Array<{
-          id: string
-          name?: string
-          size?: number
-          mimeType?: string
-        }>
-      }>(
-        connection,
-        token,
-        `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
-      )
+  fetchTaskAttachments(connection, token, taskKey) {
+    const fields = 'attachments(id,name,size,mimeType)'
+    return ytFetch<{
+      attachments?: Array<{
+        id: string
+        name?: string
+        size?: number
+        mimeType?: string
+      }>
+    }>(
+      connection,
+      token,
+      `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
+    ).map((data) => {
       const baseUrl = connection.baseUrl.replace(/\/$/, '')
       return (data.attachments ?? []).map(
         (a): TrackerAttachment => ({
@@ -300,8 +307,6 @@ export const youtrackClient: TaskTrackerProviderClient = {
           url: `${baseUrl}/api/issues/${encodeURIComponent(taskKey)}/attachments/${a.id}/file`,
         }),
       )
-    } catch {
-      return []
-    }
+    })
   },
 }

@@ -56,7 +56,7 @@ const checkWithChannelResolution = async (): Promise<void> => {
   try {
     const ch = preferencesStore.get('update.channel') ?? 'stable'
     if (ch === 'next') {
-      const effective = await resolveUpdateChannel(app.getVersion())
+      const effective = await resolveUpdateChannel(app.getVersion()).unwrapOr('next' as const)
       autoUpdater.channel = effective
       autoUpdater.allowPrerelease = true
     } else {
@@ -484,7 +484,7 @@ app.whenReady().then(async () => {
     async (_e, { fromVersion }: { fromVersion: string }) => {
       if (typeof fromVersion !== 'string' || !semver.valid(fromVersion)) return null
       const channel = (preferencesStore.get('update.channel') ?? 'stable') as 'stable' | 'next'
-      return fetchChangelogRange(fromVersion, app.getVersion(), channel)
+      return fetchChangelogRange(fromVersion, app.getVersion(), channel).unwrapOr(null)
     },
   )
 

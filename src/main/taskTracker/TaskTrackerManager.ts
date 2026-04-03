@@ -4,7 +4,9 @@ import os from 'os'
 import { randomUUID } from 'crypto'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
+import { ok, err, type Result, type ResultAsync } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
+import type { TaskTrackerError } from './errors'
 import { createProviderClient } from './providers'
 import type {
   TaskTrackerConnection,
@@ -35,16 +37,16 @@ export class TaskTrackerManager {
     this.preferencesStore.set(CONNECTIONS_PREF_KEY, JSON.stringify(connections))
   }
 
-  private getConnection(connectionId: string): TaskTrackerConnection {
+  private getConnection(connectionId: string): Result<TaskTrackerConnection, TaskTrackerError> {
     const conn = this.getConnections().find((c) => c.id === connectionId)
-    if (!conn) throw new Error(`Connection not found: ${connectionId}`)
-    return conn
+    if (!conn) return err({ _tag: 'ConnectionNotFound', connectionId })
+    return ok(conn)
   }
 
-  private getToken(connection: TaskTrackerConnection): string {
+  private getToken(connection: TaskTrackerConnection): Result<string, TaskTrackerError> {
     const token = this.preferencesStore.get(connection.authPrefKey)
-    if (!token) throw new Error(`No auth token for connection: ${connection.name}`)
-    return token
+    if (!token) return err({ _tag: 'AuthTokenMissing', connectionName: connection.name })
+    return ok(token)
   }
 
   addConnection(
@@ -98,17 +100,19 @@ export class TaskTrackerManager {
     this.saveConnections(connections.filter((c) => c.id !== connectionId))
   }
 
-  async testConnection(connectionId: string): Promise<boolean> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
-    const client = createProviderClient(conn.provider)
-    return client.testConnection(conn, token)
+  testConnection(connectionId: string): ResultAsync<boolean, TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.testConnection(conn, token)
+      })
   }
 
-  async testNewConnection(
+  testNewConnection(
     connection: Omit<TaskTrackerConnection, 'id' | 'authPrefKey'>,
     token: string,
-  ): Promise<boolean> {
+  ): ResultAsync<boolean, TaskTrackerError> {
     const tempConn: TaskTrackerConnection = {
       ...connection,
       id: 'temp',
@@ -118,10 +122,10 @@ export class TaskTrackerManager {
     return client.testConnection(tempConn, token)
   }
 
-  async fetchBoardsForNew(
+  fetchBoardsForNew(
     connection: Omit<TaskTrackerConnection, 'id' | 'authPrefKey'>,
     token: string,
-  ): Promise<TrackerBoard[]> {
+  ): ResultAsync<TrackerBoard[], TaskTrackerError> {
     const tempConn: TaskTrackerConnection = {
       ...connection,
       id: 'temp',
@@ -134,73 +138,98 @@ export class TaskTrackerManager {
   async findTaskByKey(taskKey: string): Promise<TrackerTask | null> {
     const connections = this.getConnections()
     for (const conn of connections) {
-      try {
-        const token = this.getToken(conn)
-        const client = createProviderClient(conn.provider)
-        const found = await client.fetchTaskByKey(conn, token, taskKey)
-        if (found) return found
-      } catch {
-        // try next connection
-      }
+      const tokenResult = this.getToken(conn)
+      if (tokenResult.isErr()) continue
+      const client = createProviderClient(conn.provider)
+      const result = await client.fetchTaskByKey(conn, tokenResult.value, taskKey)
+      if (result.isOk() && result.value) return result.value
     }
     return null
   }
 
-  async getCurrentUserDisplayName(connectionId: string): Promise<string> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
-    const client = createProviderClient(conn.provider)
-    return client.getCurrentUserDisplayName(conn, token)
+  getCurrentUserDisplayName(connectionId: string): ResultAsync<string, TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.getCurrentUserDisplayName(conn, token)
+      })
   }
 
-  async fetchBoards(connectionId: string): Promise<TrackerBoard[]> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
-    const client = createProviderClient(conn.provider)
-    return client.fetchBoards(conn, token)
+  fetchBoards(connectionId: string): ResultAsync<TrackerBoard[], TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchBoards(conn, token)
+      })
   }
 
-  async fetchStatuses(connectionId: string, boardId?: string): Promise<TrackerStatus[]> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
-    const client = createProviderClient(conn.provider)
-    return client.fetchStatuses(conn, token, boardId)
+  fetchStatuses(
+    connectionId: string,
+    boardId?: string,
+  ): ResultAsync<TrackerStatus[], TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchStatuses(conn, token, boardId)
+      })
   }
 
-  async fetchTasks(
+  fetchTasks(
     connectionId: string,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
-  ): Promise<TrackerTask[]> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
-    const client = createProviderClient(conn.provider)
-    return client.fetchTasks(conn, token, params)
+  ): ResultAsync<TrackerTask[], TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTasks(conn, token, params)
+      })
   }
 
-  async getCurrentSprint(connectionId: string, boardId?: string): Promise<TrackerSprint | null> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
-    const client = createProviderClient(conn.provider)
-    return client.getCurrentSprint(conn, token, boardId)
+  getCurrentSprint(
+    connectionId: string,
+    boardId?: string,
+  ): ResultAsync<TrackerSprint | null, TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.getCurrentSprint(conn, token, boardId)
+      })
   }
 
-  async fetchTaskComments(connectionId: string, taskKey: string): Promise<TrackerComment[]> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
-    const client = createProviderClient(conn.provider)
-    return client.fetchTaskComments(conn, token, taskKey)
+  fetchTaskComments(
+    connectionId: string,
+    taskKey: string,
+  ): ResultAsync<TrackerComment[], TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskComments(conn, token, taskKey)
+      })
   }
 
-  async fetchTaskAttachments(connectionId: string, taskKey: string): Promise<TrackerAttachment[]> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
-    const client = createProviderClient(conn.provider)
-    return client.fetchTaskAttachments(conn, token, taskKey)
+  fetchTaskAttachments(
+    connectionId: string,
+    taskKey: string,
+  ): ResultAsync<TrackerAttachment[], TaskTrackerError> {
+    return this.getConnection(connectionId)
+      .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
+      .asyncAndThen(({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskAttachments(conn, token, taskKey)
+      })
   }
 
   async downloadAttachment(connectionId: string, url: string, filename: string): Promise<string> {
-    const conn = this.getConnection(connectionId)
-    const token = this.getToken(conn)
+    const connResult = this.getConnection(connectionId)
+    const tokenResult = connResult.andThen((conn) => this.getToken(conn).map((t) => ({ conn, t })))
+    if (tokenResult.isErr()) throw new Error('Connection or auth error')
+    const { conn, t: token } = tokenResult.value
 
     const connBase = conn.baseUrl.replace(/\/$/, '')
     if (!url.startsWith(connBase)) {

@@ -1,3 +1,6 @@
+import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
+import type { TaskTrackerError } from '../errors'
+import { fromExternalCall, errorMessage } from '../../errors'
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
@@ -42,21 +45,31 @@ function buildAuthHeaders(connection: TaskTrackerConnection, token: string): Hea
   }
 }
 
-async function jiraFetch<T>(
+function apiError(status: number, message: string): TaskTrackerError {
+  return { _tag: 'ProviderApiError', status, message, provider: 'jira' }
+}
+
+function jiraFetch<T>(
   connection: TaskTrackerConnection,
   token: string,
   path: string,
-): Promise<T> {
+): ResultAsync<T, TaskTrackerError> {
   const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
-  const res = await fetch(url, {
-    headers: buildAuthHeaders(connection, token),
-    signal: AbortSignal.timeout(15_000),
+  return fromExternalCall(
+    fetch(url, {
+      headers: buildAuthHeaders(connection, token),
+      signal: AbortSignal.timeout(15_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  ).andThen((res) => {
+    if (!res.ok) {
+      return fromExternalCall(
+        res.text().catch(() => ''),
+        (e) => apiError(res.status, errorMessage(e)),
+      ).andThen((body) => errAsync(apiError(res.status, body || res.statusText)))
+    }
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Jira API error ${res.status}: ${body || res.statusText}`)
-  }
-  return res.json() as Promise<T>
 }
 
 function mapTaskType(fields: JiraTaskFields): string {
@@ -105,110 +118,102 @@ function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {
 }
 
 export const jiraClient: TaskTrackerProviderClient = {
-  async testConnection(connection, token) {
-    await jiraFetch(connection, token, '/rest/api/3/myself')
-    return true
+  testConnection(connection, token) {
+    return jiraFetch(connection, token, '/rest/api/3/myself').map(() => true)
   },
 
-  async getCurrentUserDisplayName(connection, token) {
-    const data = await jiraFetch<{ displayName?: string }>(connection, token, '/rest/api/3/myself')
-    return data.displayName ?? ''
+  getCurrentUserDisplayName(connection, token) {
+    return jiraFetch<{ displayName?: string }>(connection, token, '/rest/api/3/myself').map(
+      (data) => data.displayName ?? '',
+    )
   },
 
-  async fetchTaskByKey(connection, token, taskKey) {
-    try {
-      const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
-      const data = await jiraFetch<JiraTask>(
-        connection,
-        token,
-        `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=${fields}`,
-      )
-      return mapJiraTask(data, connection.baseUrl)
-    } catch {
-      return null
-    }
+  fetchTaskByKey(connection, token, taskKey) {
+    const fields = 'summary,description,status,priority,issuetype,parent,assignee,sprint'
+    return jiraFetch<JiraTask>(
+      connection,
+      token,
+      `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=${fields}`,
+    ).map((data) => mapJiraTask(data, connection.baseUrl) as TrackerTask | null)
   },
 
-  async fetchBoards(connection, token) {
+  fetchBoards(connection, token) {
     const params = connection.projectKey
       ? `?projectKeyOrId=${encodeURIComponent(connection.projectKey)}`
       : '?maxResults=50'
-    const data = await jiraFetch<{
+    return jiraFetch<{
       values: Array<{
         id: number
         name: string
         location?: { projectKey?: string }
       }>
-    }>(connection, token, `/rest/agile/1.0/board${params}`)
-    return data.values.map(
-      (b): TrackerBoard => ({
-        id: String(b.id),
-        name: b.name,
-        projectKey: b.location?.projectKey,
-      }),
+    }>(connection, token, `/rest/agile/1.0/board${params}`).map((data) =>
+      data.values.map(
+        (b): TrackerBoard => ({
+          id: String(b.id),
+          name: b.name,
+          projectKey: b.location?.projectKey,
+        }),
+      ),
     )
   },
 
-  async fetchStatuses(connection, token) {
-    // Use /rest/api/3/statuses to get all actual task statuses
-    try {
-      const data = await jiraFetch<
-        Array<{ id: string; name: string; statusCategory?: { key?: string } }>
-      >(connection, token, '/rest/api/3/statuses')
-      const seen = new Set<string>()
-      const statuses: TrackerStatus[] = []
-      for (const s of data) {
-        if (!seen.has(s.name)) {
-          seen.add(s.name)
-          statuses.push({ id: s.id, name: s.name })
-        }
-      }
-      return statuses
-    } catch {
-      // Fallback: try project statuses if available
-      if (connection.projectKey) {
-        const data = await jiraFetch<Array<{ statuses?: Array<{ id: string; name: string }> }>>(
-          connection,
-          token,
-          `/rest/api/3/project/${encodeURIComponent(connection.projectKey)}/statuses`,
-        )
+  fetchStatuses(connection, token) {
+    return jiraFetch<Array<{ id: string; name: string; statusCategory?: { key?: string } }>>(
+      connection,
+      token,
+      '/rest/api/3/statuses',
+    )
+      .map((data) => {
         const seen = new Set<string>()
         const statuses: TrackerStatus[] = []
-        for (const category of data) {
-          for (const s of category.statuses ?? []) {
-            if (!seen.has(s.name)) {
-              seen.add(s.name)
-              statuses.push({ id: s.id, name: s.name })
-            }
+        for (const s of data) {
+          if (!seen.has(s.name)) {
+            seen.add(s.name)
+            statuses.push({ id: s.id, name: s.name })
           }
         }
         return statuses
-      }
-      return []
-    }
+      })
+      .orElse(() => {
+        if (connection.projectKey) {
+          return jiraFetch<Array<{ statuses?: Array<{ id: string; name: string }> }>>(
+            connection,
+            token,
+            `/rest/api/3/project/${encodeURIComponent(connection.projectKey)}/statuses`,
+          ).map((data) => {
+            const seen = new Set<string>()
+            const statuses: TrackerStatus[] = []
+            for (const category of data) {
+              for (const s of category.statuses ?? []) {
+                if (!seen.has(s.name)) {
+                  seen.add(s.name)
+                  statuses.push({ id: s.id, name: s.name })
+                }
+              }
+            }
+            return statuses
+          })
+        }
+        return errAsync(apiError(0, 'No statuses available'))
+      })
   },
 
-  async fetchTasks(connection, token, params) {
+  fetchTasks(connection, token, params) {
     const resolvedBoardId = params.boardId || connection.boardId
     const fields = 'summary,status,priority,issuetype,parent,assignee,sprint'
 
-    // Board endpoint returns ONLY tasks belonging to this board's filter
     if (resolvedBoardId) {
-      // Exclude done tasks, sort by recent, single request
       const jql = 'statusCategory != Done ORDER BY updated DESC'
       const jqlParam = `&jql=${encodeURIComponent(jql)}`
 
-      const data = await jiraFetch<{ issues: JiraTask[] }>(
+      return jiraFetch<{ issues: JiraTask[] }>(
         connection,
         token,
         `/rest/agile/1.0/board/${encodeURIComponent(resolvedBoardId)}/issue?fields=${fields}&maxResults=200${jqlParam}`,
-      )
-      const allTasks = data.issues
-
-      return allTasks.map((i) => mapJiraTask(i, connection.baseUrl))
+      ).map((data) => data.issues.map((i) => mapJiraTask(i, connection.baseUrl)))
     }
 
-    // No board — fallback to JQL search for assigned tasks
     const jqlParts: string[] = []
     if (connection.projectKey && /^[A-Za-z0-9_-]+$/.test(connection.projectKey)) {
       jqlParts.push(`project = "${connection.projectKey}"`)
@@ -216,92 +221,88 @@ export const jiraClient: TaskTrackerProviderClient = {
     jqlParts.push('assignee = currentUser()')
 
     const jql = jqlParts.join(' AND ') + ' ORDER BY updated DESC'
-    const data = await jiraFetch<{ issues: JiraTask[] }>(
+    return jiraFetch<{ issues: JiraTask[] }>(
       connection,
       token,
       `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=200`,
-    )
-
-    return data.issues.map((i) => mapJiraTask(i, connection.baseUrl))
+    ).map((data) => data.issues.map((i) => mapJiraTask(i, connection.baseUrl)))
   },
 
-  async getCurrentSprint(connection, token, boardId) {
-    if (!boardId) {
-      const boards = await jiraClient.fetchBoards(connection, token)
-      if (boards.length === 0) return null
-      boardId = boards[0].id
-    }
+  getCurrentSprint(connection, token, boardId) {
+    const getBoardId: ResultAsync<string, TaskTrackerError> = boardId
+      ? okAsync(boardId)
+      : jiraClient.fetchBoards(connection, token).andThen((boards) => {
+          if (boards.length === 0) return errAsync(apiError(0, 'No boards found'))
+          return okAsync(boards[0].id)
+        })
 
-    const data = await jiraFetch<{
-      values: Array<{ id: number; name: string; state: string }>
-    }>(
-      connection,
-      token,
-      `/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=active&maxResults=1`,
-    )
-
-    const sprint = data.values[0]
-    if (!sprint) return null
-
-    return {
-      id: String(sprint.id),
-      name: sprint.name,
-      number: parseSprintNumber(sprint.name),
-      state: sprint.state as TrackerSprint['state'],
-    }
-  },
-
-  async fetchTaskComments(connection, token, taskKey) {
-    try {
-      const data = await jiraFetch<{
-        comments: Array<{
-          id: string
-          body?: unknown
-          author?: { displayName?: string }
-          created?: string
-        }>
+    return getBoardId.andThen((resolvedBoardId) =>
+      jiraFetch<{
+        values: Array<{ id: number; name: string; state: string }>
       }>(
         connection,
         token,
-        `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment?maxResults=50`,
-      )
-      return (data.comments ?? []).map(
+        `/rest/agile/1.0/board/${encodeURIComponent(resolvedBoardId)}/sprint?state=active&maxResults=1`,
+      ).map((data) => {
+        const sprint = data.values[0]
+        if (!sprint) return null
+
+        return {
+          id: String(sprint.id),
+          name: sprint.name,
+          number: parseSprintNumber(sprint.name),
+          state: sprint.state as TrackerSprint['state'],
+        }
+      }),
+    )
+  },
+
+  fetchTaskComments(connection, token, taskKey) {
+    return jiraFetch<{
+      comments: Array<{
+        id: string
+        body?: unknown
+        author?: { displayName?: string }
+        created?: string
+      }>
+    }>(
+      connection,
+      token,
+      `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment?maxResults=50`,
+    ).map((data) =>
+      (data.comments ?? []).map(
         (c): TrackerComment => ({
           id: c.id,
           author: c.author?.displayName ?? '',
           body: typeof c.body === 'string' ? c.body : adfToPlainText(c.body).trim(),
           created: c.created ?? '',
         }),
-      )
-    } catch {
-      return []
-    }
+      ),
+    )
   },
 
-  async fetchTaskAttachments(connection, token, taskKey) {
-    try {
-      const data = await jiraFetch<{
-        fields: {
-          attachment?: Array<{
-            id: string
-            filename?: string
-            mimeType?: string
-            size?: number
-            content?: string
-          }>
-        }
-      }>(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=attachment`)
-      return (data.fields.attachment ?? []).map(
-        (a): TrackerAttachment => ({
-          id: a.id,
-          name: a.filename ?? '',
-          mimeType: a.mimeType ?? '',
-          size: a.size ?? 0,
-          url: a.content ?? '',
-        }),
-      )
-    } catch {
-      return []
-    }
+  fetchTaskAttachments(connection, token, taskKey) {
+    return jiraFetch<{
+      fields: {
+        attachment?: Array<{
+          id: string
+          filename?: string
+          mimeType?: string
+          size?: number
+          content?: string
+        }>
+      }
+    }>(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=attachment`).map(
+      (data) =>
+        (data.fields.attachment ?? []).map(
+          (a): TrackerAttachment => ({
+            id: a.id,
+            name: a.filename ?? '',
+            mimeType: a.mimeType ?? '',
+            size: a.size ?? 0,
+            url: a.content ?? '',
+          }),
+        ),
+    )
   },
 }

@@ -52,6 +52,14 @@ Prettier handles formatting. Run `npm run format` before committing.
 - Use `import type` for type-only imports (`verbatimModuleSyntax` is enabled)
 - Avoid bare `any` without `// eslint-disable` and a justification comment
 
+### Error handling
+
+Business logic must use `neverthrow` (`Result<T, E>` / `ResultAsync<T, E>`) instead of `try/catch`. Each domain defines a typed error union with `_tag` discriminants in an `errors.ts` file (e.g., `src/main/git/errors.ts`). Wrap external calls with `fromExternalCall()` from `src/main/errors.ts`.
+
+`try/catch` is only acceptable at process boundaries: PTY resource cleanup, HTTP body parsing, `JSON.parse` on untrusted input, `contextBridge` initialization, and renderer event handlers.
+
+IPC handlers unwrap Results before returning to the renderer: `unwrapOrThrow()` for write operations (propagates typed error as IPC error), `.unwrapOr(defaultValue)` for read operations with safe fallbacks.
+
 ### Pattern matching
 
 Use `ts-pattern` for branching on discriminated unions, string literal types, or object shapes (3+ branches). Use `.exhaustive()` when all cases are handled, `.otherwise()` for defaults. Do not use it for simple 1-2 branch conditionals or numeric comparisons.
