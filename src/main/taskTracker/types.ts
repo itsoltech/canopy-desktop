@@ -1,3 +1,6 @@
+import type { ResultAsync } from 'neverthrow'
+import type { TaskTrackerError } from './errors'
+
 export type TaskTrackerProvider = 'jira' | 'youtrack'
 
 export interface TaskTrackerConnection {
@@ -89,27 +92,36 @@ export interface FetchTasksParams {
 }
 
 export interface TaskTrackerProviderClient {
-  testConnection(connection: TaskTrackerConnection, token: string): Promise<boolean>
-  getCurrentUserDisplayName(connection: TaskTrackerConnection, token: string): Promise<string>
+  testConnection(
+    connection: TaskTrackerConnection,
+    token: string,
+  ): ResultAsync<boolean, TaskTrackerError>
+  getCurrentUserDisplayName(
+    connection: TaskTrackerConnection,
+    token: string,
+  ): ResultAsync<string, TaskTrackerError>
   fetchTaskByKey(
     connection: TaskTrackerConnection,
     token: string,
     taskKey: string,
-  ): Promise<TrackerTask | null>
-  fetchBoards(connection: TaskTrackerConnection, token: string): Promise<TrackerBoard[]>
+  ): ResultAsync<TrackerTask | null, TaskTrackerError>
+  fetchBoards(
+    connection: TaskTrackerConnection,
+    token: string,
+  ): ResultAsync<TrackerBoard[], TaskTrackerError>
   fetchStatuses(
     connection: TaskTrackerConnection,
     token: string,
     boardId?: string,
-  ): Promise<TrackerStatus[]>
+  ): ResultAsync<TrackerStatus[], TaskTrackerError>
   fetchTasks(
     connection: TaskTrackerConnection,
     token: string,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
-  ): Promise<TrackerTask[]>
+  ): ResultAsync<TrackerTask[], TaskTrackerError>
   getCurrentSprint(
     connection: TaskTrackerConnection,
     token: string,
     boardId?: string,
-  ): Promise<TrackerSprint | null>
+  ): ResultAsync<TrackerSprint | null, TaskTrackerError>
 }

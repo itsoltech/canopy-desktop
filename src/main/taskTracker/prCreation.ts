@@ -41,12 +41,8 @@ export async function createPullRequest(params: CreatePRParams): Promise<CreateP
     existingBranches,
   )
 
-  // Ensure branch is pushed
-  try {
-    await GitRepository.push(repoRoot)
-  } catch {
-    // May already be pushed or upstream set
-  }
+  // Ensure branch is pushed (ignore errors -- may already be pushed or upstream set)
+  await GitRepository.push(repoRoot).unwrapOr({ branch: '', remote: '' })
 
   const hasGh = await detectGhCli()
   if (!hasGh) {

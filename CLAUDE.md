@@ -41,6 +41,12 @@ npm run svelte-check     # renderer only
 - `tsconfig.web.json` — renderer (DOM types, strict mode OFF)
 - Use `verbatimModuleSyntax: true` — type-only imports must use `import type`
 
+## Error handling
+
+Use `neverthrow` (`Result<T, E>`, `ResultAsync<T, E>`) for all business logic error handling. Never use `try/catch` in services, managers, or domain logic. Define typed error unions with `_tag` discriminants per domain (e.g., `GitError`, `TaskTrackerError`) in dedicated `errors.ts` files. Use `fromExternalCall()` from `src/main/errors.ts` to wrap external promises. Co-locate error message formatters with error types, using `ts-pattern` `.exhaustive()` for formatting.
+
+`try/catch` is allowed only at process boundaries: PTY cleanup (EBADF), HTTP request parsing, `JSON.parse` on untrusted input, `contextBridge` initialization, file cleanup in `finally`, and renderer event handlers. IPC handlers unwrap Results with `unwrapOrThrow()` (write ops) or `.unwrapOr()` (read ops with safe defaults).
+
 ## Pattern matching
 
 Use `ts-pattern` (`match`/`with`) instead of `switch` or `if/else` chains when branching on discriminated unions, string literal types, or object shapes. Prefer `.exhaustive()` when all cases are handled (compile-time safety), `.otherwise()` when a default is needed. Use `P.union()` for grouped cases, `P.when()` for predicate guards. Do not use `ts-pattern` for simple 1-2 branch conditionals or numeric threshold checks.

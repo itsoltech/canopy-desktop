@@ -1,9 +1,19 @@
+import { ok, err, okAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
+import type { GitError } from './errors'
+import { fromExternalCall, errorMessage } from '../errors'
 
-function assertSafeRef(name: string): void {
-  if (name.startsWith('-')) {
-    throw new Error(`Invalid git ref: must not start with a dash`)
-  }
+function validateRef(name: string): Result<string, GitError> {
+  if (name.startsWith('-')) return err({ _tag: 'InvalidRef', ref: name })
+  return ok(name)
+}
+
+function gitErr(command: string, e: unknown): GitError {
+  return { _tag: 'GitCommandFailed', command, message: errorMessage(e) }
+}
+
+function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitError> {
+  return fromExternalCall(promise, (e) => gitErr(command, e))
 }
 
 export interface GitCommitResult {
@@ -41,257 +51,272 @@ export interface GitWorktreeInfo {
 }
 
 export class GitRepository {
-  static async detect(dirPath: string): Promise<GitInfo> {
+  static detect(dirPath: string): ResultAsync<GitInfo, GitError> {
     const git = simpleGit(dirPath)
-
-    try {
-      const repoRoot = (await git.revparse(['--show-toplevel'])).trim()
-      const [branch, worktrees, isDirty, aheadBehind] = await Promise.all([
-        GitRepository.getBranch(repoRoot),
-        GitRepository.listWorktrees(repoRoot),
-        GitRepository.isDirty(repoRoot),
-        GitRepository.getAheadBehind(repoRoot),
-      ])
-
-      return { isGitRepo: true, repoRoot, branch, worktrees, isDirty, aheadBehind }
-    } catch {
-      return {
-        isGitRepo: false,
-        repoRoot: null,
-        branch: null,
-        worktrees: [],
-        isDirty: false,
-        aheadBehind: null,
-      }
-    }
+    return fromExternalCall(git.revparse(['--show-toplevel']), () => ({
+      _tag: 'NotAGitRepo' as const,
+      path: dirPath,
+    })).andThen((raw) => {
+      const repoRoot = raw.trim()
+      return GitRepository.getBranch(repoRoot).andThen((branch) =>
+        GitRepository.listWorktrees(repoRoot).andThen((worktrees) =>
+          GitRepository.isDirty(repoRoot).andThen((isDirty) =>
+            GitRepository.getAheadBehind(repoRoot).map((aheadBehind) => ({
+              isGitRepo: true as const,
+              repoRoot,
+              branch,
+              worktrees,
+              isDirty,
+              aheadBehind,
+            })),
+          ),
+        ),
+      )
+    })
   }
 
-  static async getBranch(repoRoot: string): Promise<string | null> {
+  static getBranch(repoRoot: string): ResultAsync<string | null, GitError> {
     const git = simpleGit(repoRoot)
-    try {
-      const branch = (await git.revparse(['--abbrev-ref', 'HEAD'])).trim()
+    return gitCall('rev-parse', git.revparse(['--abbrev-ref', 'HEAD'])).map((raw) => {
+      const branch = raw.trim()
       return branch === 'HEAD' ? null : branch
-    } catch {
-      return null
-    }
+    })
   }
 
-  static async listWorktrees(repoRoot: string): Promise<GitWorktreeInfo[]> {
+  static listWorktrees(repoRoot: string): ResultAsync<GitWorktreeInfo[], GitError> {
     const git = simpleGit(repoRoot)
-    try {
-      const raw = await git.raw(['worktree', 'list', '--porcelain'])
-      return parseWorktreeOutput(raw)
-    } catch {
-      return []
-    }
+    return gitCall('worktree list', git.raw(['worktree', 'list', '--porcelain'])).map(
+      parseWorktreeOutput,
+    )
   }
 
-  static async isDirty(repoRoot: string): Promise<boolean> {
+  static isDirty(repoRoot: string): ResultAsync<boolean, GitError> {
     const git = simpleGit(repoRoot)
-    try {
-      const status = await git.status()
-      return status.files.length > 0
-    } catch {
-      return false
-    }
+    return gitCall('status', git.status()).map((status) => status.files.length > 0)
   }
 
-  static async getAheadBehind(repoRoot: string): Promise<{ ahead: number; behind: number } | null> {
+  static getAheadBehind(
+    repoRoot: string,
+  ): ResultAsync<{ ahead: number; behind: number } | null, GitError> {
     const git = simpleGit(repoRoot)
-    try {
-      const raw = await git.raw(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'])
+    return gitCall(
+      'rev-list',
+      git.raw(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}']),
+    ).map((raw) => {
       const parts = raw.trim().split(/\s+/)
       if (parts.length === 2) {
         return { ahead: parseInt(parts[0], 10), behind: parseInt(parts[1], 10) }
       }
       return null
-    } catch {
-      return null
-    }
+    })
   }
 
   // --- Write operations ---
 
-  static async commit(
+  static commit(
     repoRoot: string,
     message: string,
     stageAll?: boolean,
-  ): Promise<GitCommitResult> {
+  ): ResultAsync<GitCommitResult, GitError> {
     const git = simpleGit(repoRoot)
-    if (stageAll) {
-      await git.add('-A')
-    }
-    const result = await git.commit(message)
-    return {
-      hash: result.commit || '',
-      summary: result.summary
-        ? `${result.summary.changes} changed, ${result.summary.insertions} insertions, ${result.summary.deletions} deletions`
-        : 'Committed',
-    }
+    const doStage = stageAll ? gitCall('add', git.add('-A')) : okAsync<unknown, GitError>(undefined)
+    return doStage.andThen(() =>
+      gitCall('commit', git.commit(message)).map((result) => ({
+        hash: result.commit || '',
+        summary: result.summary
+          ? `${result.summary.changes} changed, ${result.summary.insertions} insertions, ${result.summary.deletions} deletions`
+          : 'Committed',
+      })),
+    )
   }
 
-  static async push(repoRoot: string): Promise<{ branch: string; remote: string }> {
+  static push(repoRoot: string): ResultAsync<{ branch: string; remote: string }, GitError> {
     const git = simpleGit(repoRoot)
-    const result = await git.push()
-    return {
+    return gitCall('push', git.push()).map((result) => ({
       branch: result.pushed?.[0]?.local || '',
       remote: result.remoteMessages?.all?.[0] || '',
-    }
+    }))
   }
 
-  static async pull(repoRoot: string, rebase: boolean): Promise<{ summary: string }> {
+  static pull(repoRoot: string, rebase: boolean): ResultAsync<{ summary: string }, GitError> {
     const git = simpleGit(repoRoot)
-    const result = await git.pull(undefined, undefined, rebase ? { '--rebase': null } : {})
-    const files = result.files?.length ?? 0
-    return { summary: `${files} file(s) updated` }
+    return gitCall('pull', git.pull(undefined, undefined, rebase ? { '--rebase': null } : {})).map(
+      (result) => {
+        const files = result.files?.length ?? 0
+        return { summary: `${files} file(s) updated` }
+      },
+    )
   }
 
-  static async fetch(repoRoot: string): Promise<void> {
+  static fetch(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    await git.fetch()
+    return gitCall('fetch', git.fetch()).map(() => undefined)
   }
 
-  static async fetchAll(repoRoot: string): Promise<void> {
+  static fetchAll(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    await git.fetch(['--all'])
+    return gitCall('fetch', git.fetch(['--all'])).map(() => undefined)
   }
 
-  static async stash(repoRoot: string): Promise<void> {
+  static stash(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    await git.stash()
+    return gitCall('stash', git.stash()).map(() => undefined)
   }
 
-  static async stashPop(repoRoot: string): Promise<void> {
+  static stashPop(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    await git.stash(['pop'])
+    return gitCall('stash pop', git.stash(['pop'])).map(() => undefined)
   }
 
-  static async listBranches(repoRoot: string): Promise<GitBranchList> {
+  static listBranches(repoRoot: string): ResultAsync<GitBranchList, GitError> {
     const git = simpleGit(repoRoot)
-    const result = await git.branch(['-a'])
-    const local: string[] = []
-    const remote: string[] = []
+    return gitCall('branch', git.branch(['-a'])).map((result) => {
+      const local: string[] = []
+      const remote: string[] = []
 
-    for (const [name, info] of Object.entries(result.branches)) {
-      if (name.startsWith('remotes/')) {
-        // Skip HEAD pointers like remotes/origin/HEAD
-        if (!name.endsWith('/HEAD')) {
-          remote.push(name.replace('remotes/', ''))
+      for (const [name, info] of Object.entries(result.branches)) {
+        if (name.startsWith('remotes/')) {
+          if (!name.endsWith('/HEAD')) {
+            remote.push(name.replace('remotes/', ''))
+          }
+        } else {
+          local.push(info.name)
         }
-      } else {
-        local.push(info.name)
       }
-    }
 
-    return { local, remote, current: result.current || null }
+      return { local, remote, current: result.current || null }
+    })
   }
 
-  static async createBranch(repoRoot: string, name: string, baseBranch: string): Promise<void> {
-    assertSafeRef(name)
-    assertSafeRef(baseBranch)
-    const git = simpleGit(repoRoot)
-    await git.raw(['branch', name, baseBranch])
+  static createBranch(
+    repoRoot: string,
+    name: string,
+    baseBranch: string,
+  ): ResultAsync<void, GitError> {
+    return validateRef(name)
+      .andThen(() => validateRef(baseBranch))
+      .asyncAndThen(() => {
+        const git = simpleGit(repoRoot)
+        return gitCall('branch', git.raw(['branch', name, baseBranch]))
+      })
+      .map(() => undefined)
   }
 
-  static async checkout(repoRoot: string, branch: string): Promise<void> {
-    assertSafeRef(branch)
-    const git = simpleGit(repoRoot)
-    await git.checkout(branch)
+  static checkout(repoRoot: string, branch: string): ResultAsync<void, GitError> {
+    return validateRef(branch)
+      .asyncAndThen(() => {
+        const git = simpleGit(repoRoot)
+        return gitCall('checkout', git.checkout(branch))
+      })
+      .map(() => undefined)
   }
 
-  static async deleteBranch(repoRoot: string, name: string, force: boolean): Promise<void> {
-    assertSafeRef(name)
-    const git = simpleGit(repoRoot)
-    await git.branch([force ? '-D' : '-d', name])
+  static deleteBranch(repoRoot: string, name: string, force: boolean): ResultAsync<void, GitError> {
+    return validateRef(name)
+      .asyncAndThen(() => {
+        const git = simpleGit(repoRoot)
+        return gitCall('branch -d', git.branch([force ? '-D' : '-d', name]))
+      })
+      .map(() => undefined)
   }
 
-  static async deleteRemoteBranch(repoRoot: string, remote: string, name: string): Promise<void> {
-    assertSafeRef(remote)
-    assertSafeRef(name)
-    const git = simpleGit(repoRoot)
-    await git.push(remote, name, { '--delete': null })
+  static deleteRemoteBranch(
+    repoRoot: string,
+    remote: string,
+    name: string,
+  ): ResultAsync<void, GitError> {
+    return validateRef(remote)
+      .andThen(() => validateRef(name))
+      .asyncAndThen(() => {
+        const git = simpleGit(repoRoot)
+        return gitCall('push --delete', git.push(remote, name, { '--delete': null }))
+      })
+      .map(() => undefined)
   }
 
-  static async getPushInfo(repoRoot: string): Promise<GitPushInfo | null> {
+  static getPushInfo(repoRoot: string): ResultAsync<GitPushInfo | null, GitError> {
     const git = simpleGit(repoRoot)
-    try {
-      const branch = (await git.revparse(['--abbrev-ref', 'HEAD'])).trim()
-      if (branch === 'HEAD') return null
+    return gitCall('rev-parse', git.revparse(['--abbrev-ref', 'HEAD'])).andThen((raw) => {
+      const branch = raw.trim()
+      if (branch === 'HEAD') return okAsync<GitPushInfo | null, GitError>(null)
 
-      const remote = (await git.raw(['config', `branch.${branch}.remote`])).trim()
-      if (!remote) return null
+      return gitCall('config', git.raw(['config', `branch.${branch}.remote`])).andThen(
+        (remoteRaw) => {
+          const remote = remoteRaw.trim()
+          if (!remote) return okAsync<GitPushInfo | null, GitError>(null)
 
-      const countRaw = await git.raw(['rev-list', '--count', `${remote}/${branch}..HEAD`])
-      const commitCount = parseInt(countRaw.trim(), 10) || 0
-
-      return { branch, remote, commitCount }
-    } catch {
-      return null
-    }
+          return gitCall(
+            'rev-list',
+            git.raw(['rev-list', '--count', `${remote}/${branch}..HEAD`]),
+          ).map((countRaw) => {
+            const commitCount = parseInt(countRaw.trim(), 10) || 0
+            return { branch, remote, commitCount }
+          })
+        },
+      )
+    })
   }
 
-  static async isBranchMerged(repoRoot: string, branch: string): Promise<boolean> {
+  static isBranchMerged(repoRoot: string, branch: string): ResultAsync<boolean, GitError> {
     const git = simpleGit(repoRoot)
-    try {
-      const raw = await git.raw(['branch', '--merged'])
+    return gitCall('branch --merged', git.raw(['branch', '--merged'])).map((raw) => {
       const merged = raw
         .split('\n')
         .map((line) => line.replace(/^\*?\s+/, '').trim())
         .filter(Boolean)
       return merged.includes(branch)
-    } catch {
-      return false
-    }
+    })
   }
 
-  static async worktreeAdd(
+  static worktreeAdd(
     repoRoot: string,
     path: string,
     branch: string,
     baseBranch: string,
-  ): Promise<void> {
-    assertSafeRef(branch)
-    assertSafeRef(baseBranch)
-    const git = simpleGit(repoRoot)
-    await git.raw(['worktree', 'add', '-b', branch, path, baseBranch])
+  ): ResultAsync<void, GitError> {
+    return validateRef(branch)
+      .andThen(() => validateRef(baseBranch))
+      .asyncAndThen(() => {
+        const git = simpleGit(repoRoot)
+        return gitCall('worktree add', git.raw(['worktree', 'add', '-b', branch, path, baseBranch]))
+      })
+      .map(() => undefined)
   }
 
-  static async worktreeRemove(repoRoot: string, path: string, force: boolean): Promise<void> {
+  static worktreeRemove(
+    repoRoot: string,
+    path: string,
+    force: boolean,
+  ): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
     const args = ['worktree', 'remove', path]
     if (force) args.push('--force')
-    await git.raw(args)
+    return gitCall('worktree remove', git.raw(args)).map(() => undefined)
   }
 
-  static async getUnmergedCommits(repoRoot: string, branch: string): Promise<string[]> {
-    assertSafeRef(branch)
-    const git = simpleGit(repoRoot)
-    try {
-      const raw = await git.raw(['log', branch, '--not', '--remotes', '--oneline'])
-      return raw.trim().split('\n').filter(Boolean)
-    } catch {
-      return []
-    }
+  static getUnmergedCommits(repoRoot: string, branch: string): ResultAsync<string[], GitError> {
+    return validateRef(branch).asyncAndThen(() => {
+      const git = simpleGit(repoRoot)
+      return gitCall('log', git.raw(['log', branch, '--not', '--remotes', '--oneline'])).map(
+        (raw) => raw.trim().split('\n').filter(Boolean),
+      )
+    })
   }
 
-  static async getStatusPorcelain(repoRoot: string, worktreePath?: string): Promise<string> {
+  static getStatusPorcelain(
+    repoRoot: string,
+    worktreePath?: string,
+  ): ResultAsync<string, GitError> {
     const git = simpleGit(worktreePath ?? repoRoot)
-    try {
-      return await git.raw(['status', '--porcelain'])
-    } catch {
-      return ''
-    }
+    return gitCall('status', git.raw(['status', '--porcelain']))
   }
 
-  static async getDiff(repoRoot: string): Promise<string> {
+  static getDiff(repoRoot: string): ResultAsync<string, GitError> {
     const git = simpleGit(repoRoot)
-    try {
-      const staged = await git.diff(['--cached'])
-      if (staged.trim()) return staged
-      return await git.diff()
-    } catch {
-      return ''
-    }
+    return gitCall('diff', git.diff(['--cached'])).andThen((staged) => {
+      if (staged.trim()) return okAsync<string, GitError>(staged)
+      return gitCall('diff', git.diff())
+    })
   }
 }
 
