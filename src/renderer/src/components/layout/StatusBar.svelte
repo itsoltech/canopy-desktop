@@ -188,7 +188,9 @@
       {#if workspaceState.isGitRepo && workspaceState.branch}
         <button
           class="status-item branch"
-          aria-label="Branch: {workspaceState.branch}"
+          aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
+            ? ', uncommitted changes'
+            : ''}"
           title="Branch: {workspaceState.branch}"
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
@@ -198,8 +200,7 @@
           </svg>
           <span class="label">{workspaceState.branch}</span>
           {#if workspaceState.isDirty}
-            <span class="dirty-dot" title="Uncommitted changes" aria-label="Uncommitted changes"
-            ></span>
+            <span class="dirty-dot" title="Uncommitted changes" aria-hidden="true"></span>
           {/if}
         </button>
 
