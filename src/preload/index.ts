@@ -612,11 +612,17 @@ const api = {
       branchType,
       repoRoot,
     }),
-  taskTrackerResolveBranchType: (taskType: string, connectionId?: string, boardId?: string) =>
+  taskTrackerResolveBranchType: (
+    taskType: string,
+    connectionId?: string,
+    boardId?: string,
+    repoRoot?: string,
+  ) =>
     ipcRenderer.invoke('taskTracker:resolveBranchType', {
       taskType,
       connectionId,
       boardId,
+      repoRoot,
     }) as Promise<{
       defaultType: string
       options: string[]
@@ -630,11 +636,17 @@ const api = {
     ipcRenderer.invoke('taskTracker:validateTemplate', { template }),
   taskTrackerFindTaskByKey: (taskKey: string) =>
     ipcRenderer.invoke('taskTracker:findTaskByKey', { taskKey }),
-  taskTrackerResolvePRPreview: (taskKey: string, connectionId?: string, boardId?: string) =>
+  taskTrackerResolvePRPreview: (
+    taskKey: string,
+    connectionId?: string,
+    boardId?: string,
+    repoRoot?: string,
+  ) =>
     ipcRenderer.invoke('taskTracker:resolvePRPreview', {
       taskKey,
       connectionId,
       boardId,
+      repoRoot,
     }) as Promise<{ title: string; targetBranch: string }>,
   taskTrackerCreatePR: (
     repoRoot: string,

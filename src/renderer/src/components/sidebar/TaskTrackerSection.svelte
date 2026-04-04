@@ -94,6 +94,7 @@
         taskKey,
         activeTask?.connectionId,
         activeTask?.boardId,
+        worktreePath() || undefined,
       )
       prTitle = preview.title
       defaultTarget = preview.targetBranch

@@ -57,7 +57,12 @@
     // Fetch full task data (with description) in parallel with branch type
     const [typeInfo, foundTask] = await Promise.all([
       window.api
-        .taskTrackerResolveBranchType(task.type, connectionId, selectedBoardId || undefined)
+        .taskTrackerResolveBranchType(
+          task.type,
+          connectionId,
+          selectedBoardId || undefined,
+          workspaceState.repoRoot || undefined,
+        )
         .catch(() => null),
       window.api.taskTrackerFindTaskByKey(task.key).catch(() => null),
     ])

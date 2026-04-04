@@ -552,6 +552,7 @@ interface CanopyAPI {
     taskType: string,
     connectionId?: string,
     boardId?: string,
+    repoRoot?: string,
   ) => Promise<{
     defaultType: string
     options: string[]
@@ -570,6 +571,7 @@ interface CanopyAPI {
     taskKey: string,
     connectionId?: string,
     boardId?: string,
+    repoRoot?: string,
   ) => Promise<{ title: string; targetBranch: string }>
   taskTrackerCreatePR: (
     repoRoot: string,
