@@ -24,14 +24,14 @@
       const override = config.boardOverrides[templateScope]?.branchTemplate
       if (override) {
         return {
-          template: override.template ?? config.branchTemplate.template,
-          customVars: { ...config.branchTemplate.customVars, ...override.customVars },
+          template: override.template ?? config.branchTemplate?.template ?? '',
+          customVars: { ...config.branchTemplate?.customVars, ...override.customVars },
         }
       }
     }
     return {
-      template: config.branchTemplate.template,
-      customVars: config.branchTemplate.customVars,
+      template: config.branchTemplate?.template ?? '',
+      customVars: config.branchTemplate?.customVars ?? {},
     }
   })
 
