@@ -29,14 +29,14 @@ import { performance } from 'perf_hooks'
 const PERF = process.env.CANOPY_PERF === '1'
 if (PERF) performance.mark('app:init')
 
-// IPC traffic log for perf testing
+// IPC traffic log for perf testing (only allocated when CANOPY_PERF=1)
 interface IpcLogEntry {
   channel: string
   size: number
   ts: number
   dir: 'in' | 'out'
 }
-const ipcLog: IpcLogEntry[] = []
+const ipcLog: IpcLogEntry[] | null = PERF ? [] : null
 const MAX_IPC_LOG_ENTRIES = 50_000
 
 if (PERF) {
@@ -45,8 +45,8 @@ if (PERF) {
   const origHandle = ipcMain.handle.bind(ipcMain)
   ipcMain.handle = (channel: string, listener: Parameters<typeof ipcMain.handle>[1]) => {
     return origHandle(channel, (event, ...args) => {
-      if (!channel.startsWith('perf:') && ipcLog.length < MAX_IPC_LOG_ENTRIES) {
-        ipcLog.push({
+      if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
+        ipcLog!.push({
           channel,
           size: typeof args[0] === 'string' ? args[0].length : 0,
           ts: Date.now(),
@@ -60,8 +60,8 @@ if (PERF) {
   const origOn = ipcMain.on.bind(ipcMain)
   ipcMain.on = (channel: string, listener: Parameters<typeof ipcMain.on>[1]) => {
     return origOn(channel, (event, ...args) => {
-      if (!channel.startsWith('perf:') && ipcLog.length < MAX_IPC_LOG_ENTRIES) {
-        ipcLog.push({
+      if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
+        ipcLog!.push({
           channel,
           size: typeof args[0] === 'string' ? args[0].length : 0,
           ts: Date.now(),
@@ -518,7 +518,12 @@ app.whenReady().then(async () => {
       const origSend = wc.send.bind(wc)
       wc.send = (channel: string, ...args: unknown[]) => {
         if (!channel.startsWith('perf:')) {
-          ipcLog.push({ channel, size: JSON.stringify(args).length, ts: Date.now(), dir: 'out' })
+          ipcLog!.push({
+            channel,
+            size: typeof args[0] === 'string' ? args[0].length : 0,
+            ts: Date.now(),
+            dir: 'out',
+          })
         }
         return origSend(channel, ...args)
       }
@@ -530,7 +535,12 @@ app.whenReady().then(async () => {
       const origSend = wc.send.bind(wc)
       wc.send = (channel: string, ...args: unknown[]) => {
         if (!channel.startsWith('perf:')) {
-          ipcLog.push({ channel, size: JSON.stringify(args).length, ts: Date.now(), dir: 'out' })
+          ipcLog!.push({
+            channel,
+            size: typeof args[0] === 'string' ? args[0].length : 0,
+            ts: Date.now(),
+            dir: 'out',
+          })
         }
         return origSend(channel, ...args)
       }
@@ -551,8 +561,8 @@ app.whenReady().then(async () => {
     }))
 
     ipcMain.handle('perf:ipcLog', () => {
-      const snapshot = [...ipcLog]
-      ipcLog.length = 0
+      const snapshot = [...ipcLog!]
+      ipcLog!.length = 0
       return snapshot
     })
   }
