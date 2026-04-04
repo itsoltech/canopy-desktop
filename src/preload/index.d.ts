@@ -58,6 +58,7 @@ interface ToolDefinition {
 }
 
 type GitInfo = import('../main/git/GitRepository').GitInfo
+type ParsedDiff = import('../main/git/types').ParsedDiff
 type GitWorktreeInfo = import('../main/git/GitRepository').GitWorktreeInfo
 type GitRefreshFlags = import('../main/git/GitWatcher').GitRefreshFlags
 
@@ -349,6 +350,10 @@ interface CanopyAPI {
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) => Promise<void>
   gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
+  gitDiff: (repoRoot: string) => Promise<ParsedDiff>
+  gitDiffFile: (repoRoot: string, filePath: string) => Promise<ParsedDiff>
+  gitStageFile: (repoRoot: string, filePath: string) => Promise<void>
+  gitRevertFile: (repoRoot: string, filePath: string) => Promise<void>
   gitGenerateCommitMessage: (repoRoot: string) => Promise<string | null>
 
   // Browser (<webview> management)

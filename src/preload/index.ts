@@ -266,6 +266,13 @@ const api = {
     ipcRenderer.invoke('git:unmergedCommits', { repoRoot, branch }),
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) =>
     ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
+  gitDiff: (repoRoot: string) => ipcRenderer.invoke('git:diff', { repoRoot }),
+  gitDiffFile: (repoRoot: string, filePath: string) =>
+    ipcRenderer.invoke('git:diffFile', { repoRoot, filePath }),
+  gitStageFile: (repoRoot: string, filePath: string) =>
+    ipcRenderer.invoke('git:stageFile', { repoRoot, filePath }),
+  gitRevertFile: (repoRoot: string, filePath: string) =>
+    ipcRenderer.invoke('git:revertFile', { repoRoot, filePath }),
   gitGenerateCommitMessage: (repoRoot: string) =>
     ipcRenderer.invoke('git:generateCommitMessage', { repoRoot }),
 

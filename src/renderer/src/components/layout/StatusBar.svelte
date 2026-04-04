@@ -1,6 +1,6 @@
 <script lang="ts">
   import { match } from 'ts-pattern'
-  import { workspaceState, projects, toggleInspector } from '../../lib/stores/workspace.svelte'
+  import { workspaceState, projects, toggleRightPanel } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
   import { getAllTabs, activeTabId, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
@@ -319,7 +319,7 @@
         class="status-item inspector-toggle"
         aria-label="Toggle Inspector"
         title="Toggle Inspector"
-        onclick={() => toggleInspector()}
+        onclick={() => toggleRightPanel()}
       >
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
           <path
