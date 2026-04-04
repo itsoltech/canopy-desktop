@@ -7,13 +7,14 @@
   import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
   import { WebLinksAddon } from '@xterm/addon-web-links'
   import '@xterm/xterm/css/xterm.css'
-  import { prefs } from '../stores/preferences.svelte'
+  import { prefs, getPref } from '../stores/preferences.svelte'
   import { getTheme } from './themes'
   import { showUrlToast } from '../stores/toast.svelte'
   import { openTool } from '../stores/tabs.svelte'
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
   import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
+  import { recordKeyEvent, cleanupKeystrokeSession } from '../stores/keystrokeVisualizer.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -324,6 +325,7 @@
   onMount(() => {
     let fontsReady = false
     let initScheduled = false
+    let keystrokeHandler: ((e: KeyboardEvent) => void) | null = null
 
     function initTerminal(): void {
       if (disposed) return
@@ -390,6 +392,14 @@
       }
 
       const isMac = navigator.userAgent.includes('Mac')
+
+      // Keystroke visualizer — capture keydown on container (avoids xterm API interference)
+      if (getPref('keystrokeVisualizer.enabled') === 'true') {
+        keystrokeHandler = (e: KeyboardEvent): void => {
+          setTimeout(() => recordKeyEvent(sessionId, e), 0)
+        }
+        containerEl.addEventListener('keydown', keystrokeHandler, true)
+      }
 
       term.attachCustomKeyEventHandler((event) => {
         if (event.type === 'keydown') {
@@ -486,6 +496,8 @@
       disposed = true
       startTerminal = null
       cleanupSession(sessionId)
+      cleanupKeystrokeSession(sessionId)
+      if (keystrokeHandler) containerEl.removeEventListener('keydown', keystrokeHandler, true)
       disconnectWs({ suppressStatus: true })
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
@@ -504,13 +516,13 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="terminal-container"
+  class="terminal-outer"
   class:dragging
-  bind:this={containerEl}
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
+  <div class="terminal-container" bind:this={containerEl}></div>
   {#if progressState > 0}
     <div
       class="progress-bar"
@@ -526,13 +538,19 @@
 </div>
 
 <style>
-  .terminal-container {
+  .terminal-outer {
     width: 100%;
     height: 100%;
     padding: 8px;
     box-sizing: border-box;
     background-color: var(--c-bg, #1e1e1e);
     position: relative;
+    overflow: hidden;
+  }
+
+  .terminal-container {
+    width: 100%;
+    height: 100%;
   }
 
   .progress-bar {

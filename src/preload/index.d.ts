@@ -565,6 +565,25 @@ interface CanopyAPI {
 
   taskTrackerFindPR: (repoRoot: string, branch: string) => Promise<string | null>
 
+  // Performance diagnostics (only present when CANOPY_PERF=1)
+  perfDiagnostics?: () => Promise<{
+    ptySessionCount: number
+    wsBridgeCount: number
+    agentSessionCount: number
+    gitWatcherCount: number
+    windowCount: number
+    heapUsed: number
+    rss: number
+    uptime: number
+    marks: Array<{ name: string; startTime: number }>
+  } | null>
+  perfIpcLog?: () => Promise<Array<{
+    channel: string
+    size: number
+    ts: number
+    dir: string
+  }> | null>
+
   // File utilities
   getPathForFile: (file: File) => string
 }
