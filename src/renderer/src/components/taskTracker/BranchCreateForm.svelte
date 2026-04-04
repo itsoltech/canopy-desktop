@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
+  import { onMount } from 'svelte'
   import { X, ExternalLink, ArrowLeft } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
@@ -117,17 +117,22 @@
       closeDialog()
 
       if (selectedAgentId) {
+        // Capture values before component is destroyed by closeDialog
+        const agentId = selectedAgentId
+        const connId = connectionId
+        const taskSnapshot = JSON.parse(JSON.stringify(fullTask)) as typeof fullTask
+
         // Open agent tab BEFORE switching worktree so ensureDefaultTab
         // sees an existing tab and doesn't race with a shell tab
         try {
-          const tab = await openTool(selectedAgentId, worktreePath)
+          const tab = await openTool(agentId, worktreePath)
           await selectWorktree(worktreePath)
           const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
           if (pane) {
             const sessionId = pane.sessionId
-            const ready = await waitForAgentReady(sessionId)
+            const ready = await waitForAgentIdle(sessionId)
             if (ready) {
-              const context = await fetchAndFormatTaskContext(connectionId, fullTask)
+              const context = await fetchAndFormatTaskContext(connId, taskSnapshot)
               await window.api.writePty(sessionId, context + '\n')
             }
           }
@@ -149,14 +154,10 @@
     }
   }
 
-  const abortController = new AbortController()
-
-  async function waitForAgentReady(sessionId: string, timeoutMs = 30000): Promise<boolean> {
-    const signal = abortController.signal
+  async function waitForAgentIdle(sessionId: string, timeoutMs = 30000): Promise<boolean> {
     await new Promise((r) => setTimeout(r, 500))
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
-      if (signal.aborted) return false
       const session = agentSessions[sessionId]
       if (session?.status.type === 'idle') return true
       if (session?.status.type === 'ended' || session?.status.type === 'error') return false
@@ -167,10 +168,6 @@
 
   onMount(() => {
     init()
-  })
-
-  onDestroy(() => {
-    abortController.abort()
   })
 </script>
 
