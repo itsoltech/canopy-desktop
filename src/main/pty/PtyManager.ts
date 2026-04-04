@@ -130,6 +130,10 @@ export class PtyManager {
     }
   }
 
+  get sessionCount(): number {
+    return this.sessions.size
+  }
+
   dispose(): void {
     for (const [id, session] of this.sessions) {
       try {
