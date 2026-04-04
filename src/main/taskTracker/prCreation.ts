@@ -49,6 +49,20 @@ export async function createPullRequest(params: CreatePRParams): Promise<CreateP
     throw new Error('GitHub CLI (gh) is not installed. Install it to create PRs automatically.')
   }
 
+  // Check if PR already exists for this branch
+  try {
+    const { stdout: existing } = await execFileAsync(
+      'gh',
+      ['pr', 'view', sourceBranch, '--json', 'url', '--jq', '.url'],
+      { cwd: repoRoot },
+    )
+    if (existing.trim()) {
+      return { url: existing.trim(), title, targetBranch }
+    }
+  } catch {
+    // No existing PR — proceed to create
+  }
+
   const { stdout } = await execFileAsync(
     'gh',
     [
