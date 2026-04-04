@@ -27,6 +27,8 @@ const execFileAsync = promisify(execFile)
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
+import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
+import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
 import type { TaskTrackerProvider, TrackerTask } from '../taskTracker/types'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { gitErrorMessage } from '../git/errors'
@@ -65,6 +67,8 @@ export function registerIpcHandlers(
   onboardingStore: OnboardingStore,
   tmuxManager: TmuxManager,
   taskTrackerManager: TaskTrackerManager,
+  repoConfigManager: RepoConfigManager,
+  keychainTokenStore: KeychainTokenStore,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -1061,6 +1065,71 @@ export function registerIpcHandlers(
       await fd.close()
     }
   })
+
+  // --- Repo Config ---
+
+  ipcMain.handle('repoConfig:load', (_event, payload: { repoRoot: string }) => {
+    const result = repoConfigManager.load(payload.repoRoot)
+    return result.unwrapOr(null)
+  })
+
+  ipcMain.handle(
+    'repoConfig:save',
+    (_event, payload: { repoRoot: string; config: import('../taskTracker/types').RepoConfig }) => {
+      const result = repoConfigManager.save(payload.repoRoot, payload.config)
+      unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle('repoConfig:exists', (_event, payload: { repoRoot: string }) => {
+    return repoConfigManager.exists(payload.repoRoot)
+  })
+
+  ipcMain.handle('repoConfig:init', (_event, payload: { repoRoot: string }) => {
+    const result = repoConfigManager.init(payload.repoRoot)
+    return unwrapOrThrow(result, taskTrackerErrorMessage)
+  })
+
+  // --- Keychain ---
+
+  ipcMain.handle(
+    'keychain:hasCredentials',
+    (_event, payload: { provider: string; baseUrl: string }) => {
+      return keychainTokenStore.hasCredentials(payload.provider, payload.baseUrl)
+    },
+  )
+
+  ipcMain.handle(
+    'keychain:setCredentials',
+    (_event, payload: { provider: string; baseUrl: string; token: string; username?: string }) => {
+      if (!payload.provider || !payload.baseUrl) {
+        throw new Error('Provider and baseUrl are required')
+      }
+      keychainTokenStore.setCredentials(
+        payload.provider,
+        payload.baseUrl,
+        payload.token,
+        payload.username,
+      )
+    },
+  )
+
+  ipcMain.handle(
+    'keychain:deleteCredentials',
+    (_event, payload: { provider: string; baseUrl: string }) => {
+      keychainTokenStore.deleteCredentials(payload.provider, payload.baseUrl)
+    },
+  )
+
+  ipcMain.handle(
+    'keychain:getCredentials',
+    (_event, payload: { provider: string; baseUrl: string }) => {
+      const creds = keychainTokenStore.getCredentials(payload.provider, payload.baseUrl)
+      if (!creds) return null
+      // Never send token to renderer — only username and hasToken flag
+      return { username: creds.username, hasToken: true }
+    },
+  )
 
   // --- Task Tracker ---
 

@@ -90,6 +90,31 @@ export interface TaskTrackerConfig {
   filters: Record<string, TaskFilterConfig>
 }
 
+// --- Repo-level config types ---
+
+export interface TrackerConfig {
+  provider: TaskTrackerProvider
+  baseUrl: string
+}
+
+export interface BoardOverride {
+  branchTemplate?: Partial<BranchTemplateConfig & { typeMapping: Record<string, string> }>
+  prTemplate?: Partial<PRTemplateConfig>
+}
+
+export interface ProjectConfig {
+  branchTemplate: BranchTemplateConfig & { typeMapping?: Record<string, string> }
+  prTemplate: PRTemplateConfig
+  boardOverrides: Record<string, BoardOverride>
+}
+
+export interface RepoConfig {
+  version: 1
+  tracker: TrackerConfig
+  projects: Record<string, ProjectConfig>
+  filters: TaskFilterConfig
+}
+
 export interface TaskTrackerExportData {
   version: number
   exportedAt: string

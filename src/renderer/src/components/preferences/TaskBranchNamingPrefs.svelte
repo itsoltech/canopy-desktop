@@ -1,56 +1,39 @@
 <script lang="ts">
   import { Plus, Trash2 } from '@lucide/svelte'
-  import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
 
-  interface ConnectionInfo {
-    id: string
-    name: string
-    provider: string
-    baseUrl: string
+  interface Props {
+    repoRoot: string
     projectKey: string
-    boardId?: string
-    username?: string
-  }
-
-  let {
-    connections,
-    scopeBoards,
-    placeholders,
-    onTemplateChanged,
-  }: {
-    connections: ConnectionInfo[]
-    scopeBoards: Record<string, Array<{ id: string; name: string }>>
+    boards: Array<{ id: string; name: string }>
     placeholders: Array<{ key: string; description: string; example: string }>
     onTemplateChanged: () => void
-  } = $props()
-
-  type TemplateScope = 'global' | string
-  let templateScope = $state<TemplateScope>('global')
-
-  function templatePrefKey(scope: TemplateScope): string {
-    return scope === 'global' ? 'taskTracker.branchTemplate' : `taskTracker.branchTemplate.${scope}`
   }
 
-  let branchTemplate = $derived.by(() => {
-    const raw = prefs[templatePrefKey(templateScope)]
-    const fallback = { template: '', customVars: {} as Record<string, string> }
-    if (!raw) return fallback
-    try {
-      return JSON.parse(raw) as { template: string; customVars: Record<string, string> }
-    } catch {
-      return fallback
-    }
-  })
+  let { repoRoot, projectKey, boards, placeholders, onTemplateChanged }: Props = $props()
 
-  let globalTemplate = $derived.by(() => {
-    const raw = prefs['taskTracker.branchTemplate']
-    if (!raw) return ''
-    try {
-      return (JSON.parse(raw) as { template: string }).template ?? ''
-    } catch {
-      return ''
+  let config = $derived(getRepoConfig())
+  let project = $derived(config?.projects[projectKey])
+
+  type TemplateScope = 'default' | string
+  let templateScope = $state<TemplateScope>('default')
+
+  let branchTemplate = $derived.by(() => {
+    if (!project) return { template: '', customVars: {} as Record<string, string> }
+    if (templateScope !== 'default') {
+      const override = project.boardOverrides[templateScope]?.branchTemplate
+      if (override) {
+        return {
+          template: override.template ?? project.branchTemplate.template,
+          customVars: { ...project.branchTemplate.customVars, ...override.customVars },
+        }
+      }
+    }
+    return {
+      template: project.branchTemplate.template,
+      customVars: project.branchTemplate.customVars,
     }
   })
 
@@ -68,46 +51,56 @@
     }
   }
 
-  function saveBranchTemplate(): void {
-    setPref(
-      templatePrefKey(templateScope),
-      JSON.stringify({ template: templateInput, customVars: branchTemplate.customVars }),
-    )
+  async function saveBranchTemplate(): Promise<void> {
+    if (!config || !project) return
+    const updated = structuredClone($state.snapshot(config)) as typeof config
+    if (templateScope === 'default') {
+      updated.projects[projectKey].branchTemplate = {
+        ...updated.projects[projectKey].branchTemplate,
+        template: templateInput,
+        customVars: branchTemplate.customVars,
+      }
+    } else {
+      if (!updated.projects[projectKey].boardOverrides[templateScope]) {
+        updated.projects[projectKey].boardOverrides[templateScope] = {}
+      }
+      updated.projects[projectKey].boardOverrides[templateScope].branchTemplate = {
+        template: templateInput,
+        customVars: branchTemplate.customVars,
+      }
+    }
+    await saveRepoConfig(repoRoot, updated)
     updatePreview()
     onTemplateChanged()
   }
 
-  async function refreshPlaceholders(): Promise<void> {
-    try {
-      const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
-      await window.api.taskTrackerGetAvailablePlaceholders(vars)
-    } catch {
-      // keep current
-    }
-  }
-
-  function addCustomVar(): void {
-    if (!newVarKey.trim()) return
+  async function addCustomVar(): Promise<void> {
+    if (!newVarKey.trim() || !config || !project) return
     const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
-    setPref(
-      'taskTracker.branchTemplate',
-      JSON.stringify({ template: templateInput, customVars: vars }),
-    )
+    const updated = structuredClone($state.snapshot(config)) as typeof config
+    updated.projects[projectKey].branchTemplate = {
+      ...updated.projects[projectKey].branchTemplate,
+      customVars: vars,
+    }
+    await saveRepoConfig(repoRoot, updated)
     newVarKey = ''
     newVarValue = ''
     updatePreview()
-    refreshPlaceholders()
+    onTemplateChanged()
   }
 
-  function removeCustomVar(key: string): void {
+  async function removeCustomVar(key: string): Promise<void> {
+    if (!config || !project) return
     const vars = { ...branchTemplate.customVars }
     delete vars[key]
-    setPref(
-      'taskTracker.branchTemplate',
-      JSON.stringify({ template: templateInput, customVars: vars }),
-    )
+    const updated = structuredClone($state.snapshot(config)) as typeof config
+    updated.projects[projectKey].branchTemplate = {
+      ...updated.projects[projectKey].branchTemplate,
+      customVars: vars,
+    }
+    await saveRepoConfig(repoRoot, updated)
     updatePreview()
-    refreshPlaceholders()
+    onTemplateChanged()
   }
 
   export function initTemplate(template: string): void {
@@ -117,28 +110,16 @@
 </script>
 
 <div class="section">
-  <h3 class="section-title">Branch Naming</h3>
-  <p class="section-desc">
-    Configure per board, connection, or globally. Board overrides connection, connection overrides
-    global.
-  </p>
+  <h3 class="section-title">Branch Naming — {projectKey}</h3>
+  <p class="section-desc">Configure per board or use default. Board overrides default template.</p>
 
   <div class="form-row">
     <label class="form-label">Scope</label>
     <CustomSelect
       value={templateScope}
-      groups={[
-        { label: '', options: [{ value: 'global', label: 'Global (default)' }] },
-        ...connections.map((conn) => ({
-          label: conn.name,
-          options: [
-            { value: conn.id, label: 'All boards' },
-            ...(scopeBoards[conn.id] ?? []).map((b) => ({
-              value: `${conn.id}.${b.id}`,
-              label: b.name,
-            })),
-          ],
-        })),
+      options={[
+        { value: 'default', label: 'All boards (default)' },
+        ...boards.map((b) => ({ value: b.id, label: b.name })),
       ]}
       onchange={(v) => {
         templateScope = v
@@ -148,10 +129,9 @@
       maxWidth="none"
     />
   </div>
-  {#if templateScope !== 'global' && !branchTemplate.template}
+  {#if templateScope !== 'default' && !project?.boardOverrides[templateScope]?.branchTemplate}
     <p class="section-desc">
-      No override set — uses {globalTemplate ? 'global' : 'default'} template. Edit below to create an
-      override.
+      No override set — uses default template. Edit below to create an override.
     </p>
   {/if}
 

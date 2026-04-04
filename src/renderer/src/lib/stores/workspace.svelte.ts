@@ -1,4 +1,6 @@
 import { restoreLayout } from './tabs.svelte'
+import { loadRepoConfig, getRepoConfig, getHasCredentials } from './taskTracker.svelte'
+import { addToast } from './toast.svelte'
 
 function basename(p: string): string {
   return p.split('/').pop() || p
@@ -210,6 +212,14 @@ async function attachProjectImpl(
   // Start git watcher if git repo
   if (info.isGitRepo && info.repoRoot) {
     await window.api.gitWatch(info.repoRoot, info)
+  }
+
+  // Auto-detect .canopy/config.json for task tracker
+  if (info.repoRoot) {
+    await loadRepoConfig(info.repoRoot)
+    if (getRepoConfig() && !getHasCredentials()) {
+      addToast('Tracker requires authentication — configure token in Preferences')
+    }
   }
 
   // Restore saved layouts BEFORE selecting worktree so that ensureDefaultTab

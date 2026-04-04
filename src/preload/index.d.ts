@@ -446,6 +446,26 @@ interface CanopyAPI {
   readDir: (dirPath: string) => Promise<DirEntry[]>
   readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
 
+  // Repo Config
+  repoConfigLoad: (repoRoot: string) => Promise<RepoConfig | null>
+  repoConfigSave: (repoRoot: string, config: RepoConfig) => Promise<void>
+  repoConfigExists: (repoRoot: string) => Promise<boolean>
+  repoConfigInit: (repoRoot: string) => Promise<RepoConfig>
+
+  // Keychain
+  keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
+  keychainSetCredentials: (
+    provider: string,
+    baseUrl: string,
+    token: string,
+    username?: string,
+  ) => Promise<void>
+  keychainDeleteCredentials: (provider: string, baseUrl: string) => Promise<void>
+  keychainGetCredentials: (
+    provider: string,
+    baseUrl: string,
+  ) => Promise<{ username?: string; hasToken: boolean } | null>
+
   // Task Tracker
   taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
   taskTrackerAddConnection: (connection: {
@@ -547,6 +567,52 @@ interface CanopyAPI {
 }
 
 type TaskTrackerProvider = 'jira' | 'youtrack'
+
+interface TrackerConfig {
+  provider: TaskTrackerProvider
+  baseUrl: string
+}
+
+interface BranchTemplateConfig {
+  template: string
+  customVars: Record<string, string>
+  typeMapping?: Record<string, string>
+}
+
+interface PRTargetRule {
+  taskType: string
+  targetPattern: string
+}
+
+interface PRTemplateConfig {
+  titleTemplate: string
+  bodyTemplate: string
+  defaultTargetBranch: string
+  targetRules: PRTargetRule[]
+}
+
+interface TaskFilterConfig {
+  assignedToMe: boolean
+  statuses: string[]
+}
+
+interface BoardOverride {
+  branchTemplate?: Partial<BranchTemplateConfig>
+  prTemplate?: Partial<PRTemplateConfig>
+}
+
+interface ProjectConfig {
+  branchTemplate: BranchTemplateConfig
+  prTemplate: PRTemplateConfig
+  boardOverrides: Record<string, BoardOverride>
+}
+
+interface RepoConfig {
+  version: 1
+  tracker: TrackerConfig
+  projects: Record<string, ProjectConfig>
+  filters: TaskFilterConfig
+}
 
 interface TaskTrackerConnectionInfo {
   id: string

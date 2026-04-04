@@ -1,38 +1,21 @@
 <script lang="ts">
-  import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
 
-  interface ConnectionInfo {
-    id: string
-    name: string
-    provider: string
-    baseUrl: string
+  interface Props {
+    repoRoot: string
     projectKey: string
-    boardId?: string
-    username?: string
+    boards: Array<{ id: string; name: string }>
   }
 
-  let {
-    connections,
-    scopeBoards,
-  }: {
-    connections: ConnectionInfo[]
-    scopeBoards: Record<string, Array<{ id: string; name: string }>>
-  } = $props()
+  let { repoRoot, projectKey, boards }: Props = $props()
 
-  type TemplateScope = 'global' | string
-  let prScope = $state<TemplateScope>('global')
+  let config = $derived(getRepoConfig())
+  let project = $derived(config?.projects[projectKey])
 
-  function prPrefKey(scope: TemplateScope): string {
-    return scope === 'global' ? 'taskTracker.pr' : `taskTracker.pr.${scope}`
-  }
-
-  interface PRConfig {
-    titleTemplate: string
-    bodyTemplate: string
-    defaultBranch: string
-  }
+  type TemplateScope = 'default' | string
+  let prScope = $state<TemplateScope>('default')
 
   const PR_TAGS = [
     { key: 'taskKey', description: 'Task key (e.g. ISSUE-123)', example: 'ISSUE-123' },
@@ -41,71 +24,89 @@
     { key: 'boardKey', description: 'Board/project key', example: 'ISSUE' },
   ]
 
-  let prConfig = $derived.by((): PRConfig => {
-    const raw = prefs[prPrefKey(prScope)]
-    if (raw) {
-      try {
-        const c = JSON.parse(raw) as Partial<PRConfig>
-        return {
-          titleTemplate: c.titleTemplate || '',
-          bodyTemplate: c.bodyTemplate || '',
-          defaultBranch: c.defaultBranch || 'develop',
-        }
-      } catch {
-        // fall through
+  let prTemplate = $derived.by(() => {
+    if (!project) {
+      return {
+        titleTemplate: '',
+        bodyTemplate: '',
+        defaultTargetBranch: 'develop',
+        targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
       }
     }
-    return {
-      titleTemplate: prefs['taskTracker.prTitleTemplate'] || '',
-      bodyTemplate: prefs['taskTracker.prBodyTemplate'] || '',
-      defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop',
+    if (prScope !== 'default') {
+      const override = project.boardOverrides[prScope]?.prTemplate
+      if (override) {
+        return {
+          titleTemplate: override.titleTemplate ?? project.prTemplate.titleTemplate,
+          bodyTemplate: override.bodyTemplate ?? project.prTemplate.bodyTemplate,
+          defaultTargetBranch:
+            override.defaultTargetBranch ?? project.prTemplate.defaultTargetBranch,
+          targetRules: override.targetRules ?? project.prTemplate.targetRules,
+        }
+      }
     }
+    return project.prTemplate
   })
 
   let titleTemplateInput = $state('')
   let bodyTemplateInput = $state('')
+  let defaultTargetBranch = $state('develop')
+  let initialized = $state(false)
 
   $effect(() => {
-    titleTemplateInput = prConfig.titleTemplate
-    bodyTemplateInput = prConfig.bodyTemplate
+    if (prTemplate && !initialized) {
+      titleTemplateInput = prTemplate.titleTemplate
+      bodyTemplateInput = prTemplate.bodyTemplate
+      defaultTargetBranch = prTemplate.defaultTargetBranch
+      initialized = true
+    }
   })
 
-  function savePRConfig(field: keyof PRConfig, value: string): void {
-    const current = { ...prConfig, [field]: value }
-    setPref(prPrefKey(prScope), JSON.stringify(current))
+  async function savePRField(field: string, value: string): Promise<void> {
+    if (!config || !project) return
+    const updated = structuredClone($state.snapshot(config)) as typeof config
+    if (prScope === 'default') {
+      updated.projects[projectKey].prTemplate = {
+        ...updated.projects[projectKey].prTemplate,
+        [field]: value,
+      }
+    } else {
+      if (!updated.projects[projectKey].boardOverrides[prScope]) {
+        updated.projects[projectKey].boardOverrides[prScope] = {}
+      }
+      updated.projects[projectKey].boardOverrides[prScope].prTemplate = {
+        ...updated.projects[projectKey].boardOverrides[prScope].prTemplate,
+        [field]: value,
+      }
+    }
+    await saveRepoConfig(repoRoot, updated)
   }
 
   function onTitleTemplateSave(): void {
-    savePRConfig('titleTemplate', titleTemplateInput)
+    savePRField('titleTemplate', titleTemplateInput)
   }
 
   function onBodyTemplateSave(): void {
-    savePRConfig('bodyTemplate', bodyTemplateInput)
+    savePRField('bodyTemplate', bodyTemplateInput)
   }
 </script>
 
 <div class="section">
-  <h3 class="section-title">Pull Request Naming</h3>
-  <p class="section-desc">Configure per board, connection, or globally.</p>
+  <h3 class="section-title">Pull Request Naming — {projectKey}</h3>
+  <p class="section-desc">Configure per board or use default.</p>
 
   <div class="form-row">
     <label class="form-label">Scope</label>
     <CustomSelect
       value={prScope}
-      groups={[
-        { label: '', options: [{ value: 'global', label: 'Global (default)' }] },
-        ...connections.map((conn) => ({
-          label: conn.name,
-          options: [
-            { value: conn.id, label: 'All boards' },
-            ...(scopeBoards[conn.id] ?? []).map((b) => ({
-              value: `${conn.id}.${b.id}`,
-              label: b.name,
-            })),
-          ],
-        })),
+      options={[
+        { value: 'default', label: 'All boards (default)' },
+        ...boards.map((b) => ({ value: b.id, label: b.name })),
       ]}
-      onchange={(v) => (prScope = v)}
+      onchange={(v) => {
+        prScope = v
+        initialized = false
+      }}
       maxWidth="none"
     />
   </div>
@@ -140,8 +141,8 @@
     <label class="form-label">Default Target Branch</label>
     <input
       class="form-input"
-      value={prConfig.defaultBranch}
-      oninput={(e) => savePRConfig('defaultBranch', (e.target as HTMLInputElement).value)}
+      bind:value={defaultTargetBranch}
+      oninput={() => savePRField('defaultTargetBranch', defaultTargetBranch)}
       placeholder="develop"
     />
   </div>

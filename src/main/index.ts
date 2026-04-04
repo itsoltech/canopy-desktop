@@ -21,6 +21,8 @@ import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
+import { KeychainTokenStore } from './taskTracker/KeychainTokenStore'
+import { RepoConfigManager } from './taskTracker/RepoConfigManager'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
@@ -439,7 +441,9 @@ app.whenReady().then(async () => {
   windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
-  const taskTrackerManager = new TaskTrackerManager(preferencesStore)
+  const keychainTokenStore = new KeychainTokenStore(preferencesStore)
+  const repoConfigManager = new RepoConfigManager()
+  const taskTrackerManager = new TaskTrackerManager(preferencesStore, keychainTokenStore)
 
   registerIpcHandlers(
     ptyManager,
@@ -455,6 +459,8 @@ app.whenReady().then(async () => {
     onboardingStore,
     tmuxManager,
     taskTrackerManager,
+    repoConfigManager,
+    keychainTokenStore,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {

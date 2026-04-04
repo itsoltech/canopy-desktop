@@ -6,6 +6,9 @@ export type TaskTrackerError =
   | { _tag: 'AuthTokenMissing'; connectionName: string }
   | { _tag: 'ProviderApiError'; status: number; message: string; provider: TaskTrackerProvider }
   | { _tag: 'AttachmentDownloadFailed'; filename: string; reason: string }
+  | { _tag: 'ConfigNotFound'; repoRoot: string }
+  | { _tag: 'ConfigParseError'; repoRoot: string; reason: string }
+  | { _tag: 'ConfigWriteError'; repoRoot: string; reason: string }
 
 export function taskTrackerErrorMessage(error: TaskTrackerError): string {
   return match(error)
@@ -15,6 +18,15 @@ export function taskTrackerErrorMessage(error: TaskTrackerError): string {
     .with(
       { _tag: 'AttachmentDownloadFailed' },
       (e) => `Failed to download ${e.filename}: ${e.reason}`,
+    )
+    .with(
+      { _tag: 'ConfigNotFound' },
+      (e) => `Config not found at ${e.repoRoot}/.canopy/config.json`,
+    )
+    .with({ _tag: 'ConfigParseError' }, (e) => `Invalid config in ${e.repoRoot}: ${e.reason}`)
+    .with(
+      { _tag: 'ConfigWriteError' },
+      (e) => `Failed to write config in ${e.repoRoot}: ${e.reason}`,
     )
     .exhaustive()
 }

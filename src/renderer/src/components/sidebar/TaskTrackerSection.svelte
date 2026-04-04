@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { SquareKanban, Plus, ExternalLink } from '@lucide/svelte'
+  import { SquareKanban, Plus, ExternalLink, Settings } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
-    getTaskTrackerConnections,
+    getRepoConfig,
+    getHasCredentials,
     isTaskTrackerLoading,
+    getTaskTrackerConnections,
     loadConnections,
   } from '../../lib/stores/taskTracker.svelte'
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
@@ -14,8 +16,11 @@
     loadConnections()
   })
 
-  let connections = $derived(getTaskTrackerConnections())
+  let config = $derived(getRepoConfig())
+  let hasCreds = $derived(getHasCredentials())
   let loading = $derived(isTaskTrackerLoading())
+  let connections = $derived(getTaskTrackerConnections())
+  let projectKeys = $derived(config ? Object.keys(config.projects) : [])
 
   function providerLabel(provider: string): string {
     if (provider === 'jira') return 'Jira'
@@ -35,34 +40,50 @@
 <CollapsibleSection title="TASKS" sectionKey="tasks" borderTop>
   {#if loading}
     <div class="loading">Loading...</div>
-  {:else if connections.length === 0}
-    <div class="empty-state">
-      <button class="connect-btn" onclick={openTrackerPrefs}>
-        <Plus size={14} />
-        Connect Tracker
+  {:else if config}
+    <ul class="tracker-list">
+      <li>
+        <button
+          class="tracker-item"
+          onclick={() => {
+            if (connections.length > 0) {
+              browseTasks(connections[0].id)
+            }
+          }}
+          disabled={!hasCreds || connections.length === 0}
+          title={hasCreds
+            ? `Browse tasks — ${providerLabel(config.tracker.provider)}`
+            : 'Credentials required'}
+        >
+          <SquareKanban size={14} />
+          <span class="tracker-name"
+            >{projectKeys.length > 0 ? projectKeys.join(', ') : config.tracker.baseUrl}</span
+          >
+          <span class="tracker-provider">{providerLabel(config.tracker.provider)}</span>
+          {#if hasCreds}
+            <ExternalLink size={12} />
+          {/if}
+        </button>
+      </li>
+    </ul>
+    {#if !hasCreds}
+      <div class="token-hint">
+        <button class="connect-btn" onclick={openTrackerPrefs}>
+          Credentials required — configure in Preferences
+        </button>
+      </div>
+    {/if}
+    <div class="add-row">
+      <button class="add-btn" onclick={openTrackerPrefs} title="Configure tracker">
+        <Settings size={12} />
+        <span>Settings</span>
       </button>
     </div>
   {:else}
-    <ul class="tracker-list">
-      {#each connections as conn (conn.id)}
-        <li>
-          <button
-            class="tracker-item"
-            onclick={() => browseTasks(conn.id)}
-            title="Browse tasks from {conn.name}"
-          >
-            <SquareKanban size={14} />
-            <span class="tracker-name">{conn.name}</span>
-            <span class="tracker-provider">{providerLabel(conn.provider)}</span>
-            <ExternalLink size={12} />
-          </button>
-        </li>
-      {/each}
-    </ul>
-    <div class="add-row">
-      <button class="add-btn" onclick={openTrackerPrefs} title="Manage connections">
-        <Plus size={12} />
-        <span>Add</span>
+    <div class="empty-state">
+      <button class="connect-btn" onclick={openTrackerPrefs}>
+        <Plus size={14} />
+        Configure Tracker
       </button>
     </div>
   {/if}
@@ -77,6 +98,10 @@
 
   .empty-state {
     padding: 8px 12px;
+  }
+
+  .token-hint {
+    padding: 4px 12px;
   }
 
   .connect-btn {
@@ -125,8 +150,13 @@
     transition: background 0.1s;
   }
 
-  .tracker-item:hover {
+  .tracker-item:hover:not(:disabled) {
     background: var(--c-hover);
+  }
+
+  .tracker-item:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .tracker-name {

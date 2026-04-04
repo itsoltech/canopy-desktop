@@ -510,6 +510,27 @@ const api = {
   readFile: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
 
+  // Repo Config
+  repoConfigLoad: (repoRoot: string) => ipcRenderer.invoke('repoConfig:load', { repoRoot }),
+  repoConfigSave: (repoRoot: string, config: unknown) =>
+    ipcRenderer.invoke('repoConfig:save', { repoRoot, config }),
+  repoConfigExists: (repoRoot: string) =>
+    ipcRenderer.invoke('repoConfig:exists', { repoRoot }) as Promise<boolean>,
+  repoConfigInit: (repoRoot: string) => ipcRenderer.invoke('repoConfig:init', { repoRoot }),
+
+  // Keychain
+  keychainHasCredentials: (provider: string, baseUrl: string) =>
+    ipcRenderer.invoke('keychain:hasCredentials', { provider, baseUrl }) as Promise<boolean>,
+  keychainSetCredentials: (provider: string, baseUrl: string, token: string, username?: string) =>
+    ipcRenderer.invoke('keychain:setCredentials', { provider, baseUrl, token, username }),
+  keychainDeleteCredentials: (provider: string, baseUrl: string) =>
+    ipcRenderer.invoke('keychain:deleteCredentials', { provider, baseUrl }),
+  keychainGetCredentials: (provider: string, baseUrl: string) =>
+    ipcRenderer.invoke('keychain:getCredentials', { provider, baseUrl }) as Promise<{
+      username?: string
+      hasToken: boolean
+    } | null>,
+
   // Task Tracker
   taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),
   taskTrackerAddConnection: (connection: {

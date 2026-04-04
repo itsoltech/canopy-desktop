@@ -1,32 +1,58 @@
 <script lang="ts">
-  import { Plus, Trash2, Check, X, Pencil } from '@lucide/svelte'
+  import { Check, X } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
-  import { loadConnections, getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
-  import { confirm as confirmDialog } from '../../lib/stores/dialogs.svelte'
+  import {
+    getRepoConfig,
+    getHasCredentials,
+    getCredentialsInfo,
+    saveRepoConfig,
+    loadRepoConfig,
+  } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
 
-  let connections = $derived(getTaskTrackerConnections())
-  let showAddForm = $state(false)
-  let editingConnectionId = $state<string | null>(null)
-  let newProvider = $state<'jira' | 'youtrack'>('jira')
-  let newName = $state('')
-  let newBaseUrl = $state('')
-  let newUsername = $state('')
-  let newToken = $state('')
+  interface Props {
+    repoRoot: string
+  }
+
+  let { repoRoot }: Props = $props()
+
+  let config = $derived(getRepoConfig())
+  let credentialsPresent = $derived(getHasCredentials())
+  let credentialsInfo = $derived(getCredentialsInfo())
+
+  let provider = $state<'jira' | 'youtrack'>('jira')
+  let baseUrl = $state('')
+  let username = $state('')
+  let tokenInput = $state('')
   let testing = $state(false)
   let testResult = $state<'success' | 'fail' | ''>('')
+  let initialized = $state(false)
 
-  async function testNewConnection(): Promise<void> {
+  $effect(() => {
+    if (config && !initialized) {
+      provider = config.tracker.provider
+      baseUrl = config.tracker.baseUrl
+      initialized = true
+    }
+  })
+
+  $effect(() => {
+    if (credentialsInfo && !username) {
+      username = credentialsInfo.username ?? ''
+    }
+  })
+
+  async function testConnection(): Promise<void> {
     testing = true
     testResult = ''
     try {
       await window.api.taskTrackerTestNewConnection({
-        provider: newProvider,
-        name: newName,
-        baseUrl: newBaseUrl.replace(/\/$/, ''),
+        provider,
+        name: `${provider}:${baseUrl}`,
+        baseUrl: baseUrl.replace(/\/$/, ''),
         projectKey: '',
-        username: newUsername || undefined,
-        token: newToken,
+        username: username || undefined,
+        token: tokenInput,
       })
       testResult = 'success'
     } catch {
@@ -36,137 +62,105 @@
     }
   }
 
-  async function addConnection(): Promise<void> {
+  async function saveConfig(): Promise<void> {
+    if (!config) return
     try {
-      await window.api.taskTrackerAddConnection({
-        provider: newProvider,
-        name: newName,
-        baseUrl: newBaseUrl.replace(/\/$/, ''),
-        projectKey: '',
-        username: newUsername || undefined,
-        token: newToken,
-      })
-      await loadConnections()
-      resetAddForm()
-      addToast('Connection added')
+      const updated = {
+        ...config,
+        tracker: {
+          provider,
+          baseUrl: baseUrl.replace(/\/$/, ''),
+        },
+      }
+      await saveRepoConfig(repoRoot, updated)
+
+      if (tokenInput) {
+        await window.api.keychainSetCredentials(
+          provider,
+          baseUrl.replace(/\/$/, ''),
+          tokenInput,
+          username || undefined,
+        )
+        tokenInput = ''
+        await loadRepoConfig(repoRoot)
+      }
+
+      addToast('Tracker configuration saved')
     } catch (e) {
-      addToast(e instanceof Error ? e.message : 'Failed to add connection')
+      addToast(e instanceof Error ? e.message : 'Failed to save configuration')
     }
   }
 
-  async function removeConnection(id: string): Promise<void> {
-    const ok = await confirmDialog({
-      title: 'Remove Connection',
-      message: 'Remove this tracker connection? Saved credentials will be deleted.',
-      confirmLabel: 'Remove',
-      destructive: true,
-    })
-    if (!ok) return
-    await window.api.taskTrackerRemoveConnection(id)
-    await loadConnections()
-    addToast('Connection removed')
-  }
-
-  function editConnection(conn: {
-    id: string
-    provider: string
-    name: string
-    baseUrl: string
-    username?: string
-  }): void {
-    editingConnectionId = conn.id
-    showAddForm = true
-    newProvider = conn.provider as 'jira' | 'youtrack'
-    newName = conn.name
-    newBaseUrl = conn.baseUrl
-    newUsername = conn.username ?? ''
-    newToken = ''
-    testResult = ''
-  }
-
-  async function saveEditedConnection(): Promise<void> {
-    if (!editingConnectionId) return
+  async function deleteCredentials(): Promise<void> {
     try {
-      await window.api.taskTrackerUpdateConnection(editingConnectionId, {
-        name: newName,
-        baseUrl: newBaseUrl.replace(/\/$/, ''),
-        username: newUsername || undefined,
-        token: newToken || undefined,
-      })
-      await loadConnections()
-      resetAddForm()
-      addToast('Connection updated')
+      await window.api.keychainDeleteCredentials(provider, baseUrl.replace(/\/$/, ''))
+      await loadRepoConfig(repoRoot)
+      addToast('Credentials removed')
     } catch (e) {
-      addToast(e instanceof Error ? e.message : 'Failed to update connection')
+      addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
     }
-  }
-
-  function resetAddForm(): void {
-    showAddForm = false
-    editingConnectionId = null
-    newProvider = 'jira'
-    newName = ''
-    newBaseUrl = ''
-    newUsername = ''
-    newToken = ''
-    testResult = ''
   }
 </script>
 
 <div class="section">
-  <h3 class="section-title">Connections</h3>
-  <p class="section-desc">Connect to task tracking services.</p>
+  <h3 class="section-title">Tracker Connection</h3>
+  <p class="section-desc">Configure the task tracker for this repository.</p>
 
-  {#each connections as conn (conn.id)}
-    <div class="conn-row">
-      <span class="conn-provider">{conn.provider === 'jira' ? 'Jira' : 'YouTrack'}</span>
-      <span class="conn-name">{conn.name}</span>
-      <span class="conn-url" title={conn.baseUrl}>{conn.baseUrl}</span>
-      <button class="icon-btn" onclick={() => editConnection(conn)} title="Edit">
-        <Pencil size={14} />
-      </button>
-      <button class="icon-btn destructive" onclick={() => removeConnection(conn.id)} title="Remove">
-        <Trash2 size={14} />
-      </button>
-    </div>
-  {/each}
-
-  {#if showAddForm}
-    <div class="add-form">
+  {#if config}
+    <div class="form">
       <div class="form-row">
         <label class="form-label">Provider</label>
         <CustomSelect
-          value={newProvider}
+          value={provider}
           options={[
             { value: 'jira', label: 'Jira' },
             { value: 'youtrack', label: 'YouTrack' },
           ]}
-          onchange={(v) => (newProvider = v as 'jira' | 'youtrack')}
+          onchange={(v) => (provider = v as 'jira' | 'youtrack')}
           maxWidth="none"
         />
-      </div>
-      <div class="form-row">
-        <label class="form-label">Name</label>
-        <input class="form-input" bind:value={newName} placeholder="My Jira" />
       </div>
       <div class="form-row">
         <label class="form-label">Base URL</label>
         <input
           class="form-input"
-          bind:value={newBaseUrl}
+          bind:value={baseUrl}
           placeholder="https://company.atlassian.net"
         />
       </div>
-      {#if newProvider === 'jira'}
+
+      <div class="creds-section">
+        <h4 class="subsection-title">Credentials</h4>
+        <p class="section-desc">Stored locally per user — never committed to the repository.</p>
+        {#if provider === 'jira'}
+          <div class="form-row">
+            <label class="form-label">Email</label>
+            <input class="form-input" bind:value={username} placeholder="user@company.com" />
+          </div>
+        {/if}
         <div class="form-row">
-          <label class="form-label">Email</label>
-          <input class="form-input" bind:value={newUsername} placeholder="user@company.com" />
+          <label class="form-label">API Token</label>
+          <input
+            class="form-input"
+            type="password"
+            bind:value={tokenInput}
+            placeholder={credentialsPresent ? '••••••••' : 'Enter token'}
+          />
         </div>
-      {/if}
-      <div class="form-row">
-        <label class="form-label">API Token</label>
-        <input class="form-input" type="password" bind:value={newToken} placeholder="Enter token" />
+        <div class="token-status">
+          {#if credentialsPresent}
+            <span class="status-ok"
+              ><Check size={12} /> Authenticated{credentialsInfo?.username
+                ? ` as ${credentialsInfo.username}`
+                : ''}</span
+            >
+            <button class="btn-link" onclick={deleteCredentials}>Remove</button>
+          {:else}
+            <span class="status-missing">Credentials required</span>
+          {/if}
+        </div>
       </div>
+
       <div class="test-result" aria-live="polite">
         {#if testResult === 'success'}
           <span class="test-ok"><Check size={14} /> Connection OK</span>
@@ -174,28 +168,20 @@
           <span class="test-fail"><X size={14} /> Connection failed</span>
         {/if}
       </div>
+
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick={resetAddForm}>Cancel</button>
         <button
           class="btn btn-secondary"
-          onclick={testNewConnection}
-          disabled={testing || !newBaseUrl || !newToken}
+          onclick={testConnection}
+          disabled={testing || !baseUrl || (!tokenInput && !credentialsPresent)}
         >
-          {#if testing}Testing...{:else}Test{/if}
+          {#if testing}Testing...{:else}Test Connection{/if}
         </button>
-        <button
-          class="btn btn-primary"
-          onclick={editingConnectionId ? saveEditedConnection : addConnection}
-          disabled={!newName || !newBaseUrl || (!editingConnectionId && !newToken)}
-        >
-          {editingConnectionId ? 'Save' : 'Add'}
-        </button>
+        <button class="btn btn-primary" onclick={saveConfig} disabled={!baseUrl}> Save </button>
       </div>
     </div>
   {:else}
-    <button class="btn btn-secondary add-conn-btn" onclick={() => (showAddForm = true)}>
-      <Plus size={14} /> Add Connection
-    </button>
+    <p class="no-config">No tracker configured for this repository.</p>
   {/if}
 </div>
 
@@ -214,36 +200,13 @@
     color: var(--c-text-muted);
     margin: 0 0 12px;
   }
-  .conn-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--c-border-subtle);
+  .subsection-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--c-text-secondary);
+    margin: 0 0 4px;
   }
-  .conn-provider {
-    font-size: 11px;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    flex-shrink: 0;
-  }
-  .conn-name {
-    font-size: 13px;
-    color: var(--c-text);
-    flex-shrink: 0;
-  }
-  .conn-url {
-    font-size: 11px;
-    color: var(--c-text-faint);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-  .add-form {
-    margin-top: 8px;
+  .form {
     padding: 12px;
     border: 1px solid var(--c-border);
     border-radius: 8px;
@@ -261,7 +224,6 @@
     width: 90px;
     flex-shrink: 0;
   }
-
   .form-input {
     flex: 1;
     padding: 5px 8px;
@@ -276,13 +238,47 @@
   .form-input:focus {
     border-color: var(--c-focus-ring);
   }
+  .creds-section {
+    margin: 12px 0 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--c-border-subtle);
+  }
+  .token-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    padding-left: 98px;
+  }
+  .status-ok {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--c-success);
+  }
+  .status-missing {
+    font-size: 12px;
+    color: var(--c-warning-text);
+  }
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--c-text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+  .btn-link:hover {
+    color: var(--c-danger-text);
+  }
   .form-actions {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-top: 8px;
   }
-
   .btn {
     display: flex;
     align-items: center;
@@ -313,35 +309,10 @@
   .btn-secondary:hover:not(:disabled) {
     background: var(--c-hover-strong);
   }
-
-  .icon-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-  }
-  .icon-btn:hover:not(:disabled) {
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
-  }
-  .icon-btn.destructive:hover {
-    color: var(--c-danger-text);
-  }
-  .add-conn-btn {
-    margin-top: 8px;
-  }
-
   .test-result {
     min-height: 20px;
     margin-bottom: 4px;
   }
-
   .test-ok,
   .test-fail {
     display: flex;
@@ -355,7 +326,7 @@
   .test-fail {
     color: var(--c-danger-text);
   }
-  .loading-text {
+  .no-config {
     font-size: 12px;
     color: var(--c-text-muted);
   }
