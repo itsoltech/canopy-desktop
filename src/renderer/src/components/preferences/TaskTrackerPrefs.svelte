@@ -43,7 +43,7 @@
     }
 
     if (config?.branchTemplate) {
-      branchNamingRef?.initTemplate(config.branchTemplate.template)
+      branchNamingRef?.initTemplate(config.branchTemplate?.template ?? '')
     }
   })
 
@@ -62,7 +62,7 @@
     if (!repoRoot) return
     try {
       const newConfig = await initRepoConfig(repoRoot)
-      branchNamingRef?.initTemplate(newConfig.branchTemplate.template)
+      branchNamingRef?.initTemplate(newConfig.branchTemplate?.template ?? '')
       addToast('Tracker configuration initialized')
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to initialize config')

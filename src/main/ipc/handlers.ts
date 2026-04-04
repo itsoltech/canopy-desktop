@@ -1069,25 +1069,28 @@ export function registerIpcHandlers(
 
   // --- Repo Config ---
 
-  ipcMain.handle('repoConfig:load', (_event, payload: { repoRoot: string }) => {
-    const result = repoConfigManager.load(payload.repoRoot)
+  ipcMain.handle('repoConfig:load', async (_event, payload: { repoRoot: string }) => {
+    const result = await repoConfigManager.load(payload.repoRoot)
     return result.unwrapOr(null)
   })
 
   ipcMain.handle(
     'repoConfig:save',
-    (_event, payload: { repoRoot: string; config: import('../taskTracker/types').RepoConfig }) => {
-      const result = repoConfigManager.save(payload.repoRoot, payload.config)
+    async (
+      _event,
+      payload: { repoRoot: string; config: import('../taskTracker/types').RepoConfig },
+    ) => {
+      const result = await repoConfigManager.save(payload.repoRoot, payload.config)
       unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
-  ipcMain.handle('repoConfig:exists', (_event, payload: { repoRoot: string }) => {
+  ipcMain.handle('repoConfig:exists', async (_event, payload: { repoRoot: string }) => {
     return repoConfigManager.exists(payload.repoRoot)
   })
 
-  ipcMain.handle('repoConfig:init', (_event, payload: { repoRoot: string }) => {
-    const result = repoConfigManager.init(payload.repoRoot)
+  ipcMain.handle('repoConfig:init', async (_event, payload: { repoRoot: string }) => {
+    const result = await repoConfigManager.init(payload.repoRoot)
     return unwrapOrThrow(result, taskTrackerErrorMessage)
   })
 
@@ -1391,7 +1394,7 @@ export function registerIpcHandlers(
 
       // Try repo config first
       if (payload.repoRoot) {
-        const configResult = repoConfigManager.load(payload.repoRoot)
+        const configResult = await repoConfigManager.load(payload.repoRoot)
         if (configResult.isOk()) {
           const resolved = repoConfigManager.getBranchTemplate(configResult.value, payload.boardId)
           if (resolved.template) {

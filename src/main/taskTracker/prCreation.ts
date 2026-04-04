@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { ok, err, type ResultAsync } from 'neverthrow'
+import { okAsync, type ResultAsync } from 'neverthrow'
 import type { TrackerTask, PRTemplateConfig, PRTargetRule } from './types'
 import type { TaskTrackerError } from './errors'
 import { renderPRTitle, renderPRBody, resolveTargetBranch } from './prTemplate'
@@ -23,13 +23,28 @@ export interface CreatePRResult {
   targetBranch: string
 }
 
+function prErr(reason: string): TaskTrackerError {
+  return { _tag: 'PRCreationFailed', reason }
+}
+
 function detectGhCli(): ResultAsync<true, TaskTrackerError> {
-  return fromExternalCall(execFileAsync('gh', ['--version']), () => ({
-    _tag: 'ProviderApiError' as const,
-    status: 0,
-    message: 'GitHub CLI (gh) is not installed. Install it to create PRs automatically.',
-    provider: 'jira' as const,
-  })).map(() => true as const)
+  return fromExternalCall(execFileAsync('gh', ['--version']), () =>
+    prErr('GitHub CLI (gh) is not installed. Install it to create PRs automatically.'),
+  ).map(() => true as const)
+}
+
+function findExistingPR(
+  repoRoot: string,
+  sourceBranch: string,
+): ResultAsync<string | null, TaskTrackerError> {
+  return fromExternalCall(
+    execFileAsync('gh', ['pr', 'view', sourceBranch, '--json', 'url', '--jq', '.url'], {
+      cwd: repoRoot,
+    }),
+    () => prErr('Failed to check existing PR'),
+  )
+    .map((result) => result.stdout.trim() || null)
+    .orElse(() => okAsync(null))
 }
 
 export function createPullRequest(
@@ -46,56 +61,51 @@ export function createPullRequest(
     existingBranches,
   )
 
-  return fromExternalCall(
-    (async () => {
-      // Ensure branch is pushed
-      await GitRepository.push(repoRoot).unwrapOr({ branch: '', remote: '' })
-
-      const ghResult = await detectGhCli()
-      if (ghResult.isErr()) return err(ghResult.error)
-
+  return (
+    GitRepository.push(repoRoot)
+      .orElse(() => okAsync({ branch: '', remote: '' }))
+      // Verify gh CLI is available
+      .andThen(() => detectGhCli())
       // Check if PR already exists
-      try {
-        const { stdout: existing } = await execFileAsync(
-          'gh',
-          ['pr', 'view', sourceBranch, '--json', 'url', '--jq', '.url'],
-          { cwd: repoRoot },
-        )
-        if (existing.trim()) {
-          return ok({ url: existing.trim(), title, targetBranch })
+      .andThen(() => findExistingPR(repoRoot, sourceBranch))
+      .andThen((existingUrl) => {
+        if (existingUrl) {
+          return okAsync<CreatePRResult, TaskTrackerError>({
+            url: existingUrl,
+            title,
+            targetBranch,
+          })
         }
-      } catch {
-        // No existing PR — proceed to create
-      }
-
-      const { stdout } = await execFileAsync(
-        'gh',
-        [
-          'pr',
-          'create',
-          '--title',
-          title,
-          '--body',
-          body,
-          '--base',
-          targetBranch,
-          '--head',
-          sourceBranch,
-          '--assignee',
-          '@me',
-        ],
-        { cwd: repoRoot },
-      )
-
-      return ok({ url: stdout.trim(), title, targetBranch })
-    })(),
-    (e) => ({
-      _tag: 'ProviderApiError' as const,
-      status: 0,
-      message: errorMessage(e),
-      provider: 'jira' as const,
-    }),
-  ).andThen((result) => result)
+        // Create new PR
+        return fromExternalCall(
+          execFileAsync(
+            'gh',
+            [
+              'pr',
+              'create',
+              '--title',
+              title,
+              '--body',
+              body,
+              '--base',
+              targetBranch,
+              '--head',
+              sourceBranch,
+              '--assignee',
+              '@me',
+            ],
+            { cwd: repoRoot },
+          ),
+          (e) => prErr(errorMessage(e)),
+        ).map(
+          (result): CreatePRResult => ({
+            url: result.stdout.trim(),
+            title,
+            targetBranch,
+          }),
+        )
+      })
+  )
 }
 
 export function buildPRConfig(

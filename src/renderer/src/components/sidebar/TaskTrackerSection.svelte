@@ -181,32 +181,34 @@
       </div>
     {/if}
 
-    {#if canCreatePR}
-      <div class="pr-row">
-        {#if existingPRUrl}
-          <button
-            class="pr-btn"
-            onclick={() => window.api.openExternal(existingPRUrl!)}
-            title="Open existing Pull Request"
-          >
-            <ExternalLink size={13} />
-            <span>Open PR</span>
+    <div class="pr-row">
+      {#if existingPRUrl}
+        <button
+          class="pr-btn"
+          onclick={() => window.api.openExternal(existingPRUrl!)}
+          title="Open existing Pull Request"
+        >
+          <ExternalLink size={13} />
+          <span>Open PR</span>
+          <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
+        </button>
+      {:else}
+        <button
+          class="pr-btn"
+          onclick={doCreatePR}
+          disabled={creatingPR || !canCreatePR}
+          title={canCreatePR
+            ? `Create Pull Request for ${activeTask?.taskKey ?? taskKeyFromBranch}`
+            : 'No task key found in branch name'}
+        >
+          <GitPullRequest size={13} />
+          <span>{creatingPR ? 'Creating...' : 'Create PR'}</span>
+          {#if activeTask?.taskKey ?? taskKeyFromBranch}
             <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
-          </button>
-        {:else}
-          <button
-            class="pr-btn"
-            onclick={doCreatePR}
-            disabled={creatingPR}
-            title="Create Pull Request for {activeTask?.taskKey ?? taskKeyFromBranch}"
-          >
-            <GitPullRequest size={13} />
-            <span>{creatingPR ? 'Creating...' : 'Create PR'}</span>
-            <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
-          </button>
-        {/if}
-      </div>
-    {/if}
+          {/if}
+        </button>
+      {/if}
+    </div>
 
     {#if !hasCreds}
       <div class="token-hint">
