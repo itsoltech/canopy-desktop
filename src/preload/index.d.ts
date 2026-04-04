@@ -605,8 +605,8 @@ interface BoardOverride {
 interface RepoConfig {
   version: 1
   tracker: TrackerConfig
-  branchTemplate: BranchTemplateConfig
-  prTemplate: PRTemplateConfig
+  branchTemplate?: BranchTemplateConfig
+  prTemplate?: PRTemplateConfig
   boardOverrides: Record<string, BoardOverride>
   filters: TaskFilterConfig
 }

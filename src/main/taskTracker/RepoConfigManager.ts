@@ -16,22 +16,24 @@ function configPath(repoRoot: string): string {
   return join(repoRoot, CONFIG_DIR, CONFIG_FILE)
 }
 
+const DEFAULT_BRANCH_TEMPLATE: BranchTemplateConfig & { typeMapping?: Record<string, string> } = {
+  template: '{branchType}/{taskKey}-{taskTitle}',
+  customVars: {},
+}
+
+const DEFAULT_PR_TEMPLATE: PRTemplateConfig = {
+  titleTemplate: '[{taskKey}] {taskTitle}',
+  bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
+  defaultTargetBranch: '',
+  targetRules: [],
+}
+
 function defaultConfig(): RepoConfig {
   return {
     version: CURRENT_VERSION as 1,
     tracker: {
       provider: 'jira',
       baseUrl: '',
-    },
-    branchTemplate: {
-      template: '{branchType}/{taskKey}-{taskTitle}',
-      customVars: {},
-    },
-    prTemplate: {
-      titleTemplate: '[{taskKey}] {taskTitle}',
-      bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-      defaultTargetBranch: '',
-      targetRules: [],
     },
     boardOverrides: {},
     filters: {
@@ -61,13 +63,13 @@ export class RepoConfigManager {
           reason: `Unsupported config version: ${String(parsed.version)}`,
         })
       }
-      // Fill missing fields from defaults (handles old config formats)
+      // Fill missing required fields from defaults (handles old config formats)
       const defaults = defaultConfig()
       const normalized: RepoConfig = {
         version: 1,
         tracker: parsed.tracker ?? defaults.tracker,
-        branchTemplate: parsed.branchTemplate ?? defaults.branchTemplate,
-        prTemplate: parsed.prTemplate ?? defaults.prTemplate,
+        branchTemplate: parsed.branchTemplate,
+        prTemplate: parsed.prTemplate,
         boardOverrides: parsed.boardOverrides ?? defaults.boardOverrides,
         filters: parsed.filters ?? defaults.filters,
       }
@@ -107,32 +109,33 @@ export class RepoConfigManager {
     config: RepoConfig,
     boardId?: string,
   ): BranchTemplateConfig & { typeMapping?: Record<string, string> } {
+    const base = config.branchTemplate ?? DEFAULT_BRANCH_TEMPLATE
     if (boardId) {
       const override = config.boardOverrides[boardId]?.branchTemplate
       if (override) {
         return {
-          template: override.template ?? config.branchTemplate.template,
-          customVars: { ...config.branchTemplate.customVars, ...override.customVars },
-          typeMapping: override.typeMapping ?? config.branchTemplate.typeMapping,
+          template: override.template ?? base.template,
+          customVars: { ...base.customVars, ...override.customVars },
+          typeMapping: override.typeMapping ?? base.typeMapping,
         }
       }
     }
-    return config.branchTemplate
+    return base
   }
 
   getPRTemplate(config: RepoConfig, boardId?: string): PRTemplateConfig {
+    const base = config.prTemplate ?? DEFAULT_PR_TEMPLATE
     if (boardId) {
       const override = config.boardOverrides[boardId]?.prTemplate
       if (override) {
         return {
-          titleTemplate: override.titleTemplate ?? config.prTemplate.titleTemplate,
-          bodyTemplate: override.bodyTemplate ?? config.prTemplate.bodyTemplate,
-          defaultTargetBranch:
-            override.defaultTargetBranch ?? config.prTemplate.defaultTargetBranch,
-          targetRules: override.targetRules ?? config.prTemplate.targetRules,
+          titleTemplate: override.titleTemplate ?? base.titleTemplate,
+          bodyTemplate: override.bodyTemplate ?? base.bodyTemplate,
+          defaultTargetBranch: override.defaultTargetBranch ?? base.defaultTargetBranch,
+          targetRules: override.targetRules ?? base.targetRules,
         }
       }
     }
-    return config.prTemplate
+    return base
   }
 }

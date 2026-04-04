@@ -105,8 +105,8 @@ export interface BoardOverride {
 export interface RepoConfig {
   version: 1
   tracker: TrackerConfig
-  branchTemplate: BranchTemplateConfig & { typeMapping?: Record<string, string> }
-  prTemplate: PRTemplateConfig
+  branchTemplate?: BranchTemplateConfig & { typeMapping?: Record<string, string> }
+  prTemplate?: PRTemplateConfig
   boardOverrides: Record<string, BoardOverride>
   filters: TaskFilterConfig
 }
