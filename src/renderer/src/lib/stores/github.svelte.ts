@@ -23,17 +23,17 @@ export function isGitHubLoading(): boolean {
   return loading
 }
 
-export async function loadBranchPRs(repoRoot: string): Promise<void> {
+export async function loadBranchPRs(repoRoot: string, force = false): Promise<void> {
   const now = Date.now()
-  if (now - lastFetch < DEBOUNCE_MS) return
-  lastFetch = now
+  if (!force && now - lastFetch < DEBOUNCE_MS) return
   loading = true
   try {
     branchPRs = await window.api.githubFetchBranchPRs(repoRoot)
+    lastFetch = Date.now()
   } catch (e) {
     branchPRs = {}
     const msg = e instanceof Error ? e.message : String(e)
-    if (msg.includes('rate limit')) {
+    if (msg.includes('rate limit') || msg.includes('401') || msg.includes('403')) {
       addToast(msg)
     }
   } finally {

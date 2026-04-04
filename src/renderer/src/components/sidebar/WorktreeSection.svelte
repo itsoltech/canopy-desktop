@@ -6,6 +6,7 @@
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import { getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
+  import { getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
 
   let mergedBranches = new SvelteSet<string>()
 
@@ -41,11 +42,21 @@
     return () => ac.abort()
   })
 
+  let githubConnectionCount = $derived(
+    getTaskTrackerConnections().filter((c) => c.provider === 'github').length,
+  )
+
+  // Re-fetch PRs when worktree list changes (debounced)
   $effect(() => {
     const repoRoot = workspaceState.repoRoot
-    // Read length to track worktree list changes
     void workspaceState.worktrees.length
-    if (repoRoot) loadBranchPRs(repoRoot)
+    if (repoRoot && githubConnectionCount > 0) loadBranchPRs(repoRoot)
+  })
+
+  // Force re-fetch when GitHub connections are added/removed
+  $effect(() => {
+    const repoRoot = workspaceState.repoRoot
+    if (repoRoot && githubConnectionCount > 0) loadBranchPRs(repoRoot, true)
   })
 
   let prMap = $derived(getBranchPRMap())

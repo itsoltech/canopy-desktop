@@ -5,6 +5,7 @@
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { loadConnections, getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
   import TaskConnectionsPrefs from './TaskConnectionsPrefs.svelte'
   import TaskBranchNamingPrefs from './TaskBranchNamingPrefs.svelte'
   import TaskPRNamingPrefs from './TaskPRNamingPrefs.svelte'
@@ -18,7 +19,10 @@
   async function loadBoardsForConnection(connId: string): Promise<void> {
     if (scopeBoards[connId]) return
     try {
-      const boards = await window.api.taskTrackerFetchBoards(connId)
+      const boards = await window.api.taskTrackerFetchBoards(
+        connId,
+        workspaceState.repoRoot ?? undefined,
+      )
       scopeBoards = { ...scopeBoards, [connId]: boards }
     } catch {
       scopeBoards = { ...scopeBoards, [connId]: [] }
@@ -97,7 +101,11 @@
     if (connections.length === 0) return
     loadingStatuses = true
     try {
-      const statuses = await window.api.taskTrackerFetchStatuses(connections[0].id)
+      const statuses = await window.api.taskTrackerFetchStatuses(
+        connections[0].id,
+        undefined,
+        workspaceState.repoRoot ?? undefined,
+      )
       availableStatuses = statuses.map((s) => s.name)
     } catch {
       addToast('Failed to fetch statuses')
