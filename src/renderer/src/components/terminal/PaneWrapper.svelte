@@ -175,6 +175,7 @@
     min-width: 0;
     position: relative;
     height: 100%;
+    overflow: hidden;
   }
 
   .drop-zone-overlay {
