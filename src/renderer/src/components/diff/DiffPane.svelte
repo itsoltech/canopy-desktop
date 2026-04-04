@@ -118,7 +118,8 @@
     const unsubFiles = $effect.root(() => {
       $effect(() => {
         void files.length
-        setTimeout(setupObserver, 100)
+        const timerId = setTimeout(setupObserver, 100)
+        return () => clearTimeout(timerId)
       })
       return () => observer?.disconnect()
     })
