@@ -1609,19 +1609,21 @@ export function registerIpcHandlers(
 
       let titleTemplate = '[{taskKey}] {taskTitle}'
       let defaultBranch = 'develop'
+      let foundInConfig = false
 
       // Try repo config first
       if (payload.repoRoot) {
         const configResult = await repoConfigManager.load(payload.repoRoot)
         if (configResult.isOk()) {
           const prTemplate = repoConfigManager.getPRTemplate(configResult.value, payload.boardId)
-          if (prTemplate.titleTemplate) titleTemplate = prTemplate.titleTemplate
-          if (prTemplate.defaultTargetBranch) defaultBranch = prTemplate.defaultTargetBranch
+          titleTemplate = prTemplate.titleTemplate
+          defaultBranch = prTemplate.defaultTargetBranch || defaultBranch
+          foundInConfig = true
         }
       }
 
-      // Fallback to legacy prefs if repo config had no template
-      if (titleTemplate === '[{taskKey}] {taskTitle}') {
+      // Fallback to legacy prefs only if no repo config found
+      if (!foundInConfig) {
         const prKeys = [
           payload.boardId &&
             payload.connectionId &&
