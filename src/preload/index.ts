@@ -596,12 +596,14 @@ const api = {
     task: { key: string; type: string; [k: string]: unknown },
     boardId?: string,
     branchType?: string,
+    repoRoot?: string,
   ) =>
     ipcRenderer.invoke('taskTracker:resolveBranchName', {
       connectionId,
       task,
       boardId,
       branchType,
+      repoRoot,
     }),
   taskTrackerResolveBranchType: (taskType: string, connectionId?: string, boardId?: string) =>
     ipcRenderer.invoke('taskTracker:resolveBranchType', {

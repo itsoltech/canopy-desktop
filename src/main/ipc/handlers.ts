@@ -1382,30 +1382,46 @@ export function registerIpcHandlers(
         task: TrackerTask
         boardId?: string
         branchType?: string
+        repoRoot?: string
       },
     ) => {
-      // Resolve template: board → connection → global
       let template = '{taskKey}'
       let customVars: Record<string, string> = {}
 
-      const keys = [
-        payload.boardId && `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
-        `taskTracker.branchTemplate.${payload.connectionId}`,
-        'taskTracker.branchTemplate',
-      ].filter(Boolean) as string[]
+      // Try repo config first
+      if (payload.repoRoot) {
+        const configResult = repoConfigManager.load(payload.repoRoot)
+        if (configResult.isOk()) {
+          const resolved = repoConfigManager.getBranchTemplate(configResult.value, payload.boardId)
+          if (resolved.template) {
+            template = resolved.template
+            customVars = resolved.customVars
+          }
+        }
+      }
 
-      for (const key of keys) {
-        const raw = preferencesStore.get(key)
-        if (raw) {
-          try {
-            const config = JSON.parse(raw)
-            if (config.template) {
-              template = config.template
-              customVars = config.customVars ?? {}
-              break
+      // Fallback to legacy prefs if repo config had no template
+      if (template === '{taskKey}') {
+        const keys = [
+          payload.boardId &&
+            `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
+          `taskTracker.branchTemplate.${payload.connectionId}`,
+          'taskTracker.branchTemplate',
+        ].filter(Boolean) as string[]
+
+        for (const key of keys) {
+          const raw = preferencesStore.get(key)
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw)
+              if (parsed.template) {
+                template = parsed.template
+                customVars = parsed.customVars ?? {}
+                break
+              }
+            } catch {
+              // try next level
             }
-          } catch {
-            // try next level
           }
         }
       }

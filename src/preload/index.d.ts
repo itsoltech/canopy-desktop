@@ -530,6 +530,7 @@ interface CanopyAPI {
     task: TrackerTask,
     boardId?: string,
     branchType?: string,
+    repoRoot?: string,
   ) => Promise<string>
   taskTrackerResolveBranchType: (
     taskType: string,

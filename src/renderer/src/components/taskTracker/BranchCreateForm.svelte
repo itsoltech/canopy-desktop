@@ -85,6 +85,7 @@
         plain,
         selectedBoardId || undefined,
         templateHasBranchType ? selectedBranchType : undefined,
+        workspaceState.repoRoot || undefined,
       )
     } catch {
       resolvedBranchName = task.key
