@@ -25,6 +25,54 @@ import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
+import { performance } from 'perf_hooks'
+
+const PERF = process.env.CANOPY_PERF === '1'
+if (PERF) performance.mark('app:init')
+
+// IPC traffic log for perf testing (only allocated when CANOPY_PERF=1)
+interface IpcLogEntry {
+  channel: string
+  size: number
+  ts: number
+  dir: 'in' | 'out'
+}
+const ipcLog: IpcLogEntry[] | null = PERF ? [] : null
+const MAX_IPC_LOG_ENTRIES = 50_000
+
+if (PERF) {
+  // Monkey-patches ipcMain.handle/on to log IPC traffic. Must run before
+  // registerIpcHandlers() (called in app.whenReady) so all handlers get wrapped.
+  const origHandle = ipcMain.handle.bind(ipcMain)
+  ipcMain.handle = (channel: string, listener: Parameters<typeof ipcMain.handle>[1]) => {
+    return origHandle(channel, (event, ...args) => {
+      if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
+        ipcLog!.push({
+          channel,
+          size: typeof args[0] === 'string' ? args[0].length : 0,
+          ts: Date.now(),
+          dir: 'in',
+        })
+      }
+      return listener(event, ...args)
+    })
+  }
+
+  const origOn = ipcMain.on.bind(ipcMain)
+  ipcMain.on = (channel: string, listener: Parameters<typeof ipcMain.on>[1]) => {
+    return origOn(channel, (event, ...args) => {
+      if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
+        ipcLog!.push({
+          channel,
+          size: typeof args[0] === 'string' ? args[0].length : 0,
+          ts: Date.now(),
+          dir: 'in',
+        })
+      }
+      return (listener as (...a: unknown[]) => void)(event, ...args)
+    })
+  }
+}
 
 if (is.dev) {
   app.setPath('userData', app.getPath('userData') + '-dev')
@@ -266,7 +314,9 @@ function buildAppMenu(): void {
 }
 
 app.whenReady().then(async () => {
+  if (PERF) performance.mark('app:ready')
   await resolveLoginEnv()
+  if (PERF) performance.mark('app:loginEnvResolved')
 
   electronApp.setAppUserModelId('tech.itsol.canopy')
 
@@ -443,6 +493,8 @@ app.whenReady().then(async () => {
   const taskTrackerManager = new TaskTrackerManager(preferencesStore)
   const gitHubService = new GitHubService(preferencesStore, taskTrackerManager)
 
+  if (PERF) performance.mark('app:managersReady')
+
   registerIpcHandlers(
     ptyManager,
     wsBridge,
@@ -459,6 +511,64 @@ app.whenReady().then(async () => {
     taskTrackerManager,
     gitHubService,
   )
+
+  if (PERF) performance.mark('app:ipcHandlersRegistered')
+
+  if (PERF) {
+    // Log outgoing broadcasts for all current and future windows
+    app.on('browser-window-created', (_, win) => {
+      const wc = win.webContents
+      const origSend = wc.send.bind(wc)
+      wc.send = (channel: string, ...args: unknown[]) => {
+        if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
+          ipcLog!.push({
+            channel,
+            size: typeof args[0] === 'string' ? args[0].length : 0,
+            ts: Date.now(),
+            dir: 'out',
+          })
+        }
+        return origSend(channel, ...args)
+      }
+    })
+
+    // Also patch existing windows (the one already created during this tick)
+    for (const win of BrowserWindow.getAllWindows()) {
+      const wc = win.webContents
+      const origSend = wc.send.bind(wc)
+      wc.send = (channel: string, ...args: unknown[]) => {
+        if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
+          ipcLog!.push({
+            channel,
+            size: typeof args[0] === 'string' ? args[0].length : 0,
+            ts: Date.now(),
+            dir: 'out',
+          })
+        }
+        return origSend(channel, ...args)
+      }
+    }
+
+    ipcMain.handle('perf:diagnostics', () => ({
+      ptySessionCount: ptyManager.sessionCount,
+      wsBridgeCount: wsBridge.bridgeCount,
+      agentSessionCount: agentSessionManager?.sessionCount ?? 0,
+      gitWatcherCount: windowManager.gitWatcherCount,
+      windowCount: windowManager.size,
+      heapUsed: process.memoryUsage().heapUsed,
+      rss: process.memoryUsage().rss,
+      uptime: process.uptime(),
+      marks: performance
+        .getEntriesByType('mark')
+        .map((m) => ({ name: m.name, startTime: m.startTime })),
+    }))
+
+    ipcMain.handle('perf:ipcLog', () => {
+      const snapshot = [...ipcLog!]
+      ipcLog!.length = 0
+      return snapshot
+    })
+  }
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
     if (!isSafeExternalUrl(url)) return
@@ -537,6 +647,7 @@ app.whenReady().then(async () => {
     const sendPostLaunch = (win: BrowserWindow): void => {
       if (postLaunchSent) return
       postLaunchSent = true
+      if (PERF) performance.mark('app:firstWindowReady')
 
       if (isFirstLaunch) {
         win.webContents.send('app:showOnboarding', { mode: 'first-launch' })

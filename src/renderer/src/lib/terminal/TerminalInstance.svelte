@@ -516,13 +516,13 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="terminal-container"
+  class="terminal-outer"
   class:dragging
-  bind:this={containerEl}
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
+  <div class="terminal-container" bind:this={containerEl}></div>
   {#if progressState > 0}
     <div
       class="progress-bar"
@@ -538,13 +538,19 @@
 </div>
 
 <style>
-  .terminal-container {
+  .terminal-outer {
     width: 100%;
     height: 100%;
     padding: 8px;
     box-sizing: border-box;
     background-color: var(--c-bg, #1e1e1e);
     position: relative;
+    overflow: hidden;
+  }
+
+  .terminal-container {
+    width: 100%;
+    height: 100%;
   }
 
   .progress-bar {
