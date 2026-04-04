@@ -1450,21 +1450,21 @@ export function registerIpcHandlers(
     ) => {
       let template = '{taskKey}'
       let customVars: Record<string, string> = {}
+      let foundInConfig = false
 
       // Try repo config first
       if (payload.repoRoot) {
         const configResult = await repoConfigManager.load(payload.repoRoot)
         if (configResult.isOk()) {
           const resolved = repoConfigManager.getBranchTemplate(configResult.value, payload.boardId)
-          if (resolved.template) {
-            template = resolved.template
-            customVars = resolved.customVars
-          }
+          template = resolved.template
+          customVars = resolved.customVars
+          foundInConfig = true
         }
       }
 
-      // Fallback to legacy prefs if repo config had no template
-      if (template === '{taskKey}') {
+      // Fallback to legacy prefs only if no repo config found
+      if (!foundInConfig) {
         const keys = [
           payload.boardId &&
             `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
@@ -1530,6 +1530,7 @@ export function registerIpcHandlers(
     ) => {
       let typeMapping: Record<string, string> | undefined
       let hasBranchType = false
+      let foundInConfig = false
 
       // Try repo config first
       if (payload.repoRoot) {
@@ -1541,11 +1542,12 @@ export function registerIpcHandlers(
           )
           hasBranchType = branchTemplate.template.includes('{branchType}')
           typeMapping = branchTemplate.typeMapping
+          foundInConfig = true
         }
       }
 
-      // Fallback to legacy prefs
-      if (!hasBranchType) {
+      // Fallback to legacy prefs only if no repo config found
+      if (!foundInConfig) {
         const typeMappingJson = preferencesStore.get('taskTracker.typeMapping')
         if (typeMappingJson) {
           try {
