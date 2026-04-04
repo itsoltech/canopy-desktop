@@ -1,12 +1,12 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { getPref } from './preferences.svelte'
 
-const MAX_ENTRIES = 10
+const MAX_ENTRIES = 6
 const EXPIRE_MS = 2000
 /** Keys in the last N ms count toward "burst" speed */
-const BURST_WINDOW_MS = 1500
+const BURST_WINDOW_MS = 3000
 
-export type TypingIntensity = 'idle' | 'normal' | 'fast' | 'blazing'
+export type TypingIntensity = 'idle' | 'normal' | 'fast' | 'blazing' | 'inferno'
 
 interface KeyDisplay {
   id: number
@@ -17,6 +17,8 @@ interface KeyDisplay {
 const sessions = new SvelteMap<string, KeyDisplay[]>()
 const timers: Record<number, ReturnType<typeof setTimeout>> = {}
 const intensityMap: Record<string, TypingIntensity> = $state({})
+/** Separate timestamp log per session for intensity — not capped by MAX_ENTRIES */
+const burstLog = new SvelteMap<string, number[]>()
 
 let nextId = 0
 
@@ -70,11 +72,21 @@ function formatKeyLabel(event: KeyboardEvent): string | null {
   return parts.join('+')
 }
 
-function computeIntensity(queue: KeyDisplay[]): TypingIntensity {
-  if (queue.length < 2) return 'normal'
+function computeIntensity(sessionId: string): TypingIntensity {
+  const log = burstLog.get(sessionId)
+  if (!log || log.length < 2) return 'normal'
   const now = Date.now()
-  const recentCount = queue.filter((k) => now - k.timestamp < BURST_WINDOW_MS).length
-  if (recentCount >= 8) return 'blazing'
+  const cutoff = now - BURST_WINDOW_MS
+  // Trim old entries
+  const idx = log.findIndex((t) => t >= cutoff)
+  if (idx > 0) log.splice(0, idx)
+  else if (idx === -1) {
+    log.length = 0
+    return 'normal'
+  }
+  const recentCount = log.length
+  if (recentCount >= 24) return 'inferno'
+  if (recentCount >= 16) return 'blazing'
   if (recentCount >= 5) return 'fast'
   return 'normal'
 }
@@ -87,7 +99,7 @@ function removeEntry(sessionId: string, entryId: number): void {
     queue.splice(idx, 1)
     const newQueue = [...queue]
     sessions.set(sessionId, newQueue)
-    intensityMap[sessionId] = computeIntensity(newQueue)
+    intensityMap[sessionId] = computeIntensity(sessionId)
   }
   delete timers[entryId]
 }
@@ -100,7 +112,16 @@ export function recordKeyEvent(sessionId: string, event: KeyboardEvent): void {
   if (!label) return
 
   const id = nextId++
-  const entry: KeyDisplay = { id, label, timestamp: Date.now() }
+  const now = Date.now()
+  const entry: KeyDisplay = { id, label, timestamp: now }
+
+  // Track burst timestamps separately (uncapped)
+  let log = burstLog.get(sessionId)
+  if (!log) {
+    log = []
+    burstLog.set(sessionId, log)
+  }
+  log.push(now)
 
   let queue = sessions.get(sessionId)
   if (!queue) {
@@ -120,7 +141,7 @@ export function recordKeyEvent(sessionId: string, event: KeyboardEvent): void {
   queue.push(entry)
   const newQueue = [...queue]
   sessions.set(sessionId, newQueue)
-  intensityMap[sessionId] = computeIntensity(newQueue)
+  intensityMap[sessionId] = computeIntensity(sessionId)
 
   timers[id] = setTimeout(() => removeEntry(sessionId, id), EXPIRE_MS)
 }
@@ -144,5 +165,6 @@ export function cleanupKeystrokeSession(sessionId: string): void {
     }
   }
   sessions.delete(sessionId)
+  burstLog.delete(sessionId)
   delete intensityMap[sessionId]
 }

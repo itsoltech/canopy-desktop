@@ -12,19 +12,18 @@
     class="keystroke-overlay"
     class:fast={intensity === 'fast'}
     class:blazing={intensity === 'blazing'}
+    class:inferno={intensity === 'inferno'}
   >
     {#each keystrokes as ks (ks.id)}
       <span
         class="key-badge"
         class:fast={intensity === 'fast'}
         class:blazing={intensity === 'blazing'}
+        class:inferno={intensity === 'inferno'}
       >
         {ks.label}
       </span>
     {/each}
-    {#if intensity === 'blazing'}
-      <span class="fire-indicator">🔥</span>
-    {/if}
   </div>
 {/if}
 
@@ -49,6 +48,11 @@
   .keystroke-overlay.blazing {
     filter: drop-shadow(0 0 8px var(--c-blazing-drop));
     animation: container-pulse 0.4s ease-in-out infinite alternate;
+  }
+
+  .keystroke-overlay.inferno {
+    filter: drop-shadow(0 0 12px var(--c-inferno-drop));
+    animation: container-pulse-inferno 0.3s ease-in-out infinite alternate;
   }
 
   .key-badge {
@@ -92,6 +96,16 @@
   .fire-indicator {
     font-size: 14px;
     animation: fire-bounce 0.3s ease-in-out infinite alternate;
+  }
+
+  .key-badge.inferno {
+    background: var(--c-inferno-bg);
+    border-color: var(--c-inferno-border);
+    color: var(--c-inferno-text);
+    box-shadow:
+      0 0 10px var(--c-inferno-glow),
+      0 0 20px var(--c-inferno-glow-deep);
+    animation: keystroke-pop-inferno 2s ease forwards;
   }
 
   @keyframes keystroke-pop {
@@ -160,6 +174,42 @@
     }
   }
 
+  @keyframes keystroke-pop-inferno {
+    0% {
+      opacity: 0;
+      transform: scale(0.3) translateY(10px) rotate(-3deg);
+    }
+    5% {
+      opacity: 1;
+      transform: scale(1.2) translateY(0) rotate(1.5deg);
+    }
+    8% {
+      transform: scale(0.95) rotate(-1deg);
+    }
+    12% {
+      transform: scale(1.05) rotate(0.5deg);
+    }
+    16% {
+      transform: scale(1) rotate(0);
+    }
+    75% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0.8) translateY(-5px);
+    }
+  }
+
+  @keyframes container-pulse-inferno {
+    from {
+      filter: drop-shadow(0 0 8px var(--c-inferno-shadow));
+    }
+    to {
+      filter: drop-shadow(0 0 16px var(--c-inferno-shadow-strong));
+    }
+  }
+
   @keyframes container-pulse {
     from {
       filter: drop-shadow(0 0 6px var(--c-blazing-shadow));
@@ -181,12 +231,14 @@
   @media (prefers-reduced-motion: reduce) {
     .key-badge,
     .key-badge.fast,
-    .key-badge.blazing {
+    .key-badge.blazing,
+    .key-badge.inferno {
       animation: none;
       opacity: 1;
     }
 
-    .keystroke-overlay.blazing {
+    .keystroke-overlay.blazing,
+    .keystroke-overlay.inferno {
       animation: none;
     }
 

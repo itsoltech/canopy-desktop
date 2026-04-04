@@ -44,6 +44,16 @@
   --c-blazing-shadow-strong: rgba(255, 80, 20, 0.7);
   --c-blazing-drop: rgba(255, 140, 50, 0.6);
 
+  --c-inferno: rgb(255, 50, 50);
+  --c-inferno-bg: rgba(255, 50, 50, 0.2);
+  --c-inferno-border: rgba(255, 50, 50, 0.5);
+  --c-inferno-text: rgba(255, 180, 180, 1);
+  --c-inferno-glow: rgba(255, 50, 50, 0.4);
+  --c-inferno-glow-deep: rgba(200, 0, 0, 0.25);
+  --c-inferno-shadow: rgba(255, 30, 30, 0.6);
+  --c-inferno-shadow-strong: rgba(200, 0, 0, 0.8);
+  --c-inferno-drop: rgba(255, 50, 50, 0.7);
+
   --c-scrollbar: rgba(255, 255, 255, 0.15);
   --c-scrollbar-hover: rgba(255, 255, 255, 0.3);
   --c-scrollbar-active: rgba(255, 255, 255, 0.4);

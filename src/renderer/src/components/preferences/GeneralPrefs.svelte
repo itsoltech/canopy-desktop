@@ -83,11 +83,7 @@
   {/if}
 
   <label class="checkbox-row">
-    <input
-      type="checkbox"
-      checked={keystrokeVisualizerEnabled}
-      onchange={toggleKeystrokeVisualizer}
-    />
+    <CustomCheckbox checked={keystrokeVisualizerEnabled} onchange={toggleKeystrokeVisualizer} />
     <span>Show keystroke overlay in terminals</span>
   </label>
   {#if keystrokeVisualizerEnabled}
