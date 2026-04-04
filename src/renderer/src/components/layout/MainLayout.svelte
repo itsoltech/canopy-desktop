@@ -16,6 +16,7 @@
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
+  import RightPanel from './RightPanel.svelte'
   import Toast from '../shared/Toast.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import {
@@ -34,7 +35,7 @@
     restoreProjects,
     updateGitInfoForProject,
     toggleSidebar,
-    toggleInspector,
+    toggleRightPanel,
   } from '../../lib/stores/workspace.svelte'
   import {
     activeTabId,
@@ -106,6 +107,37 @@
     if (sidebarDragging) {
       sidebarDragging = false
       setPref('sidebar.width', String(sidebarWidth))
+    }
+  }
+
+  // Right panel resize state
+  const RPANEL_MIN = 200
+  const RPANEL_MAX = 500
+  let rightPanelWidth = $state(parseInt(getPref('rightPanel.width', '280'), 10) || 280)
+  let rpDragging = $state(false)
+  let rpDragStart = 0
+
+  function handleRpPointerDown(e: PointerEvent): void {
+    e.preventDefault()
+    const target = e.currentTarget as HTMLElement
+    target.setPointerCapture(e.pointerId)
+    rpDragging = true
+    rpDragStart = e.clientX
+  }
+
+  function handleRpPointerMove(e: PointerEvent): void {
+    if (!rpDragging) return
+    const delta = rpDragStart - e.clientX
+    if (delta !== 0) {
+      rightPanelWidth = Math.min(RPANEL_MAX, Math.max(RPANEL_MIN, rightPanelWidth + delta))
+      rpDragStart = e.clientX
+    }
+  }
+
+  function handleRpPointerUp(): void {
+    if (rpDragging) {
+      rpDragging = false
+      setPref('rightPanel.width', String(rightPanelWidth))
     }
   }
 
@@ -277,6 +309,9 @@
   let activeAgentPtySessionId = $derived(
     focusedPane && agentSessions[focusedPane.sessionId] ? focusedPane.sessionId : null,
   )
+  let activeAgentState = $derived(
+    activeAgentPtySessionId ? agentSessions[activeAgentPtySessionId] : null,
+  )
 
   // Clear badge when agent pane is focused
   $effect(() => {
@@ -343,7 +378,7 @@
     // Cmd+Shift+I: toggle Agent Inspector on focused pane
     if ((e.key === 'I' || e.key === 'i') && e.shiftKey) {
       e.preventDefault()
-      toggleInspector()
+      toggleRightPanel()
     }
 
     // Cmd+L: focus browser URL bar (when active tab is browser)
@@ -505,6 +540,23 @@
           </div>
         {/if}
       </div>
+
+      {#if workspaceState.rightPanelOpen && workspaceState.selectedWorktreePath}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="right-resize-handle"
+          class:dragging={rpDragging}
+          onpointerdown={handleRpPointerDown}
+          onpointermove={handleRpPointerMove}
+          onpointerup={handleRpPointerUp}
+          onpointercancel={handleRpPointerUp}
+        ></div>
+        <RightPanel
+          agentState={activeAgentState}
+          width={rightPanelWidth}
+          worktreePath={workspaceState.selectedWorktreePath ?? ''}
+        />
+      {/if}
     </div>
   </div>
 </main>
@@ -528,6 +580,26 @@
 
   .sidebar-resize-handle:hover,
   .sidebar-resize-handle.dragging {
+    background: var(--c-accent-muted);
+  }
+
+  .right-resize-handle {
+    width: 1px;
+    cursor: col-resize;
+    background: var(--c-border-subtle);
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .right-resize-handle::after {
+    content: '';
+    position: absolute;
+    inset: 0 -3px;
+    cursor: col-resize;
+  }
+
+  .right-resize-handle:hover,
+  .right-resize-handle.dragging {
     background: var(--c-accent-muted);
   }
 

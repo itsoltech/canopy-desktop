@@ -60,6 +60,12 @@
 
   --c-scrim: rgba(0, 0, 0, 0.5);
 
+  --diff-add-bg: color-mix(in srgb, var(--c-success) 15%, transparent);
+  --diff-add-fg: var(--c-success);
+  --diff-delete-bg: color-mix(in srgb, var(--c-danger) 15%, transparent);
+  --diff-delete-fg: var(--c-danger);
+  --diff-hunk-header-bg: color-mix(in srgb, var(--c-accent) 10%, transparent);
+
   color-scheme: dark;
 }
 

@@ -492,6 +492,61 @@ export function openFile(filePath: string, worktreePath: string): void {
   scheduleSave(worktreePath)
 }
 
+export function openDiffTab(worktreePath: string, scrollToFile?: string): void {
+  // Check if a diff tab already exists — focus it
+  const tabs = (tabsByWorktree[worktreePath] ?? []).filter((t) => !t.suspended)
+  for (const tab of tabs) {
+    const panes = allPanes(tab.rootSplit)
+    const existing = panes.find((p) => p.paneType === 'diff')
+    if (existing) {
+      activeTabId[worktreePath] = tab.id
+      tab.focusedPaneId = existing.id
+      if (scrollToFile) {
+        workspaceState.diffScrollTarget = { path: scrollToFile, ts: Date.now() }
+      }
+      return
+    }
+  }
+
+  // Create single diff tab for all changes
+  const paneId = nextPaneId()
+  const pane: PaneSession = {
+    id: paneId,
+    sessionId: '',
+    wsUrl: '',
+    toolId: 'diff',
+    toolName: 'Diff',
+    isRunning: false,
+    exitCode: null,
+    title: null,
+    paneType: 'diff',
+  }
+
+  const id = nextTabId()
+  const name = computeDisplayName('Diff', worktreePath, 'diff')
+
+  const tab: TabInfo = {
+    id,
+    toolId: 'diff',
+    toolName: 'Diff',
+    name,
+    worktreePath,
+    rootSplit: createLeaf(pane),
+    focusedPaneId: paneId,
+  }
+
+  if (!tabsByWorktree[worktreePath]) {
+    tabsByWorktree[worktreePath] = []
+  }
+  tabsByWorktree[worktreePath].push(tab)
+  activeTabId[worktreePath] = id
+  scheduleSave(worktreePath)
+
+  if (scrollToFile) {
+    workspaceState.diffScrollTarget = { path: scrollToFile, ts: Date.now() }
+  }
+}
+
 export function getActiveTab(worktreePath: string): TabInfo | null {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return null

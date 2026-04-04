@@ -9,7 +9,7 @@ export interface PaneSession {
   isRunning: boolean
   exitCode: number | null
   title: string | null
-  paneType?: 'terminal' | 'browser' | 'editor'
+  paneType?: 'terminal' | 'browser' | 'editor' | 'diff'
   filePath?: string
   url?: string
   isLoading?: boolean

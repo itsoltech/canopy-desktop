@@ -4,7 +4,7 @@
   import {
     workspaceState,
     toggleSidebar,
-    toggleInspector,
+    toggleRightPanel,
     openWorkspace,
     selectWorktree,
   } from '../../lib/stores/workspace.svelte'
@@ -119,7 +119,7 @@
       label: 'Toggle Claude Inspector',
       category: 'App',
       shortcut: `${mod}+Shift+I`,
-      action: () => toggleInspector(),
+      action: () => toggleRightPanel(),
     })
 
     items.push({
