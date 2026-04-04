@@ -517,7 +517,7 @@ app.whenReady().then(async () => {
       const wc = win.webContents
       const origSend = wc.send.bind(wc)
       wc.send = (channel: string, ...args: unknown[]) => {
-        if (!channel.startsWith('perf:')) {
+        if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
           ipcLog!.push({
             channel,
             size: typeof args[0] === 'string' ? args[0].length : 0,
@@ -534,7 +534,7 @@ app.whenReady().then(async () => {
       const wc = win.webContents
       const origSend = wc.send.bind(wc)
       wc.send = (channel: string, ...args: unknown[]) => {
-        if (!channel.startsWith('perf:')) {
+        if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
           ipcLog!.push({
             channel,
             size: typeof args[0] === 'string' ? args[0].length : 0,

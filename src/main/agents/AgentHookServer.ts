@@ -33,9 +33,9 @@ export class AgentHookRouter {
     onStatusUpdate: StatusUpdateHandler,
   ): Promise<{ port: number; path: string; authToken: string }> {
     const authToken = randomBytes(32).toString('hex')
-    this.sessions.set(sessionId, { authToken, onHookEvent, onStatusUpdate })
 
     const port = await this.ensureServer()
+    this.sessions.set(sessionId, { authToken, onHookEvent, onStatusUpdate })
     const path = `/session/${encodeURIComponent(sessionId)}`
     return { port, path, authToken }
   }
