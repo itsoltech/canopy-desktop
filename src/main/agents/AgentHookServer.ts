@@ -7,40 +7,79 @@ type StatusUpdateHandler = (data: Record<string, unknown>) => void
 
 const MAX_BODY_BYTES = 1_048_576 // 1 MB
 
-export class AgentHookServer {
-  private server: http.Server
-  private port = 0
-  private authToken: string
-  private onHookEvent: HookEventHandler
-  private onStatusUpdate: StatusUpdateHandler
+interface SessionEntry {
+  authToken: string
+  onHookEvent: HookEventHandler
+  onStatusUpdate: StatusUpdateHandler
+}
 
-  constructor(onHookEvent: HookEventHandler, onStatusUpdate: StatusUpdateHandler) {
-    this.onHookEvent = onHookEvent
-    this.onStatusUpdate = onStatusUpdate
-    this.authToken = randomBytes(32).toString('hex')
-    this.server = http.createServer((req, res) => this.handleRequest(req, res))
+/**
+ * Shared HTTP server that routes agent hook/status requests to the correct
+ * session by URL path. One server handles all agent sessions instead of
+ * spawning a separate HTTP server per session.
+ *
+ * URL pattern: POST /session/<sessionId>/hook
+ *              POST /session/<sessionId>/status
+ */
+export class AgentHookRouter {
+  private server: http.Server | null = null
+  private port = 0
+  private serverReady: Promise<number> | null = null
+  private sessions = new Map<string, SessionEntry>()
+
+  async addSession(
+    sessionId: string,
+    onHookEvent: HookEventHandler,
+    onStatusUpdate: StatusUpdateHandler,
+  ): Promise<{ port: number; path: string; authToken: string }> {
+    const authToken = randomBytes(32).toString('hex')
+    this.sessions.set(sessionId, { authToken, onHookEvent, onStatusUpdate })
+
+    const port = await this.ensureServer()
+    const path = `/session/${encodeURIComponent(sessionId)}`
+    return { port, path, authToken }
   }
 
-  async start(): Promise<number> {
-    return new Promise((resolve) => {
-      this.server.listen(0, '127.0.0.1', () => {
-        const addr = this.server.address()
+  removeSession(sessionId: string): void {
+    this.sessions.delete(sessionId)
+    this.closeServerIfIdle()
+  }
+
+  dispose(): void {
+    this.sessions.clear()
+    this.closeServerIfIdle()
+  }
+
+  private async ensureServer(): Promise<number> {
+    if (this.serverReady) return this.serverReady
+
+    const server = http.createServer((req, res) => this.handleRequest(req, res))
+    this.server = server
+
+    this.serverReady = new Promise<number>((resolve, reject) => {
+      server.on('error', (err) => {
+        this.closeServerIfIdle()
+        reject(err)
+      })
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address()
         this.port = typeof addr === 'object' && addr ? addr.port : 0
         resolve(this.port)
       })
     })
+
+    return this.serverReady
   }
 
-  getPort(): number {
-    return this.port
-  }
+  private closeServerIfIdle(): void {
+    if (this.sessions.size > 0) return
 
-  getAuthToken(): string {
-    return this.authToken
-  }
-
-  destroy(): void {
-    this.server.close()
+    if (this.server) {
+      this.server.close()
+      this.server = null
+    }
+    this.serverReady = null
+    this.port = 0
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -50,12 +89,30 @@ export class AgentHookServer {
       return
     }
 
-    // Validate auth token (timing-safe comparison)
+    // Parse URL: /session/<sessionId>/hook or /session/<sessionId>/status
+    const match = req.url?.match(/^\/session\/([^/]+)\/(hook|status)$/)
+    if (!match) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+
+    const sessionId = decodeURIComponent(match[1])
+    const endpoint = match[2]
+    const session = this.sessions.get(sessionId)
+
+    if (!session) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+
+    // Validate per-session auth token
     const provided = req.headers['x-canopy-auth']
     if (
       typeof provided !== 'string' ||
-      provided.length !== this.authToken.length ||
-      !timingSafeEqual(Buffer.from(provided), Buffer.from(this.authToken))
+      provided.length !== session.authToken.length ||
+      !timingSafeEqual(Buffer.from(provided), Buffer.from(session.authToken))
     ) {
       res.writeHead(403)
       res.end()
@@ -69,11 +126,11 @@ export class AgentHookServer {
       return
     }
 
-    if (req.url === '/status') {
+    if (endpoint === 'status') {
       try {
         const data = JSON.parse(body)
         if (is.dev) console.log(`[agent-status]`, JSON.stringify(data).slice(0, 300))
-        this.onStatusUpdate(data)
+        session.onStatusUpdate(data)
       } catch {
         // ignore parse errors
       }
@@ -82,12 +139,7 @@ export class AgentHookServer {
       return
     }
 
-    if (req.url !== '/hook') {
-      res.writeHead(404)
-      res.end()
-      return
-    }
-
+    // endpoint === 'hook'
     let response: Record<string, unknown> | void = undefined
     try {
       const event: Record<string, unknown> = JSON.parse(body)
@@ -104,7 +156,7 @@ export class AgentHookServer {
         }
       }
 
-      response = this.onHookEvent(event)
+      response = session.onHookEvent(event)
     } catch (err) {
       if (is.dev) console.error(`[agent-hook] parse error:`, err)
     }
