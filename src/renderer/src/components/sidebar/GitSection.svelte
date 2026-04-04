@@ -127,15 +127,18 @@
     // Check if there's a GitHub connection for this repo
     const repoRoot = workspaceState.repoRoot
     if (repoRoot) {
-      const repoId = await window.api.githubGetRepoIdentifier(repoRoot)
-      if (repoId) {
-        const info = await window.api.githubGetRepoInfo(repoRoot)
-        if (info) {
-          showCreateGitHubPR()
-          return
+      try {
+        const repoId = await window.api.githubGetRepoIdentifier(repoRoot)
+        if (repoId) {
+          const info = await window.api.githubGetRepoInfo(repoRoot)
+          if (info) {
+            showCreateGitHubPR()
+            return
+          }
+          addToast('GitHub repo detected. Add a GitHub connection in Preferences to create PRs.')
         }
-        // GitHub repo detected but no connection configured
-        addToast('GitHub repo detected. Add a GitHub connection in Preferences to create PRs.')
+      } catch {
+        // GitHub detection failed (network/auth) — fall through to gh CLI
       }
     }
 
