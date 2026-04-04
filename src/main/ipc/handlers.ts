@@ -45,6 +45,8 @@ import {
   BRANCH_TYPE_OPTIONS,
 } from '../taskTracker/branchTemplate'
 import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
+import type { GitHubService } from '../github/GitHubService'
+import { gitHubErrorMessage } from '../github/errors'
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -65,6 +67,7 @@ export function registerIpcHandlers(
   onboardingStore: OnboardingStore,
   tmuxManager: TmuxManager,
   taskTrackerManager: TaskTrackerManager,
+  gitHubService: GitHubService,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -1123,18 +1126,20 @@ export function registerIpcHandlers(
         provider: TaskTrackerProvider
         name: string
         baseUrl: string
-        projectKey: string
+        projectKey?: string
         boardId?: string
         username?: string
         token: string
       },
     ) => {
-      const parsed = new URL(payload.baseUrl)
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new Error('Base URL must use http:// or https://')
+      if (payload.baseUrl) {
+        const parsed = new URL(payload.baseUrl)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('Base URL must use http:// or https://')
+        }
       }
-      const { token, ...connectionData } = payload
-      const c = taskTrackerManager.addConnection(connectionData, token)
+      const { token, projectKey, ...rest } = payload
+      const c = taskTrackerManager.addConnection({ ...rest, projectKey: projectKey ?? '' }, token)
       return {
         id: c.id,
         provider: c.provider,
@@ -1159,6 +1164,7 @@ export function registerIpcHandlers(
         connectionId: string
         name?: string
         baseUrl?: string
+        projectKey?: string
         username?: string
         token?: string
       },
@@ -1200,26 +1206,34 @@ export function registerIpcHandlers(
         provider: TaskTrackerProvider
         name: string
         baseUrl: string
-        projectKey: string
+        projectKey?: string
         boardId?: string
         username?: string
         token: string
       },
     ) => {
-      const parsed = new URL(payload.baseUrl)
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new Error('Base URL must use http:// or https://')
+      if (payload.baseUrl) {
+        const parsed = new URL(payload.baseUrl)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('Base URL must use http:// or https://')
+        }
       }
-      const { token, ...connectionData } = payload
-      const result = await taskTrackerManager.testNewConnection(connectionData, token)
+      const { token, projectKey, ...rest } = payload
+      const result = await taskTrackerManager.testNewConnection(
+        { ...rest, projectKey: projectKey ?? '' },
+        token,
+      )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
-  ipcMain.handle('taskTracker:fetchBoards', async (_event, payload: { connectionId: string }) => {
-    const result = await taskTrackerManager.fetchBoards(payload.connectionId)
-    return unwrapOrThrow(result, taskTrackerErrorMessage)
-  })
+  ipcMain.handle(
+    'taskTracker:fetchBoards',
+    async (_event, payload: { connectionId: string; repoRoot?: string }) => {
+      const result = await taskTrackerManager.fetchBoards(payload.connectionId, payload.repoRoot)
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
 
   ipcMain.handle(
     'taskTracker:fetchBoardsForNew',
@@ -1249,8 +1263,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:fetchStatuses',
-    async (_event, payload: { connectionId: string; boardId?: string }) => {
-      const result = await taskTrackerManager.fetchStatuses(payload.connectionId, payload.boardId)
+    async (_event, payload: { connectionId: string; boardId?: string; repoRoot?: string }) => {
+      const result = await taskTrackerManager.fetchStatuses(
+        payload.connectionId,
+        payload.boardId,
+        payload.repoRoot,
+      )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
@@ -1264,10 +1282,11 @@ export function registerIpcHandlers(
         statuses?: string[]
         assignedToMe?: boolean
         boardId?: string
+        repoRoot?: string
       },
     ) => {
-      const { connectionId, ...params } = payload
-      const result = await taskTrackerManager.fetchTasks(connectionId, params)
+      const { connectionId, repoRoot, ...params } = payload
+      const result = await taskTrackerManager.fetchTasks(connectionId, params, repoRoot)
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
@@ -1282,24 +1301,26 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:getCurrentSprint',
-    async (_event, payload: { connectionId: string; boardId?: string }) => {
+    async (_event, payload: { connectionId: string; boardId?: string; repoRoot?: string }) => {
       const result = await taskTrackerManager.getCurrentSprint(
         payload.connectionId,
         payload.boardId,
+        payload.repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
-  const TASK_KEY_RE = /^[A-Za-z0-9_-]+-\d+$/
+  const TASK_KEY_RE = /^[A-Za-z0-9_#-]+-?\d+$/
 
   ipcMain.handle(
     'taskTracker:fetchTaskComments',
-    async (_event, payload: { connectionId: string; taskKey: string }) => {
+    async (_event, payload: { connectionId: string; taskKey: string; repoRoot?: string }) => {
       if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
       const result = await taskTrackerManager.fetchTaskComments(
         payload.connectionId,
         payload.taskKey,
+        payload.repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -1648,5 +1669,79 @@ export function registerIpcHandlers(
 
   ipcMain.handle('onboarding:reset', () => {
     onboardingStore.reset()
+  })
+
+  // ── GitHub PR features ──────────────────────────────────────────────
+
+  ipcMain.handle('github:fetchBranchPRs', async (_event, payload: { repoRoot: string }) => {
+    const found = await gitHubService.findGitHubConnection(payload.repoRoot)
+    // No connection configured — silent empty return (expected for non-GitHub repos)
+    if (found.isErr() || !found.value) return {}
+    const { token, repo } = found.value
+    const worktrees = await GitRepository.listWorktrees(payload.repoRoot).unwrapOr([])
+    const branches = worktrees.map((w) => w.branch).filter((b) => b && b !== '(detached)')
+    if (branches.length === 0) return {}
+    const result = await gitHubService.fetchOpenPRsForBranches(
+      repo.apiUrl,
+      token,
+      repo.owner,
+      repo.repo,
+      branches,
+    )
+    return unwrapOrThrow(result, gitHubErrorMessage)
+  })
+
+  ipcMain.handle('github:getRepoInfo', async (_event, payload: { repoRoot: string }) => {
+    const found = await gitHubService.findGitHubConnection(payload.repoRoot)
+    if (found.isErr() || !found.value) return null
+    const { token, repo } = found.value
+    const result = await gitHubService.getRepoInfo(repo.apiUrl, token, repo.owner, repo.repo)
+    return unwrapOrThrow(result, gitHubErrorMessage)
+  })
+
+  ipcMain.handle(
+    'github:createPR',
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        title: string
+        body: string
+        baseRefName: string
+        draft: boolean
+      },
+    ) => {
+      const found = await gitHubService.findGitHubConnection(payload.repoRoot)
+      if (found.isErr() || !found.value) {
+        throw new Error('No GitHub connection found for this repository')
+      }
+      const { token, repo } = found.value
+
+      const pushResult = await GitRepository.push(payload.repoRoot)
+      if (pushResult.isErr()) {
+        throw new Error(`Failed to push branch: ${gitErrorMessage(pushResult.error)}`)
+      }
+
+      const repoInfo = await gitHubService.getRepoInfo(repo.apiUrl, token, repo.owner, repo.repo)
+      const repoInfoValue = unwrapOrThrow(repoInfo, gitHubErrorMessage)
+
+      const branch = await GitRepository.getBranch(payload.repoRoot).unwrapOr(null)
+      if (!branch) throw new Error('Could not determine current branch')
+
+      const result = await gitHubService.createPR(repo.apiUrl, token, {
+        repositoryId: repoInfoValue.id,
+        headRefName: branch,
+        baseRefName: payload.baseRefName || repoInfoValue.defaultBranch,
+        title: payload.title,
+        body: payload.body,
+        draft: payload.draft,
+      })
+      return unwrapOrThrow(result, gitHubErrorMessage)
+    },
+  )
+
+  ipcMain.handle('github:getRepoIdentifier', async (_event, payload: { repoRoot: string }) => {
+    const result = await gitHubService.getRepoIdentifier(payload.repoRoot)
+    return result.unwrapOr(null)
   })
 }

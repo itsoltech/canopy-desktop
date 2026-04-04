@@ -15,6 +15,8 @@
   import { allPanes } from '../../lib/stores/splitTree'
   import { worktreeBadges } from '../../lib/agents/agentState.svelte'
   import { getWorktreeAgentStatus } from '../../lib/agents/worktreeStatus.svelte'
+  import { getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
+  import { getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
     if (wt.branch !== '(detached)') return wt.branch
@@ -110,6 +112,39 @@
 
   function getMerged(project: ProjectState): Set<string> {
     return mergedBranches[project.workspace.path] ?? new Set()
+  }
+
+  // GitHub PR badges
+  let prMap = $derived(getBranchPRMap())
+  let githubConnectionCount = $derived(
+    getTaskTrackerConnections().filter((c) => c.provider === 'github').length,
+  )
+
+  let prevGhConnCount = 0
+  $effect(() => {
+    const connCount = githubConnectionCount
+    if (connCount === 0) return
+    const deps = projects.map((p) => p.worktrees.length)
+    void deps
+    const force = connCount !== prevGhConnCount
+    prevGhConnCount = connCount
+    for (const p of projects) {
+      if (p.isGitRepo && p.repoRoot) loadBranchPRs(p.repoRoot, force)
+    }
+  })
+
+  function prBadgeClass(pr: (typeof prMap)[string]): string {
+    if (pr.isDraft) return 'pr-badge draft'
+    if (pr.reviewDecision === 'APPROVED') return 'pr-badge approved'
+    if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'pr-badge changes-requested'
+    return 'pr-badge'
+  }
+
+  function prBadgeLabel(pr: (typeof prMap)[string]): string {
+    if (pr.isDraft) return 'Draft'
+    if (pr.reviewDecision === 'APPROVED') return 'Approved'
+    if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'Changes'
+    return `PR #${pr.number}`
   }
 
   const removingPaths = new SvelteSet<string>()
@@ -427,6 +462,19 @@
                 {:else if merged.has(wt.branch)}
                   <span class="merged-badge" title="Merged">merged</span>
                 {/if}
+                {#if prMap[wt.branch]}
+                  {@const pr = prMap[wt.branch]}
+                  <button
+                    class={prBadgeClass(pr)}
+                    title={`${pr.title} — click to open`}
+                    onclick={(e) => {
+                      e.stopPropagation()
+                      window.api.openExternal(pr.url)
+                    }}
+                  >
+                    {prBadgeLabel(pr)}
+                  </button>
+                {/if}
                 {#if wtActive}
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
                   <span
@@ -728,6 +776,40 @@
     color: var(--c-success);
     flex-shrink: 0;
     margin-left: auto;
+  }
+
+  .pr-badge {
+    font-size: 9px;
+    font-weight: 500;
+    padding: 0 4px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-left: 4px;
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+    font-family: inherit;
+    line-height: 16px;
+  }
+
+  .pr-badge:hover {
+    opacity: 0.8;
+  }
+
+  .pr-badge.draft {
+    background: var(--c-hover-strong);
+    color: var(--c-text-muted);
+  }
+
+  .pr-badge.approved {
+    background: var(--c-success-bg, var(--c-success));
+    color: var(--c-success-text, var(--c-text));
+  }
+
+  .pr-badge.changes-requested {
+    background: var(--c-warning-bg, var(--c-warning));
+    color: var(--c-warning-text);
   }
 
   .removing-label {

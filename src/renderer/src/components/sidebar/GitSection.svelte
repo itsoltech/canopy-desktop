@@ -1,6 +1,6 @@
 <script lang="ts">
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { confirm, prompt, showCreateGitHubPR } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
@@ -124,10 +124,28 @@
     const branch = workspaceState.branch
     if (!branch) return
 
+    // Check if there's a GitHub connection for this repo
+    const repoRoot = workspaceState.repoRoot
+    if (repoRoot) {
+      try {
+        const repoId = await window.api.githubGetRepoIdentifier(repoRoot)
+        if (repoId) {
+          const info = await window.api.githubGetRepoInfo(repoRoot)
+          if (info) {
+            showCreateGitHubPR()
+            return
+          }
+          addToast('GitHub repo detected. Add a GitHub connection in Preferences to create PRs.')
+        }
+      } catch {
+        // GitHub detection failed (network/auth) — fall through to gh CLI
+      }
+    }
+
+    // Fallback to task tracker PR creation (gh CLI)
     const taskKey = taskKeyFromBranch
     loading = 'pr'
 
-    // Resolve PR title and target using scoped config (board → connection → global)
     let prTitle = taskKey ? `[${taskKey}]` : branch
     let defaultTarget = 'develop'
     try {

@@ -76,6 +76,10 @@ interface TmuxBrowserState {
   type: 'tmuxBrowser'
 }
 
+interface CreateGitHubPRState {
+  type: 'createGitHubPR'
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -92,6 +96,7 @@ type DialogState =
   | OnboardingWizardState
   | FeatureOnboardingState
   | TmuxBrowserState
+  | CreateGitHubPRState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -172,6 +177,10 @@ export function showFeatureOnboarding(fromVersion: string): void {
 
 export function showTmuxBrowser(): void {
   dialogState.current = { type: 'tmuxBrowser' }
+}
+
+export function showCreateGitHubPR(): void {
+  dialogState.current = { type: 'createGitHubPR' }
 }
 
 export function closeDialog(): void {

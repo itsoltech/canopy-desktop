@@ -1,7 +1,7 @@
 import type { ResultAsync } from 'neverthrow'
 import type { TaskTrackerError } from './errors'
 
-export type TaskTrackerProvider = 'jira' | 'youtrack'
+export type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'
 
 export interface TaskTrackerConnection {
   id: string

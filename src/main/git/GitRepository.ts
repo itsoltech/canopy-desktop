@@ -85,6 +85,13 @@ export class GitRepository {
     })
   }
 
+  static getRemoteUrl(repoRoot: string, remote = 'origin'): ResultAsync<string, GitError> {
+    const git = simpleGit(repoRoot)
+    return gitCall('remote get-url', git.raw(['remote', 'get-url', remote])).map((raw) =>
+      raw.trim(),
+    )
+  }
+
   static listWorktrees(repoRoot: string): ResultAsync<GitWorktreeInfo[], GitError> {
     const git = simpleGit(repoRoot)
     return gitCall('worktree list', git.raw(['worktree', 'list', '--porcelain'])).map(
