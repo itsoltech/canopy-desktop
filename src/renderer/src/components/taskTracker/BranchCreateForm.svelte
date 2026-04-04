@@ -10,6 +10,7 @@
   import { isAiToolId, openTool } from '../../lib/stores/tabs.svelte'
   import { agentSessions } from '../../lib/agents/agentState.svelte'
   import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
+  import { setActiveTask } from '../../lib/stores/taskTracker.svelte'
 
   interface Task {
     key: string
@@ -114,6 +115,12 @@
     setPref('taskTracker.lastAgent', selectedAgentId)
     try {
       await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, currentBranch)
+      await setActiveTask(worktreePath, {
+        taskKey: fullTask.key,
+        summary: fullTask.summary,
+        connectionId,
+        boardId: selectedBoardId || undefined,
+      })
       closeDialog()
 
       if (selectedAgentId) {

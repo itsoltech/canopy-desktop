@@ -1,16 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { SquareKanban, Plus, ExternalLink, Settings } from '@lucide/svelte'
+  import { SquareKanban, Plus, ExternalLink, Settings, GitPullRequest } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
     getRepoConfig,
     getHasCredentials,
     isTaskTrackerLoading,
     getTaskTrackerConnections,
+    getActiveTask,
     loadConnections,
   } from '../../lib/stores/taskTracker.svelte'
-  import { showPreferences } from '../../lib/stores/dialogs.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { showPreferences, confirm } from '../../lib/stores/dialogs.svelte'
   import { showTaskPicker } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
 
   onMount(() => {
     loadConnections()
@@ -20,6 +23,8 @@
   let hasCreds = $derived(getHasCredentials())
   let loading = $derived(isTaskTrackerLoading())
   let connections = $derived(getTaskTrackerConnections())
+  let activeTask = $derived(getActiveTask())
+  let creatingPR = $state(false)
 
   function providerLabel(provider: string): string {
     if (provider === 'jira') return 'Jira'
@@ -33,6 +38,71 @@
 
   function browseTasks(connectionId: string): void {
     showTaskPicker(connectionId)
+  }
+
+  function worktreePath(): string {
+    return workspaceState.selectedWorktreePath ?? workspaceState.repoRoot ?? ''
+  }
+
+  async function doCreatePR(): Promise<void> {
+    if (!activeTask || !workspaceState.branch) return
+
+    creatingPR = true
+    let prTitle = `[${activeTask.taskKey}]`
+    let defaultTarget = 'develop'
+    try {
+      const preview = await window.api.taskTrackerResolvePRPreview(
+        activeTask.taskKey,
+        activeTask.connectionId,
+        activeTask.boardId,
+      )
+      prTitle = preview.title
+      defaultTarget = preview.targetBranch
+    } catch {
+      // use defaults
+    }
+    creatingPR = false
+
+    const ok = await confirm({
+      title: 'Create Pull Request',
+      message: `Create PR from "${workspaceState.branch}"?`,
+      details: `Title: ${prTitle}\nTarget: ${defaultTarget}`,
+      confirmLabel: 'Create PR',
+    })
+    if (!ok) return
+
+    creatingPR = true
+    try {
+      const result = await window.api.taskTrackerCreatePR(
+        worktreePath(),
+        {
+          key: activeTask.taskKey,
+          summary: activeTask.summary,
+          description: '',
+          status: '',
+          priority: '',
+          type: 'task',
+        },
+        workspaceState.branch!,
+        activeTask.connectionId,
+        activeTask.boardId,
+      )
+      addToast('PR created')
+      window.api.openExternal(result.url)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('No commits between')) {
+        await confirm({
+          title: 'No Changes',
+          message: `No commits between target branch and "${workspaceState.branch}". Commit changes first.`,
+          confirmLabel: 'OK',
+        })
+      } else {
+        addToast(msg)
+      }
+    } finally {
+      creatingPR = false
+    }
   }
 </script>
 
@@ -63,6 +133,23 @@
         </button>
       </li>
     </ul>
+
+    {#if activeTask}
+      <div class="active-task">
+        <span class="task-key">{activeTask.taskKey}</span>
+        <span class="task-summary">{activeTask.summary}</span>
+        <button
+          class="pr-btn"
+          onclick={doCreatePR}
+          disabled={creatingPR || !workspaceState.branch}
+          title="Create Pull Request"
+        >
+          <GitPullRequest size={13} />
+          {#if creatingPR}Creating...{:else}Create PR{/if}
+        </button>
+      </div>
+    {/if}
+
     {#if !hasCreds}
       <div class="token-hint">
         <button class="connect-btn" onclick={openTrackerPrefs}>
@@ -167,6 +254,56 @@
     font-size: 10px;
     color: var(--c-text-faint);
     flex-shrink: 0;
+  }
+
+  .active-task {
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-top: 1px solid var(--c-border-subtle);
+  }
+
+  .task-key {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-accent-text);
+    flex-shrink: 0;
+  }
+
+  .task-summary {
+    font-size: 11px;
+    color: var(--c-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .pr-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border: none;
+    border-radius: 4px;
+    background: var(--c-active);
+    color: var(--c-text-secondary);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.1s;
+  }
+
+  .pr-btn:hover:not(:disabled) {
+    background: var(--c-hover-strong);
+    color: var(--c-text);
+  }
+
+  .pr-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .add-row {

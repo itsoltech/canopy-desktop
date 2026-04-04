@@ -1,5 +1,10 @@
 import { restoreLayout } from './tabs.svelte'
-import { loadRepoConfig, getRepoConfig, getHasCredentials } from './taskTracker.svelte'
+import {
+  loadRepoConfig,
+  getRepoConfig,
+  getHasCredentials,
+  loadActiveTask,
+} from './taskTracker.svelte'
 import { addToast } from './toast.svelte'
 
 function basename(p: string): string {
@@ -394,6 +399,7 @@ export async function selectWorktree(path: string): Promise<void> {
 
   window.api.setActiveWorktree(path)
   workspaceState.selectedWorktreePath = path
+  loadActiveTask(path)
 
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)
