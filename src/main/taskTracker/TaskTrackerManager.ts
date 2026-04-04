@@ -194,35 +194,52 @@ export class TaskTrackerManager {
         }
         return ok({ conn, token })
       })
-      .asyncAndThen(({ conn, token }) => {
-        const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
-        mkdirSync(dir, { recursive: true })
+      .asyncAndThen(({ conn, token }) => this.downloadToTempDir(url, filename, conn, token, dlErr))
+  }
 
-        const safeName = basename(filename.replace(/[/\\]/g, '_'))
-        const filePath = join(dir, safeName)
+  private downloadToTempDir(
+    url: string,
+    filename: string,
+    conn: TaskTrackerConnection,
+    token: string,
+    dlErr: (reason: string) => TaskTrackerError,
+  ): ResultAsync<string, TaskTrackerError> {
+    const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
+    mkdirSync(dir, { recursive: true })
 
-        const headers: Record<string, string> = {
-          Authorization: conn.username
-            ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
-            : `Bearer ${token}`,
+    const safeName = basename(filename.replace(/[/\\]/g, '_'))
+    const filePath = join(dir, safeName)
+
+    const headers: Record<string, string> = {
+      Authorization: conn.username
+        ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
+        : `Bearer ${token}`,
+    }
+
+    const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+
+    return fromExternalCall(fetch(url, { headers, signal: AbortSignal.timeout(60_000) }), (e) =>
+      dlErr(errorMessage(e)),
+    )
+      .andThen((res) => {
+        if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
+        if (!res.body) return errAsync(dlErr('Empty response body'))
+        const contentLength = Number(res.headers.get('content-length') || 0)
+        if (contentLength > MAX_ATTACHMENT_BYTES) {
+          return errAsync(dlErr(`Attachment too large: ${contentLength} bytes`))
         }
-
-        const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
-
-        return fromExternalCall(fetch(url, { headers, signal: AbortSignal.timeout(60_000) }), (e) =>
+        const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
+        return fromExternalCall(pipeline(nodeStream, createWriteStream(filePath)), (e) =>
           dlErr(errorMessage(e)),
-        ).andThen((res) => {
-          if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
-          if (!res.body) return errAsync(dlErr('Empty response body'))
-          const contentLength = Number(res.headers.get('content-length') || 0)
-          if (contentLength > MAX_ATTACHMENT_BYTES) {
-            return errAsync(dlErr(`Attachment too large: ${contentLength} bytes`))
-          }
-          const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
-          return fromExternalCall(pipeline(nodeStream, createWriteStream(filePath)), (e) =>
-            dlErr(errorMessage(e)),
-          ).map(() => filePath)
-        })
+        ).map(() => filePath)
+      })
+      .mapErr((error) => {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // Ignore cleanup errors
+        }
+        return error
       })
   }
 
@@ -343,11 +360,12 @@ export class TaskTrackerManager {
   async findTaskByKey(taskKey: string): Promise<TrackerTask | null> {
     const connections = this.getConnections()
     for (const conn of connections) {
-      const tokenResult = this.getToken(conn)
-      if (tokenResult.isErr()) continue
+      const token = this.getToken(conn)
+      if (token.isErr()) continue
       const client = createProviderClient(conn.provider)
-      const result = await client.fetchTaskByKey(conn, tokenResult.value, taskKey)
-      if (result.isOk() && result.value) return result.value
+      const result = await client.fetchTaskByKey(conn, token.value, taskKey)
+      if (result.isErr()) continue
+      if (result.value) return result.value
     }
     return null
   }
@@ -450,36 +468,7 @@ export class TaskTrackerManager {
         }
         return ok({ conn, token })
       })
-      .asyncAndThen(({ conn, token }) => {
-        const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
-        mkdirSync(dir, { recursive: true })
-
-        const safeName = basename(filename.replace(/[/\\]/g, '_'))
-        const filePath = join(dir, safeName)
-
-        const headers: Record<string, string> = {
-          Authorization: conn.username
-            ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
-            : `Bearer ${token}`,
-        }
-
-        const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
-
-        return fromExternalCall(fetch(url, { headers, signal: AbortSignal.timeout(60_000) }), (e) =>
-          dlErr(errorMessage(e)),
-        ).andThen((res) => {
-          if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
-          if (!res.body) return errAsync(dlErr('Empty response body'))
-          const contentLength = Number(res.headers.get('content-length') || 0)
-          if (contentLength > MAX_ATTACHMENT_BYTES) {
-            return errAsync(dlErr(`Attachment too large: ${contentLength} bytes`))
-          }
-          const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
-          return fromExternalCall(pipeline(nodeStream, createWriteStream(filePath)), (e) =>
-            dlErr(errorMessage(e)),
-          ).map(() => filePath)
-        })
-      })
+      .asyncAndThen(({ conn, token }) => this.downloadToTempDir(url, filename, conn, token, dlErr))
   }
 
   cleanupAttachmentDir(filePath: string): void {

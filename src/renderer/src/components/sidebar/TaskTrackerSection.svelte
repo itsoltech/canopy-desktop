@@ -37,12 +37,18 @@
   let canCreatePR = $derived(!!(activeTask || taskKeyFromBranch) && !!workspaceState.branch)
   let existingPRUrl = $state<string | null>(null)
 
-  // Check for existing PR when branch/worktree changes
+  let prCheckTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Check for existing PR when branch/worktree changes (debounced)
   $effect(() => {
     const branch = workspaceState.branch
     existingPRUrl = null
+    if (prCheckTimer) clearTimeout(prCheckTimer)
     if (branch) {
-      checkExistingPR(branch)
+      prCheckTimer = setTimeout(() => checkExistingPR(branch), 500)
+    }
+    return () => {
+      if (prCheckTimer) clearTimeout(prCheckTimer)
     }
   })
 

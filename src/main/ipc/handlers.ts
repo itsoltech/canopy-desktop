@@ -1610,13 +1610,14 @@ export function registerIpcHandlers(
       const existingBranches = [...branches.local, ...branches.remote]
 
       const prConfig = buildPRConfig(titleTemplate, bodyTemplate, defaultBranch, targetRules)
-      return createPullRequest({
+      const result = await createPullRequest({
         repoRoot: payload.repoRoot,
         task,
         sourceBranch: payload.sourceBranch,
         prConfig,
         existingBranches,
       })
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
