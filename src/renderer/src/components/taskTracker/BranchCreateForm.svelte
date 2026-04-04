@@ -106,10 +106,9 @@
     const safeBranchName = resolvedBranchName.replace(/\//g, '-')
     const worktreeDir = `${baseDir}/${projectName}/${safeBranchName}`
     const homedir = await window.api.getHomedir()
-    let worktreePath = worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir
-    if (navigator.userAgent.includes('Windows')) {
-      worktreePath = worktreePath.replace(/\//g, '\\')
-    }
+    const worktreePath = worktreeDir.startsWith('~/')
+      ? (homedir + worktreeDir.slice(1)).replace(/\\/g, '/')
+      : worktreeDir
 
     creatingWorktree = true
     setPref('taskTracker.lastAgent', selectedAgentId)
