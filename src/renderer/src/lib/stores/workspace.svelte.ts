@@ -81,8 +81,8 @@ const initial: WorkspaceState = {
   isDirty: false,
   aheadBehind: null,
   sidebarOpen: true,
-  rightPanelOpen: true,
-  rightPanelTab: 'changes',
+  rightPanelOpen: false,
+  rightPanelTab: 'session',
   changesCount: 0,
   diffScrollTarget: null,
 }

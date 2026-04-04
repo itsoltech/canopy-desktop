@@ -1,37 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
+  import type { DiffFile, ParsedDiff } from '../../lib/types/diff'
 
-  interface DiffChange {
-    type: 'add' | 'delete' | 'context'
-    content: string
-    oldLine?: number
-    newLine?: number
-  }
-
-  interface DiffHunk {
-    oldStart: number
-    oldLines: number
-    newStart: number
-    newLines: number
-    header: string
-    changes: DiffChange[]
-  }
-
-  interface DiffFile {
-    path: string
-    oldPath?: string
-    status: 'added' | 'modified' | 'deleted' | 'renamed'
-    hunks: DiffHunk[]
-    additions: number
-    deletions: number
-  }
-
-  interface ParsedDiff {
-    files: DiffFile[]
-  }
-
-  let { worktreePath }: { worktreePath: string } = $props()
+  let {
+    worktreePath,
+    fileCount = $bindable(0),
+  }: {
+    worktreePath: string
+    fileCount?: number
+  } = $props()
 
   let diff = $state<ParsedDiff | null>(null)
   let loading = $state(false)
@@ -102,9 +80,9 @@
   )
   let summaryBarDelWidth = $derived(totalChanges > 0 ? 60 - summaryBarAddWidth : 0)
 
-  // Broadcast file count for badge in RightPanel
+  // Expose file count to parent via bindable prop
   $effect(() => {
-    window.dispatchEvent(new CustomEvent('canopy:changes-count', { detail: { count: totalFiles } }))
+    fileCount = totalFiles
   })
 
   function basename(filePath: string): string {

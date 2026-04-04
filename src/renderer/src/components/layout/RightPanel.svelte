@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import type { AgentSessionState } from '../../lib/agents/agentState.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AgentInspector from '../agents/AgentInspector.svelte'
@@ -15,12 +14,10 @@
     worktreePath?: string
   } = $props()
 
-  onMount(() => {
-    const handler = (e: Event): void => {
-      workspaceState.changesCount = (e as CustomEvent<{ count: number }>).detail.count
-    }
-    window.addEventListener('canopy:changes-count', handler)
-    return () => window.removeEventListener('canopy:changes-count', handler)
+  let changesFileCount = $state(0)
+
+  $effect(() => {
+    workspaceState.changesCount = changesFileCount
   })
 </script>
 
@@ -61,7 +58,7 @@
         </div>
       {/if}
     {:else if worktreePath}
-      <ChangesPanel {worktreePath} />
+      <ChangesPanel {worktreePath} bind:fileCount={changesFileCount} />
     {:else}
       <div class="empty-state">
         <span class="empty-text">No changes yet</span>

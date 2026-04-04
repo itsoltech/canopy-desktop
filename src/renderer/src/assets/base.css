@@ -60,11 +60,11 @@
 
   --c-scrim: rgba(0, 0, 0, 0.5);
 
-  --diff-add-bg: rgba(46, 160, 67, 0.15);
-  --diff-add-fg: #3fb950;
-  --diff-delete-bg: rgba(248, 81, 73, 0.15);
-  --diff-delete-fg: #f85149;
-  --diff-hunk-header-bg: rgba(56, 139, 253, 0.1);
+  --diff-add-bg: color-mix(in srgb, var(--c-success) 15%, transparent);
+  --diff-add-fg: var(--c-success);
+  --diff-delete-bg: color-mix(in srgb, var(--c-danger) 15%, transparent);
+  --diff-delete-fg: var(--c-danger);
+  --diff-hunk-header-bg: color-mix(in srgb, var(--c-accent) 10%, transparent);
 
   color-scheme: dark;
 }

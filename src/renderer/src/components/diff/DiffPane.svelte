@@ -3,31 +3,7 @@
   import { SvelteSet } from 'svelte/reactivity'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-
-  interface DiffChange {
-    type: 'add' | 'delete' | 'context'
-    content: string
-    oldLine?: number
-    newLine?: number
-  }
-
-  interface DiffHunk {
-    oldStart: number
-    oldLines: number
-    newStart: number
-    newLines: number
-    header: string
-    changes: DiffChange[]
-  }
-
-  interface DiffFile {
-    path: string
-    oldPath?: string
-    status: 'added' | 'modified' | 'deleted' | 'renamed'
-    hunks: DiffHunk[]
-    additions: number
-    deletions: number
-  }
+  import type { DiffChange, DiffFile } from '../../lib/types/diff'
 
   let {
     worktreePath,
@@ -54,6 +30,7 @@
 
   // Auto-refresh pulse state
   let justRefreshed = $state(false)
+  let pulseTimer: ReturnType<typeof setTimeout> | null = null
 
   // Hover state for copy button
   let hoveredFilePath = $state<string | null>(null)
@@ -77,9 +54,11 @@
   }
 
   function triggerPulse(): void {
+    if (pulseTimer != null) clearTimeout(pulseTimer)
     justRefreshed = true
-    setTimeout(() => {
+    pulseTimer = setTimeout(() => {
       justRefreshed = false
+      pulseTimer = null
     }, 1000)
   }
 
@@ -147,6 +126,7 @@
       unsubGit()
       unsubFiles()
       observer?.disconnect()
+      if (pulseTimer != null) clearTimeout(pulseTimer)
     }
   })
 
@@ -293,12 +273,16 @@
     if (sessions.length === 0) return
 
     const context = gatherContext(commentFilePath, commentLineNum)
-    const contextBlock = context ? `\nContext:\n${context}\n` : ''
+    const contextLines = context ? context.split('\n') : []
 
     const message = [
-      `In file ${commentFilePath}, around line ${commentLineNum}:`,
-      contextBlock,
+      '---',
+      `[Code Review] ${commentFilePath}:${commentLineNum}`,
+      '',
+      ...contextLines,
+      '',
       `Comment: ${commentText.trim()}`,
+      '---',
     ].join('\n')
 
     window.api.writePty(sessions[0].sessionId, message + '\n')
@@ -462,7 +446,7 @@
                     <span class="gutter new-gutter"></span>
                     <span class="hunk-text">{hunk.header}</span>
                   </div>
-                  {#each hunk.changes as change, i (i)}
+                  {#each hunk.changes as change, i (`${i}-${change.type}`)}
                     <div
                       class="diff-line {change.type}"
                       class:search-match={lineMatchesSearch(change.content)}
