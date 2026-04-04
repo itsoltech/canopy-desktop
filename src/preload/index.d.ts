@@ -58,6 +58,7 @@ interface ToolDefinition {
 }
 
 type GitInfo = import('../main/git/GitRepository').GitInfo
+type ParsedDiff = import('../main/git/types').ParsedDiff
 type GitWorktreeInfo = import('../main/git/GitRepository').GitWorktreeInfo
 type GitRefreshFlags = import('../main/git/GitWatcher').GitRefreshFlags
 
@@ -349,6 +350,10 @@ interface CanopyAPI {
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) => Promise<void>
   gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
+  gitDiff: (repoRoot: string) => Promise<ParsedDiff>
+  gitDiffFile: (repoRoot: string, filePath: string) => Promise<ParsedDiff>
+  gitStageFile: (repoRoot: string, filePath: string) => Promise<void>
+  gitRevertFile: (repoRoot: string, filePath: string) => Promise<void>
   gitGenerateCommitMessage: (repoRoot: string) => Promise<string | null>
 
   // Browser (<webview> management)
@@ -492,7 +497,7 @@ interface CanopyAPI {
     username?: string
     token: string
   }) => Promise<boolean>
-  taskTrackerFetchBoards: (connectionId: string) => Promise<TrackerBoard[]>
+  taskTrackerFetchBoards: (connectionId: string, repoRoot?: string) => Promise<TrackerBoard[]>
   taskTrackerFetchBoardsForNew: (connection: {
     provider: TaskTrackerProvider
     name: string
@@ -501,19 +506,30 @@ interface CanopyAPI {
     username?: string
     token: string
   }) => Promise<TrackerBoard[]>
-  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) => Promise<TrackerStatus[]>
+  taskTrackerFetchStatuses: (
+    connectionId: string,
+    boardId?: string,
+    repoRoot?: string,
+  ) => Promise<TrackerStatus[]>
   taskTrackerFetchTasks: (
     connectionId: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: {
+      statuses?: string[]
+      assignedToMe?: boolean
+      boardId?: string
+      repoRoot?: string
+    },
   ) => Promise<TrackerTask[]>
   taskTrackerGetCurrentSprint: (
     connectionId: string,
     boardId?: string,
+    repoRoot?: string,
   ) => Promise<TrackerSprint | null>
   taskTrackerGetCurrentUser: (connectionId: string) => Promise<string>
   taskTrackerFetchTaskComments: (
     connectionId: string,
     taskKey: string,
+    repoRoot?: string,
   ) => Promise<Array<{ id: string; author: string; body: string; created: string }>>
   taskTrackerFetchTaskAttachments: (
     connectionId: string,
@@ -565,6 +581,17 @@ interface CanopyAPI {
 
   taskTrackerFindPR: (repoRoot: string, branch: string) => Promise<string | null>
 
+  // GitHub PR features
+  githubFetchBranchPRs: (repoRoot: string) => Promise<GitHubBranchPRMap>
+  githubGetRepoInfo: (repoRoot: string) => Promise<GitHubRepoInfo | null>
+  githubCreatePR: (
+    repoRoot: string,
+    params: { title: string; body: string; baseRefName: string; draft: boolean },
+  ) => Promise<GitHubPRInfo>
+  githubGetRepoIdentifier: (
+    repoRoot: string,
+  ) => Promise<{ owner: string; repo: string; host: string; apiUrl: string } | null>
+
   // Performance diagnostics (only present when CANOPY_PERF=1)
   perfDiagnostics?: () => Promise<{
     ptySessionCount: number
@@ -588,7 +615,7 @@ interface CanopyAPI {
   getPathForFile: (file: File) => string
 }
 
-type TaskTrackerProvider = 'jira' | 'youtrack'
+type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'
 
 interface TrackerConfig {
   provider: TaskTrackerProvider
@@ -699,6 +726,25 @@ interface NotchOverlayState {
   notchWidth: number
   notchHeight: number
   peekSessionIds?: string[]
+}
+
+interface GitHubPRInfo {
+  number: number
+  title: string
+  state: string
+  url: string
+  headRefName: string
+  baseRefName: string
+  isDraft: boolean
+  reviewDecision: string | null
+  checksState: string | null
+}
+
+type GitHubBranchPRMap = Record<string, GitHubPRInfo>
+
+interface GitHubRepoInfo {
+  id: string
+  defaultBranch: string
 }
 
 interface NotchAPI {

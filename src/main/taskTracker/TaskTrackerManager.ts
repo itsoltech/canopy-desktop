@@ -4,12 +4,14 @@ import os from 'os'
 import { randomUUID } from 'crypto'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
-import { ok, err, errAsync, type Result, type ResultAsync } from 'neverthrow'
+import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { KeychainTokenStore } from './KeychainTokenStore'
 import type { TaskTrackerError } from './errors'
 import { fromExternalCall, errorMessage } from '../errors'
 import { createProviderClient } from './providers'
+import { GitRepository } from '../git/GitRepository'
+import { parseGitHubRemote } from '../github/remoteUrl'
 import type {
   TaskTrackerConnection,
   RepoConfig,
@@ -271,6 +273,47 @@ export class TaskTrackerManager {
     return ok(token)
   }
 
+  private resolveGitHubConnection(
+    conn: TaskTrackerConnection,
+    repoRoot?: string,
+  ): ResultAsync<TaskTrackerConnection, TaskTrackerError> {
+    if (conn.provider !== 'github' || conn.projectKey) return okAsync(conn)
+    if (!repoRoot) {
+      return errAsync({
+        _tag: 'ProviderApiError',
+        status: 0,
+        message: 'Repository not configured and no workspace to auto-detect from',
+        provider: 'github',
+      })
+    }
+    return GitRepository.getRemoteUrl(repoRoot)
+      .mapErr(
+        (): TaskTrackerError => ({
+          _tag: 'ProviderApiError',
+          status: 0,
+          message: 'Could not read git remote URL from workspace',
+          provider: 'github',
+        }),
+      )
+      .andThen((url) => {
+        const parsed = parseGitHubRemote(url)
+        if (parsed.isErr()) {
+          return errAsync<TaskTrackerConnection, TaskTrackerError>({
+            _tag: 'ProviderApiError',
+            status: 0,
+            message: 'Workspace remote is not a GitHub repository',
+            provider: 'github',
+          })
+        }
+        const { owner, repo, host } = parsed.value
+        return okAsync({
+          ...conn,
+          projectKey: `${owner}/${repo}`,
+          baseUrl: conn.baseUrl || `https://${host}`,
+        })
+      })
+  }
+
   addConnection(
     connection: Omit<TaskTrackerConnection, 'id' | 'authPrefKey'>,
     token: string,
@@ -379,61 +422,78 @@ export class TaskTrackerManager {
       })
   }
 
-  fetchBoards(connectionId: string): ResultAsync<TrackerBoard[], TaskTrackerError> {
+  fetchBoards(
+    connectionId: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerBoard[], TaskTrackerError> {
     return this.getConnection(connectionId)
       .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
-      .asyncAndThen(({ conn, token }) => {
-        const client = createProviderClient(conn.provider)
-        return client.fetchBoards(conn, token)
-      })
+      .asyncAndThen(({ conn, token }) =>
+        this.resolveGitHubConnection(conn, repoRoot).andThen((resolved) => {
+          const client = createProviderClient(resolved.provider)
+          return client.fetchBoards(resolved, token)
+        }),
+      )
   }
 
   fetchStatuses(
     connectionId: string,
     boardId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerStatus[], TaskTrackerError> {
     return this.getConnection(connectionId)
       .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
-      .asyncAndThen(({ conn, token }) => {
-        const client = createProviderClient(conn.provider)
-        return client.fetchStatuses(conn, token, boardId)
-      })
+      .asyncAndThen(({ conn, token }) =>
+        this.resolveGitHubConnection(conn, repoRoot).andThen((resolved) => {
+          const client = createProviderClient(resolved.provider)
+          return client.fetchStatuses(resolved, token, boardId)
+        }),
+      )
   }
 
   fetchTasks(
     connectionId: string,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    repoRoot?: string,
   ): ResultAsync<TrackerTask[], TaskTrackerError> {
     return this.getConnection(connectionId)
       .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
-      .asyncAndThen(({ conn, token }) => {
-        const client = createProviderClient(conn.provider)
-        return client.fetchTasks(conn, token, params)
-      })
+      .asyncAndThen(({ conn, token }) =>
+        this.resolveGitHubConnection(conn, repoRoot).andThen((resolved) => {
+          const client = createProviderClient(resolved.provider)
+          return client.fetchTasks(resolved, token, params)
+        }),
+      )
   }
 
   getCurrentSprint(
     connectionId: string,
     boardId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerSprint | null, TaskTrackerError> {
     return this.getConnection(connectionId)
       .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
-      .asyncAndThen(({ conn, token }) => {
-        const client = createProviderClient(conn.provider)
-        return client.getCurrentSprint(conn, token, boardId)
-      })
+      .asyncAndThen(({ conn, token }) =>
+        this.resolveGitHubConnection(conn, repoRoot).andThen((resolved) => {
+          const client = createProviderClient(resolved.provider)
+          return client.getCurrentSprint(resolved, token, boardId)
+        }),
+      )
   }
 
   fetchTaskComments(
     connectionId: string,
     taskKey: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerComment[], TaskTrackerError> {
     return this.getConnection(connectionId)
       .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
-      .asyncAndThen(({ conn, token }) => {
-        const client = createProviderClient(conn.provider)
-        return client.fetchTaskComments(conn, token, taskKey)
-      })
+      .asyncAndThen(({ conn, token }) =>
+        this.resolveGitHubConnection(conn, repoRoot).andThen((resolved) => {
+          const client = createProviderClient(resolved.provider)
+          return client.fetchTaskComments(resolved, token, taskKey)
+        }),
+      )
   }
 
   fetchTaskAttachments(

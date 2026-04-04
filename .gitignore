@@ -8,3 +8,4 @@ test-results
 playwright-report
 perf/results/*.json
 perf/results/*.cpuprofile
+*.tsbuildinfo

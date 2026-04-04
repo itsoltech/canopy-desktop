@@ -23,6 +23,7 @@ import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
 import { KeychainTokenStore } from './taskTracker/KeychainTokenStore'
 import { RepoConfigManager } from './taskTracker/RepoConfigManager'
+import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
@@ -494,6 +495,7 @@ app.whenReady().then(async () => {
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()
   const taskTrackerManager = new TaskTrackerManager(preferencesStore, keychainTokenStore)
+  const gitHubService = new GitHubService(preferencesStore, taskTrackerManager)
 
   if (PERF) performance.mark('app:managersReady')
 
@@ -513,6 +515,7 @@ app.whenReady().then(async () => {
     taskTrackerManager,
     repoConfigManager,
     keychainTokenStore,
+    gitHubService,
   )
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')

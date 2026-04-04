@@ -1,6 +1,7 @@
 <script lang="ts">
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { confirm, prompt, showCreateGitHubPR } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
   let loading: string | null = $state(null)
@@ -112,6 +113,92 @@
 
   let ahead = $derived(workspaceState.aheadBehind?.ahead ?? 0)
   let behind = $derived(workspaceState.aheadBehind?.behind ?? 0)
+
+  function extractTaskKeyFromBranch(branch: string | null): string | null {
+    if (!branch) return null
+    const match = branch.match(/([A-Z][A-Z0-9]+-\d+)/)
+    return match ? match[1] : null
+  }
+
+  let taskKeyFromBranch = $derived(extractTaskKeyFromBranch(workspaceState.branch))
+
+  async function doCreatePR(): Promise<void> {
+    const branch = workspaceState.branch
+    if (!branch) return
+
+    // Check if there's a GitHub connection for this repo
+    const repoRoot = workspaceState.repoRoot
+    if (repoRoot) {
+      try {
+        const repoId = await window.api.githubGetRepoIdentifier(repoRoot)
+        if (repoId) {
+          const info = await window.api.githubGetRepoInfo(repoRoot)
+          if (info) {
+            showCreateGitHubPR()
+            return
+          }
+          addToast('GitHub repo detected. Add a GitHub connection in Preferences to create PRs.')
+        }
+      } catch {
+        // GitHub detection failed (network/auth) — fall through to gh CLI
+      }
+    }
+
+    // Fallback to task tracker PR creation (gh CLI)
+    const taskKey = taskKeyFromBranch
+    loading = 'pr'
+
+    let prTitle = taskKey ? `[${taskKey}]` : branch
+    let defaultTarget = 'develop'
+    try {
+      const preview = await window.api.taskTrackerResolvePRPreview(taskKey ?? '')
+      prTitle = preview.title
+      defaultTarget = preview.targetBranch
+    } catch {
+      // use defaults
+    }
+
+    loading = null
+
+    const ok = await confirm({
+      title: 'Create Pull Request',
+      message: `Create PR from "${branch}"?`,
+      details: `Title: ${prTitle}\nTarget: ${defaultTarget}`,
+      confirmLabel: 'Create PR',
+    })
+    if (!ok) return
+
+    loading = 'pr'
+    try {
+      const result = await window.api.taskTrackerCreatePR(
+        worktreePath(),
+        {
+          key: taskKey ?? '',
+          summary: '',
+          description: '',
+          status: '',
+          priority: '',
+          type: 'task',
+        },
+        branch,
+      )
+      addToast(`PR created`)
+      window.api.openExternal(result.url)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('No commits between')) {
+        await confirm({
+          title: 'No Changes',
+          message: `No commits between target branch and "${branch}". Commit changes first.`,
+          confirmLabel: 'OK',
+        })
+      } else {
+        await gitError(err)
+      }
+    } finally {
+      loading = null
+    }
+  }
 </script>
 
 <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
@@ -178,6 +265,14 @@
       title="Pop stashed changes"
     >
       <span class="action-label">Stash Pop</span>
+    </button>
+    <button
+      class="action-item"
+      disabled={!workspaceState.branch || loading === 'pr'}
+      onclick={doCreatePR}
+      title="Create pull request"
+    >
+      <span class="action-label">Create PR</span>
     </button>
   </div>
 </CollapsibleSection>

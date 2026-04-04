@@ -266,6 +266,13 @@ const api = {
     ipcRenderer.invoke('git:unmergedCommits', { repoRoot, branch }),
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) =>
     ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
+  gitDiff: (repoRoot: string) => ipcRenderer.invoke('git:diff', { repoRoot }),
+  gitDiffFile: (repoRoot: string, filePath: string) =>
+    ipcRenderer.invoke('git:diffFile', { repoRoot, filePath }),
+  gitStageFile: (repoRoot: string, filePath: string) =>
+    ipcRenderer.invoke('git:stageFile', { repoRoot, filePath }),
+  gitRevertFile: (repoRoot: string, filePath: string) =>
+    ipcRenderer.invoke('git:revertFile', { repoRoot, filePath }),
   gitGenerateCommitMessage: (repoRoot: string) =>
     ipcRenderer.invoke('git:generateCommitMessage', { repoRoot }),
 
@@ -559,8 +566,8 @@ const api = {
     username?: string
     token: string
   }) => ipcRenderer.invoke('taskTracker:testNewConnection', connection),
-  taskTrackerFetchBoards: (connectionId: string) =>
-    ipcRenderer.invoke('taskTracker:fetchBoards', { connectionId }),
+  taskTrackerFetchBoards: (connectionId: string, repoRoot?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchBoards', { connectionId, repoRoot }),
   taskTrackerFetchBoardsForNew: (connection: {
     provider: string
     name: string
@@ -569,18 +576,18 @@ const api = {
     username?: string
     token: string
   }) => ipcRenderer.invoke('taskTracker:fetchBoardsForNew', connection),
-  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) =>
-    ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId }),
+  taskTrackerFetchStatuses: (connectionId: string, boardId?: string, repoRoot?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId, repoRoot }),
   taskTrackerFetchTasks: (
     connectionId: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; repoRoot?: string },
   ) => ipcRenderer.invoke('taskTracker:fetchTasks', { connectionId, ...params }),
-  taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
-    ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId }),
+  taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string, repoRoot?: string) =>
+    ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId, repoRoot }),
   taskTrackerGetCurrentUser: (connectionId: string) =>
     ipcRenderer.invoke('taskTracker:getCurrentUser', { connectionId }) as Promise<string>,
-  taskTrackerFetchTaskComments: (connectionId: string, taskKey: string) =>
-    ipcRenderer.invoke('taskTracker:fetchTaskComments', { connectionId, taskKey }),
+  taskTrackerFetchTaskComments: (connectionId: string, taskKey: string, repoRoot?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchTaskComments', { connectionId, taskKey, repoRoot }),
   taskTrackerFetchTaskAttachments: (connectionId: string, taskKey: string) =>
     ipcRenderer.invoke('taskTracker:fetchTaskAttachments', { connectionId, taskKey }),
   taskTrackerDownloadAttachment: (connectionId: string, url: string, filename: string) =>
@@ -646,6 +653,17 @@ const api = {
 
   taskTrackerFindPR: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,
+
+  // GitHub PR features
+  githubFetchBranchPRs: (repoRoot: string) =>
+    ipcRenderer.invoke('github:fetchBranchPRs', { repoRoot }),
+  githubGetRepoInfo: (repoRoot: string) => ipcRenderer.invoke('github:getRepoInfo', { repoRoot }),
+  githubCreatePR: (
+    repoRoot: string,
+    params: { title: string; body: string; baseRefName: string; draft: boolean },
+  ) => ipcRenderer.invoke('github:createPR', { repoRoot, ...params }),
+  githubGetRepoIdentifier: (repoRoot: string) =>
+    ipcRenderer.invoke('github:getRepoIdentifier', { repoRoot }),
 
   // Performance diagnostics (only active when CANOPY_PERF=1)
   ...(process.env.CANOPY_PERF === '1'

@@ -88,7 +88,7 @@
   }
 </script>
 
-<aside class="inspector">
+<div class="inspector">
   <h3 class="inspector-title">{inspectorTitle}</h3>
 
   <!-- Status -->
@@ -212,7 +212,7 @@
       </div>
     </div>
   {/if}
-</aside>
+</div>
 
 <style>
   /* Context bar */
@@ -267,18 +267,10 @@
   }
 
   .inspector {
-    width: 280px;
-    min-width: 280px;
-    height: 100%;
-    background: var(--c-bg-glass);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-left: 1px solid var(--c-border-subtle);
-    overflow-y: auto;
-    padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 12px;
+    padding: 12px;
   }
 
   .inspector-title {
