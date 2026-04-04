@@ -74,12 +74,13 @@
     if (!target) return
     const filePath = target.path
     // Delay to ensure tab switch + DOM layout completes
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       const el = document.getElementById(`diff-file-${filePath}`)
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     }, 150)
+    return () => clearTimeout(timer)
   })
 
   onMount(() => {
