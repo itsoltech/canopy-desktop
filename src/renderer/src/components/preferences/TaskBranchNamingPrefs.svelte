@@ -6,34 +6,32 @@
 
   interface Props {
     repoRoot: string
-    projectKey: string
     boards: Array<{ id: string; name: string }>
     placeholders: Array<{ key: string; description: string; example: string }>
     onTemplateChanged: () => void
   }
 
-  let { repoRoot, projectKey, boards, placeholders, onTemplateChanged }: Props = $props()
+  let { repoRoot, boards, placeholders, onTemplateChanged }: Props = $props()
 
   let config = $derived(getRepoConfig())
-  let project = $derived(config?.projects[projectKey])
 
   type TemplateScope = 'default' | string
   let templateScope = $state<TemplateScope>('default')
 
   let branchTemplate = $derived.by(() => {
-    if (!project) return { template: '', customVars: {} as Record<string, string> }
+    if (!config) return { template: '', customVars: {} as Record<string, string> }
     if (templateScope !== 'default') {
-      const override = project.boardOverrides[templateScope]?.branchTemplate
+      const override = config.boardOverrides[templateScope]?.branchTemplate
       if (override) {
         return {
-          template: override.template ?? project.branchTemplate.template,
-          customVars: { ...project.branchTemplate.customVars, ...override.customVars },
+          template: override.template ?? config.branchTemplate.template,
+          customVars: { ...config.branchTemplate.customVars, ...override.customVars },
         }
       }
     }
     return {
-      template: project.branchTemplate.template,
-      customVars: project.branchTemplate.customVars,
+      template: config.branchTemplate.template,
+      customVars: config.branchTemplate.customVars,
     }
   })
 
@@ -52,19 +50,19 @@
   }
 
   async function saveBranchTemplate(): Promise<void> {
-    if (!config || !project) return
+    if (!config) return
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     if (templateScope === 'default') {
-      updated.projects[projectKey].branchTemplate = {
-        ...updated.projects[projectKey].branchTemplate,
+      updated.branchTemplate = {
+        ...updated.branchTemplate,
         template: templateInput,
         customVars: branchTemplate.customVars,
       }
     } else {
-      if (!updated.projects[projectKey].boardOverrides[templateScope]) {
-        updated.projects[projectKey].boardOverrides[templateScope] = {}
+      if (!updated.boardOverrides[templateScope]) {
+        updated.boardOverrides[templateScope] = {}
       }
-      updated.projects[projectKey].boardOverrides[templateScope].branchTemplate = {
+      updated.boardOverrides[templateScope].branchTemplate = {
         template: templateInput,
         customVars: branchTemplate.customVars,
       }
@@ -75,13 +73,10 @@
   }
 
   async function addCustomVar(): Promise<void> {
-    if (!newVarKey.trim() || !config || !project) return
+    if (!newVarKey.trim() || !config) return
     const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
-    updated.projects[projectKey].branchTemplate = {
-      ...updated.projects[projectKey].branchTemplate,
-      customVars: vars,
-    }
+    updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
     await saveRepoConfig(repoRoot, updated)
     newVarKey = ''
     newVarValue = ''
@@ -90,14 +85,11 @@
   }
 
   async function removeCustomVar(key: string): Promise<void> {
-    if (!config || !project) return
+    if (!config) return
     const vars = { ...branchTemplate.customVars }
     delete vars[key]
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
-    updated.projects[projectKey].branchTemplate = {
-      ...updated.projects[projectKey].branchTemplate,
-      customVars: vars,
-    }
+    updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
     await saveRepoConfig(repoRoot, updated)
     updatePreview()
     onTemplateChanged()
@@ -110,28 +102,30 @@
 </script>
 
 <div class="subsection">
-  <h4 class="subsection-title">Branch naming — {projectKey}</h4>
+  <h4 class="subsection-title">Branch naming</h4>
 
-  <div class="select-row">
-    <span class="select-label">Scope</span>
-    <CustomSelect
-      value={templateScope}
-      options={[
-        { value: 'default', label: 'All boards (default)' },
-        ...boards.map((b) => ({ value: b.id, label: b.name })),
-      ]}
-      onchange={(v) => {
-        templateScope = v
-        templateInput = branchTemplate.template
-        updatePreview()
-      }}
-      maxWidth="240px"
-    />
-  </div>
-  {#if templateScope !== 'default' && !project?.boardOverrides[templateScope]?.branchTemplate}
-    <span class="field-hint">
-      No override set — uses default template. Edit below to create an override.
-    </span>
+  {#if boards.length > 0}
+    <div class="select-row">
+      <span class="select-label">Board</span>
+      <CustomSelect
+        value={templateScope}
+        options={[
+          { value: 'default', label: 'All boards (default)' },
+          ...boards.map((b) => ({ value: b.id, label: b.name })),
+        ]}
+        onchange={(v) => {
+          templateScope = v
+          templateInput = branchTemplate.template
+          updatePreview()
+        }}
+        maxWidth="240px"
+      />
+    </div>
+    {#if templateScope !== 'default' && !config?.boardOverrides[templateScope]?.branchTemplate}
+      <span class="field-hint">
+        No override — uses default template. Edit below to create an override.
+      </span>
+    {/if}
   {/if}
 
   <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />

@@ -5,14 +5,12 @@
 
   interface Props {
     repoRoot: string
-    projectKey: string
     boards: Array<{ id: string; name: string }>
   }
 
-  let { repoRoot, projectKey, boards }: Props = $props()
+  let { repoRoot, boards }: Props = $props()
 
   let config = $derived(getRepoConfig())
-  let project = $derived(config?.projects[projectKey])
 
   type TemplateScope = 'default' | string
   let prScope = $state<TemplateScope>('default')
@@ -25,7 +23,7 @@
   ]
 
   let prTemplate = $derived.by(() => {
-    if (!project) {
+    if (!config) {
       return {
         titleTemplate: '',
         bodyTemplate: '',
@@ -34,18 +32,18 @@
       }
     }
     if (prScope !== 'default') {
-      const override = project.boardOverrides[prScope]?.prTemplate
+      const override = config.boardOverrides[prScope]?.prTemplate
       if (override) {
         return {
-          titleTemplate: override.titleTemplate ?? project.prTemplate.titleTemplate,
-          bodyTemplate: override.bodyTemplate ?? project.prTemplate.bodyTemplate,
+          titleTemplate: override.titleTemplate ?? config.prTemplate.titleTemplate,
+          bodyTemplate: override.bodyTemplate ?? config.prTemplate.bodyTemplate,
           defaultTargetBranch:
-            override.defaultTargetBranch ?? project.prTemplate.defaultTargetBranch,
-          targetRules: override.targetRules ?? project.prTemplate.targetRules,
+            override.defaultTargetBranch ?? config.prTemplate.defaultTargetBranch,
+          targetRules: override.targetRules ?? config.prTemplate.targetRules,
         }
       }
     }
-    return project.prTemplate
+    return config.prTemplate
   })
 
   let titleTemplateInput = $state('')
@@ -63,19 +61,16 @@
   })
 
   async function savePRField(field: string, value: string): Promise<void> {
-    if (!config || !project) return
+    if (!config) return
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     if (prScope === 'default') {
-      updated.projects[projectKey].prTemplate = {
-        ...updated.projects[projectKey].prTemplate,
-        [field]: value,
-      }
+      updated.prTemplate = { ...updated.prTemplate, [field]: value }
     } else {
-      if (!updated.projects[projectKey].boardOverrides[prScope]) {
-        updated.projects[projectKey].boardOverrides[prScope] = {}
+      if (!updated.boardOverrides[prScope]) {
+        updated.boardOverrides[prScope] = {}
       }
-      updated.projects[projectKey].boardOverrides[prScope].prTemplate = {
-        ...updated.projects[projectKey].boardOverrides[prScope].prTemplate,
+      updated.boardOverrides[prScope].prTemplate = {
+        ...updated.boardOverrides[prScope].prTemplate,
         [field]: value,
       }
     }
@@ -92,23 +87,25 @@
 </script>
 
 <div class="subsection">
-  <h4 class="subsection-title">Pull request naming — {projectKey}</h4>
+  <h4 class="subsection-title">Pull request naming</h4>
 
-  <div class="select-row">
-    <span class="select-label">Scope</span>
-    <CustomSelect
-      value={prScope}
-      options={[
-        { value: 'default', label: 'All boards (default)' },
-        ...boards.map((b) => ({ value: b.id, label: b.name })),
-      ]}
-      onchange={(v) => {
-        prScope = v
-        initialized = false
-      }}
-      maxWidth="240px"
-    />
-  </div>
+  {#if boards.length > 0}
+    <div class="select-row">
+      <span class="select-label">Board</span>
+      <CustomSelect
+        value={prScope}
+        options={[
+          { value: 'default', label: 'All boards (default)' },
+          ...boards.map((b) => ({ value: b.id, label: b.name })),
+        ]}
+        onchange={(v) => {
+          prScope = v
+          initialized = false
+        }}
+        maxWidth="240px"
+      />
+    </div>
+  {/if}
 
   <BranchTokenBuilder
     bind:templateInput={titleTemplateInput}

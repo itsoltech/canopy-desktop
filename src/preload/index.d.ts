@@ -601,16 +601,12 @@ interface BoardOverride {
   prTemplate?: Partial<PRTemplateConfig>
 }
 
-interface ProjectConfig {
-  branchTemplate: BranchTemplateConfig
-  prTemplate: PRTemplateConfig
-  boardOverrides: Record<string, BoardOverride>
-}
-
 interface RepoConfig {
   version: 1
   tracker: TrackerConfig
-  projects: Record<string, ProjectConfig>
+  branchTemplate: BranchTemplateConfig
+  prTemplate: PRTemplateConfig
+  boardOverrides: Record<string, BoardOverride>
   filters: TaskFilterConfig
 }
 

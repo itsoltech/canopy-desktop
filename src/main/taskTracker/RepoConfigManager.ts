@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { ok, err, type Result } from 'neverthrow'
-import type { RepoConfig, ProjectConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
+import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
 import type { TaskTrackerError } from './errors'
 
 const CONFIG_DIR = '.canopy'
@@ -23,16 +23,6 @@ function defaultConfig(): RepoConfig {
       provider: 'jira',
       baseUrl: '',
     },
-    projects: {},
-    filters: {
-      assignedToMe: true,
-      statuses: [],
-    },
-  }
-}
-
-export function defaultProjectConfig(): ProjectConfig {
-  return {
     branchTemplate: {
       template: '{branchType}/{taskKey}-{taskTitle}',
       customVars: {},
@@ -44,6 +34,10 @@ export function defaultProjectConfig(): ProjectConfig {
       targetRules: [],
     },
     boardOverrides: {},
+    filters: {
+      assignedToMe: true,
+      statuses: [],
+    },
   }
 }
 
@@ -101,41 +95,34 @@ export class RepoConfigManager {
 
   getBranchTemplate(
     config: RepoConfig,
-    projectKey: string,
     boardId?: string,
   ): BranchTemplateConfig & { typeMapping?: Record<string, string> } {
-    const project = config.projects[projectKey]
-    if (!project) return defaultProjectConfig().branchTemplate
-
     if (boardId) {
-      const override = project.boardOverrides[boardId]?.branchTemplate
+      const override = config.boardOverrides[boardId]?.branchTemplate
       if (override) {
         return {
-          template: override.template ?? project.branchTemplate.template,
-          customVars: { ...project.branchTemplate.customVars, ...override.customVars },
-          typeMapping: override.typeMapping ?? project.branchTemplate.typeMapping,
+          template: override.template ?? config.branchTemplate.template,
+          customVars: { ...config.branchTemplate.customVars, ...override.customVars },
+          typeMapping: override.typeMapping ?? config.branchTemplate.typeMapping,
         }
       }
     }
-    return project.branchTemplate
+    return config.branchTemplate
   }
 
-  getPRTemplate(config: RepoConfig, projectKey: string, boardId?: string): PRTemplateConfig {
-    const project = config.projects[projectKey]
-    if (!project) return defaultProjectConfig().prTemplate
-
+  getPRTemplate(config: RepoConfig, boardId?: string): PRTemplateConfig {
     if (boardId) {
-      const override = project.boardOverrides[boardId]?.prTemplate
+      const override = config.boardOverrides[boardId]?.prTemplate
       if (override) {
         return {
-          titleTemplate: override.titleTemplate ?? project.prTemplate.titleTemplate,
-          bodyTemplate: override.bodyTemplate ?? project.prTemplate.bodyTemplate,
+          titleTemplate: override.titleTemplate ?? config.prTemplate.titleTemplate,
+          bodyTemplate: override.bodyTemplate ?? config.prTemplate.bodyTemplate,
           defaultTargetBranch:
-            override.defaultTargetBranch ?? project.prTemplate.defaultTargetBranch,
-          targetRules: override.targetRules ?? project.prTemplate.targetRules,
+            override.defaultTargetBranch ?? config.prTemplate.defaultTargetBranch,
+          targetRules: override.targetRules ?? config.prTemplate.targetRules,
         }
       }
     }
-    return project.prTemplate
+    return config.prTemplate
   }
 }

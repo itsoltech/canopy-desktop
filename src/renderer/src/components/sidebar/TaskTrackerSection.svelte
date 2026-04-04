@@ -20,7 +20,6 @@
   let hasCreds = $derived(getHasCredentials())
   let loading = $derived(isTaskTrackerLoading())
   let connections = $derived(getTaskTrackerConnections())
-  let projectKeys = $derived(config ? Object.keys(config.projects) : [])
 
   function providerLabel(provider: string): string {
     if (provider === 'jira') return 'Jira'
@@ -56,9 +55,7 @@
             : 'Credentials required'}
         >
           <SquareKanban size={14} />
-          <span class="tracker-name"
-            >{projectKeys.length > 0 ? projectKeys.join(', ') : config.tracker.baseUrl}</span
-          >
+          <span class="tracker-name">{config.tracker.baseUrl || 'Not configured'}</span>
           <span class="tracker-provider">{providerLabel(config.tracker.provider)}</span>
           {#if hasCreds}
             <ExternalLink size={12} />

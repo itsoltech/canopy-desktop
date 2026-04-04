@@ -102,16 +102,12 @@ export interface BoardOverride {
   prTemplate?: Partial<PRTemplateConfig>
 }
 
-export interface ProjectConfig {
-  branchTemplate: BranchTemplateConfig & { typeMapping?: Record<string, string> }
-  prTemplate: PRTemplateConfig
-  boardOverrides: Record<string, BoardOverride>
-}
-
 export interface RepoConfig {
   version: 1
   tracker: TrackerConfig
-  projects: Record<string, ProjectConfig>
+  branchTemplate: BranchTemplateConfig & { typeMapping?: Record<string, string> }
+  prTemplate: PRTemplateConfig
+  boardOverrides: Record<string, BoardOverride>
   filters: TaskFilterConfig
 }
 
