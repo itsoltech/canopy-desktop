@@ -68,7 +68,7 @@
     loading = true
     try {
       const result = await window.api.gitDiff(worktreePath)
-      files = (result as { files: DiffFile[] }).files
+      files = result.files
     } catch {
       files = []
     } finally {
@@ -118,6 +118,7 @@
         (entries) => {
           for (const entry of entries) {
             if (entry.isIntersecting) {
+              // IntersectionObserverEntry.target is always Element, safe to cast
               const path = (entry.target as HTMLElement).dataset.filepath
               if (path) {
                 workspaceState.diffScrollTarget = null
@@ -389,8 +390,16 @@
         {/if}
       </div>
     {/if}
-    <button class="toolbar-btn" onclick={toggleSearch} title="Search"> &#x1F50D; </button>
-    <button class="toolbar-btn" onclick={refresh} title="Refresh" disabled={loading}>
+    <button class="toolbar-btn" onclick={toggleSearch} title="Search" aria-label="Search in diff">
+      &#x1F50D;
+    </button>
+    <button
+      class="toolbar-btn"
+      onclick={refresh}
+      title="Refresh"
+      aria-label="Refresh diff"
+      disabled={loading}
+    >
       &#x21BB;
     </button>
   </div>
@@ -431,6 +440,7 @@
               <button
                 class="copy-diff-btn"
                 title="Copy diff"
+                aria-label="Copy diff to clipboard"
                 onclick={(e) => {
                   e.stopPropagation()
                   copyDiff(file)
@@ -461,6 +471,7 @@
                         <button
                           class="comment-trigger"
                           title="Add review comment"
+                          aria-label="Add review comment"
                           onclick={() => openComment(file.path, getLineNum(change))}>+</button
                         >
                       {/if}
@@ -578,7 +589,7 @@
 
   @keyframes pulse-glow {
     0% {
-      box-shadow: inset 0 0 12px rgba(56, 139, 253, 0.4);
+      box-shadow: inset 0 0 12px color-mix(in srgb, var(--c-accent) 40%, transparent);
     }
     100% {
       box-shadow: none;
@@ -712,17 +723,17 @@
   }
 
   .badge-added {
-    background: rgba(46, 160, 67, 0.2);
+    background: color-mix(in srgb, var(--c-success) 20%, transparent);
     color: var(--diff-add-fg);
   }
 
   .badge-modified {
-    background: rgba(56, 139, 253, 0.2);
+    background: color-mix(in srgb, var(--c-accent) 20%, transparent);
     color: var(--c-accent);
   }
 
   .badge-deleted {
-    background: rgba(248, 81, 73, 0.2);
+    background: var(--diff-delete-bg);
     color: var(--diff-delete-fg);
   }
 
@@ -826,8 +837,8 @@
     height: 22px;
     border-radius: 6px;
     border: none;
-    background: #1f6feb;
-    color: #fff;
+    background: var(--c-accent);
+    color: var(--c-bg);
     font-size: 15px;
     font-weight: 700;
     line-height: 1;
@@ -845,11 +856,11 @@
   }
 
   .comment-trigger:hover {
-    background: #388bfd;
+    filter: brightness(1.1);
   }
 
   .comment-trigger:active {
-    background: #1a5ccf;
+    filter: brightness(0.85);
   }
 
   .comment-form {
@@ -883,7 +894,7 @@
     align-items: center;
     gap: 6px;
     padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--c-border-subtle);
     border-bottom: 1px solid var(--c-border-subtle);
   }
 
@@ -929,7 +940,7 @@
     align-items: center;
     padding: 6px 12px 8px;
     border-top: 1px solid var(--c-border-subtle);
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--c-border-subtle);
   }
 
   .comment-hint {
@@ -946,7 +957,7 @@
   .comment-cancel {
     padding: 5px 12px;
     border: none;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-active);
     color: var(--c-text-muted);
     border-radius: 6px;
     font-size: 12px;
@@ -960,14 +971,14 @@
 
   .comment-cancel:hover {
     color: var(--c-text);
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-active);
   }
 
   .comment-send {
     padding: 5px 14px;
     border: none;
     background: var(--c-accent);
-    color: #fff;
+    color: var(--c-bg);
     border-radius: 6px;
     font-size: 12px;
     font-weight: 600;

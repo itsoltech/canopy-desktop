@@ -92,7 +92,7 @@
 
   .segmented-control {
     display: flex;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--c-active);
     border-radius: 8px;
     padding: 2px;
     width: 100%;
@@ -121,11 +121,11 @@
 
   .segment:hover:not(.active) {
     color: var(--c-text-secondary);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--c-border-subtle);
   }
 
   .segment.active {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--c-bg-elevated);
     color: var(--c-text);
     font-weight: 600;
     box-shadow:
@@ -143,13 +143,13 @@
     align-items: center;
     justify-content: center;
     padding: 0 4px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--c-active);
     color: var(--c-text-secondary);
     line-height: 1;
   }
 
   .segment.active .badge {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--c-border);
     color: var(--c-text);
   }
 

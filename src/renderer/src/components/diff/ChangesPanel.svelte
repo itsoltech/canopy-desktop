@@ -391,7 +391,7 @@
 
   .filter-btn.filter-active {
     background: var(--c-accent);
-    color: #fff;
+    color: var(--c-bg);
     border-color: var(--c-accent);
   }
 
@@ -418,7 +418,7 @@
   }
 
   .file-item.file-visible {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--c-border-subtle);
     border-left: 2px solid var(--c-accent);
     padding-left: 10px;
   }
@@ -501,7 +501,7 @@
   }
 
   .action-btn.stage:hover {
-    background: rgba(105, 219, 124, 0.15);
+    background: var(--diff-add-bg);
   }
 
   .action-btn.revert {
@@ -509,7 +509,7 @@
   }
 
   .action-btn.revert:hover {
-    background: rgba(255, 107, 107, 0.15);
+    background: var(--diff-delete-bg);
   }
 
   .empty-state {
