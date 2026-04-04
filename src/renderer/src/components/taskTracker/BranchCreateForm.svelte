@@ -102,11 +102,14 @@
     if (!repoRoot || !currentBranch || !resolvedBranchName) return
 
     const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
-    const projectName = repoRoot.split('/').pop() || 'project'
+    const projectName = repoRoot.split(/[/\\]/).pop() || 'project'
     const safeBranchName = resolvedBranchName.replace(/\//g, '-')
     const worktreeDir = `${baseDir}/${projectName}/${safeBranchName}`
     const homedir = await window.api.getHomedir()
-    const worktreePath = worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir
+    let worktreePath = worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir
+    if (navigator.userAgent.includes('Windows')) {
+      worktreePath = worktreePath.replace(/\//g, '\\')
+    }
 
     creatingWorktree = true
     setPref('taskTracker.lastAgent', selectedAgentId)
