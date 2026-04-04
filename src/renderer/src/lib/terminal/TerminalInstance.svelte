@@ -7,7 +7,7 @@
   import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
   import { WebLinksAddon } from '@xterm/addon-web-links'
   import '@xterm/xterm/css/xterm.css'
-  import { prefs } from '../stores/preferences.svelte'
+  import { prefs, getPref } from '../stores/preferences.svelte'
   import { getTheme } from './themes'
   import { showUrlToast } from '../stores/toast.svelte'
   import { openTool } from '../stores/tabs.svelte'
@@ -394,10 +394,12 @@
       const isMac = navigator.userAgent.includes('Mac')
 
       // Keystroke visualizer — capture keydown on container (avoids xterm API interference)
-      keystrokeHandler = (e: KeyboardEvent): void => {
-        setTimeout(() => recordKeyEvent(sessionId, e), 0)
+      if (getPref('keystrokeVisualizer.enabled') === 'true') {
+        keystrokeHandler = (e: KeyboardEvent): void => {
+          setTimeout(() => recordKeyEvent(sessionId, e), 0)
+        }
+        containerEl.addEventListener('keydown', keystrokeHandler, true)
       }
-      containerEl.addEventListener('keydown', keystrokeHandler, true)
 
       term.attachCustomKeyEventHandler((event) => {
         if (event.type === 'keydown') {

@@ -93,11 +93,6 @@
     animation: keystroke-pop-blazing 2s ease forwards;
   }
 
-  .fire-indicator {
-    font-size: 14px;
-    animation: fire-bounce 0.3s ease-in-out infinite alternate;
-  }
-
   .key-badge.inferno {
     background: var(--c-inferno-bg);
     border-color: var(--c-inferno-border);
@@ -219,15 +214,6 @@
     }
   }
 
-  @keyframes fire-bounce {
-    from {
-      transform: translateY(0) scale(1);
-    }
-    to {
-      transform: translateY(-3px) scale(1.15);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .key-badge,
     .key-badge.fast,
@@ -239,10 +225,6 @@
 
     .keystroke-overlay.blazing,
     .keystroke-overlay.inferno {
-      animation: none;
-    }
-
-    .fire-indicator {
       animation: none;
     }
   }
