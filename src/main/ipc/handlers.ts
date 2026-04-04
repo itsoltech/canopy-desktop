@@ -735,6 +735,7 @@ export function registerIpcHandlers(
 
   function validateFilePath(filePath: string): void {
     if (filePath.startsWith('-')) throw new Error('Invalid file path: must not start with -')
+    if (filePath.startsWith('/')) throw new Error('Invalid file path: must be relative')
     if (filePath.includes('..')) throw new Error('Invalid file path: must not contain ..')
   }
 

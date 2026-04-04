@@ -267,11 +267,34 @@
     return ''
   }
 
+  function sanitizePtyInput(text: string): string {
+    // Strip control characters (0x00-0x1F except \n \t) and ANSI escape sequences
+    let result = ''
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i)
+      if (code === 0x1b) {
+        // Skip ANSI escape sequence: ESC[ ... letter
+        if (text[i + 1] === '[') {
+          let j = i + 2
+          while (j < text.length && !/[a-zA-Z]/.test(text[j])) j++
+          i = j
+          continue
+        }
+      }
+      // Keep \n (0x0A) and \t (0x09), strip other control chars
+      if (code < 0x20 && code !== 0x0a && code !== 0x09) continue
+      if (code === 0x7f) continue
+      result += text[i]
+    }
+    return result
+  }
+
   function sendComment(): void {
     if (!commentText.trim()) return
     const sessions = getAiSessions(worktreePath)
     if (sessions.length === 0) return
 
+    const safeComment = sanitizePtyInput(commentText.trim())
     const context = gatherContext(commentFilePath, commentLineNum)
     const contextLines = context ? context.split('\n') : []
 
@@ -281,11 +304,11 @@
       '',
       ...contextLines,
       '',
-      `Comment: ${commentText.trim()}`,
+      `Comment: ${safeComment}`,
       '---',
     ].join('\n')
 
-    window.api.writePty(sessions[0].sessionId, message + '\n')
+    window.api.writePty(sessions[0].sessionId, sanitizePtyInput(message) + '\n')
     focusSessionByPtyId(sessions[0].sessionId)
     window.dispatchEvent(
       new CustomEvent('canopy:focus-terminal', {
@@ -807,7 +830,6 @@
   }
 
   :global(.search-highlight) {
-    background: rgba(var(--c-warning), 0.3);
     background: color-mix(in srgb, var(--c-warning) 30%, transparent);
     border-radius: 2px;
   }
