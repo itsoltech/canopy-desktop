@@ -325,6 +325,7 @@
   onMount(() => {
     let fontsReady = false
     let initScheduled = false
+    let keystrokeHandler: ((e: KeyboardEvent) => void) | null = null
 
     function initTerminal(): void {
       if (disposed) return
@@ -393,11 +394,10 @@
       const isMac = navigator.userAgent.includes('Mac')
 
       // Keystroke visualizer — capture keydown on container (avoids xterm API interference)
-      containerEl.addEventListener(
-        'keydown',
-        (e) => setTimeout(() => recordKeyEvent(sessionId, e), 0),
-        true,
-      )
+      keystrokeHandler = (e: KeyboardEvent): void => {
+        setTimeout(() => recordKeyEvent(sessionId, e), 0)
+      }
+      containerEl.addEventListener('keydown', keystrokeHandler, true)
 
       term.attachCustomKeyEventHandler((event) => {
         if (event.type === 'keydown') {
@@ -495,6 +495,7 @@
       startTerminal = null
       cleanupSession(sessionId)
       cleanupKeystrokeSession(sessionId)
+      if (keystrokeHandler) containerEl.removeEventListener('keydown', keystrokeHandler, true)
       disconnectWs({ suppressStatus: true })
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef

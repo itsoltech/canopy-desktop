@@ -23,7 +23,7 @@
       </span>
     {/each}
     {#if intensity === 'blazing'}
-      <span class="fire-indicator">&#xFE0F;</span>
+      <span class="fire-indicator">🔥</span>
     {/if}
   </div>
 {/if}
@@ -43,11 +43,11 @@
   }
 
   .keystroke-overlay.fast {
-    filter: drop-shadow(0 0 4px rgba(116, 192, 252, 0.4));
+    filter: drop-shadow(0 0 4px var(--c-accent-muted));
   }
 
   .keystroke-overlay.blazing {
-    filter: drop-shadow(0 0 8px rgba(255, 140, 50, 0.6));
+    filter: drop-shadow(0 0 8px var(--c-blazing-drop));
     animation: container-pulse 0.4s ease-in-out infinite alternate;
   }
 
@@ -55,12 +55,12 @@
     display: inline-flex;
     align-items: center;
     padding: 2px 8px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--c-hover-strong);
+    border: 1px solid var(--c-active);
     border-radius: 4px;
     font-family: monospace;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--c-text);
     white-space: nowrap;
     animation: keystroke-pop 2s ease forwards;
     -webkit-font-smoothing: antialiased;
@@ -72,20 +72,20 @@
   }
 
   .key-badge.fast {
-    background: rgba(116, 192, 252, 0.15);
-    border-color: rgba(116, 192, 252, 0.3);
-    color: rgba(180, 220, 255, 0.95);
-    box-shadow: 0 0 6px rgba(116, 192, 252, 0.2);
+    background: var(--c-accent-bg);
+    border-color: var(--c-accent-muted);
+    color: var(--c-accent-text);
+    box-shadow: 0 0 6px var(--c-accent-bg);
     animation: keystroke-pop-fast 2s ease forwards;
   }
 
   .key-badge.blazing {
-    background: rgba(255, 140, 50, 0.2);
-    border-color: rgba(255, 140, 50, 0.4);
-    color: rgba(255, 200, 140, 1);
+    background: var(--c-blazing-bg);
+    border-color: var(--c-blazing-border);
+    color: var(--c-blazing-text);
     box-shadow:
-      0 0 8px rgba(255, 140, 50, 0.3),
-      0 0 16px rgba(255, 80, 20, 0.15);
+      0 0 8px var(--c-blazing-glow),
+      0 0 16px var(--c-blazing-glow-deep);
     animation: keystroke-pop-blazing 2s ease forwards;
   }
 
@@ -162,10 +162,10 @@
 
   @keyframes container-pulse {
     from {
-      filter: drop-shadow(0 0 6px rgba(255, 140, 50, 0.5));
+      filter: drop-shadow(0 0 6px var(--c-blazing-shadow));
     }
     to {
-      filter: drop-shadow(0 0 12px rgba(255, 80, 20, 0.7));
+      filter: drop-shadow(0 0 12px var(--c-blazing-shadow-strong));
     }
   }
 

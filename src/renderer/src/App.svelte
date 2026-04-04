@@ -4,7 +4,7 @@
   import MainLayout from './components/layout/MainLayout.svelte'
   import StatusBar from './components/layout/StatusBar.svelte'
   import UpdateBanner from './components/UpdateBanner.svelte'
-  import { loadPrefs, prefs, isPrefsReady } from './lib/stores/preferences.svelte'
+  import { loadPrefs, prefs } from './lib/stores/preferences.svelte'
   import { initUpdateListeners } from './lib/stores/updateState.svelte'
   import { applyAppTheme } from './lib/theme/appTheme'
   import { getTheme } from './lib/terminal/themes'
@@ -21,14 +21,12 @@
   })
 </script>
 
-{#if isPrefsReady()}
-  <div class="app">
-    <Titlebar />
-    <MainLayout />
-    <StatusBar />
-    <UpdateBanner />
-  </div>
-{/if}
+<div class="app">
+  <Titlebar />
+  <MainLayout />
+  <StatusBar />
+  <UpdateBanner />
+</div>
 
 <style>
   .app {

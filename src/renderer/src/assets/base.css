@@ -34,6 +34,16 @@
   --c-warning-text: rgba(255, 212, 59, 0.9);
   --c-generate: rgb(218, 119, 242);
 
+  --c-blazing: rgb(255, 140, 50);
+  --c-blazing-bg: rgba(255, 140, 50, 0.2);
+  --c-blazing-border: rgba(255, 140, 50, 0.4);
+  --c-blazing-text: rgba(255, 200, 140, 1);
+  --c-blazing-glow: rgba(255, 140, 50, 0.3);
+  --c-blazing-glow-deep: rgba(255, 80, 20, 0.15);
+  --c-blazing-shadow: rgba(255, 140, 50, 0.5);
+  --c-blazing-shadow-strong: rgba(255, 80, 20, 0.7);
+  --c-blazing-drop: rgba(255, 140, 50, 0.6);
+
   --c-scrollbar: rgba(255, 255, 255, 0.15);
   --c-scrollbar-hover: rgba(255, 255, 255, 0.3);
   --c-scrollbar-active: rgba(255, 255, 255, 0.4);
