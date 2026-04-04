@@ -1642,7 +1642,6 @@ export function registerIpcHandlers(
     const worktrees = await GitRepository.listWorktrees(payload.repoRoot).unwrapOr([])
     const branches = worktrees.map((w) => w.branch).filter((b) => b && b !== '(detached)')
     if (branches.length === 0) return {}
-    // Throw on API errors (rate limit, auth, network) so renderer can surface them
     const result = await gitHubService.fetchOpenPRsForBranches(
       repo.apiUrl,
       token,
