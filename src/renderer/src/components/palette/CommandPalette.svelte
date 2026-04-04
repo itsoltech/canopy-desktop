@@ -238,11 +238,13 @@
           try {
             const info = await window.api.gitPushInfo(root)
             if (!info) {
-              await confirm({
+              const ok = await confirm({
                 title: 'Push',
-                message: 'No upstream tracking branch configured.',
-                confirmLabel: 'OK',
+                message: 'No upstream branch — push and set tracking to origin?',
               })
+              if (ok) {
+                await window.api.gitPush(root)
+              }
               return
             }
             const ok = await confirm({
