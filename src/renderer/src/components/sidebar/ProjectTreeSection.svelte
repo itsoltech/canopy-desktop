@@ -790,7 +790,7 @@
     border: none;
     cursor: pointer;
     flex-shrink: 0;
-    margin-left: auto;
+    margin-left: 4px;
     background: var(--c-accent-bg);
     color: var(--c-accent-text);
     font-family: inherit;
