@@ -4,7 +4,7 @@ import { mkdirSync, readdirSync, unlinkSync, rmSync, existsSync, chmodSync, stat
 import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
 import { is } from '@electron-toolkit/utils'
-import { AgentHookServer } from './AgentHookServer'
+import { AgentHookRouter } from './AgentHookServer'
 import type { AgentAdapter, AgentType, NormalizedHookEvent, SettingsSetup } from './types'
 import type { NotchSessionStatus } from '../notch/types'
 import { getAdapter, registerAdapter, isAgentTool as isRegistered } from './registry'
@@ -17,8 +17,8 @@ interface AgentSession {
   agentSessionId: string
   ptySessionId: string
   settingsSetup: SettingsSetup
-  hookServer: AgentHookServer
   hookPort: number
+  hookPath: string
   worktreePath: string
   workspaceName: string
   branch: string | null
@@ -36,6 +36,7 @@ export class AgentSessionManager extends EventEmitter {
   private sessions = new Map<string, AgentSession>()
   private busySessions = new Set<string>()
   private hooksDir: string
+  private router = new AgentHookRouter()
 
   constructor() {
     super()
@@ -45,6 +46,10 @@ export class AgentSessionManager extends EventEmitter {
     // Register built-in adapters
     registerAdapter(claudeAdapter)
     registerAdapter(geminiAdapter)
+  }
+
+  get sessionCount(): number {
+    return this.sessions.size
   }
 
   getSession(ptySessionId: string): AgentSession | undefined {
@@ -67,6 +72,7 @@ export class AgentSessionManager extends EventEmitter {
     settingsArgs: string[]
     settingsEnv?: Record<string, string>
     hookPort: number
+    hookPath: string
     hookAuthToken: string
     tempId: string
   }> {
@@ -77,7 +83,12 @@ export class AgentSessionManager extends EventEmitter {
     const tempId = `_agent_${agentSessionId}`
     const sessionRef = { ptySessionId: tempId }
 
-    const hookServer = new AgentHookServer(
+    const {
+      port: hookPort,
+      path: hookPath,
+      authToken: hookAuthToken,
+    } = await this.router.addSession(
+      agentSessionId,
       (rawEvent: Record<string, unknown>): Record<string, unknown> | void => {
         const normalized = adapter.normalizeEvent(rawEvent)
 
@@ -136,8 +147,6 @@ export class AgentSessionManager extends EventEmitter {
       },
     )
 
-    const hookPort = await hookServer.start()
-
     // Always use .sh scripts — Claude Code runs hooks via bash even on Windows
     const hookScriptPath = this.getResourceScript('canopy-agent-hook.sh')
     const statusLineScriptPath = this.getResourceScript('canopy-agent-statusline.sh')
@@ -171,8 +180,8 @@ export class AgentSessionManager extends EventEmitter {
       agentSessionId,
       ptySessionId: tempId,
       settingsSetup,
-      hookServer,
       hookPort,
+      hookPath,
       worktreePath,
       workspaceName,
       branch,
@@ -185,7 +194,8 @@ export class AgentSessionManager extends EventEmitter {
       settingsArgs: settingsSetup.args,
       settingsEnv: settingsSetup.env,
       hookPort,
-      hookAuthToken: hookServer.getAuthToken(),
+      hookPath,
+      hookAuthToken,
       tempId,
     }
   }
@@ -233,7 +243,7 @@ export class AgentSessionManager extends EventEmitter {
     const session = this.sessions.get(ptySessionId)
     if (!session) return
 
-    session.hookServer.destroy()
+    this.router.removeSession(session.agentSessionId)
     session.settingsSetup.cleanup()
     this.busySessions.delete(ptySessionId)
     this.emit('sessionDestroyed', ptySessionId)
@@ -262,6 +272,7 @@ export class AgentSessionManager extends EventEmitter {
       this.destroySession(id)
     }
     this.busySessions.clear()
+    this.router.dispose()
   }
 
   isAgentTool(toolId: string): boolean {

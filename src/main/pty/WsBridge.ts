@@ -29,6 +29,10 @@ export class WsBridge {
   private heartbeat: ReturnType<typeof setInterval> | null = null
   private alive = new WeakSet<WsWebSocket>()
 
+  get bridgeCount(): number {
+    return this.bridges.size
+  }
+
   async create(sessionId: string, ptyProcess: IPty): Promise<string> {
     const port = await this.ensureServer()
     const clients = new Set<WsWebSocket>()

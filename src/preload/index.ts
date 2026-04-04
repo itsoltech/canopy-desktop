@@ -621,6 +621,14 @@ const api = {
       boardId,
     }),
 
+  // Performance diagnostics (only active when CANOPY_PERF=1)
+  ...(process.env.CANOPY_PERF === '1'
+    ? {
+        perfDiagnostics: () => ipcRenderer.invoke('perf:diagnostics'),
+        perfIpcLog: () => ipcRenderer.invoke('perf:ipcLog'),
+      }
+    : {}),
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 }
