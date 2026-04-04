@@ -15,6 +15,7 @@
   import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
+  import CreatePRModal from '../github/CreatePRModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import Toast from '../shared/Toast.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
@@ -450,6 +451,8 @@
   <FeatureOnboarding fromVersion={dialogState.current.fromVersion} />
 {:else if dialogState.current.type === 'tmuxBrowser'}
   <TmuxSessionBrowser />
+{:else if dialogState.current.type === 'createGitHubPR'}
+  <CreatePRModal />
 {/if}
 
 <Toast />

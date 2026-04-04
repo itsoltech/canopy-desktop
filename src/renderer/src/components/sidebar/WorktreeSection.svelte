@@ -5,6 +5,7 @@
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
+  import { getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
 
   let mergedBranches = new SvelteSet<string>()
 
@@ -39,6 +40,29 @@
     if (workspaceState.worktrees.length >= 0) checkMergedStatus(ac.signal)
     return () => ac.abort()
   })
+
+  $effect(() => {
+    const repoRoot = workspaceState.repoRoot
+    // Read length to track worktree list changes
+    void workspaceState.worktrees.length
+    if (repoRoot) loadBranchPRs(repoRoot)
+  })
+
+  let prMap = $derived(getBranchPRMap())
+
+  function prBadgeClass(pr: (typeof prMap)[string]): string {
+    if (pr.isDraft) return 'pr-badge draft'
+    if (pr.reviewDecision === 'APPROVED') return 'pr-badge approved'
+    if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'pr-badge changes-requested'
+    return 'pr-badge'
+  }
+
+  function prBadgeLabel(pr: (typeof prMap)[string]): string {
+    if (pr.isDraft) return 'Draft'
+    if (pr.reviewDecision === 'APPROVED') return 'Approved'
+    if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'Changes'
+    return `PR #${pr.number}`
+  }
 
   async function removeWorktree(
     e: MouseEvent,
@@ -101,6 +125,19 @@
             <span class="detached-badge" title={wt.head}>{wt.head.slice(0, 7)}</span>
           {:else if mergedBranches.has(wt.branch)}
             <span class="merged-badge" title="Merged">merged</span>
+          {/if}
+          {#if prMap[wt.branch]}
+            {@const pr = prMap[wt.branch]}
+            <button
+              class={prBadgeClass(pr)}
+              title={`${pr.title} — click to open`}
+              onclick={(e) => {
+                e.stopPropagation()
+                window.api.openExternal(pr.url)
+              }}
+            >
+              {prBadgeLabel(pr)}
+            </button>
           {/if}
         </button>
         {#if !wt.isMain && mergedBranches.has(wt.branch)}
@@ -205,6 +242,40 @@
     color: var(--c-success);
     flex-shrink: 0;
     margin-left: auto;
+  }
+
+  .pr-badge {
+    font-size: 9px;
+    font-weight: 500;
+    padding: 0 4px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-left: auto;
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+    font-family: inherit;
+    line-height: 16px;
+  }
+
+  .pr-badge:hover {
+    opacity: 0.8;
+  }
+
+  .pr-badge.draft {
+    background: var(--c-hover-strong);
+    color: var(--c-text-muted);
+  }
+
+  .pr-badge.approved {
+    background: var(--c-success-bg, var(--c-success));
+    color: var(--c-success-text, #fff);
+  }
+
+  .pr-badge.changes-requested {
+    background: var(--c-warning-bg, var(--c-warning));
+    color: var(--c-warning-text);
   }
 
   .remove-btn {

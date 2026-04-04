@@ -8,7 +8,8 @@
   let connections = $derived(getTaskTrackerConnections())
   let showAddForm = $state(false)
   let editingConnectionId = $state<string | null>(null)
-  let newProvider = $state<'jira' | 'youtrack'>('jira')
+  let newProvider = $state<'jira' | 'youtrack' | 'github'>('jira')
+  let newProjectKey = $state('')
   let newName = $state('')
   let newBaseUrl = $state('')
   let newUsername = $state('')
@@ -20,11 +21,15 @@
     testing = true
     testResult = ''
     try {
+      const baseUrl =
+        newProvider === 'github' && !newBaseUrl
+          ? 'https://github.com'
+          : newBaseUrl.replace(/\/$/, '')
       await window.api.taskTrackerTestNewConnection({
         provider: newProvider,
         name: newName,
-        baseUrl: newBaseUrl.replace(/\/$/, ''),
-        projectKey: '',
+        baseUrl,
+        projectKey: newProvider === 'github' ? newProjectKey : '',
         username: newUsername || undefined,
         token: newToken,
       })
@@ -38,11 +43,15 @@
 
   async function addConnection(): Promise<void> {
     try {
+      const baseUrl =
+        newProvider === 'github' && !newBaseUrl
+          ? 'https://github.com'
+          : newBaseUrl.replace(/\/$/, '')
       await window.api.taskTrackerAddConnection({
         provider: newProvider,
         name: newName,
-        baseUrl: newBaseUrl.replace(/\/$/, ''),
-        projectKey: '',
+        baseUrl,
+        projectKey: newProvider === 'github' ? newProjectKey : '',
         username: newUsername || undefined,
         token: newToken,
       })
@@ -72,13 +81,15 @@
     provider: string
     name: string
     baseUrl: string
+    projectKey?: string
     username?: string
   }): void {
     editingConnectionId = conn.id
     showAddForm = true
-    newProvider = conn.provider as 'jira' | 'youtrack'
+    newProvider = conn.provider as 'jira' | 'youtrack' | 'github'
     newName = conn.name
     newBaseUrl = conn.baseUrl
+    newProjectKey = conn.projectKey ?? ''
     newUsername = conn.username ?? ''
     newToken = ''
     testResult = ''
@@ -90,6 +101,7 @@
       await window.api.taskTrackerUpdateConnection(editingConnectionId, {
         name: newName,
         baseUrl: newBaseUrl.replace(/\/$/, ''),
+        projectKey: newProvider === 'github' ? newProjectKey : undefined,
         username: newUsername || undefined,
         token: newToken || undefined,
       })
@@ -107,6 +119,7 @@
     newProvider = 'jira'
     newName = ''
     newBaseUrl = ''
+    newProjectKey = ''
     newUsername = ''
     newToken = ''
     testResult = ''
@@ -119,7 +132,13 @@
 
   {#each connections as conn (conn.id)}
     <div class="conn-row">
-      <span class="conn-provider">{conn.provider === 'jira' ? 'Jira' : 'YouTrack'}</span>
+      <span class="conn-provider"
+        >{conn.provider === 'jira'
+          ? 'Jira'
+          : conn.provider === 'github'
+            ? 'GitHub'
+            : 'YouTrack'}</span
+      >
       <span class="conn-name">{conn.name}</span>
       <span class="conn-url" title={conn.baseUrl}>{conn.baseUrl}</span>
       <button class="icon-btn" onclick={() => editConnection(conn)} title="Edit">
@@ -140,23 +159,48 @@
           options={[
             { value: 'jira', label: 'Jira' },
             { value: 'youtrack', label: 'YouTrack' },
+            { value: 'github', label: 'GitHub' },
           ]}
-          onchange={(v) => (newProvider = v as 'jira' | 'youtrack')}
+          onchange={(v) => (newProvider = v as 'jira' | 'youtrack' | 'github')}
           maxWidth="none"
         />
       </div>
       <div class="form-row">
         <label class="form-label">Name</label>
-        <input class="form-input" bind:value={newName} placeholder="My Jira" />
-      </div>
-      <div class="form-row">
-        <label class="form-label">Base URL</label>
         <input
           class="form-input"
-          bind:value={newBaseUrl}
-          placeholder="https://company.atlassian.net"
+          bind:value={newName}
+          placeholder={newProvider === 'github' ? 'My GitHub' : 'My Jira'}
         />
       </div>
+      {#if newProvider !== 'github'}
+        <div class="form-row">
+          <label class="form-label">Base URL</label>
+          <input
+            class="form-input"
+            bind:value={newBaseUrl}
+            placeholder="https://company.atlassian.net"
+          />
+        </div>
+      {/if}
+      {#if newProvider === 'github'}
+        <div class="form-row">
+          <label class="form-label">Host URL</label>
+          <input
+            class="form-input"
+            bind:value={newBaseUrl}
+            placeholder="https://github.com (default)"
+          />
+        </div>
+        <div class="form-row">
+          <label class="form-label">Repository</label>
+          <input
+            class="form-input"
+            bind:value={newProjectKey}
+            placeholder="Auto-detected from workspace"
+          />
+        </div>
+      {/if}
       {#if newProvider === 'jira'}
         <div class="form-row">
           <label class="form-label">Email</label>
@@ -164,7 +208,7 @@
         </div>
       {/if}
       <div class="form-row">
-        <label class="form-label">API Token</label>
+        <label class="form-label">{newProvider === 'github' ? 'Access Token' : 'API Token'}</label>
         <input class="form-input" type="password" bind:value={newToken} placeholder="Enter token" />
       </div>
       <div class="test-result" aria-live="polite">
@@ -179,14 +223,16 @@
         <button
           class="btn btn-secondary"
           onclick={testNewConnection}
-          disabled={testing || !newBaseUrl || !newToken}
+          disabled={testing || (newProvider !== 'github' && !newBaseUrl) || !newToken}
         >
           {#if testing}Testing...{:else}Test{/if}
         </button>
         <button
           class="btn btn-primary"
           onclick={editingConnectionId ? saveEditedConnection : addConnection}
-          disabled={!newName || !newBaseUrl || (!editingConnectionId && !newToken)}
+          disabled={!newName ||
+            (newProvider !== 'github' && !newBaseUrl) ||
+            (!editingConnectionId && !newToken)}
         >
           {editingConnectionId ? 'Save' : 'Add'}
         </button>

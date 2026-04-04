@@ -21,6 +21,7 @@ import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
+import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
@@ -440,6 +441,7 @@ app.whenReady().then(async () => {
   windowManager.setBrowserManager(browserManager)
 
   const taskTrackerManager = new TaskTrackerManager(preferencesStore)
+  const gitHubService = new GitHubService(preferencesStore, taskTrackerManager)
 
   registerIpcHandlers(
     ptyManager,
@@ -455,6 +457,7 @@ app.whenReady().then(async () => {
     onboardingStore,
     tmuxManager,
     taskTrackerManager,
+    gitHubService,
   )
 
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {

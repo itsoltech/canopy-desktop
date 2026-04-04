@@ -538,8 +538,8 @@ const api = {
     username?: string
     token: string
   }) => ipcRenderer.invoke('taskTracker:testNewConnection', connection),
-  taskTrackerFetchBoards: (connectionId: string) =>
-    ipcRenderer.invoke('taskTracker:fetchBoards', { connectionId }),
+  taskTrackerFetchBoards: (connectionId: string, repoRoot?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchBoards', { connectionId, repoRoot }),
   taskTrackerFetchBoardsForNew: (connection: {
     provider: string
     name: string
@@ -548,18 +548,18 @@ const api = {
     username?: string
     token: string
   }) => ipcRenderer.invoke('taskTracker:fetchBoardsForNew', connection),
-  taskTrackerFetchStatuses: (connectionId: string, boardId?: string) =>
-    ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId }),
+  taskTrackerFetchStatuses: (connectionId: string, boardId?: string, repoRoot?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId, repoRoot }),
   taskTrackerFetchTasks: (
     connectionId: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; repoRoot?: string },
   ) => ipcRenderer.invoke('taskTracker:fetchTasks', { connectionId, ...params }),
-  taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string) =>
-    ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId }),
+  taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string, repoRoot?: string) =>
+    ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId, repoRoot }),
   taskTrackerGetCurrentUser: (connectionId: string) =>
     ipcRenderer.invoke('taskTracker:getCurrentUser', { connectionId }) as Promise<string>,
-  taskTrackerFetchTaskComments: (connectionId: string, taskKey: string) =>
-    ipcRenderer.invoke('taskTracker:fetchTaskComments', { connectionId, taskKey }),
+  taskTrackerFetchTaskComments: (connectionId: string, taskKey: string, repoRoot?: string) =>
+    ipcRenderer.invoke('taskTracker:fetchTaskComments', { connectionId, taskKey, repoRoot }),
   taskTrackerFetchTaskAttachments: (connectionId: string, taskKey: string) =>
     ipcRenderer.invoke('taskTracker:fetchTaskAttachments', { connectionId, taskKey }),
   taskTrackerDownloadAttachment: (connectionId: string, url: string, filename: string) =>
@@ -620,6 +620,17 @@ const api = {
       connectionId,
       boardId,
     }),
+
+  // GitHub PR features
+  githubFetchBranchPRs: (repoRoot: string) =>
+    ipcRenderer.invoke('github:fetchBranchPRs', { repoRoot }),
+  githubGetRepoInfo: (repoRoot: string) => ipcRenderer.invoke('github:getRepoInfo', { repoRoot }),
+  githubCreatePR: (
+    repoRoot: string,
+    params: { title: string; body: string; baseRefName: string; draft: boolean },
+  ) => ipcRenderer.invoke('github:createPR', { repoRoot, ...params }),
+  githubGetRepoIdentifier: (repoRoot: string) =>
+    ipcRenderer.invoke('github:getRepoIdentifier', { repoRoot }),
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
