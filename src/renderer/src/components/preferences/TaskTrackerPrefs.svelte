@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { RefreshCw, Plus, Trash2 } from '@lucide/svelte'
+  import { RefreshCw, Trash2 } from '@lucide/svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import {
@@ -23,8 +23,9 @@
 
   let projectKeys = $derived(config ? Object.keys(config.projects) : [])
   let selectedProject = $state<string | null>(null)
-  let newProjectKey = $state('')
 
+  let availableProjects = $state<Array<{ key: string; name: string }>>([])
+  let loadingProjects = $state(false)
   let boards = $state<Array<{ id: string; name: string }>>([])
   let placeholders = $state<Array<{ key: string; description: string; example: string }>>([])
 
@@ -39,6 +40,9 @@
     if (projectKeys.length > 0) {
       selectedProject = projectKeys[0]
     }
+    if (hasCreds) {
+      await fetchAvailableProjects()
+    }
     try {
       placeholders = await window.api.taskTrackerGetAvailablePlaceholders({})
     } catch {
@@ -48,6 +52,31 @@
       branchNamingRef?.initTemplate(config.projects[selectedProject].branchTemplate.template)
     }
   })
+
+  async function fetchAvailableProjects(): Promise<void> {
+    loadingProjects = true
+    try {
+      // Fetch boards without project filter to discover all available projects
+      const connections = await window.api.taskTrackerGetConnections()
+      if (connections.length > 0) {
+        const allBoards = await window.api.taskTrackerFetchBoards(connections[0].id)
+        const projectMap: Record<string, string> = {}
+        for (const board of allBoards) {
+          if (board.projectKey && !projectMap[board.projectKey]) {
+            projectMap[board.projectKey] = board.name
+          }
+        }
+        availableProjects = Object.entries(projectMap).map(([key, name]) => ({
+          key,
+          name: `${key} — ${name}`,
+        }))
+      }
+    } catch {
+      // keep empty — user can still type manually
+    } finally {
+      loadingProjects = false
+    }
+  }
 
   async function handleInit(): Promise<void> {
     if (!repoRoot) return
@@ -59,11 +88,10 @@
     }
   }
 
-  async function addProject(): Promise<void> {
-    if (!config || !repoRoot || !newProjectKey.trim()) return
-    const key = newProjectKey.trim().toUpperCase()
+  async function addProjectByKey(key: string): Promise<void> {
+    if (!config || !repoRoot || !key) return
     if (config.projects[key]) {
-      addToast(`Project ${key} already exists`)
+      selectedProject = key
       return
     }
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
@@ -82,7 +110,6 @@
     }
     await saveRepoConfig(repoRoot, updated)
     selectedProject = key
-    newProjectKey = ''
     branchNamingRef?.initTemplate(updated.projects[key].branchTemplate.template)
     addToast(`Project ${key} added`)
   }
@@ -199,24 +226,46 @@
       </div>
     {/if}
 
-    <div class="inline-form">
-      <input
-        class="form-input"
-        bind:value={newProjectKey}
-        placeholder="Project key (e.g. GAKKO)"
-        onkeydown={(e) => {
-          if (e.key === 'Enter') addProject()
-        }}
-      />
-      <button
-        class="icon-btn"
-        onclick={addProject}
-        disabled={!newProjectKey.trim()}
-        title="Add project"
-      >
-        <Plus size={14} />
-      </button>
-    </div>
+    {#if availableProjects.length > 0}
+      {@const unaddedProjects = availableProjects.filter((p) => !config?.projects[p.key])}
+      {#if unaddedProjects.length > 0}
+        <div class="form-row">
+          <label class="form-label">Add</label>
+          <CustomSelect
+            value=""
+            options={[
+              { value: '', label: loadingProjects ? 'Loading...' : 'Select project to add...' },
+              ...unaddedProjects.map((p) => ({ value: p.key, label: p.name })),
+            ]}
+            onchange={(v) => {
+              if (v) addProjectByKey(v)
+            }}
+            maxWidth="none"
+          />
+          <button
+            class="icon-btn"
+            onclick={fetchAvailableProjects}
+            disabled={loadingProjects}
+            title="Refresh projects"
+          >
+            <RefreshCw size={12} />
+          </button>
+        </div>
+      {/if}
+    {:else if hasCreds}
+      <div class="form-row">
+        <button
+          class="btn btn-secondary"
+          onclick={fetchAvailableProjects}
+          disabled={loadingProjects}
+        >
+          <RefreshCw size={12} />
+          {#if loadingProjects}Loading...{:else}Load projects from tracker{/if}
+        </button>
+      </div>
+    {:else}
+      <p class="hint-text">Add credentials above to load projects from your tracker.</p>
+    {/if}
   </div>
 
   {#if selectedProject && config.projects[selectedProject]}
