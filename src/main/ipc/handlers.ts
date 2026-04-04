@@ -727,6 +727,35 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle('git:diff', async (_event, payload: { repoRoot: string }) => {
+    const result = await GitRepository.getDiffParsed(payload.repoRoot)
+    return result.unwrapOr({ files: [] })
+  })
+
+  ipcMain.handle(
+    'git:diffFile',
+    async (_event, payload: { repoRoot: string; filePath: string }) => {
+      const result = await GitRepository.getFileDiff(payload.repoRoot, payload.filePath)
+      return result.unwrapOr({ files: [] })
+    },
+  )
+
+  ipcMain.handle(
+    'git:stageFile',
+    async (_event, payload: { repoRoot: string; filePath: string }) => {
+      const result = await GitRepository.stageFile(payload.repoRoot, payload.filePath)
+      return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'git:revertFile',
+    async (_event, payload: { repoRoot: string; filePath: string }) => {
+      const result = await GitRepository.revertFile(payload.repoRoot, payload.filePath)
+      return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
+
   ipcMain.handle('git:generateCommitMessage', async (_event, payload: { repoRoot: string }) => {
     const diff = await GitRepository.getDiff(payload.repoRoot).unwrapOr('')
     if (!diff.trim()) return null

@@ -1,6 +1,8 @@
 import { ok, err, okAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
 import type { GitError } from './errors'
+import type { ParsedDiff } from './types'
+import { parseDiff } from './diffParser'
 import { fromExternalCall, errorMessage } from '../errors'
 
 function validateRef(name: string): Result<string, GitError> {
@@ -317,6 +319,40 @@ export class GitRepository {
       if (staged.trim()) return okAsync<string, GitError>(staged)
       return gitCall('diff', git.diff())
     })
+  }
+
+  static getDiffParsed(repoRoot: string): ResultAsync<ParsedDiff, GitError> {
+    const git = simpleGit(repoRoot)
+    return gitCall('diff', git.diff(['HEAD']))
+      .orElse((e) => {
+        if (e._tag === 'GitCommandFailed') {
+          return gitCall('diff', git.diff())
+        }
+        return okAsync<string, GitError>('')
+      })
+      .map((raw) => parseDiff(raw))
+  }
+
+  static getFileDiff(repoRoot: string, filePath: string): ResultAsync<ParsedDiff, GitError> {
+    const git = simpleGit(repoRoot)
+    return gitCall('diff', git.diff(['HEAD', '--', filePath]))
+      .orElse((e) => {
+        if (e._tag === 'GitCommandFailed') {
+          return gitCall('diff', git.diff(['--', filePath]))
+        }
+        return okAsync<string, GitError>('')
+      })
+      .map((raw) => parseDiff(raw))
+  }
+
+  static stageFile(repoRoot: string, filePath: string): ResultAsync<void, GitError> {
+    const git = simpleGit(repoRoot)
+    return gitCall('add', git.add(filePath)).map(() => undefined)
+  }
+
+  static revertFile(repoRoot: string, filePath: string): ResultAsync<void, GitError> {
+    const git = simpleGit(repoRoot)
+    return gitCall('checkout', git.checkout(['--', filePath])).map(() => undefined)
   }
 }
 
