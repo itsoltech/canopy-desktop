@@ -31,19 +31,24 @@
         targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
       }
     }
+    const base = config.prTemplate ?? {
+      titleTemplate: '',
+      bodyTemplate: '',
+      defaultTargetBranch: 'develop',
+      targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
+    }
     if (prScope !== 'default') {
       const override = config.boardOverrides[prScope]?.prTemplate
       if (override) {
         return {
-          titleTemplate: override.titleTemplate ?? config.prTemplate.titleTemplate,
-          bodyTemplate: override.bodyTemplate ?? config.prTemplate.bodyTemplate,
-          defaultTargetBranch:
-            override.defaultTargetBranch ?? config.prTemplate.defaultTargetBranch,
-          targetRules: override.targetRules ?? config.prTemplate.targetRules,
+          titleTemplate: override.titleTemplate ?? base.titleTemplate,
+          bodyTemplate: override.bodyTemplate ?? base.bodyTemplate,
+          defaultTargetBranch: override.defaultTargetBranch ?? base.defaultTargetBranch,
+          targetRules: override.targetRules ?? base.targetRules,
         }
       }
     }
-    return config.prTemplate
+    return base
   })
 
   let titleTemplateInput = $state('')
@@ -64,7 +69,7 @@
     if (!config) return
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     if (prScope === 'default') {
-      updated.prTemplate = { ...updated.prTemplate, [field]: value }
+      updated.prTemplate = { ...(updated.prTemplate ?? {}), [field]: value }
     } else {
       if (!updated.boardOverrides[prScope]) {
         updated.boardOverrides[prScope] = {}
