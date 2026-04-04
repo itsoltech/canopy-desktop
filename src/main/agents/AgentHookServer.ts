@@ -58,6 +58,7 @@ export class AgentHookRouter {
 
     this.serverReady = new Promise<number>((resolve, reject) => {
       server.on('error', (err) => {
+        this.serverReady = null
         this.closeServerIfIdle()
         reject(err)
       })
