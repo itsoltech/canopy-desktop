@@ -37,16 +37,18 @@ interface IpcLogEntry {
   dir: 'in' | 'out'
 }
 const ipcLog: IpcLogEntry[] = []
+const MAX_IPC_LOG_ENTRIES = 50_000
 
 if (PERF) {
-  // Wrap ipcMain.handle to log all renderer->main invoke calls
+  // Monkey-patches ipcMain.handle/on to log IPC traffic. Must run before
+  // registerIpcHandlers() (called in app.whenReady) so all handlers get wrapped.
   const origHandle = ipcMain.handle.bind(ipcMain)
   ipcMain.handle = (channel: string, listener: Parameters<typeof ipcMain.handle>[1]) => {
     return origHandle(channel, (event, ...args) => {
-      if (!channel.startsWith('perf:')) {
+      if (!channel.startsWith('perf:') && ipcLog.length < MAX_IPC_LOG_ENTRIES) {
         ipcLog.push({
           channel,
-          size: JSON.stringify(args).length,
+          size: typeof args[0] === 'string' ? args[0].length : 0,
           ts: Date.now(),
           dir: 'in',
         })
@@ -55,14 +57,13 @@ if (PERF) {
     })
   }
 
-  // Wrap ipcMain.on to log renderer->main send calls
   const origOn = ipcMain.on.bind(ipcMain)
   ipcMain.on = (channel: string, listener: Parameters<typeof ipcMain.on>[1]) => {
     return origOn(channel, (event, ...args) => {
-      if (!channel.startsWith('perf:')) {
+      if (!channel.startsWith('perf:') && ipcLog.length < MAX_IPC_LOG_ENTRIES) {
         ipcLog.push({
           channel,
-          size: JSON.stringify(args).length,
+          size: typeof args[0] === 'string' ? args[0].length : 0,
           ts: Date.now(),
           dir: 'in',
         })

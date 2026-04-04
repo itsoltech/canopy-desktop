@@ -87,18 +87,19 @@ export const test = base.extend<PerfFixtures>({
     })
     await use(app)
     const pid = app.process().pid
+    let timer: NodeJS.Timeout
     await Promise.race([
-      app.close(),
-      new Promise<void>((resolve) =>
-        setTimeout(() => {
+      app.close().then(() => clearTimeout(timer)),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
           try {
             process.kill(pid!)
           } catch {
             /* already exited */
           }
           resolve()
-        }, 5_000),
-      ),
+        }, 5_000)
+      }),
     ])
     await rm(userDataDir, { recursive: true, force: true }).catch(() => {})
   },

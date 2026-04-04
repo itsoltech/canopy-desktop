@@ -622,8 +622,12 @@ const api = {
     }),
 
   // Performance diagnostics (only active when CANOPY_PERF=1)
-  perfDiagnostics: () => ipcRenderer.invoke('perf:diagnostics'),
-  perfIpcLog: () => ipcRenderer.invoke('perf:ipcLog'),
+  ...(process.env.CANOPY_PERF === '1'
+    ? {
+        perfDiagnostics: () => ipcRenderer.invoke('perf:diagnostics'),
+        perfIpcLog: () => ipcRenderer.invoke('perf:ipcLog'),
+      }
+    : {}),
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

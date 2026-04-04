@@ -554,6 +554,12 @@ interface CanopyAPI {
     uptime: number
     marks: Array<{ name: string; startTime: number }>
   } | null>
+  perfIpcLog: () => Promise<Array<{
+    channel: string
+    size: number
+    ts: number
+    dir: string
+  }> | null>
 
   // File utilities
   getPathForFile: (file: File) => string
