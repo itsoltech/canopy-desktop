@@ -26,7 +26,3 @@ export function parseGitHubRemote(url: string): Result<RepoIdentifier, GitHubErr
   }
   return err({ _tag: 'InvalidRemoteUrl', url })
 }
-
-export function isGitHubHost(host: string): boolean {
-  return host === 'github.com' || host.includes('github')
-}

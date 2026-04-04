@@ -46,17 +46,16 @@
     getTaskTrackerConnections().filter((c) => c.provider === 'github').length,
   )
 
-  // Re-fetch PRs when worktree list changes (debounced)
+  // Fetch PRs when worktree list or GitHub connections change
+  let prevGhConnCount = 0
   $effect(() => {
     const repoRoot = workspaceState.repoRoot
     void workspaceState.worktrees.length
-    if (repoRoot && githubConnectionCount > 0) loadBranchPRs(repoRoot)
-  })
-
-  // Force re-fetch when GitHub connections are added/removed
-  $effect(() => {
-    const repoRoot = workspaceState.repoRoot
-    if (repoRoot && githubConnectionCount > 0) loadBranchPRs(repoRoot, true)
+    const connCount = githubConnectionCount
+    if (!repoRoot || connCount === 0) return
+    const force = connCount !== prevGhConnCount
+    prevGhConnCount = connCount
+    loadBranchPRs(repoRoot, force)
   })
 
   let prMap = $derived(getBranchPRMap())
@@ -281,7 +280,7 @@
 
   .pr-badge.approved {
     background: var(--c-success-bg, var(--c-success));
-    color: var(--c-success-text, #fff);
+    color: var(--c-success-text, var(--c-text));
   }
 
   .pr-badge.changes-requested {

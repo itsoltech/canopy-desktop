@@ -1,4 +1,4 @@
-import { errAsync } from 'neverthrow'
+import { errAsync, okAsync } from 'neverthrow'
 import type { ResultAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
 import type { GitHubError } from './errors'
@@ -82,10 +82,7 @@ export function graphqlFetch<T>(
           message: 'No data in GraphQL response',
         })
       }
-      return fromExternalCall(
-        Promise.resolve(json.data),
-        (e): GitHubError => ({ _tag: 'GitHubApiError', status: 0, message: errorMessage(e) }),
-      )
+      return okAsync(json.data as T)
     })
   })
 }

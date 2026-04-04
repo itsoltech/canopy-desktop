@@ -1717,7 +1717,10 @@ export function registerIpcHandlers(
       }
       const { token, repo } = found.value
 
-      await GitRepository.push(payload.repoRoot).unwrapOr({ branch: '', remote: '' })
+      const pushResult = await GitRepository.push(payload.repoRoot)
+      if (pushResult.isErr()) {
+        throw new Error(`Failed to push branch: ${gitErrorMessage(pushResult.error)}`)
+      }
 
       const repoInfo = await gitHubService.getRepoInfo(repo.apiUrl, token, repo.owner, repo.repo)
       const repoInfoValue = unwrapOrThrow(repoInfo, gitHubErrorMessage)

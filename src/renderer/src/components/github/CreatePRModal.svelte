@@ -60,8 +60,15 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="overlay" role="dialog" onkeydown={handleKeydown}>
-  <div class="modal">
+<div
+  class="overlay"
+  role="dialog"
+  aria-modal="true"
+  onkeydown={handleKeydown}
+  onclick={closeDialog}
+>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="modal" role="none" onclick={(e) => e.stopPropagation()}>
     <h2 class="modal-title">Create pull request</h2>
 
     <div class="form-row">

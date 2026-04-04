@@ -120,20 +120,16 @@
     getTaskTrackerConnections().filter((c) => c.provider === 'github').length,
   )
 
+  let prevGhConnCount = 0
   $effect(() => {
-    if (githubConnectionCount === 0) return
+    const connCount = githubConnectionCount
+    if (connCount === 0) return
     const deps = projects.map((p) => p.worktrees.length)
     void deps
+    const force = connCount !== prevGhConnCount
+    prevGhConnCount = connCount
     for (const p of projects) {
-      if (p.isGitRepo && p.repoRoot) loadBranchPRs(p.repoRoot)
-    }
-  })
-
-  // Force refresh when connections change
-  $effect(() => {
-    if (githubConnectionCount === 0) return
-    for (const p of projects) {
-      if (p.isGitRepo && p.repoRoot) loadBranchPRs(p.repoRoot, true)
+      if (p.isGitRepo && p.repoRoot) loadBranchPRs(p.repoRoot, force)
     }
   })
 
@@ -808,7 +804,7 @@
 
   .pr-badge.approved {
     background: var(--c-success-bg, var(--c-success));
-    color: var(--c-success-text, #fff);
+    color: var(--c-success-text, var(--c-text));
   }
 
   .pr-badge.changes-requested {

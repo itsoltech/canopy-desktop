@@ -1,4 +1,4 @@
-import { ok, err, type ResultAsync } from 'neverthrow'
+import { ok, err, okAsync, type ResultAsync } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { TaskTrackerConnection } from '../taskTracker/types'
 import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
@@ -142,7 +142,7 @@ export class GitHubService {
     branches: string[],
   ): ResultAsync<BranchPRMap, GitHubError> {
     if (branches.length === 0) {
-      return graphqlFetch<never>(apiUrl, token, '{ viewer { login } }').map(() => ({}))
+      return okAsync({} as BranchPRMap)
     }
 
     const headFilters = branches.map((b) => `head:${b}`).join(' ')
