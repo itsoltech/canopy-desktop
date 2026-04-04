@@ -56,7 +56,6 @@
   async function fetchAvailableProjects(): Promise<void> {
     loadingProjects = true
     try {
-      // Fetch boards without project filter to discover all available projects
       const connections = await window.api.taskTrackerGetConnections()
       if (connections.length > 0) {
         const allBoards = await window.api.taskTrackerFetchBoards(connections[0].id)
@@ -72,7 +71,7 @@
         }))
       }
     } catch {
-      // keep empty — user can still type manually
+      // keep empty
     } finally {
       loadingProjects = false
     }
@@ -188,210 +187,215 @@
 {:else if !config}
   <div class="section">
     <h3 class="section-title">Task Tracker</h3>
-    <p class="section-desc">
+    <span class="hint-text">
       No <code>.canopy/config.json</code> found in this repository.
-    </p>
-    <button class="btn btn-primary" onclick={handleInit}>Initialize Configuration</button>
+    </span>
+    <div>
+      <button class="btn btn-primary" onclick={handleInit}>Initialize Configuration</button>
+    </div>
   </div>
 {:else}
-  <TaskConnectionsPrefs {repoRoot} />
-
   <div class="section">
-    <h3 class="section-title">Projects</h3>
-    <p class="section-desc">Configure naming per project. A tracker can have multiple projects.</p>
+    <h3 class="section-title">Task Tracker</h3>
 
-    {#if projectKeys.length > 0}
-      <div class="form-row">
-        <label class="form-label">Project</label>
-        <CustomSelect
-          value={selectedProject ?? ''}
-          options={projectKeys.map((k) => ({ value: k, label: k }))}
-          onchange={(v) => {
-            selectedProject = v
-            if (config?.projects[v]) {
-              branchNamingRef?.initTemplate(config.projects[v].branchTemplate.template)
-            }
-          }}
-          maxWidth="none"
-        />
-        {#if selectedProject}
-          <button
-            class="icon-btn destructive"
-            onclick={() => selectedProject && removeProject(selectedProject)}
-            title="Remove project"
-          >
-            <Trash2 size={14} />
-          </button>
-        {/if}
-      </div>
-    {/if}
+    <TaskConnectionsPrefs {repoRoot} />
 
-    {#if availableProjects.length > 0}
-      {@const unaddedProjects = availableProjects.filter((p) => !config?.projects[p.key])}
-      {#if unaddedProjects.length > 0}
-        <div class="form-row">
-          <label class="form-label">Add</label>
+    <div class="subsection">
+      <h4 class="subsection-title">Projects</h4>
+
+      {#if projectKeys.length > 0}
+        <div class="select-row">
+          <span class="select-label">Active project</span>
           <CustomSelect
-            value=""
-            options={[
-              { value: '', label: loadingProjects ? 'Loading...' : 'Select project to add...' },
-              ...unaddedProjects.map((p) => ({ value: p.key, label: p.name })),
-            ]}
+            value={selectedProject ?? ''}
+            options={projectKeys.map((k) => ({ value: k, label: k }))}
             onchange={(v) => {
-              if (v) addProjectByKey(v)
+              selectedProject = v
+              if (config?.projects[v]) {
+                branchNamingRef?.initTemplate(config.projects[v].branchTemplate.template)
+              }
             }}
-            maxWidth="none"
+            maxWidth="180px"
           />
-          <button
-            class="icon-btn"
-            onclick={fetchAvailableProjects}
-            disabled={loadingProjects}
-            title="Refresh projects"
-          >
-            <RefreshCw size={12} />
-          </button>
+          {#if selectedProject}
+            <button
+              class="icon-btn destructive"
+              onclick={() => selectedProject && removeProject(selectedProject)}
+              title="Remove project"
+            >
+              <Trash2 size={14} />
+            </button>
+          {/if}
         </div>
       {/if}
-    {:else if hasCreds}
-      <div class="form-row">
+
+      {#if availableProjects.length > 0}
+        {@const unaddedProjects = availableProjects.filter((p) => !config?.projects[p.key])}
+        {#if unaddedProjects.length > 0}
+          <div class="select-row">
+            <span class="select-label">Add project</span>
+            <CustomSelect
+              value=""
+              options={[
+                {
+                  value: '',
+                  label: loadingProjects ? 'Loading...' : 'Select project...',
+                },
+                ...unaddedProjects.map((p) => ({ value: p.key, label: p.name })),
+              ]}
+              onchange={(v) => {
+                if (v) addProjectByKey(v)
+              }}
+              maxWidth="240px"
+            />
+            <button
+              class="icon-btn"
+              onclick={fetchAvailableProjects}
+              disabled={loadingProjects}
+              title="Refresh projects"
+            >
+              <RefreshCw size={12} />
+            </button>
+          </div>
+        {/if}
+      {:else if hasCreds}
+        <div>
+          <button
+            class="btn btn-add-item"
+            onclick={fetchAvailableProjects}
+            disabled={loadingProjects}
+          >
+            {#if loadingProjects}Loading...{:else}+ Load projects from tracker{/if}
+          </button>
+        </div>
+      {:else}
+        <span class="hint-text">Add credentials above to load projects from your tracker.</span>
+      {/if}
+    </div>
+
+    {#if selectedProject && config.projects[selectedProject]}
+      <TaskBranchNamingPrefs
+        bind:this={branchNamingRef}
+        {repoRoot}
+        projectKey={selectedProject}
+        {boards}
+        {placeholders}
+        onTemplateChanged={refreshPlaceholders}
+      />
+
+      <TaskPRNamingPrefs {repoRoot} projectKey={selectedProject} {boards} />
+    {/if}
+
+    <div class="subsection">
+      <h4 class="subsection-title">Filters</h4>
+
+      <label class="checkbox-row">
+        <CustomCheckbox checked={config.filters.assignedToMe} onchange={toggleAssignedToMe} />
+        <span>Only show tasks assigned to me</span>
+      </label>
+
+      <div class="filter-header">
+        <span class="filter-label">Status filter</span>
         <button
-          class="btn btn-secondary"
-          onclick={fetchAvailableProjects}
-          disabled={loadingProjects}
+          class="icon-btn"
+          onclick={loadStatusesFromApi}
+          disabled={loadingStatuses}
+          title="Refresh from API"
         >
           <RefreshCw size={12} />
-          {#if loadingProjects}Loading...{:else}Load projects from tracker{/if}
         </button>
       </div>
-    {:else}
-      <p class="hint-text">Add credentials above to load projects from your tracker.</p>
-    {/if}
-  </div>
-
-  {#if selectedProject && config.projects[selectedProject]}
-    <TaskBranchNamingPrefs
-      bind:this={branchNamingRef}
-      {repoRoot}
-      projectKey={selectedProject}
-      {boards}
-      {placeholders}
-      onTemplateChanged={refreshPlaceholders}
-    />
-
-    <TaskPRNamingPrefs {repoRoot} projectKey={selectedProject} {boards} />
-  {/if}
-
-  <div class="section">
-    <h3 class="section-title">Task Filters</h3>
-    <p class="section-desc">Configure which tasks to fetch from the tracker.</p>
-
-    <label class="checkbox-row">
-      <CustomCheckbox checked={config.filters.assignedToMe} onchange={toggleAssignedToMe} />
-      <span>Only show tasks assigned to me</span>
-    </label>
-
-    <h4 class="subsection-title" style="margin-top: 12px;">
-      Status Filter
-      <button
-        class="icon-btn"
-        onclick={loadStatusesFromApi}
-        disabled={loadingStatuses}
-        title="Refresh from API"
-      >
-        <RefreshCw size={12} />
-      </button>
-    </h4>
-    {#if availableStatuses.length > 0}
-      {#each availableStatuses as status (status)}
-        <label class="checkbox-row">
-          <CustomCheckbox
-            checked={config.filters.statuses.includes(status)}
-            onchange={() => toggleStatus(status)}
-          />
-          <span>{status}</span>
-        </label>
-      {/each}
-    {:else}
-      <p class="hint-text">Click refresh to load statuses from your tracker.</p>
-    {/if}
+      {#if availableStatuses.length > 0}
+        {#each availableStatuses as status (status)}
+          <label class="checkbox-row">
+            <CustomCheckbox
+              checked={config.filters.statuses.includes(status)}
+              onchange={() => toggleStatus(status)}
+            />
+            <span>{status}</span>
+          </label>
+        {/each}
+      {:else}
+        <span class="hint-text">Click refresh to load statuses from your tracker.</span>
+      {/if}
+    </div>
   </div>
 {/if}
 
 <style>
   .section {
-    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
   }
 
   .section-title {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--c-text);
-    margin: 0 0 4px;
+    margin: 0;
   }
 
-  .section-desc {
-    font-size: 12px;
-    color: var(--c-text-muted);
-    margin: 0 0 12px;
+  .subsection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .subsection-title {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    color: var(--c-text-secondary);
-    margin: 0 0 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--c-text-muted);
+    margin: 0;
   }
 
-  .form-row {
+  .select-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+
+  .select-label {
+    color: var(--c-text-secondary);
+    min-width: 110px;
+  }
+
+  .checkbox-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .form-label {
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    width: 90px;
-    flex-shrink: 0;
-  }
-
-  .form-input {
-    flex: 1;
-    padding: 5px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-input);
+    font-size: 13px;
     color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
+    cursor: pointer;
   }
 
-  .form-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .inline-form {
+  .filter-header {
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .filter-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--c-text-secondary);
+  }
+
+  .hint-text {
+    font-size: 11px;
+    color: var(--c-text-faint);
   }
 
   .btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 12px;
+    padding: 6px 14px;
     border: none;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 13px;
     font-family: inherit;
     cursor: pointer;
-    transition: background 0.1s;
   }
 
   .btn:disabled {
@@ -406,6 +410,28 @@
 
   .btn-primary:hover:not(:disabled) {
     background: var(--c-accent-bg-hover);
+  }
+
+  .btn-add-item {
+    align-self: flex-start;
+    padding: 6px 14px;
+    border: 1px dashed var(--c-text-faint);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--c-text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .btn-add-item:hover:not(:disabled) {
+    background: var(--c-hover);
+    color: var(--c-text);
+  }
+
+  .btn-add-item:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .icon-btn {
@@ -427,27 +453,11 @@
   }
 
   .icon-btn:disabled {
-    opacity: 0.4;
+    opacity: 0.5;
     cursor: default;
   }
 
   .icon-btn.destructive:hover {
     color: var(--c-danger-text);
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-    font-size: 13px;
-    color: var(--c-text-secondary);
-    cursor: pointer;
-  }
-
-  .hint-text {
-    font-size: 12px;
-    color: var(--c-text-faint);
-    margin: 4px 0;
   }
 </style>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus, Trash2 } from '@lucide/svelte'
+  import { Plus } from '@lucide/svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
@@ -109,12 +109,11 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Branch Naming — {projectKey}</h3>
-  <p class="section-desc">Configure per board or use default. Board overrides default template.</p>
+<div class="subsection">
+  <h4 class="subsection-title">Branch naming — {projectKey}</h4>
 
-  <div class="form-row">
-    <label class="form-label">Scope</label>
+  <div class="select-row">
+    <span class="select-label">Scope</span>
     <CustomSelect
       value={templateScope}
       options={[
@@ -126,102 +125,169 @@
         templateInput = branchTemplate.template
         updatePreview()
       }}
-      maxWidth="none"
+      maxWidth="240px"
     />
   </div>
   {#if templateScope !== 'default' && !project?.boardOverrides[templateScope]?.branchTemplate}
-    <p class="section-desc">
+    <span class="field-hint">
       No override set — uses default template. Edit below to create an override.
-    </p>
+    </span>
   {/if}
 
   <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />
 
   <div class="preview-row">
-    <span class="preview-label">Preview:</span>
+    <span class="preview-label">Preview</span>
     <code class="preview-value">{branchPreview || '\u2014'}</code>
   </div>
 
-  <h4 class="subsection-title">Custom Variables</h4>
-  {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
-    <div class="var-row">
-      <code class="var-key">{'{' + key + '}'}</code>
-      <span class="var-value">{value}</span>
-      <button class="icon-btn" onclick={() => removeCustomVar(key)}>
-        <Trash2 size={12} />
+  <div class="var-section">
+    <span class="field-label">Custom variables</span>
+    {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
+      <div class="var-row">
+        <code class="var-key">{'{' + key + '}'}</code>
+        <span class="var-value">{value}</span>
+        <button class="remove-btn" onclick={() => removeCustomVar(key)}>Remove</button>
+      </div>
+    {/each}
+    <div class="var-form">
+      <input class="text-input small" bind:value={newVarKey} placeholder="key" spellcheck="false" />
+      <input
+        class="text-input small"
+        bind:value={newVarValue}
+        placeholder="value"
+        spellcheck="false"
+      />
+      <button class="icon-btn" onclick={addCustomVar} disabled={!newVarKey.trim()} title="Add">
+        <Plus size={14} />
       </button>
     </div>
-  {/each}
-  <div class="inline-form">
-    <input class="form-input small" bind:value={newVarKey} placeholder="key" />
-    <input class="form-input small" bind:value={newVarValue} placeholder="value" />
-    <button class="icon-btn" onclick={addCustomVar} disabled={!newVarKey.trim()}>
-      <Plus size={14} />
-    </button>
   </div>
 </div>
 
 <style>
-  .section {
-    margin-bottom: 24px;
-  }
-
-  .section-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0 0 4px;
-  }
-
-  .section-desc {
-    font-size: 12px;
-    color: var(--c-text-muted);
-    margin: 0 0 12px;
+  .subsection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .subsection-title {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--c-text-muted);
+    margin: 0;
+  }
+
+  .select-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+
+  .select-label {
     color: var(--c-text-secondary);
-    margin: 0 0 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    min-width: 110px;
   }
 
-  .form-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .form-label {
+  .field-label {
     font-size: 12px;
+    font-weight: 500;
     color: var(--c-text-secondary);
-    width: 90px;
-    flex-shrink: 0;
   }
 
-  .form-input {
-    flex: 1;
-    padding: 5px 8px;
+  .field-hint {
+    font-size: 11px;
+    color: var(--c-text-faint);
+  }
+
+  .text-input {
+    padding: 6px 10px;
     border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
+    background: var(--c-hover);
     color: var(--c-text);
-    font-size: 12px;
+    font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
-  .form-input:focus {
+  .text-input:focus {
     border-color: var(--c-focus-ring);
   }
 
-  .form-input.small {
-    flex: unset;
+  .text-input.small {
     width: 100px;
+  }
+
+  .preview-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .preview-label {
+    font-size: 12px;
+    color: var(--c-text-secondary);
+    min-width: 110px;
+  }
+
+  .preview-value {
+    font-size: 12px;
+    color: var(--c-accent-text);
+    background: var(--c-border-subtle);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .var-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .var-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--c-border-subtle);
+    font-size: 13px;
+  }
+
+  .var-key {
+    color: var(--c-accent-text);
+    font-family: monospace;
+    font-size: 12px;
+  }
+
+  .var-value {
+    color: var(--c-text-secondary);
+    font-family: monospace;
+    font-size: 12px;
+    flex: 1;
+  }
+
+  .remove-btn {
+    padding: 2px 8px;
+    border: none;
+    border-radius: 4px;
+    background: var(--c-danger-bg);
+    color: var(--c-danger-text);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .var-form {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .icon-btn {
@@ -243,55 +309,7 @@
   }
 
   .icon-btn:disabled {
-    opacity: 0.4;
+    opacity: 0.5;
     cursor: default;
-  }
-
-  .preview-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .preview-label {
-    font-size: 11px;
-    color: var(--c-text-muted);
-  }
-
-  .preview-value {
-    font-size: 12px;
-    color: var(--c-accent-text);
-    background: var(--c-bg-input);
-    padding: 2px 8px;
-    border-radius: 4px;
-    min-height: 18px;
-    line-height: 18px;
-    display: inline-block;
-  }
-
-  .var-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 3px 0;
-  }
-
-  .var-key {
-    font-size: 12px;
-    color: var(--c-generate);
-  }
-
-  .var-value {
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    flex: 1;
-  }
-
-  .inline-form {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 6px;
   }
 </style>

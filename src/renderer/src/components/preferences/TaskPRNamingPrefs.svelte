@@ -91,12 +91,11 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Pull Request Naming — {projectKey}</h3>
-  <p class="section-desc">Configure per board or use default.</p>
+<div class="subsection">
+  <h4 class="subsection-title">Pull request naming — {projectKey}</h4>
 
-  <div class="form-row">
-    <label class="form-label">Scope</label>
+  <div class="select-row">
+    <span class="select-label">Scope</span>
     <CustomSelect
       value={prScope}
       options={[
@@ -107,7 +106,7 @@
         prScope = v
         initialized = false
       }}
-      maxWidth="none"
+      maxWidth="240px"
     />
   </div>
 
@@ -126,101 +125,92 @@
     label="Body"
     autoSeparators={false}
   />
-  <div class="body-editor">
-    <label class="form-label">Body edit</label>
+
+  <div class="field">
+    <label class="field-label">Body text</label>
     <textarea
-      class="form-textarea"
+      class="text-input textarea"
       bind:value={bodyTemplateInput}
       oninput={onBodyTemplateSave}
-      rows="6"
+      rows="4"
       placeholder="PR body template — use tags above or type freely"
+      spellcheck="false"
     ></textarea>
   </div>
 
-  <div class="form-row">
-    <label class="form-label">Default Target Branch</label>
+  <div class="field">
+    <label class="field-label">Default target branch</label>
     <input
-      class="form-input"
+      class="text-input"
       bind:value={defaultTargetBranch}
       oninput={() => savePRField('defaultTargetBranch', defaultTargetBranch)}
       placeholder="develop"
+      spellcheck="false"
     />
   </div>
 </div>
 
 <style>
-  .section {
-    margin-bottom: 24px;
+  .subsection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
-  .section-title {
-    font-size: 14px;
+  .subsection-title {
+    font-size: 11px;
     font-weight: 600;
-    color: var(--c-text);
-    margin: 0 0 4px;
-  }
-
-  .section-desc {
-    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
     color: var(--c-text-muted);
-    margin: 0 0 12px;
+    margin: 0;
   }
 
-  .form-row {
+  .select-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 12px;
+    font-size: 13px;
   }
 
-  .form-label {
-    font-size: 12px;
+  .select-label {
     color: var(--c-text-secondary);
-    width: 90px;
-    flex-shrink: 0;
+    min-width: 110px;
   }
 
-  .form-input {
-    flex: 1;
-    padding: 5px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .form-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .body-editor {
+  .field {
     display: flex;
-    gap: 8px;
-    margin-bottom: 8px;
+    flex-direction: column;
+    gap: 4px;
   }
 
-  .form-textarea {
-    flex: 1;
-    padding: 6px 8px;
+  .field-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--c-text-secondary);
+  }
+
+  .text-input {
+    padding: 6px 10px;
     border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
+    background: var(--c-hover);
     color: var(--c-text);
-    font-size: 12px;
+    font-size: 13px;
     font-family: inherit;
     outline: none;
-    resize: vertical;
-    min-height: 100px;
   }
 
-  .form-textarea:focus {
+  .text-input:focus {
     border-color: var(--c-focus-ring);
   }
 
-  .form-textarea::placeholder {
+  .textarea {
+    resize: vertical;
+    min-height: 60px;
+  }
+
+  .textarea::placeholder {
     color: var(--c-text-faint);
   }
 </style>
