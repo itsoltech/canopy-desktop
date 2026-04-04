@@ -39,7 +39,7 @@
     } catch {
       // use empty
     }
-    if (config) {
+    if (config?.branchTemplate) {
       branchNamingRef?.initTemplate(config.branchTemplate.template)
     }
   })

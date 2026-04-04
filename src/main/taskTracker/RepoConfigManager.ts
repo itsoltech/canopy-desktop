@@ -61,7 +61,17 @@ export class RepoConfigManager {
           reason: `Unsupported config version: ${String(parsed.version)}`,
         })
       }
-      return ok(parsed)
+      // Fill missing fields from defaults (handles old config formats)
+      const defaults = defaultConfig()
+      const normalized: RepoConfig = {
+        version: 1,
+        tracker: parsed.tracker ?? defaults.tracker,
+        branchTemplate: parsed.branchTemplate ?? defaults.branchTemplate,
+        prTemplate: parsed.prTemplate ?? defaults.prTemplate,
+        boardOverrides: parsed.boardOverrides ?? defaults.boardOverrides,
+        filters: parsed.filters ?? defaults.filters,
+      }
+      return ok(normalized)
     } catch (e) {
       return err({
         _tag: 'ConfigParseError',
