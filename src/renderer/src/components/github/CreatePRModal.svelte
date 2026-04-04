@@ -18,10 +18,14 @@
     const repoRoot = workspaceState.repoRoot
     if (!repoRoot) return
 
-    const info = await window.api.githubGetRepoInfo(repoRoot)
-    if (info) {
-      defaultBranch = info.defaultBranch
-      baseRefName = info.defaultBranch
+    try {
+      const info = await window.api.githubGetRepoInfo(repoRoot)
+      if (info) {
+        defaultBranch = info.defaultBranch
+        baseRefName = info.defaultBranch
+      }
+    } catch {
+      // Keep defaults on network/auth error
     }
 
     const branch = workspaceState.branch
