@@ -67,6 +67,7 @@ interface WorkspaceState {
   rightPanelTab: 'session' | 'changes'
   changesCount: number
   diffScrollTarget: { path: string; ts: number } | null
+  diffVisibleFile: string | null
 }
 
 // --- State ---
@@ -85,6 +86,7 @@ const initial: WorkspaceState = {
   rightPanelTab: 'session',
   changesCount: 0,
   diffScrollTarget: null,
+  diffVisibleFile: null,
 }
 
 /** Active selection — the currently focused project + worktree context */

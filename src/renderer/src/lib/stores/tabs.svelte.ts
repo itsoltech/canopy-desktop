@@ -516,7 +516,7 @@ export function openDiffTab(worktreePath: string, scrollToFile?: string): void {
     wsUrl: '',
     toolId: 'diff',
     toolName: 'Diff',
-    isRunning: true,
+    isRunning: false,
     exitCode: null,
     title: null,
     paneType: 'diff',

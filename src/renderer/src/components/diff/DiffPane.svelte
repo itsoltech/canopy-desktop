@@ -102,9 +102,7 @@
               const path = (entry.target as HTMLElement).dataset.filepath
               if (path) {
                 workspaceState.diffScrollTarget = null
-                window.dispatchEvent(
-                  new CustomEvent('canopy:diff-visible-file', { detail: { filePath: path } }),
-                )
+                workspaceState.diffVisibleFile = path
               }
             }
           }

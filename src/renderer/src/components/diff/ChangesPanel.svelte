@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
   import type { DiffFile, ParsedDiff } from '../../lib/types/diff'
 
   let {
@@ -14,7 +15,7 @@
   let diff = $state<ParsedDiff | null>(null)
   let loading = $state(false)
   let hoveredPath = $state<string | null>(null)
-  let visibleFilePath = $state<string | null>(null)
+  let visibleFilePath = $derived(workspaceState.diffVisibleFile)
 
   // Filter state
   let filterQuery = $state('')
@@ -42,15 +43,8 @@
       refresh()
     })
 
-    const handleVisibleFile = (e: Event): void => {
-      const detail = (e as CustomEvent<{ filePath: string }>).detail
-      visibleFilePath = detail.filePath
-    }
-    window.addEventListener('canopy:diff-visible-file', handleVisibleFile)
-
     return () => {
       unsubGit()
-      window.removeEventListener('canopy:diff-visible-file', handleVisibleFile)
     }
   })
 
@@ -116,16 +110,24 @@
 
   async function handleStage(e: Event, path: string): Promise<void> {
     e.stopPropagation()
-    await window.api.gitStageFile(worktreePath, path)
-    await refresh()
+    try {
+      await window.api.gitStageFile(worktreePath, path)
+      await refresh()
+    } catch (err) {
+      console.error('Failed to stage file:', err)
+    }
   }
 
   async function handleRevert(e: Event, path: string): Promise<void> {
     e.stopPropagation()
     const ok = window.confirm('Revert all changes to this file? This cannot be undone.')
     if (!ok) return
-    await window.api.gitRevertFile(worktreePath, path)
-    await refresh()
+    try {
+      await window.api.gitRevertFile(worktreePath, path)
+      await refresh()
+    } catch (err) {
+      console.error('Failed to revert file:', err)
+    }
   }
 </script>
 
@@ -189,12 +191,18 @@
   {#if filteredFiles.length > 0}
     <ul class="file-list">
       {#each filteredFiles as file (file.path)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <li
           class="file-item"
           class:file-visible={visibleFilePath === file.path}
+          role="button"
+          tabindex="0"
           onclick={() => handleClick(file)}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleClick(file)
+            }
+          }}
           onpointerenter={() => (hoveredPath = file.path)}
           onpointerleave={() => (hoveredPath = null)}
         >
