@@ -145,6 +145,14 @@ export class WindowManager {
     return win
   }
 
+  get gitWatcherCount(): number {
+    let count = 0
+    for (const watchers of this.gitWatchers.values()) {
+      count += watchers.size
+    }
+    return count
+  }
+
   getWindowForPath(path: string): BrowserWindow | null {
     for (const [wcId, paths] of this.workspacePaths) {
       if (paths.has(path)) {
