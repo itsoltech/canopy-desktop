@@ -644,6 +644,9 @@ const api = {
       boardId,
     }),
 
+  taskTrackerFindPR: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 }

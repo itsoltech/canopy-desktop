@@ -1620,6 +1620,22 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle(
+    'taskTracker:findPR',
+    async (_event, payload: { repoRoot: string; branch: string }) => {
+      try {
+        const { stdout } = await execFileAsync(
+          'gh',
+          ['pr', 'view', payload.branch, '--json', 'url', '--jq', '.url'],
+          { cwd: payload.repoRoot },
+        )
+        return stdout.trim() || null
+      } catch {
+        return null
+      }
+    },
+  )
+
   // --- Worktree Setup ---
 
   const setupAbortControllers = new Map<number, AbortController>()

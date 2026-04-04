@@ -563,6 +563,8 @@ interface CanopyAPI {
     boardId?: string,
   ) => Promise<{ url: string; title: string; targetBranch: string }>
 
+  taskTrackerFindPR: (repoRoot: string, branch: string) => Promise<string | null>
+
   // File utilities
   getPathForFile: (file: File) => string
 }

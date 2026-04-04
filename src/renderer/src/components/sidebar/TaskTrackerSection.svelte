@@ -37,11 +37,25 @@
   let canCreatePR = $derived(!!(activeTask || taskKeyFromBranch) && !!workspaceState.branch)
   let existingPRUrl = $state<string | null>(null)
 
-  // Reset PR URL when branch changes
+  // Check for existing PR when branch/worktree changes
   $effect(() => {
-    const _branch = workspaceState.branch
-    if (_branch !== undefined) existingPRUrl = null
+    const branch = workspaceState.branch
+    existingPRUrl = null
+    if (branch) {
+      checkExistingPR(branch)
+    }
   })
+
+  async function checkExistingPR(branch: string): Promise<void> {
+    const root = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!root) return
+    try {
+      const result = await window.api.taskTrackerFindPR(root, branch)
+      if (result) existingPRUrl = result
+    } catch {
+      // no PR found
+    }
+  }
 
   function providerLabel(provider: string): string {
     if (provider === 'jira') return 'Jira'
