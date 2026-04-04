@@ -10,6 +10,7 @@
   import ExitBanner from './ExitBanner.svelte'
   import DetachedOverlay from './DetachedOverlay.svelte'
   import WpmIndicator from './WpmIndicator.svelte'
+  import KeystrokeVisualizer from './KeystrokeVisualizer.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { reattachTmuxPane, killTmuxPane } from '../../lib/stores/tabs.svelte'
 
@@ -35,6 +36,7 @@
   let agentState = $derived(agentSessions[pane.sessionId] ?? null)
   let showInspector = $derived(pane.inspectorOpen !== false && agentState !== null)
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
+  let keystrokeVisualizerEnabled = $derived(prefs['keystrokeVisualizer.enabled'] === 'true')
 
   // Whether this pane is a valid drop target
   let isValidTarget = $derived(
@@ -119,6 +121,9 @@
         {/key}
         {#if wpmEnabled}
           <WpmIndicator sessionId={pane.sessionId} />
+        {/if}
+        {#if keystrokeVisualizerEnabled}
+          <KeystrokeVisualizer sessionId={pane.sessionId} />
         {/if}
         {#if !pane.isRunning && pane.detached && pane.tmuxSessionName}
           <DetachedOverlay
