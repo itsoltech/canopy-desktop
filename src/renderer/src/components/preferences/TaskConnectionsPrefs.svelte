@@ -146,7 +146,32 @@
     {/if}
 
     <div class="field">
-      <label class="field-label">API Token</label>
+      <label class="field-label"
+        >API Token
+        {#if provider === 'jira'}
+          <button
+            class="token-link"
+            onclick={() =>
+              window.api.openExternal(
+                'https://id.atlassian.com/manage-profile/security/api-tokens',
+              )}
+          >
+            Generate token
+          </button>
+        {:else if provider === 'youtrack'}
+          <button
+            class="token-link"
+            onclick={() => {
+              const url = baseUrl
+                ? `${baseUrl.replace(/\/$/, '')}/hub/tokens`
+                : 'https://youtrack.jetbrains.com/hub/tokens'
+              window.api.openExternal(url)
+            }}
+          >
+            Generate token
+          </button>
+        {/if}
+      </label>
       <input
         class="text-input"
         type="password"
@@ -218,6 +243,26 @@
     font-size: 12px;
     font-weight: 500;
     color: var(--c-text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .token-link {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--c-accent-text);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .token-link:hover {
+    color: var(--c-accent);
   }
 
   .field-hint {
