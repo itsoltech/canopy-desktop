@@ -14,6 +14,7 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import { test, openProject } from './fixtures'
+import type { BrowserApi } from './fixtures'
 
 interface IpcMessage {
   channel: string
@@ -80,23 +81,13 @@ function printStats(stats: ChannelStats[], limit: number): void {
   }
 }
 
-/** Drain and return the IPC log from the main process */
 async function drainIpcLog(page: import('@playwright/test').Page): Promise<IpcMessage[]> {
-  return page.evaluate(() =>
-    (
-      window as unknown as {
-        api: {
-          perfIpcLog: () => Promise<IpcMessage[]>
-        }
-      }
-    ).api.perfIpcLog(),
-  )
+  return page.evaluate(() => (window as unknown as BrowserApi).api.perfIpcLog())
 }
 
 test('capture IPC traffic at idle', async ({ page }) => {
   const CAPTURE_MS = 10_000
 
-  // Drain any startup traffic
   await drainIpcLog(page)
 
   console.log(`\n--- IPC Traffic Capture (${CAPTURE_MS / 1000}s idle) ---`)
@@ -119,47 +110,33 @@ test('capture IPC traffic at idle', async ({ page }) => {
 test('capture IPC traffic with project open', async ({ electronApp, page, testProjectPath }) => {
   const CAPTURE_MS = 15_000
 
-  // Open project to generate traffic
   await openProject(electronApp, page, testProjectPath)
   await page.waitForTimeout(2000)
 
-  // Clear startup/project-load traffic
   await drainIpcLog(page)
 
   console.log(`\n--- IPC Traffic Capture (${CAPTURE_MS / 1000}s with project) ---`)
 
-  // Spawn a terminal and interact
-  const ptyResult: { sessionId: string } = await page.evaluate(async () => {
-    return (
-      window as unknown as {
-        api: { spawnPty: (o: { cols: number; rows: number }) => Promise<{ sessionId: string }> }
-      }
-    ).api.spawnPty({ cols: 80, rows: 24 })
-  })
+  const ptyResult = await page.evaluate(() =>
+    (window as unknown as BrowserApi).api.spawnPty({ cols: 80, rows: 24 }),
+  )
 
   await page.waitForTimeout(1000)
 
   for (let i = 0; i < 5; i++) {
-    await page.evaluate(async (sid: string) => {
-      await (
-        window as unknown as {
-          api: { writePty: (sid: string, data: string) => Promise<void> }
-        }
-      ).api.writePty(sid, 'echo hello\n')
-    }, ptyResult.sessionId)
+    await page.evaluate(
+      (sid) => (window as unknown as BrowserApi).api.writePty(sid, 'echo hello\n'),
+      ptyResult.sessionId,
+    )
     await page.waitForTimeout(200)
   }
 
   await page.waitForTimeout(CAPTURE_MS - 3000)
 
-  // Cleanup terminal
-  await page.evaluate(async (sid: string) => {
-    await (
-      window as unknown as {
-        api: { killPty: (sid: string) => Promise<void> }
-      }
-    ).api.killPty(sid)
-  }, ptyResult.sessionId)
+  await page.evaluate(
+    (sid) => (window as unknown as BrowserApi).api.killPty(sid),
+    ptyResult.sessionId,
+  )
   await page.waitForTimeout(500)
 
   const messages = await drainIpcLog(page)

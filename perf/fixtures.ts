@@ -30,11 +30,14 @@ async function createTestProject(baseDir: string): Promise<string> {
   const projectDir = join(baseDir, 'test-project')
   await mkdir(projectDir, { recursive: true })
 
-  // Initialize a bare git repo
   const { execFileSync } = await import('child_process')
-  execFileSync('git', ['init'], { cwd: projectDir })
-  execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: projectDir })
-  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: projectDir })
+  try {
+    execFileSync('git', ['init'], { cwd: projectDir })
+    execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: projectDir })
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: projectDir })
+  } catch (err) {
+    throw new Error(`Failed to initialize test git repo: ${err}`)
+  }
 
   // Create directory structure with files
   const dirs = ['src', 'src/components', 'src/utils', 'src/stores', 'tests', 'docs']
@@ -50,8 +53,12 @@ async function createTestProject(baseDir: string): Promise<string> {
     await writeFile(join(projectDir, dir, `file-${i}${ext}`), content)
   }
 
-  execFileSync('git', ['add', '.'], { cwd: projectDir })
-  execFileSync('git', ['commit', '-m', 'init'], { cwd: projectDir })
+  try {
+    execFileSync('git', ['add', '.'], { cwd: projectDir })
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: projectDir })
+  } catch (err) {
+    throw new Error(`Failed to commit test files: ${err}`)
+  }
 
   return projectDir
 }
@@ -113,11 +120,7 @@ export { expect } from '@playwright/test'
 // -- Helpers --
 
 export async function getDiagnostics(page: Page): Promise<PerfDiagnostics | null> {
-  return page.evaluate(() =>
-    (
-      window as unknown as { api: { perfDiagnostics: () => Promise<PerfDiagnostics | null> } }
-    ).api.perfDiagnostics(),
-  )
+  return page.evaluate(() => (window as unknown as BrowserApi).api.perfDiagnostics())
 }
 
 export async function forceGC(cdp: CDPSession): Promise<void> {
@@ -146,22 +149,35 @@ export interface CpuProfile {
 export async function stopCPUProfile(cdp: CDPSession): Promise<CpuProfile> {
   const { profile } = await cdp.send('Profiler.stop')
   await cdp.send('Profiler.disable')
+  // CDP Profiler.stop returns untyped protocol data
   return profile as unknown as CpuProfile
 }
 
 export async function takeHeapSnapshot(cdp: CDPSession): Promise<string> {
   const chunks: string[] = []
-  cdp.on('HeapProfiler.addHeapSnapshotChunk', (params: { chunk: string }) => {
+  const listener = (params: { chunk: string }): void => {
     chunks.push(params.chunk)
-  })
+  }
+  cdp.on('HeapProfiler.addHeapSnapshotChunk', listener)
   await cdp.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false })
+  cdp.off('HeapProfiler.addHeapSnapshotChunk', listener)
   return chunks.join('')
 }
 
-interface WindowWithApi {
+/**
+ * Subset of CanopyAPI used in page.evaluate() calls.
+ * page.evaluate runs in the browser context where preload types aren't available,
+ * so we define this mirror type for type-safe casts in test code.
+ */
+export interface BrowserApi {
   api: {
     getPref: (k: string) => Promise<string | null>
     perfDiagnostics: () => Promise<PerfDiagnostics | null>
+    perfIpcLog: () => Promise<Array<{ channel: string; size: number; ts: number; dir: string }>>
+    spawnPty: (o: { cols: number; rows: number }) => Promise<{ sessionId: string }>
+    writePty: (sid: string, data: string) => Promise<void>
+    killPty: (sid: string) => Promise<void>
+    detachProject: (path: string) => Promise<void>
   }
 }
 
@@ -173,8 +189,8 @@ export async function openProject(
   await page.waitForSelector('.app', { state: 'visible' })
   await page.waitForFunction(
     () =>
-      !!(window as unknown as WindowWithApi).api &&
-      typeof (window as unknown as WindowWithApi).api.getPref === 'function',
+      !!(window as unknown as BrowserApi).api &&
+      typeof (window as unknown as BrowserApi).api.getPref === 'function',
   )
   await electronApp.evaluate(({ BrowserWindow }, path) => {
     const win = BrowserWindow.getAllWindows()[0]

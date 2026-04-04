@@ -13,7 +13,7 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import { test, expect, openProject, startCPUProfile, stopCPUProfile } from './fixtures'
-import type { CpuProfile } from './fixtures'
+import type { CpuProfile, BrowserApi } from './fixtures'
 
 interface HotFunction {
   name: string
@@ -81,35 +81,26 @@ test('CPU profile: project open', async ({ cdp, electronApp, page, testProjectPa
 })
 
 test('CPU profile: terminal activity', async ({ cdp, page }) => {
-  const result: { sessionId: string } = await page.evaluate(async () => {
-    return (
-      window as unknown as {
-        api: { spawnPty: (o: { cols: number; rows: number }) => Promise<{ sessionId: string }> }
-      }
-    ).api.spawnPty({ cols: 80, rows: 24 })
-  })
+  const result = await page.evaluate(() =>
+    (window as unknown as BrowserApi).api.spawnPty({ cols: 80, rows: 24 }),
+  )
   await new Promise((r) => setTimeout(r, 1000))
 
   await startCPUProfile(cdp)
 
-  await page.evaluate(async (sid: string) => {
-    await (
-      window as unknown as {
-        api: { writePty: (sid: string, data: string) => Promise<void> }
-      }
-    ).api.writePty(sid, 'for i in $(seq 1 500); do echo "Line $i: $(date)"; done\n')
-  }, result.sessionId)
+  await page.evaluate(
+    (sid) =>
+      (window as unknown as BrowserApi).api.writePty(
+        sid,
+        'for i in $(seq 1 500); do echo "Line $i: $(date)"; done\n',
+      ),
+    result.sessionId,
+  )
 
   await new Promise((r) => setTimeout(r, 5000))
   const profile = await stopCPUProfile(cdp)
 
-  await page.evaluate(async (sid: string) => {
-    await (
-      window as unknown as {
-        api: { killPty: (sid: string) => Promise<void> }
-      }
-    ).api.killPty(sid)
-  }, result.sessionId)
+  await page.evaluate((sid) => (window as unknown as BrowserApi).api.killPty(sid), result.sessionId)
 
   const outPath = join(__dirname, 'results', 'cpu-terminal.cpuprofile')
   writeFileSync(outPath, JSON.stringify(profile))

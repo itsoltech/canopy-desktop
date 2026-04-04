@@ -16,14 +16,7 @@ import {
   openProject,
   formatBytes,
 } from './fixtures'
-
-interface PtyApi {
-  api: {
-    spawnPty: (o: { cols: number; rows: number }) => Promise<{ sessionId: string }>
-    killPty: (sid: string) => Promise<void>
-    detachProject: (path: string) => Promise<void>
-  }
-}
+import type { BrowserApi } from './fixtures'
 
 test('terminal open/close should not leak PTY sessions', async ({ page }) => {
   const CYCLES = 8
@@ -39,19 +32,19 @@ test('terminal open/close should not leak PTY sessions', async ({ page }) => {
   console.log(`Baseline PTY: ${baselinePty}, WS bridges: ${baselineBridge}`)
 
   for (let i = 0; i < CYCLES; i++) {
-    const result = await page.evaluate(async () => {
-      const res = await (window as unknown as PtyApi).api.spawnPty({ cols: 80, rows: 24 })
-      return res
-    })
+    const result = await page.evaluate(() =>
+      (window as unknown as BrowserApi).api.spawnPty({ cols: 80, rows: 24 }),
+    )
 
     expect(result).toBeTruthy()
     expect(result.sessionId).toBeTruthy()
 
     await page.waitForTimeout(500)
 
-    await page.evaluate(async (sid: string) => {
-      await (window as unknown as PtyApi).api.killPty(sid)
-    }, result.sessionId)
+    await page.evaluate(
+      (sid) => (window as unknown as BrowserApi).api.killPty(sid),
+      result.sessionId,
+    )
 
     await page.waitForTimeout(300)
   }
@@ -95,9 +88,10 @@ test('workspace open should not leak git watchers', async ({
       )
     }
 
-    await page.evaluate(async (path: string) => {
-      await (window as unknown as PtyApi).api.detachProject(path)
-    }, testProjectPath)
+    await page.evaluate(
+      (path) => (window as unknown as BrowserApi).api.detachProject(path),
+      testProjectPath,
+    )
 
     await page.waitForTimeout(1000)
   }
@@ -124,18 +118,20 @@ test('heap snapshot comparison', async ({ page, electronApp, testProjectPath, cd
   await page.waitForTimeout(2000)
 
   for (let i = 0; i < 3; i++) {
-    const result = await page.evaluate(async () => {
-      return (window as unknown as PtyApi).api.spawnPty({ cols: 80, rows: 24 })
-    })
+    const result = await page.evaluate(() =>
+      (window as unknown as BrowserApi).api.spawnPty({ cols: 80, rows: 24 }),
+    )
     await page.waitForTimeout(300)
-    await page.evaluate(async (sid: string) => {
-      await (window as unknown as PtyApi).api.killPty(sid)
-    }, result.sessionId)
+    await page.evaluate(
+      (sid) => (window as unknown as BrowserApi).api.killPty(sid),
+      result.sessionId,
+    )
   }
 
-  await page.evaluate(async (path: string) => {
-    await (window as unknown as PtyApi).api.detachProject(path)
-  }, testProjectPath)
+  await page.evaluate(
+    (path) => (window as unknown as BrowserApi).api.detachProject(path),
+    testProjectPath,
+  )
 
   await page.waitForTimeout(1000)
   await forceGC(cdp)

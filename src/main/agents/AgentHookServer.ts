@@ -169,8 +169,8 @@ export class AgentHookRouter {
     return new Promise((resolve) => {
       let data = ''
       let bytes = 0
-      req.on('data', (chunk: string) => {
-        bytes += Buffer.byteLength(chunk)
+      req.on('data', (chunk: Buffer) => {
+        bytes += chunk.length
         if (bytes > MAX_BODY_BYTES) {
           req.destroy()
           resolve('')
