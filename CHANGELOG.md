@@ -1,3 +1,16 @@
+## [0.10.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.1...v0.10.0-next.2) (2026-04-04)
+
+### Features
+
+* add diff review panel with tabbed right sidebar ([#96](https://github.com/itsoltech/canopy-desktop/issues/96)) ([8945a44](https://github.com/itsoltech/canopy-desktop/commit/8945a447b7b0daa179a3c7e9361b3123d4743abe))
+* add keystroke visualizer overlay with WPM tracking ([#59](https://github.com/itsoltech/canopy-desktop/issues/59)) ([5bd0c5d](https://github.com/itsoltech/canopy-desktop/commit/5bd0c5d25738f5da1d452585d686d02af6ec5316))
+* add performance testing infrastructure ([#92](https://github.com/itsoltech/canopy-desktop/issues/92)) ([4df7adc](https://github.com/itsoltech/canopy-desktop/commit/4df7adcdb9a357e18261b8f09f3a48857699ffd2))
+* **github:** add GitHub integration with GraphQL API ([#97](https://github.com/itsoltech/canopy-desktop/issues/97)) ([36626f8](https://github.com/itsoltech/canopy-desktop/commit/36626f8164d6365600bba077b4b76215c1b8a173))
+
+### Bug Fixes
+
+* **terminal:** prevent terminal content from overflowing viewport ([de22b78](https://github.com/itsoltech/canopy-desktop/commit/de22b788523c2b970406962ba8449c7617714937))
+
 ## [0.10.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0...v0.10.0-next.1) (2026-04-03)
 
 ### Features
