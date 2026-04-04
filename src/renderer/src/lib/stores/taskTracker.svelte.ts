@@ -1,4 +1,4 @@
-import { getPref, setPref } from './preferences.svelte'
+import { setPref } from './preferences.svelte'
 
 export interface ActiveTaskContext {
   taskKey: string
@@ -84,8 +84,9 @@ export async function setActiveTask(worktreePath: string, task: ActiveTaskContex
   await setPref(`activeTask.${worktreePath}`, JSON.stringify(task))
 }
 
-export function loadActiveTask(worktreePath: string): void {
-  const raw = getPref(`activeTask.${worktreePath}`)
+export async function loadActiveTask(worktreePath: string): Promise<void> {
+  // Read directly from backend — prefs cache may not have this key yet
+  const raw = await window.api.getPref(`activeTask.${worktreePath}`)
   if (raw) {
     try {
       activeTask = JSON.parse(raw) as ActiveTaskContext

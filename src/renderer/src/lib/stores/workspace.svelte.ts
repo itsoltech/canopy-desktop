@@ -399,7 +399,7 @@ export async function selectWorktree(path: string): Promise<void> {
 
   window.api.setActiveWorktree(path)
   workspaceState.selectedWorktreePath = path
-  loadActiveTask(path)
+  await loadActiveTask(path)
 
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)

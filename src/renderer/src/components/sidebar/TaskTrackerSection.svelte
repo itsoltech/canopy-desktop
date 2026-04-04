@@ -26,6 +26,16 @@
   let activeTask = $derived(getActiveTask())
   let creatingPR = $state(false)
 
+  // Fallback: extract task key from branch name if no active task stored
+  let taskKeyFromBranch = $derived.by(() => {
+    if (activeTask) return null
+    const branch = workspaceState.branch
+    if (!branch) return null
+    const match = branch.match(/([A-Z][A-Z0-9]+-\d+)/)
+    return match ? match[1] : null
+  })
+  let canCreatePR = $derived(!!(activeTask || taskKeyFromBranch) && !!workspaceState.branch)
+
   function providerLabel(provider: string): string {
     if (provider === 'jira') return 'Jira'
     if (provider === 'youtrack') return 'YouTrack'
@@ -45,16 +55,18 @@
   }
 
   async function doCreatePR(): Promise<void> {
-    if (!activeTask || !workspaceState.branch) return
+    const branch = workspaceState.branch
+    if (!branch || !canCreatePR) return
 
+    const taskKey = activeTask?.taskKey ?? taskKeyFromBranch ?? ''
     creatingPR = true
-    let prTitle = `[${activeTask.taskKey}]`
+    let prTitle = `[${taskKey}]`
     let defaultTarget = 'develop'
     try {
       const preview = await window.api.taskTrackerResolvePRPreview(
-        activeTask.taskKey,
-        activeTask.connectionId,
-        activeTask.boardId,
+        taskKey,
+        activeTask?.connectionId,
+        activeTask?.boardId,
       )
       prTitle = preview.title
       defaultTarget = preview.targetBranch
@@ -76,16 +88,16 @@
       const result = await window.api.taskTrackerCreatePR(
         worktreePath(),
         {
-          key: activeTask.taskKey,
-          summary: activeTask.summary,
+          key: taskKey,
+          summary: activeTask?.summary ?? '',
           description: '',
           status: '',
           priority: '',
           type: 'task',
         },
-        workspaceState.branch!,
-        activeTask.connectionId,
-        activeTask.boardId,
+        branch,
+        activeTask?.connectionId,
+        activeTask?.boardId,
       )
       addToast('PR created')
       window.api.openExternal(result.url)
@@ -138,14 +150,20 @@
       <div class="active-task">
         <span class="task-key">{activeTask.taskKey}</span>
         <span class="task-summary">{activeTask.summary}</span>
+      </div>
+    {/if}
+
+    {#if canCreatePR}
+      <div class="pr-row">
         <button
           class="pr-btn"
           onclick={doCreatePR}
-          disabled={creatingPR || !workspaceState.branch}
-          title="Create Pull Request"
+          disabled={creatingPR}
+          title="Create Pull Request for {activeTask?.taskKey ?? taskKeyFromBranch}"
         >
           <GitPullRequest size={13} />
-          {#if creatingPR}Creating...{:else}Create PR{/if}
+          <span>Create PR</span>
+          <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
         </button>
       </div>
     {/if}
@@ -280,11 +298,16 @@
     flex: 1;
   }
 
+  .pr-row {
+    padding: 4px 12px;
+  }
+
   .pr-btn {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 8px;
     border: none;
     border-radius: 4px;
     background: var(--c-active);
@@ -292,8 +315,13 @@
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
-    flex-shrink: 0;
     transition: background 0.1s;
+  }
+
+  .pr-task-key {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--c-text-faint);
   }
 
   .pr-btn:hover:not(:disabled) {
