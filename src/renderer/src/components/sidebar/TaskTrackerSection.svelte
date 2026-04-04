@@ -35,6 +35,13 @@
     return match ? match[1] : null
   })
   let canCreatePR = $derived(!!(activeTask || taskKeyFromBranch) && !!workspaceState.branch)
+  let existingPRUrl = $state<string | null>(null)
+
+  // Reset PR URL when branch changes
+  $effect(() => {
+    const _branch = workspaceState.branch
+    if (_branch !== undefined) existingPRUrl = null
+  })
 
   function providerLabel(provider: string): string {
     if (provider === 'jira') return 'Jira'
@@ -99,6 +106,7 @@
         activeTask?.connectionId,
         activeTask?.boardId,
       )
+      existingPRUrl = result.url
       addToast('PR created')
       window.api.openExternal(result.url)
     } catch (err) {
@@ -155,16 +163,28 @@
 
     {#if canCreatePR}
       <div class="pr-row">
-        <button
-          class="pr-btn"
-          onclick={doCreatePR}
-          disabled={creatingPR}
-          title="Create Pull Request for {activeTask?.taskKey ?? taskKeyFromBranch}"
-        >
-          <GitPullRequest size={13} />
-          <span>Create PR</span>
-          <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
-        </button>
+        {#if existingPRUrl}
+          <button
+            class="pr-btn"
+            onclick={() => window.api.openExternal(existingPRUrl!)}
+            title="Open existing Pull Request"
+          >
+            <ExternalLink size={13} />
+            <span>Open PR</span>
+            <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
+          </button>
+        {:else}
+          <button
+            class="pr-btn"
+            onclick={doCreatePR}
+            disabled={creatingPR}
+            title="Create Pull Request for {activeTask?.taskKey ?? taskKeyFromBranch}"
+          >
+            <GitPullRequest size={13} />
+            <span>{creatingPR ? 'Creating...' : 'Create PR'}</span>
+            <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
+          </button>
+        {/if}
       </div>
     {/if}
 
