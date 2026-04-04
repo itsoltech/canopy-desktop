@@ -66,7 +66,7 @@
       addToast(`Project ${key} already exists`)
       return
     }
-    const updated = structuredClone($state.snapshot(config)) as typeof config
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.projects[key] = {
       branchTemplate: {
         template: '{branchType}/{taskKey}-{taskTitle}',
@@ -96,7 +96,7 @@
       destructive: true,
     })
     if (!ok) return
-    const updated = structuredClone($state.snapshot(config)) as typeof config
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
     delete updated.projects[key]
     await saveRepoConfig(repoRoot, updated)
     if (selectedProject === key) {
@@ -124,7 +124,7 @@
 
   async function toggleAssignedToMe(): Promise<void> {
     if (!config || !repoRoot) return
-    const updated = structuredClone($state.snapshot(config)) as typeof config
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.filters = { ...updated.filters, assignedToMe: !updated.filters.assignedToMe }
     await saveRepoConfig(repoRoot, updated)
   }
@@ -138,7 +138,7 @@
     } else {
       current.push(status)
     }
-    const updated = structuredClone($state.snapshot(config)) as typeof config
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.filters = { ...updated.filters, statuses: current }
     await saveRepoConfig(repoRoot, updated)
   }

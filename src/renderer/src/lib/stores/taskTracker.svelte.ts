@@ -51,8 +51,10 @@ export async function loadRepoConfig(repoRoot: string): Promise<void> {
 }
 
 export async function saveRepoConfig(repoRoot: string, config: RepoConfig): Promise<void> {
-  await window.api.repoConfigSave(repoRoot, config)
-  repoConfig = config
+  // Strip Svelte proxies before sending through IPC (structured clone)
+  const plain = JSON.parse(JSON.stringify(config)) as RepoConfig
+  await window.api.repoConfigSave(repoRoot, plain)
+  repoConfig = plain
 }
 
 export async function initRepoConfig(repoRoot: string): Promise<RepoConfig> {

@@ -64,7 +64,7 @@
 
   async function savePRField(field: string, value: string): Promise<void> {
     if (!config || !project) return
-    const updated = structuredClone($state.snapshot(config)) as typeof config
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
     if (prScope === 'default') {
       updated.projects[projectKey].prTemplate = {
         ...updated.projects[projectKey].prTemplate,

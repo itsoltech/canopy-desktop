@@ -53,7 +53,7 @@
 
   async function saveBranchTemplate(): Promise<void> {
     if (!config || !project) return
-    const updated = structuredClone($state.snapshot(config)) as typeof config
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
     if (templateScope === 'default') {
       updated.projects[projectKey].branchTemplate = {
         ...updated.projects[projectKey].branchTemplate,
@@ -77,7 +77,7 @@
   async function addCustomVar(): Promise<void> {
     if (!newVarKey.trim() || !config || !project) return
     const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
-    const updated = structuredClone($state.snapshot(config)) as typeof config
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.projects[projectKey].branchTemplate = {
       ...updated.projects[projectKey].branchTemplate,
       customVars: vars,
@@ -93,7 +93,7 @@
     if (!config || !project) return
     const vars = { ...branchTemplate.customVars }
     delete vars[key]
-    const updated = structuredClone($state.snapshot(config)) as typeof config
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.projects[projectKey].branchTemplate = {
       ...updated.projects[projectKey].branchTemplate,
       customVars: vars,
