@@ -28,17 +28,20 @@
   let loadingStatuses = $state(false)
 
   onMount(async () => {
-    if (!repoRoot) return
-    await loadRepoConfig(repoRoot)
-    if (hasCreds) {
-      await fetchBoards()
-    }
+    // Always load placeholders regardless of config/credentials state
     try {
-      const vars = config?.branchTemplate?.customVars ?? {}
-      placeholders = await window.api.taskTrackerGetAvailablePlaceholders(vars)
+      placeholders = await window.api.taskTrackerGetAvailablePlaceholders({})
     } catch {
       // use empty
     }
+
+    if (!repoRoot) return
+    await loadRepoConfig(repoRoot)
+
+    if (hasCreds) {
+      await fetchBoards()
+    }
+
     if (config?.branchTemplate) {
       branchNamingRef?.initTemplate(config.branchTemplate.template)
     }
