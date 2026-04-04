@@ -116,11 +116,13 @@
     try {
       await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, currentBranch)
       closeDialog()
-      await selectWorktree(worktreePath)
 
       if (selectedAgentId) {
+        // Open agent tab BEFORE switching worktree so ensureDefaultTab
+        // sees an existing tab and doesn't race with a shell tab
         try {
           const tab = await openTool(selectedAgentId, worktreePath)
+          await selectWorktree(worktreePath)
           const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
           if (pane) {
             const sessionId = pane.sessionId
@@ -133,6 +135,8 @@
         } catch {
           addToast('Failed to send task context to agent')
         }
+      } else {
+        await selectWorktree(worktreePath)
       }
     } catch (e) {
       creatingWorktree = false
