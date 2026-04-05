@@ -687,6 +687,9 @@ const api = {
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
+
+  // Platform
+  platform: process.platform,
 }
 
 if (process.contextIsolated) {

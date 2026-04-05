@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { openWorkspace } from '../../lib/stores/workspace.svelte'
   import { prompt } from '../../lib/stores/dialogs.svelte'
+  import { fileManagerLabel } from '../../lib/platform'
 
   interface WorkspaceRow {
     id: string
@@ -111,7 +112,7 @@
     contextMenu = null
   }
 
-  async function ctxShowInFinder(): Promise<void> {
+  async function ctxRevealInFileManager(): Promise<void> {
     if (!contextMenu) return
     await window.api.showInFolder(contextMenu.workspace.path)
     closeContextMenu()
@@ -150,7 +151,7 @@
       style="left: {contextMenu.x}px; top: {contextMenu.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <button class="ctx-item" onclick={ctxShowInFinder}>Show in Finder</button>
+      <button class="ctx-item" onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button>
       <button class="ctx-item" onclick={ctxCopyPath}>Copy Path</button>
       <div class="ctx-divider"></div>
       <button class="ctx-item destructive" onclick={ctxRemove}>Remove from Recent</button>
