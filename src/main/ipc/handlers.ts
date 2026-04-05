@@ -1042,9 +1042,18 @@ export function registerIpcHandlers(
   ])
 
   async function validatePathAccess(wcId: number, targetPath: string): Promise<void> {
-    const resolved = await fs.promises.realpath(targetPath)
+    const resolved = path.normalize(await fs.promises.realpath(targetPath))
     const allowed = windowManager.getWorkspacePaths(wcId)
-    const ok = allowed.some((wp) => resolved === wp || resolved.startsWith(wp + path.sep))
+    const ok = allowed.some((wp) => {
+      const normalWp = path.normalize(wp)
+      // Windows paths are case-insensitive
+      if (process.platform === 'win32') {
+        const r = resolved.toLowerCase()
+        const w = normalWp.toLowerCase()
+        return r === w || r.startsWith(w + path.sep)
+      }
+      return resolved === normalWp || resolved.startsWith(normalWp + path.sep)
+    })
     if (!ok) throw new Error('Access denied: path outside workspace')
   }
 
