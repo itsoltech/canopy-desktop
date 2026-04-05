@@ -18,25 +18,20 @@
 
   let containerEl: HTMLDivElement | undefined = $state()
 
-  const sections = [
-    'General',
-    'Updates',
-    'Appearance',
-    'Sidebar',
-    'Terminal',
-    'Tools',
-    'Claude',
-    'Gemini',
-    'Git',
-    'Web Browser',
-    'Tasks',
-    'Shortcuts',
+  const groups = [
+    { label: 'General', sections: ['General', 'Updates', 'Shortcuts'] },
+    { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
+    { label: 'AI Agents', sections: ['Claude', 'Gemini'] },
+    { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks'] },
+    { label: 'Web Browser', sections: ['Web Browser'] },
   ] as const
-  type Section = (typeof sections)[number]
+
+  type Section = (typeof groups)[number]['sections'][number]
+  const allSections = groups.flatMap((g) => g.sections) as unknown as Section[]
 
   function resolveInitialSection(): Section {
     if (initialSection) {
-      const match = sections.find((s) => s.toLowerCase() === initialSection!.toLowerCase())
+      const match = allSections.find((s) => s.toLowerCase() === initialSection!.toLowerCase())
       if (match) return match
     }
     return 'General'
@@ -71,14 +66,17 @@
   >
     <div class="prefs-sidebar">
       <h2 id="prefs-dialog-title" class="prefs-title">Settings</h2>
-      {#each sections as section (section)}
-        <button
-          class="prefs-tab"
-          class:active={activeSection === section}
-          onclick={() => (activeSection = section)}
-        >
-          {section}
-        </button>
+      {#each groups as group (group.label)}
+        <span class="prefs-group-label">{group.label}</span>
+        {#each group.sections as section (section)}
+          <button
+            class="prefs-tab"
+            class:active={activeSection === section}
+            onclick={() => (activeSection = section)}
+          >
+            {section}
+          </button>
+        {/each}
       {/each}
     </div>
 
@@ -156,10 +154,25 @@
     letter-spacing: 0.3px;
   }
 
+  .prefs-group-label {
+    display: block;
+    padding: 8px 16px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    user-select: none;
+  }
+
+  .prefs-group-label:first-child {
+    padding-top: 0;
+  }
+
   .prefs-tab {
     display: block;
     width: 100%;
-    padding: 6px 16px;
+    padding: 6px 16px 6px 28px;
     border: none;
     background: transparent;
     color: var(--c-text);
