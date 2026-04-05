@@ -2,194 +2,194 @@
 
 ### Features
 
-* add diff review panel with tabbed right sidebar ([#96](https://github.com/itsoltech/canopy-desktop/issues/96)) ([8945a44](https://github.com/itsoltech/canopy-desktop/commit/8945a447b7b0daa179a3c7e9361b3123d4743abe))
-* add keystroke visualizer overlay with WPM tracking ([#59](https://github.com/itsoltech/canopy-desktop/issues/59)) ([5bd0c5d](https://github.com/itsoltech/canopy-desktop/commit/5bd0c5d25738f5da1d452585d686d02af6ec5316))
-* add performance testing infrastructure ([#92](https://github.com/itsoltech/canopy-desktop/issues/92)) ([4df7adc](https://github.com/itsoltech/canopy-desktop/commit/4df7adcdb9a357e18261b8f09f3a48857699ffd2))
-* **github:** add GitHub integration with GraphQL API ([#97](https://github.com/itsoltech/canopy-desktop/issues/97)) ([36626f8](https://github.com/itsoltech/canopy-desktop/commit/36626f8164d6365600bba077b4b76215c1b8a173))
+- add diff review panel with tabbed right sidebar ([#96](https://github.com/itsoltech/canopy-desktop/issues/96)) ([8945a44](https://github.com/itsoltech/canopy-desktop/commit/8945a447b7b0daa179a3c7e9361b3123d4743abe))
+- add keystroke visualizer overlay with WPM tracking ([#59](https://github.com/itsoltech/canopy-desktop/issues/59)) ([5bd0c5d](https://github.com/itsoltech/canopy-desktop/commit/5bd0c5d25738f5da1d452585d686d02af6ec5316))
+- add performance testing infrastructure ([#92](https://github.com/itsoltech/canopy-desktop/issues/92)) ([4df7adc](https://github.com/itsoltech/canopy-desktop/commit/4df7adcdb9a357e18261b8f09f3a48857699ffd2))
+- **github:** add GitHub integration with GraphQL API ([#97](https://github.com/itsoltech/canopy-desktop/issues/97)) ([36626f8](https://github.com/itsoltech/canopy-desktop/commit/36626f8164d6365600bba077b4b76215c1b8a173))
 
 ### Bug Fixes
 
-* **terminal:** prevent terminal content from overflowing viewport ([de22b78](https://github.com/itsoltech/canopy-desktop/commit/de22b788523c2b970406962ba8449c7617714937))
+- **terminal:** prevent terminal content from overflowing viewport ([de22b78](https://github.com/itsoltech/canopy-desktop/commit/de22b788523c2b970406962ba8449c7617714937))
 
 ## [0.10.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0...v0.10.0-next.1) (2026-04-03)
 
 ### Features
 
-* **tasks:** send task context to agent sessions ([#90](https://github.com/itsoltech/canopy-desktop/issues/90)) ([7f05068](https://github.com/itsoltech/canopy-desktop/commit/7f05068316538421d649a6821bde47bb71041f98))
+- **tasks:** send task context to agent sessions ([#90](https://github.com/itsoltech/canopy-desktop/issues/90)) ([7f05068](https://github.com/itsoltech/canopy-desktop/commit/7f05068316538421d649a6821bde47bb71041f98))
 
 ### Refactoring
 
-* replace try/catch with neverthrow typed error handling ([#91](https://github.com/itsoltech/canopy-desktop/issues/91)) ([5612434](https://github.com/itsoltech/canopy-desktop/commit/561243412379aa5d8f28e36c13e68d1830a9e955))
+- replace try/catch with neverthrow typed error handling ([#91](https://github.com/itsoltech/canopy-desktop/issues/91)) ([5612434](https://github.com/itsoltech/canopy-desktop/commit/561243412379aa5d8f28e36c13e68d1830a9e955))
 
 ## [0.9.0](https://github.com/itsoltech/canopy-desktop/compare/v0.8.1...v0.9.0) (2026-04-03)
 
 ### Features
 
-* configurable startup tool for new tabs and worktrees ([#85](https://github.com/itsoltech/canopy-desktop/issues/85)) ([b90377c](https://github.com/itsoltech/canopy-desktop/commit/b90377cbc8d14c1074b4a431fd686e1c1e0e91cc))
-* **onboarding:** add tool selection and environment check steps ([#89](https://github.com/itsoltech/canopy-desktop/issues/89)) ([44ff8f3](https://github.com/itsoltech/canopy-desktop/commit/44ff8f3c918b3c6c898e16d8421be8645c76b547))
-* **session:** lazy restore tabs on startup ([#72](https://github.com/itsoltech/canopy-desktop/issues/72)) ([058fe87](https://github.com/itsoltech/canopy-desktop/commit/058fe878072d058f291707677e22270fba5bdc4d))
-* **tasks:** persist last selected board in task picker ([#88](https://github.com/itsoltech/canopy-desktop/issues/88)) ([8828516](https://github.com/itsoltech/canopy-desktop/commit/8828516bcb8467f06f03fb456744a92e7c03b82f))
+- configurable startup tool for new tabs and worktrees ([#85](https://github.com/itsoltech/canopy-desktop/issues/85)) ([b90377c](https://github.com/itsoltech/canopy-desktop/commit/b90377cbc8d14c1074b4a431fd686e1c1e0e91cc))
+- **onboarding:** add tool selection and environment check steps ([#89](https://github.com/itsoltech/canopy-desktop/issues/89)) ([44ff8f3](https://github.com/itsoltech/canopy-desktop/commit/44ff8f3c918b3c6c898e16d8421be8645c76b547))
+- **session:** lazy restore tabs on startup ([#72](https://github.com/itsoltech/canopy-desktop/issues/72)) ([058fe87](https://github.com/itsoltech/canopy-desktop/commit/058fe878072d058f291707677e22270fba5bdc4d))
+- **tasks:** persist last selected board in task picker ([#88](https://github.com/itsoltech/canopy-desktop/issues/88)) ([8828516](https://github.com/itsoltech/canopy-desktop/commit/8828516bcb8467f06f03fb456744a92e7c03b82f))
 
 ### Bug Fixes
 
-* code review corrections across terminal and task tracker ([#80](https://github.com/itsoltech/canopy-desktop/issues/80)) ([8277373](https://github.com/itsoltech/canopy-desktop/commit/82773734b37fe70145783d19e159522cc2a66d86))
-* **perf:** selective git refresh, shared WS server, terminal fixes ([#77](https://github.com/itsoltech/canopy-desktop/issues/77)) ([b77d0fd](https://github.com/itsoltech/canopy-desktop/commit/b77d0fdbddd4bb985aeb57743210146818b6edfc))
-* **session:** clean up orphaned tmux sessions and restore lifecycle ([#74](https://github.com/itsoltech/canopy-desktop/issues/74)) ([76914a5](https://github.com/itsoltech/canopy-desktop/commit/76914a5f48561d7f72dab0f970ef7e53f4044672))
-* **terminal:** block Ctrl+Z in AI terminals to prevent suspend ([#71](https://github.com/itsoltech/canopy-desktop/issues/71)) ([ca4d6c1](https://github.com/itsoltech/canopy-desktop/commit/ca4d6c1ea15ff9c990e5222e161ce914f9278c62))
-* **terminal:** fix Shift+Enter inserting newline in all terminals ([#82](https://github.com/itsoltech/canopy-desktop/issues/82)) ([86db02c](https://github.com/itsoltech/canopy-desktop/commit/86db02c9558a1f794498089b3f5f828d286e3cc7)), closes [#81](https://github.com/itsoltech/canopy-desktop/issues/81)
-* **terminal:** forward process titles through tmux to tab names ([#76](https://github.com/itsoltech/canopy-desktop/issues/76)) ([05dbbdd](https://github.com/itsoltech/canopy-desktop/commit/05dbbdd47f9fb2e5d8ad3690c2ef5a1475021bcf))
-* **terminal:** isolate tmux socket between dev and prod runs ([972c4be](https://github.com/itsoltech/canopy-desktop/commit/972c4beb6678e852a56bbbcf357c2d872919051b))
-* **terminal:** pass agent env vars to tmux sessions ([#73](https://github.com/itsoltech/canopy-desktop/issues/73)) ([e46e44a](https://github.com/itsoltech/canopy-desktop/commit/e46e44ae086e00c97a4b3097c50c33b21f96634b))
-* unblock dependabot PR automation ([#78](https://github.com/itsoltech/canopy-desktop/issues/78)) ([90b2ccb](https://github.com/itsoltech/canopy-desktop/commit/90b2ccbb6d3f201bab30a4f927ae5b5e7f458ec9)), closes [#75](https://github.com/itsoltech/canopy-desktop/issues/75)
+- code review corrections across terminal and task tracker ([#80](https://github.com/itsoltech/canopy-desktop/issues/80)) ([8277373](https://github.com/itsoltech/canopy-desktop/commit/82773734b37fe70145783d19e159522cc2a66d86))
+- **perf:** selective git refresh, shared WS server, terminal fixes ([#77](https://github.com/itsoltech/canopy-desktop/issues/77)) ([b77d0fd](https://github.com/itsoltech/canopy-desktop/commit/b77d0fdbddd4bb985aeb57743210146818b6edfc))
+- **session:** clean up orphaned tmux sessions and restore lifecycle ([#74](https://github.com/itsoltech/canopy-desktop/issues/74)) ([76914a5](https://github.com/itsoltech/canopy-desktop/commit/76914a5f48561d7f72dab0f970ef7e53f4044672))
+- **terminal:** block Ctrl+Z in AI terminals to prevent suspend ([#71](https://github.com/itsoltech/canopy-desktop/issues/71)) ([ca4d6c1](https://github.com/itsoltech/canopy-desktop/commit/ca4d6c1ea15ff9c990e5222e161ce914f9278c62))
+- **terminal:** fix Shift+Enter inserting newline in all terminals ([#82](https://github.com/itsoltech/canopy-desktop/issues/82)) ([86db02c](https://github.com/itsoltech/canopy-desktop/commit/86db02c9558a1f794498089b3f5f828d286e3cc7)), closes [#81](https://github.com/itsoltech/canopy-desktop/issues/81)
+- **terminal:** forward process titles through tmux to tab names ([#76](https://github.com/itsoltech/canopy-desktop/issues/76)) ([05dbbdd](https://github.com/itsoltech/canopy-desktop/commit/05dbbdd47f9fb2e5d8ad3690c2ef5a1475021bcf))
+- **terminal:** isolate tmux socket between dev and prod runs ([972c4be](https://github.com/itsoltech/canopy-desktop/commit/972c4beb6678e852a56bbbcf357c2d872919051b))
+- **terminal:** pass agent env vars to tmux sessions ([#73](https://github.com/itsoltech/canopy-desktop/issues/73)) ([e46e44a](https://github.com/itsoltech/canopy-desktop/commit/e46e44ae086e00c97a4b3097c50c33b21f96634b))
+- unblock dependabot PR automation ([#78](https://github.com/itsoltech/canopy-desktop/issues/78)) ([90b2ccb](https://github.com/itsoltech/canopy-desktop/commit/90b2ccbb6d3f201bab30a4f927ae5b5e7f458ec9)), closes [#75](https://github.com/itsoltech/canopy-desktop/issues/75)
 
 ### Refactoring
 
-* adopt ts-pattern for exhaustive pattern matching ([#83](https://github.com/itsoltech/canopy-desktop/issues/83)) ([4e0b185](https://github.com/itsoltech/canopy-desktop/commit/4e0b18551c6c4ff1fc5546f65caa850bae1875d3))
+- adopt ts-pattern for exhaustive pattern matching ([#83](https://github.com/itsoltech/canopy-desktop/issues/83)) ([4e0b185](https://github.com/itsoltech/canopy-desktop/commit/4e0b18551c6c4ff1fc5546f65caa850bae1875d3))
 
 ## [0.9.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.4...v0.9.0-next.5) (2026-04-03)
 
 ### Features
 
-* configurable startup tool for new tabs and worktrees ([#85](https://github.com/itsoltech/canopy-desktop/issues/85)) ([b90377c](https://github.com/itsoltech/canopy-desktop/commit/b90377cbc8d14c1074b4a431fd686e1c1e0e91cc))
-* **tasks:** persist last selected board in task picker ([#88](https://github.com/itsoltech/canopy-desktop/issues/88)) ([8828516](https://github.com/itsoltech/canopy-desktop/commit/8828516bcb8467f06f03fb456744a92e7c03b82f))
+- configurable startup tool for new tabs and worktrees ([#85](https://github.com/itsoltech/canopy-desktop/issues/85)) ([b90377c](https://github.com/itsoltech/canopy-desktop/commit/b90377cbc8d14c1074b4a431fd686e1c1e0e91cc))
+- **tasks:** persist last selected board in task picker ([#88](https://github.com/itsoltech/canopy-desktop/issues/88)) ([8828516](https://github.com/itsoltech/canopy-desktop/commit/8828516bcb8467f06f03fb456744a92e7c03b82f))
 
 ### Bug Fixes
 
-* code review corrections across terminal and task tracker ([#80](https://github.com/itsoltech/canopy-desktop/issues/80)) ([8277373](https://github.com/itsoltech/canopy-desktop/commit/82773734b37fe70145783d19e159522cc2a66d86))
-* **terminal:** fix Shift+Enter inserting newline in all terminals ([#82](https://github.com/itsoltech/canopy-desktop/issues/82)) ([86db02c](https://github.com/itsoltech/canopy-desktop/commit/86db02c9558a1f794498089b3f5f828d286e3cc7)), closes [#81](https://github.com/itsoltech/canopy-desktop/issues/81)
+- code review corrections across terminal and task tracker ([#80](https://github.com/itsoltech/canopy-desktop/issues/80)) ([8277373](https://github.com/itsoltech/canopy-desktop/commit/82773734b37fe70145783d19e159522cc2a66d86))
+- **terminal:** fix Shift+Enter inserting newline in all terminals ([#82](https://github.com/itsoltech/canopy-desktop/issues/82)) ([86db02c](https://github.com/itsoltech/canopy-desktop/commit/86db02c9558a1f794498089b3f5f828d286e3cc7)), closes [#81](https://github.com/itsoltech/canopy-desktop/issues/81)
 
 ### Refactoring
 
-* adopt ts-pattern for exhaustive pattern matching ([#83](https://github.com/itsoltech/canopy-desktop/issues/83)) ([4e0b185](https://github.com/itsoltech/canopy-desktop/commit/4e0b18551c6c4ff1fc5546f65caa850bae1875d3))
+- adopt ts-pattern for exhaustive pattern matching ([#83](https://github.com/itsoltech/canopy-desktop/issues/83)) ([4e0b185](https://github.com/itsoltech/canopy-desktop/commit/4e0b18551c6c4ff1fc5546f65caa850bae1875d3))
 
 ## [0.9.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.3...v0.9.0-next.4) (2026-04-03)
 
 ### Bug Fixes
 
-* unblock dependabot PR automation ([#78](https://github.com/itsoltech/canopy-desktop/issues/78)) ([90b2ccb](https://github.com/itsoltech/canopy-desktop/commit/90b2ccbb6d3f201bab30a4f927ae5b5e7f458ec9)), closes [#75](https://github.com/itsoltech/canopy-desktop/issues/75)
+- unblock dependabot PR automation ([#78](https://github.com/itsoltech/canopy-desktop/issues/78)) ([90b2ccb](https://github.com/itsoltech/canopy-desktop/commit/90b2ccbb6d3f201bab30a4f927ae5b5e7f458ec9)), closes [#75](https://github.com/itsoltech/canopy-desktop/issues/75)
 
 ## [0.9.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.2...v0.9.0-next.3) (2026-04-02)
 
 ### Bug Fixes
 
-* **perf:** selective git refresh, shared WS server, terminal fixes ([#77](https://github.com/itsoltech/canopy-desktop/issues/77)) ([b77d0fd](https://github.com/itsoltech/canopy-desktop/commit/b77d0fdbddd4bb985aeb57743210146818b6edfc))
+- **perf:** selective git refresh, shared WS server, terminal fixes ([#77](https://github.com/itsoltech/canopy-desktop/issues/77)) ([b77d0fd](https://github.com/itsoltech/canopy-desktop/commit/b77d0fdbddd4bb985aeb57743210146818b6edfc))
 
 ## [0.9.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0-next.1...v0.9.0-next.2) (2026-04-02)
 
 ### Bug Fixes
 
-* **session:** clean up orphaned tmux sessions and restore lifecycle ([#74](https://github.com/itsoltech/canopy-desktop/issues/74)) ([76914a5](https://github.com/itsoltech/canopy-desktop/commit/76914a5f48561d7f72dab0f970ef7e53f4044672))
-* **terminal:** forward process titles through tmux to tab names ([#76](https://github.com/itsoltech/canopy-desktop/issues/76)) ([05dbbdd](https://github.com/itsoltech/canopy-desktop/commit/05dbbdd47f9fb2e5d8ad3690c2ef5a1475021bcf))
-* **terminal:** isolate tmux socket between dev and prod runs ([972c4be](https://github.com/itsoltech/canopy-desktop/commit/972c4beb6678e852a56bbbcf357c2d872919051b))
-* **terminal:** pass agent env vars to tmux sessions ([#73](https://github.com/itsoltech/canopy-desktop/issues/73)) ([e46e44a](https://github.com/itsoltech/canopy-desktop/commit/e46e44ae086e00c97a4b3097c50c33b21f96634b))
+- **session:** clean up orphaned tmux sessions and restore lifecycle ([#74](https://github.com/itsoltech/canopy-desktop/issues/74)) ([76914a5](https://github.com/itsoltech/canopy-desktop/commit/76914a5f48561d7f72dab0f970ef7e53f4044672))
+- **terminal:** forward process titles through tmux to tab names ([#76](https://github.com/itsoltech/canopy-desktop/issues/76)) ([05dbbdd](https://github.com/itsoltech/canopy-desktop/commit/05dbbdd47f9fb2e5d8ad3690c2ef5a1475021bcf))
+- **terminal:** isolate tmux socket between dev and prod runs ([972c4be](https://github.com/itsoltech/canopy-desktop/commit/972c4beb6678e852a56bbbcf357c2d872919051b))
+- **terminal:** pass agent env vars to tmux sessions ([#73](https://github.com/itsoltech/canopy-desktop/issues/73)) ([e46e44a](https://github.com/itsoltech/canopy-desktop/commit/e46e44ae086e00c97a4b3097c50c33b21f96634b))
 
 ## [0.9.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.8.1...v0.9.0-next.1) (2026-04-02)
 
 ### Features
 
-* **session:** lazy restore tabs on startup ([#72](https://github.com/itsoltech/canopy-desktop/issues/72)) ([058fe87](https://github.com/itsoltech/canopy-desktop/commit/058fe878072d058f291707677e22270fba5bdc4d))
+- **session:** lazy restore tabs on startup ([#72](https://github.com/itsoltech/canopy-desktop/issues/72)) ([058fe87](https://github.com/itsoltech/canopy-desktop/commit/058fe878072d058f291707677e22270fba5bdc4d))
 
 ### Bug Fixes
 
-* **terminal:** block Ctrl+Z in AI terminals to prevent suspend ([#71](https://github.com/itsoltech/canopy-desktop/issues/71)) ([ca4d6c1](https://github.com/itsoltech/canopy-desktop/commit/ca4d6c1ea15ff9c990e5222e161ce914f9278c62))
+- **terminal:** block Ctrl+Z in AI terminals to prevent suspend ([#71](https://github.com/itsoltech/canopy-desktop/issues/71)) ([ca4d6c1](https://github.com/itsoltech/canopy-desktop/commit/ca4d6c1ea15ff9c990e5222e161ce914f9278c62))
 
 ## [0.8.1](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0...v0.8.1) (2026-04-01)
 
 ### Bug Fixes
 
-* **terminal:** prevent WebGL crash on session restore ([#70](https://github.com/itsoltech/canopy-desktop/issues/70)) ([d321a69](https://github.com/itsoltech/canopy-desktop/commit/d321a69ba815cce81f6c2a47abe0a2149748df68))
+- **terminal:** prevent WebGL crash on session restore ([#70](https://github.com/itsoltech/canopy-desktop/issues/70)) ([d321a69](https://github.com/itsoltech/canopy-desktop/commit/d321a69ba815cce81f6c2a47abe0a2149748df68))
 
 ## [0.8.0](https://github.com/itsoltech/canopy-desktop/compare/v0.7.0...v0.8.0) (2026-04-01)
 
 ### Features
 
-* add task tracker integrations (Jira & YouTrack) ([#66](https://github.com/itsoltech/canopy-desktop/issues/66)) ([206d7b6](https://github.com/itsoltech/canopy-desktop/commit/206d7b6049620dfa3b0f90cd16bf517134cc9b18))
-* add user onboarding system ([#58](https://github.com/itsoltech/canopy-desktop/issues/58)) ([b5536a4](https://github.com/itsoltech/canopy-desktop/commit/b5536a4f880e2af4cd0615ed799517c344c44019))
-* **browser:** migrate to webview, add credentials, favorites, viewports, and device emulation ([#55](https://github.com/itsoltech/canopy-desktop/issues/55)) ([8a01f52](https://github.com/itsoltech/canopy-desktop/commit/8a01f52277bc196191fade3ca1cc517908d6c27e))
-* custom tool editing and live refresh ([#65](https://github.com/itsoltech/canopy-desktop/issues/65)) ([2019720](https://github.com/itsoltech/canopy-desktop/commit/201972076470244745dfcf73ddb86ebb46abe492))
-* **inspector:** generic agent abstraction with Gemini CLI support ([#33](https://github.com/itsoltech/canopy-desktop/issues/33)) ([0b6e6f1](https://github.com/itsoltech/canopy-desktop/commit/0b6e6f1289def57f25a2c0efab7113cb4d07f16b))
-* **pty:** truecolor support for terminals ([#34](https://github.com/itsoltech/canopy-desktop/issues/34)) ([9de8f60](https://github.com/itsoltech/canopy-desktop/commit/9de8f60c064bd6cb82e34c707a3017b3c06ca394))
-* **sidebar:** add "New Worktree from Branch" to context menu ([#35](https://github.com/itsoltech/canopy-desktop/issues/35)) ([95c4615](https://github.com/itsoltech/canopy-desktop/commit/95c4615a8715d9dc6975e257635d4843db9aaafe))
-* **sidebar:** show loading indicator when removing worktree ([#38](https://github.com/itsoltech/canopy-desktop/issues/38)) ([d5e74d6](https://github.com/itsoltech/canopy-desktop/commit/d5e74d62697b9c51413ad9ab736942505bff43f4))
-* **statusbar:** add bottom status bar ([#51](https://github.com/itsoltech/canopy-desktop/issues/51)) ([5d69f33](https://github.com/itsoltech/canopy-desktop/commit/5d69f33fda482c6483684b508331375849bcba61))
-* sync app UI theme with terminal theme ([#57](https://github.com/itsoltech/canopy-desktop/issues/57)) ([3eba336](https://github.com/itsoltech/canopy-desktop/commit/3eba336a63b4e0277b0e7b1a126a3745f71d71ba))
-* **terminal:** add tmux session persistence for shell sessions ([#64](https://github.com/itsoltech/canopy-desktop/issues/64)) ([c33704d](https://github.com/itsoltech/canopy-desktop/commit/c33704d89a9ff26aa5cd3856c26171068b70daf1))
-* **terminal:** add typing speed (WPM) tracker ([#53](https://github.com/itsoltech/canopy-desktop/issues/53)) ([5cc5b0a](https://github.com/itsoltech/canopy-desktop/commit/5cc5b0acb52f6f975f6dc9f0dc99239ee25c137a))
-* **terminal:** extend tmux to all tools and add mouse support ([#67](https://github.com/itsoltech/canopy-desktop/issues/67)) ([251379c](https://github.com/itsoltech/canopy-desktop/commit/251379ce6cb1010e318561cd27c590f03f5c80d4))
-* **worktree:** stream setup command output in terminal ([#52](https://github.com/itsoltech/canopy-desktop/issues/52)) ([6fa5984](https://github.com/itsoltech/canopy-desktop/commit/6fa5984378e0420a4881a69cee9a23899529073f))
+- add task tracker integrations (Jira & YouTrack) ([#66](https://github.com/itsoltech/canopy-desktop/issues/66)) ([206d7b6](https://github.com/itsoltech/canopy-desktop/commit/206d7b6049620dfa3b0f90cd16bf517134cc9b18))
+- add user onboarding system ([#58](https://github.com/itsoltech/canopy-desktop/issues/58)) ([b5536a4](https://github.com/itsoltech/canopy-desktop/commit/b5536a4f880e2af4cd0615ed799517c344c44019))
+- **browser:** migrate to webview, add credentials, favorites, viewports, and device emulation ([#55](https://github.com/itsoltech/canopy-desktop/issues/55)) ([8a01f52](https://github.com/itsoltech/canopy-desktop/commit/8a01f52277bc196191fade3ca1cc517908d6c27e))
+- custom tool editing and live refresh ([#65](https://github.com/itsoltech/canopy-desktop/issues/65)) ([2019720](https://github.com/itsoltech/canopy-desktop/commit/201972076470244745dfcf73ddb86ebb46abe492))
+- **inspector:** generic agent abstraction with Gemini CLI support ([#33](https://github.com/itsoltech/canopy-desktop/issues/33)) ([0b6e6f1](https://github.com/itsoltech/canopy-desktop/commit/0b6e6f1289def57f25a2c0efab7113cb4d07f16b))
+- **pty:** truecolor support for terminals ([#34](https://github.com/itsoltech/canopy-desktop/issues/34)) ([9de8f60](https://github.com/itsoltech/canopy-desktop/commit/9de8f60c064bd6cb82e34c707a3017b3c06ca394))
+- **sidebar:** add "New Worktree from Branch" to context menu ([#35](https://github.com/itsoltech/canopy-desktop/issues/35)) ([95c4615](https://github.com/itsoltech/canopy-desktop/commit/95c4615a8715d9dc6975e257635d4843db9aaafe))
+- **sidebar:** show loading indicator when removing worktree ([#38](https://github.com/itsoltech/canopy-desktop/issues/38)) ([d5e74d6](https://github.com/itsoltech/canopy-desktop/commit/d5e74d62697b9c51413ad9ab736942505bff43f4))
+- **statusbar:** add bottom status bar ([#51](https://github.com/itsoltech/canopy-desktop/issues/51)) ([5d69f33](https://github.com/itsoltech/canopy-desktop/commit/5d69f33fda482c6483684b508331375849bcba61))
+- sync app UI theme with terminal theme ([#57](https://github.com/itsoltech/canopy-desktop/issues/57)) ([3eba336](https://github.com/itsoltech/canopy-desktop/commit/3eba336a63b4e0277b0e7b1a126a3745f71d71ba))
+- **terminal:** add tmux session persistence for shell sessions ([#64](https://github.com/itsoltech/canopy-desktop/issues/64)) ([c33704d](https://github.com/itsoltech/canopy-desktop/commit/c33704d89a9ff26aa5cd3856c26171068b70daf1))
+- **terminal:** add typing speed (WPM) tracker ([#53](https://github.com/itsoltech/canopy-desktop/issues/53)) ([5cc5b0a](https://github.com/itsoltech/canopy-desktop/commit/5cc5b0acb52f6f975f6dc9f0dc99239ee25c137a))
+- **terminal:** extend tmux to all tools and add mouse support ([#67](https://github.com/itsoltech/canopy-desktop/issues/67)) ([251379c](https://github.com/itsoltech/canopy-desktop/commit/251379ce6cb1010e318561cd27c590f03f5c80d4))
+- **worktree:** stream setup command output in terminal ([#52](https://github.com/itsoltech/canopy-desktop/issues/52)) ([6fa5984](https://github.com/itsoltech/canopy-desktop/commit/6fa5984378e0420a4881a69cee9a23899529073f))
 
 ### Bug Fixes
 
-* **browser:** hide devtools for overlays and unify inspect element flow ([#63](https://github.com/itsoltech/canopy-desktop/issues/63)) ([78d3a49](https://github.com/itsoltech/canopy-desktop/commit/78d3a49a41bd89e21c0b764146c17c3ed0080f36))
-* **browser:** hide devtools view when tab inactive or modal open ([#62](https://github.com/itsoltech/canopy-desktop/issues/62)) ([e5cc762](https://github.com/itsoltech/canopy-desktop/commit/e5cc7626ed984b8588ee97622a89a7d83a0f0a2e))
-* **ci:** add ANTHROPIC_AUTH_TOKEN env var to all Claude workflows ([0cd9527](https://github.com/itsoltech/canopy-desktop/commit/0cd9527f5220af3e79ebab67b8792e41e93baf87))
-* **file-tree:** include active worktree in path validation ([#50](https://github.com/itsoltech/canopy-desktop/issues/50)) ([c28ea44](https://github.com/itsoltech/canopy-desktop/commit/c28ea44e21946a3e0d8972847651e2912d88f6d6))
-* **modals:** auto-focus and prevent close on text selection drag ([#39](https://github.com/itsoltech/canopy-desktop/issues/39)) ([f70cdc0](https://github.com/itsoltech/canopy-desktop/commit/f70cdc0d64d86e45e4af6cf0fdd2e05f45c364b9))
-* **notch:** enable notch overlay and hook scripts on Windows ([#60](https://github.com/itsoltech/canopy-desktop/issues/60)) ([072bc78](https://github.com/itsoltech/canopy-desktop/commit/072bc78cb147b0e1f9568eee962f20534b748cb1))
-* **notch:** restore Dock icon after panel window hides it ([#54](https://github.com/itsoltech/canopy-desktop/issues/54)) ([dc4cc3d](https://github.com/itsoltech/canopy-desktop/commit/dc4cc3d10d259bab0f89faa8b1e989cecb77ed45))
-* **terminal:** match container background with terminal theme ([6bf60ad](https://github.com/itsoltech/canopy-desktop/commit/6bf60adec8e167785ae8d52f6b2a9e9d1f752c44))
-* **terminal:** reduce renderer memory usage ([#32](https://github.com/itsoltech/canopy-desktop/issues/32)) ([f534c78](https://github.com/itsoltech/canopy-desktop/commit/f534c78e23bfc755406cab993781ae354cd1cacf))
-* **terminal:** restore focus after file drop and screenshot delivery ([#37](https://github.com/itsoltech/canopy-desktop/issues/37)) ([3c46743](https://github.com/itsoltech/canopy-desktop/commit/3c4674359605a547ec4ed673b932fbe3e78280dc))
-* **updater:** include stable releases in pre-release update channel ([#36](https://github.com/itsoltech/canopy-desktop/issues/36)) ([098d70e](https://github.com/itsoltech/canopy-desktop/commit/098d70e4b6935dba02eec1039a8cdc2d9a719510))
+- **browser:** hide devtools for overlays and unify inspect element flow ([#63](https://github.com/itsoltech/canopy-desktop/issues/63)) ([78d3a49](https://github.com/itsoltech/canopy-desktop/commit/78d3a49a41bd89e21c0b764146c17c3ed0080f36))
+- **browser:** hide devtools view when tab inactive or modal open ([#62](https://github.com/itsoltech/canopy-desktop/issues/62)) ([e5cc762](https://github.com/itsoltech/canopy-desktop/commit/e5cc7626ed984b8588ee97622a89a7d83a0f0a2e))
+- **ci:** add ANTHROPIC_AUTH_TOKEN env var to all Claude workflows ([0cd9527](https://github.com/itsoltech/canopy-desktop/commit/0cd9527f5220af3e79ebab67b8792e41e93baf87))
+- **file-tree:** include active worktree in path validation ([#50](https://github.com/itsoltech/canopy-desktop/issues/50)) ([c28ea44](https://github.com/itsoltech/canopy-desktop/commit/c28ea44e21946a3e0d8972847651e2912d88f6d6))
+- **modals:** auto-focus and prevent close on text selection drag ([#39](https://github.com/itsoltech/canopy-desktop/issues/39)) ([f70cdc0](https://github.com/itsoltech/canopy-desktop/commit/f70cdc0d64d86e45e4af6cf0fdd2e05f45c364b9))
+- **notch:** enable notch overlay and hook scripts on Windows ([#60](https://github.com/itsoltech/canopy-desktop/issues/60)) ([072bc78](https://github.com/itsoltech/canopy-desktop/commit/072bc78cb147b0e1f9568eee962f20534b748cb1))
+- **notch:** restore Dock icon after panel window hides it ([#54](https://github.com/itsoltech/canopy-desktop/issues/54)) ([dc4cc3d](https://github.com/itsoltech/canopy-desktop/commit/dc4cc3d10d259bab0f89faa8b1e989cecb77ed45))
+- **terminal:** match container background with terminal theme ([6bf60ad](https://github.com/itsoltech/canopy-desktop/commit/6bf60adec8e167785ae8d52f6b2a9e9d1f752c44))
+- **terminal:** reduce renderer memory usage ([#32](https://github.com/itsoltech/canopy-desktop/issues/32)) ([f534c78](https://github.com/itsoltech/canopy-desktop/commit/f534c78e23bfc755406cab993781ae354cd1cacf))
+- **terminal:** restore focus after file drop and screenshot delivery ([#37](https://github.com/itsoltech/canopy-desktop/issues/37)) ([3c46743](https://github.com/itsoltech/canopy-desktop/commit/3c4674359605a547ec4ed673b932fbe3e78280dc))
+- **updater:** include stable releases in pre-release update channel ([#36](https://github.com/itsoltech/canopy-desktop/issues/36)) ([098d70e](https://github.com/itsoltech/canopy-desktop/commit/098d70e4b6935dba02eec1039a8cdc2d9a719510))
 
 ### Refactoring
 
-* migrate commands to skills architecture and add self-review ([85803d0](https://github.com/itsoltech/canopy-desktop/commit/85803d081073a6054dd5651b3aa38ef94c9bbd1c))
-* **ui:** replace native forms with custom components ([#68](https://github.com/itsoltech/canopy-desktop/issues/68)) ([23f1d9f](https://github.com/itsoltech/canopy-desktop/commit/23f1d9f20b8c8e8afdcc8f383cde4f3b1388d2e2))
+- migrate commands to skills architecture and add self-review ([85803d0](https://github.com/itsoltech/canopy-desktop/commit/85803d081073a6054dd5651b3aa38ef94c9bbd1c))
+- **ui:** replace native forms with custom components ([#68](https://github.com/itsoltech/canopy-desktop/issues/68)) ([23f1d9f](https://github.com/itsoltech/canopy-desktop/commit/23f1d9f20b8c8e8afdcc8f383cde4f3b1388d2e2))
 
 ## [0.8.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.7...v0.8.0-next.8) (2026-04-01)
 
 ### Features
 
-* **terminal:** extend tmux to all tools and add mouse support ([#67](https://github.com/itsoltech/canopy-desktop/issues/67)) ([251379c](https://github.com/itsoltech/canopy-desktop/commit/251379ce6cb1010e318561cd27c590f03f5c80d4))
+- **terminal:** extend tmux to all tools and add mouse support ([#67](https://github.com/itsoltech/canopy-desktop/issues/67)) ([251379c](https://github.com/itsoltech/canopy-desktop/commit/251379ce6cb1010e318561cd27c590f03f5c80d4))
 
 ## [0.8.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.6...v0.8.0-next.7) (2026-04-01)
 
 ### Features
 
-* **terminal:** add tmux session persistence for shell sessions ([#64](https://github.com/itsoltech/canopy-desktop/issues/64)) ([c33704d](https://github.com/itsoltech/canopy-desktop/commit/c33704d89a9ff26aa5cd3856c26171068b70daf1))
+- **terminal:** add tmux session persistence for shell sessions ([#64](https://github.com/itsoltech/canopy-desktop/issues/64)) ([c33704d](https://github.com/itsoltech/canopy-desktop/commit/c33704d89a9ff26aa5cd3856c26171068b70daf1))
 
 ## [0.8.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.5...v0.8.0-next.6) (2026-04-01)
 
 ### Features
 
-* add task tracker integrations (Jira & YouTrack) ([#66](https://github.com/itsoltech/canopy-desktop/issues/66)) ([206d7b6](https://github.com/itsoltech/canopy-desktop/commit/206d7b6049620dfa3b0f90cd16bf517134cc9b18))
+- add task tracker integrations (Jira & YouTrack) ([#66](https://github.com/itsoltech/canopy-desktop/issues/66)) ([206d7b6](https://github.com/itsoltech/canopy-desktop/commit/206d7b6049620dfa3b0f90cd16bf517134cc9b18))
 
 ## [0.8.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.4...v0.8.0-next.5) (2026-04-01)
 
 ### Features
 
-* custom tool editing and live refresh ([#65](https://github.com/itsoltech/canopy-desktop/issues/65)) ([2019720](https://github.com/itsoltech/canopy-desktop/commit/201972076470244745dfcf73ddb86ebb46abe492))
+- custom tool editing and live refresh ([#65](https://github.com/itsoltech/canopy-desktop/issues/65)) ([2019720](https://github.com/itsoltech/canopy-desktop/commit/201972076470244745dfcf73ddb86ebb46abe492))
 
 ### Bug Fixes
 
-* **browser:** hide devtools for overlays and unify inspect element flow ([#63](https://github.com/itsoltech/canopy-desktop/issues/63)) ([78d3a49](https://github.com/itsoltech/canopy-desktop/commit/78d3a49a41bd89e21c0b764146c17c3ed0080f36))
+- **browser:** hide devtools for overlays and unify inspect element flow ([#63](https://github.com/itsoltech/canopy-desktop/issues/63)) ([78d3a49](https://github.com/itsoltech/canopy-desktop/commit/78d3a49a41bd89e21c0b764146c17c3ed0080f36))
 
 ## [0.8.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.3...v0.8.0-next.4) (2026-04-01)
 
 ### Bug Fixes
 
-* **browser:** hide devtools view when tab inactive or modal open ([#62](https://github.com/itsoltech/canopy-desktop/issues/62)) ([e5cc762](https://github.com/itsoltech/canopy-desktop/commit/e5cc7626ed984b8588ee97622a89a7d83a0f0a2e))
-* **ci:** add ANTHROPIC_AUTH_TOKEN env var to all Claude workflows ([0cd9527](https://github.com/itsoltech/canopy-desktop/commit/0cd9527f5220af3e79ebab67b8792e41e93baf87))
-* **notch:** enable notch overlay and hook scripts on Windows ([#60](https://github.com/itsoltech/canopy-desktop/issues/60)) ([072bc78](https://github.com/itsoltech/canopy-desktop/commit/072bc78cb147b0e1f9568eee962f20534b748cb1))
-* **terminal:** match container background with terminal theme ([6bf60ad](https://github.com/itsoltech/canopy-desktop/commit/6bf60adec8e167785ae8d52f6b2a9e9d1f752c44))
+- **browser:** hide devtools view when tab inactive or modal open ([#62](https://github.com/itsoltech/canopy-desktop/issues/62)) ([e5cc762](https://github.com/itsoltech/canopy-desktop/commit/e5cc7626ed984b8588ee97622a89a7d83a0f0a2e))
+- **ci:** add ANTHROPIC_AUTH_TOKEN env var to all Claude workflows ([0cd9527](https://github.com/itsoltech/canopy-desktop/commit/0cd9527f5220af3e79ebab67b8792e41e93baf87))
+- **notch:** enable notch overlay and hook scripts on Windows ([#60](https://github.com/itsoltech/canopy-desktop/issues/60)) ([072bc78](https://github.com/itsoltech/canopy-desktop/commit/072bc78cb147b0e1f9568eee962f20534b748cb1))
+- **terminal:** match container background with terminal theme ([6bf60ad](https://github.com/itsoltech/canopy-desktop/commit/6bf60adec8e167785ae8d52f6b2a9e9d1f752c44))
 
 ## [0.8.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.2...v0.8.0-next.3) (2026-03-31)
 
 ### Features
 
-* add user onboarding system ([#58](https://github.com/itsoltech/canopy-desktop/issues/58)) ([b5536a4](https://github.com/itsoltech/canopy-desktop/commit/b5536a4f880e2af4cd0615ed799517c344c44019))
-* **browser:** migrate to webview, add credentials, favorites, viewports, and device emulation ([#55](https://github.com/itsoltech/canopy-desktop/issues/55)) ([8a01f52](https://github.com/itsoltech/canopy-desktop/commit/8a01f52277bc196191fade3ca1cc517908d6c27e))
-* sync app UI theme with terminal theme ([#57](https://github.com/itsoltech/canopy-desktop/issues/57)) ([3eba336](https://github.com/itsoltech/canopy-desktop/commit/3eba336a63b4e0277b0e7b1a126a3745f71d71ba))
-* **worktree:** stream setup command output in terminal ([#52](https://github.com/itsoltech/canopy-desktop/issues/52)) ([6fa5984](https://github.com/itsoltech/canopy-desktop/commit/6fa5984378e0420a4881a69cee9a23899529073f))
+- add user onboarding system ([#58](https://github.com/itsoltech/canopy-desktop/issues/58)) ([b5536a4](https://github.com/itsoltech/canopy-desktop/commit/b5536a4f880e2af4cd0615ed799517c344c44019))
+- **browser:** migrate to webview, add credentials, favorites, viewports, and device emulation ([#55](https://github.com/itsoltech/canopy-desktop/issues/55)) ([8a01f52](https://github.com/itsoltech/canopy-desktop/commit/8a01f52277bc196191fade3ca1cc517908d6c27e))
+- sync app UI theme with terminal theme ([#57](https://github.com/itsoltech/canopy-desktop/issues/57)) ([3eba336](https://github.com/itsoltech/canopy-desktop/commit/3eba336a63b4e0277b0e7b1a126a3745f71d71ba))
+- **worktree:** stream setup command output in terminal ([#52](https://github.com/itsoltech/canopy-desktop/issues/52)) ([6fa5984](https://github.com/itsoltech/canopy-desktop/commit/6fa5984378e0420a4881a69cee9a23899529073f))
 
 ### Bug Fixes
 
-* **notch:** restore Dock icon after panel window hides it ([#54](https://github.com/itsoltech/canopy-desktop/issues/54)) ([dc4cc3d](https://github.com/itsoltech/canopy-desktop/commit/dc4cc3d10d259bab0f89faa8b1e989cecb77ed45))
+- **notch:** restore Dock icon after panel window hides it ([#54](https://github.com/itsoltech/canopy-desktop/issues/54)) ([dc4cc3d](https://github.com/itsoltech/canopy-desktop/commit/dc4cc3d10d259bab0f89faa8b1e989cecb77ed45))
 
 ### Refactoring
 
-* migrate commands to skills architecture and add self-review ([85803d0](https://github.com/itsoltech/canopy-desktop/commit/85803d081073a6054dd5651b3aa38ef94c9bbd1c))
+- migrate commands to skills architecture and add self-review ([85803d0](https://github.com/itsoltech/canopy-desktop/commit/85803d081073a6054dd5651b3aa38ef94c9bbd1c))
 
 ## [0.8.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.8.0-next.1...v0.8.0-next.2) (2026-03-31)
 

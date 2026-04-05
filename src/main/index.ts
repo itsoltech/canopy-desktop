@@ -21,6 +21,8 @@ import { CredentialStore } from './db/CredentialStore'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
+import { KeychainTokenStore } from './taskTracker/KeychainTokenStore'
+import { RepoConfigManager } from './taskTracker/RepoConfigManager'
 import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
@@ -490,7 +492,9 @@ app.whenReady().then(async () => {
   windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
-  const taskTrackerManager = new TaskTrackerManager(preferencesStore)
+  const keychainTokenStore = new KeychainTokenStore(preferencesStore)
+  const repoConfigManager = new RepoConfigManager()
+  const taskTrackerManager = new TaskTrackerManager(preferencesStore, keychainTokenStore)
   const gitHubService = new GitHubService(preferencesStore, taskTrackerManager)
 
   if (PERF) performance.mark('app:managersReady')
@@ -509,6 +513,8 @@ app.whenReady().then(async () => {
     onboardingStore,
     tmuxManager,
     taskTrackerManager,
+    repoConfigManager,
+    keychainTokenStore,
     gitHubService,
   )
 

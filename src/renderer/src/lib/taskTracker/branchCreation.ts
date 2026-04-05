@@ -10,7 +10,13 @@ export async function createBranchFromTask(
   if (!repoRoot || !currentBranch) return false
 
   // Resolve branch name from template
-  const branchName = await window.api.taskTrackerResolveBranchName(connectionId, task)
+  const branchName = await window.api.taskTrackerResolveBranchName(
+    connectionId,
+    task,
+    undefined,
+    undefined,
+    repoRoot,
+  )
 
   // Confirm with user
   const confirmed = await confirm({

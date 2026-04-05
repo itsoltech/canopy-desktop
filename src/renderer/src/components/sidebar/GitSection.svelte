@@ -43,11 +43,13 @@
     try {
       const info = await window.api.gitPushInfo(worktreePath())
       if (!info) {
-        await confirm({
+        const ok = await confirm({
           title: 'Push',
-          message: 'No upstream tracking branch configured.',
-          confirmLabel: 'OK',
+          message: 'No upstream branch — push and set tracking to origin?',
         })
+        if (ok) {
+          await window.api.gitPush(worktreePath())
+        }
         return
       }
       const ok = await confirm({
@@ -266,14 +268,11 @@
     </button>
     <button
       class="action-item"
-      disabled={loading === 'pr' || !workspaceState.branch}
+      disabled={!workspaceState.branch || loading === 'pr'}
       onclick={doCreatePR}
-      title={taskKeyFromBranch ? `Create PR for ${taskKeyFromBranch}` : 'Create Pull Request'}
+      title="Create pull request"
     >
       <span class="action-label">Create PR</span>
-      {#if taskKeyFromBranch}
-        <span class="badge">{taskKeyFromBranch}</span>
-      {/if}
     </button>
   </div>
 </CollapsibleSection>

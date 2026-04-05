@@ -141,7 +141,13 @@ export class GitRepository {
 
   static push(repoRoot: string): ResultAsync<{ branch: string; remote: string }, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('push', git.push()).map((result) => ({
+    return fromExternalCall(
+      git.revparse(['--abbrev-ref', '@{u}']).then(
+        () => git.push(),
+        () => git.push(['-u', 'origin', 'HEAD']),
+      ),
+      (e) => gitErr('push', e),
+    ).map((result) => ({
       branch: result.pushed?.[0]?.local || '',
       remote: result.remoteMessages?.all?.[0] || '',
     }))

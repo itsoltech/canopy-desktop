@@ -1,112 +1,83 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { RefreshCw, Download, Upload } from '@lucide/svelte'
+  import { RefreshCw } from '@lucide/svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
-  import { prefs, setPref } from '../../lib/stores/preferences.svelte'
-  import { loadConnections, getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
-  import { addToast } from '../../lib/stores/toast.svelte'
+  import {
+    loadRepoConfig,
+    getRepoConfig,
+    getHasCredentials,
+    saveRepoConfig,
+    initRepoConfig,
+  } from '../../lib/stores/taskTracker.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import TaskConnectionsPrefs from './TaskConnectionsPrefs.svelte'
   import TaskBranchNamingPrefs from './TaskBranchNamingPrefs.svelte'
   import TaskPRNamingPrefs from './TaskPRNamingPrefs.svelte'
 
-  let connections = $derived(getTaskTrackerConnections())
-  let scopeBoards = $state<Record<string, Array<{ id: string; name: string }>>>({})
+  let config = $derived(getRepoConfig())
+  let hasCreds = $derived(getHasCredentials())
+  let repoRoot = $derived(workspaceState.repoRoot)
+
+  let boards = $state<Array<{ id: string; name: string }>>([])
   let placeholders = $state<Array<{ key: string; description: string; example: string }>>([])
 
   let branchNamingRef: ReturnType<typeof TaskBranchNamingPrefs> | undefined = $state()
 
-  async function loadBoardsForConnection(connId: string): Promise<void> {
-    if (scopeBoards[connId]) return
-    try {
-      const boards = await window.api.taskTrackerFetchBoards(
-        connId,
-        workspaceState.repoRoot ?? undefined,
-      )
-      scopeBoards = { ...scopeBoards, [connId]: boards }
-    } catch {
-      scopeBoards = { ...scopeBoards, [connId]: [] }
-    }
-  }
-
-  // Reload boards when connections change
-  $effect(() => {
-    const ids = connections.map((c) => c.id)
-    for (const id of ids) {
-      loadBoardsForConnection(id)
-    }
-  })
-
-  // --- Filters ---
-  let assignedToMe = $derived(prefs['taskTracker.assignedToMe'] !== 'false')
-  let filterStatuses = $derived.by(() => {
-    const raw = prefs['taskTracker.filterStatuses']
-    if (!raw) return [] as string[]
-    try {
-      return JSON.parse(raw) as string[]
-    } catch {
-      return [] as string[]
-    }
-  })
   let availableStatuses = $state<string[]>([])
   let loadingStatuses = $state(false)
 
-  // Read branch template from prefs for export
-  let branchTemplate = $derived.by(() => {
-    const raw = prefs['taskTracker.branchTemplate']
-    const fallback = { template: '', customVars: {} as Record<string, string> }
-    if (!raw) return fallback
-    try {
-      return JSON.parse(raw) as { template: string; customVars: Record<string, string> }
-    } catch {
-      return fallback
-    }
-  })
-
-  // Read PR config from prefs for export
-  let prConfig = $derived.by(() => {
-    const raw = prefs['taskTracker.pr']
-    if (raw) {
-      try {
-        const c = JSON.parse(raw) as Record<string, string>
-        return {
-          titleTemplate: c.titleTemplate || '[{taskKey}] {taskTitle}',
-          bodyTemplate: c.bodyTemplate || '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-          defaultBranch: c.defaultBranch || 'develop',
-        }
-      } catch {
-        // fall through
-      }
-    }
-    return {
-      titleTemplate: prefs['taskTracker.prTitleTemplate'] || '[{taskKey}] {taskTitle}',
-      bodyTemplate: prefs['taskTracker.prBodyTemplate'] || '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-      defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop',
-    }
-  })
-
   onMount(async () => {
-    await loadConnections()
-    await Promise.all(connections.map((c) => loadBoardsForConnection(c.id)))
+    // Always load placeholders regardless of config/credentials state
     try {
-      const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
-      placeholders = await window.api.taskTrackerGetAvailablePlaceholders(vars)
+      placeholders = await window.api.taskTrackerGetAvailablePlaceholders({})
     } catch {
       // use empty
     }
-    branchNamingRef?.initTemplate(branchTemplate.template)
+
+    if (!repoRoot) return
+    await loadRepoConfig(repoRoot)
+
+    if (hasCreds) {
+      await fetchBoards()
+    }
+
+    if (config?.branchTemplate) {
+      branchNamingRef?.initTemplate(config.branchTemplate?.template ?? '')
+    }
   })
 
+  async function fetchBoards(): Promise<void> {
+    try {
+      const connections = await window.api.taskTrackerGetConnections()
+      if (connections.length > 0) {
+        boards = await window.api.taskTrackerFetchBoards(connections[0].id)
+      }
+    } catch {
+      boards = []
+    }
+  }
+
+  async function handleInit(): Promise<void> {
+    if (!repoRoot) return
+    try {
+      const newConfig = await initRepoConfig(repoRoot)
+      branchNamingRef?.initTemplate(newConfig.branchTemplate?.template ?? '')
+      addToast('Tracker configuration initialized')
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to initialize config')
+    }
+  }
+
   async function loadStatusesFromApi(): Promise<void> {
-    if (connections.length === 0) return
+    if (!config || !hasCreds) return
     loadingStatuses = true
     try {
-      const statuses = await window.api.taskTrackerFetchStatuses(
-        connections[0].id,
-        undefined,
-        workspaceState.repoRoot ?? undefined,
-      )
-      availableStatuses = statuses.map((s) => s.name)
+      const connections = await window.api.taskTrackerGetConnections()
+      if (connections.length > 0) {
+        const statuses = await window.api.taskTrackerFetchStatuses(connections[0].id)
+        availableStatuses = statuses.map((s) => s.name)
+      }
     } catch {
       addToast('Failed to fetch statuses')
     } finally {
@@ -114,222 +85,172 @@
     }
   }
 
-  function toggleStatus(status: string): void {
-    const current = [...filterStatuses]
+  async function toggleAssignedToMe(): Promise<void> {
+    if (!config || !repoRoot) return
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    updated.filters = { ...updated.filters, assignedToMe: !updated.filters.assignedToMe }
+    await saveRepoConfig(repoRoot, updated)
+  }
+
+  async function toggleStatus(status: string): Promise<void> {
+    if (!config || !repoRoot) return
+    const current = [...config.filters.statuses]
     const idx = current.indexOf(status)
     if (idx >= 0) {
       current.splice(idx, 1)
     } else {
       current.push(status)
     }
-    setPref('taskTracker.filterStatuses', JSON.stringify(current))
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    updated.filters = { ...updated.filters, statuses: current }
+    await saveRepoConfig(repoRoot, updated)
   }
 
   async function refreshPlaceholders(): Promise<void> {
     try {
-      const vars = $state.snapshot(branchTemplate.customVars) as Record<string, string>
+      const vars = config?.branchTemplate?.customVars ?? {}
       placeholders = await window.api.taskTrackerGetAvailablePlaceholders(vars)
     } catch {
       // keep current
     }
   }
-
-  async function exportConfig(): Promise<void> {
-    const config = {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      connections: connections.map((c) => ({
-        provider: c.provider,
-        name: c.name,
-        baseUrl: c.baseUrl,
-        projectKey: c.projectKey,
-        boardId: c.boardId,
-        username: c.username,
-      })),
-      branchTemplate: branchTemplate,
-      prTemplate: {
-        titleTemplate: prConfig.titleTemplate,
-        bodyTemplate: prConfig.bodyTemplate,
-        defaultTargetBranch: prConfig.defaultBranch,
-      },
-      filters: {
-        assignedToMe,
-        statuses: filterStatuses,
-      },
-    }
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'canopy-task-tracker-config.json'
-    a.click()
-    URL.revokeObjectURL(url)
-    addToast('Configuration exported')
-  }
-
-  async function importConfig(): Promise<void> {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-      try {
-        const text = await file.text()
-        const config = JSON.parse(text)
-        if (config.branchTemplate) {
-          setPref('taskTracker.branchTemplate', JSON.stringify(config.branchTemplate))
-          branchNamingRef?.initTemplate(config.branchTemplate.template || '')
-        }
-        if (config.prTemplate) {
-          setPref(
-            'taskTracker.pr',
-            JSON.stringify({
-              titleTemplate: config.prTemplate.titleTemplate || '',
-              bodyTemplate: config.prTemplate.bodyTemplate || '',
-              defaultBranch: config.prTemplate.defaultTargetBranch || 'develop',
-            }),
-          )
-        }
-        if (config.filters) {
-          if (config.filters.assignedToMe !== undefined)
-            setPref('taskTracker.assignedToMe', String(config.filters.assignedToMe))
-          if (config.filters.statuses)
-            setPref('taskTracker.filterStatuses', JSON.stringify(config.filters.statuses))
-        }
-        addToast('Configuration imported')
-      } catch {
-        addToast('Invalid configuration file')
-      }
-    }
-    input.click()
-  }
 </script>
 
-<TaskConnectionsPrefs />
-
-<TaskBranchNamingPrefs
-  bind:this={branchNamingRef}
-  {connections}
-  {scopeBoards}
-  {placeholders}
-  onTemplateChanged={refreshPlaceholders}
-/>
-
-<TaskPRNamingPrefs {connections} {scopeBoards} />
-
-<div class="section">
-  <h3 class="section-title">Task Filters</h3>
-  <p class="section-desc">Configure which tasks to fetch from the tracker.</p>
-
-  <label class="checkbox-row">
-    <CustomCheckbox
-      checked={assignedToMe}
-      onchange={() => setPref('taskTracker.assignedToMe', assignedToMe ? 'false' : 'true')}
-    />
-    <span>Only show tasks assigned to me</span>
-  </label>
-
-  <h4 class="subsection-title" style="margin-top: 12px;">
-    Status Filter
-    <button
-      class="icon-btn"
-      onclick={loadStatusesFromApi}
-      disabled={loadingStatuses}
-      title="Refresh from API"
-    >
-      <RefreshCw size={12} />
-    </button>
-  </h4>
-  {#if availableStatuses.length > 0}
-    {#each availableStatuses as status (status)}
-      <label class="checkbox-row">
-        <CustomCheckbox
-          checked={filterStatuses.includes(status)}
-          onchange={() => toggleStatus(status)}
-        />
-        <span>{status}</span>
-      </label>
-    {/each}
-  {:else}
-    <p class="hint-text">Click refresh to load statuses from your tracker.</p>
-  {/if}
-</div>
-
-<div class="section">
-  <h3 class="section-title">Export / Import</h3>
-  <p class="section-desc">Share configuration with your team (credentials are never exported).</p>
-
-  <div class="form-actions">
-    <button class="btn btn-secondary" onclick={exportConfig}>
-      <Download size={14} /> Export
-    </button>
-    <button class="btn btn-secondary" onclick={importConfig}>
-      <Upload size={14} /> Import
-    </button>
+{#if !repoRoot}
+  <p class="hint-text">Open a repository to configure task tracker.</p>
+{:else if !config}
+  <div class="section">
+    <h3 class="section-title">Task Tracker</h3>
+    <span class="hint-text">
+      No <code>.canopy/config.json</code> found in this repository.
+    </span>
+    <div>
+      <button class="btn btn-primary" onclick={handleInit}>Initialize Configuration</button>
+    </div>
   </div>
-</div>
+{:else}
+  <div class="section">
+    <h3 class="section-title">Task Tracker</h3>
+
+    <TaskConnectionsPrefs {repoRoot} />
+
+    <TaskBranchNamingPrefs
+      bind:this={branchNamingRef}
+      {repoRoot}
+      {boards}
+      {placeholders}
+      onTemplateChanged={refreshPlaceholders}
+    />
+
+    <TaskPRNamingPrefs {repoRoot} {boards} />
+
+    <div class="subsection">
+      <h4 class="subsection-title">Filters</h4>
+
+      <label class="checkbox-row">
+        <CustomCheckbox checked={config.filters.assignedToMe} onchange={toggleAssignedToMe} />
+        <span>Only show tasks assigned to me</span>
+      </label>
+
+      <div class="filter-header">
+        <span class="filter-label">Status filter</span>
+        <button
+          class="icon-btn"
+          onclick={loadStatusesFromApi}
+          disabled={loadingStatuses}
+          title="Refresh from API"
+        >
+          <RefreshCw size={12} />
+        </button>
+      </div>
+      {#if availableStatuses.length > 0}
+        {#each availableStatuses as status (status)}
+          <label class="checkbox-row">
+            <CustomCheckbox
+              checked={config.filters.statuses.includes(status)}
+              onchange={() => toggleStatus(status)}
+            />
+            <span>{status}</span>
+          </label>
+        {/each}
+      {:else}
+        <span class="hint-text">Click refresh to load statuses from your tracker.</span>
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <style>
   .section {
-    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
   }
 
   .section-title {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--c-text);
-    margin: 0 0 4px;
+    margin: 0;
   }
 
-  .section-desc {
-    font-size: 12px;
-    color: var(--c-text-muted);
-    margin: 0 0 12px;
+  .subsection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .subsection-title {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    color: var(--c-text-secondary);
-    margin: 0 0 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--c-text-muted);
+    margin: 0;
   }
 
-  .form-actions {
+  .checkbox-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 8px;
+    font-size: 13px;
+    color: var(--c-text);
+    cursor: pointer;
   }
 
-  .btn {
+  .filter-header {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 12px;
-    border: none;
-    border-radius: 6px;
+  }
+
+  .filter-label {
     font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .btn-secondary {
-    background: var(--c-active);
+    font-weight: 500;
     color: var(--c-text-secondary);
   }
 
-  .btn-secondary:hover:not(:disabled) {
-    background: var(--c-hover-strong);
+  .hint-text {
+    font-size: 11px;
+    color: var(--c-text-faint);
+  }
+
+  .btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+  }
+
+  .btn-primary:hover {
+    background: var(--c-accent-bg-hover);
   }
 
   .icon-btn {
@@ -351,23 +272,7 @@
   }
 
   .icon-btn:disabled {
-    opacity: 0.4;
+    opacity: 0.5;
     cursor: default;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-    font-size: 13px;
-    color: var(--c-text-secondary);
-    cursor: pointer;
-  }
-
-  .hint-text {
-    font-size: 12px;
-    color: var(--c-text-faint);
-    margin: 4px 0;
   }
 </style>

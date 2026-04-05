@@ -1,8 +1,11 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { okAsync, type ResultAsync } from 'neverthrow'
 import type { TrackerTask, PRTemplateConfig, PRTargetRule } from './types'
+import type { TaskTrackerError } from './errors'
 import { renderPRTitle, renderPRBody, resolveTargetBranch } from './prTemplate'
 import { GitRepository } from '../git/GitRepository'
+import { fromExternalCall, errorMessage } from '../errors'
 
 const execFileAsync = promisify(execFile)
 
@@ -20,16 +23,33 @@ export interface CreatePRResult {
   targetBranch: string
 }
 
-async function detectGhCli(): Promise<boolean> {
-  try {
-    await execFileAsync('gh', ['--version'])
-    return true
-  } catch {
-    return false
-  }
+function prErr(reason: string): TaskTrackerError {
+  return { _tag: 'PRCreationFailed', reason }
 }
 
-export async function createPullRequest(params: CreatePRParams): Promise<CreatePRResult> {
+function detectGhCli(): ResultAsync<true, TaskTrackerError> {
+  return fromExternalCall(execFileAsync('gh', ['--version']), () =>
+    prErr('GitHub CLI (gh) is not installed. Install it to create PRs automatically.'),
+  ).map(() => true as const)
+}
+
+function findExistingPR(
+  repoRoot: string,
+  sourceBranch: string,
+): ResultAsync<string | null, TaskTrackerError> {
+  return fromExternalCall(
+    execFileAsync('gh', ['pr', 'view', sourceBranch, '--json', 'url', '--jq', '.url'], {
+      cwd: repoRoot,
+    }),
+    () => prErr('Failed to check existing PR'),
+  )
+    .map((result) => result.stdout.trim() || null)
+    .orElse(() => okAsync(null))
+}
+
+export function createPullRequest(
+  params: CreatePRParams,
+): ResultAsync<CreatePRResult, TaskTrackerError> {
   const { repoRoot, task, sourceBranch, prConfig, existingBranches } = params
 
   const title = renderPRTitle(prConfig.titleTemplate, task)
@@ -41,35 +61,51 @@ export async function createPullRequest(params: CreatePRParams): Promise<CreateP
     existingBranches,
   )
 
-  // Ensure branch is pushed (ignore errors -- may already be pushed or upstream set)
-  await GitRepository.push(repoRoot).unwrapOr({ branch: '', remote: '' })
-
-  const hasGh = await detectGhCli()
-  if (!hasGh) {
-    throw new Error('GitHub CLI (gh) is not installed. Install it to create PRs automatically.')
-  }
-
-  const { stdout } = await execFileAsync(
-    'gh',
-    [
-      'pr',
-      'create',
-      '--title',
-      title,
-      '--body',
-      body,
-      '--base',
-      targetBranch,
-      '--head',
-      sourceBranch,
-      '--assignee',
-      '@me',
-    ],
-    { cwd: repoRoot },
+  return (
+    GitRepository.push(repoRoot)
+      .orElse(() => okAsync({ branch: '', remote: '' }))
+      // Verify gh CLI is available
+      .andThen(() => detectGhCli())
+      // Check if PR already exists
+      .andThen(() => findExistingPR(repoRoot, sourceBranch))
+      .andThen((existingUrl) => {
+        if (existingUrl) {
+          return okAsync<CreatePRResult, TaskTrackerError>({
+            url: existingUrl,
+            title,
+            targetBranch,
+          })
+        }
+        // Create new PR
+        return fromExternalCall(
+          execFileAsync(
+            'gh',
+            [
+              'pr',
+              'create',
+              '--title',
+              title,
+              '--body',
+              body,
+              '--base',
+              targetBranch,
+              '--head',
+              sourceBranch,
+              '--assignee',
+              '@me',
+            ],
+            { cwd: repoRoot },
+          ),
+          (e) => prErr(errorMessage(e)),
+        ).map(
+          (result): CreatePRResult => ({
+            url: result.stdout.trim(),
+            title,
+            targetBranch,
+          }),
+        )
+      })
   )
-
-  const url = stdout.trim()
-  return { url, title, targetBranch }
 }
 
 export function buildPRConfig(
