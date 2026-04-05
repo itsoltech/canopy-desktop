@@ -1,11 +1,9 @@
+import { match } from 'ts-pattern'
+
 /** Platform-aware label for the native file manager action. */
 export function fileManagerLabel(): string {
-  switch (window.api.platform) {
-    case 'darwin':
-      return 'Reveal in Finder'
-    case 'win32':
-      return 'Show in Explorer'
-    default:
-      return 'Open in File Manager'
-  }
+  return match(window.api.platform)
+    .with('darwin', () => 'Reveal in Finder')
+    .with('win32', () => 'Show in Explorer')
+    .otherwise(() => 'Open in File Manager')
 }
