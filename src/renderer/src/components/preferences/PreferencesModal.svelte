@@ -143,6 +143,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    overflow-y: auto;
   }
 
   .prefs-title {
