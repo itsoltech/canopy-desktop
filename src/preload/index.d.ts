@@ -615,6 +615,9 @@ interface CanopyAPI {
 
   // File utilities
   getPathForFile: (file: File) => string
+
+  // Platform
+  platform: NodeJS.Platform
 }
 
 type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'

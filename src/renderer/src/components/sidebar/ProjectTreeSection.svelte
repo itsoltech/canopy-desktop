@@ -1,6 +1,7 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
   import { ChevronRight, Square, Trash2, X } from '@lucide/svelte'
+  import { fileManagerLabel } from '../../lib/platform'
   import {
     projects,
     workspaceState,
@@ -260,7 +261,7 @@
     }
   }
 
-  async function ctxShowInFinder(): Promise<void> {
+  async function ctxRevealInFileManager(): Promise<void> {
     if (!ctxMenu) return
     await window.api.showInFolder(ctxMenu.wt.path)
     closeCtxMenu()
@@ -330,7 +331,7 @@
       style="left: {ctxMenu.x}px; top: {ctxMenu.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <button class="ctx-item" onclick={ctxShowInFinder}>Show in Finder</button>
+      <button class="ctx-item" onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button>
       <button class="ctx-item" onclick={ctxCopyPath}>Copy Path</button>
       {#if ctxMenu.wt.branch !== '(detached)'}
         <button class="ctx-item" onclick={ctxCopyBranch}>Copy Branch Name</button>
