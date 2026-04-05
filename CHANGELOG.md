@@ -1,3 +1,9 @@
+## [0.10.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.2...v0.10.0-next.3) (2026-04-05)
+
+### Features
+
+* **tasks:** repo-level config, keychain credentials, PR workflow ([#94](https://github.com/itsoltech/canopy-desktop/issues/94)) ([14c513f](https://github.com/itsoltech/canopy-desktop/commit/14c513f662325c22c32aad84a3239c9f158631ed))
+
 ## [0.10.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.1...v0.10.0-next.2) (2026-04-04)
 
 ### Features
