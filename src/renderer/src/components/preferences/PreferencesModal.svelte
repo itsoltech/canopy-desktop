@@ -27,7 +27,7 @@
   ] as const
 
   type Section = (typeof groups)[number]['sections'][number]
-  const allSections = groups.flatMap((g) => g.sections) as unknown as Section[]
+  const allSections: readonly Section[] = groups.flatMap((g) => g.sections as readonly Section[])
 
   function resolveInitialSection(): Section {
     if (initialSection) {
@@ -67,16 +67,18 @@
     <div class="prefs-sidebar">
       <h2 id="prefs-dialog-title" class="prefs-title">Settings</h2>
       {#each groups as group (group.label)}
-        <span class="prefs-group-label">{group.label}</span>
-        {#each group.sections as section (section)}
-          <button
-            class="prefs-tab"
-            class:active={activeSection === section}
-            onclick={() => (activeSection = section)}
-          >
-            {section}
-          </button>
-        {/each}
+        <div role="group" aria-labelledby={`prefs-group-${group.label}`} class="prefs-group">
+          <span id={`prefs-group-${group.label}`} class="prefs-group-label">{group.label}</span>
+          {#each group.sections as section (section)}
+            <button
+              class="prefs-tab"
+              class:active={activeSection === section}
+              onclick={() => (activeSection = section)}
+            >
+              {section}
+            </button>
+          {/each}
+        </div>
       {/each}
     </div>
 
@@ -142,7 +144,6 @@
     padding: 16px 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
     overflow-y: auto;
   }
 
@@ -166,8 +167,14 @@
     user-select: none;
   }
 
-  .prefs-group-label:first-child {
+  .prefs-group:first-of-type > .prefs-group-label {
     padding-top: 0;
+  }
+
+  .prefs-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .prefs-tab {
