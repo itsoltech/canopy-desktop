@@ -138,6 +138,7 @@ function getDefaultWorktreePath(project: ProjectState): string {
 }
 
 function reorderProjects(batchOrder: Map<string, number>): void {
+  const before = projects.length
   const ordered = [...projects]
     .map((project, index) => ({
       project,
@@ -154,6 +155,12 @@ function reorderProjects(batchOrder: Map<string, number>): void {
     .map((entry) => entry.project)
 
   projects.splice(0, projects.length, ...ordered)
+  if (projects.length !== before) {
+    console.error(
+      `[workspace] reorder lost projects: ${before} -> ${projects.length}`,
+      ordered.map(getProjectKey),
+    )
+  }
 }
 
 async function restoreProjectsImpl(paths: string[], activeWorktreePath?: string): Promise<void> {
@@ -175,13 +182,22 @@ async function restoreProjectsImpl(paths: string[], activeWorktreePath?: string)
   )
   const results = settled.map((s) => (s.status === 'fulfilled' ? s.value : undefined))
   const failures: string[] = []
+  const skipped: string[] = []
   for (let i = 0; i < settled.length; i++) {
     const s = settled[i]
     if (s.status === 'rejected') {
       console.error(`[workspace] failed to restore project "${uniquePaths[i]}":`, s.reason)
       failures.push(uniquePaths[i].split('/').pop() || uniquePaths[i])
+    } else if (!s.value) {
+      skipped.push(uniquePaths[i])
     }
   }
+  if (skipped.length > 0) {
+    console.warn('[workspace] restore skipped (dedup/focus):', skipped)
+  }
+  console.debug(
+    `[workspace] restore done: ${results.filter(Boolean).length} ok, ${failures.length} failed, ${skipped.length} skipped, ${projects.length} in sidebar`,
+  )
   if (failures.length > 0) {
     addToast(`Failed to restore: ${failures.join(', ')}`)
   }
@@ -228,8 +244,8 @@ async function attachProjectImpl(
   })
   await window.api.touchWorkspace(ws.id)
 
-  // Register with main process for dedup
-  window.api.setWorkspacePath(projectPath)
+  // Register with main process for dedup + config persistence
+  await window.api.setWorkspacePath(projectPath)
 
   // Add to projects
   const project: ProjectState = {
@@ -239,6 +255,7 @@ async function attachProjectImpl(
     worktrees: info.worktrees,
   }
   projects.push(project)
+  console.debug(`[workspace] attached "${name}" (${projectPath}), total: ${projects.length}`)
   if (batchOrder && restoreIndex !== undefined) {
     batchOrder.set(projectPath, restoreIndex)
     reorderProjects(batchOrder)
@@ -297,6 +314,7 @@ export async function detachProject(path: string): Promise<void> {
   if (idx < 0) return
 
   const project = projects[idx]
+  console.warn(`[workspace] detaching "${project.workspace.name}" (${path})`)
 
   // Unwatch git
   if (project.isGitRepo && project.repoRoot) {

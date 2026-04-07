@@ -80,6 +80,15 @@ export function registerIpcHandlers(
     }
   }
 
+  function persistWindowConfigs(): void {
+    const configs = windowManager.getAllWindowConfigs()
+    if (configs.length > 0) {
+      preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
+    } else {
+      preferencesStore.delete('openWindowConfigs')
+    }
+  }
+
   // --- PTY ---
 
   ipcMain.handle(
@@ -449,16 +458,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle('app:setWorkspacePath', (event, payload: { path: string }) => {
     windowManager.addWorkspacePath(event.sender.id, payload.path)
-    const configs = windowManager.getAllWindowConfigs()
-    if (configs.length > 0) {
-      preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
-    } else {
-      preferencesStore.delete('openWindowConfigs')
-    }
+    persistWindowConfigs()
   })
 
   ipcMain.handle('app:setActiveWorktree', (event, payload: { path: string }) => {
     windowManager.setActiveWorktree(event.sender.id, payload.path)
+    persistWindowConfigs()
   })
 
   ipcMain.handle(
@@ -472,12 +477,7 @@ export function registerIpcHandlers(
     const senderId = event.sender.id
     windowManager.removeWorkspacePath(senderId, payload.path)
     windowManager.disposeGitWatcher(senderId, payload.path)
-    const configs = windowManager.getAllWindowConfigs()
-    if (configs.length > 0) {
-      preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
-    } else {
-      preferencesStore.delete('openWindowConfigs')
-    }
+    persistWindowConfigs()
   })
 
   ipcMain.handle('app:focusWindowForPath', (event, payload: { path: string }) => {
