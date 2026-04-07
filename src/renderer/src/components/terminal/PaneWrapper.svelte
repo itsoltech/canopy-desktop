@@ -152,8 +152,7 @@
   }
 
   .pane-wrapper.focused {
-    outline: 1px solid var(--c-focus-ring);
-    outline-offset: -1px;
+    outline: none;
   }
 
   .pane-content {

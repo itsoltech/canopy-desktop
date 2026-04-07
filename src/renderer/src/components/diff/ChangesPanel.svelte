@@ -300,22 +300,27 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 2px 12px 6px;
+    padding: 2px 12px 6px 12px;
     flex-shrink: 0;
+    overflow: hidden;
   }
 
   .summary-text {
     font-size: 11px;
     color: var(--c-text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .summary-bar {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     height: 6px;
     border-radius: 2px;
     overflow: hidden;
-    flex-shrink: 0;
+    flex: 1;
+    min-width: 20px;
+    align-self: center;
   }
 
   .summary-bar-add {
@@ -398,7 +403,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 12px;
+    padding: 3px 8px 3px 12px;
     cursor: pointer;
     font-size: 12px;
     line-height: 1.4;
@@ -476,6 +481,8 @@
     display: flex;
     gap: 2px;
     flex-shrink: 0;
+    width: 44px;
+    justify-content: flex-end;
   }
 
   .action-btn {
