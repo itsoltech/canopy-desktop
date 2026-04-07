@@ -62,6 +62,7 @@ export interface AgentSessionState {
 export type BadgeType = 'none' | 'unread' | 'permission'
 
 const MAX_NOTIFICATIONS = 20
+const MAX_TASKS = 50
 
 export const agentSessions: Record<string, AgentSessionState> = $state({})
 export const agentBadges: Record<string, BadgeType> = $state({})
@@ -254,16 +255,33 @@ function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEven
     .with('TaskCreate', () => {
       const resp = event.toolResponse as { task?: { id?: string } } | undefined
       const id = resp?.task?.id ?? `t-${Date.now()}`
-      session.tasks = [
+      let tasks = [
         ...session.tasks,
         {
           id,
           subject: (input.subject as string) ?? '',
-          status: 'pending',
+          status: 'pending' as const,
           activeForm: (input.activeForm as string) ?? null,
           owner: null,
         },
       ]
+      if (tasks.length > MAX_TASKS) {
+        // Drop oldest completed tasks first to stay within limit
+        const excess = tasks.length - MAX_TASKS
+        let dropped = 0
+        tasks = tasks.filter((t) => {
+          if (dropped < excess && t.status === 'completed') {
+            dropped++
+            return false
+          }
+          return true
+        })
+        // If still over limit, drop from the front
+        if (tasks.length > MAX_TASKS) {
+          tasks = tasks.slice(-MAX_TASKS)
+        }
+      }
+      session.tasks = tasks
     })
     .with('TaskUpdate', () => {
       const taskId = String(input.taskId ?? '')
