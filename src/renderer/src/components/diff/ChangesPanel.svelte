@@ -307,6 +307,12 @@
     animation: spin 1s linear infinite;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .spinning {
+      animation: none;
+    }
+  }
+
   .summary-line {
     display: flex;
     align-items: center;
