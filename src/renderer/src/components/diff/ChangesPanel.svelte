@@ -136,11 +136,9 @@
   <div class="panel-header">
     <span class="panel-title">Changes</span>
     <button class="refresh-btn" onclick={refresh} title="Refresh" disabled={loading}>
-      {#if loading}
-        <span class="refresh-loading">...</span>
-      {:else}
+      <span class:spinning={loading} style="display:flex">
         <RotateCw size={13} />
-      {/if}
+      </span>
     </button>
   </div>
 
@@ -294,6 +292,19 @@
   .refresh-btn:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .spinning {
+    animation: spin 1s linear infinite;
   }
 
   .summary-line {
