@@ -74,6 +74,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.9.0',
     category: 'feature',
   },
+  {
+    id: 'telemetry',
+    title: 'Minimal telemetry',
+    description:
+      'Canopy sends one daily ping so we know how many people use it. The ping contains screen resolution, locale, app version, and OS — nothing else. You can disable this in Settings → Privacy.',
+    introducedIn: '0.10.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

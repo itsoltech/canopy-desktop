@@ -5,6 +5,7 @@
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
+  let telemetryEnabled = $derived(prefs['telemetry.enabled'] !== 'false')
 
   const isMac = navigator.userAgent.includes('Mac')
 
@@ -50,6 +51,19 @@
       <div class="toggle-info">
         <span class="toggle-label">Typing speed (WPM)</span>
         <span class="toggle-hint">Display words-per-minute in terminals.</span>
+      </div>
+    </label>
+
+    <label class="toggle-row">
+      <CustomCheckbox
+        checked={telemetryEnabled}
+        onchange={() => toggle('telemetry.enabled', telemetryEnabled)}
+      />
+      <div class="toggle-info">
+        <span class="toggle-label">Minimal telemetry</span>
+        <span class="toggle-hint"
+          >Send one daily ping to count active users. No personal data is collected.</span
+        >
       </div>
     </label>
   </div>

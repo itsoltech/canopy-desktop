@@ -13,13 +13,14 @@
   import SidebarPrefs from './SidebarPrefs.svelte'
   import TerminalPrefs from './TerminalPrefs.svelte'
   import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
+  import PrivacyPrefs from './PrivacyPrefs.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
 
   let containerEl: HTMLDivElement | undefined = $state()
 
   const groups = [
-    { label: 'General', sections: ['General', 'Updates', 'Shortcuts'] },
+    { label: 'General', sections: ['General', 'Updates', 'Privacy', 'Shortcuts'] },
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
     { label: 'AI Agents', sections: ['Claude', 'Gemini'] },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks'] },
@@ -105,6 +106,8 @@
         <ViewportsPrefs />
       {:else if activeSection === 'Tasks'}
         <TaskTrackerPrefs />
+      {:else if activeSection === 'Privacy'}
+        <PrivacyPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
       {/if}

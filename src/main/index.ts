@@ -28,6 +28,7 @@ import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
 import { validateBounds, cascadeBounds } from './windowBounds'
+import { TelemetryManager } from './telemetry/TelemetryManager'
 import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
 
@@ -94,6 +95,7 @@ const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
 const onboardingStore = new OnboardingStore(database)
 const toolRegistry = new ToolRegistry(database)
+const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
@@ -335,6 +337,7 @@ app.whenReady().then(async () => {
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+    window.on('focus', () => telemetryManager.onWindowFocus())
   })
 
   buildAppMenu()
@@ -347,6 +350,8 @@ app.whenReady().then(async () => {
   preferencesStore.set('app.lastSeenVersion', currentVersion)
 
   if (app.isPackaged) {
+    telemetryManager.init()
+
     const updateChannel = preferencesStore.get('update.channel') ?? 'stable'
     const autoUpdate = preferencesStore.get('update.autoUpdate') !== 'false'
 
