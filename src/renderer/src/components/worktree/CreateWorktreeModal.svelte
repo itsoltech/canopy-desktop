@@ -8,6 +8,7 @@
   import { getPref, prefs } from '../../lib/stores/preferences.svelte'
   import { openTool } from '../../lib/stores/tabs.svelte'
   import { getTheme } from '../../lib/terminal/themes'
+  import { safeDirName } from '../../lib/sanitize'
 
   let {
     onClose,
@@ -55,7 +56,7 @@
   let worktreeDir = $derived.by(() => {
     if (!newBranchName) return ''
     const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
-    const safeName = newBranchName.replace(/\//g, '-')
+    const safeName = safeDirName(newBranchName)
     return `${baseDir}/${projectName}/${safeName}`
   })
 

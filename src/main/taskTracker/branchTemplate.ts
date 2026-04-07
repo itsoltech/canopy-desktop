@@ -61,7 +61,7 @@ function slugify(text: string, maxLength = 50): string {
 function sanitizeBranchName(name: string): string {
   return name
     .replace(/\.\./g, '.')
-    .replace(/[~^:?*[\]\\@{}\s]/g, '-')
+    .replace(/[~^:?*[\]\\@{}#\s]/g, '-')
     .replace(/\/{2,}/g, '/')
     .replace(/^\/|\/$/g, '')
     .replace(/-+/g, '-')
