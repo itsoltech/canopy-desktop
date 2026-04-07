@@ -1,3 +1,15 @@
+## [0.10.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.3...v0.10.0-next.4) (2026-04-07)
+
+### Bug Fixes
+
+* **session:** prevent project loss during window restore ([#103](https://github.com/itsoltech/canopy-desktop/issues/103)) ([6f75775](https://github.com/itsoltech/canopy-desktop/commit/6f757758ef62779490ff7f006ce44a4f4b6c09f0))
+* **tasks:** run worktree setup commands when starting task ([#102](https://github.com/itsoltech/canopy-desktop/issues/102)) ([b218242](https://github.com/itsoltech/canopy-desktop/commit/b218242008d3f685e96b2cd4c89f00b4ce3067ac))
+
+### Refactoring
+
+* cross-platform file manager labels and path handling ([#98](https://github.com/itsoltech/canopy-desktop/issues/98)) ([aa6cda3](https://github.com/itsoltech/canopy-desktop/commit/aa6cda3954f2f4f3bc18c79564fb61ccf93755cc))
+* group settings tabs into thematic categories ([#99](https://github.com/itsoltech/canopy-desktop/issues/99)) ([4258437](https://github.com/itsoltech/canopy-desktop/commit/4258437d7bd59bdb6ffcae64913043f6d05e6bc0))
+
 ## [0.10.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.2...v0.10.0-next.3) (2026-04-05)
 
 ### Features
