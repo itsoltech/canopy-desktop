@@ -1,3 +1,10 @@
+## [0.10.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.6...v0.10.0-next.7) (2026-04-07)
+
+### Bug Fixes
+
+* **diff:** prevent layout jump when clicking refresh button ([#107](https://github.com/itsoltech/canopy-desktop/issues/107)) ([e9a7ed0](https://github.com/itsoltech/canopy-desktop/commit/e9a7ed075ce1fee067c3eb53dad30e14cc696ab6))
+* **git:** refresh worktree list on branch checkout ([#109](https://github.com/itsoltech/canopy-desktop/issues/109)) ([a9604af](https://github.com/itsoltech/canopy-desktop/commit/a9604af636ca8aff61c9b82261db9f64cd51fd63)), closes [#108](https://github.com/itsoltech/canopy-desktop/issues/108)
+
 ## [0.10.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.5...v0.10.0-next.6) (2026-04-07)
 
 ### Bug Fixes
