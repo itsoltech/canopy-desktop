@@ -152,7 +152,7 @@
   }
 
   .pane-wrapper.focused {
-    outline: 1px solid var(--c-focus-ring);
+    outline: 1px solid var(--c-border);
     outline-offset: -1px;
   }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
+  import { Search, RotateCw, ChevronRight, Copy } from 'lucide-svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
@@ -225,8 +226,8 @@
     }
   }
 
-  function openComment(filePath: string, line: number): void {
-    const key = `${filePath}:${line}`
+  function openComment(filePath: string, changeId: string, line: number): void {
+    const key = `${filePath}:${changeId}`
     if (commentKey === key) {
       closeComment()
       return
@@ -398,7 +399,7 @@
       </div>
     {/if}
     <button class="toolbar-btn" onclick={toggleSearch} title="Search" aria-label="Search in diff">
-      &#x1F50D;
+      <Search size={14} />
     </button>
     <button
       class="toolbar-btn"
@@ -407,7 +408,7 @@
       aria-label="Refresh diff"
       disabled={loading}
     >
-      &#x21BB;
+      <RotateCw size={14} />
     </button>
   </div>
 
@@ -427,8 +428,9 @@
           onpointerleave={() => (hoveredFilePath = null)}
         >
           <div class="file-header" onclick={() => toggleCollapse(file.path)}>
-            <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>&#x25B8;</span
-            >
+            <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>
+              <ChevronRight size={12} />
+            </span>
             <span class="file-status {statusClass(file.status)}">{statusLabel(file.status)}</span>
             <span class="file-path" title={file.path}>{file.path}</span>
             <span class="stats-bar">
@@ -453,7 +455,7 @@
                   copyDiff(file)
                 }}
               >
-                &#x1F4CB;
+                <Copy size={12} />
               </button>
             {/if}
           </div>
@@ -479,7 +481,9 @@
                           class="comment-trigger"
                           title="Add review comment"
                           aria-label="Add review comment"
-                          onclick={() => openComment(file.path, getLineNum(change))}>+</button
+                          onclick={() =>
+                            openComment(file.path, `${hunk.header}:${i}`, getLineNum(change))}
+                          >+</button
                         >
                       {/if}
                       <span class="gutter old-gutter"
@@ -502,53 +506,30 @@
                         <span class="line-content">{change.content}</span>
                       {/if}
                     </div>
-                    {#if commentKey === `${file.path}:${getLineNum(change)}`}
+                    {#if commentKey === `${file.path}:${hunk.header}:${i}`}
                       <div class="comment-form">
-                        <div class="comment-card">
-                          <div class="comment-card-header">
-                            <svg
-                              class="comment-icon"
-                              width="14"
-                              height="14"
-                              viewBox="0 0 16 16"
-                              fill="currentColor"
+                        <textarea
+                          class="comment-input"
+                          placeholder="Comment for agent — {file.path}:{getLineNum(change)}"
+                          bind:value={commentText}
+                          onkeydown={(e) => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendComment()
+                            if (e.key === 'Escape') closeComment()
+                          }}
+                        ></textarea>
+                        <div class="comment-footer">
+                          <span class="comment-hint">
+                            {navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to send
+                          </span>
+                          <div class="comment-actions">
+                            <button class="comment-cancel" onclick={closeComment}>Cancel</button>
+                            <button
+                              class="comment-send"
+                              onclick={sendComment}
+                              disabled={!commentText.trim()}
                             >
-                              <path
-                                d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"
-                              />
-                            </svg>
-                            <span class="comment-label">Review comment</span>
-                            <span class="comment-file-ref">{file.path}:{getLineNum(change)}</span>
-                          </div>
-                          <textarea
-                            class="comment-input"
-                            placeholder="Describe what should be changed..."
-                            bind:value={commentText}
-                            onkeydown={(e) => {
-                              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendComment()
-                              if (e.key === 'Escape') closeComment()
-                            }}
-                          ></textarea>
-                          <div class="comment-footer">
-                            <span class="comment-hint">
-                              {navigator.userAgent.includes('Mac') ? '\u2318' : 'Ctrl'}+Enter to
-                              send
-                            </span>
-                            <div class="comment-actions">
-                              <button class="comment-cancel" onclick={closeComment}>Cancel</button>
-                              <button
-                                class="comment-send"
-                                onclick={sendComment}
-                                disabled={!commentText.trim()}
-                              >
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                                  <path
-                                    d="M.989 8 .064 2.68a1.342 1.342 0 0 1 1.85-1.462l13.402 5.744a1.13 1.13 0 0 1 0 2.076L1.913 14.782a1.343 1.343 0 0 1-1.85-1.463Z"
-                                  />
-                                </svg>
-                                Send to Agent
-                              </button>
-                            </div>
+                              Send
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -628,9 +609,11 @@
     border: none;
     color: var(--c-text-muted);
     cursor: pointer;
-    font-size: 14px;
     padding: 2px 6px;
     border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .toolbar-btn:hover {
@@ -682,11 +665,10 @@
 
   .file-section {
     border-bottom: 1px solid var(--c-border-subtle);
-    border-left: 2px solid transparent;
   }
 
   .file-section.file-focused {
-    border-left: 2px solid var(--c-accent);
+    background: color-mix(in srgb, var(--c-accent) 5%, transparent);
   }
 
   .file-header {
@@ -708,11 +690,11 @@
   }
 
   .chevron {
-    font-size: 10px;
     color: var(--c-text-muted);
     transition: transform 0.15s ease;
     flex-shrink: 0;
-    display: inline-block;
+    display: flex;
+    align-items: center;
   }
 
   .chevron.chevron-open {
@@ -787,10 +769,12 @@
     border: 1px solid var(--c-border);
     color: var(--c-text-muted);
     cursor: pointer;
-    font-size: 12px;
     padding: 2px 6px;
     border-radius: 4px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .copy-diff-btn:hover {
@@ -870,8 +854,12 @@
   }
 
   .comment-form {
-    padding: 10px 16px 10px 24px;
-    animation: comment-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+    margin: 4px 8px;
+    border: 1px solid var(--c-border);
+    border-radius: 6px;
+    background: var(--c-bg-elevated);
+    overflow: hidden;
+    animation: comment-slide-in 0.15s ease both;
   }
 
   @keyframes comment-slide-in {
@@ -885,132 +873,79 @@
     }
   }
 
-  .comment-card {
-    background: var(--c-bg-elevated);
-    border: 1px solid var(--c-border);
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow:
-      0 2px 8px rgba(0, 0, 0, 0.15),
-      0 1px 2px rgba(0, 0, 0, 0.1);
-  }
-
-  .comment-card-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
-    background: var(--c-border-subtle);
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .comment-icon {
-    color: var(--c-accent);
-    flex-shrink: 0;
-  }
-
-  .comment-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-text-secondary);
-    letter-spacing: 0.2px;
-  }
-
-  .comment-file-ref {
-    font-size: 10px;
-    color: var(--c-text-faint);
-    margin-left: auto;
-    font-family: var(--font-mono, monospace);
-  }
-
   .comment-input {
     width: 100%;
-    min-height: 72px;
-    padding: 10px 12px;
+    min-height: 64px;
+    padding: 10px 16px;
     border: none;
-    background: transparent;
+    background: var(--c-bg-elevated);
     color: var(--c-text);
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    font-size: 13px;
+    font-family: inherit;
+    font-size: 12px;
     line-height: 1.5;
-    resize: vertical;
+    resize: none;
     outline: none;
+    box-sizing: border-box;
   }
 
   .comment-input::placeholder {
-    color: var(--c-text-faint);
+    color: var(--c-text-muted);
   }
 
   .comment-footer {
     display: flex;
     align-items: center;
-    padding: 6px 12px 8px;
+    padding: 6px 16px;
+    background: var(--c-bg-elevated);
     border-top: 1px solid var(--c-border-subtle);
-    background: var(--c-border-subtle);
   }
 
   .comment-hint {
-    font-size: 10px;
-    color: var(--c-text-faint);
+    font-size: 11px;
+    color: var(--c-text-secondary);
     flex: 1;
   }
 
   .comment-actions {
     display: flex;
-    gap: 6px;
+    gap: 4px;
   }
 
   .comment-cancel {
-    padding: 5px 12px;
-    border: none;
-    background: var(--c-active);
+    padding: 3px 10px;
+    border: 1px solid var(--c-border-subtle);
+    background: none;
     color: var(--c-text-muted);
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
+    border-radius: 4px;
+    font-size: 11px;
     cursor: pointer;
     font-family: inherit;
-    transition:
-      background 0.15s,
-      color 0.15s;
   }
 
   .comment-cancel:hover {
     color: var(--c-text);
-    background: var(--c-active);
+    background: var(--c-hover);
   }
 
   .comment-send {
-    padding: 5px 14px;
+    padding: 3px 10px;
     border: none;
     background: var(--c-accent);
     color: var(--c-bg);
-    border-radius: 6px;
-    font-size: 12px;
+    border-radius: 4px;
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    transition:
-      filter 0.15s,
-      transform 0.1s;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   }
 
   .comment-send:hover {
-    filter: brightness(1.15);
-  }
-
-  .comment-send:active {
-    transform: scale(0.97);
+    filter: brightness(1.1);
   }
 
   .comment-send:disabled {
     opacity: 0.35;
     cursor: default;
-    transform: none;
     filter: none;
   }
 
