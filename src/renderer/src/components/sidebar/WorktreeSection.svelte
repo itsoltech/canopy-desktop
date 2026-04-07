@@ -279,8 +279,8 @@
   }
 
   .pr-badge.approved {
-    background: var(--c-success-bg, var(--c-success));
-    color: var(--c-success-text, var(--c-text));
+    background: color-mix(in srgb, var(--c-success) 20%, transparent);
+    color: var(--c-success);
   }
 
   .pr-badge.changes-requested {
