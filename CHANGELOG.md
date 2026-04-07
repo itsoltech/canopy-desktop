@@ -1,3 +1,10 @@
+## [0.10.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.5...v0.10.0-next.6) (2026-04-07)
+
+### Bug Fixes
+
+* **session:** restore all workspaces and clean up layouts on close ([10f058a](https://github.com/itsoltech/canopy-desktop/commit/10f058a79a416752ef13aa144bb2bc99897912ae))
+* **ui:** improve PR approved badge contrast in sidebar ([81bba04](https://github.com/itsoltech/canopy-desktop/commit/81bba04385626affd9ca4b7c89bf29b714128fe1))
+
 ## [0.10.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.4...v0.10.0-next.5) (2026-04-07)
 
 ### Bug Fixes
