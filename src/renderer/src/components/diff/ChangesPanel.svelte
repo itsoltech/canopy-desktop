@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { RotateCw, Check, X } from 'lucide-svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import type { DiffFile, ParsedDiff } from '../../lib/types/diff'
@@ -135,7 +136,11 @@
   <div class="panel-header">
     <span class="panel-title">Changes</span>
     <button class="refresh-btn" onclick={refresh} title="Refresh" disabled={loading}>
-      {loading ? '...' : '\u21BB'}
+      {#if loading}
+        <span class="refresh-loading">...</span>
+      {:else}
+        <RotateCw size={13} />
+      {/if}
     </button>
   </div>
 
@@ -221,12 +226,12 @@
               <button
                 class="action-btn stage"
                 onclick={(e) => handleStage(e, file.path)}
-                title="Stage">&#x2713;</button
+                title="Stage"><Check size={12} /></button
               >
               <button
                 class="action-btn revert"
                 onclick={(e) => handleRevert(e, file.path)}
-                title="Revert">&#x2717;</button
+                title="Revert"><X size={12} /></button
               >
             </span>
           {/if}
@@ -274,10 +279,11 @@
     border: none;
     color: var(--c-text-muted);
     cursor: pointer;
-    font-size: 14px;
     padding: 2px 4px;
     border-radius: 4px;
-    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .refresh-btn:hover {
@@ -476,10 +482,11 @@
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 12px;
-    padding: 0 3px;
+    padding: 1px 3px;
     border-radius: 3px;
-    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .action-btn.stage {

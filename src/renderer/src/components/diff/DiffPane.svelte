@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
+  import { Search, RotateCw, ChevronRight, Copy } from 'lucide-svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
@@ -398,7 +399,7 @@
       </div>
     {/if}
     <button class="toolbar-btn" onclick={toggleSearch} title="Search" aria-label="Search in diff">
-      &#x1F50D;
+      <Search size={14} />
     </button>
     <button
       class="toolbar-btn"
@@ -407,7 +408,7 @@
       aria-label="Refresh diff"
       disabled={loading}
     >
-      &#x21BB;
+      <RotateCw size={14} />
     </button>
   </div>
 
@@ -427,8 +428,9 @@
           onpointerleave={() => (hoveredFilePath = null)}
         >
           <div class="file-header" onclick={() => toggleCollapse(file.path)}>
-            <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>&#x25B8;</span
-            >
+            <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>
+              <ChevronRight size={12} />
+            </span>
             <span class="file-status {statusClass(file.status)}">{statusLabel(file.status)}</span>
             <span class="file-path" title={file.path}>{file.path}</span>
             <span class="stats-bar">
@@ -453,7 +455,7 @@
                   copyDiff(file)
                 }}
               >
-                &#x1F4CB;
+                <Copy size={12} />
               </button>
             {/if}
           </div>
@@ -628,9 +630,11 @@
     border: none;
     color: var(--c-text-muted);
     cursor: pointer;
-    font-size: 14px;
     padding: 2px 6px;
     border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .toolbar-btn:hover {
@@ -708,11 +712,11 @@
   }
 
   .chevron {
-    font-size: 10px;
     color: var(--c-text-muted);
     transition: transform 0.15s ease;
     flex-shrink: 0;
-    display: inline-block;
+    display: flex;
+    align-items: center;
   }
 
   .chevron.chevron-open {
@@ -787,10 +791,12 @@
     border: 1px solid var(--c-border);
     color: var(--c-text-muted);
     cursor: pointer;
-    font-size: 12px;
     padding: 2px 6px;
     border-radius: 4px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .copy-diff-btn:hover {
