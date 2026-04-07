@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
+  import { onMount } from 'svelte'
   import { X, ExternalLink, ArrowLeft } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
@@ -139,7 +139,6 @@
         connectionId,
         boardId: selectedBoardId || undefined,
       })
-      closeDialog()
 
       if (hasSetupConfig()) {
         const wsId = workspaceState.workspace!.id
@@ -178,6 +177,8 @@
       } else {
         await selectWorktree(worktreePath)
       }
+
+      closeDialog()
     } catch (e) {
       creatingWorktree = false
       closeDialog()
@@ -204,10 +205,6 @@
 
   onMount(() => {
     init()
-  })
-
-  onDestroy(() => {
-    window.api.abortWorktreeSetup()
   })
 </script>
 
