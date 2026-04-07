@@ -15,7 +15,7 @@ import {
   graftSubtree,
 } from './splitTree'
 import type { DropZone } from './dragState.svelte'
-import { workspaceState, getProjectForWorktree } from './workspace.svelte'
+import { workspaceState, getProjectForWorktree, selectWorktree } from './workspace.svelte'
 import {
   initAgentSession,
   removeAgentSession,
@@ -854,7 +854,10 @@ export function focusSessionByPtyId(ptySessionId: string): boolean {
       const panes = allPanes(tab.rootSplit)
       const pane = panes.find((p) => p.sessionId === ptySessionId)
       if (pane) {
-        workspaceState.selectedWorktreePath = path
+        // Use selectWorktree to fully update project context (sidebar, git info, etc.)
+        selectWorktree(path).catch((err) => {
+          console.error('[tabs] selectWorktree failed after focusSession:', err)
+        })
         activeTabId[path] = tab.id
         tab.focusedPaneId = pane.id
         return true

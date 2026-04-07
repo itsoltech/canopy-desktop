@@ -109,13 +109,21 @@ let attachQueue: Promise<void> = Promise.resolve()
 
 export async function attachProject(path: string): Promise<void> {
   const result = attachQueue.then(() => attachProjectImpl(path))
-  attachQueue = result.then(() => undefined).catch(() => {})
+  attachQueue = result
+    .then(() => undefined)
+    .catch((err) => {
+      console.error('[workspace] attachProject queue error:', err)
+    })
   await result
 }
 
 export async function restoreProjects(paths: string[], activeWorktreePath?: string): Promise<void> {
   const result = attachQueue.then(() => restoreProjectsImpl(paths, activeWorktreePath))
-  attachQueue = result.then(() => undefined).catch(() => {})
+  attachQueue = result
+    .then(() => undefined)
+    .catch((err) => {
+      console.error('[workspace] restoreProjects queue error:', err)
+    })
   await result
 }
 
@@ -156,7 +164,7 @@ async function restoreProjectsImpl(paths: string[], activeWorktreePath?: string)
   }
 
   const batchOrder = new Map<string, number>()
-  const results = await Promise.all(
+  const settled = await Promise.allSettled(
     uniquePaths.map((path, index) =>
       attachProjectImpl(path, {
         selectIfEmpty: false,
@@ -165,6 +173,18 @@ async function restoreProjectsImpl(paths: string[], activeWorktreePath?: string)
       }),
     ),
   )
+  const results = settled.map((s) => (s.status === 'fulfilled' ? s.value : undefined))
+  const failures: string[] = []
+  for (let i = 0; i < settled.length; i++) {
+    const s = settled[i]
+    if (s.status === 'rejected') {
+      console.error(`[workspace] failed to restore project "${uniquePaths[i]}":`, s.reason)
+      failures.push(uniquePaths[i].split('/').pop() || uniquePaths[i])
+    }
+  }
+  if (failures.length > 0) {
+    addToast(`Failed to restore: ${failures.join(', ')}`)
+  }
 
   let targetPath = activeWorktreePath
   if (!targetPath || !getProjectForWorktree(targetPath)) {
@@ -225,16 +245,25 @@ async function attachProjectImpl(
   }
 
   // Start git watcher if git repo
-  if (info.isGitRepo && info.repoRoot) {
-    await window.api.gitWatch(info.repoRoot, info)
+  try {
+    if (info.isGitRepo && info.repoRoot) {
+      await window.api.gitWatch(info.repoRoot, info)
+    }
+  } catch (err) {
+    console.error(`[workspace] gitWatch failed for "${projectPath}":`, err)
+    addToast(`Git watcher failed for ${name} — status may not update`)
   }
 
   // Auto-detect .canopy/config.json for task tracker
-  if (info.repoRoot) {
-    await loadRepoConfig(info.repoRoot)
-    if (getRepoConfig() && !getHasCredentials()) {
-      addToast('Tracker requires authentication — configure token in Preferences')
+  try {
+    if (info.repoRoot) {
+      await loadRepoConfig(info.repoRoot)
+      if (getRepoConfig() && !getHasCredentials()) {
+        addToast('Tracker requires authentication — configure token in Preferences')
+      }
     }
+  } catch (err) {
+    console.error(`[workspace] loadRepoConfig failed for "${projectPath}":`, err)
   }
 
   // Restore saved layouts BEFORE selecting worktree so that ensureDefaultTab
