@@ -95,6 +95,19 @@
     await updateBranchPreview()
   }
 
+  function hasSetupConfig(): boolean {
+    const wsId = workspaceState.workspace?.id
+    if (!wsId) return false
+    const raw = getPref(`workspace:${wsId}:worktreeSetup`, '')
+    if (!raw) return false
+    try {
+      const actions = JSON.parse(raw) as unknown[]
+      return Array.isArray(actions) && actions.length > 0
+    } catch {
+      return false
+    }
+  }
+
   async function confirmBranchCreation(): Promise<void> {
     const repoRoot = workspaceState.repoRoot
     const currentBranch = workspaceState.branch
@@ -113,6 +126,17 @@
       await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, currentBranch)
       closeDialog()
       await selectWorktree(worktreePath)
+
+      if (hasSetupConfig()) {
+        const wsId = workspaceState.workspace!.id
+        addToast('Running worktree setup...')
+        try {
+          await window.api.runWorktreeSetup(wsId, repoRoot, worktreePath)
+          addToast('Worktree setup complete')
+        } catch (e) {
+          addToast('Worktree setup failed: ' + (e instanceof Error ? e.message : String(e)))
+        }
+      }
 
       if (selectedAgentId) {
         try {
@@ -164,6 +188,7 @@
 
   onDestroy(() => {
     abortController.abort()
+    window.api.abortWorktreeSetup()
   })
 </script>
 
