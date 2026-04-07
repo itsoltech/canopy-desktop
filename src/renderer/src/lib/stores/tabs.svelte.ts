@@ -825,7 +825,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
   delete tabsByWorktree[worktreePath]
   delete activeTabId[worktreePath]
 
-  const wsId = getProjectForWorktree(worktreePath)?.workspace.id ?? workspaceState.workspace?.id
+  const wsId = getProjectForWorktree(worktreePath)?.workspace.id
   if (wsId) {
     window.api.deleteLayout(wsId, worktreePath).catch(() => {})
   }
@@ -1286,7 +1286,7 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
 
 function saveLayoutForWorktree(worktreePath: string): void {
   const tabs = tabsByWorktree[worktreePath]
-  const wsId = getProjectForWorktree(worktreePath)?.workspace.id ?? workspaceState.workspace?.id
+  const wsId = getProjectForWorktree(worktreePath)?.workspace.id
   if (!tabs || !wsId) return
 
   const activeId = activeTabId[worktreePath]

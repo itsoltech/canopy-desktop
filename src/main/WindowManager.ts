@@ -22,6 +22,7 @@ export class WindowManager {
   private browserManager: BrowserManager | null = null
   private tmuxManager: TmuxManager | null = null
   private allWindowsClosedCallback: (() => void) | null = null
+  private windowDisposeCallback: ((paths: string[]) => void) | null = null
 
   private ptyManager: PtyManager
   private wsBridge: WsBridge
@@ -42,6 +43,10 @@ export class WindowManager {
 
   setTmuxManager(tm: TmuxManager): void {
     this.tmuxManager = tm
+  }
+
+  setOnWindowDispose(cb: (paths: string[]) => void): void {
+    this.windowDisposeCallback = cb
   }
 
   createWindow(): BrowserWindow {
@@ -341,6 +346,14 @@ export class WindowManager {
         }
         this.wsBridge.destroy(sid)
         this.ptyManager.kill(sid)
+      }
+    }
+
+    // Delete workspace layouts when window is manually closed (not during quit)
+    if (!this.isQuitting && this.windowDisposeCallback) {
+      const paths = this.workspacePaths.get(wcId)
+      if (paths && paths.size > 0) {
+        this.windowDisposeCallback([...paths])
       }
     }
 

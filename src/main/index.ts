@@ -97,6 +97,12 @@ const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
 const tmuxManager = new TmuxManager(app.getPath('userData'))
 windowManager.setTmuxManager(tmuxManager)
+windowManager.setOnWindowDispose((paths) => {
+  for (const path of paths) {
+    const ws = workspaceStore.getByPath(path)
+    if (ws) layoutStore.deleteAll(ws.id)
+  }
+})
 let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false
@@ -615,7 +621,6 @@ app.whenReady().then(async () => {
   // Restore windows from last session
   const reopenPref = preferencesStore.get('reopenLastWorkspace')
   if (reopenPref !== 'false') {
-    // Try new multi-project format first
     const configsJson = preferencesStore.get('openWindowConfigs')
     let windowConfigs: Array<{ paths: string[]; activeWorktreePath?: string }> = []
 
@@ -630,23 +635,14 @@ app.whenReady().then(async () => {
       }
     }
 
-    // Fallback to legacy flat format (one path per window)
-    if (windowConfigs.length === 0) {
-      const pathsJson = preferencesStore.get('openWorkspacePaths')
-      if (pathsJson) {
-        try {
-          const paths = JSON.parse(pathsJson) as string[]
-          windowConfigs = paths.map((p) => ({ paths: [p] }))
-        } catch {
-          // Invalid JSON
-        }
+    // Restore workspaces that have layouts but aren't in any window config
+    const configPaths = new Set(windowConfigs.flatMap((c) => c.paths))
+    const layoutWsIds = layoutStore.getDistinctWorkspaceIds()
+    for (const wsId of layoutWsIds) {
+      const ws = workspaceStore.get(wsId)
+      if (ws && !configPaths.has(ws.path)) {
+        windowConfigs.push({ paths: [ws.path] })
       }
-    }
-
-    // Fallback to legacy single-path pref
-    if (windowConfigs.length === 0) {
-      const lastPath = preferencesStore.get('lastWorkspacePath')
-      if (lastPath) windowConfigs = [{ paths: [lastPath] }]
     }
 
     let postLaunchSent = false

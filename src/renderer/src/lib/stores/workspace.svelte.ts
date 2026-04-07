@@ -1,4 +1,4 @@
-import { restoreLayout } from './tabs.svelte'
+import { restoreLayout, closeAllTabsForWorktree } from './tabs.svelte'
 import {
   loadRepoConfig,
   getRepoConfig,
@@ -288,8 +288,19 @@ async function attachProjectImpl(
   try {
     const layouts = await window.api.getAllLayouts(ws.id)
     if (layouts.length > 0) {
+      // Only restore layouts whose worktree_path belongs to this project
+      const ownedPaths = new Set(
+        info.isGitRepo ? info.worktrees.map((wt) => wt.path) : [projectPath],
+      )
       for (const entry of layouts) {
-        await restoreLayout(entry.worktree_path, entry.layout_json)
+        if (ownedPaths.has(entry.worktree_path)) {
+          await restoreLayout(entry.worktree_path, entry.layout_json)
+        }
+      }
+      // Clean up cross-contaminated entries saved under wrong workspace ID
+      const stale = layouts.filter((e) => !ownedPaths.has(e.worktree_path))
+      for (const entry of stale) {
+        window.api.deleteLayout(ws.id, entry.worktree_path).catch(() => {})
       }
     }
   } catch {
@@ -315,6 +326,14 @@ export async function detachProject(path: string): Promise<void> {
 
   const project = projects[idx]
   console.warn(`[workspace] detaching "${project.workspace.name}" (${path})`)
+
+  // Close tabs for all worktrees of this project (kills PTY sessions)
+  const worktreePaths = project.isGitRepo
+    ? project.worktrees.map((wt) => wt.path)
+    : [project.workspace.path]
+  for (const wtPath of worktreePaths) {
+    await closeAllTabsForWorktree(wtPath)
+  }
 
   // Unwatch git
   if (project.isGitRepo && project.repoRoot) {

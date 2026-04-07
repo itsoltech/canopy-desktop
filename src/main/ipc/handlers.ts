@@ -477,6 +477,9 @@ export function registerIpcHandlers(
     const senderId = event.sender.id
     windowManager.removeWorkspacePath(senderId, payload.path)
     windowManager.disposeGitWatcher(senderId, payload.path)
+    // Delete layouts so this workspace won't restore on next launch
+    const ws = workspaceStore.getByPath(payload.path)
+    if (ws) layoutStore.deleteAll(ws.id)
     persistWindowConfigs()
   })
 

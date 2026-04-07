@@ -42,6 +42,14 @@ export class LayoutStore {
     this.db.prepare('DELETE FROM workspace_layouts WHERE workspace_id = ?').run(workspaceId)
   }
 
+  getDistinctWorkspaceIds(): string[] {
+    return (
+      this.db.prepare('SELECT DISTINCT workspace_id FROM workspace_layouts').all() as {
+        workspace_id: string
+      }[]
+    ).map((r) => r.workspace_id)
+  }
+
   isClosed(): boolean {
     return this.database.isClosed()
   }
