@@ -1,3 +1,14 @@
+## [0.10.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.7...v0.10.0-next.8) (2026-04-07)
+
+### Features
+
+* **telemetry:** add daily usage ping via Umami with opt-out in settings ([612cefd](https://github.com/itsoltech/canopy-desktop/commit/612cefd0844ad5c399099090a899352c7a5ee152))
+* **window:** restore window position, size, and state across restarts ([#111](https://github.com/itsoltech/canopy-desktop/issues/111)) ([1cac80e](https://github.com/itsoltech/canopy-desktop/commit/1cac80e5288d09927bacd061be34012d48f7a535))
+
+### Bug Fixes
+
+* **git:** sanitize branch and worktree names to strip unsafe characters ([#110](https://github.com/itsoltech/canopy-desktop/issues/110)) ([c3822f4](https://github.com/itsoltech/canopy-desktop/commit/c3822f42ca8e64ebb228c8be336b2f5289463503))
+
 ## [0.10.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.6...v0.10.0-next.7) (2026-04-07)
 
 ### Bug Fixes
