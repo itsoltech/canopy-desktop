@@ -106,6 +106,7 @@ export class GitWatcher {
 
     if (changedPath === headPath) {
       this.pendingRefresh.branch = true
+      this.pendingRefresh.worktrees = true
       this.pendingRefresh.aheadBehind = true
       return
     }
