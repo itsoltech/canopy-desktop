@@ -451,6 +451,26 @@ interface CanopyAPI {
   readDir: (dirPath: string) => Promise<DirEntry[]>
   readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
 
+  // Repo Config
+  repoConfigLoad: (repoRoot: string) => Promise<RepoConfig | null>
+  repoConfigSave: (repoRoot: string, config: RepoConfig) => Promise<void>
+  repoConfigExists: (repoRoot: string) => Promise<boolean>
+  repoConfigInit: (repoRoot: string) => Promise<RepoConfig>
+
+  // Keychain
+  keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
+  keychainSetCredentials: (
+    provider: string,
+    baseUrl: string,
+    token: string,
+    username?: string,
+  ) => Promise<void>
+  keychainDeleteCredentials: (provider: string, baseUrl: string) => Promise<void>
+  keychainGetCredentials: (
+    provider: string,
+    baseUrl: string,
+  ) => Promise<{ username?: string; hasToken: boolean } | null>
+
   // Task Tracker
   taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
   taskTrackerAddConnection: (connection: {
@@ -526,11 +546,13 @@ interface CanopyAPI {
     task: TrackerTask,
     boardId?: string,
     branchType?: string,
+    repoRoot?: string,
   ) => Promise<string>
   taskTrackerResolveBranchType: (
     taskType: string,
     connectionId?: string,
     boardId?: string,
+    repoRoot?: string,
   ) => Promise<{
     defaultType: string
     options: string[]
@@ -549,6 +571,7 @@ interface CanopyAPI {
     taskKey: string,
     connectionId?: string,
     boardId?: string,
+    repoRoot?: string,
   ) => Promise<{ title: string; targetBranch: string }>
   taskTrackerCreatePR: (
     repoRoot: string,
@@ -557,6 +580,8 @@ interface CanopyAPI {
     connectionId?: string,
     boardId?: string,
   ) => Promise<{ url: string; title: string; targetBranch: string }>
+
+  taskTrackerFindPR: (repoRoot: string, branch: string) => Promise<string | null>
 
   // GitHub PR features
   githubFetchBranchPRs: (repoRoot: string) => Promise<GitHubBranchPRMap>
@@ -590,9 +615,54 @@ interface CanopyAPI {
 
   // File utilities
   getPathForFile: (file: File) => string
+
+  // Platform
+  platform: NodeJS.Platform
 }
 
 type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'
+
+interface TrackerConfig {
+  provider: TaskTrackerProvider
+  baseUrl: string
+}
+
+interface BranchTemplateConfig {
+  template: string
+  customVars: Record<string, string>
+  typeMapping?: Record<string, string>
+}
+
+interface PRTargetRule {
+  taskType: string
+  targetPattern: string
+}
+
+interface PRTemplateConfig {
+  titleTemplate: string
+  bodyTemplate: string
+  defaultTargetBranch: string
+  targetRules: PRTargetRule[]
+}
+
+interface TaskFilterConfig {
+  assignedToMe: boolean
+  statuses: string[]
+}
+
+interface BoardOverride {
+  branchTemplate?: Partial<BranchTemplateConfig>
+  prTemplate?: Partial<PRTemplateConfig>
+}
+
+interface RepoConfig {
+  version: 1
+  tracker: TrackerConfig
+  branchTemplate?: BranchTemplateConfig
+  prTemplate?: PRTemplateConfig
+  boardOverrides: Record<string, BoardOverride>
+  filters: TaskFilterConfig
+}
 
 interface TaskTrackerConnectionInfo {
   id: string

@@ -1,4 +1,11 @@
 import { restoreLayout } from './tabs.svelte'
+import {
+  loadRepoConfig,
+  getRepoConfig,
+  getHasCredentials,
+  loadActiveTask,
+} from './taskTracker.svelte'
+import { addToast } from './toast.svelte'
 
 function basename(p: string): string {
   return p.split('/').pop() || p
@@ -222,6 +229,14 @@ async function attachProjectImpl(
     await window.api.gitWatch(info.repoRoot, info)
   }
 
+  // Auto-detect .canopy/config.json for task tracker
+  if (info.repoRoot) {
+    await loadRepoConfig(info.repoRoot)
+    if (getRepoConfig() && !getHasCredentials()) {
+      addToast('Tracker requires authentication — configure token in Preferences')
+    }
+  }
+
   // Restore saved layouts BEFORE selecting worktree so that ensureDefaultTab
   // (triggered by selectWorktree) finds existing tabs and doesn't spawn extras
   try {
@@ -394,6 +409,7 @@ export async function selectWorktree(path: string): Promise<void> {
 
   window.api.setActiveWorktree(path)
   workspaceState.selectedWorktreePath = path
+  await loadActiveTask(path)
 
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)

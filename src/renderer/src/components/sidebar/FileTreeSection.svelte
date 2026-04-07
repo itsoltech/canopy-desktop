@@ -5,6 +5,7 @@
   import { fileTree } from '../../lib/stores/fileTree.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openFile } from '../../lib/stores/tabs.svelte'
+  import { fileManagerLabel } from '../../lib/platform'
 
   interface DirEntry {
     name: string
@@ -84,7 +85,7 @@
     contextMenu = null
   }
 
-  function contextShowInFinder(): void {
+  function contextRevealInFileManager(): void {
     if (contextMenu) {
       window.api.showInFolder(contextMenu.path)
       closeContextMenu()
@@ -178,8 +179,8 @@
       onclick={(e) => e.stopPropagation()}
     >
       <!-- eslint-disable-next-line svelte/no-autofocus -->
-      <button class="ctx-item" role="menuitem" autofocus onclick={contextShowInFinder}>
-        Reveal in File Manager
+      <button class="ctx-item" role="menuitem" autofocus onclick={contextRevealInFileManager}>
+        {fileManagerLabel()}
       </button>
       <button class="ctx-item" role="menuitem" onclick={contextCopyPath}>Copy path</button>
       <button class="ctx-item" role="menuitem" onclick={contextCopyName}>Copy name</button>

@@ -1,21 +1,67 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { SquareKanban, Plus, ExternalLink } from '@lucide/svelte'
+  import { SquareKanban, Plus, ExternalLink, Settings, GitPullRequest } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
-    getTaskTrackerConnections,
+    getRepoConfig,
+    getHasCredentials,
     isTaskTrackerLoading,
+    getTaskTrackerConnections,
+    getActiveTask,
     loadConnections,
   } from '../../lib/stores/taskTracker.svelte'
-  import { showPreferences } from '../../lib/stores/dialogs.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { showPreferences, confirm } from '../../lib/stores/dialogs.svelte'
   import { showTaskPicker } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
 
   onMount(() => {
     loadConnections()
   })
 
-  let connections = $derived(getTaskTrackerConnections())
+  let config = $derived(getRepoConfig())
+  let hasCreds = $derived(getHasCredentials())
   let loading = $derived(isTaskTrackerLoading())
+  let connections = $derived(getTaskTrackerConnections())
+  let activeTask = $derived(getActiveTask())
+  let creatingPR = $state(false)
+
+  // Fallback: extract task key from branch name if no active task stored
+  let taskKeyFromBranch = $derived.by(() => {
+    if (activeTask) return null
+    const branch = workspaceState.branch
+    if (!branch) return null
+    const match = branch.match(/([A-Z][A-Z0-9]+-\d+)/)
+    return match ? match[1] : null
+  })
+  let canCreatePR = $derived(!!(activeTask || taskKeyFromBranch) && !!workspaceState.branch)
+  let existingPRUrl = $state<string | null>(null)
+
+  let prCheckTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Check for existing PR when branch/worktree changes (debounced)
+  $effect(() => {
+    const branch = workspaceState.branch
+    existingPRUrl = null
+    if (prCheckTimer) clearTimeout(prCheckTimer)
+    if (branch) {
+      prCheckTimer = setTimeout(() => checkExistingPR(branch), 500)
+    }
+    return () => {
+      if (prCheckTimer) clearTimeout(prCheckTimer)
+    }
+  })
+
+  async function checkExistingPR(branch: string): Promise<void> {
+    const root = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!root) return
+    try {
+      const result = await window.api.taskTrackerFindPR(root, branch)
+      if (result) existingPRUrl = result
+    } catch {
+      // no PR found
+    }
+  }
 
   function providerLabel(provider: string): string {
     if (provider === 'jira') return 'Jira'
@@ -30,39 +76,159 @@
   function browseTasks(connectionId: string): void {
     showTaskPicker(connectionId)
   }
+
+  function worktreePath(): string {
+    return workspaceState.selectedWorktreePath ?? workspaceState.repoRoot ?? ''
+  }
+
+  async function doCreatePR(): Promise<void> {
+    const branch = workspaceState.branch
+    if (!branch || !canCreatePR) return
+
+    const taskKey = activeTask?.taskKey ?? taskKeyFromBranch ?? ''
+    creatingPR = true
+    let prTitle = `[${taskKey}]`
+    let defaultTarget = 'develop'
+    try {
+      const preview = await window.api.taskTrackerResolvePRPreview(
+        taskKey,
+        activeTask?.connectionId,
+        activeTask?.boardId,
+        worktreePath() || undefined,
+      )
+      prTitle = preview.title
+      defaultTarget = preview.targetBranch
+    } catch {
+      // use defaults
+    }
+    creatingPR = false
+
+    const ok = await confirm({
+      title: 'Create Pull Request',
+      message: `Create PR from "${workspaceState.branch}"?`,
+      details: `Title: ${prTitle}\nTarget: ${defaultTarget}`,
+      confirmLabel: 'Create PR',
+    })
+    if (!ok) return
+
+    creatingPR = true
+    try {
+      const result = await window.api.taskTrackerCreatePR(
+        worktreePath(),
+        {
+          key: taskKey,
+          summary: activeTask?.summary ?? '',
+          description: '',
+          status: '',
+          priority: '',
+          type: 'task',
+        },
+        branch,
+        activeTask?.connectionId,
+        activeTask?.boardId,
+      )
+      existingPRUrl = result.url
+      addToast('PR created')
+      window.api.openExternal(result.url)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('No commits between')) {
+        await confirm({
+          title: 'No Changes',
+          message: `No commits between target branch and "${workspaceState.branch}". Commit changes first.`,
+          confirmLabel: 'OK',
+        })
+      } else {
+        addToast(msg)
+      }
+    } finally {
+      creatingPR = false
+    }
+  }
 </script>
 
 <CollapsibleSection title="TASKS" sectionKey="tasks" borderTop>
   {#if loading}
     <div class="loading">Loading...</div>
-  {:else if connections.length === 0}
-    <div class="empty-state">
-      <button class="connect-btn" onclick={openTrackerPrefs}>
-        <Plus size={14} />
-        Connect Tracker
+  {:else if config}
+    <ul class="tracker-list">
+      <li>
+        <button
+          class="tracker-item"
+          onclick={() => {
+            if (connections.length > 0) {
+              browseTasks(connections[0].id)
+            }
+          }}
+          disabled={!hasCreds || connections.length === 0}
+          title={hasCreds
+            ? `Browse tasks — ${providerLabel(config.tracker.provider)}`
+            : 'Credentials required'}
+        >
+          <SquareKanban size={14} />
+          <span class="tracker-name">{config.tracker.baseUrl || 'Not configured'}</span>
+          <span class="tracker-provider">{providerLabel(config.tracker.provider)}</span>
+          {#if hasCreds}
+            <ExternalLink size={12} />
+          {/if}
+        </button>
+      </li>
+    </ul>
+
+    {#if activeTask}
+      <div class="active-task">
+        <span class="task-key">{activeTask.taskKey}</span>
+        <span class="task-summary">{activeTask.summary}</span>
+      </div>
+    {/if}
+
+    <div class="pr-row">
+      {#if existingPRUrl}
+        <button
+          class="pr-btn"
+          onclick={() => window.api.openExternal(existingPRUrl!)}
+          title="Open existing Pull Request"
+        >
+          <ExternalLink size={13} />
+          <span>Open PR</span>
+          <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
+        </button>
+      {:else}
+        <button
+          class="pr-btn"
+          onclick={doCreatePR}
+          disabled={creatingPR || !canCreatePR}
+          title={canCreatePR
+            ? `Create Pull Request for ${activeTask?.taskKey ?? taskKeyFromBranch}`
+            : 'No task key found in branch name'}
+        >
+          <GitPullRequest size={13} />
+          <span>{creatingPR ? 'Creating...' : 'Create PR'}</span>
+          {#if activeTask?.taskKey ?? taskKeyFromBranch}
+            <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
+          {/if}
+        </button>
+      {/if}
+    </div>
+
+    {#if !hasCreds}
+      <div class="token-hint">
+        <button class="connect-btn" onclick={openTrackerPrefs}>
+          Credentials required — configure in Preferences
+        </button>
+      </div>
+    {/if}
+    <div class="add-row">
+      <button class="add-btn" onclick={openTrackerPrefs} title="Configure tracker">
+        <Settings size={12} />
+        <span>Settings</span>
       </button>
     </div>
   {:else}
-    <ul class="tracker-list">
-      {#each connections as conn (conn.id)}
-        <li>
-          <button
-            class="tracker-item"
-            onclick={() => browseTasks(conn.id)}
-            title="Browse tasks from {conn.name}"
-          >
-            <SquareKanban size={14} />
-            <span class="tracker-name">{conn.name}</span>
-            <span class="tracker-provider">{providerLabel(conn.provider)}</span>
-            <ExternalLink size={12} />
-          </button>
-        </li>
-      {/each}
-    </ul>
-    <div class="add-row">
-      <button class="add-btn" onclick={openTrackerPrefs} title="Manage connections">
-        <Plus size={12} />
-        <span>Add</span>
+    <div class="empty-state">
+      <button class="connect-btn" onclick={openTrackerPrefs}>
+        <Plus size={14} />
+        Configure Tracker
       </button>
     </div>
   {/if}
@@ -77,6 +243,10 @@
 
   .empty-state {
     padding: 8px 12px;
+  }
+
+  .token-hint {
+    padding: 4px 12px;
   }
 
   .connect-btn {
@@ -125,8 +295,13 @@
     transition: background 0.1s;
   }
 
-  .tracker-item:hover {
+  .tracker-item:hover:not(:disabled) {
     background: var(--c-hover);
+  }
+
+  .tracker-item:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .tracker-name {
@@ -140,6 +315,66 @@
     font-size: 10px;
     color: var(--c-text-faint);
     flex-shrink: 0;
+  }
+
+  .active-task {
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-top: 1px solid var(--c-border-subtle);
+  }
+
+  .task-key {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-accent-text);
+    flex-shrink: 0;
+  }
+
+  .task-summary {
+    font-size: 11px;
+    color: var(--c-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .pr-row {
+    padding: 4px 12px;
+  }
+
+  .pr-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: var(--c-active);
+    color: var(--c-text-secondary);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .pr-task-key {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--c-text-faint);
+  }
+
+  .pr-btn:hover:not(:disabled) {
+    background: var(--c-hover-strong);
+    color: var(--c-text);
+  }
+
+  .pr-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .add-row {

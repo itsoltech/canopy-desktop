@@ -517,6 +517,27 @@ const api = {
   readFile: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
 
+  // Repo Config
+  repoConfigLoad: (repoRoot: string) => ipcRenderer.invoke('repoConfig:load', { repoRoot }),
+  repoConfigSave: (repoRoot: string, config: unknown) =>
+    ipcRenderer.invoke('repoConfig:save', { repoRoot, config }),
+  repoConfigExists: (repoRoot: string) =>
+    ipcRenderer.invoke('repoConfig:exists', { repoRoot }) as Promise<boolean>,
+  repoConfigInit: (repoRoot: string) => ipcRenderer.invoke('repoConfig:init', { repoRoot }),
+
+  // Keychain
+  keychainHasCredentials: (provider: string, baseUrl: string) =>
+    ipcRenderer.invoke('keychain:hasCredentials', { provider, baseUrl }) as Promise<boolean>,
+  keychainSetCredentials: (provider: string, baseUrl: string, token: string, username?: string) =>
+    ipcRenderer.invoke('keychain:setCredentials', { provider, baseUrl, token, username }),
+  keychainDeleteCredentials: (provider: string, baseUrl: string) =>
+    ipcRenderer.invoke('keychain:deleteCredentials', { provider, baseUrl }),
+  keychainGetCredentials: (provider: string, baseUrl: string) =>
+    ipcRenderer.invoke('keychain:getCredentials', { provider, baseUrl }) as Promise<{
+      username?: string
+      hasToken: boolean
+    } | null>,
+
   // Task Tracker
   taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),
   taskTrackerAddConnection: (connection: {
@@ -582,18 +603,26 @@ const api = {
     task: { key: string; type: string; [k: string]: unknown },
     boardId?: string,
     branchType?: string,
+    repoRoot?: string,
   ) =>
     ipcRenderer.invoke('taskTracker:resolveBranchName', {
       connectionId,
       task,
       boardId,
       branchType,
+      repoRoot,
     }),
-  taskTrackerResolveBranchType: (taskType: string, connectionId?: string, boardId?: string) =>
+  taskTrackerResolveBranchType: (
+    taskType: string,
+    connectionId?: string,
+    boardId?: string,
+    repoRoot?: string,
+  ) =>
     ipcRenderer.invoke('taskTracker:resolveBranchType', {
       taskType,
       connectionId,
       boardId,
+      repoRoot,
     }) as Promise<{
       defaultType: string
       options: string[]
@@ -607,11 +636,17 @@ const api = {
     ipcRenderer.invoke('taskTracker:validateTemplate', { template }),
   taskTrackerFindTaskByKey: (taskKey: string) =>
     ipcRenderer.invoke('taskTracker:findTaskByKey', { taskKey }),
-  taskTrackerResolvePRPreview: (taskKey: string, connectionId?: string, boardId?: string) =>
+  taskTrackerResolvePRPreview: (
+    taskKey: string,
+    connectionId?: string,
+    boardId?: string,
+    repoRoot?: string,
+  ) =>
     ipcRenderer.invoke('taskTracker:resolvePRPreview', {
       taskKey,
       connectionId,
       boardId,
+      repoRoot,
     }) as Promise<{ title: string; targetBranch: string }>,
   taskTrackerCreatePR: (
     repoRoot: string,
@@ -627,6 +662,9 @@ const api = {
       connectionId,
       boardId,
     }),
+
+  taskTrackerFindPR: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,
 
   // GitHub PR features
   githubFetchBranchPRs: (repoRoot: string) =>
@@ -649,6 +687,9 @@ const api = {
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
+
+  // Platform
+  platform: process.platform,
 }
 
 if (process.contextIsolated) {

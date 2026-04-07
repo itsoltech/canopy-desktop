@@ -1,38 +1,19 @@
 <script lang="ts">
-  import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
 
-  interface ConnectionInfo {
-    id: string
-    name: string
-    provider: string
-    baseUrl: string
-    projectKey: string
-    boardId?: string
-    username?: string
+  interface Props {
+    repoRoot: string
+    boards: Array<{ id: string; name: string }>
   }
 
-  let {
-    connections,
-    scopeBoards,
-  }: {
-    connections: ConnectionInfo[]
-    scopeBoards: Record<string, Array<{ id: string; name: string }>>
-  } = $props()
+  let { repoRoot, boards }: Props = $props()
 
-  type TemplateScope = 'global' | string
-  let prScope = $state<TemplateScope>('global')
+  let config = $derived(getRepoConfig())
 
-  function prPrefKey(scope: TemplateScope): string {
-    return scope === 'global' ? 'taskTracker.pr' : `taskTracker.pr.${scope}`
-  }
-
-  interface PRConfig {
-    titleTemplate: string
-    bodyTemplate: string
-    defaultBranch: string
-  }
+  type TemplateScope = 'default' | string
+  let prScope = $state<TemplateScope>('default')
 
   const PR_TAGS = [
     { key: 'taskKey', description: 'Task key (e.g. ISSUE-123)', example: 'ISSUE-123' },
@@ -41,74 +22,95 @@
     { key: 'boardKey', description: 'Board/project key', example: 'ISSUE' },
   ]
 
-  let prConfig = $derived.by((): PRConfig => {
-    const raw = prefs[prPrefKey(prScope)]
-    if (raw) {
-      try {
-        const c = JSON.parse(raw) as Partial<PRConfig>
-        return {
-          titleTemplate: c.titleTemplate || '',
-          bodyTemplate: c.bodyTemplate || '',
-          defaultBranch: c.defaultBranch || 'develop',
-        }
-      } catch {
-        // fall through
+  let prTemplate = $derived.by(() => {
+    if (!config) {
+      return {
+        titleTemplate: '',
+        bodyTemplate: '',
+        defaultTargetBranch: 'develop',
+        targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
       }
     }
-    return {
-      titleTemplate: prefs['taskTracker.prTitleTemplate'] || '',
-      bodyTemplate: prefs['taskTracker.prBodyTemplate'] || '',
-      defaultBranch: prefs['taskTracker.prDefaultBranch'] || 'develop',
+    const base = config.prTemplate ?? {
+      titleTemplate: '',
+      bodyTemplate: '',
+      defaultTargetBranch: 'develop',
+      targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
     }
+    if (prScope !== 'default') {
+      const override = config.boardOverrides[prScope]?.prTemplate
+      if (override) {
+        return {
+          titleTemplate: override.titleTemplate ?? base.titleTemplate,
+          bodyTemplate: override.bodyTemplate ?? base.bodyTemplate,
+          defaultTargetBranch: override.defaultTargetBranch ?? base.defaultTargetBranch,
+          targetRules: override.targetRules ?? base.targetRules,
+        }
+      }
+    }
+    return base
   })
 
   let titleTemplateInput = $state('')
   let bodyTemplateInput = $state('')
+  let defaultTargetBranch = $state('develop')
+  let initialized = $state(false)
 
   $effect(() => {
-    titleTemplateInput = prConfig.titleTemplate
-    bodyTemplateInput = prConfig.bodyTemplate
+    if (prTemplate && !initialized) {
+      titleTemplateInput = prTemplate.titleTemplate
+      bodyTemplateInput = prTemplate.bodyTemplate
+      defaultTargetBranch = prTemplate.defaultTargetBranch
+      initialized = true
+    }
   })
 
-  function savePRConfig(field: keyof PRConfig, value: string): void {
-    const current = { ...prConfig, [field]: value }
-    setPref(prPrefKey(prScope), JSON.stringify(current))
+  async function savePRField(field: string, value: string): Promise<void> {
+    if (!config) return
+    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    if (prScope === 'default') {
+      updated.prTemplate = { ...(updated.prTemplate ?? {}), [field]: value }
+    } else {
+      if (!updated.boardOverrides[prScope]) {
+        updated.boardOverrides[prScope] = {}
+      }
+      updated.boardOverrides[prScope].prTemplate = {
+        ...updated.boardOverrides[prScope].prTemplate,
+        [field]: value,
+      }
+    }
+    await saveRepoConfig(repoRoot, updated)
   }
 
   function onTitleTemplateSave(): void {
-    savePRConfig('titleTemplate', titleTemplateInput)
+    savePRField('titleTemplate', titleTemplateInput)
   }
 
   function onBodyTemplateSave(): void {
-    savePRConfig('bodyTemplate', bodyTemplateInput)
+    savePRField('bodyTemplate', bodyTemplateInput)
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Pull Request Naming</h3>
-  <p class="section-desc">Configure per board, connection, or globally.</p>
+<div class="subsection">
+  <h4 class="subsection-title">Pull request naming</h4>
 
-  <div class="form-row">
-    <label class="form-label">Scope</label>
-    <CustomSelect
-      value={prScope}
-      groups={[
-        { label: '', options: [{ value: 'global', label: 'Global (default)' }] },
-        ...connections.map((conn) => ({
-          label: conn.name,
-          options: [
-            { value: conn.id, label: 'All boards' },
-            ...(scopeBoards[conn.id] ?? []).map((b) => ({
-              value: `${conn.id}.${b.id}`,
-              label: b.name,
-            })),
-          ],
-        })),
-      ]}
-      onchange={(v) => (prScope = v)}
-      maxWidth="none"
-    />
-  </div>
+  {#if boards.length > 0}
+    <div class="select-row">
+      <span class="select-label">Board</span>
+      <CustomSelect
+        value={prScope}
+        options={[
+          { value: 'default', label: 'All boards (default)' },
+          ...boards.map((b) => ({ value: b.id, label: b.name })),
+        ]}
+        onchange={(v) => {
+          prScope = v
+          initialized = false
+        }}
+        maxWidth="240px"
+      />
+    </div>
+  {/if}
 
   <BranchTokenBuilder
     bind:templateInput={titleTemplateInput}
@@ -125,101 +127,92 @@
     label="Body"
     autoSeparators={false}
   />
-  <div class="body-editor">
-    <label class="form-label">Body edit</label>
+
+  <div class="field">
+    <label class="field-label">Body text</label>
     <textarea
-      class="form-textarea"
+      class="text-input textarea"
       bind:value={bodyTemplateInput}
       oninput={onBodyTemplateSave}
-      rows="6"
+      rows="4"
       placeholder="PR body template — use tags above or type freely"
+      spellcheck="false"
     ></textarea>
   </div>
 
-  <div class="form-row">
-    <label class="form-label">Default Target Branch</label>
+  <div class="field">
+    <label class="field-label">Default target branch</label>
     <input
-      class="form-input"
-      value={prConfig.defaultBranch}
-      oninput={(e) => savePRConfig('defaultBranch', (e.target as HTMLInputElement).value)}
+      class="text-input"
+      bind:value={defaultTargetBranch}
+      oninput={() => savePRField('defaultTargetBranch', defaultTargetBranch)}
       placeholder="develop"
+      spellcheck="false"
     />
   </div>
 </div>
 
 <style>
-  .section {
-    margin-bottom: 24px;
+  .subsection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
-  .section-title {
-    font-size: 14px;
+  .subsection-title {
+    font-size: 11px;
     font-weight: 600;
-    color: var(--c-text);
-    margin: 0 0 4px;
-  }
-
-  .section-desc {
-    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
     color: var(--c-text-muted);
-    margin: 0 0 12px;
+    margin: 0;
   }
 
-  .form-row {
+  .select-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 12px;
+    font-size: 13px;
   }
 
-  .form-label {
-    font-size: 12px;
+  .select-label {
     color: var(--c-text-secondary);
-    width: 90px;
-    flex-shrink: 0;
+    min-width: 110px;
   }
 
-  .form-input {
-    flex: 1;
-    padding: 5px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .form-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .body-editor {
+  .field {
     display: flex;
-    gap: 8px;
-    margin-bottom: 8px;
+    flex-direction: column;
+    gap: 4px;
   }
 
-  .form-textarea {
-    flex: 1;
-    padding: 6px 8px;
+  .field-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--c-text-secondary);
+  }
+
+  .text-input {
+    padding: 6px 10px;
     border: 1px solid var(--c-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
+    background: var(--c-hover);
     color: var(--c-text);
-    font-size: 12px;
+    font-size: 13px;
     font-family: inherit;
     outline: none;
-    resize: vertical;
-    min-height: 100px;
   }
 
-  .form-textarea:focus {
+  .text-input:focus {
     border-color: var(--c-focus-ring);
   }
 
-  .form-textarea::placeholder {
+  .textarea {
+    resize: vertical;
+    min-height: 60px;
+  }
+
+  .textarea::placeholder {
     color: var(--c-text-faint);
   }
 </style>
