@@ -27,6 +27,8 @@ import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
+import { validateBounds, cascadeBounds } from './windowBounds'
+import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
 
 const PERF = process.env.CANOPY_PERF === '1'
@@ -250,7 +252,10 @@ function buildAppMenu(): void {
         {
           label: 'New Window',
           accelerator: 'CmdOrCtrl+Shift+N',
-          click: () => windowManager.createWindow(),
+          click: () =>
+            windowManager.createWindow({
+              bounds: cascadeBounds(windowManager.getLastFocusedBounds()),
+            }),
         },
         { type: 'separator' },
         ...(!isMac
@@ -622,14 +627,11 @@ app.whenReady().then(async () => {
   const reopenPref = preferencesStore.get('reopenLastWorkspace')
   if (reopenPref !== 'false') {
     const configsJson = preferencesStore.get('openWindowConfigs')
-    let windowConfigs: Array<{ paths: string[]; activeWorktreePath?: string }> = []
+    let windowConfigs: WindowConfig[] = []
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as Array<{
-          paths: string[]
-          activeWorktreePath?: string
-        }>
+        windowConfigs = JSON.parse(configsJson) as WindowConfig[]
       } catch {
         // Invalid JSON
       }
@@ -663,7 +665,11 @@ app.whenReady().then(async () => {
 
     if (windowConfigs.length > 0) {
       for (const config of windowConfigs) {
-        const win = windowManager.createWindow()
+        const bounds = config.bounds ? validateBounds(config.bounds) : undefined
+        const win = windowManager.createWindow({
+          bounds,
+          windowState: config.windowState,
+        })
         win.once('ready-to-show', () => {
           win.webContents.send('workspace:restoreWindow', {
             paths: config.paths,
@@ -723,12 +729,13 @@ app.whenReady().then(async () => {
     if (url) {
       handleCanopyUrl(url)
     } else {
-      windowManager.createWindow()
+      windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
     }
   })
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) windowManager.createWindow()
+    if (BrowserWindow.getAllWindows().length === 0)
+      windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
   })
 })
 
