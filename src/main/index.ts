@@ -774,9 +774,19 @@ app.on('before-quit', (event) => {
     }
   }
 
+  // Always save window configs before any async quit path.
+  // The tmux-ask branch below returns early and re-enters via app.quit(),
+  // so this is the only reliable place to persist.
+  const configs = windowManager.getAllWindowConfigs()
+  if (configs.length > 0) {
+    preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
+  } else {
+    preferencesStore.delete('openWindowConfigs')
+  }
+
   // Handle tmux close policy synchronously before any async work
   const tmuxClosePolicy = preferencesStore.get('tmux.closePolicy') ?? 'detach'
-  if (tmuxClosePolicy === 'ask') {
+  if (tmuxClosePolicy === 'ask' && !windowManager.isQuitting) {
     // preventDefault must be called synchronously — cannot await before this
     event.preventDefault()
     tmuxManager
@@ -805,13 +815,6 @@ app.on('before-quit', (event) => {
         app.quit()
       })
     return
-  }
-
-  const configs = windowManager.getAllWindowConfigs()
-  if (configs.length > 0) {
-    preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
-  } else {
-    preferencesStore.delete('openWindowConfigs')
   }
 
   if (tmuxClosePolicy === 'kill') {
