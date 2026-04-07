@@ -430,7 +430,7 @@
             <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>&#x25B8;</span
             >
             <span class="file-status {statusClass(file.status)}">{statusLabel(file.status)}</span>
-            <span class="file-path">{file.path}</span>
+            <span class="file-path" title={file.path}>{file.path}</span>
             <span class="stats-bar">
               {#if file.additions > 0}
                 <span class="stats-bar-add" style="width: {statsBarAddWidth(file)}px"></span>
