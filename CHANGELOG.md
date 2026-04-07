@@ -1,3 +1,10 @@
+## [0.10.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.4...v0.10.0-next.5) (2026-04-07)
+
+### Bug Fixes
+
+* **diff:** replace emoji icons, fix tab flash, comment form polish ([#105](https://github.com/itsoltech/canopy-desktop/issues/105)) ([211e165](https://github.com/itsoltech/canopy-desktop/commit/211e16525037e651d5bb67ce5ee8ebdc5eaa6096))
+* **session:** reliably persist window configs on quit ([#106](https://github.com/itsoltech/canopy-desktop/issues/106)) ([e96ba59](https://github.com/itsoltech/canopy-desktop/commit/e96ba595ba907d9478e8990b8badb834e78d15a3))
+
 ## [0.10.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.3...v0.10.0-next.4) (2026-04-07)
 
 ### Bug Fixes
