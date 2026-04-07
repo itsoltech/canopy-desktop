@@ -589,7 +589,7 @@
   .right-resize-handle {
     width: 1px;
     cursor: col-resize;
-    background: var(--c-border-subtle);
+    background: transparent;
     flex-shrink: 0;
     position: relative;
   }

@@ -48,16 +48,18 @@
     </div>
   </div>
 
-  <div class="tab-content">
-    {#if workspaceState.rightPanelTab === 'session'}
-      {#if agentState}
-        <AgentInspector state={agentState} />
-      {:else}
-        <div class="empty-state">
-          <span class="empty-text">No active agent session</span>
-        </div>
-      {/if}
-    {:else if worktreePath}
+  <div class="tab-content" class:hidden={workspaceState.rightPanelTab !== 'session'}>
+    {#if agentState}
+      <AgentInspector state={agentState} />
+    {:else}
+      <div class="empty-state">
+        <span class="empty-text">No active agent session</span>
+      </div>
+    {/if}
+  </div>
+
+  <div class="tab-content" class:hidden={workspaceState.rightPanelTab !== 'changes'}>
+    {#if worktreePath}
       <ChangesPanel {worktreePath} bind:fileCount={changesFileCount} />
     {:else}
       <div class="empty-state">
@@ -111,23 +113,18 @@
     font-family: inherit;
     border-radius: 6px;
     transition:
-      background 0.2s cubic-bezier(0.25, 0.1, 0.25, 1),
-      color 0.15s,
-      box-shadow 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+      background 0.15s ease,
+      color 0.15s ease;
   }
 
   .segment:hover:not(.active) {
     color: var(--c-text-secondary);
-    background: var(--c-border-subtle);
+    background: color-mix(in srgb, var(--c-bg-elevated) 50%, transparent);
   }
 
   .segment.active {
     background: var(--c-bg-elevated);
     color: var(--c-text);
-    font-weight: 600;
-    box-shadow:
-      0 1px 4px rgba(0, 0, 0, 0.3),
-      0 0.5px 1px rgba(0, 0, 0, 0.2);
   }
 
   .badge {
@@ -154,6 +151,10 @@
     flex: 1;
     overflow-y: auto;
     min-height: 0;
+  }
+
+  .tab-content.hidden {
+    display: none;
   }
 
   .empty-state {

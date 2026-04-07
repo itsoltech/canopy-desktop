@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { RotateCw, Check, X } from 'lucide-svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import type { DiffFile, ParsedDiff } from '../../lib/types/diff'
@@ -135,7 +136,11 @@
   <div class="panel-header">
     <span class="panel-title">Changes</span>
     <button class="refresh-btn" onclick={refresh} title="Refresh" disabled={loading}>
-      {loading ? '...' : '\u21BB'}
+      {#if loading}
+        <span class="refresh-loading">...</span>
+      {:else}
+        <RotateCw size={13} />
+      {/if}
     </button>
   </div>
 
@@ -221,12 +226,12 @@
               <button
                 class="action-btn stage"
                 onclick={(e) => handleStage(e, file.path)}
-                title="Stage">&#x2713;</button
+                title="Stage"><Check size={12} /></button
               >
               <button
                 class="action-btn revert"
                 onclick={(e) => handleRevert(e, file.path)}
-                title="Revert">&#x2717;</button
+                title="Revert"><X size={12} /></button
               >
             </span>
           {/if}
@@ -274,10 +279,11 @@
     border: none;
     color: var(--c-text-muted);
     cursor: pointer;
-    font-size: 14px;
     padding: 2px 4px;
     border-radius: 4px;
-    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .refresh-btn:hover {
@@ -294,22 +300,26 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 2px 12px 6px;
+    padding: 2px 12px 6px 12px;
     flex-shrink: 0;
+    overflow: hidden;
   }
 
   .summary-text {
     font-size: 11px;
     color: var(--c-text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .summary-bar {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     height: 6px;
     border-radius: 2px;
     overflow: hidden;
-    flex-shrink: 0;
+    flex: 1;
+    min-width: 20px;
   }
 
   .summary-bar-add {
@@ -392,7 +402,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 12px;
+    padding: 3px 8px 3px 12px;
     cursor: pointer;
     font-size: 12px;
     line-height: 1.4;
@@ -470,16 +480,19 @@
     display: flex;
     gap: 2px;
     flex-shrink: 0;
+    width: 44px;
+    justify-content: flex-end;
   }
 
   .action-btn {
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 12px;
-    padding: 0 3px;
+    padding: 1px 3px;
     border-radius: 3px;
-    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .action-btn.stage {
