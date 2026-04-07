@@ -11,6 +11,7 @@
   import { agentSessions } from '../../lib/agents/agentState.svelte'
   import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
   import { setActiveTask } from '../../lib/stores/taskTracker.svelte'
+  import { safeDirName } from '../../lib/sanitize'
 
   interface Task {
     key: string
@@ -122,7 +123,7 @@
 
     const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
     const projectName = repoRoot.split(/[/\\]/).pop() || 'project'
-    const safeBranchName = resolvedBranchName.replace(/\//g, '-')
+    const safeBranchName = safeDirName(resolvedBranchName)
     const worktreeDir = `${baseDir}/${projectName}/${safeBranchName}`
     const homedir = await window.api.getHomedir()
     const worktreePath = worktreeDir.startsWith('~/')
