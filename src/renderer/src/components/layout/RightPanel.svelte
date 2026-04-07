@@ -29,7 +29,6 @@
         class:active={workspaceState.rightPanelTab === 'session'}
         role="tab"
         aria-selected={workspaceState.rightPanelTab === 'session'}
-        data-label="Session"
         onclick={() => (workspaceState.rightPanelTab = 'session')}
       >
         Session
@@ -39,7 +38,6 @@
         class:active={workspaceState.rightPanelTab === 'changes'}
         role="tab"
         aria-selected={workspaceState.rightPanelTab === 'changes'}
-        data-label="Changes"
         onclick={() => (workspaceState.rightPanelTab = 'changes')}
       >
         Changes

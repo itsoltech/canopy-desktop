@@ -667,6 +667,10 @@
     border-bottom: 1px solid var(--c-border-subtle);
   }
 
+  .file-section.file-focused {
+    background: color-mix(in srgb, var(--c-accent) 5%, transparent);
+  }
+
   .file-header {
     display: flex;
     align-items: center;

@@ -320,7 +320,6 @@
     overflow: hidden;
     flex: 1;
     min-width: 20px;
-    align-self: center;
   }
 
   .summary-bar-add {
