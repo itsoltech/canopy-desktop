@@ -31,6 +31,7 @@ import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
 import type { TaskTrackerProvider, TrackerTask } from '../taskTracker/types'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
+import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
@@ -453,7 +454,9 @@ export function registerIpcHandlers(
   // --- App: Multi-window ---
 
   ipcMain.handle('app:newWindow', () => {
-    windowManager.createWindow()
+    windowManager.createWindow({
+      bounds: cascadeBounds(windowManager.getLastFocusedBounds()),
+    })
   })
 
   ipcMain.handle('app:setWorkspacePath', (event, payload: { path: string }) => {

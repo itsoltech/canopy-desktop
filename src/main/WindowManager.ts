@@ -9,6 +9,7 @@ import type { AgentSessionManager } from './agents/AgentSessionManager'
 import type { BrowserManager } from './browser/BrowserManager'
 import { TmuxManager } from './pty/TmuxManager'
 import { isSafeExternalUrl } from './security/validateUrl'
+import type { WindowBounds, WindowConfig, WindowState } from './windowBounds'
 
 export class WindowManager {
   private windows = new Map<number, BrowserWindow>()
@@ -49,10 +50,19 @@ export class WindowManager {
     this.windowDisposeCallback = cb
   }
 
-  createWindow(): BrowserWindow {
+  createWindow(options?: { bounds?: WindowBounds; windowState?: WindowState }): BrowserWindow {
+    const sizeDefaults = { width: 1200, height: 800 }
+    const boundsOpts = options?.bounds
+      ? {
+          x: options.bounds.x,
+          y: options.bounds.y,
+          width: options.bounds.width,
+          height: options.bounds.height,
+        }
+      : sizeDefaults
+
     const win = new BrowserWindow({
-      width: 1200,
-      height: 800,
+      ...boundsOpts,
       minWidth: 600,
       minHeight: 400,
       show: false,
@@ -95,6 +105,8 @@ export class WindowManager {
     })
 
     win.on('ready-to-show', () => {
+      if (options?.windowState === 'maximized') win.maximize()
+      else if (options?.windowState === 'fullscreen') win.setFullScreen(true)
       if (!process.env.CANOPY_E2E || app.isPackaged) win.show()
     })
 
@@ -207,14 +219,21 @@ export class WindowManager {
   }
 
   /** Returns one entry per window, each containing all project paths for that window */
-  getAllWindowConfigs(): Array<{ paths: string[]; activeWorktreePath?: string }> {
-    const configs: Array<{ paths: string[]; activeWorktreePath?: string }> = []
+  getAllWindowConfigs(): WindowConfig[] {
+    const configs: WindowConfig[] = []
     for (const [wcId, paths] of this.workspacePaths) {
       const win = this.windows.get(wcId)
       if (win && !win.isDestroyed() && paths.size > 0) {
+        const isMax = win.isMaximized()
+        const isFs = win.isFullScreen()
+        const bounds = isMax || isFs ? win.getNormalBounds() : win.getBounds()
+        const windowState: WindowState = isFs ? 'fullscreen' : isMax ? 'maximized' : 'normal'
+
         configs.push({
           paths: [...paths],
           activeWorktreePath: this.activeWorktreePaths.get(wcId),
+          bounds,
+          windowState,
         })
       }
     }
@@ -274,6 +293,14 @@ export class WindowManager {
       if (!win.isDestroyed()) result.push(win)
     }
     return result
+  }
+
+  getLastFocusedBounds(): WindowBounds | null {
+    const focused = BrowserWindow.getFocusedWindow()
+    if (focused && !focused.isDestroyed()) return focused.getBounds()
+    const allWins = this.getAllWindows()
+    if (allWins.length > 0) return allWins[allWins.length - 1].getBounds()
+    return null
   }
 
   onAllWindowsClosed(callback: () => void): void {
