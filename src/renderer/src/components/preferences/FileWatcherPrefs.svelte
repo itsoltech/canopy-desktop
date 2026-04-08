@@ -77,9 +77,10 @@
 <div class="section">
   <h3 class="section-title">File Watcher</h3>
   <p class="section-desc">
-    Paths matching these glob patterns are excluded from the sidebar's live file watcher. Use glob
-    syntax — e.g. <code>node_modules</code>, <code>dist/**</code>, <code>**/*.log</code>. Changes
-    apply immediately to all open workspaces.
+    Entries listed here are excluded from the sidebar file list and the live file watcher. Use plain
+    names (<code>node_modules</code>, <code>.git</code>) or <code>name/**</code> patterns to hide a
+    top-level folder. Complex globs like <code>**/*.log</code> are honored by the watcher but not by the
+    initial directory listing. Changes apply immediately to all open workspaces.
   </p>
 
   <div class="pattern-list">

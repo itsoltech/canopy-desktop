@@ -14,6 +14,7 @@ export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
   'build',
   '.next',
   '.nuxt',
+  '.output',
   '.svelte-kit',
   'out',
   'target',

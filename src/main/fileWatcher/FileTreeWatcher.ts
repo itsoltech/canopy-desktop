@@ -113,7 +113,10 @@ export class FileTreeWatcher {
   private handleEvents = (err: Error | null, events: watcher.Event[]): void => {
     if (err) {
       // Native watcher can report transient errors (e.g. directory
-      // temporarily unavailable). Drop the batch — next event will retry.
+      // temporarily unavailable, permission denied, inotify limit hit).
+      // Log so the failure is visible in DevTools, then drop the batch —
+      // next event will retry.
+      console.warn(`[FileTreeWatcher] native error for ${this.repoRoot}:`, err.message)
       return
     }
 

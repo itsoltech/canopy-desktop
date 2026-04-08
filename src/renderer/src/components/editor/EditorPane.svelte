@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderOpen, RotateCw, FileX } from '@lucide/svelte'
+  import { FolderOpen, RotateCw, FileX, X } from '@lucide/svelte'
 
   let {
     filePath,
@@ -117,6 +117,14 @@
     <div class="deleted-banner">
       <FileX size={14} />
       <span>File deleted from disk</span>
+      <button
+        class="dismiss-btn"
+        onclick={() => (fileDeleted = false)}
+        aria-label="Dismiss notification"
+        title="Dismiss"
+      >
+        <X size={12} />
+      </button>
     </div>
   {/if}
 
@@ -290,5 +298,28 @@
     border-bottom: 1px solid var(--c-border);
     color: var(--c-warning-text);
     font-size: 12px;
+  }
+
+  .dismiss-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    background: none;
+    border: none;
+    border-radius: 3px;
+    color: var(--c-warning-text);
+    cursor: pointer;
+    opacity: 0.7;
+    transition:
+      background 0.1s,
+      opacity 0.1s;
+  }
+
+  .dismiss-btn:hover {
+    background: var(--c-hover);
+    opacity: 1;
   }
 </style>
