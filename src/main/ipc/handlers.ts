@@ -1696,10 +1696,14 @@ export function registerIpcHandlers(
         ? getBranchTemplate(resolved.config, payload.boardId)
         : { template: '{taskKey}', customVars: {} }
 
-      // Get sprint: from task data or from API
-      const sprint = await taskTrackerManager
-        .getCurrentSprint(payload.connectionId, payload.boardId)
-        .unwrapOr(null)
+      // Get sprint: prefer config-based, fall back to legacy
+      const sprint = resolved
+        ? await taskTrackerManager
+            .getCurrentSprintFromConfig(resolved.config, payload.boardId)
+            .unwrapOr(null)
+        : await taskTrackerManager
+            .getCurrentSprint(payload.connectionId, payload.boardId)
+            .unwrapOr(null)
 
       const variables = buildVariables(
         payload.task,

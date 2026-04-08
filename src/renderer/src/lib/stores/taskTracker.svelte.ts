@@ -54,23 +54,23 @@ export function getTrackerCredential(trackerId: string): TrackerCredentialState 
 }
 
 async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
-  const creds: Record<string, TrackerCredentialState> = {}
-  for (const t of trackers) {
-    if (!t.baseUrl) continue
-    try {
-      const has = await window.api.keychainHasCredentials(t.provider, t.baseUrl)
-      if (has) {
-        const info = await window.api.keychainGetCredentials(t.provider, t.baseUrl)
-        creds[t.id] = { hasToken: true, username: info?.username }
-      } else {
-        creds[t.id] = { hasToken: false }
-      }
-    } catch {
-      creds[t.id] = { hasToken: false }
-    }
-  }
-  // Only keep credentials for active trackers — clear stale entries
-  trackerCredentials = creds
+  const entries = await Promise.all(
+    trackers
+      .filter((t) => t.baseUrl)
+      .map(async (t) => {
+        try {
+          const has = await window.api.keychainHasCredentials(t.provider, t.baseUrl)
+          if (has) {
+            const info = await window.api.keychainGetCredentials(t.provider, t.baseUrl)
+            return [t.id, { hasToken: true, username: info?.username }] as const
+          }
+          return [t.id, { hasToken: false }] as const
+        } catch {
+          return [t.id, { hasToken: false }] as const
+        }
+      }),
+  )
+  trackerCredentials = Object.fromEntries(entries)
 }
 
 export async function loadRepoConfig(repoRoot: string): Promise<void> {
