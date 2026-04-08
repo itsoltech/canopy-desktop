@@ -3,6 +3,7 @@ import * as watcher from '@parcel/watcher'
 import { ResultAsync, okAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
 import type { FileWatcherError } from './errors'
+import { SAFETY_IGNORE_PATTERNS } from './defaults'
 
 /**
  * Granular change event emitted to renderers.
@@ -44,30 +45,28 @@ function toRelative(root: string, absPath: string): string {
  * coalesced in a {@link DEBOUNCE_MS}ms window and deduplicated by
  * `path+type` before being delivered to `onChange`.
  *
- * Lifecycle is driven by callers: construct, `start()`, optionally
- * `updateIgnorePatterns()`, then `stop()`. The class is safe to start/stop
- * multiple times but only one subscription is active at a time.
+ * The watcher applies only the hard `SAFETY_IGNORE_PATTERNS` list natively
+ * (mostly large/generated directories). It does NOT honour the user's
+ * `files.ignorePatterns` from Preferences — those are applied per-consumer
+ * in the renderer so the sidebar can hide entries while the diff pane still
+ * sees everything git considers changed (matching GitHub diff semantics).
  */
 export class FileTreeWatcher {
   private subscription: watcher.AsyncSubscription | null = null
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private pendingEvents = new Map<string, FileChangeEvent>()
-  private ignorePatterns: string[]
 
   constructor(
     private readonly repoRoot: string,
-    ignorePatterns: readonly string[],
     private readonly onChange: (events: FileChangeEvent[]) => void,
-  ) {
-    this.ignorePatterns = [...ignorePatterns]
-  }
+  ) {}
 
   start(): ResultAsync<void, FileWatcherError> {
     if (this.subscription) return okAsync(undefined)
 
     return fromExternalCall(
       watcher.subscribe(this.repoRoot, this.handleEvents, {
-        ignore: this.ignorePatterns,
+        ignore: [...SAFETY_IGNORE_PATTERNS],
       }),
       (e): FileWatcherError => ({
         _tag: 'WatchStartFailed',
@@ -98,16 +97,6 @@ export class FileTreeWatcher {
         message: errorMessage(e),
       }),
     )
-  }
-
-  /**
-   * Restart the watcher with a new ignore list. Used when the user edits
-   * patterns in Preferences — callers should await this before emitting
-   * further events.
-   */
-  updateIgnorePatterns(patterns: readonly string[]): ResultAsync<void, FileWatcherError> {
-    this.ignorePatterns = [...patterns]
-    return this.stop().andThen(() => this.start())
   }
 
   private handleEvents = (err: Error | null, events: watcher.Event[]): void => {

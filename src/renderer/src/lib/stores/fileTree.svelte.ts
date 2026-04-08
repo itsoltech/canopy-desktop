@@ -1,9 +1,59 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { prefs } from './preferences.svelte'
 
 interface DirEntry {
   name: string
   isDirectory: boolean
   size: number
+}
+
+/**
+ * Returns the user's ignore patterns from preferences. Empty array if unset
+ * or malformed.
+ */
+function getUserIgnorePatterns(): string[] {
+  const raw = prefs['files.ignorePatterns']
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) {
+      return parsed
+    }
+  } catch {
+    // Fall through
+  }
+  return []
+}
+
+/**
+ * Returns true if any segment of `relPath` matches a user ignore pattern.
+ * Mirrors `isIgnoredEntry` in src/main/ipc/handlers.ts but operates on a
+ * full relative path (multiple segments) instead of a single child name.
+ *
+ * Plain names match any segment exactly. `name/**` style patterns also
+ * match by their first segment. Complex globs (`**\/*.log` etc.) fall
+ * through and are not honoured here — same limitation as the main-side
+ * helper.
+ */
+function isIgnoredByUser(relPath: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false
+  const segments = relPath.split('/')
+  for (const pattern of patterns) {
+    if (!pattern.includes('*') && !pattern.includes('?') && !pattern.includes('/')) {
+      if (segments.includes(pattern)) return true
+      continue
+    }
+    const firstSegment = pattern.split('/')[0]
+    if (
+      firstSegment &&
+      !firstSegment.includes('*') &&
+      !firstSegment.includes('?') &&
+      segments.includes(firstSegment)
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 export const fileTree = createFileTreeStore()
@@ -108,10 +158,15 @@ function createFileTreeStore() {
   function applyFileEvents(events: { type: 'add' | 'change' | 'unlink'; path: string }[]): void {
     if (!rootPath) return
     const root = rootPath
+    const userPatterns = getUserIgnorePatterns()
 
-    // eslint-disable-next-line svelte/prefer-svelte-reactivity
-    const dirsToRefresh = new Set<string>()
+    const dirsToRefresh = new SvelteSet<string>()
     for (const ev of events) {
+      // Apply user ignore patterns here so the sidebar mirrors the filtered
+      // view from `fs:readDir`. The watcher itself emits everything that
+      // isn't safety-filtered.
+      if (isIgnoredByUser(ev.path, userPatterns)) continue
+
       const absPath = `${root}/${ev.path}`
       const lastSlash = absPath.lastIndexOf('/')
       if (lastSlash === -1) continue

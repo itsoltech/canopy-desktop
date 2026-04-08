@@ -1,8 +1,8 @@
-import { watch } from 'chokidar'
-import { join } from 'path'
-import type { FSWatcher } from 'chokidar'
+import { join, sep } from 'path'
+import * as watcher from '@parcel/watcher'
 import { GitRepository } from './GitRepository'
 import type { GitInfo } from './GitRepository'
+import { errorMessage } from '../errors'
 import { gitErrorMessage } from './errors'
 
 export interface GitRefreshFlags {
@@ -12,10 +12,30 @@ export interface GitRefreshFlags {
   aheadBehind: boolean
 }
 
+/**
+ * Watches `.git/` for metadata changes (HEAD, index, refs, worktrees) and
+ * refreshes the cached `GitInfo`. Uses `@parcel/watcher` (FSEvents / inotify
+ * / ReadDirectoryChangesW) — same stack as `FileTreeWatcher`.
+ *
+ * Subscribes to the entire `.git/` directory and filters events by path in
+ * the callback. The high-noise subdirs (`objects`, `logs`, `hooks`) are
+ * ignored natively to keep the event volume low.
+ *
+ * Refreshes are debounced 300ms; multiple flag-bumping events in the same
+ * window collapse into a single `GitRepository` query batch.
+ */
 export class GitWatcher {
-  private watcher: FSWatcher | null = null
+  private subscription: watcher.AsyncSubscription | null = null
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private readonly debounceMs = 300
+  /**
+   * Grace window after a completed refresh during which `.git/index` events
+   * are ignored. Our own `isDirty()` / `git diff` calls stat the index and
+   * trigger native events; without this guard the watcher ends up in a
+   * tight loop (refresh → stat → event → refresh…).
+   */
+  private readonly selfTriggeredGraceMs = 500
+  private lastRefreshCompletedAt = 0
   private pendingRefresh: GitRefreshFlags = {
     branch: false,
     worktrees: false,
@@ -32,35 +52,79 @@ export class GitWatcher {
     this.lastInfo = initialInfo ?? null
   }
 
-  start(): void {
-    if (this.watcher) return
+  async start(): Promise<void> {
+    if (this.subscription) return
 
     const gitDir = join(this.repoRoot, '.git')
-    const watchPaths = [
-      join(gitDir, 'HEAD'),
-      join(gitDir, 'index'),
-      join(gitDir, 'refs'),
-      join(gitDir, 'worktrees'),
-    ]
-
-    this.watcher = watch(watchPaths, {
-      ignoreInitial: true,
-      depth: 2,
-      awaitWriteFinish: { stabilityThreshold: 100 },
-    })
-
-    this.watcher.on('all', (_event, changedPath) => this.scheduleRefresh(changedPath))
+    try {
+      this.subscription = await watcher.subscribe(gitDir, this.handleEvents, {
+        // Skip write-heavy / irrelevant subdirs to keep event volume low.
+        ignore: ['objects', 'logs', 'hooks', 'lfs', 'modules'],
+      })
+    } catch (e) {
+      console.warn(`[GitWatcher] failed to start for ${gitDir}:`, errorMessage(e))
+    }
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer)
       this.debounceTimer = null
     }
-    if (this.watcher) {
-      this.watcher.close()
-      this.watcher = null
+    const sub = this.subscription
+    if (!sub) return
+    this.subscription = null
+    try {
+      await sub.unsubscribe()
+    } catch {
+      // Ignore — best-effort teardown
     }
+  }
+
+  private handleEvents = (err: Error | null, events: watcher.Event[]): void => {
+    if (err) {
+      console.warn(`[GitWatcher] native error for ${this.repoRoot}:`, err.message)
+      return
+    }
+
+    const indexPath = join(this.repoRoot, '.git', 'index')
+    const now = Date.now()
+    const inGraceWindow = now - this.lastRefreshCompletedAt < this.selfTriggeredGraceMs
+
+    for (const ev of events) {
+      // Native events arrive with platform separators; normalize to forward
+      // slashes so the path comparisons below work on Windows too.
+      const normalized = sep === '\\' ? ev.path.split(sep).join('/') : ev.path
+      if (!this.isRelevantGitPath(normalized)) continue
+      // Skip index events triggered by our own refresh (stat refresh loop)
+      if (inGraceWindow && normalized === indexPath) continue
+      this.scheduleRefresh(normalized)
+    }
+  }
+
+  /**
+   * Returns true only for paths we actually care about: `HEAD`, `index`,
+   * anything under `refs/` or `worktrees/`. Everything else in `.git/` —
+   * `*.lock`, `COMMIT_EDITMSG`, `FETCH_HEAD`, `ORIG_HEAD`, `packed-refs`,
+   * `config`, `info/`, … — is transient or irrelevant to the cached
+   * `GitInfo` and would otherwise trigger refresh loops (each refresh
+   * touches `.git/index` stat which triggers another event, ad infinitum).
+   */
+  private isRelevantGitPath(changedPath: string): boolean {
+    const gitDir = join(this.repoRoot, '.git')
+    const headPath = join(gitDir, 'HEAD')
+    const indexPath = join(gitDir, 'index')
+    const refsPrefix = join(gitDir, 'refs') + '/'
+    const worktreesPrefix = join(gitDir, 'worktrees') + '/'
+
+    // Skip lock files and other transient intermediates
+    if (changedPath.endsWith('.lock')) return false
+
+    if (changedPath === headPath) return true
+    if (changedPath === indexPath) return true
+    if (changedPath.startsWith(refsPrefix)) return true
+    if (changedPath.startsWith(worktreesPrefix)) return true
+    return false
   }
 
   private scheduleRefresh(changedPath: string): void {
@@ -77,6 +141,8 @@ export class GitWatcher {
         this.onChange(info, changes)
       } catch {
         // Ignore errors from git commands during refresh
+      } finally {
+        this.lastRefreshCompletedAt = Date.now()
       }
     }, this.debounceMs)
   }
@@ -93,11 +159,13 @@ export class GitWatcher {
   }
 
   private markPendingRefresh(changedPath: string): void {
+    // `handleEvents` already filtered via `isRelevantGitPath`, so we know
+    // the path is one of HEAD, index, refs/*, or worktrees/*.
     const gitDir = join(this.repoRoot, '.git')
     const headPath = join(gitDir, 'HEAD')
     const indexPath = join(gitDir, 'index')
-    const refsPath = join(gitDir, 'refs')
-    const worktreesPath = join(gitDir, 'worktrees')
+    const refsPrefix = join(gitDir, 'refs') + '/'
+    const worktreesPrefix = join(gitDir, 'worktrees') + '/'
 
     if (changedPath === indexPath) {
       this.pendingRefresh.dirty = true
@@ -111,25 +179,19 @@ export class GitWatcher {
       return
     }
 
-    if (changedPath.startsWith(refsPath)) {
+    if (changedPath.startsWith(refsPrefix)) {
       this.pendingRefresh.branch = true
       this.pendingRefresh.worktrees = true
       this.pendingRefresh.aheadBehind = true
       return
     }
 
-    if (changedPath.startsWith(worktreesPath)) {
+    if (changedPath.startsWith(worktreesPrefix)) {
       this.pendingRefresh.branch = true
       this.pendingRefresh.worktrees = true
       this.pendingRefresh.dirty = true
       this.pendingRefresh.aheadBehind = true
-      return
     }
-
-    this.pendingRefresh.branch = true
-    this.pendingRefresh.worktrees = true
-    this.pendingRefresh.dirty = true
-    this.pendingRefresh.aheadBehind = true
   }
 
   private async refreshInfo(changes: GitRefreshFlags): Promise<GitInfo> {

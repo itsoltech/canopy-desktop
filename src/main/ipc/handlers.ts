@@ -572,7 +572,7 @@ export function registerIpcHandlers(
       },
       payload.snapshot,
     )
-    watcher.start()
+    void watcher.start()
     windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
 
@@ -627,8 +627,7 @@ export function registerIpcHandlers(
     // Only one watcher per window — dispose any previous one first
     windowManager.disposeFileWatcher(senderId)
 
-    const patterns = getIgnorePatterns()
-    const watcher = new FileTreeWatcher(payload.repoRoot, patterns, (events) => {
+    const watcher = new FileTreeWatcher(payload.repoRoot, (events) => {
       if (!event.sender.isDestroyed()) {
         event.sender.send('files:changed', { repoRoot: payload.repoRoot, events })
       }
@@ -645,21 +644,12 @@ export function registerIpcHandlers(
     windowManager.disposeFileWatcher(event.sender.id)
   })
 
-  ipcMain.handle('files:updateIgnorePatterns', async (_event, payload: { patterns: unknown }) => {
+  ipcMain.handle('files:updateIgnorePatterns', (_event, payload: { patterns: unknown }) => {
     const patterns = validatePatternsPayload(payload?.patterns)
     preferencesStore.set('files.ignorePatterns', JSON.stringify(patterns))
-
-    // Restart all active watchers with the new list
-    const watchers = windowManager.getAllFileWatchers()
-    await Promise.all(
-      watchers.map(async (w) => {
-        const result = await w.updateIgnorePatterns(patterns)
-        if (result.isErr()) {
-          // Log but don't throw — user prefs change should not crash IPC
-          console.warn('files:updateIgnorePatterns:', fileWatcherErrorMessage(result.error))
-        }
-      }),
-    )
+    // No watcher restart needed — user patterns are now applied per-consumer
+    // in the renderer (sidebar filters them, diff/changes panels see all
+    // events). Watcher only honours hardcoded SAFETY_IGNORE_PATTERNS.
   })
 
   ipcMain.handle('files:getDefaultIgnorePatterns', () => {

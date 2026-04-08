@@ -270,7 +270,7 @@ export class WindowManager {
     if (!watchers) return
     const watcher = watchers.get(repoRoot)
     if (watcher) {
-      watcher.stop()
+      void watcher.stop()
       watchers.delete(repoRoot)
     }
   }
@@ -279,7 +279,7 @@ export class WindowManager {
     const watchers = this.gitWatchers.get(wcId)
     if (!watchers) return
     for (const watcher of watchers.values()) {
-      watcher.stop()
+      void watcher.stop()
     }
     watchers.clear()
   }
@@ -290,10 +290,6 @@ export class WindowManager {
 
   getFileWatcher(wcId: number): FileTreeWatcher | null {
     return this.fileWatchers.get(wcId) ?? null
-  }
-
-  getAllFileWatchers(): FileTreeWatcher[] {
-    return [...this.fileWatchers.values()]
   }
 
   disposeFileWatcher(wcId: number): void {
