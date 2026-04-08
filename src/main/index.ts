@@ -510,6 +510,8 @@ app.whenReady().then(async () => {
 
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()
+  const { RunConfigManager } = await import('./runConfig/RunConfigManager')
+  const runConfigManager = new RunConfigManager()
   const taskTrackerManager = new TaskTrackerManager(preferencesStore, keychainTokenStore)
   const gitHubService = new GitHubService(preferencesStore, taskTrackerManager)
 
@@ -532,6 +534,7 @@ app.whenReady().then(async () => {
     repoConfigManager,
     keychainTokenStore,
     gitHubService,
+    runConfigManager,
   )
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')

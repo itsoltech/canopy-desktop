@@ -2,8 +2,14 @@
   import { workspaceState } from '../lib/stores/workspace.svelte'
   import { tabsByWorktree, activeTabId, getTabDisplayName } from '../lib/stores/tabs.svelte'
   import TitlebarMenu from './TitlebarMenu.svelte'
+  import RunConfigToolbar from './runConfig/RunConfigToolbar.svelte'
+  import { getPref } from '../lib/stores/preferences.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
+
+  let showRunToolbar = $derived(
+    workspaceState.repoRoot && getPref('runConfig.showInTitlebar', 'true') === 'true',
+  )
 
   let activeTabName = $derived.by(() => {
     const path = workspaceState.selectedWorktreePath
@@ -48,6 +54,11 @@
     </span>
   {:else}
     <span class="title">Canopy</span>
+  {/if}
+  {#if showRunToolbar}
+    <div class="run-toolbar-area">
+      <RunConfigToolbar />
+    </div>
   {/if}
 </div>
 
@@ -109,5 +120,19 @@
   .dirty {
     color: var(--c-warning-text);
     margin-left: 2px;
+  }
+
+  .run-toolbar-area {
+    position: absolute;
+    right: 12px;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    app-region: no-drag;
+  }
+
+  .run-toolbar-area :global(*) {
+    app-region: no-drag;
   }
 </style>

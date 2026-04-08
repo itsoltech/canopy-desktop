@@ -53,6 +53,15 @@ import {
 import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
+import type { RunConfigManager } from '../runConfig/RunConfigManager'
+import { runConfigErrorMessage } from '../runConfig/errors'
+import { resolveShell } from '../pty/PtyManager'
+
+function shellExecArgs(command: string): { command: string; args: string[] } {
+  const shell = resolveShell()
+  const flag = os.platform() === 'win32' ? '-Command' : '-lc'
+  return { command: shell.command, args: [flag, command] }
+}
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -76,6 +85,7 @@ export function registerIpcHandlers(
   repoConfigManager: RepoConfigManager,
   keychainTokenStore: KeychainTokenStore,
   gitHubService: GitHubService,
+  runConfigManager: RunConfigManager,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -508,11 +518,12 @@ export function registerIpcHandlers(
 
   // --- Dialog ---
 
-  ipcMain.handle('dialog:openFolder', async (event) => {
+  ipcMain.handle('dialog:openFolder', async (event, payload?: { defaultPath?: string }) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return null
     const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory', 'createDirectory'],
+      ...(payload?.defaultPath ? { defaultPath: payload.defaultPath } : {}),
     })
     return result.canceled ? null : result.filePaths[0]
   })
@@ -2020,4 +2031,202 @@ export function registerIpcHandlers(
     const result = await gitHubService.getRepoIdentifier(payload.repoRoot)
     return result.unwrapOr(null)
   })
+
+  // --- Run Configurations ---
+
+  ipcMain.handle('runConfig:discover', async (_event, payload: { repoRoot: string }) => {
+    const result = await runConfigManager.discover(payload.repoRoot)
+    return result.unwrapOr([])
+  })
+
+  ipcMain.handle(
+    'runConfig:save',
+    async (_event, payload: { configDir: string; config: { configurations: unknown[] } }) => {
+      const result = await runConfigManager.saveFile(
+        payload.configDir,
+        payload.config as import('../runConfig/types').RunConfigFile,
+      )
+      unwrapOrThrow(result, runConfigErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'runConfig:addConfig',
+    async (
+      _event,
+      payload: { configDir: string; configuration: import('../runConfig/types').RunConfiguration },
+    ) => {
+      const result = await runConfigManager.addConfiguration(
+        payload.configDir,
+        payload.configuration,
+      )
+      unwrapOrThrow(result, runConfigErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'runConfig:updateConfig',
+    async (
+      _event,
+      payload: {
+        configDir: string
+        name: string
+        configuration: import('../runConfig/types').RunConfiguration
+      },
+    ) => {
+      const result = await runConfigManager.updateConfiguration(
+        payload.configDir,
+        payload.name,
+        payload.configuration,
+      )
+      unwrapOrThrow(result, runConfigErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'runConfig:deleteConfig',
+    async (_event, payload: { configDir: string; name: string }) => {
+      const result = await runConfigManager.deleteConfiguration(payload.configDir, payload.name)
+      unwrapOrThrow(result, runConfigErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'runConfig:execute',
+    async (event, payload: { configDir: string; name: string; cwd?: string }) => {
+      const fileResult = await runConfigManager.loadFile(payload.configDir)
+      const file = unwrapOrThrow(fileResult, runConfigErrorMessage)
+      const config = file.configurations.find((c) => c.name === payload.name)
+      if (!config) throw new Error(`Configuration "${payload.name}" not found`)
+
+      if (!payload.cwd) throw new Error('No worktree selected')
+      const cwd = config.cwd ? path.resolve(payload.configDir, config.cwd) : payload.configDir
+      console.log(
+        `[runConfig] execute "${payload.name}" cwd=${cwd} configDir=${payload.configDir} worktree=${payload.cwd} config.cwd=${config.cwd ?? '(none)'}`,
+      )
+      const env = config.env
+      const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
+
+      // Pre-run hook
+      if (config.pre_run) {
+        const pre = shellExecArgs(config.pre_run)
+        const preSession = ptyManager.spawn({ command: pre.command, args: pre.args, cwd, env })
+        let preOutput = ''
+        preSession.pty.onData((data) => {
+          preOutput += data
+        })
+        await new Promise<void>((resolve, reject) => {
+          preSession.pty.onExit(({ exitCode }) => {
+            ptyManager.kill(preSession.id)
+            if (exitCode !== 0) {
+              const lastLines = preOutput.trim().split('\n').slice(-5).join('\n')
+              reject(
+                new Error(`pre_run "${config.pre_run}" failed (exit ${exitCode}):\n${lastLines}`),
+              )
+            } else resolve()
+          })
+        })
+      }
+
+      // Run main command through shell so PATH is resolved
+      const main = shellExecArgs(fullCommand)
+      const session = ptyManager.spawn({ command: main.command, args: main.args, cwd, env })
+      const wsUrl = await wsBridge.create(session.id, session.pty)
+      const senderId = event.sender.id
+      windowManager.trackPtySession(senderId, session.id)
+
+      const sender = event.sender
+      session.pty.onExit(({ exitCode, signal }) => {
+        if (!sender.isDestroyed()) {
+          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
+        }
+        windowManager.untrackPtySession(senderId, session.id)
+
+        // Post-run hook
+        if (config.post_run) {
+          const post = shellExecArgs(config.post_run)
+          const postSession = ptyManager.spawn({
+            command: post.command,
+            args: post.args,
+            cwd,
+            env,
+          })
+          postSession.pty.onExit(() => ptyManager.kill(postSession.id))
+        }
+      })
+
+      return { sessionId: session.id, wsUrl }
+    },
+  )
+
+  ipcMain.handle(
+    'runConfig:executeBackground',
+    async (event, payload: { configDir: string; name: string; cwd?: string }) => {
+      const fileResult = await runConfigManager.loadFile(payload.configDir)
+      const file = unwrapOrThrow(fileResult, runConfigErrorMessage)
+      const config = file.configurations.find((c) => c.name === payload.name)
+      if (!config) throw new Error(`Configuration "${payload.name}" not found`)
+
+      if (!payload.cwd) throw new Error('No worktree selected')
+      const cwd = config.cwd ? path.resolve(payload.configDir, config.cwd) : payload.configDir
+      const env = config.env
+      const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
+
+      if (config.pre_run) {
+        const pre = shellExecArgs(config.pre_run)
+        const preSession = ptyManager.spawn({ command: pre.command, args: pre.args, cwd, env })
+        let preOutput = ''
+        preSession.pty.onData((data) => {
+          preOutput += data
+        })
+        await new Promise<void>((resolve, reject) => {
+          preSession.pty.onExit(({ exitCode }) => {
+            ptyManager.kill(preSession.id)
+            if (exitCode !== 0) {
+              const lastLines = preOutput.trim().split('\n').slice(-5).join('\n')
+              reject(
+                new Error(`pre_run "${config.pre_run}" failed (exit ${exitCode}):\n${lastLines}`),
+              )
+            } else resolve()
+          })
+        })
+      }
+
+      const main = shellExecArgs(fullCommand)
+      const session = ptyManager.spawn({ command: main.command, args: main.args, cwd, env })
+
+      session.pty.onExit(({ exitCode }) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('runConfig:backgroundStatus', {
+            name: payload.name,
+            configDir: payload.configDir,
+            status: 'exited',
+            exitCode,
+          })
+        }
+        if (config.post_run) {
+          const post = shellExecArgs(config.post_run)
+          const postSession = ptyManager.spawn({
+            command: post.command,
+            args: post.args,
+            cwd,
+            env,
+          })
+          postSession.pty.onExit(() => ptyManager.kill(postSession.id))
+        }
+        ptyManager.kill(session.id)
+      })
+
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('runConfig:backgroundStatus', {
+          name: payload.name,
+          configDir: payload.configDir,
+          status: 'started',
+          sessionId: session.id,
+        })
+      }
+
+      return { sessionId: session.id }
+    },
+  )
 }

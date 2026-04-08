@@ -222,7 +222,8 @@ const api = {
   focusRendererWebContents: () => ipcRenderer.invoke('app:focusRendererWebContents'),
 
   // Dialog
-  openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
+  openFolder: (defaultPath?: string) =>
+    ipcRenderer.invoke('dialog:openFolder', defaultPath ? { defaultPath } : undefined),
 
   // Git
   refreshWorkspaceGitStatus: (id: string, path: string) =>
@@ -716,6 +717,40 @@ const api = {
 
   // Platform
   platform: process.platform,
+
+  // Run Configurations
+  runConfigDiscover: (repoRoot: string) => ipcRenderer.invoke('runConfig:discover', { repoRoot }),
+  runConfigSave: (configDir: string, config: unknown) =>
+    ipcRenderer.invoke('runConfig:save', { configDir, config }),
+  runConfigAddConfig: (configDir: string, configuration: unknown) =>
+    ipcRenderer.invoke('runConfig:addConfig', { configDir, configuration }),
+  runConfigUpdateConfig: (configDir: string, name: string, configuration: unknown) =>
+    ipcRenderer.invoke('runConfig:updateConfig', { configDir, name, configuration }),
+  runConfigDeleteConfig: (configDir: string, name: string) =>
+    ipcRenderer.invoke('runConfig:deleteConfig', { configDir, name }),
+  runConfigExecute: (configDir: string, name: string, cwd?: string) =>
+    ipcRenderer.invoke('runConfig:execute', { configDir, name, cwd }) as Promise<{
+      sessionId: string
+      wsUrl: string
+    }>,
+  runConfigExecuteBackground: (configDir: string, name: string, cwd?: string) =>
+    ipcRenderer.invoke('runConfig:executeBackground', { configDir, name, cwd }) as Promise<{
+      sessionId: string
+    }>,
+  onRunConfigBackgroundStatus: (
+    callback: (data: {
+      name: string
+      configDir: string
+      status: string
+      exitCode?: number
+      sessionId?: string
+    }) => void,
+  ) => {
+    const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
+      callback(data)
+    ipcRenderer.on('runConfig:backgroundStatus', handler)
+    return () => ipcRenderer.removeListener('runConfig:backgroundStatus', handler)
+  },
 }
 
 if (process.contextIsolated) {
