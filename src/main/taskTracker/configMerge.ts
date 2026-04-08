@@ -59,10 +59,9 @@ export function mergeConfigs(
       : 'default'
   const prTemplate = r.prTemplate ?? g.prTemplate
 
-  const repoHasFilters =
-    r.filters.statuses.length > 0 || r.filters.assignedToMe !== g.filters.assignedToMe
-  const filtersSource: ConfigSource | 'default' = repoHasFilters ? 'repo' : 'global'
-  const filters = repoHasFilters ? r.filters : g.filters
+  // Repo filters always take precedence when repo config exists
+  const filtersSource: ConfigSource = 'repo'
+  const filters = r.filters
 
   const boardOverrides = { ...g.boardOverrides, ...r.boardOverrides }
 

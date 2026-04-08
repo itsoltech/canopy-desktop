@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Check, X, Plus, Trash2 } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import {
     getRepoConfig,
     getGlobalConfig,
@@ -137,6 +138,12 @@
 
   async function removeTracker(trackerId: string): Promise<void> {
     if (!config) return
+    const ok = await confirm({
+      title: 'Remove Connection',
+      message: 'Remove this tracker connection?',
+      confirmLabel: 'Remove',
+    })
+    if (!ok) return
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.trackers = updated.trackers.filter((t) => t.id !== trackerId)
     try {
@@ -151,12 +158,7 @@
     }
   }
 
-  function providerLabel(provider: string): string {
-    if (provider === 'jira') return 'Jira'
-    if (provider === 'youtrack') return 'YouTrack'
-    if (provider === 'github') return 'GitHub'
-    return provider
-  }
+  import { providerLabel } from '../../lib/taskTracker/providerLabel'
 </script>
 
 {#if config}

@@ -44,8 +44,8 @@
     }
 
     await loadGlobalConfig()
-    // Auto-init global config if it doesn't exist
-    if (!globalConfig) {
+    // Auto-init global config if it doesn't exist (read store directly to avoid stale $derived)
+    if (!getGlobalConfig()) {
       await initGlobalConfig()
     }
 
@@ -286,7 +286,7 @@
   .scope-tab.active {
     background: var(--c-bg);
     color: var(--c-text);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 2px var(--c-shadow, rgba(0, 0, 0, 0.1));
   }
 
   .scope-tab:disabled {

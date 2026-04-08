@@ -8,15 +8,23 @@ const GLOBAL_CONFIG_KEY = 'taskTracker.globalConfig'
 const MIGRATION_FLAG_KEY = 'taskTracker.migratedToGlobalConfig'
 
 export class GlobalConfigManager {
+  private cached: RepoConfig | null = null
+  private cacheValid = false
+
   constructor(
     private preferencesStore: PreferencesStore,
     private keychainTokenStore: KeychainTokenStore,
   ) {}
 
   load(): RepoConfig | null {
+    if (this.cacheValid) return this.cached
     this.migrateIfNeeded()
     const raw = this.preferencesStore.get(GLOBAL_CONFIG_KEY)
-    if (!raw) return null
+    if (!raw) {
+      this.cached = null
+      this.cacheValid = true
+      return null
+    }
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>
 
@@ -45,9 +53,13 @@ export class GlobalConfigManager {
       }
 
       // Validate minimum structure before returning
-      if (!Array.isArray(parsed.trackers) || !parsed.filters) return null
+      if (!Array.isArray(parsed.trackers) || !parsed.filters) {
+        this.cached = null
+        this.cacheValid = true
+        return null
+      }
 
-      return {
+      const result: RepoConfig = {
         version: 1,
         trackers: parsed.trackers as RepoConfig['trackers'],
         branchTemplate: parsed.branchTemplate as RepoConfig['branchTemplate'],
@@ -55,6 +67,9 @@ export class GlobalConfigManager {
         boardOverrides: (parsed.boardOverrides ?? {}) as RepoConfig['boardOverrides'],
         filters: parsed.filters as RepoConfig['filters'],
       }
+      this.cached = result
+      this.cacheValid = true
+      return result
     } catch {
       return null
     }
@@ -62,6 +77,8 @@ export class GlobalConfigManager {
 
   save(config: RepoConfig): void {
     this.preferencesStore.set(GLOBAL_CONFIG_KEY, JSON.stringify(config))
+    this.cached = config
+    this.cacheValid = true
   }
 
   exists(): boolean {

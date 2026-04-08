@@ -13,6 +13,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { showPreferences, confirm } from '../../lib/stores/dialogs.svelte'
   import { showTaskPicker } from '../../lib/stores/dialogs.svelte'
+  import { providerLabel } from '../../lib/taskTracker/providerLabel'
   import { addToast } from '../../lib/stores/toast.svelte'
 
   onMount(() => {
@@ -62,13 +63,6 @@
     } catch {
       // no PR found
     }
-  }
-
-  function providerLabel(provider: string): string {
-    if (provider === 'jira') return 'Jira'
-    if (provider === 'youtrack') return 'YouTrack'
-    if (provider === 'github') return 'GitHub'
-    return provider
   }
 
   function openTrackerPrefs(): void {
@@ -159,12 +153,8 @@
         <li>
           <button
             class="tracker-item"
-            onclick={() => {
-              if (connections.length > 0) {
-                browseTasks(connections[0].id)
-              }
-            }}
-            disabled={!hasCreds || connections.length === 0}
+            onclick={() => browseTasks(tracker.id)}
+            disabled={!hasCreds}
             title={hasCreds
               ? `Browse tasks — ${providerLabel(tracker.provider)}`
               : 'Credentials required'}

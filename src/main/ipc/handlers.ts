@@ -1266,7 +1266,9 @@ export function registerIpcHandlers(
           t &&
           typeof (t as Record<string, unknown>).id === 'string' &&
           VALID_PROVIDERS.has(String((t as Record<string, unknown>).provider)) &&
-          typeof (t as Record<string, unknown>).baseUrl === 'string',
+          typeof (t as Record<string, unknown>).baseUrl === 'string' &&
+          (!(t as Record<string, unknown>).baseUrl ||
+            /^https?:\/\//.test(String((t as Record<string, unknown>).baseUrl))),
       ) &&
       !!o.filters &&
       typeof (o.filters as Record<string, unknown>).assignedToMe === 'boolean' &&
