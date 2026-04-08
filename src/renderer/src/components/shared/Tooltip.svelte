@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
   import type { Snippet } from 'svelte'
 
   let {
@@ -22,14 +21,14 @@
     timer = setTimeout(() => showPortal(), 400)
   }
 
-  function handleLeave(): void {
+  function dismiss(): void {
     if (timer) clearTimeout(timer)
     timer = null
     hidePortal()
   }
 
   function showPortal(): void {
-    if (portalEl) return
+    hidePortal()
     portalEl = document.createElement('div')
     portalEl.style.cssText = `
       position: fixed;
@@ -48,7 +47,6 @@
     portalEl.textContent = text
     document.body.appendChild(portalEl)
 
-    // Measure and clamp to viewport
     const rect = portalEl.getBoundingClientRect()
     let left = x - rect.width / 2
     if (left + rect.width > window.innerWidth - 4) left = window.innerWidth - rect.width - 4
@@ -65,15 +63,22 @@
     }
   }
 
-  onDestroy(() => hidePortal())
+  // Cleanup on unmount via $effect return
+  $effect(() => {
+    return () => {
+      if (timer) clearTimeout(timer)
+      timer = null
+      hidePortal()
+    }
+  })
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span
   class="tooltip-trigger"
   onmouseenter={handleEnter}
-  onmouseleave={handleLeave}
-  onclick={handleLeave}
+  onmouseleave={dismiss}
+  onmousedown={dismiss}
 >
   {@render children()}
 </span>
