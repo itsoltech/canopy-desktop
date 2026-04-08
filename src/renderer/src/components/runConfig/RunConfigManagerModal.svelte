@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { X, Plus, Play, Trash2 } from '@lucide/svelte'
+  import { X, Plus, Play } from '@lucide/svelte'
+  import RunConfigForm from './RunConfigForm.svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import {
     getGroupedConfigs,
@@ -24,36 +25,11 @@
 
   let grouped = $derived(getGroupedConfigs())
 
-  // --- Selection ---
   let selectedKey: { configDir: string; name: string } | null = $state(null)
   let isNew = $state(false)
   let newConfigDir = $state('')
-
-  // --- Form ---
-  let formName = $state('')
-  let formCommand = $state('')
-  let formArgs = $state('')
-  let formCwd = $state('')
-  let formPreRun = $state('')
-  let formPostRun = $state('')
-  let formEnvPairs = $state<{ key: string; value: string }[]>([])
   let saving = $state(false)
   let formError = $state('')
-
-  let dirty = $derived.by(() => {
-    if (isNew) return formName.trim() !== '' || formCommand.trim() !== ''
-    if (!selectedKey) return false
-    const config = findConfig(selectedKey.configDir, selectedKey.name)
-    if (!config) return false
-    return (
-      formName.trim() !== config.name ||
-      formCommand.trim() !== config.command ||
-      (formArgs.trim() || '') !== (config.args ?? '') ||
-      (formCwd.trim() || '') !== (config.cwd ?? '') ||
-      (formPreRun.trim() || '') !== (config.pre_run ?? '') ||
-      (formPostRun.trim() || '') !== (config.post_run ?? '')
-    )
-  })
 
   interface ConfigEntry {
     name: string
@@ -65,27 +41,18 @@
     post_run?: string
   }
 
-  function findConfig(configDir: string, name: string): ConfigEntry | null {
+  let selectedConfig = $derived.by((): ConfigEntry | undefined => {
+    if (!selectedKey) return undefined
     for (const [, group] of grouped) {
-      if (group.configDir !== configDir) continue
-      return group.configurations.find((c) => c.name === name) ?? null
+      if (group.configDir !== selectedKey.configDir) continue
+      return group.configurations.find((c) => c.name === selectedKey!.name)
     }
-    return null
-  }
+    return undefined
+  })
 
   function selectConfig(configDir: string, name: string): void {
     selectedKey = { configDir, name }
     isNew = false
-    const config = findConfig(configDir, name)
-    if (config) {
-      formName = config.name
-      formCommand = config.command
-      formArgs = config.args ?? ''
-      formCwd = config.cwd ?? ''
-      formPreRun = config.pre_run ?? ''
-      formPostRun = config.post_run ?? ''
-      formEnvPairs = Object.entries(config.env ?? {}).map(([key, value]) => ({ key, value }))
-    }
     formError = ''
   }
 
@@ -93,53 +60,13 @@
     selectedKey = null
     isNew = true
     newConfigDir = configDir
-    formName = ''
-    formCommand = ''
-    formArgs = ''
-    formCwd = ''
-    formPreRun = ''
-    formPostRun = ''
-    formEnvPairs = []
     formError = ''
   }
 
-  function addEnvPair(): void {
-    formEnvPairs = [...formEnvPairs, { key: '', value: '' }]
-  }
-
-  function removeEnvPair(index: number): void {
-    formEnvPairs = formEnvPairs.filter((_, i) => i !== index)
-  }
-
-  function buildConfig(): ConfigEntry {
-    const env: Record<string, string> = {}
-    for (const pair of formEnvPairs) {
-      if (pair.key.trim()) env[pair.key.trim()] = pair.value
-    }
-    return {
-      name: formName.trim(),
-      command: formCommand.trim(),
-      ...(formArgs.trim() ? { args: formArgs.trim() } : {}),
-      ...(formCwd.trim() ? { cwd: formCwd.trim() } : {}),
-      ...(Object.keys(env).length > 0 ? { env } : {}),
-      ...(formPreRun.trim() ? { pre_run: formPreRun.trim() } : {}),
-      ...(formPostRun.trim() ? { post_run: formPostRun.trim() } : {}),
-    }
-  }
-
-  async function handleSave(): Promise<void> {
-    if (!formName.trim()) {
-      formError = 'Name is required'
-      return
-    }
-    if (!formCommand.trim()) {
-      formError = 'Command is required'
-      return
-    }
-    formError = ''
+  async function handleSave(config: ConfigEntry): Promise<void> {
     saving = true
+    formError = ''
     try {
-      const config = buildConfig()
       if (isNew) {
         await addRunConfig(newConfigDir, config)
         selectedKey = { configDir: newConfigDir, name: config.name }
@@ -175,9 +102,7 @@
     const result = await executeRunConfig(configDir, name)
     if (result) {
       const worktreePath = workspaceState.selectedWorktreePath
-      if (worktreePath) {
-        openRunConfigTab(name, result.sessionId, result.wsUrl, worktreePath)
-      }
+      if (worktreePath) openRunConfigTab(name, result.sessionId, result.wsUrl, worktreePath)
     }
     closeDialog()
   }
@@ -188,10 +113,6 @@
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') closeDialog()
-    if (event.key === 's' && (event.metaKey || event.ctrlKey) && (isNew || selectedKey)) {
-      event.preventDefault()
-      handleSave()
-    }
   }
 
   onMount(() => {
@@ -212,7 +133,6 @@
     </div>
 
     <div class="modal-content">
-      <!-- Left: tree -->
       <div class="tree-panel">
         {#each [...grouped.entries()] as [relativePath, group] (relativePath)}
           <div class="project-group">
@@ -273,88 +193,16 @@
         {/if}
       </div>
 
-      <!-- Right: editor -->
       <div class="editor-panel">
         {#if isNew || selectedKey}
-          <div class="editor-form">
-            <div class="field">
-              <label for="mgr-name">Name</label>
-              <input id="mgr-name" type="text" bind:value={formName} placeholder="Dev Server" />
-            </div>
-
-            <div class="field">
-              <label for="mgr-command">Command</label>
-              <input id="mgr-command" type="text" bind:value={formCommand} placeholder="npm" />
-            </div>
-
-            <div class="field">
-              <label for="mgr-args">Arguments</label>
-              <input id="mgr-args" type="text" bind:value={formArgs} placeholder="run dev" />
-            </div>
-
-            <div class="field">
-              <label for="mgr-cwd">Working Directory</label>
-              <input
-                id="mgr-cwd"
-                type="text"
-                bind:value={formCwd}
-                placeholder="relative to config location"
-              />
-            </div>
-
-            <div class="section-label">
-              <span>Environment Variables</span>
-              <button class="tree-action" onclick={addEnvPair}>
-                <Plus size={12} />
-              </button>
-            </div>
-
-            {#each formEnvPairs as pair, i (i)}
-              <div class="env-row">
-                <input type="text" bind:value={pair.key} placeholder="KEY" class="env-key" />
-                <span class="env-eq">=</span>
-                <input type="text" bind:value={pair.value} placeholder="value" class="env-value" />
-                <button class="tree-action" onclick={() => removeEnvPair(i)}>
-                  <Trash2 size={10} />
-                </button>
-              </div>
-            {/each}
-
-            <div class="section-label"><span>Hooks</span></div>
-
-            <div class="field">
-              <label for="mgr-prerun">Pre-run</label>
-              <input
-                id="mgr-prerun"
-                type="text"
-                bind:value={formPreRun}
-                placeholder="npm install"
-              />
-            </div>
-
-            <div class="field">
-              <label for="mgr-postrun">Post-run</label>
-              <input
-                id="mgr-postrun"
-                type="text"
-                bind:value={formPostRun}
-                placeholder="echo done"
-              />
-            </div>
-
-            {#if formError}
-              <div class="error">{formError}</div>
-            {/if}
-
-            <div class="editor-footer">
-              <button
-                class="btn primary"
-                onclick={handleSave}
-                disabled={saving || (!isNew && !dirty)}
-              >
-                {saving ? 'Saving...' : isNew ? 'Create' : 'Save'}
-              </button>
-            </div>
+          <div class="editor-form-wrapper">
+            <RunConfigForm
+              config={isNew ? undefined : selectedConfig}
+              {isNew}
+              {saving}
+              error={formError}
+              onSave={handleSave}
+            />
           </div>
         {:else}
           <div class="editor-empty">Select a configuration or create a new one</div>
@@ -426,8 +274,6 @@
     overflow: hidden;
   }
 
-  /* --- Tree panel --- */
-
   .tree-panel {
     width: 240px;
     flex-shrink: 0;
@@ -466,7 +312,6 @@
     color: var(--c-text-muted);
     cursor: pointer;
     border-radius: 3px;
-    flex-shrink: 0;
   }
 
   .tree-action:hover {
@@ -563,139 +408,13 @@
     text-align: center;
   }
 
-  /* --- Editor panel --- */
-
   .editor-panel {
     flex: 1;
     overflow-y: auto;
   }
 
-  .editor-form {
+  .editor-form-wrapper {
     padding: 16px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field label {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--c-text-muted);
-  }
-
-  .field input {
-    height: 30px;
-    padding: 0 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .field input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .section-label {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .env-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .env-key {
-    flex: 1;
-    height: 28px;
-    padding: 0 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: var(--font-mono, monospace);
-    outline: none;
-  }
-
-  .env-eq {
-    color: var(--c-text-muted);
-    font-size: 12px;
-  }
-
-  .env-value {
-    flex: 2;
-    height: 28px;
-    padding: 0 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: var(--font-mono, monospace);
-    outline: none;
-  }
-
-  .env-key:focus,
-  .env-value:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .error {
-    padding: 8px 10px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
-    border-radius: 6px;
-    font-size: 12px;
-  }
-
-  .editor-footer {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 4px;
-  }
-
-  .btn {
-    height: 30px;
-    padding: 0 16px;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .btn.primary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-  }
-
-  .btn.primary:hover {
-    background: var(--c-accent-muted);
-  }
-
-  .btn:disabled {
-    opacity: 0.4;
-    cursor: default;
   }
 
   .editor-empty {
