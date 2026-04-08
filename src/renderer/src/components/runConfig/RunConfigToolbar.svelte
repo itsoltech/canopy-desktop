@@ -114,18 +114,30 @@
     }
   }
 
-  function getSelectedRunningIds(): string[] {
-    const target = getActiveTarget()
-    if (!target) return []
+  function getRunningIdsForName(name: string): string[] {
     const ids: string[] = []
     for (const proc of running.values()) {
-      if (proc.name === target.name) ids.push(proc.sessionId)
+      if (proc.name === name) ids.push(proc.sessionId)
     }
     return ids
   }
 
+  function getSelectedRunningIds(): string[] {
+    const target = getActiveTarget()
+    if (!target) return []
+    return getRunningIdsForName(target.name)
+  }
+
   async function handleStop(): Promise<void> {
     const ids = getSelectedRunningIds()
+    for (const id of ids) {
+      await window.api.killPty(id)
+      running.delete(id)
+    }
+  }
+
+  async function stopItem(name: string): Promise<void> {
+    const ids = getRunningIdsForName(name)
     for (const id of ids) {
       await window.api.killPty(id)
       running.delete(id)
@@ -189,6 +201,7 @@
         {#each dropdownGroups as group (group.label)}
           <div class="dropdown-group-label">{group.label}</div>
           {#each group.items as item (item.configDir + item.name)}
+            {@const itemRunning = getRunningIdsForName(item.name).length}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div
               class="dropdown-item"
@@ -197,16 +210,32 @@
               onclick={() => selectAndClose(item.configDir, item.name)}
             >
               <span class="dropdown-item-name">{item.name}</span>
-              <button
-                class="dropdown-item-play"
-                title="Run"
-                onclick={(e) => {
-                  e.stopPropagation()
-                  runItem(item.configDir, item.name)
-                }}
-              >
-                <Play size={12} />
-              </button>
+              {#if itemRunning > 0}
+                <button
+                  class="dropdown-item-stop"
+                  title={itemRunning > 1 ? `Stop all (${itemRunning})` : 'Stop'}
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    stopItem(item.name)
+                  }}
+                >
+                  <Square size={10} />
+                  {#if itemRunning > 1}
+                    <span class="count-badge">{itemRunning}</span>
+                  {/if}
+                </button>
+              {:else}
+                <button
+                  class="dropdown-item-play"
+                  title="Run"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    runItem(item.configDir, item.name)
+                  }}
+                >
+                  <Play size={12} />
+                </button>
+              {/if}
             </div>
           {/each}
         {/each}
@@ -324,6 +353,25 @@
   }
 
   .dropdown-item-play:hover {
+    background: var(--c-hover-strong);
+  }
+
+  .dropdown-item-stop {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: none;
+    color: var(--c-danger-text);
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .dropdown-item-stop:hover {
     background: var(--c-hover-strong);
   }
 
