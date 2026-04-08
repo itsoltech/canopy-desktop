@@ -1,9 +1,59 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { prefs } from './preferences.svelte'
 
 interface DirEntry {
   name: string
   isDirectory: boolean
   size: number
+}
+
+/**
+ * Returns the user's ignore patterns from preferences. Empty array if unset
+ * or malformed.
+ */
+function getUserIgnorePatterns(): string[] {
+  const raw = prefs['files.ignorePatterns']
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) {
+      return parsed
+    }
+  } catch {
+    // Fall through
+  }
+  return []
+}
+
+/**
+ * Returns true if any segment of `relPath` matches a user ignore pattern.
+ * Mirrors `isIgnoredEntry` in src/main/ipc/handlers.ts but operates on a
+ * full relative path (multiple segments) instead of a single child name.
+ *
+ * Plain names match any segment exactly. `name/**` style patterns also
+ * match by their first segment. Complex globs (`**\/*.log` etc.) fall
+ * through and are not honoured here — same limitation as the main-side
+ * helper.
+ */
+function isIgnoredByUser(relPath: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false
+  const segments = relPath.split('/')
+  for (const pattern of patterns) {
+    if (!pattern.includes('*') && !pattern.includes('?') && !pattern.includes('/')) {
+      if (segments.includes(pattern)) return true
+      continue
+    }
+    const firstSegment = pattern.split('/')[0]
+    if (
+      firstSegment &&
+      !firstSegment.includes('*') &&
+      !firstSegment.includes('?') &&
+      segments.includes(firstSegment)
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 export const fileTree = createFileTreeStore()
@@ -105,6 +155,37 @@ function createFileTreeStore() {
     }
   }
 
+  function applyFileEvents(events: { type: 'add' | 'change' | 'unlink'; path: string }[]): void {
+    if (!rootPath) return
+    const root = rootPath
+    const userPatterns = getUserIgnorePatterns()
+
+    const dirsToRefresh = new SvelteSet<string>()
+    for (const ev of events) {
+      // Apply user ignore patterns here so the sidebar mirrors the filtered
+      // view from `fs:readDir`. The watcher itself emits everything that
+      // isn't safety-filtered.
+      if (isIgnoredByUser(ev.path, userPatterns)) continue
+
+      const absPath = `${root}/${ev.path}`
+      const lastSlash = absPath.lastIndexOf('/')
+      if (lastSlash === -1) continue
+      const parent = absPath.substring(0, lastSlash)
+      if (expandedDirs[parent]) {
+        dirsToRefresh.add(parent)
+      }
+    }
+
+    if (dirsToRefresh.size === 0) return
+    void Promise.all([...dirsToRefresh].map((dir) => expandDir(dir)))
+  }
+
+  async function refreshExpandedDirs(): Promise<void> {
+    const dirs = Object.keys(expandedDirs)
+    if (dirs.length === 0) return
+    await Promise.all(dirs.map((dirPath) => expandDir(dirPath)))
+  }
+
   function refreshAll(repoRoot: string): void {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(async () => {
@@ -146,7 +227,9 @@ function createFileTreeStore() {
     toggleDir,
     selectFile,
     refreshAll,
+    refreshExpandedDirs,
     refreshGitStatus,
+    applyFileEvents,
     reset,
   }
 }

@@ -236,6 +236,14 @@ const api = {
   gitUnwatch: (repoRoot?: string) => ipcRenderer.invoke('git:unwatch', { repoRoot }),
   gitInit: (path: string) => ipcRenderer.invoke('git:init', { path }),
 
+  // File Tree Watcher
+  watchFiles: (repoRoot: string) => ipcRenderer.invoke('files:watch', { repoRoot }),
+  unwatchFiles: () => ipcRenderer.invoke('files:unwatch'),
+  updateFileIgnorePatterns: (patterns: string[]) =>
+    ipcRenderer.invoke('files:updateIgnorePatterns', { patterns }),
+  getDefaultFileIgnorePatterns: () =>
+    ipcRenderer.invoke('files:getDefaultIgnorePatterns') as Promise<string[]>,
+
   // Git Operations
   gitCommit: (repoRoot: string, message: string, stageAll?: boolean) =>
     ipcRenderer.invoke('git:commit', { repoRoot, message, stageAll }),
@@ -416,6 +424,24 @@ const api = {
     ipcRenderer.on('git:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('git:changed', handler)
+    }
+  },
+  onFilesChanged: (
+    callback: (payload: {
+      repoRoot: string
+      events: { type: 'add' | 'change' | 'unlink'; path: string }[]
+    }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      payload: {
+        repoRoot: string
+        events: { type: 'add' | 'change' | 'unlink'; path: string }[]
+      },
+    ): void => callback(payload)
+    ipcRenderer.on('files:changed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('files:changed', handler)
     }
   },
   onToolsChanged: (callback: (tools: unknown[]) => void) => {

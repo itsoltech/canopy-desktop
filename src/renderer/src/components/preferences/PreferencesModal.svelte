@@ -14,6 +14,7 @@
   import TerminalPrefs from './TerminalPrefs.svelte'
   import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
   import PrivacyPrefs from './PrivacyPrefs.svelte'
+  import FileWatcherPrefs from './FileWatcherPrefs.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
 
@@ -23,7 +24,7 @@
     { label: 'General', sections: ['General', 'Updates', 'Privacy', 'Shortcuts'] },
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
     { label: 'AI Agents', sections: ['Claude', 'Gemini'] },
-    { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks'] },
+    { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
   ] as const
 
@@ -106,6 +107,8 @@
         <ViewportsPrefs />
       {:else if activeSection === 'Tasks'}
         <TaskTrackerPrefs />
+      {:else if activeSection === 'File Watcher'}
+        <FileWatcherPrefs />
       {:else if activeSection === 'Privacy'}
         <PrivacyPrefs />
       {:else if activeSection === 'Shortcuts'}

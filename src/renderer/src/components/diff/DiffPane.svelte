@@ -89,6 +89,19 @@
       refresh().then(() => triggerPulse())
     })
 
+    // React to actual filesystem changes (file create/modify/delete) so the
+    // diff stays in sync without waiting for git metadata events. Debounced
+    // 200ms to coalesce bursts (e.g. an agent dropping multiple files).
+    let fileRefreshTimer: ReturnType<typeof setTimeout> | null = null
+    const unsubFileWatcher = window.api.onFilesChanged((payload) => {
+      if (payload.repoRoot !== worktreePath) return
+      if (fileRefreshTimer) clearTimeout(fileRefreshTimer)
+      fileRefreshTimer = setTimeout(() => {
+        fileRefreshTimer = null
+        refresh().then(() => triggerPulse())
+      }, 200)
+    })
+
     // Track which file is currently visible via IntersectionObserver
     let observer: IntersectionObserver | null = null
 
@@ -128,8 +141,10 @@
 
     return () => {
       unsubGit()
+      unsubFileWatcher()
       unsubFiles()
       observer?.disconnect()
+      if (fileRefreshTimer != null) clearTimeout(fileRefreshTimer)
       if (pulseTimer != null) clearTimeout(pulseTimer)
     }
   })

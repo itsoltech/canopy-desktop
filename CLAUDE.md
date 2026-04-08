@@ -55,6 +55,6 @@ Use `ts-pattern` (`match`/`with`) instead of `switch` or `if/else` chains when b
 
 Use conventional commits: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`, `build:`
 
-## Product Spec
+## Specs and plans
 
-Full product specification lives in `@SPEC.md`. Reference it for feature requirements and UX decisions.
+Never commit or push `SPEC.md` (or any other `*spec*.md` planning artefact) to the repo. Plans are scratch documents — keep them local. If a planning skill writes one, delete it before staging.

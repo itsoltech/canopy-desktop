@@ -1,11 +1,25 @@
 <script lang="ts">
   import { match } from 'ts-pattern'
-  import { ChevronRight, Folder, FolderOpen, File } from '@lucide/svelte'
+  import { ChevronRight, Folder, FolderOpen, File, RotateCw } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import { fileTree } from '../../lib/stores/fileTree.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openFile } from '../../lib/stores/tabs.svelte'
   import { fileManagerLabel } from '../../lib/platform'
+
+  let refreshing = $state(false)
+
+  async function handleRefresh(e: MouseEvent): Promise<void> {
+    // Stop propagation so clicking the button doesn't also toggle the section
+    e.stopPropagation()
+    if (refreshing) return
+    refreshing = true
+    try {
+      await fileTree.refreshExpandedDirs()
+    } finally {
+      refreshing = false
+    }
+  }
 
   interface DirEntry {
     name: string
@@ -40,6 +54,17 @@
       } else {
         fileTree.refreshGitStatus(repoRoot)
       }
+    })
+    return unsub
+  })
+
+  // Refresh on file tree changes (filesystem watcher push events)
+  $effect(() => {
+    const wt = workspaceState.selectedWorktreePath
+    if (!wt) return
+    const unsub = window.api.onFilesChanged((payload) => {
+      if (payload.repoRoot !== wt) return
+      fileTree.applyFileEvents(payload.events)
     })
     return unsub
   })
@@ -108,7 +133,20 @@
   }
 </script>
 
-<CollapsibleSection title="FILES" sectionKey="files" borderTop>
+{#snippet headerRefreshButton()}
+  <button
+    class="refresh-btn"
+    class:spinning={refreshing}
+    onclick={handleRefresh}
+    disabled={refreshing || !fileTree.rootPath}
+    title="Refresh file list"
+    aria-label="Refresh file list"
+  >
+    <RotateCw size={12} />
+  </button>
+{/snippet}
+
+<CollapsibleSection title="FILES" sectionKey="files" borderTop headerExtra={headerRefreshButton}>
   {#if fileTree.rootPath && fileTree.expandedDirs[fileTree.rootPath]}
     <!-- TODO: add virtualization for large directory trees (>500 items) -->
     <div class="file-tree">
@@ -189,6 +227,51 @@
 {/if}
 
 <style>
+  .refresh-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: none;
+    border: none;
+    border-radius: 3px;
+    color: var(--c-text-faint);
+    cursor: pointer;
+    transition:
+      background 0.1s,
+      color 0.1s;
+  }
+
+  .refresh-btn:hover:not(:disabled) {
+    background: var(--c-hover);
+    color: var(--c-text-secondary);
+  }
+
+  .refresh-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .refresh-btn.spinning :global(svg) {
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .refresh-btn.spinning :global(svg) {
+      animation: none;
+    }
+  }
+
   .file-tree {
     display: flex;
     flex-direction: column;

@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import type { PtyManager } from './pty/PtyManager'
 import type { WsBridge } from './pty/WsBridge'
 import type { GitWatcher } from './git/GitWatcher'
+import type { FileTreeWatcher } from './fileWatcher/FileTreeWatcher'
 import type { AgentSessionManager } from './agents/AgentSessionManager'
 import type { BrowserManager } from './browser/BrowserManager'
 import { TmuxManager } from './pty/TmuxManager'
@@ -16,6 +17,7 @@ export class WindowManager {
   private workspacePaths = new Map<number, Set<string>>()
   private activeWorktreePaths = new Map<number, string>()
   private gitWatchers = new Map<number, Map<string, GitWatcher>>()
+  private fileWatchers = new Map<number, FileTreeWatcher>()
   private ptySessions = new Map<number, Set<string>>()
   private forceClosing = new Set<number>()
   private focusedAgentSessions = new Map<number, string>()
@@ -268,7 +270,7 @@ export class WindowManager {
     if (!watchers) return
     const watcher = watchers.get(repoRoot)
     if (watcher) {
-      watcher.stop()
+      void watcher.stop()
       watchers.delete(repoRoot)
     }
   }
@@ -277,9 +279,25 @@ export class WindowManager {
     const watchers = this.gitWatchers.get(wcId)
     if (!watchers) return
     for (const watcher of watchers.values()) {
-      watcher.stop()
+      void watcher.stop()
     }
     watchers.clear()
+  }
+
+  setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    this.fileWatchers.set(wcId, watcher)
+  }
+
+  getFileWatcher(wcId: number): FileTreeWatcher | null {
+    return this.fileWatchers.get(wcId) ?? null
+  }
+
+  disposeFileWatcher(wcId: number): void {
+    const watcher = this.fileWatchers.get(wcId)
+    if (watcher) {
+      void watcher.stop()
+      this.fileWatchers.delete(wcId)
+    }
   }
 
   getWindowById(wcId: number): BrowserWindow | null {
@@ -354,6 +372,9 @@ export class WindowManager {
     // Stop all git watchers for this window
     this.disposeAllGitWatchers(wcId)
     this.gitWatchers.delete(wcId)
+
+    // Stop file tree watcher for this window
+    this.disposeFileWatcher(wcId)
 
     // Teardown browser webviews owned by this window
     const win = this.windows.get(wcId)

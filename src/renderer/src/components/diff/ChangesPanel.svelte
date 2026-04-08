@@ -44,8 +44,22 @@
       refresh()
     })
 
+    // React to filesystem changes so the changes list stays in sync without
+    // waiting for git metadata events. Debounced 200ms to coalesce bursts.
+    let fileRefreshTimer: ReturnType<typeof setTimeout> | null = null
+    const unsubFileWatcher = window.api.onFilesChanged((payload) => {
+      if (payload.repoRoot !== worktreePath) return
+      if (fileRefreshTimer) clearTimeout(fileRefreshTimer)
+      fileRefreshTimer = setTimeout(() => {
+        fileRefreshTimer = null
+        refresh()
+      }, 200)
+    })
+
     return () => {
       unsubGit()
+      unsubFileWatcher()
+      if (fileRefreshTimer != null) clearTimeout(fileRefreshTimer)
     }
   })
 

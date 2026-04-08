@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderOpen, RotateCw } from '@lucide/svelte'
+  import { FolderOpen, RotateCw, FileX, X } from '@lucide/svelte'
 
   let {
     filePath,
@@ -15,6 +15,7 @@
   let fileSize = $state(0)
   let loading = $state(true)
   let error: string | null = $state(null)
+  let fileDeleted = $state(false)
 
   let fileName = $derived(filePath.split('/').pop() ?? filePath)
   function shortenPath(p: string): string {
@@ -40,6 +41,7 @@
     content = null
     binary = false
     truncated = false
+    fileDeleted = false
     try {
       const result = await window.api.readFile(filePath)
       if (result.binary) {
@@ -67,6 +69,24 @@
     void filePath
     loadFile()
   })
+
+  // Watch for filesystem events on the currently open file
+  $effect(() => {
+    const currentPath = filePath
+    const unsub = window.api.onFilesChanged((payload) => {
+      for (const ev of payload.events) {
+        const absPath = `${payload.repoRoot}/${ev.path}`
+        if (absPath !== currentPath) continue
+        if (ev.type === 'unlink') {
+          fileDeleted = true
+        } else if (ev.type === 'add' || ev.type === 'change') {
+          fileDeleted = false
+          void loadFile()
+        }
+      }
+    })
+    return unsub
+  })
 </script>
 
 <div class="editor-pane" class:active>
@@ -92,6 +112,21 @@
       </button>
     </div>
   </div>
+
+  {#if fileDeleted}
+    <div class="deleted-banner">
+      <FileX size={14} />
+      <span>File deleted from disk</span>
+      <button
+        class="dismiss-btn"
+        onclick={() => (fileDeleted = false)}
+        aria-label="Dismiss notification"
+        title="Dismiss"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  {/if}
 
   <div class="content-area">
     {#if loading}
@@ -252,5 +287,39 @@
     background: var(--c-bg-overlay);
     border-top: 1px solid var(--c-border);
     text-align: center;
+  }
+
+  .deleted-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--c-warning-bg, var(--c-bg-overlay));
+    border-bottom: 1px solid var(--c-border);
+    color: var(--c-warning-text);
+    font-size: 12px;
+  }
+
+  .dismiss-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    background: none;
+    border: none;
+    border-radius: 3px;
+    color: var(--c-warning-text);
+    cursor: pointer;
+    opacity: 0.7;
+    transition:
+      background 0.1s,
+      opacity 0.1s;
+  }
+
+  .dismiss-btn:hover {
+    background: var(--c-hover);
+    opacity: 1;
   }
 </style>
