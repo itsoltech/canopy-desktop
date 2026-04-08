@@ -21,6 +21,9 @@ import { promisify } from 'util'
 import { GitRepository, type GitInfo } from '../git/GitRepository'
 import { getLoginEnv } from '../shell/loginEnv'
 import { GitWatcher, type GitRefreshFlags } from '../git/GitWatcher'
+import { FileTreeWatcher } from '../fileWatcher/FileTreeWatcher'
+import { DEFAULT_IGNORE_PATTERNS } from '../fileWatcher/defaults'
+import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 
 const execFileAsync = promisify(execFile)
@@ -581,6 +584,88 @@ export function registerIpcHandlers(
     }
   })
 
+  // --- File Tree Watcher ---
+
+  function getIgnorePatterns(): string[] {
+    const raw = preferencesStore.get('files.ignorePatterns')
+    if (!raw) return [...DEFAULT_IGNORE_PATTERNS]
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) {
+        return parsed
+      }
+    } catch {
+      // Invalid JSON in prefs — fall back to defaults
+    }
+    return [...DEFAULT_IGNORE_PATTERNS]
+  }
+
+  function validatePatternsPayload(patterns: unknown): string[] {
+    if (!Array.isArray(patterns)) {
+      throw new Error('Invalid patterns: must be an array of strings')
+    }
+    const result: string[] = []
+    for (const p of patterns) {
+      if (typeof p !== 'string') {
+        throw new Error('Invalid patterns: all entries must be strings')
+      }
+      const trimmed = p.trim()
+      if (trimmed) result.push(trimmed)
+    }
+    return result
+  }
+
+  ipcMain.handle('files:watch', async (event, payload: { repoRoot: string }) => {
+    if (typeof payload?.repoRoot !== 'string' || !path.isAbsolute(payload.repoRoot)) {
+      throw new Error('Invalid repoRoot: must be an absolute path string')
+    }
+    // Enforce that the watched path belongs to one of the window's workspaces
+    await validatePathAccess(event.sender.id, payload.repoRoot)
+
+    const senderId = event.sender.id
+
+    // Only one watcher per window — dispose any previous one first
+    windowManager.disposeFileWatcher(senderId)
+
+    const patterns = getIgnorePatterns()
+    const watcher = new FileTreeWatcher(payload.repoRoot, patterns, (events) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('files:changed', { repoRoot: payload.repoRoot, events })
+      }
+    })
+
+    const result = await watcher.start()
+    if (result.isErr()) {
+      throw new Error(fileWatcherErrorMessage(result.error))
+    }
+    windowManager.setFileWatcher(senderId, watcher)
+  })
+
+  ipcMain.handle('files:unwatch', (event) => {
+    windowManager.disposeFileWatcher(event.sender.id)
+  })
+
+  ipcMain.handle('files:updateIgnorePatterns', async (_event, payload: { patterns: unknown }) => {
+    const patterns = validatePatternsPayload(payload?.patterns)
+    preferencesStore.set('files.ignorePatterns', JSON.stringify(patterns))
+
+    // Restart all active watchers with the new list
+    const watchers = windowManager.getAllFileWatchers()
+    await Promise.all(
+      watchers.map(async (w) => {
+        const result = await w.updateIgnorePatterns(patterns)
+        if (result.isErr()) {
+          // Log but don't throw — user prefs change should not crash IPC
+          console.warn('files:updateIgnorePatterns:', fileWatcherErrorMessage(result.error))
+        }
+      }),
+    )
+  })
+
+  ipcMain.handle('files:getDefaultIgnorePatterns', () => {
+    return [...DEFAULT_IGNORE_PATTERNS]
+  })
+
   ipcMain.handle('git:init', async (_event, payload: { path: string }) => {
     await execFileAsync('git', ['init'], { cwd: payload.path })
     return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
@@ -1035,17 +1120,31 @@ export function registerIpcHandlers(
 
   // --- Filesystem ---
 
-  const IGNORED_NAMES = new Set([
-    '.git',
-    'node_modules',
-    '.next',
-    '__pycache__',
-    '.DS_Store',
-    '.svelte-kit',
-    '.turbo',
-    '.nuxt',
-    '.output',
-  ])
+  /**
+   * Returns true if a direct-child entry `name` should be hidden based on the
+   * user's ignore patterns. Handles plain names (`node_modules`) and the first
+   * segment of glob patterns (`dist/**` → hides a child named `dist`). More
+   * complex globs like `**\/*.log` are left to the file watcher and ignored
+   * here, since `fs:readDir` only sees immediate children.
+   */
+  function isIgnoredEntry(name: string, patterns: string[]): boolean {
+    for (const pattern of patterns) {
+      if (!pattern.includes('*') && !pattern.includes('?') && !pattern.includes('/')) {
+        if (name === pattern) return true
+        continue
+      }
+      const firstSegment = pattern.split('/')[0]
+      if (
+        firstSegment &&
+        !firstSegment.includes('*') &&
+        !firstSegment.includes('?') &&
+        firstSegment === name
+      ) {
+        return true
+      }
+    }
+    return false
+  }
 
   async function validatePathAccess(wcId: number, targetPath: string): Promise<void> {
     const resolved = path.normalize(await fs.promises.realpath(targetPath))
@@ -1066,11 +1165,8 @@ export function registerIpcHandlers(
   ipcMain.handle('fs:readDir', async (event, payload: { dirPath: string }) => {
     await validatePathAccess(event.sender.id, payload.dirPath)
     const entries = await fs.promises.readdir(payload.dirPath, { withFileTypes: true })
-    const filtered = entries.filter((e) => {
-      if (IGNORED_NAMES.has(e.name)) return false
-      if (e.name.startsWith('.') && e.name !== '.env.example') return false
-      return true
-    })
+    const ignorePatterns = getIgnorePatterns()
+    const filtered = entries.filter((e) => !isIgnoredEntry(e.name, ignorePatterns))
     const results = await Promise.all(
       filtered.map(async (entry) => {
         const isDir = entry.isDirectory()

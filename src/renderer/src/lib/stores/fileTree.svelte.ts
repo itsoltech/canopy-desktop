@@ -105,6 +105,32 @@ function createFileTreeStore() {
     }
   }
 
+  function applyFileEvents(events: { type: 'add' | 'change' | 'unlink'; path: string }[]): void {
+    if (!rootPath) return
+    const root = rootPath
+
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const dirsToRefresh = new Set<string>()
+    for (const ev of events) {
+      const absPath = `${root}/${ev.path}`
+      const lastSlash = absPath.lastIndexOf('/')
+      if (lastSlash === -1) continue
+      const parent = absPath.substring(0, lastSlash)
+      if (expandedDirs[parent]) {
+        dirsToRefresh.add(parent)
+      }
+    }
+
+    if (dirsToRefresh.size === 0) return
+    void Promise.all([...dirsToRefresh].map((dir) => expandDir(dir)))
+  }
+
+  async function refreshExpandedDirs(): Promise<void> {
+    const dirs = Object.keys(expandedDirs)
+    if (dirs.length === 0) return
+    await Promise.all(dirs.map((dirPath) => expandDir(dirPath)))
+  }
+
   function refreshAll(repoRoot: string): void {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(async () => {
@@ -146,7 +172,9 @@ function createFileTreeStore() {
     toggleDir,
     selectFile,
     refreshAll,
+    refreshExpandedDirs,
     refreshGitStatus,
+    applyFileEvents,
     reset,
   }
 }

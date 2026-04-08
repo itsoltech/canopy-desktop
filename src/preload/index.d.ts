@@ -326,6 +326,12 @@ interface CanopyAPI {
   gitUnwatch: (repoRoot?: string) => Promise<void>
   gitInit: (path: string) => Promise<GitInfo>
 
+  // File Tree Watcher
+  watchFiles: (repoRoot: string) => Promise<void>
+  unwatchFiles: () => Promise<void>
+  updateFileIgnorePatterns: (patterns: string[]) => Promise<void>
+  getDefaultFileIgnorePatterns: () => Promise<string[]>
+
   // Git Operations
   gitCommit: (repoRoot: string, message: string, stageAll?: boolean) => Promise<GitCommitResult>
   gitPush: (repoRoot: string) => Promise<{ branch: string; remote: string }>
@@ -432,6 +438,12 @@ interface CanopyAPI {
         changes: GitRefreshFlags
       },
     ) => void,
+  ) => () => void
+  onFilesChanged: (
+    callback: (payload: {
+      repoRoot: string
+      events: { type: 'add' | 'change' | 'unlink'; path: string }[]
+    }) => void,
   ) => () => void
   onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void

@@ -368,6 +368,9 @@ export async function detachProject(path: string): Promise<void> {
       workspaceState.branch = null
       workspaceState.isDirty = false
       workspaceState.aheadBehind = null
+
+      // No projects left — stop the file tree watcher
+      await window.api.unwatchFiles()
     }
   }
 }
@@ -476,6 +479,15 @@ export async function selectWorktree(path: string): Promise<void> {
   window.api.setActiveWorktree(path)
   workspaceState.selectedWorktreePath = path
   await loadActiveTask(path)
+
+  // Start (or restart) the file tree watcher for the newly active worktree.
+  // The main process disposes any previous watcher for this window before
+  // starting a new one, so we don't need an explicit unwatch here.
+  try {
+    await window.api.watchFiles(path)
+  } catch (err) {
+    console.error(`[workspace] watchFiles failed for "${path}":`, err)
+  }
 
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)
