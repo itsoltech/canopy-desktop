@@ -69,7 +69,12 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<span class="tooltip-trigger" onmouseenter={handleEnter} onmouseleave={handleLeave}>
+<span
+  class="tooltip-trigger"
+  onmouseenter={handleEnter}
+  onmouseleave={handleLeave}
+  onclick={handleLeave}
+>
   {@render children()}
 </span>
 
