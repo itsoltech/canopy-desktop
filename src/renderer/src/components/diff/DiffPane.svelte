@@ -700,7 +700,7 @@
   }
 
   .file-header:hover {
-    background: color-mix(in srgb, white 8%, var(--c-bg-elevated));
+    background: color-mix(in srgb, var(--c-text) 8%, var(--c-bg-elevated));
   }
 
   .chevron {

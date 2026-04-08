@@ -20,6 +20,42 @@ function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitErr
   return fromExternalCall(promise, (e) => gitErr(command, e))
 }
 
+function buildUntrackedDiffFile(
+  repoRoot: string,
+  filePath: string,
+): ResultAsync<DiffFile, GitError> {
+  return fromExternalCall(readFile(join(repoRoot, filePath), 'utf-8'), (e) =>
+    gitErr('readFile', e),
+  ).map((content) => {
+    const lines = content.split('\n')
+    if (lines[lines.length - 1] === '') lines.pop()
+    const changes = lines.map((line, i) => ({
+      type: 'add' as const,
+      content: line,
+      newLine: i + 1,
+    }))
+    return {
+      path: filePath,
+      status: 'added' as const,
+      hunks:
+        changes.length > 0
+          ? [
+              {
+                oldStart: 0,
+                oldLines: 0,
+                newStart: 1,
+                newLines: changes.length,
+                header: `@@ -0,0 +1,${changes.length} @@`,
+                changes,
+              },
+            ]
+          : [],
+      additions: changes.length,
+      deletions: 0,
+    }
+  })
+}
+
 export interface GitCommitResult {
   hash: string
   summary: string
@@ -359,39 +395,12 @@ export class GitRepository {
 
         return fromExternalCall(
           Promise.all(
-            files.map(async (file): Promise<DiffFile | null> => {
-              try {
-                const content = await readFile(join(repoRoot, file), 'utf-8')
-                const lines = content.split('\n')
-                if (lines[lines.length - 1] === '') lines.pop()
-                const changes = lines.map((line, i) => ({
-                  type: 'add' as const,
-                  content: line,
-                  newLine: i + 1,
-                }))
-                return {
-                  path: file,
-                  status: 'added' as const,
-                  hunks:
-                    changes.length > 0
-                      ? [
-                          {
-                            oldStart: 0,
-                            oldLines: 0,
-                            newStart: 1,
-                            newLines: changes.length,
-                            header: `@@ -0,0 +1,${changes.length} @@`,
-                            changes,
-                          },
-                        ]
-                      : [],
-                  additions: changes.length,
-                  deletions: 0,
-                }
-              } catch {
-                return null
-              }
-            }),
+            files.map((file) =>
+              buildUntrackedDiffFile(repoRoot, file).match(
+                (f) => f as DiffFile | null,
+                () => null,
+              ),
+            ),
           ).then((results) => results.filter((f): f is DiffFile => f !== null)),
           (e) => gitErr('ls-files', e),
         ).map((untrackedDiffFiles) => ({
@@ -414,38 +423,7 @@ export class GitRepository {
         if (raw.trim()) return okAsync<ParsedDiff, GitError>(parseDiff(raw))
 
         // No tracked diff — file may be untracked, read its content directly
-        return fromExternalCall(
-          readFile(join(repoRoot, filePath), 'utf-8').then((content) => {
-            const lines = content.split('\n')
-            if (lines[lines.length - 1] === '') lines.pop()
-            const changes = lines.map((line, i) => ({
-              type: 'add' as const,
-              content: line,
-              newLine: i + 1,
-            }))
-            const file: DiffFile = {
-              path: filePath,
-              status: 'added',
-              hunks:
-                changes.length > 0
-                  ? [
-                      {
-                        oldStart: 0,
-                        oldLines: 0,
-                        newStart: 1,
-                        newLines: changes.length,
-                        header: `@@ -0,0 +1,${changes.length} @@`,
-                        changes,
-                      },
-                    ]
-                  : [],
-              additions: changes.length,
-              deletions: 0,
-            }
-            return { files: [file] } as ParsedDiff
-          }),
-          (e) => gitErr('diff', e),
-        )
+        return buildUntrackedDiffFile(repoRoot, filePath).map((f) => ({ files: [f] }))
       })
   }
 
