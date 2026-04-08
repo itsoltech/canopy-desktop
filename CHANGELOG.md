@@ -1,3 +1,13 @@
+## [0.10.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.8...v0.10.0-next.9) (2026-04-08)
+
+### Features
+
+* **sidebar:** dynamic file tree via native filesystem watcher ([#114](https://github.com/itsoltech/canopy-desktop/issues/114)) ([4a48626](https://github.com/itsoltech/canopy-desktop/commit/4a4862616c30844552fb03fd9227e573c031d120))
+
+### Bug Fixes
+
+* **diff:** sticky header, untracked files, scroll and layout issues ([#113](https://github.com/itsoltech/canopy-desktop/issues/113)) ([a8d3314](https://github.com/itsoltech/canopy-desktop/commit/a8d33140abdfaa0ccc9cd316d0cdcba7d1007f75))
+
 ## [0.10.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.7...v0.10.0-next.8) (2026-04-07)
 
 ### Features
