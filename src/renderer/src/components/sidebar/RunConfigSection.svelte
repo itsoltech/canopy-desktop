@@ -53,18 +53,19 @@
     }
   }
 
-  function getRunningSessionId(name: string): string | null {
+  function getRunningSessionIds(name: string): string[] {
+    const ids: string[] = []
     for (const proc of running.values()) {
-      if (proc.name === name) return proc.sessionId
+      if (proc.name === name) ids.push(proc.sessionId)
     }
-    return null
+    return ids
   }
 
   async function handleStop(name: string): Promise<void> {
-    const sessionId = getRunningSessionId(name)
-    if (sessionId) {
-      await window.api.killPty(sessionId)
-      running.delete(sessionId)
+    const ids = getRunningSessionIds(name)
+    for (const id of ids) {
+      await window.api.killPty(id)
+      running.delete(id)
     }
   }
 </script>
@@ -82,7 +83,7 @@
         <li class="group-header">{relativePath}</li>
       {/if}
       {#each group.configurations as config (config.name)}
-        {@const runningId = getRunningSessionId(config.name)}
+        {@const runningCount = getRunningSessionIds(config.name).length}
         <li class="config-item">
           <span
             class="config-name"
@@ -95,10 +96,13 @@
             {config.name}
           </span>
           <div class="config-actions">
-            {#if runningId}
-              <Tooltip text="Stop">
+            {#if runningCount > 0}
+              <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
                 <button class="config-action stop" onclick={() => handleStop(config.name)}>
                   <Square size={12} />
+                  {#if runningCount > 1}
+                    <span class="count-badge">{runningCount}</span>
+                  {/if}
                 </button>
               </Tooltip>
             {:else}
@@ -203,6 +207,22 @@
 
   .config-action.play {
     color: var(--c-success-text);
+  }
+
+  .count-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
   }
 
   .config-action.stop {

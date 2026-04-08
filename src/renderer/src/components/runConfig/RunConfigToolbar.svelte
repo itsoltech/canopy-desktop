@@ -82,24 +82,26 @@
     }
   }
 
-  function getSelectedRunningId(): string | null {
+  function getSelectedRunningIds(): string[] {
     const target = getActiveTarget()
-    if (!target) return null
+    if (!target) return []
+    const ids: string[] = []
     for (const proc of running.values()) {
-      if (proc.name === target.name) return proc.sessionId
+      if (proc.name === target.name) ids.push(proc.sessionId)
     }
-    return null
+    return ids
   }
 
   async function handleStop(): Promise<void> {
-    const sessionId = getSelectedRunningId()
-    if (sessionId) {
-      await window.api.killPty(sessionId)
-      running.delete(sessionId)
+    const ids = getSelectedRunningIds()
+    for (const id of ids) {
+      await window.api.killPty(id)
+      running.delete(id)
     }
   }
 
-  let isSelectedRunning = $derived(!!getSelectedRunningId())
+  let runningCount = $derived(getSelectedRunningIds().length)
+  let isSelectedRunning = $derived(runningCount > 0)
 </script>
 
 {#if selectGroups.length > 1}
@@ -112,9 +114,12 @@
     />
 
     {#if isSelectedRunning}
-      <Tooltip text="Stop">
+      <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
         <button class="stop-btn" onclick={handleStop}>
           <Square size={10} />
+          {#if runningCount > 1}
+            <span class="count-badge">{runningCount}</span>
+          {/if}
         </button>
       </Tooltip>
     {:else}
@@ -176,10 +181,27 @@
     color: var(--c-danger-text);
     cursor: pointer;
     border-radius: 4px;
+    position: relative;
   }
 
   .stop-btn:hover {
     background: var(--c-hover);
+  }
+
+  .count-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
   }
 
   .settings-btn {
