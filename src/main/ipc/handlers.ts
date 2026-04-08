@@ -1557,6 +1557,75 @@ export function registerIpcHandlers(
     },
   )
 
+  // --- Config-based task tracker methods (use resolved global+repo config) ---
+
+  ipcMain.handle(
+    'trackerConfig:fetchBoards',
+    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchBoardsFromConfig(
+        resolved.config,
+        payload.trackerId,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchStatuses',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; boardId?: string }) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchStatusesFromConfig(
+        resolved.config,
+        payload.boardId,
+        payload.trackerId,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchTasks',
+    async (
+      _event,
+      payload: {
+        repoRoot?: string
+        trackerId?: string
+        statuses?: string[]
+        assignedToMe?: boolean
+        boardId?: string
+      },
+    ) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchTasksFromConfig(
+        resolved.config,
+        {
+          statuses: payload.statuses,
+          assignedToMe: payload.assignedToMe,
+          boardId: payload.boardId,
+        },
+        payload.trackerId,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:getCurrentUser',
+    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.getCurrentUserFromConfig(
+        resolved.config,
+        payload.trackerId,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
   const TASK_KEY_RE = /^[A-Za-z0-9_#-]+-?\d+$/
 
   ipcMain.handle(

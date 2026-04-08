@@ -560,6 +560,19 @@ const api = {
   trackerResolvedConfig: (repoRoot?: string) =>
     ipcRenderer.invoke('tracker:resolvedConfig', { repoRoot }),
 
+  // Config-based tracker methods
+  trackerConfigFetchBoards: (repoRoot?: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchBoards', { repoRoot, trackerId }),
+  trackerConfigFetchStatuses: (repoRoot?: string, trackerId?: string, boardId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchStatuses', { repoRoot, trackerId, boardId }),
+  trackerConfigFetchTasks: (
+    repoRoot?: string,
+    trackerId?: string,
+    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => ipcRenderer.invoke('trackerConfig:fetchTasks', { repoRoot, trackerId, ...params }),
+  trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:getCurrentUser', { repoRoot, trackerId }),
+
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) =>
     ipcRenderer.invoke('keychain:hasCredentials', { provider, baseUrl }) as Promise<boolean>,

@@ -109,8 +109,11 @@ export class TaskTrackerManager {
     return client.testConnection(conn, token)
   }
 
-  fetchBoardsFromConfig(config: RepoConfig): ResultAsync<TrackerBoard[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
+  fetchBoardsFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+  ): ResultAsync<TrackerBoard[], TaskTrackerError> {
+    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) => {
       const client = createProviderClient(conn.provider)
       return client.fetchBoards(conn, token)
     })
@@ -131,8 +134,9 @@ export class TaskTrackerManager {
   fetchStatusesFromConfig(
     config: RepoConfig,
     boardId?: string,
+    trackerId?: string,
   ): ResultAsync<TrackerStatus[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
+    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) => {
       const client = createProviderClient(conn.provider)
       return client.fetchStatuses(conn, token, boardId)
     })
@@ -141,8 +145,9 @@ export class TaskTrackerManager {
   fetchTasksFromConfig(
     config: RepoConfig,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    trackerId?: string,
   ): ResultAsync<TrackerTask[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
+    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) => {
       const client = createProviderClient(conn.provider)
       return client.fetchTasks(conn, token, params)
     })
@@ -158,8 +163,11 @@ export class TaskTrackerManager {
     })
   }
 
-  getCurrentUserFromConfig(config: RepoConfig): ResultAsync<string, TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
+  getCurrentUserFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+  ): ResultAsync<string, TaskTrackerError> {
+    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) => {
       const client = createProviderClient(conn.provider)
       return client.getCurrentUserDisplayName(conn, token)
     })

@@ -477,6 +477,20 @@ interface CanopyAPI {
   // Resolved Config (merged global + repo)
   trackerResolvedConfig: (repoRoot?: string) => Promise<ResolvedConfig | null>
 
+  // Config-based tracker methods
+  trackerConfigFetchBoards: (repoRoot?: string, trackerId?: string) => Promise<TrackerBoard[]>
+  trackerConfigFetchStatuses: (
+    repoRoot?: string,
+    trackerId?: string,
+    boardId?: string,
+  ) => Promise<TrackerStatus[]>
+  trackerConfigFetchTasks: (
+    repoRoot?: string,
+    trackerId?: string,
+    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => Promise<TrackerTask[]>
+  trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) => Promise<string>
+
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
   keychainSetCredentials: (

@@ -66,10 +66,7 @@
 
   async function fetchBoards(): Promise<void> {
     try {
-      const connections = await window.api.taskTrackerGetConnections()
-      if (connections.length > 0) {
-        boards = await window.api.taskTrackerFetchBoards(connections[0].id)
-      }
+      boards = await window.api.trackerConfigFetchBoards(repoRoot ?? undefined)
     } catch {
       boards = []
     }
@@ -90,11 +87,8 @@
     if (!config || !hasCreds) return
     loadingStatuses = true
     try {
-      const connections = await window.api.taskTrackerGetConnections()
-      if (connections.length > 0) {
-        const statuses = await window.api.taskTrackerFetchStatuses(connections[0].id)
-        availableStatuses = statuses.map((s) => s.name)
-      }
+      const statuses = await window.api.trackerConfigFetchStatuses(repoRoot ?? undefined)
+      availableStatuses = statuses.map((s: { name: string }) => s.name)
     } catch {
       addToast('Failed to fetch statuses')
     } finally {

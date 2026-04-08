@@ -128,9 +128,10 @@
 
   async function loadBoards(): Promise<void> {
     try {
+      const repoRoot = workspaceState.repoRoot ?? undefined
       const [boardList, userName] = await Promise.all([
-        window.api.taskTrackerFetchBoards(connectionId, workspaceState.repoRoot ?? undefined),
-        window.api.taskTrackerGetCurrentUser(connectionId).catch(() => ''),
+        window.api.trackerConfigFetchBoards(repoRoot, connectionId),
+        window.api.trackerConfigGetCurrentUser(repoRoot, connectionId).catch(() => ''),
       ])
       boards = boardList
       currentUserName = userName
@@ -170,10 +171,11 @@
     loading = true
     error = ''
     try {
-      allTasks = await window.api.taskTrackerFetchTasks(connectionId, {
-        boardId: selectedBoardId || undefined,
-        repoRoot: workspaceState.repoRoot ?? undefined,
-      })
+      allTasks = await window.api.trackerConfigFetchTasks(
+        workspaceState.repoRoot ?? undefined,
+        connectionId,
+        { boardId: selectedBoardId || undefined },
+      )
       // Auto-exclude done/closed only if no saved filters
       if (!hasSavedFilters && excludedStatuses.size === 0 && allTasks.length > 0) {
         for (const task of allTasks) {
