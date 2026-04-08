@@ -98,20 +98,40 @@ export class GitRepository {
       path: dirPath,
     })).andThen((raw) => {
       const repoRoot = raw.trim()
-      return GitRepository.getBranch(repoRoot).andThen((branch) =>
-        GitRepository.listWorktrees(repoRoot).andThen((worktrees) =>
-          GitRepository.isDirty(repoRoot).andThen((isDirty) =>
-            GitRepository.getAheadBehind(repoRoot).map((aheadBehind) => ({
-              isGitRepo: true as const,
-              repoRoot,
-              branch,
-              worktrees,
-              isDirty,
-              aheadBehind,
-            })),
-          ),
-        ),
-      )
+      // Sub-commands use orElse so failures (empty repo, no upstream, etc.)
+      // don't cause detect() to report isGitRepo: false
+      return GitRepository.getBranch(repoRoot)
+        .orElse((e) => {
+          console.warn(`[git] getBranch failed for "${repoRoot}":`, e)
+          return okAsync<string | null, GitError>(null)
+        })
+        .andThen((branch) =>
+          GitRepository.listWorktrees(repoRoot)
+            .orElse((e) => {
+              console.warn(`[git] listWorktrees failed for "${repoRoot}":`, e)
+              return okAsync<GitWorktreeInfo[], GitError>([])
+            })
+            .andThen((worktrees) =>
+              GitRepository.isDirty(repoRoot)
+                .orElse((e) => {
+                  console.warn(`[git] isDirty failed for "${repoRoot}":`, e)
+                  return okAsync<boolean, GitError>(false)
+                })
+                .andThen((isDirty) =>
+                  GitRepository.getAheadBehind(repoRoot)
+                    // No warn — getAheadBehind fails routinely when there is no upstream
+                    .orElse(() => okAsync<{ ahead: number; behind: number } | null, GitError>(null))
+                    .map((aheadBehind) => ({
+                      isGitRepo: true as const,
+                      repoRoot,
+                      branch,
+                      worktrees,
+                      isDirty,
+                      aheadBehind,
+                    })),
+                ),
+            ),
+        )
     })
   }
 

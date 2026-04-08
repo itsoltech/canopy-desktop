@@ -20,7 +20,7 @@
     maxWidth?: string
   }
 
-  let { value, options, groups, onchange, id, maxWidth = '240px' }: Props = $props()
+  let { value, options, groups, onchange, id, maxWidth = 'none' }: Props = $props()
 
   let open = $state(false)
   let focusedIndex = $state(-1)
