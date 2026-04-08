@@ -102,6 +102,9 @@
               // IntersectionObserverEntry.target is always Element, safe to cast
               const path = (entry.target as HTMLElement).dataset.filepath
               if (path) {
+                const target = workspaceState.diffScrollTarget
+                // During programmatic scroll, only accept the target file
+                if (target && path !== target.path) continue
                 workspaceState.diffScrollTarget = null
                 workspaceState.diffVisibleFile = path
               }
@@ -418,129 +421,135 @@
     {:else if files.length === 0}
       <div class="empty-state">No uncommitted changes</div>
     {:else}
-      {#each files as file, fileIndex (file.path)}
-        <div
-          class="file-section"
-          class:file-focused={focusedFileIndex === fileIndex}
-          id="diff-file-{file.path}"
-          data-filepath={file.path}
-          onpointerenter={() => (hoveredFilePath = file.path)}
-          onpointerleave={() => (hoveredFilePath = null)}
-        >
-          <div class="file-header" onclick={() => toggleCollapse(file.path)}>
-            <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>
-              <ChevronRight size={12} />
-            </span>
-            <span class="file-status {statusClass(file.status)}">{statusLabel(file.status)}</span>
-            <span class="file-path" title={file.path}>{file.path}</span>
-            <span class="stats-bar">
-              {#if file.additions > 0}
-                <span class="stats-bar-add" style="width: {statsBarAddWidth(file)}px"></span>
+      <div class="diff-scroll-content">
+        {#each files as file, fileIndex (file.path)}
+          <div
+            class="file-section"
+            class:file-focused={focusedFileIndex === fileIndex}
+            id="diff-file-{file.path}"
+            data-filepath={file.path}
+            onpointerenter={() => (hoveredFilePath = file.path)}
+            onpointerleave={() => (hoveredFilePath = null)}
+          >
+            <div class="file-header" onclick={() => toggleCollapse(file.path)}>
+              <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>
+                <ChevronRight size={12} />
+              </span>
+              <span class="file-status {statusClass(file.status)}">{statusLabel(file.status)}</span>
+              <span class="file-path" title={file.path}>{file.path}</span>
+              <span class="stats-bar">
+                {#if file.additions > 0}
+                  <span class="stats-bar-add" style="width: {statsBarAddWidth(file)}px"></span>
+                {/if}
+                {#if file.deletions > 0}
+                  <span class="stats-bar-del" style="width: {statsBarDelWidth(file)}px"></span>
+                {/if}
+              </span>
+              <span class="file-stats">
+                <span class="stat-add">+{file.additions}</span>
+                <span class="stat-del">&minus;{file.deletions}</span>
+              </span>
+              {#if hoveredFilePath === file.path}
+                <button
+                  class="copy-diff-btn"
+                  title="Copy diff"
+                  aria-label="Copy diff to clipboard"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    copyDiff(file)
+                  }}
+                >
+                  <Copy size={12} />
+                </button>
               {/if}
-              {#if file.deletions > 0}
-                <span class="stats-bar-del" style="width: {statsBarDelWidth(file)}px"></span>
-              {/if}
-            </span>
-            <span class="file-stats">
-              <span class="stat-add">+{file.additions}</span>
-              <span class="stat-del">&minus;{file.deletions}</span>
-            </span>
-            {#if hoveredFilePath === file.path}
-              <button
-                class="copy-diff-btn"
-                title="Copy diff"
-                aria-label="Copy diff to clipboard"
-                onclick={(e) => {
-                  e.stopPropagation()
-                  copyDiff(file)
-                }}
-              >
-                <Copy size={12} />
-              </button>
-            {/if}
-          </div>
+            </div>
 
-          {#if !collapsedFiles.has(file.path)}
-            {#if file.hunks.length === 0}
-              <div class="no-hunks">Binary file or empty diff</div>
-            {:else}
-              {#each file.hunks as hunk (hunk.header)}
-                <div class="hunk">
-                  <div class="hunk-header">
-                    <span class="gutter old-gutter"></span>
-                    <span class="gutter new-gutter"></span>
-                    <span class="hunk-text">{hunk.header}</span>
-                  </div>
-                  {#each hunk.changes as change, i (`${i}-${change.type}`)}
-                    <div
-                      class="diff-line {change.type}"
-                      class:search-match={lineMatchesSearch(change.content)}
-                    >
-                      {#if hasAgent}
-                        <button
-                          class="comment-trigger"
-                          title="Add review comment"
-                          aria-label="Add review comment"
-                          onclick={() =>
-                            openComment(file.path, `${hunk.header}:${i}`, getLineNum(change))}
-                          >+</button
-                        >
-                      {/if}
-                      <span class="gutter old-gutter"
-                        >{change.type !== 'add' && change.oldLine != null
-                          ? change.oldLine
-                          : ''}</span
-                      >
-                      <span class="gutter new-gutter"
-                        >{change.type !== 'delete' && change.newLine != null
-                          ? change.newLine
-                          : ''}</span
-                      >
-                      <span class="line-prefix"
-                        >{change.type === 'add' ? '+' : change.type === 'delete' ? '-' : ' '}</span
-                      >
-                      {#if searchQuery && lineMatchesSearch(change.content)}
-                        <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                        <span class="line-content">{@html highlightMatch(change.content)}</span>
-                      {:else}
-                        <span class="line-content">{change.content}</span>
-                      {/if}
+            {#if !collapsedFiles.has(file.path)}
+              {#if file.hunks.length === 0}
+                <div class="no-hunks">Binary file or empty diff</div>
+              {:else}
+                {#each file.hunks as hunk (hunk.header)}
+                  <div class="hunk">
+                    <div class="hunk-header">
+                      <span class="gutter old-gutter"></span>
+                      <span class="gutter new-gutter"></span>
+                      <span class="hunk-text">{hunk.header}</span>
                     </div>
-                    {#if commentKey === `${file.path}:${hunk.header}:${i}`}
-                      <div class="comment-form">
-                        <textarea
-                          class="comment-input"
-                          placeholder="Comment for agent — {file.path}:{getLineNum(change)}"
-                          bind:value={commentText}
-                          onkeydown={(e) => {
-                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendComment()
-                            if (e.key === 'Escape') closeComment()
-                          }}
-                        ></textarea>
-                        <div class="comment-footer">
-                          <span class="comment-hint">
-                            {navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to send
-                          </span>
-                          <div class="comment-actions">
-                            <button class="comment-cancel" onclick={closeComment}>Cancel</button>
-                            <button
-                              class="comment-send"
-                              onclick={sendComment}
-                              disabled={!commentText.trim()}
-                            >
-                              Send
-                            </button>
+                    {#each hunk.changes as change, i (`${i}-${change.type}`)}
+                      <div
+                        class="diff-line {change.type}"
+                        class:search-match={lineMatchesSearch(change.content)}
+                      >
+                        {#if hasAgent}
+                          <button
+                            class="comment-trigger"
+                            title="Add review comment"
+                            aria-label="Add review comment"
+                            onclick={() =>
+                              openComment(file.path, `${hunk.header}:${i}`, getLineNum(change))}
+                            >+</button
+                          >
+                        {/if}
+                        <span class="gutter old-gutter"
+                          >{change.type !== 'add' && change.oldLine != null
+                            ? change.oldLine
+                            : ''}</span
+                        >
+                        <span class="gutter new-gutter"
+                          >{change.type !== 'delete' && change.newLine != null
+                            ? change.newLine
+                            : ''}</span
+                        >
+                        <span class="line-prefix"
+                          >{change.type === 'add'
+                            ? '+'
+                            : change.type === 'delete'
+                              ? '-'
+                              : ' '}</span
+                        >
+                        {#if searchQuery && lineMatchesSearch(change.content)}
+                          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                          <span class="line-content">{@html highlightMatch(change.content)}</span>
+                        {:else}
+                          <span class="line-content">{change.content}</span>
+                        {/if}
+                      </div>
+                      {#if commentKey === `${file.path}:${hunk.header}:${i}`}
+                        <div class="comment-form">
+                          <textarea
+                            class="comment-input"
+                            placeholder="Comment for agent — {file.path}:{getLineNum(change)}"
+                            bind:value={commentText}
+                            onkeydown={(e) => {
+                              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendComment()
+                              if (e.key === 'Escape') closeComment()
+                            }}
+                          ></textarea>
+                          <div class="comment-footer">
+                            <span class="comment-hint">
+                              {navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to send
+                            </span>
+                            <div class="comment-actions">
+                              <button class="comment-cancel" onclick={closeComment}>Cancel</button>
+                              <button
+                                class="comment-send"
+                                onclick={sendComment}
+                                disabled={!commentText.trim()}
+                              >
+                                Send
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              {/each}
+                      {/if}
+                    {/each}
+                  </div>
+                {/each}
+              {/if}
             {/if}
-          {/if}
-        </div>
-      {/each}
+          </div>
+        {/each}
+      </div>
     {/if}
   </div>
 </div>
@@ -663,6 +672,11 @@
     line-height: 1.5;
   }
 
+  .diff-scroll-content {
+    width: fit-content;
+    min-width: 100%;
+  }
+
   .file-section {
     border-bottom: 1px solid var(--c-border-subtle);
   }
@@ -686,7 +700,7 @@
   }
 
   .file-header:hover {
-    background: var(--c-active);
+    background: color-mix(in srgb, var(--c-text) 8%, var(--c-bg-elevated));
   }
 
   .chevron {
