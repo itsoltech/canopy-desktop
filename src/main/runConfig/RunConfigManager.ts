@@ -1,5 +1,5 @@
 import { readFile, writeFile, mkdir, readdir } from 'fs/promises'
-import { join, relative, dirname, sep } from 'path'
+import { join, relative } from 'path'
 import { ok, err, type ResultAsync } from 'neverthrow'
 import { parse, stringify } from 'smol-toml'
 import type { RunConfigFile, RunConfigSource, RunConfiguration } from './types'
@@ -110,37 +110,47 @@ export class RunConfigManager {
 
   private async scanForConfigs(repoRoot: string): Promise<RunConfigSource[]> {
     const ignoreSet = new Set(SAFETY_IGNORE_PATTERNS)
-    const entries = await readdir(repoRoot, { recursive: true, withFileTypes: true })
     const sources: RunConfigSource[] = []
+    await this.walkDir(repoRoot, repoRoot, ignoreSet, sources)
+    return sources
+  }
 
-    for (const entry of entries) {
-      if (!entry.isFile()) continue
-      if (entry.name !== CONFIG_FILE) continue
-
-      const parentPath = entry.parentPath ?? entry.path
-      if (!parentPath.endsWith(CONFIG_DIR)) continue
-
-      // Skip ignored directories
-      const relFromRoot = relative(repoRoot, parentPath)
-      const segments = relFromRoot.split(sep)
-      if (segments.some((s) => ignoreSet.has(s))) continue
-
-      const configDir = dirname(parentPath)
-      const relativePath = relative(repoRoot, configDir)
-      const filePath = join(parentPath, CONFIG_FILE)
-
-      try {
-        const raw = await readFile(filePath, 'utf-8')
-        const parsed = parse(raw) as Record<string, unknown>
-        const configurations = Array.isArray(parsed.configurations)
-          ? (parsed.configurations as RunConfiguration[])
-          : []
-        sources.push({ configDir, relativePath: relativePath || '.', file: { configurations } })
-      } catch {
-        // Skip unparseable files
-      }
+  private async walkDir(
+    dir: string,
+    repoRoot: string,
+    ignoreSet: Set<string>,
+    sources: RunConfigSource[],
+  ): Promise<void> {
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
     }
 
-    return sources
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      if (ignoreSet.has(entry.name)) continue
+
+      const fullPath = join(dir, entry.name)
+
+      if (entry.name === CONFIG_DIR) {
+        const filePath = join(fullPath, CONFIG_FILE)
+        try {
+          const raw = await readFile(filePath, 'utf-8')
+          const parsed = parse(raw) as Record<string, unknown>
+          const configurations = Array.isArray(parsed.configurations)
+            ? (parsed.configurations as RunConfiguration[])
+            : []
+          const configDir = dir
+          const relativePath = relative(repoRoot, configDir) || '.'
+          sources.push({ configDir, relativePath, file: { configurations } })
+        } catch {
+          // No run.toml or unparseable — skip
+        }
+      } else {
+        await this.walkDir(fullPath, repoRoot, ignoreSet, sources)
+      }
+    }
   }
 }
