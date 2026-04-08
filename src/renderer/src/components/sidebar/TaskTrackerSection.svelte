@@ -1,14 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { SquareKanban, Plus, ExternalLink, Settings, GitPullRequest } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
     getResolvedConfig,
     getTrackerCredentials,
     isTaskTrackerLoading,
-    getTaskTrackerConnections,
     getActiveTask,
-    loadConnections,
   } from '../../lib/stores/taskTracker.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { showPreferences, confirm } from '../../lib/stores/dialogs.svelte'
@@ -16,15 +13,10 @@
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
   import { addToast } from '../../lib/stores/toast.svelte'
 
-  onMount(() => {
-    loadConnections()
-  })
-
   let resolved = $derived(getResolvedConfig())
   let trackers = $derived(resolved?.config.trackers ?? [])
   let trackerCreds = $derived(getTrackerCredentials())
   let loading = $derived(isTaskTrackerLoading())
-  let connections = $derived(getTaskTrackerConnections())
   let activeTask = $derived(getActiveTask())
   let creatingPR = $state(false)
 
