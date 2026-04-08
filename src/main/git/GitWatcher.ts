@@ -1,9 +1,11 @@
 import { join, sep } from 'path'
 import * as watcher from '@parcel/watcher'
+import { ResultAsync, okAsync } from 'neverthrow'
 import { GitRepository } from './GitRepository'
 import type { GitInfo } from './GitRepository'
-import { errorMessage } from '../errors'
+import { fromExternalCall, errorMessage } from '../errors'
 import { gitErrorMessage } from './errors'
+import type { GitError } from './errors'
 
 export interface GitRefreshFlags {
   branch: boolean
@@ -52,18 +54,23 @@ export class GitWatcher {
     this.lastInfo = initialInfo ?? null
   }
 
-  async start(): Promise<void> {
-    if (this.subscription) return
+  start(): ResultAsync<void, GitError> {
+    if (this.subscription) return okAsync(undefined)
 
     const gitDir = join(this.repoRoot, '.git')
-    try {
-      this.subscription = await watcher.subscribe(gitDir, this.handleEvents, {
+    return fromExternalCall(
+      watcher.subscribe(gitDir, this.handleEvents, {
         // Skip write-heavy / irrelevant subdirs to keep event volume low.
         ignore: ['objects', 'logs', 'hooks', 'lfs', 'modules'],
-      })
-    } catch (e) {
-      console.warn(`[GitWatcher] failed to start for ${gitDir}:`, errorMessage(e))
-    }
+      }),
+      (e): GitError => ({
+        _tag: 'WatcherStartFailed',
+        path: gitDir,
+        message: errorMessage(e),
+      }),
+    ).map((sub) => {
+      this.subscription = sub
+    })
   }
 
   async stop(): Promise<void> {
@@ -92,13 +99,14 @@ export class GitWatcher {
     const inGraceWindow = now - this.lastRefreshCompletedAt < this.selfTriggeredGraceMs
 
     for (const ev of events) {
-      // Native events arrive with platform separators; normalize to forward
-      // slashes so the path comparisons below work on Windows too.
-      const normalized = sep === '\\' ? ev.path.split(sep).join('/') : ev.path
-      if (!this.isRelevantGitPath(normalized)) continue
+      // `ev.path` and the comparison targets in `isRelevantGitPath` /
+      // `markPendingRefresh` are all built with `path.join()`, so they share
+      // the platform's native separator. No normalization needed.
+      const changedPath = ev.path
+      if (!this.isRelevantGitPath(changedPath)) continue
       // Skip index events triggered by our own refresh (stat refresh loop)
-      if (inGraceWindow && normalized === indexPath) continue
-      this.scheduleRefresh(normalized)
+      if (inGraceWindow && changedPath === indexPath) continue
+      this.scheduleRefresh(changedPath)
     }
   }
 
@@ -114,8 +122,8 @@ export class GitWatcher {
     const gitDir = join(this.repoRoot, '.git')
     const headPath = join(gitDir, 'HEAD')
     const indexPath = join(gitDir, 'index')
-    const refsPrefix = join(gitDir, 'refs') + '/'
-    const worktreesPrefix = join(gitDir, 'worktrees') + '/'
+    const refsPrefix = join(gitDir, 'refs') + sep
+    const worktreesPrefix = join(gitDir, 'worktrees') + sep
 
     // Skip lock files and other transient intermediates
     if (changedPath.endsWith('.lock')) return false
@@ -164,8 +172,8 @@ export class GitWatcher {
     const gitDir = join(this.repoRoot, '.git')
     const headPath = join(gitDir, 'HEAD')
     const indexPath = join(gitDir, 'index')
-    const refsPrefix = join(gitDir, 'refs') + '/'
-    const worktreesPrefix = join(gitDir, 'worktrees') + '/'
+    const refsPrefix = join(gitDir, 'refs') + sep
+    const worktreesPrefix = join(gitDir, 'worktrees') + sep
 
     if (changedPath === indexPath) {
       this.pendingRefresh.dirty = true

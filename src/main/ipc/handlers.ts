@@ -572,7 +572,12 @@ export function registerIpcHandlers(
       },
       payload.snapshot,
     )
-    void watcher.start()
+    const startResult = await watcher.start()
+    if (startResult.isErr()) {
+      // Log but don't throw — git watching is best-effort, the renderer
+      // can still query git state on demand if the watcher fails to start.
+      console.warn(gitErrorMessage(startResult.error))
+    }
     windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
 
