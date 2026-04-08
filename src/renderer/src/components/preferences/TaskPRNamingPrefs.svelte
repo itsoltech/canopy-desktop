@@ -107,7 +107,6 @@
           prScope = v
           initialized = false
         }}
-        maxWidth="240px"
       />
     </div>
   {/if}
@@ -171,13 +170,14 @@
   .select-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     font-size: 13px;
   }
 
   .select-label {
     color: var(--c-text-secondary);
-    min-width: 110px;
+    width: 90px;
+    flex-shrink: 0;
   }
 
   .field {

@@ -118,7 +118,6 @@
           templateInput = branchTemplate.template
           updatePreview()
         }}
-        maxWidth="240px"
       />
     </div>
     {#if templateScope !== 'default' && !config?.boardOverrides[templateScope]?.branchTemplate}
@@ -178,13 +177,14 @@
   .select-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     font-size: 13px;
   }
 
   .select-label {
     color: var(--c-text-secondary);
-    min-width: 110px;
+    width: 90px;
+    flex-shrink: 0;
   }
 
   .field-label {
@@ -220,13 +220,14 @@
   .preview-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
   }
 
   .preview-label {
     font-size: 12px;
     color: var(--c-text-secondary);
-    min-width: 110px;
+    width: 90px;
+    flex-shrink: 0;
   }
 
   .preview-value {

@@ -98,20 +98,28 @@ export class GitRepository {
       path: dirPath,
     })).andThen((raw) => {
       const repoRoot = raw.trim()
-      return GitRepository.getBranch(repoRoot).andThen((branch) =>
-        GitRepository.listWorktrees(repoRoot).andThen((worktrees) =>
-          GitRepository.isDirty(repoRoot).andThen((isDirty) =>
-            GitRepository.getAheadBehind(repoRoot).map((aheadBehind) => ({
-              isGitRepo: true as const,
-              repoRoot,
-              branch,
-              worktrees,
-              isDirty,
-              aheadBehind,
-            })),
-          ),
-        ),
-      )
+      return GitRepository.getBranch(repoRoot)
+        .orElse(() => okAsync<string | null, GitError>(null))
+        .andThen((branch) =>
+          GitRepository.listWorktrees(repoRoot)
+            .orElse(() => okAsync<GitWorktreeInfo[], GitError>([]))
+            .andThen((worktrees) =>
+              GitRepository.isDirty(repoRoot)
+                .orElse(() => okAsync<boolean, GitError>(false))
+                .andThen((isDirty) =>
+                  GitRepository.getAheadBehind(repoRoot)
+                    .orElse(() => okAsync<{ ahead: number; behind: number } | null, GitError>(null))
+                    .map((aheadBehind) => ({
+                      isGitRepo: true as const,
+                      repoRoot,
+                      branch,
+                      worktrees,
+                      isDirty,
+                      aheadBehind,
+                    })),
+                ),
+            ),
+        )
     })
   }
 
