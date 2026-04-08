@@ -119,6 +119,7 @@ export class GitRepository {
                 })
                 .andThen((isDirty) =>
                   GitRepository.getAheadBehind(repoRoot)
+                    // No warn — getAheadBehind fails routinely when there is no upstream
                     .orElse(() => okAsync<{ ahead: number; behind: number } | null, GitError>(null))
                     .map((aheadBehind) => ({
                       isGitRepo: true as const,
