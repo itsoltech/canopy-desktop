@@ -9,7 +9,6 @@
     addRunConfig,
     updateRunConfig,
     executeRunConfig,
-    executeBackground,
   } from '../../lib/stores/runConfig.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -107,10 +106,6 @@
     closeDialog()
   }
 
-  async function handlePlayBackground(configDir: string, name: string): Promise<void> {
-    await executeBackground(configDir, name)
-  }
-
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') closeDialog()
   }
@@ -162,16 +157,6 @@
                     }}
                   >
                     <Play size={14} />
-                  </button>
-                  <button
-                    class="tree-item-action play-bg"
-                    onclick={(e) => {
-                      e.stopPropagation()
-                      handlePlayBackground(group.configDir, config.name)
-                    }}
-                  >
-                    <Play size={12} />
-                    <span class="bg-dot"></span>
                   </button>
                   <button
                     class="tree-item-action danger"
@@ -377,24 +362,6 @@
 
   .tree-item-action.play {
     color: var(--c-success-text);
-  }
-
-  .tree-item-action.play-bg {
-    color: var(--c-text-muted);
-  }
-
-  .tree-item-action.play-bg:hover {
-    color: var(--c-success-text);
-  }
-
-  .bg-dot {
-    position: absolute;
-    bottom: 2px;
-    right: 2px;
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: currentColor;
   }
 
   .tree-item-action.danger:hover {

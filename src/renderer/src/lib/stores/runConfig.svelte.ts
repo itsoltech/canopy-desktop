@@ -142,36 +142,14 @@ export async function executeRunConfig(
   }
 }
 
-export async function executeBackground(configDir: string, name: string): Promise<void> {
-  try {
-    const cwd = workspaceState.selectedWorktreePath
-    if (!cwd) return
-    const result = await window.api.runConfigExecuteBackground(configDir, name, cwd)
-    runningProcesses.set(result.sessionId, {
-      sessionId: result.sessionId,
-      name,
-      configDir,
-      worktreePath: cwd,
-    })
-  } catch (e) {
-    addToast(`Failed to run "${name}" in background: ${e instanceof Error ? e.message : String(e)}`)
-  }
-}
-
 export function initBackgroundListener(): void {
   if (_cleanupBackgroundListener) return
-  const cleanupBg = window.api.onRunConfigBackgroundStatus((data) => {
-    if (data.status === 'exited' && data.sessionId) {
-      runningProcesses.delete(data.sessionId)
-    }
-  })
   const cleanupPty = window.api.onPtyExit((data) => {
     if (runningProcesses.has(data.sessionId)) {
       runningProcesses.delete(data.sessionId)
     }
   })
   _cleanupBackgroundListener = () => {
-    cleanupBg()
     cleanupPty()
   }
 }

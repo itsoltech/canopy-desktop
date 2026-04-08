@@ -646,12 +646,6 @@ interface CanopyAPI {
     name: string,
     cwd?: string,
   ) => Promise<{ sessionId: string; wsUrl: string }>
-  runConfigExecuteBackground: (
-    configDir: string,
-    name: string,
-    cwd?: string,
-  ) => Promise<{ sessionId: string }>
-  onRunConfigBackgroundStatus: (callback: (data: RunConfigBackgroundEvent) => void) => () => void
 }
 
 interface RunConfiguration {
@@ -672,14 +666,6 @@ interface RunConfigSource {
   configDir: string
   relativePath: string
   file: RunConfigFile
-}
-
-interface RunConfigBackgroundEvent {
-  name: string
-  configDir: string
-  status: string
-  exitCode?: number
-  sessionId?: string
 }
 
 type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'

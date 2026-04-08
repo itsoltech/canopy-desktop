@@ -9,7 +9,6 @@
     getGroupedConfigs,
     getRunningProcesses,
     executeRunConfig,
-    executeBackground,
     deleteRunConfig,
     initBackgroundListener,
     cleanupBackgroundListener,
@@ -40,10 +39,6 @@
         openRunConfigTab(name, result.sessionId, result.wsUrl, worktreePath)
       }
     }
-  }
-
-  async function handlePlayBackground(configDir: string, name: string): Promise<void> {
-    await executeBackground(configDir, name)
   }
 
   async function handleDelete(configDir: string, name: string): Promise<void> {
@@ -113,15 +108,6 @@
                   onclick={() => handlePlay(group.configDir, config.name)}
                 >
                   <Play size={14} />
-                </button>
-              </Tooltip>
-              <Tooltip text="Run in background">
-                <button
-                  class="config-action play-bg"
-                  onclick={() => handlePlayBackground(group.configDir, config.name)}
-                >
-                  <Play size={12} />
-                  <span class="bg-dot"></span>
                 </button>
               </Tooltip>
             {/if}
@@ -219,30 +205,12 @@
     color: var(--c-success-text);
   }
 
-  .config-action.play-bg {
-    color: var(--c-text-muted);
-  }
-
-  .config-action.play-bg:hover {
-    color: var(--c-success-text);
-  }
-
   .config-action.stop {
     color: var(--c-danger-text);
   }
 
   .config-action.danger:hover {
     color: var(--c-danger-text);
-  }
-
-  .bg-dot {
-    position: absolute;
-    bottom: 2px;
-    right: 2px;
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: currentColor;
   }
 
   .header-btn {

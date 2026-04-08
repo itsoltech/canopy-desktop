@@ -733,24 +733,6 @@ const api = {
       sessionId: string
       wsUrl: string
     }>,
-  runConfigExecuteBackground: (configDir: string, name: string, cwd?: string) =>
-    ipcRenderer.invoke('runConfig:executeBackground', { configDir, name, cwd }) as Promise<{
-      sessionId: string
-    }>,
-  onRunConfigBackgroundStatus: (
-    callback: (data: {
-      name: string
-      configDir: string
-      status: string
-      exitCode?: number
-      sessionId?: string
-    }) => void,
-  ) => {
-    const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
-      callback(data)
-    ipcRenderer.on('runConfig:backgroundStatus', handler)
-    return () => ipcRenderer.removeListener('runConfig:backgroundStatus', handler)
-  },
 }
 
 if (process.contextIsolated) {

@@ -9,7 +9,6 @@
     getRunningProcesses,
     selectRunConfig,
     executeRunConfig,
-    executeBackground,
   } from '../../lib/stores/runConfig.svelte'
   import { showRunConfigManager } from '../../lib/stores/dialogs.svelte'
   import { openRunConfigTab } from '../../lib/stores/tabs.svelte'
@@ -83,12 +82,6 @@
     }
   }
 
-  async function handlePlayBackground(): Promise<void> {
-    const target = getActiveTarget()
-    if (!target) return
-    await executeBackground(target.configDir, target.name)
-  }
-
   function getSelectedRunningId(): string | null {
     const target = getActiveTarget()
     if (!target) return null
@@ -128,13 +121,6 @@
       <Tooltip text="Run">
         <button class="play-btn" onclick={handlePlay}>
           <Play size={12} />
-        </button>
-      </Tooltip>
-
-      <Tooltip text="Run in background">
-        <button class="play-btn bg" onclick={handlePlayBackground}>
-          <Play size={10} />
-          <span class="bg-dot"></span>
         </button>
       </Tooltip>
     {/if}
@@ -194,24 +180,6 @@
 
   .stop-btn:hover {
     background: var(--c-hover);
-  }
-
-  .play-btn.bg {
-    color: var(--c-text-muted);
-  }
-
-  .play-btn.bg:hover {
-    color: var(--c-success-text);
-  }
-
-  .bg-dot {
-    position: absolute;
-    bottom: 3px;
-    right: 3px;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: currentColor;
   }
 
   .settings-btn {
