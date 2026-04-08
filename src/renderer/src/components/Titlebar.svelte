@@ -1,13 +1,24 @@
 <script lang="ts">
   import { workspaceState } from '../lib/stores/workspace.svelte'
+  import { tabsByWorktree, activeTabId, getTabDisplayName } from '../lib/stores/tabs.svelte'
   import TitlebarMenu from './TitlebarMenu.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
+
+  let activeTabName = $derived.by(() => {
+    const path = workspaceState.selectedWorktreePath
+    if (!path) return null
+    const tabId = activeTabId[path]
+    if (!tabId) return null
+    const tab = (tabsByWorktree[path] ?? []).find((t) => t.id === tabId)
+    return tab ? getTabDisplayName(tab) : null
+  })
 
   $effect(() => {
     if (workspaceState.workspace) {
       let title = workspaceState.workspace.name
       if (workspaceState.branch) title += ` — ${workspaceState.branch}`
+      if (activeTabName) title += ` — ${activeTabName}`
       if (workspaceState.isDirty) title += ' *'
       document.title = title
     } else {
@@ -27,6 +38,9 @@
       {workspaceState.workspace.name}
       {#if workspaceState.branch}
         <span class="branch">{workspaceState.branch}</span>
+      {/if}
+      {#if activeTabName}
+        <span class="tab-name">{activeTabName}</span>
       {/if}
       {#if workspaceState.isDirty}
         <span class="dirty">*</span>
@@ -80,6 +94,15 @@
   }
 
   .branch::before {
+    content: '\2014\00a0';
+  }
+
+  .tab-name {
+    color: var(--c-text-muted);
+    margin-left: 6px;
+  }
+
+  .tab-name::before {
     content: '\2014\00a0';
   }
 
