@@ -7,11 +7,18 @@ export interface ActiveTaskContext {
   boardId?: string
 }
 
+export interface TrackerCredentialState {
+  hasToken: boolean
+  username?: string
+}
+
 let connections: TaskTrackerConnectionInfo[] = $state([])
 let loading = $state(false)
 let repoConfig: RepoConfig | null = $state(null)
-let hasCredentials = $state(false)
-let credentialsInfo: { username?: string; hasToken: boolean } | null = $state(null)
+let globalConfig: RepoConfig | null = $state(null)
+let resolvedConfig: ResolvedConfig | null = $state(null)
+// Per-tracker credentials: keyed by trackerId
+let trackerCredentials = $state<Record<string, TrackerCredentialState>>({})
 let activeTask: ActiveTaskContext | null = $state(null)
 
 export function getTaskTrackerConnections(): TaskTrackerConnectionInfo[] {
@@ -26,50 +33,105 @@ export function getRepoConfig(): RepoConfig | null {
   return repoConfig
 }
 
-export function getHasCredentials(): boolean {
-  return hasCredentials
+export function getGlobalConfig(): RepoConfig | null {
+  return globalConfig
 }
 
-export function getCredentialsInfo(): { username?: string; hasToken: boolean } | null {
-  return credentialsInfo
+export function getResolvedConfig(): ResolvedConfig | null {
+  return resolvedConfig
+}
+
+export function getTrackerCredentials(): Record<string, TrackerCredentialState> {
+  return trackerCredentials
+}
+
+export function hasAnyCredentials(): boolean {
+  return Object.values(trackerCredentials).some((c) => c.hasToken)
+}
+
+export function getTrackerCredential(trackerId: string): TrackerCredentialState | null {
+  return trackerCredentials[trackerId] ?? null
+}
+
+async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
+  const creds: Record<string, TrackerCredentialState> = {}
+  for (const t of trackers) {
+    if (!t.baseUrl) continue
+    try {
+      const has = await window.api.keychainHasCredentials(t.provider, t.baseUrl)
+      if (has) {
+        const info = await window.api.keychainGetCredentials(t.provider, t.baseUrl)
+        creds[t.id] = { hasToken: true, username: info?.username }
+      } else {
+        creds[t.id] = { hasToken: false }
+      }
+    } catch {
+      creds[t.id] = { hasToken: false }
+    }
+  }
+  // Only keep credentials for active trackers — clear stale entries
+  trackerCredentials = creds
 }
 
 export async function loadRepoConfig(repoRoot: string): Promise<void> {
   loading = true
   try {
     repoConfig = await window.api.repoConfigLoad(repoRoot)
-    if (repoConfig) {
-      hasCredentials = await window.api.keychainHasCredentials(
-        repoConfig.tracker.provider,
-        repoConfig.tracker.baseUrl,
-      )
-      credentialsInfo = await window.api.keychainGetCredentials(
-        repoConfig.tracker.provider,
-        repoConfig.tracker.baseUrl,
-      )
-    } else {
-      hasCredentials = false
-      credentialsInfo = null
+    resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
+    if (resolvedConfig) {
+      await refreshCredentials(resolvedConfig.config.trackers)
     }
   } catch {
     repoConfig = null
-    hasCredentials = false
-    credentialsInfo = null
   } finally {
     loading = false
   }
 }
 
 export async function saveRepoConfig(repoRoot: string, config: RepoConfig): Promise<void> {
-  // Strip Svelte proxies before sending through IPC (structured clone)
   const plain = JSON.parse(JSON.stringify(config)) as RepoConfig
   await window.api.repoConfigSave(repoRoot, plain)
   repoConfig = plain
+  resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
 }
 
 export async function initRepoConfig(repoRoot: string): Promise<RepoConfig> {
   const config = await window.api.repoConfigInit(repoRoot)
   repoConfig = config
+  resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
+  return config
+}
+
+export async function loadGlobalConfig(): Promise<void> {
+  loading = true
+  try {
+    globalConfig = await window.api.globalConfigLoad()
+    if (globalConfig) {
+      await refreshCredentials(globalConfig.trackers)
+    }
+  } catch {
+    globalConfig = null
+  } finally {
+    loading = false
+  }
+}
+
+export async function saveGlobalConfig(config: RepoConfig): Promise<void> {
+  const plain = JSON.parse(JSON.stringify(config)) as RepoConfig
+  await window.api.globalConfigSave(plain)
+  globalConfig = plain
+  await refreshCredentials(plain.trackers)
+}
+
+export async function initGlobalConfig(): Promise<RepoConfig> {
+  const config: RepoConfig = {
+    version: 1,
+    trackers: [],
+    boardOverrides: {},
+    filters: { assignedToMe: true, statuses: [] },
+  }
+  await window.api.globalConfigSave(config)
+  globalConfig = config
   return config
 }
 
@@ -85,7 +147,6 @@ export async function setActiveTask(worktreePath: string, task: ActiveTaskContex
 }
 
 export async function loadActiveTask(worktreePath: string): Promise<void> {
-  // Read directly from backend — prefs cache may not have this key yet
   const raw = await window.api.getPref(`activeTask.${worktreePath}`)
   if (raw) {
     try {

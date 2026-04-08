@@ -469,6 +469,14 @@ interface CanopyAPI {
   repoConfigExists: (repoRoot: string) => Promise<boolean>
   repoConfigInit: (repoRoot: string) => Promise<RepoConfig>
 
+  // Global Config
+  globalConfigLoad: () => Promise<RepoConfig | null>
+  globalConfigSave: (config: RepoConfig) => Promise<void>
+  globalConfigExists: () => Promise<boolean>
+
+  // Resolved Config (merged global + repo)
+  trackerResolvedConfig: (repoRoot?: string) => Promise<ResolvedConfig | null>
+
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
   keychainSetCredentials: (
@@ -635,8 +643,10 @@ interface CanopyAPI {
 type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'
 
 interface TrackerConfig {
+  id: string
   provider: TaskTrackerProvider
   baseUrl: string
+  projectKey?: string
 }
 
 interface BranchTemplateConfig {
@@ -669,11 +679,24 @@ interface BoardOverride {
 
 interface RepoConfig {
   version: 1
-  tracker: TrackerConfig
+  trackers: TrackerConfig[]
   branchTemplate?: BranchTemplateConfig
   prTemplate?: PRTemplateConfig
   boardOverrides: Record<string, BoardOverride>
   filters: TaskFilterConfig
+}
+
+type ConfigSource = 'global' | 'repo'
+
+interface ResolvedConfig {
+  config: RepoConfig
+  source: {
+    branchTemplate: ConfigSource | 'default'
+    prTemplate: ConfigSource | 'default'
+    filters: ConfigSource | 'default'
+  }
+  hasGlobal: boolean
+  hasRepo: boolean
 }
 
 interface TaskTrackerConnectionInfo {

@@ -23,6 +23,7 @@ import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
 import { KeychainTokenStore } from './taskTracker/KeychainTokenStore'
 import { RepoConfigManager } from './taskTracker/RepoConfigManager'
+import { GlobalConfigManager } from './taskTracker/GlobalConfigManager'
 import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
@@ -510,6 +511,7 @@ app.whenReady().then(async () => {
 
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()
+  const globalConfigManager = new GlobalConfigManager(preferencesStore, keychainTokenStore)
   const taskTrackerManager = new TaskTrackerManager(preferencesStore, keychainTokenStore)
   const gitHubService = new GitHubService(preferencesStore, taskTrackerManager)
 
@@ -530,6 +532,7 @@ app.whenReady().then(async () => {
     tmuxManager,
     taskTrackerManager,
     repoConfigManager,
+    globalConfigManager,
     keychainTokenStore,
     gitHubService,
   )

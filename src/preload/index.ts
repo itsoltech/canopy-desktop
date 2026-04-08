@@ -551,6 +551,15 @@ const api = {
     ipcRenderer.invoke('repoConfig:exists', { repoRoot }) as Promise<boolean>,
   repoConfigInit: (repoRoot: string) => ipcRenderer.invoke('repoConfig:init', { repoRoot }),
 
+  // Global Config
+  globalConfigLoad: () => ipcRenderer.invoke('globalConfig:load'),
+  globalConfigSave: (config: unknown) => ipcRenderer.invoke('globalConfig:save', { config }),
+  globalConfigExists: () => ipcRenderer.invoke('globalConfig:exists') as Promise<boolean>,
+
+  // Resolved Config (merged global + repo)
+  trackerResolvedConfig: (repoRoot?: string) =>
+    ipcRenderer.invoke('tracker:resolvedConfig', { repoRoot }),
+
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) =>
     ipcRenderer.invoke('keychain:hasCredentials', { provider, baseUrl }) as Promise<boolean>,

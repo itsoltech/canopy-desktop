@@ -4,10 +4,14 @@
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import {
     loadRepoConfig,
+    loadGlobalConfig,
     getRepoConfig,
-    getHasCredentials,
+    getGlobalConfig,
+    hasAnyCredentials,
     saveRepoConfig,
+    saveGlobalConfig,
     initRepoConfig,
+    initGlobalConfig,
   } from '../../lib/stores/taskTracker.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -15,8 +19,13 @@
   import TaskBranchNamingPrefs from './TaskBranchNamingPrefs.svelte'
   import TaskPRNamingPrefs from './TaskPRNamingPrefs.svelte'
 
-  let config = $derived(getRepoConfig())
-  let hasCreds = $derived(getHasCredentials())
+  type ConfigScope = 'global' | 'project'
+  let scope = $state<ConfigScope>('global')
+
+  let repoConfig = $derived(getRepoConfig())
+  let globalConfig = $derived(getGlobalConfig())
+  let config = $derived(scope === 'global' ? globalConfig : repoConfig)
+  let hasCreds = $derived(hasAnyCredentials())
   let repoRoot = $derived(workspaceState.repoRoot)
 
   let boards = $state<Array<{ id: string; name: string }>>([])
@@ -28,15 +37,23 @@
   let loadingStatuses = $state(false)
 
   onMount(async () => {
-    // Always load placeholders regardless of config/credentials state
     try {
       placeholders = await window.api.taskTrackerGetAvailablePlaceholders({})
     } catch {
       // use empty
     }
 
-    if (!repoRoot) return
-    await loadRepoConfig(repoRoot)
+    await loadGlobalConfig()
+    // Auto-init global config if it doesn't exist
+    if (!globalConfig) {
+      await initGlobalConfig()
+    }
+
+    if (repoRoot) {
+      await loadRepoConfig(repoRoot)
+      // Default to project scope when repo has config
+      if (repoConfig) scope = 'project'
+    }
 
     if (hasCreds) {
       await fetchBoards()
@@ -58,12 +75,12 @@
     }
   }
 
-  async function handleInit(): Promise<void> {
+  async function handleInitProject(): Promise<void> {
     if (!repoRoot) return
     try {
       const newConfig = await initRepoConfig(repoRoot)
       branchNamingRef?.initTemplate(newConfig.branchTemplate?.template ?? '')
-      addToast('Tracker configuration initialized')
+      addToast('Project tracker configuration initialized')
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to initialize config')
     }
@@ -86,14 +103,18 @@
   }
 
   async function toggleAssignedToMe(): Promise<void> {
-    if (!config || !repoRoot) return
+    if (!config) return
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.filters = { ...updated.filters, assignedToMe: !updated.filters.assignedToMe }
-    await saveRepoConfig(repoRoot, updated)
+    if (scope === 'global') {
+      await saveGlobalConfig(updated)
+    } else if (repoRoot) {
+      await saveRepoConfig(repoRoot, updated)
+    }
   }
 
   async function toggleStatus(status: string): Promise<void> {
-    if (!config || !repoRoot) return
+    if (!config) return
     const current = [...config.filters.statuses]
     const idx = current.indexOf(status)
     if (idx >= 0) {
@@ -103,7 +124,11 @@
     }
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.filters = { ...updated.filters, statuses: current }
-    await saveRepoConfig(repoRoot, updated)
+    if (scope === 'global') {
+      await saveGlobalConfig(updated)
+    } else if (repoRoot) {
+      await saveRepoConfig(repoRoot, updated)
+    }
   }
 
   async function refreshPlaceholders(): Promise<void> {
@@ -114,25 +139,62 @@
       // keep current
     }
   }
+
+  function handleScopeChange(newScope: ConfigScope): void {
+    scope = newScope
+    if (config?.branchTemplate) {
+      branchNamingRef?.initTemplate(config.branchTemplate?.template ?? '')
+    }
+  }
 </script>
 
-{#if !repoRoot}
-  <p class="hint-text">Open a repository to configure task tracker.</p>
-{:else if !config}
-  <div class="section">
-    <h3 class="section-title">Task Tracker</h3>
-    <span class="hint-text">
-      No <code>.canopy/config.json</code> found in this repository.
-    </span>
-    <div>
-      <button class="btn btn-primary" onclick={handleInit}>Initialize Configuration</button>
-    </div>
-  </div>
-{:else}
-  <div class="section">
-    <h3 class="section-title">Task Tracker</h3>
+<div class="section">
+  <h3 class="section-title">Task Tracker</h3>
 
-    <TaskConnectionsPrefs {repoRoot} />
+  <div class="scope-tabs">
+    <button
+      class="scope-tab"
+      class:active={scope === 'global'}
+      onclick={() => handleScopeChange('global')}
+    >
+      Global
+    </button>
+    <button
+      class="scope-tab"
+      class:active={scope === 'project'}
+      disabled={!repoRoot}
+      onclick={() => handleScopeChange('project')}
+      title={repoRoot
+        ? 'Project-specific settings (.canopy/config.json)'
+        : 'Open a repository to configure project settings'}
+    >
+      Project
+    </button>
+  </div>
+
+  <span class="scope-hint">
+    {#if scope === 'global'}
+      Your personal settings, used across all projects.
+    {:else}
+      Stored in <code>.canopy/config.json</code> — shared with your team via git. Overrides global settings.
+    {/if}
+  </span>
+
+  {#if scope === 'project' && !repoRoot}
+    <p class="hint-text">Open a repository to configure project settings.</p>
+  {:else if scope === 'project' && !repoConfig}
+    <div>
+      <span class="hint-text">
+        No <code>.canopy/config.json</code> found in this repository.
+      </span>
+      <div style="margin-top: 8px">
+        <button class="btn btn-primary" onclick={handleInitProject}
+          >Initialize Project Config</button
+        >
+      </div>
+    </div>
+  {:else if config}
+    <TaskConnectionsPrefs {repoRoot} {scope} />
 
     <TaskBranchNamingPrefs
       bind:this={branchNamingRef}
@@ -140,9 +202,10 @@
       {boards}
       {placeholders}
       onTemplateChanged={refreshPlaceholders}
+      {scope}
     />
 
-    <TaskPRNamingPrefs {repoRoot} {boards} />
+    <TaskPRNamingPrefs {repoRoot} {boards} {scope} />
 
     <div class="subsection">
       <h4 class="subsection-title">Filters</h4>
@@ -177,8 +240,8 @@
         <span class="hint-text">Click refresh to load statuses from your tracker.</span>
       {/if}
     </div>
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
   .section {
@@ -192,6 +255,49 @@
     font-weight: 600;
     color: var(--c-text);
     margin: 0;
+  }
+
+  .scope-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--c-border-subtle);
+    border-radius: 8px;
+    padding: 2px;
+    width: fit-content;
+  }
+
+  .scope-tab {
+    padding: 5px 16px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--c-text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .scope-tab:hover:not(:disabled) {
+    color: var(--c-text-secondary);
+  }
+
+  .scope-tab.active {
+    background: var(--c-bg);
+    color: var(--c-text);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  .scope-tab:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .scope-hint {
+    font-size: 11px;
+    color: var(--c-text-faint);
+    margin-top: -12px;
   }
 
   .subsection {

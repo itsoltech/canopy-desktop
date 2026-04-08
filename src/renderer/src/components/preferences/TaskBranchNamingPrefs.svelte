@@ -2,18 +2,24 @@
   import { Plus } from '@lucide/svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
-  import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
+  import {
+    getRepoConfig,
+    getGlobalConfig,
+    saveRepoConfig,
+    saveGlobalConfig,
+  } from '../../lib/stores/taskTracker.svelte'
 
   interface Props {
-    repoRoot: string
+    repoRoot?: string
     boards: Array<{ id: string; name: string }>
     placeholders: Array<{ key: string; description: string; example: string }>
     onTemplateChanged: () => void
+    scope: 'global' | 'project'
   }
 
-  let { repoRoot, boards, placeholders, onTemplateChanged }: Props = $props()
+  let { repoRoot, boards, placeholders, onTemplateChanged, scope }: Props = $props()
 
-  let config = $derived(getRepoConfig())
+  let config = $derived(scope === 'global' ? getGlobalConfig() : getRepoConfig())
 
   type TemplateScope = 'default' | string
   let templateScope = $state<TemplateScope>('default')
@@ -67,9 +73,18 @@
         customVars: branchTemplate.customVars,
       }
     }
-    await saveRepoConfig(repoRoot, updated)
+    await persistConfig(updated)
     updatePreview()
     onTemplateChanged()
+  }
+
+  async function persistConfig(updated: typeof config): Promise<void> {
+    if (!updated) return
+    if (scope === 'global') {
+      await saveGlobalConfig(updated)
+    } else if (repoRoot) {
+      await saveRepoConfig(repoRoot, updated)
+    }
   }
 
   async function addCustomVar(): Promise<void> {
@@ -77,7 +92,7 @@
     const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
-    await saveRepoConfig(repoRoot, updated)
+    await persistConfig(updated)
     newVarKey = ''
     newVarValue = ''
     updatePreview()
@@ -90,7 +105,7 @@
     delete vars[key]
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
-    await saveRepoConfig(repoRoot, updated)
+    await persistConfig(updated)
     updatePreview()
     onTemplateChanged()
   }

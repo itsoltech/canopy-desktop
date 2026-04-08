@@ -4,6 +4,7 @@ import { ok, err, type ResultAsync } from 'neverthrow'
 import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
 import type { TaskTrackerError } from './errors'
 import { fromExternalCall } from '../errors'
+import { defaultConfig, getBranchTemplate, getPRTemplate } from './configDefaults'
 
 const CONFIG_DIR = '.canopy'
 const CONFIG_FILE = 'config.json'
@@ -15,33 +16,6 @@ function configDir(repoRoot: string): string {
 
 function configPath(repoRoot: string): string {
   return join(repoRoot, CONFIG_DIR, CONFIG_FILE)
-}
-
-const DEFAULT_BRANCH_TEMPLATE: BranchTemplateConfig & { typeMapping?: Record<string, string> } = {
-  template: '{branchType}/{taskKey}-{taskTitle}',
-  customVars: {},
-}
-
-const DEFAULT_PR_TEMPLATE: PRTemplateConfig = {
-  titleTemplate: '[{taskKey}] {taskTitle}',
-  bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-  defaultTargetBranch: '',
-  targetRules: [],
-}
-
-function defaultConfig(): RepoConfig {
-  return {
-    version: CURRENT_VERSION as 1,
-    tracker: {
-      provider: 'jira',
-      baseUrl: '',
-    },
-    boardOverrides: {},
-    filters: {
-      assignedToMe: true,
-      statuses: [],
-    },
-  }
 }
 
 export class RepoConfigManager {
@@ -60,7 +34,7 @@ export class RepoConfigManager {
       repoRoot,
     })).andThen((raw) => {
       try {
-        const parsed = JSON.parse(raw) as RepoConfig
+        const parsed = JSON.parse(raw) as Record<string, unknown>
         if (parsed.version !== CURRENT_VERSION) {
           return err({
             _tag: 'ConfigParseError' as const,
@@ -69,13 +43,33 @@ export class RepoConfigManager {
           })
         }
         const defaults = defaultConfig()
+
+        // Backward compat: convert old single `tracker` to `trackers` array
+        let trackers = (parsed as Record<string, unknown>).trackers as
+          | RepoConfig['trackers']
+          | undefined
+        if (!trackers && (parsed as Record<string, unknown>).tracker) {
+          const old = (parsed as Record<string, unknown>).tracker as {
+            provider: string
+            baseUrl: string
+          }
+          trackers = [
+            {
+              id: `${old.provider}-default`,
+              provider: old.provider as RepoConfig['trackers'][0]['provider'],
+              baseUrl: old.baseUrl,
+            },
+          ]
+        }
+
         const normalized: RepoConfig = {
           version: 1,
-          tracker: parsed.tracker ?? defaults.tracker,
-          branchTemplate: parsed.branchTemplate,
-          prTemplate: parsed.prTemplate,
-          boardOverrides: parsed.boardOverrides ?? defaults.boardOverrides,
-          filters: parsed.filters ?? defaults.filters,
+          trackers: trackers ?? defaults.trackers,
+          branchTemplate: parsed.branchTemplate as RepoConfig['branchTemplate'],
+          prTemplate: parsed.prTemplate as RepoConfig['prTemplate'],
+          boardOverrides: (parsed.boardOverrides ??
+            defaults.boardOverrides) as RepoConfig['boardOverrides'],
+          filters: (parsed.filters ?? defaults.filters) as RepoConfig['filters'],
         }
         return ok(normalized)
       } catch (e) {
@@ -112,33 +106,10 @@ export class RepoConfigManager {
     config: RepoConfig,
     boardId?: string,
   ): BranchTemplateConfig & { typeMapping?: Record<string, string> } {
-    const base = config.branchTemplate ?? DEFAULT_BRANCH_TEMPLATE
-    if (boardId) {
-      const override = config.boardOverrides[boardId]?.branchTemplate
-      if (override) {
-        return {
-          template: override.template ?? base.template,
-          customVars: { ...base.customVars, ...override.customVars },
-          typeMapping: override.typeMapping ?? base.typeMapping,
-        }
-      }
-    }
-    return base
+    return getBranchTemplate(config, boardId)
   }
 
   getPRTemplate(config: RepoConfig, boardId?: string): PRTemplateConfig {
-    const base = config.prTemplate ?? DEFAULT_PR_TEMPLATE
-    if (boardId) {
-      const override = config.boardOverrides[boardId]?.prTemplate
-      if (override) {
-        return {
-          titleTemplate: override.titleTemplate ?? base.titleTemplate,
-          bodyTemplate: override.bodyTemplate ?? base.bodyTemplate,
-          defaultTargetBranch: override.defaultTargetBranch ?? base.defaultTargetBranch,
-          targetRules: override.targetRules ?? base.targetRules,
-        }
-      }
-    }
-    return base
+    return getPRTemplate(config, boardId)
   }
 }

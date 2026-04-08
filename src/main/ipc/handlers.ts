@@ -31,9 +31,16 @@ import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
+import type { GlobalConfigManager } from '../taskTracker/GlobalConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
-import type { TaskTrackerProvider, TrackerTask } from '../taskTracker/types'
+import type {
+  TaskTrackerProvider,
+  TrackerTask,
+  RepoConfig,
+  ResolvedConfig,
+} from '../taskTracker/types'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
+import { mergeConfigs } from '../taskTracker/configMerge'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 
@@ -51,6 +58,7 @@ import {
   BRANCH_TYPE_OPTIONS,
 } from '../taskTracker/branchTemplate'
 import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
+import { getBranchTemplate, getPRTemplate } from '../taskTracker/configDefaults'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 
@@ -74,6 +82,7 @@ export function registerIpcHandlers(
   tmuxManager: TmuxManager,
   taskTrackerManager: TaskTrackerManager,
   repoConfigManager: RepoConfigManager,
+  globalConfigManager: GlobalConfigManager,
   keychainTokenStore: KeychainTokenStore,
   gitHubService: GitHubService,
 ): void {
@@ -1223,10 +1232,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'repoConfig:save',
-    async (
-      _event,
-      payload: { repoRoot: string; config: import('../taskTracker/types').RepoConfig },
-    ) => {
+    async (_event, payload: { repoRoot: string; config: RepoConfig }) => {
       const result = await repoConfigManager.save(payload.repoRoot, payload.config)
       unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -1239,6 +1245,66 @@ export function registerIpcHandlers(
   ipcMain.handle('repoConfig:init', async (_event, payload: { repoRoot: string }) => {
     const result = await repoConfigManager.init(payload.repoRoot)
     return unwrapOrThrow(result, taskTrackerErrorMessage)
+  })
+
+  // --- Global Config ---
+
+  ipcMain.handle('globalConfig:load', () => {
+    return globalConfigManager.load()
+  })
+
+  const VALID_PROVIDERS = new Set(['jira', 'youtrack', 'github'])
+
+  function isValidRepoConfig(c: unknown): c is RepoConfig {
+    if (!c || typeof c !== 'object') return false
+    const o = c as Record<string, unknown>
+    return (
+      o.version === 1 &&
+      Array.isArray(o.trackers) &&
+      (o.trackers as unknown[]).every(
+        (t) =>
+          t &&
+          typeof (t as Record<string, unknown>).id === 'string' &&
+          VALID_PROVIDERS.has(String((t as Record<string, unknown>).provider)) &&
+          typeof (t as Record<string, unknown>).baseUrl === 'string',
+      ) &&
+      !!o.filters &&
+      typeof (o.filters as Record<string, unknown>).assignedToMe === 'boolean' &&
+      Array.isArray((o.filters as Record<string, unknown>).statuses) &&
+      ((o.filters as Record<string, unknown>).statuses as unknown[]).every(
+        (s) => typeof s === 'string',
+      ) &&
+      typeof o.boardOverrides === 'object' &&
+      (!o.branchTemplate ||
+        typeof (o.branchTemplate as Record<string, unknown>).template === 'string') &&
+      (!o.prTemplate || typeof (o.prTemplate as Record<string, unknown>).titleTemplate === 'string')
+    )
+  }
+
+  ipcMain.handle('globalConfig:save', (_event, payload: { config: unknown }) => {
+    if (!isValidRepoConfig(payload.config)) {
+      throw new Error('Invalid config: check version, trackers, filters, and template fields')
+    }
+    globalConfigManager.save(payload.config)
+  })
+
+  ipcMain.handle('globalConfig:exists', () => {
+    return globalConfigManager.exists()
+  })
+
+  // Shared helper: resolve effective config (merged global + repo)
+  async function resolveEffectiveConfig(repoRoot?: string): Promise<ResolvedConfig | null> {
+    const global = globalConfigManager.load()
+    let repo: RepoConfig | null = null
+    if (repoRoot) {
+      const result = await repoConfigManager.load(repoRoot)
+      repo = result.unwrapOr(null)
+    }
+    return mergeConfigs(global, repo)
+  }
+
+  ipcMain.handle('tracker:resolvedConfig', async (_event, payload: { repoRoot?: string }) => {
+    return resolveEffectiveConfig(payload.repoRoot)
   })
 
   // --- Keychain ---
@@ -1554,54 +1620,23 @@ export function registerIpcHandlers(
         repoRoot?: string
       },
     ) => {
-      let template = '{taskKey}'
-      let customVars: Record<string, string> = {}
-      let foundInConfig = false
-
-      // Try repo config first
-      if (payload.repoRoot) {
-        const configResult = await repoConfigManager.load(payload.repoRoot)
-        if (configResult.isOk()) {
-          const resolved = repoConfigManager.getBranchTemplate(configResult.value, payload.boardId)
-          template = resolved.template
-          customVars = resolved.customVars
-          foundInConfig = true
-        }
-      }
-
-      // Fallback to legacy prefs only if no repo config found
-      if (!foundInConfig) {
-        const keys = [
-          payload.boardId &&
-            `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
-          `taskTracker.branchTemplate.${payload.connectionId}`,
-          'taskTracker.branchTemplate',
-        ].filter(Boolean) as string[]
-
-        for (const key of keys) {
-          const raw = preferencesStore.get(key)
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw)
-              if (parsed.template) {
-                template = parsed.template
-                customVars = parsed.customVars ?? {}
-                break
-              }
-            } catch {
-              // try next level
-            }
-          }
-        }
-      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const branchTpl = resolved
+        ? getBranchTemplate(resolved.config, payload.boardId)
+        : { template: '{taskKey}', customVars: {} }
 
       // Get sprint: from task data or from API
       const sprint = await taskTrackerManager
         .getCurrentSprint(payload.connectionId, payload.boardId)
         .unwrapOr(null)
 
-      const variables = buildVariables(payload.task, sprint, customVars, payload.branchType)
-      return renderBranchName(template, variables)
+      const variables = buildVariables(
+        payload.task,
+        sprint,
+        branchTpl.customVars,
+        payload.branchType,
+      )
+      return renderBranchName(branchTpl.template, variables)
     },
   )
 
@@ -1634,55 +1669,14 @@ export function registerIpcHandlers(
         repoRoot?: string
       },
     ) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
       let typeMapping: Record<string, string> | undefined
       let hasBranchType = false
-      let foundInConfig = false
 
-      // Try repo config first
-      if (payload.repoRoot) {
-        const configResult = await repoConfigManager.load(payload.repoRoot)
-        if (configResult.isOk()) {
-          const branchTemplate = repoConfigManager.getBranchTemplate(
-            configResult.value,
-            payload.boardId,
-          )
-          hasBranchType = branchTemplate.template.includes('{branchType}')
-          typeMapping = branchTemplate.typeMapping
-          foundInConfig = true
-        }
-      }
-
-      // Fallback to legacy prefs only if no repo config found
-      if (!foundInConfig) {
-        const typeMappingJson = preferencesStore.get('taskTracker.typeMapping')
-        if (typeMappingJson) {
-          try {
-            typeMapping = JSON.parse(typeMappingJson)
-          } catch {
-            // use defaults
-          }
-        }
-
-        const keys = [
-          payload.boardId &&
-            payload.connectionId &&
-            `taskTracker.branchTemplate.${payload.connectionId}.${payload.boardId}`,
-          payload.connectionId && `taskTracker.branchTemplate.${payload.connectionId}`,
-          'taskTracker.branchTemplate',
-        ].filter(Boolean) as string[]
-
-        for (const key of keys) {
-          const raw = preferencesStore.get(key)
-          if (raw) {
-            try {
-              const config = JSON.parse(raw)
-              hasBranchType = (config.template ?? '').includes('{branchType}')
-              break
-            } catch {
-              // try next level
-            }
-          }
-        }
+      if (resolved) {
+        const branchTpl = getBranchTemplate(resolved.config, payload.boardId)
+        hasBranchType = branchTpl.template.includes('{branchType}')
+        typeMapping = branchTpl.typeMapping
       }
 
       return {
@@ -1713,50 +1707,18 @@ export function registerIpcHandlers(
         task = await taskTrackerManager.findTaskByKey(payload.taskKey).catch(() => null)
       }
 
-      let titleTemplate = '[{taskKey}] {taskTitle}'
-      let defaultBranch = 'develop'
-      let foundInConfig = false
-
-      // Try repo config first
-      if (payload.repoRoot) {
-        const configResult = await repoConfigManager.load(payload.repoRoot)
-        if (configResult.isOk()) {
-          const prTemplate = repoConfigManager.getPRTemplate(configResult.value, payload.boardId)
-          titleTemplate = prTemplate.titleTemplate
-          defaultBranch = prTemplate.defaultTargetBranch || defaultBranch
-          foundInConfig = true
-        }
-      }
-
-      // Fallback to legacy prefs only if no repo config found
-      if (!foundInConfig) {
-        const prKeys = [
-          payload.boardId &&
-            payload.connectionId &&
-            `taskTracker.pr.${payload.connectionId}.${payload.boardId}`,
-          payload.connectionId && `taskTracker.pr.${payload.connectionId}`,
-          'taskTracker.pr',
-        ].filter(Boolean) as string[]
-
-        for (const key of prKeys) {
-          const raw = preferencesStore.get(key)
-          if (raw) {
-            try {
-              const config = JSON.parse(raw)
-              if (config.titleTemplate) titleTemplate = config.titleTemplate
-              if (config.defaultBranch) defaultBranch = config.defaultBranch
-              break
-            } catch {
-              // try next level
-            }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const prTpl = resolved
+        ? getPRTemplate(resolved.config, payload.boardId)
+        : {
+            titleTemplate: '[{taskKey}] {taskTitle}',
+            bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
+            defaultTargetBranch: '',
+            targetRules: [],
           }
-        }
 
-        if (!prKeys.some((k) => preferencesStore.get(k))) {
-          titleTemplate = preferencesStore.get('taskTracker.prTitleTemplate') || titleTemplate
-          defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
-        }
-      }
+      const titleTemplate = prTpl.titleTemplate
+      const defaultBranch = prTpl.defaultTargetBranch || 'develop'
 
       const title = titleTemplate
         .replace(/\{taskKey\}/g, task?.key ?? payload.taskKey)
@@ -1786,64 +1748,26 @@ export function registerIpcHandlers(
         if (found) task = found
       }
 
-      // Resolve PR config: repo config → legacy prefs
-      let titleTemplate = '[{taskKey}] {taskTitle}'
-      let bodyTemplate = '## {taskKey}: {taskTitle}\n\n{taskUrl}'
-      let defaultBranch = 'develop'
-      let targetRules: Array<{ taskType: string; targetPattern: string }> = []
-      let foundConfig = false
-
-      // Try repo config first
-      const configResult = await repoConfigManager.load(payload.repoRoot)
-      if (configResult.isOk()) {
-        const prTemplate = repoConfigManager.getPRTemplate(configResult.value, payload.boardId)
-        if (prTemplate.titleTemplate) {
-          titleTemplate = prTemplate.titleTemplate
-          bodyTemplate = prTemplate.bodyTemplate || bodyTemplate
-          defaultBranch = prTemplate.defaultTargetBranch || defaultBranch
-          targetRules = prTemplate.targetRules || targetRules
-          foundConfig = true
-        }
-      }
-
-      // Fallback to legacy prefs
-      if (!foundConfig) {
-        const prKeys = [
-          payload.boardId &&
-            payload.connectionId &&
-            `taskTracker.pr.${payload.connectionId}.${payload.boardId}`,
-          payload.connectionId && `taskTracker.pr.${payload.connectionId}`,
-          'taskTracker.pr',
-        ].filter(Boolean) as string[]
-
-        for (const key of prKeys) {
-          const raw = preferencesStore.get(key)
-          if (raw) {
-            try {
-              const config = JSON.parse(raw)
-              if (config.titleTemplate) titleTemplate = config.titleTemplate
-              if (config.bodyTemplate) bodyTemplate = config.bodyTemplate
-              if (config.defaultBranch) defaultBranch = config.defaultBranch
-              if (config.targetRules) targetRules = config.targetRules
-              break
-            } catch {
-              // try next level
-            }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const prTpl = resolved
+        ? getPRTemplate(resolved.config, payload.boardId)
+        : {
+            titleTemplate: '[{taskKey}] {taskTitle}',
+            bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
+            defaultTargetBranch: 'develop',
+            targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
           }
-        }
-
-        if (!prKeys.some((k) => preferencesStore.get(k))) {
-          titleTemplate = preferencesStore.get('taskTracker.prTitleTemplate') || titleTemplate
-          bodyTemplate = preferencesStore.get('taskTracker.prBodyTemplate') || bodyTemplate
-          defaultBranch = preferencesStore.get('taskTracker.prDefaultBranch') || defaultBranch
-        }
-      }
 
       const branchResult = await GitRepository.listBranches(payload.repoRoot)
       const branches = unwrapOrThrow(branchResult, gitErrorMessage)
       const existingBranches = [...branches.local, ...branches.remote]
 
-      const prConfig = buildPRConfig(titleTemplate, bodyTemplate, defaultBranch, targetRules)
+      const prConfig = buildPRConfig(
+        prTpl.titleTemplate,
+        prTpl.bodyTemplate,
+        prTpl.defaultTargetBranch || 'develop',
+        prTpl.targetRules,
+      )
       const result = await createPullRequest({
         repoRoot: payload.repoRoot,
         task,
