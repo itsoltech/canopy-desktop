@@ -266,6 +266,12 @@
     }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .refresh-btn.spinning :global(svg) {
+      animation: none;
+    }
+  }
+
   .file-tree {
     display: flex;
     flex-direction: column;
