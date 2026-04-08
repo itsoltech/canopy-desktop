@@ -122,14 +122,8 @@
     return ids
   }
 
-  function getSelectedRunningIds(): string[] {
-    const target = getActiveTarget()
-    if (!target) return []
-    return getRunningIdsForName(target.name)
-  }
-
   async function handleStop(): Promise<void> {
-    const ids = getSelectedRunningIds()
+    const ids = [...running.keys()]
     for (const id of ids) {
       await window.api.killPty(id)
       running.delete(id)
@@ -144,8 +138,8 @@
     }
   }
 
-  let runningCount = $derived(getSelectedRunningIds().length)
-  let isSelectedRunning = $derived(runningCount > 0)
+  let totalRunningCount = $derived(running.size)
+  let hasAnyRunning = $derived(totalRunningCount > 0)
 </script>
 
 {#if dropdownGroups.length > 0}
@@ -159,13 +153,11 @@
       <ChevronDown size={12} />
     </button>
 
-    {#if isSelectedRunning}
-      <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
+    {#if hasAnyRunning}
+      <Tooltip text={`Stop all (${totalRunningCount})`}>
         <button class="stop-btn" onclick={handleStop}>
           <Square size={10} />
-          {#if runningCount > 1}
-            <span class="count-badge">{runningCount}</span>
-          {/if}
+          <span class="count-badge">{totalRunningCount}</span>
         </button>
       </Tooltip>
     {:else}
