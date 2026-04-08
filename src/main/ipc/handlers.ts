@@ -2144,14 +2144,25 @@ export function registerIpcHandlers(
 
         // Post-run hook
         if (config.post_run) {
-          const post = shellExecArgs(config.post_run)
+          const postCmd = config.post_run
+          const post = shellExecArgs(postCmd)
           const postSession = ptyManager.spawn({
             command: post.command,
             args: post.args,
             cwd,
             env,
           })
-          postSession.pty.onExit(() => ptyManager.kill(postSession.id))
+          postSession.pty.onExit(({ exitCode: postExit }) => {
+            if (!sender.isDestroyed()) {
+              sender.send(
+                'runConfig:postRunResult',
+                postExit === 0
+                  ? { success: true, command: postCmd }
+                  : { success: false, command: postCmd, exitCode: postExit },
+              )
+            }
+            ptyManager.kill(postSession.id)
+          })
         }
       })
 

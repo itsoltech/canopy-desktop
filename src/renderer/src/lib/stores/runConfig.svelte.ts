@@ -149,8 +149,16 @@ export function initBackgroundListener(): void {
       runningProcesses.delete(data.sessionId)
     }
   })
+  const cleanupPostRun = window.api.onRunConfigPostRunResult((data) => {
+    if (data.success) {
+      addToast(`post_run "${data.command}" completed`)
+    } else {
+      addToast(`post_run "${data.command}" failed (exit ${data.exitCode})`)
+    }
+  })
   _cleanupBackgroundListener = () => {
     cleanupPty()
+    cleanupPostRun()
   }
 }
 

@@ -646,6 +646,9 @@ interface CanopyAPI {
     name: string,
     cwd?: string,
   ) => Promise<{ sessionId: string; wsUrl: string }>
+  onRunConfigPostRunResult: (
+    callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
+  ) => () => void
 }
 
 interface RunConfiguration {

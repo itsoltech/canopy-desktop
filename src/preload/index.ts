@@ -733,6 +733,14 @@ const api = {
       sessionId: string
       wsUrl: string
     }>,
+  onRunConfigPostRunResult: (
+    callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
+  ) => {
+    const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
+      callback(data)
+    ipcRenderer.on('runConfig:postRunResult', handler)
+    return () => ipcRenderer.removeListener('runConfig:postRunResult', handler)
+  },
 }
 
 if (process.contextIsolated) {
