@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
 import os from 'os'
-import { readFileSync, realpathSync } from 'fs'
+import { existsSync, readFileSync, realpathSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { match } from 'ts-pattern'
@@ -703,6 +703,44 @@ app.whenReady().then(async () => {
       }
     }
 
+    // Drop any paths whose directory no longer exists on disk. Without this,
+    // restore would fail every launch with a toast, leaving an unreachable
+    // stale row in the workspaces table (see itsoltech/canopy-desktop#128).
+    const allRemovedPaths: string[] = []
+    for (const config of windowConfigs) {
+      const keptPaths: string[] = []
+      for (const p of config.paths) {
+        if (existsSync(p)) {
+          keptPaths.push(p)
+        } else {
+          allRemovedPaths.push(p)
+        }
+      }
+      config.paths = keptPaths
+      if (config.activeWorktreePath && !existsSync(config.activeWorktreePath)) {
+        config.activeWorktreePath = undefined
+      }
+    }
+    if (allRemovedPaths.length > 0) {
+      console.info('[restore] dropping stale paths (folder missing):', allRemovedPaths)
+      for (const p of allRemovedPaths) {
+        const ws = workspaceStore.getByPath(p)
+        if (ws) {
+          layoutStore.deleteAll(ws.id)
+          workspaceStore.remove(ws.id)
+        } else {
+          console.warn(
+            `[restore] no workspace row found for stale path "${p}" — skipping DB cleanup`,
+          )
+        }
+      }
+      if (windowConfigs.some((c) => c.paths.length > 0)) {
+        preferencesStore.set('openWindowConfigs', JSON.stringify(windowConfigs))
+      } else {
+        preferencesStore.delete('openWindowConfigs')
+      }
+    }
+
     let postLaunchSent = false
     const sendPostLaunch = (win: BrowserWindow): void => {
       if (postLaunchSent) return
@@ -720,16 +758,22 @@ app.whenReady().then(async () => {
     }
 
     if (windowConfigs.length > 0) {
+      let removedPathsReported = false
       for (const config of windowConfigs) {
         const bounds = config.bounds ? validateBounds(config.bounds) : undefined
         const win = windowManager.createWindow({
           bounds,
           windowState: config.windowState,
         })
+        // Only surface the stale-cleanup toast in one window to avoid duplicates
+        const removedPaths =
+          !removedPathsReported && allRemovedPaths.length > 0 ? allRemovedPaths : undefined
+        if (removedPaths) removedPathsReported = true
         win.once('ready-to-show', () => {
           win.webContents.send('workspace:restoreWindow', {
             paths: config.paths,
             activeWorktreePath: config.activeWorktreePath,
+            removedPaths,
           })
           sendPostLaunch(win)
         })
