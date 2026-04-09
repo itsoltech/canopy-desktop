@@ -112,7 +112,13 @@ export async function loadGlobalConfig(): Promise<void> {
   loadCount++
   try {
     globalConfig = await window.api.globalConfigLoad()
-    if (globalConfig) {
+    // Refresh credentials for all resolved trackers (global + repo) so
+    // repo tracker credential state isn't wiped when called in isolation
+    const resolved = await window.api.trackerResolvedConfig(lastRepoRoot)
+    if (resolved) {
+      resolvedConfig = resolved
+      await refreshCredentials(resolved.config.trackers)
+    } else if (globalConfig) {
       await refreshCredentials(globalConfig.trackers)
     }
   } catch {
