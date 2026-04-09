@@ -10,6 +10,7 @@
   import { getTheme } from '../../lib/terminal/themes'
   import { safeDirName } from '../../lib/sanitize'
   import BranchPicker from './BranchPicker.svelte'
+  import { isRemoteOnly } from './utils'
 
   let {
     onClose,
@@ -54,16 +55,10 @@
   let projectName = $derived(repoRoot.split('/').pop() || 'project')
   let workspaceId = $derived(workspaceIdProp ?? workspaceState.workspace?.id)
 
-  function isRemoteOnly(b: string): boolean {
-    if (!branches.remote.includes(b)) return false
-    const localName = b.slice(b.indexOf('/') + 1)
-    return !branches.local.includes(localName)
-  }
-
   let effectiveBranchName = $derived(
     mode === 'new'
       ? newBranchName
-      : selectedBase && isRemoteOnly(selectedBase)
+      : selectedBase && isRemoteOnly(selectedBase, branches)
         ? selectedBase.slice(selectedBase.indexOf('/') + 1)
         : selectedBase,
   )
@@ -202,7 +197,7 @@
     if (!selectedBase) return
     step = 'creating'
     try {
-      const createLocalTracking = isRemoteOnly(selectedBase)
+      const createLocalTracking = isRemoteOnly(selectedBase, branches)
       await window.api.gitWorktreeCheckout(repoRoot, worktreeDir, selectedBase, createLocalTracking)
       createdPath = worktreeDirDisplay
 
@@ -346,13 +341,13 @@
       {:else}
         <!-- Branch picker (shared between new-mode base selection and existing-mode checkout) -->
         <div class="modal-body">
-          <div class="mode-toggle" role="tablist">
+          <div class="mode-toggle" role="radiogroup" aria-label="Branch mode">
             <button
               class="mode-btn"
               class:active={mode === 'new'}
               onclick={() => setMode('new')}
-              role="tab"
-              aria-selected={mode === 'new'}
+              role="radio"
+              aria-checked={mode === 'new'}
               type="button"
             >
               New branch
@@ -361,8 +356,8 @@
               class="mode-btn"
               class:active={mode === 'existing'}
               onclick={() => setMode('existing')}
-              role="tab"
-              aria-selected={mode === 'existing'}
+              role="radio"
+              aria-checked={mode === 'existing'}
               type="button"
             >
               From existing branch

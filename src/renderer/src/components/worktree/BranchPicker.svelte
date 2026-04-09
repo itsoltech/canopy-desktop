@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { isRemoteOnly } from './utils'
+
   let {
     branches,
     label,
@@ -43,12 +45,6 @@
       selectedIdx = Math.max(0, filteredBranches.length - 1)
     }
   })
-
-  function isRemoteOnly(b: string): boolean {
-    if (!branches.remote.includes(b)) return false
-    const localName = b.slice(b.indexOf('/') + 1)
-    return !branches.local.includes(localName)
-  }
 
   function pick(branch: string): void {
     selectedBranch = branch
@@ -127,7 +123,7 @@
           onpointerenter={() => (selectedIdx = i)}
         >
           <span class="branch-name">{branch}</span>
-          {#if showRemoteOnlyTag && isRemoteOnly(branch)}
+          {#if showRemoteOnlyTag && isRemoteOnly(branch, branches)}
             <span class="remote-only-tag">(remote only)</span>
           {/if}
         </div>
