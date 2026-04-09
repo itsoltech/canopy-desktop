@@ -672,6 +672,13 @@ interface CanopyAPI {
     dir: string
   }> | null>
 
+  // Status-bar perf HUD (always present)
+  perfHud: {
+    start: () => Promise<void>
+    stop: () => Promise<void>
+    onMetrics: (callback: (metrics: { cpu: number; memMb: number }) => void) => () => void
+  }
+
   // Remote control (WebRTC pairing via QR)
   remote: RemoteAPI
 

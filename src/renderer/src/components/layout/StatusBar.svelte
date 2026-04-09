@@ -5,6 +5,9 @@
   import { getAllTabs, activeTabId, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
   import { updateState, installUpdate } from '../../lib/stores/updateState.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
+  import { perfHudState, enablePerfHud, disablePerfHud } from '../../lib/stores/perfHud.svelte'
+  import { showPreferences } from '../../lib/stores/dialogs.svelte'
 
   const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
@@ -158,6 +161,25 @@
     const done = activeAgent.tasks.filter((t) => t.status === 'completed').length
     return { done, total }
   })
+
+  // --- Perf HUD (status-bar CPU/RAM indicator) ---
+  // Subscription is gated on the user preference. When toggled off the main
+  // process stops sampling entirely, so the HUD adds zero overhead in that state.
+  let perfHudEnabled = $derived(prefs['perf.hud.enabled'] === 'true')
+
+  $effect(() => {
+    if (perfHudEnabled) {
+      enablePerfHud()
+      return () => {
+        disablePerfHud()
+      }
+    }
+    return undefined
+  })
+
+  function openPerfHudSettings(): void {
+    showPreferences('general')
+  }
 </script>
 
 {#if projects.length > 0}
@@ -264,6 +286,17 @@
 
     <!-- RIGHT: global indicators -->
     <div class="section right">
+      {#if perfHudEnabled && perfHudState.metrics}
+        <button
+          class="status-item dim perf-hud"
+          aria-label="App CPU {perfHudState.metrics.cpu}%, RAM {perfHudState.metrics.memMb} MB"
+          title="App CPU / RAM — click to open settings"
+          onclick={openPerfHudSettings}
+        >
+          {perfHudState.metrics.cpu}% · {perfHudState.metrics.memMb} MB
+        </button>
+      {/if}
+
       {#if agentCount > 0}
         <button
           class="status-item agents"
@@ -418,6 +451,10 @@
 
   .dim {
     color: var(--c-text-muted);
+  }
+
+  .perf-hud {
+    font-variant-numeric: tabular-nums;
   }
 
   /* Agent status in center */

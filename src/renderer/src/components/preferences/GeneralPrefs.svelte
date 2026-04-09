@@ -13,6 +13,7 @@
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
   let keystrokeVisualizerEnabled = $derived(prefs['keystrokeVisualizer.enabled'] === 'true')
+  let perfHudEnabled = $derived(prefs['perf.hud.enabled'] === 'true')
   let startupToolOptions = $derived(
     getTools()
       .filter((t) => t.category !== 'browser' && getToolAvailability()[t.id] !== false)
@@ -48,6 +49,10 @@
 
   function toggleKeystrokeVisualizer(): void {
     setPref('keystrokeVisualizer.enabled', keystrokeVisualizerEnabled ? 'false' : 'true')
+  }
+
+  function togglePerfHud(): void {
+    setPref('perf.hud.enabled', perfHudEnabled ? 'false' : 'true')
   }
 
   async function rerunSetupWizard(): Promise<void> {
@@ -90,6 +95,17 @@
     <div class="hint-row">
       Displays pressed keys and keyboard shortcuts as a floating overlay in the bottom-left corner
       of the terminal. Keys fade out after 2 seconds.
+    </div>
+  {/if}
+
+  <label class="checkbox-row">
+    <CustomCheckbox checked={perfHudEnabled} onchange={togglePerfHud} />
+    <span>Show CPU and RAM usage in status bar</span>
+  </label>
+  {#if perfHudEnabled}
+    <div class="hint-row">
+      Aggregates total CPU and resident memory across all Canopy processes (main, renderer, GPU,
+      utility). Sampled once per second; the sampler stops entirely when this toggle is off.
     </div>
   {/if}
 

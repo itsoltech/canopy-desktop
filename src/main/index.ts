@@ -32,6 +32,7 @@ import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChan
 import { validateBounds, cascadeBounds } from './windowBounds'
 import { TelemetryManager } from './telemetry/TelemetryManager'
 import { RemoteSessionService } from './remote/RemoteSessionService'
+import { PerfHudService } from './perf/PerfHudService'
 import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
 
@@ -104,6 +105,7 @@ const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
 const tmuxManager = new TmuxManager(app.getPath('userData'))
 const remoteSessionService = new RemoteSessionService(preferencesStore)
+const perfHudService = new PerfHudService()
 windowManager.setTmuxManager(tmuxManager)
 windowManager.setOnWindowDispose((paths) => {
   for (const path of paths) {
@@ -649,6 +651,14 @@ app.whenReady().then(async () => {
     })
   }
 
+  // Status-bar perf HUD (always available, gated by user preference in renderer)
+  ipcMain.handle('perf:hud:start', (event) => {
+    perfHudService.subscribe(event.sender)
+  })
+  ipcMain.handle('perf:hud:stop', (event) => {
+    perfHudService.unsubscribe(event.sender)
+  })
+
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
     if (!isSafeExternalUrl(url)) return
     return shell.openExternal(url)
@@ -812,6 +822,7 @@ app.on('before-quit', (event) => {
     notchOverlay?.dispose()
     agentSessionManager?.dispose()
     remoteSessionService.dispose()
+    perfHudService.shutdown()
     database.close()
     return
   }
@@ -903,6 +914,7 @@ app.on('before-quit', (event) => {
   notchOverlay?.dispose()
   agentSessionManager?.dispose()
   remoteSessionService.dispose()
+  perfHudService.shutdown()
   windowManager.disposeAll()
   database.close()
 })
