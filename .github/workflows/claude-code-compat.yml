@@ -56,13 +56,17 @@ jobs:
 
       - name: Determine version range
         id: range
+        env:
+          INPUT_FROM_VERSION: ${{ inputs.from_version }}
+          TRACKED_VERSION: ${{ steps.tracked.outputs.version }}
+          LATEST_VERSION: ${{ steps.latest.outputs.version }}
         run: |
-          if [ -n "${{ inputs.from_version }}" ]; then
-            FROM="${{ inputs.from_version }}"
+          if [ -n "$INPUT_FROM_VERSION" ]; then
+            FROM="$INPUT_FROM_VERSION"
           else
-            FROM="${{ steps.tracked.outputs.version }}"
+            FROM="$TRACKED_VERSION"
           fi
-          TO="${{ steps.latest.outputs.version }}"
+          TO="$LATEST_VERSION"
 
           if [ "$FROM" = "$TO" ]; then
             echo "new_releases=false" >> "$GITHUB_OUTPUT"
