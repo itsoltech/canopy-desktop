@@ -167,6 +167,7 @@
       bodyEl?.removeEventListener('scrollend', onScrollEnd)
       if (fileRefreshTimer != null) clearTimeout(fileRefreshTimer)
       if (pulseTimer != null) clearTimeout(pulseTimer)
+      if (suppressTimer != null) clearTimeout(suppressTimer)
     }
   })
 
