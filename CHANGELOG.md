@@ -1,3 +1,9 @@
+## [0.11.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.1...v0.11.0-next.2) (2026-04-09)
+
+### Features
+
+* **remote:** webrtc remote control via qr pairing (beta) ([#129](https://github.com/itsoltech/canopy-desktop/issues/129)) ([e6848f0](https://github.com/itsoltech/canopy-desktop/commit/e6848f06a5c7b4b2255bdfa0b55fc14039e5c7ec))
+
 ## [0.11.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0...v0.11.0-next.1) (2026-04-09)
 
 ### Features
