@@ -1,3 +1,45 @@
+## [0.10.0](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0...v0.10.0) (2026-04-09)
+
+### Features
+
+* add diff review panel with tabbed right sidebar ([#96](https://github.com/itsoltech/canopy-desktop/issues/96)) ([8945a44](https://github.com/itsoltech/canopy-desktop/commit/8945a447b7b0daa179a3c7e9361b3123d4743abe))
+* add keystroke visualizer overlay with WPM tracking ([#59](https://github.com/itsoltech/canopy-desktop/issues/59)) ([5bd0c5d](https://github.com/itsoltech/canopy-desktop/commit/5bd0c5d25738f5da1d452585d686d02af6ec5316))
+* add performance testing infrastructure ([#92](https://github.com/itsoltech/canopy-desktop/issues/92)) ([4df7adc](https://github.com/itsoltech/canopy-desktop/commit/4df7adcdb9a357e18261b8f09f3a48857699ffd2))
+* **ci:** auto-track claude code releases for compatibility ([#121](https://github.com/itsoltech/canopy-desktop/issues/121)) ([338d5a2](https://github.com/itsoltech/canopy-desktop/commit/338d5a209eb513d91fc2b279d75542b4acfd7c33))
+* **github:** add GitHub integration with GraphQL API ([#97](https://github.com/itsoltech/canopy-desktop/issues/97)) ([36626f8](https://github.com/itsoltech/canopy-desktop/commit/36626f8164d6365600bba077b4b76215c1b8a173))
+* **sidebar:** dynamic file tree via native filesystem watcher ([#114](https://github.com/itsoltech/canopy-desktop/issues/114)) ([4a48626](https://github.com/itsoltech/canopy-desktop/commit/4a4862616c30844552fb03fd9227e573c031d120))
+* **tasks:** repo-level config, keychain credentials, PR workflow ([#94](https://github.com/itsoltech/canopy-desktop/issues/94)) ([14c513f](https://github.com/itsoltech/canopy-desktop/commit/14c513f662325c22c32aad84a3239c9f158631ed))
+* **tasks:** send task context to agent sessions ([#90](https://github.com/itsoltech/canopy-desktop/issues/90)) ([7f05068](https://github.com/itsoltech/canopy-desktop/commit/7f05068316538421d649a6821bde47bb71041f98))
+* **taskTracker:** restore dual-layer config and multi-tracker support ([#118](https://github.com/itsoltech/canopy-desktop/issues/118)) ([30a28ff](https://github.com/itsoltech/canopy-desktop/commit/30a28ff2964ebf09ad7f3c8805cf5052e3c4e03f)), closes [#94](https://github.com/itsoltech/canopy-desktop/issues/94) [#94](https://github.com/itsoltech/canopy-desktop/issues/94)
+* **telemetry:** add daily usage ping via Umami with opt-out in settings ([612cefd](https://github.com/itsoltech/canopy-desktop/commit/612cefd0844ad5c399099090a899352c7a5ee152))
+* **updater:** configurable auto-update check frequency ([#122](https://github.com/itsoltech/canopy-desktop/issues/122)) ([62aced6](https://github.com/itsoltech/canopy-desktop/commit/62aced67207eb362d49c3d748640588297290973))
+* **window:** include active tab name in window title ([#116](https://github.com/itsoltech/canopy-desktop/issues/116)) ([5f29b71](https://github.com/itsoltech/canopy-desktop/commit/5f29b71c4af9b02ad2082c3a4ca2936eaf44c6f3))
+* **window:** restore window position, size, and state across restarts ([#111](https://github.com/itsoltech/canopy-desktop/issues/111)) ([1cac80e](https://github.com/itsoltech/canopy-desktop/commit/1cac80e5288d09927bacd061be34012d48f7a535))
+* **worktree:** create worktree from existing branch ([#125](https://github.com/itsoltech/canopy-desktop/issues/125)) ([1b933dd](https://github.com/itsoltech/canopy-desktop/commit/1b933dd67eb4b5918923eae10ae39bdd508af261))
+
+### Bug Fixes
+
+* **diff:** prevent layout jump when clicking refresh button ([#107](https://github.com/itsoltech/canopy-desktop/issues/107)) ([e9a7ed0](https://github.com/itsoltech/canopy-desktop/commit/e9a7ed075ce1fee067c3eb53dad30e14cc696ab6))
+* **diff:** replace emoji icons, fix tab flash, comment form polish ([#105](https://github.com/itsoltech/canopy-desktop/issues/105)) ([211e165](https://github.com/itsoltech/canopy-desktop/commit/211e16525037e651d5bb67ce5ee8ebdc5eaa6096))
+* **diff:** sticky header, untracked files, scroll and layout issues ([#113](https://github.com/itsoltech/canopy-desktop/issues/113)) ([a8d3314](https://github.com/itsoltech/canopy-desktop/commit/a8d33140abdfaa0ccc9cd316d0cdcba7d1007f75))
+* **git,ui:** resilient git detection and full-width preference selects ([#117](https://github.com/itsoltech/canopy-desktop/issues/117)) ([49d0d7c](https://github.com/itsoltech/canopy-desktop/commit/49d0d7c030c3b406cdb4b6c84d1dcc28cd31ff06))
+* **git:** refresh worktree list on branch checkout ([#109](https://github.com/itsoltech/canopy-desktop/issues/109)) ([a9604af](https://github.com/itsoltech/canopy-desktop/commit/a9604af636ca8aff61c9b82261db9f64cd51fd63)), closes [#108](https://github.com/itsoltech/canopy-desktop/issues/108)
+* **git:** sanitize branch and worktree names to strip unsafe characters ([#110](https://github.com/itsoltech/canopy-desktop/issues/110)) ([c3822f4](https://github.com/itsoltech/canopy-desktop/commit/c3822f42ca8e64ebb228c8be336b2f5289463503))
+* **session:** prevent project loss during window restore ([#103](https://github.com/itsoltech/canopy-desktop/issues/103)) ([6f75775](https://github.com/itsoltech/canopy-desktop/commit/6f757758ef62779490ff7f006ce44a4f4b6c09f0))
+* **session:** reliably persist window configs on quit ([#106](https://github.com/itsoltech/canopy-desktop/issues/106)) ([e96ba59](https://github.com/itsoltech/canopy-desktop/commit/e96ba595ba907d9478e8990b8badb834e78d15a3))
+* **session:** restore all workspaces and clean up layouts on close ([10f058a](https://github.com/itsoltech/canopy-desktop/commit/10f058a79a416752ef13aa144bb2bc99897912ae))
+* **tasks:** run worktree setup commands when starting task ([#102](https://github.com/itsoltech/canopy-desktop/issues/102)) ([b218242](https://github.com/itsoltech/canopy-desktop/commit/b218242008d3f685e96b2cd4c89f00b4ce3067ac))
+* **terminal:** prevent terminal content from overflowing viewport ([de22b78](https://github.com/itsoltech/canopy-desktop/commit/de22b788523c2b970406962ba8449c7617714937))
+* **titlebar:** prevent text wrap on narrow windows ([b0d0bc7](https://github.com/itsoltech/canopy-desktop/commit/b0d0bc7d33f50809510b598ddd30ac97b811f987))
+* **ui:** align Gemini prefs, keyboard symbols, and diff comment UX ([#124](https://github.com/itsoltech/canopy-desktop/issues/124)) ([71b3ec1](https://github.com/itsoltech/canopy-desktop/commit/71b3ec1845882ab83af10bb6f0c5d7a635028131))
+* **ui:** improve PR approved badge contrast in sidebar ([81bba04](https://github.com/itsoltech/canopy-desktop/commit/81bba04385626affd9ca4b7c89bf29b714128fe1))
+
+### Refactoring
+
+* cross-platform file manager labels and path handling ([#98](https://github.com/itsoltech/canopy-desktop/issues/98)) ([aa6cda3](https://github.com/itsoltech/canopy-desktop/commit/aa6cda3954f2f4f3bc18c79564fb61ccf93755cc))
+* group settings tabs into thematic categories ([#99](https://github.com/itsoltech/canopy-desktop/issues/99)) ([4258437](https://github.com/itsoltech/canopy-desktop/commit/4258437d7bd59bdb6ffcae64913043f6d05e6bc0))
+* replace try/catch with neverthrow typed error handling ([#91](https://github.com/itsoltech/canopy-desktop/issues/91)) ([5612434](https://github.com/itsoltech/canopy-desktop/commit/561243412379aa5d8f28e36c13e68d1830a9e955))
+
 ## [0.10.0-next.11](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.10...v0.10.0-next.11) (2026-04-09)
 
 ### Features
