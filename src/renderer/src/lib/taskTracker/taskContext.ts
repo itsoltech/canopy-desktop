@@ -85,10 +85,10 @@ export async function fetchAndFormatTaskContext(
 ): Promise<string> {
   const [comments, rawAttachments] = await Promise.all([
     window.api
-      .trackerConfigFetchTaskComments(repoRoot, task.key)
+      .trackerConfigFetchTaskComments(repoRoot, task.key, connectionId)
       .catch(() => window.api.taskTrackerFetchTaskComments(connectionId, task.key).catch(() => [])),
     window.api
-      .trackerConfigFetchTaskAttachments(repoRoot, task.key)
+      .trackerConfigFetchTaskAttachments(repoRoot, task.key, connectionId)
       .catch(() =>
         window.api.taskTrackerFetchTaskAttachments(connectionId, task.key).catch(() => []),
       ),
@@ -99,7 +99,7 @@ export async function fetchAndFormatTaskContext(
   const downloadResults = await Promise.allSettled(
     rawAttachments.map(async (a) => {
       const localPath = await window.api
-        .trackerConfigDownloadAttachment(repoRoot, a.url, a.name)
+        .trackerConfigDownloadAttachment(repoRoot, a.url, a.name, connectionId)
         .catch(() => window.api.taskTrackerDownloadAttachment(connectionId, a.url, a.name))
       return { name: a.name, localPath }
     }),
