@@ -116,6 +116,28 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 9,
+    up: `
+      CREATE TABLE IF NOT EXISTS skill_definitions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        version TEXT NOT NULL DEFAULT '1.0.0',
+        prompt TEXT NOT NULL,
+        agents_json TEXT NOT NULL DEFAULT '[]',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        source_type TEXT NOT NULL,
+        source_uri TEXT NOT NULL,
+        install_method TEXT NOT NULL DEFAULT 'copy',
+        scope TEXT NOT NULL DEFAULT 'project',
+        workspace_id TEXT,
+        enabled_agents_json TEXT NOT NULL DEFAULT '[]',
+        installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+    `,
+  },
 ]
 
 export class Database {
