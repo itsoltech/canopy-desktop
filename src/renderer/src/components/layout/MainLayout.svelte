@@ -71,10 +71,13 @@
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
   import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
+  import { initSkillStore, destroySkillStore } from '../../lib/stores/skills.svelte'
 
   onMount(() => {
     initToolStore()
+    initSkillStore()
     return () => {
+      destroySkillStore()
       destroyToolStore()
     }
   })
