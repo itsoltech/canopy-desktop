@@ -1,3 +1,13 @@
+## [0.11.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.2...v0.11.0-next.3) (2026-04-09)
+
+### Features
+
+* add toggleable cpu/ram hud in status bar ([#131](https://github.com/itsoltech/canopy-desktop/issues/131)) ([b2c18a9](https://github.com/itsoltech/canopy-desktop/commit/b2c18a960405074acd80290b75c0aacc8dead52f))
+
+### Bug Fixes
+
+* **workspace:** clean up stale project rows on startup restore ([#130](https://github.com/itsoltech/canopy-desktop/issues/130)) ([38fd658](https://github.com/itsoltech/canopy-desktop/commit/38fd658e6ab84e059963084fcb0b5d3cd88a692f)), closes [#128](https://github.com/itsoltech/canopy-desktop/issues/128)
+
 ## [0.11.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.1...v0.11.0-next.2) (2026-04-09)
 
 ### Features

@@ -461,7 +461,11 @@ interface CanopyAPI {
     callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
   ) => () => void
   onRestoreWindow: (
-    callback: (data: { paths: string[]; activeWorktreePath?: string }) => void,
+    callback: (data: {
+      paths: string[]
+      activeWorktreePath?: string
+      removedPaths?: string[]
+    }) => void,
   ) => () => void
 
   // Menu events
@@ -671,6 +675,13 @@ interface CanopyAPI {
     ts: number
     dir: string
   }> | null>
+
+  // Status-bar perf HUD (always present)
+  perfHud: {
+    start: () => Promise<void>
+    stop: () => Promise<void>
+    onMetrics: (callback: (metrics: { cpu: number; memMb: number }) => void) => () => void
+  }
 
   // Remote control (WebRTC pairing via QR)
   remote: RemoteAPI

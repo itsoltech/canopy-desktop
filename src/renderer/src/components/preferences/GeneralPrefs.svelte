@@ -9,6 +9,7 @@
   const isMac = navigator.userAgent.includes('Mac')
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
+  let perfHudEnabled = $derived(prefs['perf.hud.enabled'] === 'true')
   let startupToolOptions = $derived(
     getTools()
       .filter((t) => t.category !== 'browser' && getToolAvailability()[t.id] !== false)
@@ -30,6 +31,10 @@
     setPref('reopenLastWorkspace', reopenLast ? 'false' : 'true')
   }
 
+  function togglePerfHud(): void {
+    setPref('perf.hud.enabled', perfHudEnabled ? 'false' : 'true')
+  }
+
   async function rerunSetupWizard(): Promise<void> {
     await window.api.resetOnboarding()
     await initOnboarding('first-launch')
@@ -46,6 +51,17 @@
     <span>Reopen last workspace on startup</span>
   </label>
   <div class="hint-row">Restore the previous workspace tabs and layout when the app starts</div>
+
+  <label class="checkbox-row">
+    <CustomCheckbox checked={perfHudEnabled} onchange={togglePerfHud} />
+    <span>Show CPU and RAM usage in status bar</span>
+  </label>
+  {#if perfHudEnabled}
+    <div class="hint-row">
+      Aggregates total CPU and resident memory across all Canopy processes (main, renderer, GPU,
+      utility). Sampled once per second; the sampler stops entirely when this toggle is off.
+    </div>
+  {/if}
 
   <div class="select-row">
     <span class="select-label">New tab ({isMac ? '⌘T' : 'Ctrl+T'})</span>
