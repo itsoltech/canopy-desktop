@@ -61,6 +61,8 @@ import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
 import { getBranchTemplate, getPRTemplate } from '../taskTracker/configDefaults'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
+import type { RemoteSessionService } from '../remote/RemoteSessionService'
+import { remoteServerErrorMessage } from '../remote/errors'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
 import { resolveShell } from '../pty/PtyManager'
@@ -94,6 +96,7 @@ export function registerIpcHandlers(
   globalConfigManager: GlobalConfigManager,
   keychainTokenStore: KeychainTokenStore,
   gitHubService: GitHubService,
+  remoteSessionService: RemoteSessionService,
   runConfigManager: RunConfigManager,
 ): void {
   function broadcastToolsChanged(): void {
@@ -138,6 +141,17 @@ export function registerIpcHandlers(
     'pty:resize',
     (_event, payload: { sessionId: string; cols: number; rows: number }) => {
       ptyManager.resize(payload.sessionId, payload.cols, payload.rows)
+      // Broadcast the new dimensions to every open window so the remote
+      // host controller (running inside the host renderer) can relay them
+      // to any connected WebRTC peer. Without this, a peer's xterm stays
+      // at the PTY's original cols/rows and any cursor positioning escape
+      // sequence the shell/CLI emits lands in the wrong column on the
+      // peer's screen.
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) {
+          w.webContents.send('pty:resized', payload)
+        }
+      }
     },
   )
 
@@ -162,6 +176,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
     return ptyManager.hasChildProcess(payload.sessionId)
+  })
+
+  ipcMain.handle('pty:getDimensions', (_event, payload: { sessionId: string }) => {
+    return ptyManager.getDimensions(payload.sessionId)
   })
 
   // --- Tmux ---
@@ -2115,6 +2133,64 @@ export function registerIpcHandlers(
   ipcMain.handle('github:getRepoIdentifier', async (_event, payload: { repoRoot: string }) => {
     const result = await gitHubService.getRepoIdentifier(payload.repoRoot)
     return result.unwrapOr(null)
+  })
+
+  // --- Remote control (WebRTC pairing via QR) ---
+
+  ipcMain.handle('remote:start', async (event) => {
+    if (!remoteSessionService.isEnabledInPreferences()) {
+      throw new Error('Remote control is disabled in settings')
+    }
+    // The host webContents owns this session — peer signals are routed back
+    // to this window only, not broadcast to the other windows.
+    const result = await remoteSessionService.start(event.sender.id)
+    return unwrapOrThrow(result, remoteServerErrorMessage)
+  })
+
+  ipcMain.handle('remote:stop', async () => {
+    const result = await remoteSessionService.stop()
+    return unwrapOrThrow(result, remoteServerErrorMessage)
+  })
+
+  ipcMain.handle('remote:getStatus', () => {
+    return remoteSessionService.getStatus()
+  })
+
+  ipcMain.handle('remote:acceptDevice', async (_event, payload: { remember: boolean }) => {
+    const result = await remoteSessionService.acceptPendingDevice(payload?.remember === true)
+    return unwrapOrThrow(result, remoteServerErrorMessage)
+  })
+
+  ipcMain.handle('remote:rejectDevice', async () => {
+    const result = await remoteSessionService.rejectPendingDevice()
+    return unwrapOrThrow(result, remoteServerErrorMessage)
+  })
+
+  ipcMain.handle('remote:sendSignal', async (event, payload: unknown) => {
+    // Only the session's host window may forward signaling frames. This
+    // protects against another window racing to answer an offer the peer
+    // sent for an entirely different controller.
+    if (event.sender.id !== remoteSessionService.currentHostWcId) {
+      throw new Error('Only the session host window can forward signals')
+    }
+    if (typeof payload !== 'object' || payload === null) {
+      throw new Error('Invalid signal payload')
+    }
+    const result = await remoteSessionService.forwardSignalToPeer(
+      payload as Record<string, unknown>,
+    )
+    return unwrapOrThrow(result, remoteServerErrorMessage)
+  })
+
+  ipcMain.handle('remote:listTrustedDevices', () => {
+    return remoteSessionService.listTrustedDevices()
+  })
+
+  ipcMain.handle('remote:removeTrustedDevice', (_event, payload: { deviceId: string }) => {
+    if (!payload || typeof payload.deviceId !== 'string' || payload.deviceId.length === 0) {
+      throw new Error('Invalid deviceId')
+    }
+    remoteSessionService.removeTrustedDevice(payload.deviceId)
   })
 
   // --- Run Configurations ---

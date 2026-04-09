@@ -31,6 +31,7 @@ import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
 import { validateBounds, cascadeBounds } from './windowBounds'
 import { TelemetryManager } from './telemetry/TelemetryManager'
+import { RemoteSessionService } from './remote/RemoteSessionService'
 import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
 
@@ -102,6 +103,7 @@ const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
 const tmuxManager = new TmuxManager(app.getPath('userData'))
+const remoteSessionService = new RemoteSessionService(preferencesStore)
 windowManager.setTmuxManager(tmuxManager)
 windowManager.setOnWindowDispose((paths) => {
   for (const path of paths) {
@@ -585,6 +587,7 @@ app.whenReady().then(async () => {
     globalConfigManager,
     keychainTokenStore,
     gitHubService,
+    remoteSessionService,
     runConfigManager,
   )
 
@@ -808,6 +811,7 @@ app.on('before-quit', (event) => {
     }
     notchOverlay?.dispose()
     agentSessionManager?.dispose()
+    remoteSessionService.dispose()
     database.close()
     return
   }
@@ -898,6 +902,7 @@ app.on('before-quit', (event) => {
   }
   notchOverlay?.dispose()
   agentSessionManager?.dispose()
+  remoteSessionService.dispose()
   windowManager.disposeAll()
   database.close()
 })

@@ -98,6 +98,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.10.0',
     category: 'feature',
   },
+  {
+    id: 'remote-control',
+    title: 'Remote control (Beta)',
+    description:
+      'Mirror and control this Canopy window from your phone, tablet, or another laptop on the same WiFi. Enable it in Settings → Remote Control, then open "Remote Connection" from the command palette to scan a QR code and pair a device. Beta — expect rough edges while we iterate.',
+    introducedIn: '0.10.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

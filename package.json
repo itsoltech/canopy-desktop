@@ -49,6 +49,8 @@
     "marked": "^17.0.5",
     "neverthrow": "^8.2.0",
     "node-pty": "^1.1.0",
+    "qr-code-styling": "^1.9.2",
+    "selfsigned": "^5.5.0",
     "semver": "^7.7.4",
     "simple-git": "^3.33.0",
     "smol-toml": "^1.6.1",
