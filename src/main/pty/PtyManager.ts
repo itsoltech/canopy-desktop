@@ -21,7 +21,7 @@ export interface SpawnOptions {
   tmuxSessionName?: string
 }
 
-function resolveShell(): { command: string; args: string[] } {
+export function resolveShell(): { command: string; args: string[] } {
   if (os.platform() === 'win32') {
     return { command: 'powershell.exe', args: [] }
   }
@@ -88,6 +88,23 @@ export class PtyManager {
       } catch {
         // PTY already closed (EBADF) — ignore
       }
+    }
+  }
+
+  /**
+   * Report the current cols/rows the PTY is running at. Used by the remote
+   * peer so its xterm renders at the same dimensions as the host terminal —
+   * otherwise shell/agent output (which is laid out for the host's cols)
+   * wraps and corrupts on a narrower viewer, and cursor positioning escape
+   * sequences end up in the wrong column.
+   */
+  getDimensions(id: string): { cols: number; rows: number } | null {
+    const session = this.sessions.get(id)
+    if (!session) return null
+    try {
+      return { cols: session.pty.cols, rows: session.pty.rows }
+    } catch {
+      return null
     }
   }
 

@@ -16,6 +16,10 @@
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
   import CreatePRModal from '../github/CreatePRModal.svelte'
+  import RemoteConnectionModal from '../dialogs/RemoteConnectionModal.svelte'
+  import RemoteAcceptDeviceModal from '../dialogs/RemoteAcceptDeviceModal.svelte'
+  import RunConfigEditorModal from '../runConfig/RunConfigEditorModal.svelte'
+  import RunConfigManagerModal from '../runConfig/RunConfigManagerModal.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import RightPanel from './RightPanel.svelte'
   import Toast from '../shared/Toast.svelte'
@@ -58,6 +62,7 @@
     saveAllLayouts,
   } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
+  import { initRemoteSessionListeners } from '../../lib/stores/remoteSession.svelte'
   import {
     agentSessions,
     handleHookEvent,
@@ -72,7 +77,9 @@
 
   onMount(() => {
     initToolStore()
+    const stopRemoteListeners = initRemoteSessionListeners()
     return () => {
+      stopRemoteListeners()
       destroyToolStore()
     }
   })
@@ -488,6 +495,24 @@
   <TmuxSessionBrowser />
 {:else if dialogState.current.type === 'createGitHubPR'}
   <CreatePRModal />
+{:else if dialogState.current.type === 'remoteConnection'}
+  <RemoteConnectionModal />
+{:else if dialogState.current.type === 'remoteAcceptDevice'}
+  <RemoteAcceptDeviceModal
+    deviceId={dialogState.current.deviceId}
+    deviceName={dialogState.current.deviceName}
+    fingerprint={dialogState.current.fingerprint}
+  />
+{:else if dialogState.current.type === 'runConfigEditor'}
+  <RunConfigEditorModal
+    configDir={dialogState.current.configDir}
+    configName={dialogState.current.configName}
+  />
+{:else if dialogState.current.type === 'runConfigManager'}
+  <RunConfigManagerModal
+    initialConfigDir={dialogState.current.selectConfigDir}
+    initialConfigName={dialogState.current.selectConfigName}
+  />
 {/if}
 
 <Toast />

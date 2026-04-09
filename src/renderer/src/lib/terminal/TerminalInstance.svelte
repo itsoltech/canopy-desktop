@@ -466,6 +466,34 @@
       })
       resizeObserver.observe(containerEl)
 
+      // Focus/click re-claim: when a remote peer (phone, tablet) calls
+      // `pty.resize` it shrinks the host PTY to its own viewport. If the
+      // desktop user then clicks back into this terminal, we want the
+      // PTY to immediately return to the desktop container's dimensions.
+      //
+      // We cannot rely on `fitAddon.fit()` doing this on its own: the
+      // desktop xterm doesn't subscribe to `pty:resized` broadcasts, so
+      // its local `term.cols/rows` remain at the desktop dimensions
+      // even while the PTY is actually running at the peer's smaller
+      // size. `fitAddon.proposeDimensions()` would return the desktop
+      // dims, compare them against the local xterm state (which also
+      // shows desktop dims), see no mismatch, and skip the resize —
+      // leaving the PTY stuck at the peer's dimensions until a real
+      // window resize fires the ResizeObserver.
+      //
+      // Instead we ALWAYS fire `window.api.resizePty` on focus/click
+      // with the desktop xterm's current cols/rows. That lets the host
+      // PTY snap back to the desktop layout on every interaction. The
+      // IPC call is cheap and node-pty's internal resize is a no-op
+      // when dims match, so there's no cost when nothing changed.
+      const reclaimPty = (): void => {
+        if (term.cols > 0 && term.rows > 0) {
+          window.api.resizePty(sessionId, term.cols, term.rows)
+        }
+      }
+      containerEl.addEventListener('pointerdown', reclaimPty)
+      term.textarea?.addEventListener('focus', reclaimPty)
+
       term.focus()
     }
 

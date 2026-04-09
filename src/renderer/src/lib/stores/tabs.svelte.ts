@@ -259,6 +259,47 @@ export function openTmuxTab(
   return tab
 }
 
+export function openRunConfigTab(
+  configName: string,
+  sessionId: string,
+  wsUrl: string,
+  worktreePath: string,
+): TabInfo {
+  const paneId = nextPaneId()
+  const pane: PaneSession = {
+    id: paneId,
+    sessionId,
+    wsUrl,
+    toolId: 'shell',
+    toolName: 'Shell',
+    isRunning: true,
+    exitCode: null,
+    title: null,
+  }
+
+  const id = nextTabId()
+  const name = computeDisplayName(configName, worktreePath, 'shell')
+
+  const tab: TabInfo = {
+    id,
+    toolId: 'shell',
+    toolName: configName,
+    name,
+    worktreePath,
+    rootSplit: createLeaf(pane),
+    focusedPaneId: paneId,
+  }
+
+  if (!tabsByWorktree[worktreePath]) {
+    tabsByWorktree[worktreePath] = []
+  }
+  tabsByWorktree[worktreePath].push(tab)
+  activeTabId[worktreePath] = id
+
+  scheduleSave(worktreePath)
+  return tab
+}
+
 export async function closeTab(tabId: string): Promise<void> {
   for (const [path, tabs] of Object.entries(tabsByWorktree)) {
     const idx = tabs.findIndex((t) => t.id === tabId)
