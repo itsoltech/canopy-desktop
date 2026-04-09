@@ -53,16 +53,16 @@
     }
   }
 
-  function getRunningSessionIds(name: string): string[] {
+  function getRunningSessionIds(configDir: string, name: string): string[] {
     const ids: string[] = []
     for (const proc of running.values()) {
-      if (proc.name === name) ids.push(proc.sessionId)
+      if (proc.configDir === configDir && proc.name === name) ids.push(proc.sessionId)
     }
     return ids
   }
 
-  async function handleStop(name: string): Promise<void> {
-    const ids = getRunningSessionIds(name)
+  async function handleStop(configDir: string, name: string): Promise<void> {
+    const ids = getRunningSessionIds(configDir, name)
     for (const id of ids) {
       await window.api.killPty(id)
       running.delete(id)
@@ -83,7 +83,7 @@
         <li class="group-header">{relativePath}</li>
       {/if}
       {#each group.configurations as config (config.name)}
-        {@const runningCount = getRunningSessionIds(config.name).length}
+        {@const runningCount = getRunningSessionIds(group.configDir, config.name).length}
         <li class="config-item">
           <button
             class="config-name"
@@ -95,7 +95,10 @@
           <div class="config-actions">
             {#if runningCount > 0}
               <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
-                <button class="config-action stop" onclick={() => handleStop(config.name)}>
+                <button
+                  class="config-action stop"
+                  onclick={() => handleStop(group.configDir, config.name)}
+                >
                   <Square size={12} />
                   {#if runningCount > 1}
                     <span class="count-badge">{runningCount}</span>

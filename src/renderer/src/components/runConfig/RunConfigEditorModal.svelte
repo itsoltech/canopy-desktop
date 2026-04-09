@@ -78,14 +78,36 @@
     }
   }
 
+  let modalEl: HTMLDivElement | undefined = $state()
+
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') closeDialog()
+    if (event.key === 'Tab' && modalEl) {
+      const focusable = modalEl.querySelectorAll<HTMLElement>(
+        'button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
   }
+
+  import { onMount } from 'svelte'
+
+  onMount(() => modalEl?.focus())
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="overlay" role="dialog" aria-label="Run Configuration Editor" onkeydown={handleKeydown}>
-  <div class="modal">
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="modal" tabindex="0" bind:this={modalEl}>
     <div class="modal-header">
       <h2>{isEdit ? 'Edit' : 'New'} Run Configuration</h2>
       <button class="close-btn" onclick={closeDialog}>

@@ -114,10 +114,10 @@
     }
   }
 
-  function getRunningIdsForName(name: string): string[] {
+  function getRunningIdsFor(configDir: string, name: string): string[] {
     const ids: string[] = []
     for (const proc of running.values()) {
-      if (proc.name === name) ids.push(proc.sessionId)
+      if (proc.configDir === configDir && proc.name === name) ids.push(proc.sessionId)
     }
     return ids
   }
@@ -130,8 +130,8 @@
     }
   }
 
-  async function stopItem(name: string): Promise<void> {
-    const ids = getRunningIdsForName(name)
+  async function stopItem(configDir: string, name: string): Promise<void> {
+    const ids = getRunningIdsFor(configDir, name)
     for (const id of ids) {
       await window.api.killPty(id)
       running.delete(id)
@@ -193,7 +193,7 @@
         {#each dropdownGroups as group (group.label)}
           <div class="dropdown-group-label">{group.label}</div>
           {#each group.items as item (item.configDir + item.name)}
-            {@const itemRunning = getRunningIdsForName(item.name).length}
+            {@const itemRunning = getRunningIdsFor(item.configDir, item.name).length}
             <div
               class="dropdown-item"
               class:selected={selected?.configDir === item.configDir &&
@@ -216,7 +216,7 @@
                   title={itemRunning > 1 ? `Stop all (${itemRunning})` : 'Stop'}
                   onclick={(e) => {
                     e.stopPropagation()
-                    stopItem(item.name)
+                    stopItem(item.configDir, item.name)
                   }}
                 >
                   <Square size={10} />
