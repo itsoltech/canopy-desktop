@@ -69,6 +69,9 @@
     refresh()
   })
 
+  // Flag to suppress observer during programmatic scrolls
+  let suppressObserver = false
+
   // Scroll to file when diffScrollTarget changes
   $effect(() => {
     const target = workspaceState.diffScrollTarget
@@ -77,8 +80,12 @@
     // Delay to ensure tab switch + DOM layout completes
     const timer = setTimeout(() => {
       const el = document.getElementById(`diff-file-${filePath}`)
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (el && bodyEl) {
+        suppressObserver = true
+        workspaceState.diffScrollTarget = null
+        workspaceState.diffVisibleFile = filePath
+        const top = el.offsetTop - bodyEl.offsetTop
+        bodyEl.scrollTo({ top, left: 0, behavior: 'smooth' })
       }
     }, 150)
     return () => clearTimeout(timer)
@@ -102,6 +109,12 @@
       }, 200)
     })
 
+    // Re-enable observer when scroll settles (user or programmatic)
+    const onScrollEnd = (): void => {
+      suppressObserver = false
+    }
+    bodyEl?.addEventListener('scrollend', onScrollEnd)
+
     // Track which file is currently visible via IntersectionObserver
     let observer: IntersectionObserver | null = null
 
@@ -110,15 +123,12 @@
       if (!bodyEl) return
       observer = new IntersectionObserver(
         (entries) => {
+          if (suppressObserver) return
           for (const entry of entries) {
             if (entry.isIntersecting) {
               // IntersectionObserverEntry.target is always Element, safe to cast
               const path = (entry.target as HTMLElement).dataset.filepath
               if (path) {
-                const target = workspaceState.diffScrollTarget
-                // During programmatic scroll, only accept the target file
-                if (target && path !== target.path) continue
-                workspaceState.diffScrollTarget = null
                 workspaceState.diffVisibleFile = path
               }
             }
@@ -144,6 +154,7 @@
       unsubFileWatcher()
       unsubFiles()
       observer?.disconnect()
+      bodyEl?.removeEventListener('scrollend', onScrollEnd)
       if (fileRefreshTimer != null) clearTimeout(fileRefreshTimer)
       if (pulseTimer != null) clearTimeout(pulseTimer)
     }
@@ -239,7 +250,10 @@
       const file = files[focusedFileIndex]
       const el = document.getElementById(`diff-file-${CSS.escape(file.path)}`)
       if (el && bodyEl) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        suppressObserver = true
+        workspaceState.diffVisibleFile = file.path
+        const top = el.offsetTop - bodyEl.offsetTop
+        bodyEl.scrollTo({ top, left: 0, behavior: 'smooth' })
       }
     }
   }
@@ -685,6 +699,7 @@
     font-family: var(--font-mono, monospace);
     font-size: 12px;
     line-height: 1.5;
+    container-type: inline-size;
   }
 
   .diff-scroll-content {
@@ -883,12 +898,16 @@
   }
 
   .comment-form {
+    position: sticky;
+    left: 0;
+    width: calc(100cqi - 16px);
     margin: 4px 8px;
     border: 1px solid var(--c-border);
     border-radius: 6px;
     background: var(--c-bg-elevated);
     overflow: hidden;
     animation: comment-slide-in 0.15s ease both;
+    box-sizing: border-box;
   }
 
   @keyframes comment-slide-in {
