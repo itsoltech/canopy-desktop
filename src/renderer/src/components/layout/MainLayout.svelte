@@ -262,7 +262,7 @@
   // Restore a whole window's projects in parallel, then focus the saved worktree once.
   $effect(() => {
     const unsubscribe = window.api.onRestoreWindow(async (data) => {
-      await restoreProjects(data.paths, data.activeWorktreePath)
+      await restoreProjects(data.paths, data.activeWorktreePath, data.removedPaths)
     })
     return unsubscribe
   })

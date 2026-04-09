@@ -549,10 +549,16 @@ const api = {
     }
   },
 
-  onRestoreWindow: (callback: (data: { paths: string[]; activeWorktreePath?: string }) => void) => {
+  onRestoreWindow: (
+    callback: (data: {
+      paths: string[]
+      activeWorktreePath?: string
+      removedPaths?: string[]
+    }) => void,
+  ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { paths: string[]; activeWorktreePath?: string },
+      data: { paths: string[]; activeWorktreePath?: string; removedPaths?: string[] },
     ): void => callback(data)
     ipcRenderer.on('workspace:restoreWindow', handler)
     return (): void => {

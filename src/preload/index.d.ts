@@ -461,7 +461,11 @@ interface CanopyAPI {
     callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
   ) => () => void
   onRestoreWindow: (
-    callback: (data: { paths: string[]; activeWorktreePath?: string }) => void,
+    callback: (data: {
+      paths: string[]
+      activeWorktreePath?: string
+      removedPaths?: string[]
+    }) => void,
   ) => () => void
 
   // Menu events
