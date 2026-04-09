@@ -106,6 +106,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.10.0',
     category: 'feature',
   },
+  {
+    id: 'perf-hud',
+    title: 'CPU and RAM in the status bar',
+    description:
+      'Enable "Show CPU and RAM usage in status bar" in Settings → General to see total CPU and memory across all Canopy processes, sampled once per second. Off by default — the sampler only runs while the indicator is visible, so there is no overhead when it is disabled.',
+    introducedIn: '0.11.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

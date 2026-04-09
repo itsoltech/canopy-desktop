@@ -831,6 +831,20 @@ const api = {
       }
     : {}),
 
+  // Status-bar perf HUD (always available, opt-in via preference)
+  perfHud: {
+    start: () => ipcRenderer.invoke('perf:hud:start') as Promise<void>,
+    stop: () => ipcRenderer.invoke('perf:hud:stop') as Promise<void>,
+    onMetrics: (callback: (metrics: { cpu: number; memMb: number }) => void) => {
+      const handler = (_event: IpcRendererEvent, metrics: { cpu: number; memMb: number }): void =>
+        callback(metrics)
+      ipcRenderer.on('perf:hud:metrics', handler)
+      return (): void => {
+        ipcRenderer.removeListener('perf:hud:metrics', handler)
+      }
+    },
+  },
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
