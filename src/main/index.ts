@@ -789,7 +789,18 @@ app.whenReady().then(async () => {
       }
     } else {
       const win = windowManager.createWindow()
-      win.once('ready-to-show', () => sendPostLaunch(win))
+      win.once('ready-to-show', () => {
+        // If every saved config ended up empty (all projects deleted),
+        // we still need to surface the stale-cleanup toast here — the
+        // windowed restore branch above would have handled it otherwise.
+        if (allRemovedPaths.length > 0) {
+          win.webContents.send('workspace:restoreWindow', {
+            paths: [],
+            removedPaths: allRemovedPaths,
+          })
+        }
+        sendPostLaunch(win)
+      })
     }
   } else {
     const win = windowManager.createWindow()
