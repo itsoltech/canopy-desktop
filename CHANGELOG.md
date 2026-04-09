@@ -1,3 +1,16 @@
+## [0.10.0-next.10](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.9...v0.10.0-next.10) (2026-04-09)
+
+### Features
+
+* **ci:** auto-track claude code releases for compatibility ([#121](https://github.com/itsoltech/canopy-desktop/issues/121)) ([338d5a2](https://github.com/itsoltech/canopy-desktop/commit/338d5a209eb513d91fc2b279d75542b4acfd7c33))
+* **taskTracker:** restore dual-layer config and multi-tracker support ([#118](https://github.com/itsoltech/canopy-desktop/issues/118)) ([30a28ff](https://github.com/itsoltech/canopy-desktop/commit/30a28ff2964ebf09ad7f3c8805cf5052e3c4e03f)), closes [#94](https://github.com/itsoltech/canopy-desktop/issues/94) [#94](https://github.com/itsoltech/canopy-desktop/issues/94)
+* **updater:** configurable auto-update check frequency ([#122](https://github.com/itsoltech/canopy-desktop/issues/122)) ([62aced6](https://github.com/itsoltech/canopy-desktop/commit/62aced67207eb362d49c3d748640588297290973))
+* **window:** include active tab name in window title ([#116](https://github.com/itsoltech/canopy-desktop/issues/116)) ([5f29b71](https://github.com/itsoltech/canopy-desktop/commit/5f29b71c4af9b02ad2082c3a4ca2936eaf44c6f3))
+
+### Bug Fixes
+
+* **git,ui:** resilient git detection and full-width preference selects ([#117](https://github.com/itsoltech/canopy-desktop/issues/117)) ([49d0d7c](https://github.com/itsoltech/canopy-desktop/commit/49d0d7c030c3b406cdb4b6c84d1dcc28cd31ff06))
+
 ## [0.10.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.8...v0.10.0-next.9) (2026-04-08)
 
 ### Features
