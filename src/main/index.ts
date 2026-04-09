@@ -653,9 +653,11 @@ app.whenReady().then(async () => {
 
   // Status-bar perf HUD (always available, gated by user preference in renderer)
   ipcMain.handle('perf:hud:start', (event) => {
+    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
     perfHudService.subscribe(event.sender)
   })
   ipcMain.handle('perf:hud:stop', (event) => {
+    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
     perfHudService.unsubscribe(event.sender)
   })
 

@@ -1,7 +1,12 @@
 import { app, type WebContents } from 'electron'
+import os from 'os'
 
 const SAMPLE_INTERVAL_MS = 1000
 const CHANNEL = 'perf:hud:metrics'
+// Electron's percentCPUUsage is per-single-core (Chromium convention), so on an
+// 8-core machine a fully-busy app reads ~800%. Normalize to 0-100% of the whole
+// machine so the status bar shows a value users intuitively understand.
+const CPU_CORES = Math.max(1, os.cpus().length)
 
 export interface PerfHudMetrics {
   cpu: number
@@ -27,7 +32,13 @@ export class PerfHudService {
 
   subscribe(wc: WebContents): void {
     const id = wc.id
-    if (this.subscribers.has(id)) return
+    if (this.subscribers.has(id)) {
+      // Reload path: the WebContents survives a renderer reload (same id, no
+      // 'destroyed' event fired), so the old subscription is still here. Re-send
+      // the last sample so the new renderer isn't blank for up to a full tick.
+      if (this.lastPayload && !wc.isDestroyed()) wc.send(CHANNEL, this.lastPayload)
+      return
+    }
 
     this.subscribers.set(id, wc)
 
@@ -97,8 +108,11 @@ export class PerfHudService {
       memKbTotal += m.memory.workingSetSize
     }
 
+    // Normalize from per-core to whole-machine percentage and clamp to 100 so
+    // brief over-shoots from sub-sample deltas don't display 101/102.
+    const cpuPercent = Math.min(100, Math.round(cpuTotal / CPU_CORES))
     const payload: PerfHudMetrics = {
-      cpu: Math.round(cpuTotal),
+      cpu: cpuPercent,
       memMb: Math.round(memKbTotal / 1024),
     }
 
