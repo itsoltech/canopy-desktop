@@ -18,9 +18,10 @@ You are applying fixes based on code review feedback or human requests on a PR f
 
 ### Phase 1: Gather review feedback
 
-First, look at the `TRIGGER` and `TRIGGERING_COMMENT_*` lines passed in your prompt header to decide what kind of run this is:
+First, look at the `TRIGGER`, `TRIGGER_ACTOR`, and `TRIGGERING_COMMENT_*` lines passed in your prompt header to decide what kind of run this is:
 
-- If `TRIGGER` is `issue_comment` or `pull_request_review_comment`: a human mentioned `@claude` in a comment. Fetch the triggering comment via `gh api` (use `TRIGGERING_COMMENT_ID`) and treat its body as the user's primary request. You may also fetch the rest of the PR's review comments for additional context. After taking action, reply on the PR with `gh pr comment` to confirm what you did (or, if you couldn't act, why).
+- If `TRIGGER_ACTOR` is `claude[bot]`: the Code Review workflow left an inline review comment that fired this run. Skip the single-comment handling and proceed with the default flow below — fetch all review comments and apply fixes. Do **not** post a reply comment.
+- Otherwise, if `TRIGGER` is `issue_comment` or `pull_request_review_comment`: a human mentioned `@claude` in a comment. Fetch the triggering comment via `gh api` (use `TRIGGERING_COMMENT_ID`) and treat its body as the user's primary request. You may also fetch the rest of the PR's review comments for additional context. After taking action, reply on the PR with `gh pr comment` to confirm what you did (or, if you couldn't act, why).
 - Otherwise (`TRIGGER` is `pull_request` or `pull_request_review`): proceed with the default flow below — fetch all review comments and apply fixes.
 
 Parse the review comments. Each inline comment includes:
