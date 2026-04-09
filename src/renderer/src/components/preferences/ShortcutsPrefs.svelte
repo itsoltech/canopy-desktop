@@ -1,22 +1,27 @@
 <script lang="ts">
   const isMac = navigator.userAgent.includes('Mac')
-  const mod = isMac ? 'Cmd' : 'Ctrl'
 
   const shortcuts = [
-    { keys: `${mod}+K`, action: 'Command palette' },
-    { keys: `${mod}+T`, action: 'New shell tab' },
-    { keys: `${mod}+W`, action: 'Close pane (or tab if last)' },
-    { keys: `${mod}+Shift+T`, action: 'Reopen closed tab' },
-    { keys: `${mod}+1-9`, action: 'Switch to tab N' },
-    { keys: `${mod}+Shift+[`, action: 'Previous tab' },
-    { keys: `${mod}+Shift+]`, action: 'Next tab' },
-    { keys: `${mod}+D`, action: 'Split pane vertical' },
-    { keys: `${mod}+Shift+D`, action: 'Split pane horizontal' },
-    { keys: `${mod}+${isMac ? 'Option' : 'Alt'}+Arrow`, action: 'Move focus between panes' },
-    { keys: `${mod}+B`, action: 'Toggle sidebar' },
-    { keys: `${mod}+Shift+I`, action: 'Toggle Claude Inspector' },
-    { keys: `${mod}+O`, action: 'Open workspace' },
-    { keys: `${mod}+,`, action: 'Preferences' },
+    { keys: isMac ? ['⌘', 'K'] : ['Ctrl', 'K'], action: 'Command palette' },
+    { keys: isMac ? ['⌘', 'T'] : ['Ctrl', 'T'], action: 'New shell tab' },
+    { keys: isMac ? ['⌘', 'W'] : ['Ctrl', 'W'], action: 'Close pane (or tab if last)' },
+    { keys: isMac ? ['⌘', '⇧', 'T'] : ['Ctrl', 'Shift', 'T'], action: 'Reopen closed tab' },
+    { keys: isMac ? ['⌘', '1-9'] : ['Ctrl', '1-9'], action: 'Switch to tab N' },
+    { keys: isMac ? ['⌘', '⇧', '['] : ['Ctrl', 'Shift', '['], action: 'Previous tab' },
+    { keys: isMac ? ['⌘', '⇧', ']'] : ['Ctrl', 'Shift', ']'], action: 'Next tab' },
+    { keys: isMac ? ['⌘', 'D'] : ['Ctrl', 'D'], action: 'Split pane vertical' },
+    { keys: isMac ? ['⌘', '⇧', 'D'] : ['Ctrl', 'Shift', 'D'], action: 'Split pane horizontal' },
+    {
+      keys: isMac ? ['⌘', '⌥', '←→'] : ['Ctrl', 'Alt', '←→'],
+      action: 'Move focus between panes',
+    },
+    { keys: isMac ? ['⌘', 'B'] : ['Ctrl', 'B'], action: 'Toggle sidebar' },
+    {
+      keys: isMac ? ['⌘', '⇧', 'I'] : ['Ctrl', 'Shift', 'I'],
+      action: 'Toggle Claude Inspector',
+    },
+    { keys: isMac ? ['⌘', 'O'] : ['Ctrl', 'O'], action: 'Open workspace' },
+    { keys: isMac ? ['⌘', ','] : ['Ctrl', ','], action: 'Preferences' },
   ]
 </script>
 
@@ -24,9 +29,14 @@
   <h3 class="section-title">Keyboard Shortcuts</h3>
 
   <div class="shortcut-list">
-    {#each shortcuts as shortcut (shortcut.keys)}
+    {#each shortcuts as shortcut, i (i)}
       <div class="shortcut-row">
-        <span class="shortcut-keys">{shortcut.keys}</span>
+        <span class="shortcut-keys">
+          {#each shortcut.keys as key, k (k)}
+            {#if k > 0}<span class="key-sep"></span>{/if}
+            <kbd class="key">{key}</kbd>
+          {/each}
+        </span>
         <span class="shortcut-action">{shortcut.action}</span>
       </div>
     {/each}
@@ -62,14 +72,29 @@
 
   .shortcut-keys {
     min-width: 200px;
-    font-size: 12px;
-    font-family: monospace;
-    color: var(--c-text-secondary);
-    padding: 2px 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 6px;
     background: var(--c-hover);
-    border-radius: 4px;
-    display: inline-block;
-    width: fit-content;
+    border: 1px solid var(--c-border);
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: inherit;
+    color: var(--c-text-secondary);
+    box-shadow: 0 1px 0 var(--c-border);
+  }
+
+  .key-sep {
+    display: none;
   }
 
   .shortcut-action {
