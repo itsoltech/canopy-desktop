@@ -19,6 +19,7 @@
   let secondsLeft = $state(AUTO_REJECT_SECONDS)
   let rejectBtn: HTMLButtonElement | undefined = $state()
   let busy = $state(false)
+  let actionError: string | null = $state(null)
   let countdown: ReturnType<typeof setInterval> | null = null
 
   // Stable reference to the device id so the dev-mode console log lines up
@@ -44,11 +45,13 @@
   async function handleAccept(): Promise<void> {
     if (busy) return
     busy = true
+    actionError = null
     try {
       await window.api.remote.acceptDevice(remember)
       closeDialog()
     } catch (e) {
       console.error('[remote] accept failed:', devLogId, e)
+      actionError = e instanceof Error ? e.message : String(e)
       busy = false
     }
   }
@@ -104,6 +107,12 @@
       <CustomCheckbox checked={remember} onchange={() => (remember = !remember)} />
       <span>Remember this device</span>
     </label>
+
+    {#if actionError}
+      <p class="action-error" role="alert">
+        Failed to accept: {actionError}
+      </p>
+    {/if}
 
     <p class="countdown">Auto-reject in {secondsLeft}s</p>
 
@@ -213,6 +222,16 @@
     font-size: 11px;
     color: var(--c-text-muted);
     text-align: right;
+  }
+
+  .action-error {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    background: var(--c-danger-bg);
+    border: 1px solid var(--c-danger);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--c-danger-text);
   }
 
   .dialog-actions {

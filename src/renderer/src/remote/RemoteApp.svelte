@@ -476,21 +476,20 @@
             {#if selectedTabs.length === 0}
               <p class="muted">No tabs in this worktree. Spawn a tool below.</p>
             {:else}
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
               <div class="row-list">
                 {#each selectedTabs as tab (tab.id)}
-                  <div
-                    class="row tab-row"
-                    class:active={tab.id === selectedActiveTabId}
-                    onclick={() => activateTab(tab.id)}
-                  >
-                    <span class="row-main">
+                  <div class="row tab-row" class:active={tab.id === selectedActiveTabId}>
+                    <button
+                      type="button"
+                      class="tab-row-main"
+                      onclick={() => activateTab(tab.id)}
+                      aria-label={`Activate tab ${tab.name}`}
+                    >
                       <span class="row-label">{tab.name}</span>
                       <span class="row-sub">
                         {tab.toolName}{tab.paneType ? ` · ${tab.paneType}` : ''}
                       </span>
-                    </span>
+                    </button>
                     <span class="row-actions">
                       {#if tab.id === selectedActiveTabId}
                         <span class="row-badge">active</span>
@@ -500,8 +499,7 @@
                           type="button"
                           class="icon-btn icon-btn-primary"
                           title="Fullscreen terminal"
-                          onclick={(e) => {
-                            e.stopPropagation()
+                          onclick={() => {
                             // Activate first so the inline preview matches
                             // what the user is about to expand.
                             activateTab(tab.id)
@@ -530,10 +528,7 @@
                         type="button"
                         class="icon-btn icon-btn-danger"
                         title="Close tab"
-                        onclick={(e) => {
-                          e.stopPropagation()
-                          closeRemoteTab(tab.id)
-                        }}
+                        onclick={() => closeRemoteTab(tab.id)}
                         aria-label="Close tab"
                       >
                         ×
@@ -1299,6 +1294,28 @@
     padding: 12px 14px;
   }
 
+  /* The main clickable area of the tab row is a <button> so the row is
+     keyboard-navigable (Enter/Space activate it) and screen-reader
+     friendly. It's a flex sibling of `.row-actions` inside the tab-row
+     container — NOT nested inside another button — so fullscreen/close
+     buttons remain valid HTML and clickable on their own. */
+  .tab-row-main {
+    all: unset;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    flex: 1;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .tab-row-main:focus-visible {
+    outline: 2px solid var(--c-accent-muted);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
   .row-actions {
     display: flex;
     align-items: center;
@@ -1314,7 +1331,7 @@
     padding: 2px 7px;
     border-radius: 4px;
     background: var(--c-success);
-    color: #0a0a0a;
+    color: var(--c-bg);
   }
 
   .icon-btn {
