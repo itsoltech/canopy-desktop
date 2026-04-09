@@ -13,7 +13,7 @@ Create a pull request for the current branch following our PR template and conve
    - Everything else targets `next` by default
    - If the current branch looks like it chains off another feature branch (not `main` or `next`), ask me which base to use
 2. Run `git log` and `git diff` against the detected base branch to understand all changes.
-3. Generate a PR title using conventional commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`, `build:`). Keep it under 72 characters, lowercase after prefix.
+3. Generate a PR title using conventional commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`, `build:`). The title MUST be under 72 characters total (including prefix). Lowercase after prefix. If the summary is too long, shorten it aggressively — prefer brevity over completeness. Count the characters before proposing. Move details to the PR body instead.
 4. Fill in the PR body:
    - **What**: summarize the change in 1-2 sentences
    - **Why**: explain the problem or user need this solves (link issues with #N if applicable)
