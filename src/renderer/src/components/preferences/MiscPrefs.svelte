@@ -3,6 +3,7 @@
   import { resetAllSessions } from '../../lib/stores/wpmTracker.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
+  let runToolbarEnabled = $derived(prefs['runConfig.showInTitlebar'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
   let keystrokeVisualizerEnabled = $derived(prefs['keystrokeVisualizer.enabled'] === 'true')
 
@@ -12,6 +13,10 @@
     if (next) resetAllSessions()
   }
 
+  function toggleRunToolbar(): void {
+    setPref('runConfig.showInTitlebar', runToolbarEnabled ? 'false' : 'true')
+  }
+
   function toggleKeystrokeVisualizer(): void {
     setPref('keystrokeVisualizer.enabled', keystrokeVisualizerEnabled ? 'false' : 'true')
   }
@@ -19,6 +24,16 @@
 
 <div class="section">
   <h3 class="section-title">Misc</h3>
+
+  <label class="checkbox-row">
+    <CustomCheckbox checked={runToolbarEnabled} onchange={toggleRunToolbar} />
+    <span>Show Run Configurations in title bar</span>
+  </label>
+  {#if runToolbarEnabled}
+    <div class="hint-row">
+      Display a toolbar for quick-launching run configurations from the title bar
+    </div>
+  {/if}
 
   <label class="checkbox-row">
     <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />

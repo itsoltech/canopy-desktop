@@ -2328,7 +2328,7 @@ export function registerIpcHandlers(
       }
 
       if (!payload.cwd) throw new Error('No worktree selected')
-      const cwd = config.cwd ? path.resolve(payload.configDir, config.cwd) : payload.configDir
+      const cwd = config.cwd ? path.resolve(payload.cwd, config.cwd) : payload.cwd
       const env = config.env
       const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
 

@@ -18,7 +18,7 @@
     <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
     <span>Show session status in notch overlay</span>
   </label>
-  <div class="hint-row">Show active session info in the macOS notch area</div>
+  <div class="hint-row">Show active session info in an overlay near the top of the screen</div>
 </div>
 
 <style>

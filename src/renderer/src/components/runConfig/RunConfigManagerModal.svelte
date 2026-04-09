@@ -203,7 +203,11 @@
           <div class="tree-empty">
             <p>No configurations</p>
             {#if workspaceState.repoRoot}
-              <button class="new-btn" onclick={() => startNew(workspaceState.repoRoot!)}>
+              <button
+                class="new-btn"
+                onclick={() => startNew(workspaceState.repoRoot!)}
+                aria-label="Create new configuration"
+              >
                 <Plus size={14} />
                 New configuration
               </button>
