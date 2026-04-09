@@ -2341,8 +2341,9 @@ export function registerIpcHandlers(
 
       if (!payload.cwd) throw new Error('No worktree selected')
       await validatePathAccess(event.sender.id, payload.cwd)
-      const cwd = config.cwd ? path.resolve(payload.cwd, config.cwd) : payload.cwd
-      if (config.cwd && !cwd.startsWith(payload.cwd)) {
+      const worktreeRoot = path.resolve(payload.cwd)
+      const cwd = config.cwd ? path.resolve(worktreeRoot, config.cwd) : worktreeRoot
+      if (config.cwd && cwd !== worktreeRoot && !cwd.startsWith(worktreeRoot + path.sep)) {
         throw new Error('config.cwd must not escape the worktree directory')
       }
       const env = config.env
