@@ -194,11 +194,20 @@
           <div class="dropdown-group-label">{group.label}</div>
           {#each group.items as item (item.configDir + item.name)}
             {@const itemRunning = getRunningIdsForName(item.name).length}
-            <button
+            <div
               class="dropdown-item"
               class:selected={selected?.configDir === item.configDir &&
                 selected?.name === item.name}
               onclick={() => selectAndClose(item.configDir, item.name)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  selectAndClose(item.configDir, item.name)
+                }
+              }}
+              role="option"
+              aria-selected={selected?.configDir === item.configDir && selected?.name === item.name}
+              tabindex="0"
             >
               <span class="dropdown-item-name">{item.name}</span>
               {#if itemRunning > 0}
@@ -227,7 +236,7 @@
                   <Play size={12} />
                 </button>
               {/if}
-            </button>
+            </div>
           {/each}
         {/each}
         <div class="dropdown-separator"></div>

@@ -2243,10 +2243,8 @@ export function registerIpcHandlers(
       const wsUrl = await wsBridge.create(session.id, session.pty)
       const senderId = event.sender.id
       windowManager.trackPtySession(senderId, session.id)
-      runConfigInstances.set(
-        payload.name,
-        (runConfigInstances.get(`${payload.configDir}::${payload.name}`) ?? 0) + 1,
-      )
+      const instanceKey = `${payload.configDir}::${payload.name}`
+      runConfigInstances.set(instanceKey, (runConfigInstances.get(instanceKey) ?? 0) + 1)
 
       const sender = event.sender
       session.pty.onExit(({ exitCode, signal }) => {
