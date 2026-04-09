@@ -113,7 +113,7 @@
               <span>Version: {skill.version}</span>
             </div>
             <div class="agent-toggles">
-              {#each skill.agents as agent}
+              {#each skill.agents as agent (agent)}
                 <label class="agent-toggle">
                   <input
                     type="checkbox"
@@ -160,7 +160,7 @@
       <div class="form-row">
         <label class="form-label">Agents:</label>
         <div class="agent-checkboxes">
-          {#each Object.entries(agentLabels) as [key, label]}
+          {#each Object.entries(agentLabels) as [key, label] (key)}
             <label class="agent-checkbox">
               <input
                 type="checkbox"
