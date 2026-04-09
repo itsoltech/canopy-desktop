@@ -177,7 +177,7 @@ async function restoreProjectsImpl(
   if (removedPaths && removedPaths.length > 0) {
     // Show basename when unique, otherwise include parent dir so colliding
     // names stay distinguishable (e.g. "src/foo/project" vs "home/bar/project").
-    const basenames = removedPaths.map((p) => p.split('/').pop() || p)
+    const basenames = removedPaths.map(basename)
     const hasCollision = new Set(basenames).size !== basenames.length
     const labels = hasCollision
       ? removedPaths.map((p) => {
