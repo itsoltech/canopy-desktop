@@ -1,7 +1,6 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
-  import { resetAllSessions } from '../../lib/stores/wpmTracker.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
@@ -10,9 +9,6 @@
   const isMac = navigator.userAgent.includes('Mac')
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
-  let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
-  let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
-  let keystrokeVisualizerEnabled = $derived(prefs['keystrokeVisualizer.enabled'] === 'true')
   let startupToolOptions = $derived(
     getTools()
       .filter((t) => t.category !== 'browser' && getToolAvailability()[t.id] !== false)
@@ -34,22 +30,6 @@
     setPref('reopenLastWorkspace', reopenLast ? 'false' : 'true')
   }
 
-  function toggleNotch(): void {
-    const next = !notchEnabled
-    setPref('notch.enabled', next ? 'true' : 'false')
-    window.api.setNotchEnabled(next)
-  }
-
-  function toggleWpm(): void {
-    const next = !wpmEnabled
-    setPref('wpm.enabled', next ? 'true' : 'false')
-    if (next) resetAllSessions()
-  }
-
-  function toggleKeystrokeVisualizer(): void {
-    setPref('keystrokeVisualizer.enabled', keystrokeVisualizerEnabled ? 'false' : 'true')
-  }
-
   async function rerunSetupWizard(): Promise<void> {
     await window.api.resetOnboarding()
     await initOnboarding('first-launch')
@@ -66,34 +46,6 @@
     <span>Reopen last workspace on startup</span>
   </label>
   <div class="hint-row">Restore the previous workspace tabs and layout when the app starts</div>
-
-  <label class="checkbox-row">
-    <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
-    <span>Show session status in notch overlay</span>
-  </label>
-  <div class="hint-row">Show active session info in the macOS notch area</div>
-
-  <label class="checkbox-row">
-    <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
-    <span>Show typing speed (WPM) in terminals</span>
-  </label>
-  {#if wpmEnabled}
-    <div class="hint-row">
-      Tracks printable keystrokes in a 10-second sliding window. Control keys, arrows, and escape
-      sequences are excluded. Displays current WPM, peak speed, and total characters.
-    </div>
-  {/if}
-
-  <label class="checkbox-row">
-    <CustomCheckbox checked={keystrokeVisualizerEnabled} onchange={toggleKeystrokeVisualizer} />
-    <span>Show keystroke overlay in terminals</span>
-  </label>
-  {#if keystrokeVisualizerEnabled}
-    <div class="hint-row">
-      Displays pressed keys and keyboard shortcuts as a floating overlay in the bottom-left corner
-      of the terminal. Keys fade out after 2 seconds.
-    </div>
-  {/if}
 
   <div class="select-row">
     <span class="select-label">New tab ({isMac ? '⌘T' : 'Ctrl+T'})</span>
