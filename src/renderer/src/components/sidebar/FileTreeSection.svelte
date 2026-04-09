@@ -142,7 +142,7 @@
     title="Refresh file list"
     aria-label="Refresh file list"
   >
-    <RotateCw size={12} />
+    <RotateCw size={14} />
   </button>
 {/snippet}
 
@@ -231,11 +231,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
+    margin: -4px 0;
     background: none;
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
     color: var(--c-text-faint);
     cursor: pointer;
     transition:

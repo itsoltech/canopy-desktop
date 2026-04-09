@@ -927,6 +927,70 @@ export function registerIpcHandlers(
     return generateCommitMessage(diff, preferencesStore)
   })
 
+  ipcMain.handle(
+    'git:createPR',
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        title: string
+        body: string
+        baseRefName: string
+        draft: boolean
+      },
+    ) => {
+      const pushResult = await GitRepository.push(payload.repoRoot)
+      if (pushResult.isErr()) {
+        throw new Error(`Failed to push branch: ${gitErrorMessage(pushResult.error)}`)
+      }
+
+      const branch = await GitRepository.getBranch(payload.repoRoot).unwrapOr(null)
+      if (!branch) throw new Error('Could not determine current branch')
+
+      const args = [
+        'pr',
+        'create',
+        '--title',
+        payload.title,
+        '--body',
+        payload.body || '',
+        '--base',
+        payload.baseRefName,
+        '--head',
+        branch,
+      ]
+      if (payload.draft) args.push('--draft')
+
+      try {
+        const { stdout } = await execFileAsync('gh', args, { cwd: payload.repoRoot })
+        return { url: stdout.trim() }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(
+            'GitHub CLI (gh) is not installed. Install it from cli.github.com or configure a GitHub connection in Preferences.',
+          )
+        }
+        throw err
+      }
+    },
+  )
+
+  ipcMain.handle('git:getDefaultBranch', async (_event, payload: { repoRoot: string }) => {
+    try {
+      const { stdout } = await execFileAsync(
+        'gh',
+        ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+        { cwd: payload.repoRoot },
+      )
+      return stdout.trim() || 'main'
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        console.warn('[git:getDefaultBranch] gh CLI not found, falling back to "main"')
+      }
+      return 'main'
+    }
+  })
+
   // --- Layouts ---
 
   ipcMain.handle(
@@ -2276,7 +2340,12 @@ export function registerIpcHandlers(
       }
 
       if (!payload.cwd) throw new Error('No worktree selected')
-      const cwd = config.cwd ? path.resolve(payload.configDir, config.cwd) : payload.configDir
+      await validatePathAccess(event.sender.id, payload.cwd)
+      const worktreeRoot = path.resolve(payload.cwd)
+      const cwd = config.cwd ? path.resolve(worktreeRoot, config.cwd) : worktreeRoot
+      if (config.cwd && cwd !== worktreeRoot && !cwd.startsWith(worktreeRoot + path.sep)) {
+        throw new Error('config.cwd must not escape the worktree directory')
+      }
       const env = config.env
       const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
 

@@ -89,6 +89,7 @@
       />
       <span>Enable mouse support</span>
     </label>
+    <div class="hint-row sub">Enable mouse clicks and scrolling inside tmux panes</div>
 
     <div class="select-row">
       <span class="select-label">On app close</span>
@@ -98,6 +99,7 @@
         <option value="ask">Ask each time</option>
       </select>
     </div>
+    <div class="hint-row sub">What happens to tmux sessions when you quit the app</div>
   {/if}
 
   <div class="info-row">
@@ -162,6 +164,10 @@
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;
+  }
+
+  .hint-row.sub {
+    padding-left: 48px;
   }
 
   .warning-row {

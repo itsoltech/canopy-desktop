@@ -59,7 +59,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px 8px;
+    padding: 0 12px;
+    height: 20px;
+    margin-bottom: 8px;
   }
 
   .section-toggle {
