@@ -71,6 +71,7 @@
 
   // Flag to suppress observer during programmatic scrolls
   let suppressObserver = false
+  let suppressTimer: ReturnType<typeof setTimeout> | null = null
 
   // Scroll to file when diffScrollTarget changes
   $effect(() => {
@@ -86,6 +87,11 @@
         workspaceState.diffVisibleFile = filePath
         const top = el.offsetTop - bodyEl.offsetTop
         bodyEl.scrollTo({ top, left: 0, behavior: 'smooth' })
+        // Fallback in case scrollTo is a no-op (already at position)
+        if (suppressTimer != null) clearTimeout(suppressTimer)
+        suppressTimer = setTimeout(() => {
+          suppressObserver = false
+        }, 300)
       }
     }, 150)
     return () => clearTimeout(timer)
@@ -112,6 +118,10 @@
     // Re-enable observer when scroll settles (user or programmatic)
     const onScrollEnd = (): void => {
       suppressObserver = false
+      if (suppressTimer != null) {
+        clearTimeout(suppressTimer)
+        suppressTimer = null
+      }
     }
     bodyEl?.addEventListener('scrollend', onScrollEnd)
 
@@ -254,6 +264,11 @@
         workspaceState.diffVisibleFile = file.path
         const top = el.offsetTop - bodyEl.offsetTop
         bodyEl.scrollTo({ top, left: 0, behavior: 'smooth' })
+        // Fallback in case scrollTo is a no-op (already at position)
+        if (suppressTimer != null) clearTimeout(suppressTimer)
+        suppressTimer = setTimeout(() => {
+          suppressObserver = false
+        }, 300)
       }
     }
   }

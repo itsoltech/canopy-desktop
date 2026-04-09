@@ -293,7 +293,7 @@
   }
 
   .remove-btn:hover {
-    background: var(--c-danger-bg);
+    filter: brightness(1.15);
   }
 
   /* Env form */
