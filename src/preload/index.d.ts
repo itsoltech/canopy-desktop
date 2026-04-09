@@ -215,6 +215,7 @@ interface CanopyAPI {
   installUpdate: () => Promise<void>
   setUpdateChannel: (channel: string) => Promise<void>
   setAutoUpdate: (enabled: boolean) => Promise<void>
+  setUpdateCheckFrequency: (frequency: string) => Promise<void>
   onUpdateAvailable: (callback: (data: UpdateInfo) => void) => () => void
   onUpdateProgress: (callback: (data: UpdateProgress) => void) => () => void
   onUpdateDownloaded: (callback: (data: UpdateInfo) => void) => () => void
@@ -469,6 +470,44 @@ interface CanopyAPI {
   repoConfigExists: (repoRoot: string) => Promise<boolean>
   repoConfigInit: (repoRoot: string) => Promise<RepoConfig>
 
+  // Global Config
+  globalConfigLoad: () => Promise<RepoConfig | null>
+  globalConfigSave: (config: RepoConfig) => Promise<void>
+  globalConfigExists: () => Promise<boolean>
+
+  // Resolved Config (merged global + repo)
+  trackerResolvedConfig: (repoRoot?: string) => Promise<ResolvedConfig | null>
+
+  // Config-based tracker methods
+  trackerConfigFetchBoards: (repoRoot?: string, trackerId?: string) => Promise<TrackerBoard[]>
+  trackerConfigFetchStatuses: (
+    repoRoot?: string,
+    trackerId?: string,
+    boardId?: string,
+  ) => Promise<TrackerStatus[]>
+  trackerConfigFetchTasks: (
+    repoRoot?: string,
+    trackerId?: string,
+    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => Promise<TrackerTask[]>
+  trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) => Promise<string>
+  trackerConfigFetchTaskComments: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => Promise<TrackerComment[]>
+  trackerConfigFetchTaskAttachments: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => Promise<TrackerAttachment[]>
+  trackerConfigDownloadAttachment: (
+    repoRoot: string | undefined,
+    url: string,
+    filename: string,
+    trackerId?: string,
+  ) => Promise<string>
+
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
   keychainSetCredentials: (
@@ -635,8 +674,10 @@ interface CanopyAPI {
 type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'
 
 interface TrackerConfig {
+  id: string
   provider: TaskTrackerProvider
   baseUrl: string
+  projectKey?: string
 }
 
 interface BranchTemplateConfig {
@@ -669,11 +710,24 @@ interface BoardOverride {
 
 interface RepoConfig {
   version: 1
-  tracker: TrackerConfig
+  trackers: TrackerConfig[]
   branchTemplate?: BranchTemplateConfig
   prTemplate?: PRTemplateConfig
   boardOverrides: Record<string, BoardOverride>
   filters: TaskFilterConfig
+}
+
+type ConfigSource = 'global' | 'repo'
+
+interface ResolvedConfig {
+  config: RepoConfig
+  source: {
+    branchTemplate: ConfigSource | 'default'
+    prTemplate: ConfigSource | 'default'
+    filters: ConfigSource | 'default'
+  }
+  hasGlobal: boolean
+  hasRepo: boolean
 }
 
 interface TaskTrackerConnectionInfo {

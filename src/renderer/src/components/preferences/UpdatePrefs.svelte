@@ -6,6 +6,7 @@
 
   let autoUpdate = $derived(prefs['update.autoUpdate'] !== 'false')
   let channel = $derived(prefs['update.channel'] || 'stable')
+  let checkFrequency = $derived(prefs['update.checkFrequency'] || 'daily')
 
   let checkState: 'idle' | 'checking' | 'up-to-date' | 'error' = $state('idle')
   let checkCleanup: (() => void) | null = $state(null)
@@ -19,6 +20,11 @@
   function setChannel(value: string): void {
     setPref('update.channel', value)
     window.api.setUpdateChannel(value)
+  }
+
+  function setCheckFrequency(value: string): void {
+    setPref('update.checkFrequency', value)
+    window.api.setUpdateCheckFrequency(value)
   }
 
   function checkNow(): void {
@@ -75,6 +81,21 @@
         { value: 'next', label: 'Pre-release' },
       ]}
       onchange={setChannel}
+      maxWidth="180px"
+    />
+  </div>
+
+  <div class="select-row">
+    <span class="select-label">Check frequency</span>
+    <CustomSelect
+      value={checkFrequency}
+      options={[
+        { value: 'hourly', label: 'Every hour' },
+        { value: 'daily', label: 'Every day' },
+        { value: 'weekly', label: 'Every week' },
+        { value: 'never', label: 'Never (manual only)' },
+      ]}
+      onchange={setCheckFrequency}
       maxWidth="180px"
     />
   </div>
