@@ -80,6 +80,20 @@ export class TaskTrackerManager {
     return this.getTokenFromTracker(tracker).map((token) => ({ conn, token }))
   }
 
+  /** Async variant that resolves GitHub projectKey from git remote when empty */
+  private resolveConfigConnectionAsync(
+    config: RepoConfig,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<{ conn: TaskTrackerConnection; token: string }, TaskTrackerError> {
+    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) =>
+      this.resolveGitHubConnection(conn, repoRoot).map((resolved) => ({
+        conn: resolved,
+        token,
+      })),
+    )
+  }
+
   getConnectionFromConfig(
     config: RepoConfig,
     trackerId?: string,
@@ -112,11 +126,14 @@ export class TaskTrackerManager {
   fetchBoardsFromConfig(
     config: RepoConfig,
     trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerBoard[], TaskTrackerError> {
-    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchBoards(conn, token)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchBoards(conn, token)
+      },
+    )
   }
 
   fetchBoardsForNewFromConfig(
@@ -135,42 +152,54 @@ export class TaskTrackerManager {
     config: RepoConfig,
     boardId?: string,
     trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerStatus[], TaskTrackerError> {
-    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchStatuses(conn, token, boardId)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchStatuses(conn, token, boardId)
+      },
+    )
   }
 
   fetchTasksFromConfig(
     config: RepoConfig,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
     trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerTask[], TaskTrackerError> {
-    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchTasks(conn, token, params)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTasks(conn, token, params)
+      },
+    )
   }
 
   getCurrentSprintFromConfig(
     config: RepoConfig,
     boardId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerSprint | null, TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.getCurrentSprint(conn, token, boardId)
-    })
+    return this.resolveConfigConnectionAsync(config, undefined, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.getCurrentSprint(conn, token, boardId)
+      },
+    )
   }
 
   getCurrentUserFromConfig(
     config: RepoConfig,
     trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<string, TaskTrackerError> {
-    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.getCurrentUserDisplayName(conn, token)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.getCurrentUserDisplayName(conn, token)
+      },
+    )
   }
 
   fetchTaskCommentsFromConfig(

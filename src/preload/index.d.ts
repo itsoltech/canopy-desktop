@@ -490,6 +490,19 @@ interface CanopyAPI {
     params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
   ) => Promise<TrackerTask[]>
   trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) => Promise<string>
+  trackerConfigFetchTaskComments: (
+    repoRoot: string | undefined,
+    taskKey: string,
+  ) => Promise<TrackerComment[]>
+  trackerConfigFetchTaskAttachments: (
+    repoRoot: string | undefined,
+    taskKey: string,
+  ) => Promise<TrackerAttachment[]>
+  trackerConfigDownloadAttachment: (
+    repoRoot: string | undefined,
+    url: string,
+    filename: string,
+  ) => Promise<string>
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>

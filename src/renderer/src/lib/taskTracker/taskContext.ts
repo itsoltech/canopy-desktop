@@ -81,17 +81,26 @@ export function formatTaskContext(
 export async function fetchAndFormatTaskContext(
   connectionId: string,
   task: TaskContextInput,
+  repoRoot?: string,
 ): Promise<string> {
   const [comments, rawAttachments] = await Promise.all([
-    window.api.taskTrackerFetchTaskComments(connectionId, task.key).catch(() => []),
-    window.api.taskTrackerFetchTaskAttachments(connectionId, task.key).catch(() => []),
+    window.api
+      .trackerConfigFetchTaskComments(repoRoot, task.key)
+      .catch(() => window.api.taskTrackerFetchTaskComments(connectionId, task.key).catch(() => [])),
+    window.api
+      .trackerConfigFetchTaskAttachments(repoRoot, task.key)
+      .catch(() =>
+        window.api.taskTrackerFetchTaskAttachments(connectionId, task.key).catch(() => []),
+      ),
   ])
 
   const attachments: TaskAttachmentPath[] = []
   const failedAttachments: string[] = []
   const downloadResults = await Promise.allSettled(
     rawAttachments.map(async (a) => {
-      const localPath = await window.api.taskTrackerDownloadAttachment(connectionId, a.url, a.name)
+      const localPath = await window.api
+        .trackerConfigDownloadAttachment(repoRoot, a.url, a.name)
+        .catch(() => window.api.taskTrackerDownloadAttachment(connectionId, a.url, a.name))
       return { name: a.name, localPath }
     }),
   )

@@ -255,7 +255,11 @@
     e.stopPropagation()
     const pane = getActiveAgentPane()
     if (!pane) return
-    const context = await fetchAndFormatTaskContext(connectionId, task)
+    const context = await fetchAndFormatTaskContext(
+      connectionId,
+      task,
+      workspaceState.repoRoot ?? undefined,
+    )
     await window.api.writePty(pane.sessionId, context + '\n')
     addToast('Task sent to agent')
     closeDialog()

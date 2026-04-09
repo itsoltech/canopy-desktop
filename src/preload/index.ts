@@ -572,6 +572,12 @@ const api = {
   ) => ipcRenderer.invoke('trackerConfig:fetchTasks', { repoRoot, trackerId, ...params }),
   trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) =>
     ipcRenderer.invoke('trackerConfig:getCurrentUser', { repoRoot, trackerId }),
+  trackerConfigFetchTaskComments: (repoRoot: string | undefined, taskKey: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchTaskComments', { repoRoot, taskKey }),
+  trackerConfigFetchTaskAttachments: (repoRoot: string | undefined, taskKey: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchTaskAttachments', { repoRoot, taskKey }),
+  trackerConfigDownloadAttachment: (repoRoot: string | undefined, url: string, filename: string) =>
+    ipcRenderer.invoke('trackerConfig:downloadAttachment', { repoRoot, url, filename }),
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) =>

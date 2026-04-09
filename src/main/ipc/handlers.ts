@@ -1567,6 +1567,7 @@ export function registerIpcHandlers(
       const result = await taskTrackerManager.fetchBoardsFromConfig(
         resolved.config,
         payload.trackerId,
+        payload.repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -1581,6 +1582,7 @@ export function registerIpcHandlers(
         resolved.config,
         payload.boardId,
         payload.trackerId,
+        payload.repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -1608,6 +1610,7 @@ export function registerIpcHandlers(
           boardId: payload.boardId,
         },
         payload.trackerId,
+        payload.repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -1621,6 +1624,51 @@ export function registerIpcHandlers(
       const result = await taskTrackerManager.getCurrentUserFromConfig(
         resolved.config,
         payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchTaskComments',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+      if (!/^[A-Za-z0-9_#-]+-?\d+$/.test(payload.taskKey)) throw new Error('Invalid task key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchTaskCommentsFromConfig(
+        resolved.config,
+        payload.taskKey,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchTaskAttachments',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+      if (!/^[A-Za-z0-9_#-]+-?\d+$/.test(payload.taskKey)) throw new Error('Invalid task key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchTaskAttachmentsFromConfig(
+        resolved.config,
+        payload.taskKey,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:downloadAttachment',
+    async (_event, payload: { repoRoot?: string; url: string; filename: string }) => {
+      if (!payload.url || !/^https?:\/\//.test(payload.url)) throw new Error('Invalid URL')
+      if (!payload.filename || /[\0/\\]/.test(payload.filename)) throw new Error('Invalid filename')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.downloadAttachmentFromConfig(
+        resolved.config,
+        payload.url,
+        payload.filename,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -1699,7 +1747,7 @@ export function registerIpcHandlers(
       // Get sprint: prefer config-based, fall back to legacy
       const sprint = resolved
         ? await taskTrackerManager
-            .getCurrentSprintFromConfig(resolved.config, payload.boardId)
+            .getCurrentSprintFromConfig(resolved.config, payload.boardId, payload.repoRoot)
             .unwrapOr(null)
         : await taskTrackerManager
             .getCurrentSprint(payload.connectionId, payload.boardId)
