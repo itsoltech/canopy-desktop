@@ -14,6 +14,7 @@ import { LayoutStore } from './db/LayoutStore'
 import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { initSkills } from './skills'
+import { SkillsCliServer } from './skills/SkillsCliServer'
 import { registerIpcHandlers } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
@@ -103,6 +104,7 @@ const {
   installer: skillInstaller,
   store: skillStore,
 } = initSkills(database)
+const skillsCliServer = new SkillsCliServer(skillRegistry, skillInstaller)
 const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
@@ -599,6 +601,15 @@ app.whenReady().then(async () => {
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')
 
+  // Start skills CLI server and inject env vars for terminal sessions
+  const skillsCliPort = await skillsCliServer.start()
+  const resourcesPath = is.dev
+    ? join(app.getAppPath(), 'resources')
+    : join(process.resourcesPath, 'resources')
+  process.env.CANOPY_SKILLS_PORT = String(skillsCliPort)
+  process.env.CANOPY_SKILLS_TOKEN = skillsCliServer.authToken
+  process.env.CANOPY_SKILLS_PATH = resourcesPath
+
   if (PERF) {
     // Log outgoing broadcasts for all current and future windows
     app.on('browser-window-created', (_, win) => {
@@ -817,6 +828,7 @@ app.on('before-quit', (event) => {
     }
     notchOverlay?.dispose()
     agentSessionManager?.dispose()
+    skillsCliServer.stop()
     database.close()
     return
   }
@@ -908,6 +920,7 @@ app.on('before-quit', (event) => {
   notchOverlay?.dispose()
   agentSessionManager?.dispose()
   windowManager.disposeAll()
+  skillsCliServer.stop()
   database.close()
 })
 

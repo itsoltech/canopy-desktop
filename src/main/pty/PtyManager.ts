@@ -53,6 +53,10 @@ export class PtyManager {
       COLORTERM: 'truecolor',
       TERM: 'xterm-256color',
     } as Record<string, string>
+    const resourcesPath = baseEnv.CANOPY_SKILLS_PATH
+    if (resourcesPath) {
+      baseEnv.PATH = `${resourcesPath}${os.platform() === 'win32' ? ';' : ':'}${baseEnv.PATH || ''}`
+    }
     const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv
 
     const p = pty.spawn(finalCommand, finalArgs, {
