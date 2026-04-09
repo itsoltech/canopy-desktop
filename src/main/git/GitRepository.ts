@@ -356,6 +356,44 @@ export class GitRepository {
       .map(() => undefined)
   }
 
+  static worktreeAddCheckout(
+    repoRoot: string,
+    path: string,
+    branch: string,
+    createLocalTracking: boolean,
+  ): ResultAsync<void, GitError> {
+    return validateRef(branch)
+      .asyncAndThen(() => {
+        const git = simpleGit(repoRoot)
+
+        if (!createLocalTracking) {
+          return gitCall('worktree add', git.raw(['worktree', 'add', path, branch]))
+        }
+
+        const slash = branch.indexOf('/')
+        if (slash < 0) {
+          return gitCall('worktree add', git.raw(['worktree', 'add', path, branch]))
+        }
+        const localName = branch.slice(slash + 1)
+
+        // Use `git branch --list` instead of `show-ref --verify` so that a
+        // missing branch is signalled by empty output (no error), letting real
+        // failures (corrupt repo, permissions) surface as GitCommandFailed.
+        return validateRef(localName).asyncAndThen(() =>
+          gitCall(
+            'branch list',
+            git.raw(['branch', '--list', '--format=%(refname:short)', localName]),
+          ).andThen((output) => {
+            const exists = output.split('\n').some((line) => line.trim() === localName)
+            return exists
+              ? gitCall('worktree add', git.raw(['worktree', 'add', path, localName]))
+              : gitCall('worktree add', git.raw(['worktree', 'add', '-b', localName, path, branch]))
+          }),
+        )
+      })
+      .map(() => undefined)
+  }
+
   static worktreeRemove(
     repoRoot: string,
     path: string,
