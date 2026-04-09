@@ -314,7 +314,7 @@ interface CanopyAPI {
   setFocusedAgentSession: (ptySessionId: string | null) => Promise<void>
 
   // Dialog
-  openFolder: () => Promise<string | null>
+  openFolder: (defaultPath?: string) => Promise<string | null>
 
   // Workspace Git Status
   refreshWorkspaceGitStatus: (id: string, path: string) => Promise<WorkspaceRow | null>
@@ -675,6 +675,46 @@ interface CanopyAPI {
 
   // Platform
   platform: NodeJS.Platform
+
+  // Run Configurations
+  runConfigDiscover: (repoRoot: string) => Promise<RunConfigSource[]>
+  runConfigSave: (configDir: string, config: RunConfigFile) => Promise<void>
+  runConfigAddConfig: (configDir: string, configuration: RunConfiguration) => Promise<void>
+  runConfigUpdateConfig: (
+    configDir: string,
+    name: string,
+    configuration: RunConfiguration,
+  ) => Promise<void>
+  runConfigDeleteConfig: (configDir: string, name: string) => Promise<void>
+  runConfigExecute: (
+    configDir: string,
+    name: string,
+    cwd?: string,
+  ) => Promise<{ sessionId: string; wsUrl: string }>
+  onRunConfigPostRunResult: (
+    callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
+  ) => () => void
+}
+
+interface RunConfiguration {
+  name: string
+  command: string
+  args?: string
+  cwd?: string
+  env?: Record<string, string>
+  max_instances?: number
+  pre_run?: string
+  post_run?: string
+}
+
+interface RunConfigFile {
+  configurations: RunConfiguration[]
+}
+
+interface RunConfigSource {
+  configDir: string
+  relativePath: string
+  file: RunConfigFile
 }
 
 type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'

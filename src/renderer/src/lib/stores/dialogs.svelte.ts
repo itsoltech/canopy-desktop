@@ -80,6 +80,18 @@ interface CreateGitHubPRState {
   type: 'createGitHubPR'
 }
 
+interface RunConfigEditorState {
+  type: 'runConfigEditor'
+  configDir: string
+  configName?: string
+}
+
+interface RunConfigManagerState {
+  type: 'runConfigManager'
+  selectConfigDir?: string
+  selectConfigName?: string
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -97,6 +109,8 @@ type DialogState =
   | FeatureOnboardingState
   | TmuxBrowserState
   | CreateGitHubPRState
+  | RunConfigEditorState
+  | RunConfigManagerState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -181,6 +195,18 @@ export function showTmuxBrowser(): void {
 
 export function showCreateGitHubPR(): void {
   dialogState.current = { type: 'createGitHubPR' }
+}
+
+export function showRunConfigEditor(configDir: string, configName?: string): void {
+  dialogState.current = { type: 'runConfigEditor', configDir, configName }
+}
+
+export function showRunConfigManager(configDir?: string, configName?: string): void {
+  dialogState.current = {
+    type: 'runConfigManager',
+    selectConfigDir: configDir,
+    selectConfigName: configName,
+  }
 }
 
 export function closeDialog(): void {

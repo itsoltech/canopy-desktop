@@ -21,7 +21,7 @@ export interface SpawnOptions {
   tmuxSessionName?: string
 }
 
-function resolveShell(): { command: string; args: string[] } {
+export function resolveShell(): { command: string; args: string[] } {
   if (os.platform() === 'win32') {
     return { command: 'powershell.exe', args: [] }
   }

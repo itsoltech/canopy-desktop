@@ -83,6 +83,14 @@ export const onboardingSteps: OnboardingStep[] = [
     category: 'feature',
   },
   {
+    id: 'run-configurations',
+    title: 'Run Configurations',
+    description:
+      'Define project commands in .canopy/run.toml and launch them from the sidebar or titlebar. Supports monorepos, environment variables, pre/post hooks, and instance limits. Enable the RUN section in Sidebar preferences.',
+    introducedIn: '0.11.0',
+    category: 'feature',
+  },
+  {
     id: 'worktree-existing-branch',
     title: 'Create worktrees from existing branches',
     description:
