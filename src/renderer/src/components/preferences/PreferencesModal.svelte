@@ -15,6 +15,7 @@
   import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
   import PrivacyPrefs from './PrivacyPrefs.svelte'
   import FileWatcherPrefs from './FileWatcherPrefs.svelte'
+  import RemoteControlPrefs from './RemoteControlPrefs.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
 
@@ -26,6 +27,7 @@
     { label: 'AI Agents', sections: ['Claude', 'Gemini'] },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
+    { label: 'Security', sections: ['Remote Control'] },
   ] as const
 
   type Section = (typeof groups)[number]['sections'][number]
@@ -113,6 +115,8 @@
         <PrivacyPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
+      {:else if activeSection === 'Remote Control'}
+        <RemoteControlPrefs />
       {/if}
     </div>
   </div>

@@ -240,6 +240,7 @@ interface CanopyAPI {
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   hasChildProcess: (sessionId: string) => Promise<boolean>
+  getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
 
   // Tmux
   tmuxIsAvailable: () => Promise<boolean>
@@ -447,6 +448,7 @@ interface CanopyAPI {
   ) => () => void
   onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
+  onPtyResized: (callback: (sessionId: string, cols: number, rows: number) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void
   onUrlAction: (
     callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
@@ -625,11 +627,37 @@ interface CanopyAPI {
     dir: string
   }> | null>
 
+  // Remote control (WebRTC pairing via QR)
+  remote: RemoteAPI
+
   // File utilities
   getPathForFile: (file: File) => string
 
   // Platform
   platform: NodeJS.Platform
+}
+
+type RemoteSessionStatus = import('../main/remote/types').RemoteSessionStatus
+
+interface RemoteTrustedDevice {
+  deviceId: string
+  name: string
+  addedAt: string
+  lastSeen: string
+  publicKeyJwk: unknown
+}
+
+interface RemoteAPI {
+  start: () => Promise<{ pairingUrl: string }>
+  stop: () => Promise<void>
+  getStatus: () => Promise<RemoteSessionStatus>
+  acceptDevice: (remember: boolean) => Promise<void>
+  rejectDevice: () => Promise<void>
+  sendSignal: (msg: unknown) => Promise<void>
+  listTrustedDevices: () => Promise<RemoteTrustedDevice[]>
+  removeTrustedDevice: (deviceId: string) => Promise<void>
+  onStatusChange: (callback: (status: RemoteSessionStatus) => void) => () => void
+  onSignal: (callback: (msg: unknown) => void) => () => void
 }
 
 type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'
