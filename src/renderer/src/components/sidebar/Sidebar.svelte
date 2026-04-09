@@ -5,6 +5,7 @@
   import FileTreeSection from './FileTreeSection.svelte'
   import ToolSection from './ToolSection.svelte'
   import TaskTrackerSection from './TaskTrackerSection.svelte'
+  import RunConfigSection from './RunConfigSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
@@ -45,6 +46,8 @@
         <ToolSection {onLaunchTool} />
       {:else if section.id === 'tasks'}
         <TaskTrackerSection />
+      {:else if section.id === 'runConfigs'}
+        <RunConfigSection />
       {/if}
     {/if}
   {/each}

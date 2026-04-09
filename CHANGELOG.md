@@ -1,3 +1,9 @@
+## [0.11.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0...v0.11.0-next.1) (2026-04-09)
+
+### Features
+
+* add run configurations system with .canopy/run.toml ([#126](https://github.com/itsoltech/canopy-desktop/issues/126)) ([865c4e4](https://github.com/itsoltech/canopy-desktop/commit/865c4e467644833199adf0fc1df7ca4c6a682642))
+
 ## [0.10.0](https://github.com/itsoltech/canopy-desktop/compare/v0.9.0...v0.10.0) (2026-04-09)
 
 ### Features

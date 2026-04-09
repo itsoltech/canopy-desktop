@@ -91,6 +91,18 @@ interface RemoteAcceptDeviceState {
   fingerprint: string
 }
 
+interface RunConfigEditorState {
+  type: 'runConfigEditor'
+  configDir: string
+  configName?: string
+}
+
+interface RunConfigManagerState {
+  type: 'runConfigManager'
+  selectConfigDir?: string
+  selectConfigName?: string
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -110,6 +122,8 @@ type DialogState =
   | CreateGitHubPRState
   | RemoteConnectionState
   | RemoteAcceptDeviceState
+  | RunConfigEditorState
+  | RunConfigManagerState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -210,6 +224,18 @@ export function showRemoteAcceptDevice(device: {
     deviceId: device.deviceId,
     deviceName: device.deviceName,
     fingerprint: device.fingerprint,
+  }
+}
+
+export function showRunConfigEditor(configDir: string, configName?: string): void {
+  dialogState.current = { type: 'runConfigEditor', configDir, configName }
+}
+
+export function showRunConfigManager(configDir?: string, configName?: string): void {
+  dialogState.current = {
+    type: 'runConfigManager',
+    selectConfigDir: configDir,
+    selectConfigName: configName,
   }
 }
 

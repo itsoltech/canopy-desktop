@@ -1,6 +1,6 @@
 {
   "name": "canopy",
-  "version": "0.10.0",
+  "version": "0.11.0-next.1",
   "description": "Developer terminal workstation",
   "main": "./out/main/index.js",
   "author": "ITSOL",
@@ -53,6 +53,7 @@
     "selfsigned": "^5.5.0",
     "semver": "^7.7.4",
     "simple-git": "^3.33.0",
+    "smol-toml": "^1.6.1",
     "ts-pattern": "^5.9.0",
     "ws": "^8.20.0"
   },

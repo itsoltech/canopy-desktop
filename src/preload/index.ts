@@ -230,7 +230,8 @@ const api = {
   focusRendererWebContents: () => ipcRenderer.invoke('app:focusRendererWebContents'),
 
   // Dialog
-  openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
+  openFolder: (defaultPath?: string) =>
+    ipcRenderer.invoke('dialog:openFolder', defaultPath ? { defaultPath } : undefined),
 
   // Git
   refreshWorkspaceGitStatus: (id: string, path: string) =>
@@ -835,6 +836,30 @@ const api = {
 
   // Platform
   platform: process.platform,
+
+  // Run Configurations
+  runConfigDiscover: (repoRoot: string) => ipcRenderer.invoke('runConfig:discover', { repoRoot }),
+  runConfigSave: (configDir: string, config: unknown) =>
+    ipcRenderer.invoke('runConfig:save', { configDir, config }),
+  runConfigAddConfig: (configDir: string, configuration: unknown) =>
+    ipcRenderer.invoke('runConfig:addConfig', { configDir, configuration }),
+  runConfigUpdateConfig: (configDir: string, name: string, configuration: unknown) =>
+    ipcRenderer.invoke('runConfig:updateConfig', { configDir, name, configuration }),
+  runConfigDeleteConfig: (configDir: string, name: string) =>
+    ipcRenderer.invoke('runConfig:deleteConfig', { configDir, name }),
+  runConfigExecute: (configDir: string, name: string, cwd?: string) =>
+    ipcRenderer.invoke('runConfig:execute', { configDir, name, cwd }) as Promise<{
+      sessionId: string
+      wsUrl: string
+    }>,
+  onRunConfigPostRunResult: (
+    callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
+  ) => {
+    const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
+      callback(data)
+    ipcRenderer.on('runConfig:postRunResult', handler)
+    return () => ipcRenderer.removeListener('runConfig:postRunResult', handler)
+  },
 }
 
 if (process.contextIsolated) {
