@@ -12,6 +12,7 @@
     loadGlobalConfig,
   } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { providerLabel } from '../../lib/taskTracker/providerLabel'
 
   interface Props {
     repoRoot?: string
@@ -186,8 +187,6 @@
       addToast(e instanceof Error ? e.message : 'Failed to remove connection')
     }
   }
-
-  import { providerLabel } from '../../lib/taskTracker/providerLabel'
 </script>
 
 {#if config}
