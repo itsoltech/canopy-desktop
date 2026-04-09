@@ -13,10 +13,12 @@ export interface TrackerCredentialState {
 }
 
 let connections: TaskTrackerConnectionInfo[] = $state([])
-let loading = $state(false)
+let loadCount = $state(0)
+const loading = $derived(loadCount > 0)
 let repoConfig: RepoConfig | null = $state(null)
 let globalConfig: RepoConfig | null = $state(null)
 let resolvedConfig: ResolvedConfig | null = $state(null)
+let lastRepoRoot: string | undefined = $state(undefined)
 // Per-tracker credentials: keyed by trackerId
 let trackerCredentials = $state<Record<string, TrackerCredentialState>>({})
 let activeTask: ActiveTaskContext | null = $state(null)
@@ -74,7 +76,8 @@ async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
 }
 
 export async function loadRepoConfig(repoRoot: string): Promise<void> {
-  loading = true
+  lastRepoRoot = repoRoot
+  loadCount++
   try {
     repoConfig = await window.api.repoConfigLoad(repoRoot)
     resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
@@ -84,7 +87,7 @@ export async function loadRepoConfig(repoRoot: string): Promise<void> {
   } catch {
     repoConfig = null
   } finally {
-    loading = false
+    loadCount--
   }
 }
 
@@ -103,7 +106,7 @@ export async function initRepoConfig(repoRoot: string): Promise<RepoConfig> {
 }
 
 export async function loadGlobalConfig(): Promise<void> {
-  loading = true
+  loadCount++
   try {
     globalConfig = await window.api.globalConfigLoad()
     if (globalConfig) {
@@ -112,7 +115,7 @@ export async function loadGlobalConfig(): Promise<void> {
   } catch {
     globalConfig = null
   } finally {
-    loading = false
+    loadCount--
   }
 }
 
@@ -120,7 +123,10 @@ export async function saveGlobalConfig(config: RepoConfig): Promise<void> {
   const plain = JSON.parse(JSON.stringify(config)) as RepoConfig
   await window.api.globalConfigSave(plain)
   globalConfig = plain
-  await refreshCredentials(plain.trackers)
+  // Re-resolve merged config so sidebar reflects the change
+  resolvedConfig = await window.api.trackerResolvedConfig(lastRepoRoot)
+  const allTrackers = resolvedConfig?.config.trackers ?? plain.trackers
+  await refreshCredentials(allTrackers)
 }
 
 export async function initGlobalConfig(): Promise<RepoConfig> {
@@ -165,13 +171,13 @@ export async function clearActiveTask(worktreePath: string): Promise<void> {
 }
 
 export async function loadConnections(): Promise<void> {
-  loading = true
+  loadCount++
   try {
     connections = await window.api.taskTrackerGetConnections()
   } catch {
     connections = []
   } finally {
-    loading = false
+    loadCount--
   }
 }
 

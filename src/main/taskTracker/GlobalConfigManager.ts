@@ -28,9 +28,16 @@ export class GlobalConfigManager {
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>
 
+      const VALID_PROVIDERS = new Set(['jira', 'youtrack', 'github'])
+
       // Backward compat: convert old single `tracker` to `trackers` array
       if (!parsed.trackers && parsed.tracker) {
         const old = parsed.tracker as { provider: string; baseUrl: string }
+        if (!VALID_PROVIDERS.has(old.provider)) {
+          this.cached = null
+          this.cacheValid = true
+          return null
+        }
         const config: RepoConfig = {
           version: 1,
           trackers: [
@@ -190,6 +197,8 @@ export class GlobalConfigManager {
               conn.username,
             )
           }
+          // Delete old plaintext token from preferences
+          this.preferencesStore.delete(conn.authPrefKey)
         }
       }
     } catch (e) {

@@ -114,26 +114,32 @@
       } else if (repoRoot) {
         await saveRepoConfig(repoRoot, updated)
       }
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save connection')
+      return
+    }
 
-      if (editToken) {
+    if (editToken) {
+      try {
         await window.api.keychainSetCredentials(
           editProvider,
           normalizedUrl,
           editToken,
           editUsername || undefined,
         )
-        if (scope === 'global') {
-          await loadGlobalConfig()
-        } else if (repoRoot) {
-          await loadRepoConfig(repoRoot)
-        }
+      } catch (e) {
+        addToast(e instanceof Error ? e.message : 'Failed to save credentials')
+        return
       }
-
-      editingId = null
-      addToast('Connection saved')
-    } catch (e) {
-      addToast(e instanceof Error ? e.message : 'Failed to save connection')
+      if (scope === 'global') {
+        await loadGlobalConfig()
+      } else if (repoRoot) {
+        await loadRepoConfig(repoRoot)
+      }
     }
+
+    editingId = null
+    addToast('Connection saved')
   }
 
   async function removeTracker(trackerId: string): Promise<void> {
