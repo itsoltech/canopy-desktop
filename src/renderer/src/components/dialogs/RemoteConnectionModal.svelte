@@ -25,6 +25,24 @@
   let pairingUrl = $derived(
     status.kind === 'waiting' || status.kind === 'peerArrived' ? status.pairingUrl : null,
   )
+  /**
+   * Display form of the pairing URL with the token fragment masked.
+   * The raw URL is still used for the QR code and the Copy button (so
+   * users can re-paste it into another browser if needed), but it
+   * never appears unmasked on screen — the QR is the intended
+   * pairing surface and the visible URL is informational only.
+   * Bystanders glancing at the screen can't memorise/photograph the
+   * token this way.
+   */
+  let pairingUrlMasked = $derived.by(() => {
+    if (!pairingUrl) return null
+    // Fragment is `#t=<token>&h=<hostname>`. Mask only the `t=...`
+    // segment. Keep the `h=...` piece so the user can verify the
+    // hostname matches their own machine.
+    return pairingUrl.replace(/([?&#]t=)[^&]+/, '$1●●●●●●●●')
+  })
+  /** Toggle for revealing the full URL with its token. Hidden by default. */
+  let showFullUrl = $state(false)
   let hostname = $derived(
     status.kind === 'waiting' ||
       status.kind === 'peerArrived' ||
@@ -97,13 +115,20 @@
       qrInstance.update({ data: pairingUrl })
       return
     }
+    // Pull the dot color from the active theme so the QR is still
+    // readable in light themes — hardcoded #e0e0e0 would be almost
+    // invisible on a light background. The canopy-green corner
+    // markers stay hardcoded because they're brand identity tied to
+    // the tree-crown logo in the center of the code.
+    const style = getComputedStyle(document.documentElement)
+    const dotColor = style.getPropertyValue('--c-text').trim() || '#e0e0e0'
     qrInstance = new QRCodeStyling({
       width: 260,
       height: 260,
       type: 'svg',
       data: pairingUrl,
       image: appIconUrl,
-      dotsOptions: { color: '#e0e0e0', type: 'rounded' },
+      dotsOptions: { color: dotColor, type: 'rounded' },
       backgroundOptions: { color: 'transparent' },
       // Corner markers in the same canopy-green as the tree crown in
       // the app icon, so the QR pulls visual identity from the
@@ -254,7 +279,17 @@
       {/if}
 
       <div class="url-row">
-        <code class="url">{pairingUrl}</code>
+        <code class="url">{showFullUrl ? pairingUrl : pairingUrlMasked}</code>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          onclick={() => (showFullUrl = !showFullUrl)}
+          title={showFullUrl
+            ? 'Hide token'
+            : 'Reveal token (visible to anyone looking at your screen)'}
+        >
+          {showFullUrl ? 'Hide' : 'Show'}
+        </button>
         <button type="button" class="btn btn-secondary" onclick={copyUrl}>
           {copied ? 'Copied' : 'Copy'}
         </button>
@@ -329,7 +364,7 @@
     background: var(--c-bg-overlay);
     border: 1px solid var(--c-border);
     border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--c-shadow-dialog, 0 16px 48px rgba(0, 0, 0, 0.6));
     padding: 24px;
   }
 

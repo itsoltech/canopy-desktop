@@ -80,6 +80,23 @@
     encrypted via WebRTC DTLS, but the signaling server only listens while a pairing modal is open.
   </p>
 
+  <div class="security-note">
+    <strong>Beta security notes:</strong>
+    <ul>
+      <li>
+        The pairing handshake (token exchange, SDP offer/answer) travels over plain HTTP/WebSocket
+        on the LAN — anyone with a packet sniffer on the same WiFi can observe it. Only the WebRTC
+        data channels themselves are encrypted (DTLS).
+      </li>
+      <li>
+        "Remember this device" uses the device's self-reported random ID for recognition — it's not
+        cryptographic identity. Anyone who knows or guesses a trusted device's ID can skip the
+        accept modal. Cryptographic challenge-response is planned for a future release; until then,
+        avoid using this on untrusted networks.
+      </li>
+    </ul>
+  </div>
+
   <label class="checkbox-row">
     <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
     <span>Enable remote control</span>
@@ -225,6 +242,31 @@
   .hint-row.muted {
     padding-left: 0;
     margin-top: 0;
+  }
+
+  .security-note {
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--c-warning) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--c-warning) 30%, transparent);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--c-text-secondary);
+    line-height: 1.5;
+  }
+
+  .security-note strong {
+    color: var(--c-text);
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .security-note ul {
+    margin: 0;
+    padding-left: 16px;
+  }
+
+  .security-note li + li {
+    margin-top: 4px;
   }
 
   .guard-group {

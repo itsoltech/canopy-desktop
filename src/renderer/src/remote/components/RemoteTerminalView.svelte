@@ -152,6 +152,33 @@
   }
 
   /**
+   * Build the xterm `theme` object from the active CSS custom properties
+   * so the terminal colors track whatever theme the remote client SPA
+   * is rendering in. Fallbacks kick in when a variable isn't defined
+   * (first paint before tokens load, or if the remote client bundle
+   * hasn't picked up the shared theme system yet).
+   */
+  function resolveXtermTheme(): {
+    background: string
+    foreground: string
+    cursor: string
+  } {
+    if (typeof window === 'undefined') {
+      return { background: '#1e1e1e', foreground: '#e0e0e0', cursor: '#74c0fc' }
+    }
+    const style = getComputedStyle(document.documentElement)
+    const read = (name: string, fallback: string): string => {
+      const v = style.getPropertyValue(name).trim()
+      return v.length > 0 ? v : fallback
+    }
+    return {
+      background: read('--c-bg', '#1e1e1e'),
+      foreground: read('--c-text', '#e0e0e0'),
+      cursor: read('--c-accent-text', '#74c0fc'),
+    }
+  }
+
+  /**
    * Compute the cols/rows that fit the peer's scroll container. Used to
    * request a host-side PTY resize via `api.pty.resize` so the host PTY
    * matches the peer's viewport — otherwise a phone is stuck scrolling
@@ -255,11 +282,7 @@
       // viewer's xterm is also 120 cols, no wrap is needed.
       // (xterm.js doesn't have an explicit "no wrap" option; keeping cols
       // in sync with the host is the right fix.)
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#e0e0e0',
-        cursor: '#74c0fc',
-      },
+      theme: resolveXtermTheme(),
     })
     term.open(containerEl)
 

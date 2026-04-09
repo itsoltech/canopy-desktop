@@ -62,14 +62,17 @@ export class CertificateProvider {
       ],
     })
 
-    fs.mkdirSync(this.certDir, { recursive: true })
-    fs.writeFileSync(certPath, pems.cert, 'utf-8')
-    fs.writeFileSync(keyPath, pems.private, 'utf-8')
-    fs.writeFileSync(
-      metaPath,
-      JSON.stringify({ lanIp, createdAt: new Date().toISOString() }),
-      'utf-8',
-    )
+    // Tighten directory and file permissions so the private key is not
+    // world-readable. The cert itself is public so 0o644 is fine, but the
+    // key MUST be owner-only (0o600) — without this mode, the default
+    // umask makes it world-readable on any multi-user system.
+    fs.mkdirSync(this.certDir, { recursive: true, mode: 0o700 })
+    fs.writeFileSync(certPath, pems.cert, { encoding: 'utf-8', mode: 0o644 })
+    fs.writeFileSync(keyPath, pems.private, { encoding: 'utf-8', mode: 0o600 })
+    fs.writeFileSync(metaPath, JSON.stringify({ lanIp, createdAt: new Date().toISOString() }), {
+      encoding: 'utf-8',
+      mode: 0o600,
+    })
 
     return { cert: pems.cert, key: pems.private }
   }

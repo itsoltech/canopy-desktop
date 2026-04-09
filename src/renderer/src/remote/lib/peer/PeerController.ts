@@ -212,18 +212,6 @@ export class PeerController {
 
   dispose(): void {
     if (this.disposed) return
-    // Log to host via /diag so we can see who disposed the controller.
-    const stack = new Error('dispose').stack?.split('\n').slice(1, 6).join(' | ') ?? '?'
-    try {
-      const base = `${window.location.protocol}//${window.location.host}`
-      void fetch(`${base}/diag?msg=${encodeURIComponent(`PeerController.dispose() | ${stack}`)}`, {
-        method: 'GET',
-        cache: 'no-store',
-        keepalive: true,
-      }).catch(() => {})
-    } catch {
-      /* ignore */
-    }
     this.disposed = true
     this.stateApplier?.dispose()
     this.stateApplier = null

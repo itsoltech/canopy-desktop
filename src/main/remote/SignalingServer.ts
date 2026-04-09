@@ -273,19 +273,6 @@ export class SignalingServer {
       return
     }
 
-    // Diagnostic logging endpoint — peer sends GET /diag?msg=... to
-    // have its client-side events logged in the host main-process
-    // terminal alongside server-side events. Lets us correlate
-    // exactly when the peer does something vs when the server sees it.
-    if (req.url && req.url.startsWith('/diag?')) {
-      const msg = new URL(req.url, 'http://placeholder.invalid').searchParams.get('msg')
-      const ts = new Date().toISOString().slice(11, 23)
-      console.log(`[peer ${ts}] ${msg ?? '(no msg)'}`)
-      res.writeHead(204)
-      res.end()
-      return
-    }
-
     // Root → redirect to /remote/ for convenience when typing the URL by hand
     if (req.url === '/' || req.url === '') {
       res.writeHead(302, { Location: '/remote/' })
@@ -300,15 +287,17 @@ export class SignalingServer {
   }
 
   private handleWsConnection(ws: WsWebSocket): void {
-    const connTs = new Date().toISOString().slice(11, 23)
-    console.log(`[remote ${connTs}] WS open (new peer connection)`)
     let paired = false
-    let sizeSinceLastReset = 0
 
     ws.on('message', (raw) => {
       const buf = typeof raw === 'string' ? Buffer.from(raw) : (raw as Buffer)
-      sizeSinceLastReset += buf.byteLength
-      if (sizeSinceLastReset > MAX_MESSAGE_BYTES) {
+      // Per-message size limit. Each signaling frame (SDP, ICE candidate,
+      // pair handshake) is well under 256KB on its own; anything larger
+      // is abusive and we boot the peer with 1009 (Policy Violation).
+      // This is a per-frame check, NOT a cumulative lifetime cap — a
+      // long-lived session may legitimately move many MB of data across
+      // many small frames.
+      if (buf.byteLength > MAX_MESSAGE_BYTES) {
         ws.close(1009, 'message too large')
         return
       }
@@ -379,10 +368,6 @@ export class SignalingServer {
     })
 
     const onClose = (): void => {
-      const closeTs = new Date().toISOString().slice(11, 23)
-      console.log(
-        `[remote ${closeTs}] WS close (wasActivePeer=${this.activePeer === ws}, paired=${paired})`,
-      )
       if (this.activePeer === ws) {
         this.activePeer = null
         this.handlers?.onPeerDisconnected()

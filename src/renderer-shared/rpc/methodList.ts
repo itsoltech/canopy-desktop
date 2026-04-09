@@ -115,8 +115,17 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
  * `remote.actionGuard` profile is `'destructive'`, these trigger a confirm
  * modal on the desktop before they execute. `'full'` triggers it for every
  * method; `'none'` disables the guard entirely.
+ *
+ * `pty.write` and `agent.sendInput` are here because both ultimately
+ * flow user-controlled text into a PTY and pressing Enter runs a shell
+ * command — a remote peer with these methods unguarded can execute
+ * arbitrary commands on the host. They're the highest-risk methods in
+ * the whitelist and should require confirmation under the default
+ * profile.
  */
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
   'pty.kill',
+  'pty.write',
+  'agent.sendInput',
 ])

@@ -31,7 +31,6 @@ export class SignalingClient {
 
   connect(url: string): void {
     if (this.ws) return
-    diagBanner(`connect: ${url}`, 'info')
     let ws: WebSocket
     try {
       ws = new WebSocket(url)
@@ -44,7 +43,6 @@ export class SignalingClient {
       // it via `onError` lets the controller flip to an `error` phase
       // and the UI shows what went wrong.
       console.error('[peer-signaling] WebSocket constructor threw:', e)
-      diagBanner(`ws-ctor threw: ${e}`, 'err')
       const fakeEvent = new Event('error')
       queueMicrotask(() => this.onError?.(fakeEvent))
       return
@@ -53,7 +51,6 @@ export class SignalingClient {
 
     ws.addEventListener('open', () => {
       if (this.closed) return
-      diagBanner('ws open', 'ok')
       this.onOpen?.()
     })
 
@@ -76,23 +73,15 @@ export class SignalingClient {
         console.warn('[peer-signaling] unknown signal shape:', parsed)
         return
       }
-      diagBanner(`msg: ${msg.type}`, 'info')
-      try {
-        this.onMessage?.(msg)
-      } catch (e) {
-        diagBanner(`onMessage threw: ${e}`, 'err')
-        throw e
-      }
+      this.onMessage?.(msg)
     })
 
     ws.addEventListener('error', (ev) => {
       if (this.closed) return
-      diagBanner('ws error event', 'err')
       this.onError?.(ev)
     })
 
     ws.addEventListener('close', (ev) => {
-      diagBanner(`ws close code=${ev.code} reason=${ev.reason} closed=${this.closed}`, 'err')
       if (this.closed) return
       this.closed = true
       this.onClose?.(ev.code, ev.reason)
@@ -100,10 +89,6 @@ export class SignalingClient {
   }
 
   close(code = 1000, reason = 'client closing'): void {
-    diagBanner(
-      `signaling.close() called: ${reason} (stack: ${new Error().stack?.split('\n').slice(1, 4).join(' | ') ?? '?'})`,
-      'err',
-    )
     if (this.closed) return
     this.closed = true
     try {
@@ -118,28 +103,6 @@ export class SignalingClient {
     const ws = this.ws
     if (!ws || ws.readyState !== WebSocket.OPEN) return
     ws.send(JSON.stringify(msg))
-  }
-}
-
-/** Send a diagnostic event to the host's `/diag` endpoint so peer-side
- *  events show up in the main-process terminal alongside server-side
- *  events. Fire-and-forget — if the network call fails (e.g. peer
- *  can't even reach the server), we still log locally so Safari Web
- *  Inspector captures it. */
-function diagBanner(text: string, _kind?: 'info' | 'ok' | 'err'): void {
-  void _kind
-  console.log('[peer:diag]', text)
-  try {
-    const base = `${window.location.protocol}//${window.location.host}`
-    void fetch(`${base}/diag?msg=${encodeURIComponent(text)}`, {
-      method: 'GET',
-      cache: 'no-store',
-      keepalive: true,
-    }).catch(() => {
-      /* ignore — diag is best-effort */
-    })
-  } catch {
-    /* ignore */
   }
 }
 

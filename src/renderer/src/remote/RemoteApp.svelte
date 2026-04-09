@@ -337,6 +337,26 @@
   // always does. Also expose `--kb-offset` for any descendant that wants
   // to distinguish keyboard-open from keyboard-closed state.
   let shellStyle = $derived(`--shell-height: ${visualHeight}px; --kb-offset: ${keyboardHeight}px`)
+
+  // Global Escape handler: dismiss the tool picker sheet or the
+  // fullscreen terminal overlay when the user hits Escape. Required
+  // for keyboard-only users to dismiss both dialogs without reaching
+  // for the close button.
+  $effect(() => {
+    if (!toolPickerOpen && fullscreenSessionId === null) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      if (toolPickerOpen) {
+        e.preventDefault()
+        closeToolPicker()
+      } else if (fullscreenSessionId !== null) {
+        e.preventDefault()
+        exitFullscreen()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 </script>
 
 <main class="shell" style={shellStyle}>
@@ -646,7 +666,13 @@
      `RemoteTerminalView` (the inline preview is unmounted by the mutex
      above so we don't double-subscribe). -->
 {#if fullscreenSessionId && remoteApi}
-  <div class="terminal-overlay" style={shellStyle}>
+  <div
+    class="terminal-overlay"
+    style={shellStyle}
+    role="dialog"
+    aria-modal="true"
+    aria-label="Fullscreen terminal"
+  >
     <header class="terminal-overlay-header">
       <button type="button" class="back-btn" onclick={exitFullscreen}> ← Close </button>
       <span class="terminal-overlay-title">
@@ -667,34 +693,44 @@
 <!-- ============ TOOL PICKER BOTTOM SHEET ============
      Mobile-only spawn-tool picker. Opened by the "+ New tool" button in
      the workspace pane's spawn-strip when the viewport is below 768px.
-     Backdrop click and the X close the sheet without spawning anything. -->
+     Backdrop click, the X button, and Escape close the sheet. -->
 {#if toolPickerOpen}
+  <button
+    type="button"
+    class="sheet-backdrop"
+    aria-label="Close tool picker"
+    onclick={closeToolPicker}
+  ></button>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="sheet-backdrop" onclick={closeToolPicker}>
-    <div class="tool-sheet" onclick={(e) => e.stopPropagation()}>
-      <header class="sheet-header">
-        <span class="sheet-title">Spawn a tool</span>
-        <button
-          type="button"
-          class="icon-btn sheet-close"
-          onclick={closeToolPicker}
-          aria-label="Close"
-        >
-          ×
+  <div
+    class="tool-sheet"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tool-sheet-title"
+    onclick={(e) => e.stopPropagation()}
+  >
+    <header class="sheet-header">
+      <span id="tool-sheet-title" class="sheet-title">Spawn a tool</span>
+      <button
+        type="button"
+        class="icon-btn sheet-close"
+        onclick={closeToolPicker}
+        aria-label="Close"
+      >
+        ×
+      </button>
+    </header>
+    <div class="sheet-body">
+      {#each mirrorState.tools.filter((t) => t.available) as tool (tool.id)}
+        <button type="button" class="sheet-tool-row" onclick={() => pickAndSpawnTool(tool.id)}>
+          <span class="sheet-tool-name">{tool.name}</span>
+          <span class="sheet-tool-hint">Spawn in {workspaceLabel || 'current worktree'}</span>
         </button>
-      </header>
-      <div class="sheet-body">
-        {#each mirrorState.tools.filter((t) => t.available) as tool (tool.id)}
-          <button type="button" class="sheet-tool-row" onclick={() => pickAndSpawnTool(tool.id)}>
-            <span class="sheet-tool-name">{tool.name}</span>
-            <span class="sheet-tool-hint">Spawn in {workspaceLabel || 'current worktree'}</span>
-          </button>
-        {/each}
-        {#if mirrorState.tools.filter((t) => t.available).length === 0}
-          <p class="muted">No tools registered on host.</p>
-        {/if}
-      </div>
+      {/each}
+      {#if mirrorState.tools.filter((t) => t.available).length === 0}
+        <p class="muted">No tools registered on host.</p>
+      {/if}
     </div>
   </div>
 {/if}
@@ -1433,17 +1469,18 @@
   }
 
   .sheet-backdrop {
-    /* Dim backdrop that covers the whole viewport. z-index sits above the
-       fullscreen terminal overlay (2000) so the sheet can be opened even
-       when someone is inside fullscreen mode (though right now we only
-       open it from the inline workspace pane). */
+    /* Dim backdrop that covers the whole viewport. This is a <button> so
+       keyboard users can dismiss it with Tab + Enter — we reset every
+       native button style with `all: unset` so it still looks like a
+       plain dim scrim. z-index sits above the fullscreen terminal
+       overlay (2000) so the sheet can be opened even when someone is
+       inside fullscreen mode. */
+    all: unset;
     position: fixed;
     inset: 0;
     z-index: 2500;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+    background: var(--c-scrim, rgba(0, 0, 0, 0.55));
     animation: sheet-backdrop-fade 180ms ease-out;
   }
 
@@ -1451,7 +1488,14 @@
     /* The sheet itself — slides up from the bottom. `max-height: 75vh`
        keeps it from eating the whole screen when there are many tools,
        while respecting the iOS home indicator via safe-area-inset-bottom
-       (padded inside the body so the last row doesn't sit on the bar). */
+       (padded inside the body so the last row doesn't sit on the bar).
+       Positioned fixed so it sits above the backdrop button regardless
+       of DOM order. */
+    position: fixed;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    z-index: 2501;
     width: 100%;
     max-width: 520px;
     max-height: 75vh;
@@ -1461,7 +1505,7 @@
     border-top-right-radius: 14px;
     border: 1px solid var(--c-border);
     border-bottom: none;
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--c-shadow-sheet, 0 -8px 24px rgba(0, 0, 0, 0.35));
     display: flex;
     flex-direction: column;
     animation: sheet-slide-up 220ms cubic-bezier(0.25, 1, 0.5, 1);
@@ -1543,10 +1587,10 @@
 
   @keyframes sheet-slide-up {
     from {
-      transform: translateY(100%);
+      transform: translate(-50%, 100%);
     }
     to {
-      transform: translateY(0);
+      transform: translate(-50%, 0);
     }
   }
 
