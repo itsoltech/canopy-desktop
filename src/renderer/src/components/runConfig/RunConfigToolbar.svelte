@@ -189,6 +189,8 @@
         class="dropdown"
         style="top: {dropdownTop}px; left: {dropdownLeft}px; min-width: {dropdownWidth}px;"
         onclick={(e) => e.stopPropagation()}
+        role="listbox"
+        aria-label="Run configurations"
       >
         {#each dropdownGroups as group (group.label)}
           <div class="dropdown-group-label">{group.label}</div>

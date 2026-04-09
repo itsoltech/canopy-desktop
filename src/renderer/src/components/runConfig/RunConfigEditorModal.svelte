@@ -29,6 +29,7 @@
     command: string
     args?: string
     cwd?: string
+    max_instances?: number
     env?: Record<string, string>
     pre_run?: string
     post_run?: string
