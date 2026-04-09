@@ -132,13 +132,15 @@ jobs:
         if: steps.range.outputs.new_releases == 'true'
         id: prompt
         run: |
-          echo "content<<PROMPT_DELIM_EOF" >> "$GITHUB_OUTPUT"
+          # Randomized delimiter prevents injection via untrusted release notes
+          DELIM="PROMPT_EOF_$(openssl rand -hex 8)"
+          echo "content<<${DELIM}" >> "$GITHUB_OUTPUT"
           cat .github/prompts/claude-code-compat.md >> "$GITHUB_OUTPUT"
           echo "" >> "$GITHUB_OUTPUT"
           echo "## Release Notes" >> "$GITHUB_OUTPUT"
           echo "" >> "$GITHUB_OUTPUT"
           cat /tmp/release-notes.md >> "$GITHUB_OUTPUT"
-          echo "PROMPT_DELIM_EOF" >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
 
       # ── Run Claude Code analysis ──────────────────────────────
       - name: Run compatibility analysis
@@ -158,7 +160,7 @@ jobs:
           claude_args: |
             --model opus[1m]
             --effort max
-            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/claude-code-compat),Bash(git checkout -b chore/claude-code-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/claude-code-compat),Bash(git push origin chore/claude-code-compat:*),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/marckrenn/claude-code-changelog/:*),Bash(npm view:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/claude-code-compat),Bash(git checkout -b chore/claude-code-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/claude-code-compat),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/marckrenn/claude-code-changelog/:*),Bash(npm view:*)"
           settings: |
             {
               "env": {
