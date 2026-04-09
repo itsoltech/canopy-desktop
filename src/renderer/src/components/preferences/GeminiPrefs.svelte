@@ -139,8 +139,15 @@
           bind:value={newEnvKey}
           placeholder="VARIABLE_NAME"
           spellcheck="false"
+          onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
         />
-        <input class="form-input" bind:value={newEnvValue} placeholder="value" spellcheck="false" />
+        <input
+          class="form-input"
+          bind:value={newEnvValue}
+          placeholder="value"
+          spellcheck="false"
+          onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
+        />
         <div class="form-actions">
           <button class="btn btn-cancel" onclick={() => (showEnvForm = false)}>Cancel</button>
           <button class="btn btn-add" onclick={addEnvVar}>Add</button>
