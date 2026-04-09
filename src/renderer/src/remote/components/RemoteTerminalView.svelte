@@ -449,7 +449,7 @@
     overflow: auto;
     border-radius: 8px;
     border: 1px solid var(--c-border);
-    background: #1e1e1e;
+    background: var(--c-bg, #1e1e1e);
     /* Block scroll chaining so a swipe past the edge doesn't trigger the
        mobile browser's pull-to-refresh (which would tear down the remote
        session) and doesn't bubble up into the page body. `contain` keeps

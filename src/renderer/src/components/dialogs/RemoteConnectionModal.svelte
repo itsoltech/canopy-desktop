@@ -507,6 +507,16 @@
     }
   }
 
+  /* Respect `prefers-reduced-motion` — users with vestibular disorders
+     should not see the continuous pulse on status dots. */
+  @media (prefers-reduced-motion: reduce) {
+    .status-row[data-kind='waiting'] .status-dot,
+    .status-row[data-kind='starting'] .status-dot,
+    .status-row[data-kind='reconnecting'] .status-dot {
+      animation: none;
+    }
+  }
+
   .status-label {
     color: var(--c-text);
   }

@@ -7,6 +7,7 @@
   import { mirrorState } from './lib/state/mirrorState.svelte'
   import { createViewportTracker, type ViewportTracker } from './lib/viewportTracker.svelte'
   import RemoteTerminalView from './components/RemoteTerminalView.svelte'
+  import ToolPickerSheet from './components/ToolPickerSheet.svelte'
 
   // ===== controller lifecycle =====
 
@@ -691,48 +692,17 @@
 {/if}
 
 <!-- ============ TOOL PICKER BOTTOM SHEET ============
-     Mobile-only spawn-tool picker. Opened by the "+ New tool" button in
-     the workspace pane's spawn-strip when the viewport is below 768px.
-     Backdrop click, the X button, and Escape close the sheet. -->
+     Mobile-only spawn-tool picker. Opened by the "+ New tool" button
+     in the workspace pane's spawn-strip when the viewport is below
+     768px. Lives in a separate component so the markup + its ~100
+     lines of sheet-specific CSS don't bloat this file. -->
 {#if toolPickerOpen}
-  <button
-    type="button"
-    class="sheet-backdrop"
-    aria-label="Close tool picker"
-    onclick={closeToolPicker}
-  ></button>
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="tool-sheet"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="tool-sheet-title"
-    onclick={(e) => e.stopPropagation()}
-  >
-    <header class="sheet-header">
-      <span id="tool-sheet-title" class="sheet-title">Spawn a tool</span>
-      <button
-        type="button"
-        class="icon-btn sheet-close"
-        onclick={closeToolPicker}
-        aria-label="Close"
-      >
-        ×
-      </button>
-    </header>
-    <div class="sheet-body">
-      {#each mirrorState.tools.filter((t) => t.available) as tool (tool.id)}
-        <button type="button" class="sheet-tool-row" onclick={() => pickAndSpawnTool(tool.id)}>
-          <span class="sheet-tool-name">{tool.name}</span>
-          <span class="sheet-tool-hint">Spawn in {workspaceLabel || 'current worktree'}</span>
-        </button>
-      {/each}
-      {#if mirrorState.tools.filter((t) => t.available).length === 0}
-        <p class="muted">No tools registered on host.</p>
-      {/if}
-    </div>
-  </div>
+  <ToolPickerSheet
+    tools={mirrorState.tools}
+    {workspaceLabel}
+    onClose={closeToolPicker}
+    onPick={pickAndSpawnTool}
+  />
 {/if}
 
 <style>
@@ -958,6 +928,17 @@
     }
     50% {
       opacity: 0.4;
+    }
+  }
+
+  /* Respect `prefers-reduced-motion` — users with vestibular disorders
+     should not see the continuous pulse on status dots. The tool
+     picker sheet's own slide/fade animations live in ToolPickerSheet.svelte
+     and have their own reduced-motion fallback there. */
+  @media (prefers-reduced-motion: reduce) {
+    .status-pill[data-kind='progress'] .status-dot,
+    .big-dot[data-kind='progress'] {
+      animation: none;
     }
   }
 
@@ -1468,131 +1449,9 @@
     padding: 10px 14px;
   }
 
-  .sheet-backdrop {
-    /* Dim backdrop that covers the whole viewport. This is a <button> so
-       keyboard users can dismiss it with Tab + Enter — we reset every
-       native button style with `all: unset` so it still looks like a
-       plain dim scrim. z-index sits above the fullscreen terminal
-       overlay (2000) so the sheet can be opened even when someone is
-       inside fullscreen mode. */
-    all: unset;
-    position: fixed;
-    inset: 0;
-    z-index: 2500;
-    cursor: pointer;
-    background: var(--c-scrim, rgba(0, 0, 0, 0.55));
-    animation: sheet-backdrop-fade 180ms ease-out;
-  }
-
-  .tool-sheet {
-    /* The sheet itself — slides up from the bottom. `max-height: 75vh`
-       keeps it from eating the whole screen when there are many tools,
-       while respecting the iOS home indicator via safe-area-inset-bottom
-       (padded inside the body so the last row doesn't sit on the bar).
-       Positioned fixed so it sits above the backdrop button regardless
-       of DOM order. */
-    position: fixed;
-    left: 50%;
-    bottom: 0;
-    transform: translateX(-50%);
-    z-index: 2501;
-    width: 100%;
-    max-width: 520px;
-    max-height: 75vh;
-    max-height: 75dvh;
-    background: var(--c-bg-elevated);
-    border-top-left-radius: 14px;
-    border-top-right-radius: 14px;
-    border: 1px solid var(--c-border);
-    border-bottom: none;
-    box-shadow: var(--c-shadow-sheet, 0 -8px 24px rgba(0, 0, 0, 0.35));
-    display: flex;
-    flex-direction: column;
-    animation: sheet-slide-up 220ms cubic-bezier(0.25, 1, 0.5, 1);
-  }
-
-  .sheet-header {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 18px 10px;
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .sheet-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .sheet-close {
-    width: 30px;
-    height: 30px;
-    font-size: 18px;
-  }
-
-  .sheet-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px 14px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  @supports (padding: env(safe-area-inset-bottom)) {
-    .sheet-body {
-      padding-bottom: calc(18px + env(safe-area-inset-bottom));
-    }
-  }
-
-  .sheet-tool-row {
-    all: unset;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    padding: 14px 14px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
-    border-radius: 10px;
-    cursor: pointer;
-  }
-
-  .sheet-tool-row:active {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
-  }
-
-  .sheet-tool-name {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .sheet-tool-hint {
-    font-size: 11px;
-    color: var(--c-text-muted);
-  }
-
-  @keyframes sheet-backdrop-fade {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-
-  @keyframes sheet-slide-up {
-    from {
-      transform: translate(-50%, 100%);
-    }
-    to {
-      transform: translate(-50%, 0);
-    }
-  }
+  /* Tool picker sheet styles live in `./components/ToolPickerSheet.svelte`
+     alongside the markup — they're fully self-contained there so there's
+     no reason to duplicate them in this file. */
 
   /* ============ TERMINAL OVERLAY (mobile fullscreen) ============ */
 
