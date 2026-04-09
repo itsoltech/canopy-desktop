@@ -15,6 +15,7 @@
   import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
   import PrivacyPrefs from './PrivacyPrefs.svelte'
   import FileWatcherPrefs from './FileWatcherPrefs.svelte'
+  import SkillPrefs from './SkillPrefs.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
 
@@ -23,7 +24,7 @@
   const groups = [
     { label: 'General', sections: ['General', 'Updates', 'Privacy', 'Shortcuts'] },
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
-    { label: 'AI Agents', sections: ['Claude', 'Gemini'] },
+    { label: 'AI Agents', sections: ['Claude', 'Gemini', 'Skills'] },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
   ] as const
@@ -101,6 +102,8 @@
         <ClaudePrefs />
       {:else if activeSection === 'Gemini'}
         <GeminiPrefs />
+      {:else if activeSection === 'Skills'}
+        <SkillPrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
       {:else if activeSection === 'Web Browser'}
