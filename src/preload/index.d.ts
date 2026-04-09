@@ -241,6 +241,7 @@ interface CanopyAPI {
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   hasChildProcess: (sessionId: string) => Promise<boolean>
+  getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
 
   // Tmux
   tmuxIsAvailable: () => Promise<boolean>
@@ -314,7 +315,7 @@ interface CanopyAPI {
   setFocusedAgentSession: (ptySessionId: string | null) => Promise<void>
 
   // Dialog
-  openFolder: () => Promise<string | null>
+  openFolder: (defaultPath?: string) => Promise<string | null>
 
   // Workspace Git Status
   refreshWorkspaceGitStatus: (id: string, path: string) => Promise<WorkspaceRow | null>
@@ -454,6 +455,7 @@ interface CanopyAPI {
   ) => () => void
   onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
+  onPtyResized: (callback: (sessionId: string, cols: number, rows: number) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void
   onUrlAction: (
     callback: (data: { action: string; path: string; tool?: string; worktree?: string }) => void,
@@ -674,11 +676,77 @@ interface CanopyAPI {
     dir: string
   }> | null>
 
+  // Remote control (WebRTC pairing via QR)
+  remote: RemoteAPI
+
   // File utilities
   getPathForFile: (file: File) => string
 
   // Platform
   platform: NodeJS.Platform
+
+  // Run Configurations
+  runConfigDiscover: (repoRoot: string) => Promise<RunConfigSource[]>
+  runConfigSave: (configDir: string, config: RunConfigFile) => Promise<void>
+  runConfigAddConfig: (configDir: string, configuration: RunConfiguration) => Promise<void>
+  runConfigUpdateConfig: (
+    configDir: string,
+    name: string,
+    configuration: RunConfiguration,
+  ) => Promise<void>
+  runConfigDeleteConfig: (configDir: string, name: string) => Promise<void>
+  runConfigExecute: (
+    configDir: string,
+    name: string,
+    cwd?: string,
+  ) => Promise<{ sessionId: string; wsUrl: string }>
+  onRunConfigPostRunResult: (
+    callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
+  ) => () => void
+}
+
+interface RunConfiguration {
+  name: string
+  command: string
+  args?: string
+  cwd?: string
+  env?: Record<string, string>
+  max_instances?: number
+  pre_run?: string
+  post_run?: string
+}
+
+interface RunConfigFile {
+  configurations: RunConfiguration[]
+}
+
+interface RunConfigSource {
+  configDir: string
+  relativePath: string
+  file: RunConfigFile
+}
+
+type RemoteSessionStatus = import('../main/remote/types').RemoteSessionStatus
+
+interface RemoteTrustedDevice {
+  deviceId: string
+  name: string
+  addedAt: string
+  lastSeen: string
+  publicKeyJwk: unknown
+}
+
+interface RemoteAPI {
+  start: () => Promise<{ pairingUrl: string }>
+  stop: () => Promise<void>
+  getStatus: () => Promise<RemoteSessionStatus>
+  acceptDevice: (remember: boolean) => Promise<void>
+  rejectDevice: () => Promise<void>
+  sendSignal: (msg: unknown) => Promise<void>
+  listTrustedDevices: () => Promise<RemoteTrustedDevice[]>
+  removeTrustedDevice: (deviceId: string) => Promise<void>
+  onStatusChange: (callback: (status: RemoteSessionStatus) => void) => () => void
+  onSignal: (callback: (msg: unknown) => void) => () => void
 }
 
 type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'

@@ -1,0 +1,28 @@
+@import '../../../../renderer-shared/styles/tokens.css';
+
+html,
+body {
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+#app {
+  width: 100vw;
+  /* The `--shell-height` variable is set by `viewportTracker.svelte.ts`
+     on `document.documentElement` to `visualViewport.height` in CSS
+     pixels. When the mobile soft keyboard opens, visualViewport shrinks
+     and we shrink `#app` to match — which cascades into `.shell`'s
+     flex:1 child so the whole remote client UI resizes to fit above
+     the keyboard. The `100dvh` fallback handles first paint (before
+     the tracker's first update) and desktop browsers without
+     visualViewport support. */
+  height: 100vh;
+  height: 100dvh;
+  height: var(--shell-height, 100dvh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}

@@ -27,6 +27,7 @@ export default defineConfig({
         input: {
           main: resolve(__dirname, 'src/renderer/index.html'),
           notch: resolve(__dirname, 'src/renderer/notch.html'),
+          remote: resolve(__dirname, 'src/renderer/remote.html'),
         },
       },
     },

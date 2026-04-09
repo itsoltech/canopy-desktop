@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { GitInfo } from '../main/git/GitRepository'
+import type { RemoteSessionStatus } from '../main/remote/types'
 
 const api = {
   // PTY
@@ -14,6 +15,11 @@ const api = {
     ipcRenderer.invoke('pty:write', { sessionId, data }),
   hasChildProcess: (sessionId: string) =>
     ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
+  getPtyDimensions: (sessionId: string) =>
+    ipcRenderer.invoke('pty:getDimensions', { sessionId }) as Promise<{
+      cols: number
+      rows: number
+    } | null>,
 
   // Tmux
   tmuxIsAvailable: () => ipcRenderer.invoke('tmux:isAvailable') as Promise<boolean>,
@@ -224,7 +230,8 @@ const api = {
   focusRendererWebContents: () => ipcRenderer.invoke('app:focusRendererWebContents'),
 
   // Dialog
-  openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
+  openFolder: (defaultPath?: string) =>
+    ipcRenderer.invoke('dialog:openFolder', defaultPath ? { defaultPath } : undefined),
 
   // Git
   refreshWorkspaceGitStatus: (id: string, path: string) =>
@@ -480,6 +487,23 @@ const api = {
     ipcRenderer.on('pty:exit', handler)
     return (): void => {
       ipcRenderer.removeListener('pty:exit', handler)
+    }
+  },
+  /**
+   * Subscribe to PTY resize broadcasts. Fires whenever any session's PTY
+   * is resized (host desktop fit, split pane resize, etc.) so the remote
+   * host controller can relay the new dimensions to any connected peer.
+   * Returns an unsubscribe function — call it in a cleanup / onDestroy
+   * hook to avoid leaking listeners across session teardown.
+   */
+  onPtyResized: (callback: (sessionId: string, cols: number, rows: number) => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { sessionId: string; cols: number; rows: number },
+    ): void => callback(data.sessionId, data.cols, data.rows)
+    ipcRenderer.on('pty:resized', handler)
+    return (): void => {
+      ipcRenderer.removeListener('pty:resized', handler)
     }
   },
 
@@ -767,6 +791,44 @@ const api = {
   githubGetRepoIdentifier: (repoRoot: string) =>
     ipcRenderer.invoke('github:getRepoIdentifier', { repoRoot }),
 
+  // Remote control (WebRTC pairing via QR)
+  remote: {
+    start: () => ipcRenderer.invoke('remote:start') as Promise<{ pairingUrl: string }>,
+    stop: () => ipcRenderer.invoke('remote:stop') as Promise<void>,
+    getStatus: () => ipcRenderer.invoke('remote:getStatus') as Promise<RemoteSessionStatus>,
+    acceptDevice: (remember: boolean) =>
+      ipcRenderer.invoke('remote:acceptDevice', { remember }) as Promise<void>,
+    rejectDevice: () => ipcRenderer.invoke('remote:rejectDevice') as Promise<void>,
+    sendSignal: (msg: unknown) => ipcRenderer.invoke('remote:sendSignal', msg) as Promise<void>,
+    listTrustedDevices: () =>
+      ipcRenderer.invoke('remote:listTrustedDevices') as Promise<
+        Array<{
+          deviceId: string
+          name: string
+          addedAt: string
+          lastSeen: string
+          publicKeyJwk: unknown
+        }>
+      >,
+    removeTrustedDevice: (deviceId: string) =>
+      ipcRenderer.invoke('remote:removeTrustedDevice', { deviceId }) as Promise<void>,
+    onStatusChange: (callback: (status: RemoteSessionStatus) => void) => {
+      const handler = (_event: IpcRendererEvent, status: RemoteSessionStatus): void =>
+        callback(status)
+      ipcRenderer.on('remote:statusChange', handler)
+      return (): void => {
+        ipcRenderer.removeListener('remote:statusChange', handler)
+      }
+    },
+    onSignal: (callback: (msg: unknown) => void) => {
+      const handler = (_event: IpcRendererEvent, msg: unknown): void => callback(msg)
+      ipcRenderer.on('remote:signal', handler)
+      return (): void => {
+        ipcRenderer.removeListener('remote:signal', handler)
+      }
+    },
+  },
+
   // Performance diagnostics (only active when CANOPY_PERF=1)
   ...(process.env.CANOPY_PERF === '1'
     ? {
@@ -780,6 +842,30 @@ const api = {
 
   // Platform
   platform: process.platform,
+
+  // Run Configurations
+  runConfigDiscover: (repoRoot: string) => ipcRenderer.invoke('runConfig:discover', { repoRoot }),
+  runConfigSave: (configDir: string, config: unknown) =>
+    ipcRenderer.invoke('runConfig:save', { configDir, config }),
+  runConfigAddConfig: (configDir: string, configuration: unknown) =>
+    ipcRenderer.invoke('runConfig:addConfig', { configDir, configuration }),
+  runConfigUpdateConfig: (configDir: string, name: string, configuration: unknown) =>
+    ipcRenderer.invoke('runConfig:updateConfig', { configDir, name, configuration }),
+  runConfigDeleteConfig: (configDir: string, name: string) =>
+    ipcRenderer.invoke('runConfig:deleteConfig', { configDir, name }),
+  runConfigExecute: (configDir: string, name: string, cwd?: string) =>
+    ipcRenderer.invoke('runConfig:execute', { configDir, name, cwd }) as Promise<{
+      sessionId: string
+      wsUrl: string
+    }>,
+  onRunConfigPostRunResult: (
+    callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
+  ) => {
+    const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
+      callback(data)
+    ipcRenderer.on('runConfig:postRunResult', handler)
+    return () => ipcRenderer.removeListener('runConfig:postRunResult', handler)
+  },
 }
 
 if (process.contextIsolated) {
