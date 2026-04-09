@@ -1,3 +1,9 @@
+## [0.11.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.3...v0.11.0-next.4) (2026-04-09)
+
+### Bug Fixes
+
+* **ui:** preference hints, PR creation, sidebar and runtime fixes ([#132](https://github.com/itsoltech/canopy-desktop/issues/132)) ([87a94eb](https://github.com/itsoltech/canopy-desktop/commit/87a94eb5ee0e79eebd28136b4abfae77594f31e6))
+
 ## [0.11.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.2...v0.11.0-next.3) (2026-04-09)
 
 ### Features
