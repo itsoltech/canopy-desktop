@@ -657,6 +657,7 @@ interface RunConfiguration {
   args?: string
   cwd?: string
   env?: Record<string, string>
+  max_instances?: number
   pre_run?: string
   post_run?: string
 }

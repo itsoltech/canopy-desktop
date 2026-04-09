@@ -6,6 +6,7 @@
     command: string
     args?: string
     cwd?: string
+    max_instances?: number
     env?: Record<string, string>
     pre_run?: string
     post_run?: string
@@ -29,6 +30,7 @@
   let command = $state('')
   let args = $state('')
   let cwd = $state('')
+  let maxInstances = $state(0)
   let preRun = $state('')
   let postRun = $state('')
   let envPairs = $state<{ key: string; value: string }[]>([])
@@ -38,6 +40,7 @@
     command = c.command
     args = c.args ?? ''
     cwd = c.cwd ?? ''
+    maxInstances = c.max_instances ?? 0
     preRun = c.pre_run ?? ''
     postRun = c.post_run ?? ''
     envPairs = Object.entries(c.env ?? {}).map(([key, value]) => ({ key, value }))
@@ -48,6 +51,7 @@
     command = ''
     args = ''
     cwd = ''
+    maxInstances = 0
     preRun = ''
     postRun = ''
     envPairs = []
@@ -89,6 +93,7 @@
       command: command.trim(),
       ...(args.trim() ? { args: args.trim() } : {}),
       ...(cwd.trim() ? { cwd: cwd.trim() } : {}),
+      ...(maxInstances > 0 ? { max_instances: maxInstances } : {}),
       ...(Object.keys(env).length > 0 ? { env } : {}),
       ...(preRun.trim() ? { pre_run: preRun.trim() } : {}),
       ...(postRun.trim() ? { post_run: postRun.trim() } : {}),
@@ -121,6 +126,17 @@
   <div class="field">
     <label for="rcf-cwd">Working Directory</label>
     <input id="rcf-cwd" type="text" bind:value={cwd} placeholder="relative to config location" />
+  </div>
+
+  <div class="field">
+    <label for="rcf-max">Max Instances</label>
+    <input
+      id="rcf-max"
+      type="number"
+      min="0"
+      bind:value={maxInstances}
+      placeholder="0 = unlimited"
+    />
   </div>
 
   <div class="section-label">

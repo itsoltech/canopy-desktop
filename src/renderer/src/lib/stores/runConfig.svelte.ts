@@ -121,11 +121,36 @@ export async function deleteRunConfig(configDir: string, name: string): Promise<
   await discoverConfigs()
 }
 
+function getGlobalRunningCount(name: string): number {
+  let count = 0
+  for (const proc of runningProcesses.values()) {
+    if (proc.name === name) count++
+  }
+  return count
+}
+
+function findConfigEntry(configDir: string, name: string): RunConfiguration | undefined {
+  for (const source of sources) {
+    if (source.configDir !== configDir) continue
+    return source.file.configurations.find((c) => c.name === name)
+  }
+  return undefined
+}
+
 export async function executeRunConfig(
   configDir: string,
   name: string,
 ): Promise<{ sessionId: string; wsUrl: string } | null> {
   try {
+    const config = findConfigEntry(configDir, name)
+    const maxInstances = config?.max_instances ?? 0
+    if (maxInstances > 0) {
+      const current = getGlobalRunningCount(name)
+      if (current >= maxInstances) {
+        addToast(`"${name}" is already running (max ${maxInstances})`)
+        return null
+      }
+    }
     const cwd = workspaceState.selectedWorktreePath
     if (!cwd) return null
     const result = await window.api.runConfigExecute(configDir, name, cwd)
