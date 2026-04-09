@@ -356,6 +356,46 @@ export class GitRepository {
       .map(() => undefined)
   }
 
+  static worktreeAddCheckout(
+    repoRoot: string,
+    path: string,
+    branch: string,
+    createLocalTracking: boolean,
+  ): ResultAsync<void, GitError> {
+    return validateRef(branch)
+      .asyncAndThen(() => {
+        const git = simpleGit(repoRoot)
+
+        if (!createLocalTracking) {
+          return gitCall('worktree add', git.raw(['worktree', 'add', path, branch]))
+        }
+
+        const slash = branch.indexOf('/')
+        if (slash < 0) {
+          return gitCall('worktree add', git.raw(['worktree', 'add', path, branch]))
+        }
+        const localName = branch.slice(slash + 1)
+
+        return validateRef(localName).asyncAndThen(() =>
+          gitCall(
+            'show-ref',
+            git.raw(['show-ref', '--verify', '--quiet', `refs/heads/${localName}`]),
+          )
+            .map(() => 'local-exists' as const)
+            .orElse(() => okAsync('remote-only' as const))
+            .andThen((kind) =>
+              kind === 'local-exists'
+                ? gitCall('worktree add', git.raw(['worktree', 'add', path, localName]))
+                : gitCall(
+                    'worktree add',
+                    git.raw(['worktree', 'add', '-b', localName, path, branch]),
+                  ),
+            ),
+        )
+      })
+      .map(() => undefined)
+  }
+
   static worktreeRemove(
     repoRoot: string,
     path: string,

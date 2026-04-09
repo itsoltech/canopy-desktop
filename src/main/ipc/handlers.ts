@@ -805,6 +805,30 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle(
+    'git:worktreeCheckout',
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        path: string
+        branch: string
+        createLocalTracking: boolean
+      },
+    ) => {
+      const resolvedPath = payload.path.startsWith('~/')
+        ? os.homedir() + payload.path.slice(1)
+        : payload.path
+      const result = await GitRepository.worktreeAddCheckout(
+        payload.repoRoot,
+        resolvedPath,
+        payload.branch,
+        payload.createLocalTracking,
+      )
+      return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
     'git:worktreeRemove',
     async (_event, payload: { repoRoot: string; path: string; force: boolean }) => {
       const result = await GitRepository.worktreeRemove(
