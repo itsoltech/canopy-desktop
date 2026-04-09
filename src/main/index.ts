@@ -13,6 +13,7 @@ import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
 import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
+import { initSkills } from './skills'
 import { registerIpcHandlers } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
@@ -97,6 +98,11 @@ const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
 const onboardingStore = new OnboardingStore(database)
 const toolRegistry = new ToolRegistry(database)
+const {
+  registry: skillRegistry,
+  installer: skillInstaller,
+  store: skillStore,
+} = initSkills(database)
 const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
@@ -586,6 +592,9 @@ app.whenReady().then(async () => {
     keychainTokenStore,
     gitHubService,
     runConfigManager,
+    skillRegistry,
+    skillInstaller,
+    skillStore,
   )
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')
