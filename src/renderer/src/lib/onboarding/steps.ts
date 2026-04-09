@@ -83,6 +83,14 @@ export const onboardingSteps: OnboardingStep[] = [
     category: 'feature',
   },
   {
+    id: 'worktree-existing-branch',
+    title: 'Create worktrees from existing branches',
+    description:
+      'The Create Worktree dialog now has a "From existing branch" mode — pick any local or remote branch and check it out into a new worktree in one step. Remote-only branches are created as local tracking branches automatically.',
+    introducedIn: '0.10.0',
+    category: 'feature',
+  },
+  {
     id: 'remote-control',
     title: 'Remote control (Beta)',
     description:

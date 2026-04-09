@@ -3,6 +3,7 @@ import os from 'os'
 import { readFileSync, realpathSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
+import { match } from 'ts-pattern'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { PtyManager } from './pty/PtyManager'
 import { WsBridge } from './pty/WsBridge'
@@ -23,6 +24,7 @@ import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
 import { KeychainTokenStore } from './taskTracker/KeychainTokenStore'
 import { RepoConfigManager } from './taskTracker/RepoConfigManager'
+import { GlobalConfigManager } from './taskTracker/GlobalConfigManager'
 import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
@@ -112,6 +114,26 @@ windowManager.setOnWindowDispose((paths) => {
 let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false
+let updateCheckIntervalTimer: ReturnType<typeof setInterval> | null = null
+
+type UpdateCheckFrequency = 'never' | 'hourly' | 'daily' | 'weekly'
+
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+const WEEK_MS = 7 * DAY_MS
+
+const normalizeUpdateCheckFrequency = (value: string | null): UpdateCheckFrequency =>
+  match(value)
+    .with('never', 'hourly', 'daily', 'weekly', (v) => v)
+    .otherwise(() => 'daily' as const)
+
+const getUpdateCheckIntervalMs = (frequency: UpdateCheckFrequency): number | null =>
+  match(frequency)
+    .with('hourly', () => HOUR_MS)
+    .with('daily', () => DAY_MS)
+    .with('weekly', () => WEEK_MS)
+    .with('never', () => null)
+    .exhaustive()
 
 const checkWithChannelResolution = async (): Promise<void> => {
   if (updateCheckInFlight) return
@@ -130,6 +152,21 @@ const checkWithChannelResolution = async (): Promise<void> => {
   } finally {
     updateCheckInFlight = false
   }
+}
+
+const scheduleRecurringUpdateCheck = (): void => {
+  if (updateCheckIntervalTimer) {
+    clearInterval(updateCheckIntervalTimer)
+    updateCheckIntervalTimer = null
+  }
+  const frequency = normalizeUpdateCheckFrequency(preferencesStore.get('update.checkFrequency'))
+  const intervalMs = getUpdateCheckIntervalMs(frequency)
+  if (intervalMs === null) return
+  updateCheckIntervalTimer = setInterval(() => {
+    checkWithChannelResolution().catch((err) => {
+      console.warn('Scheduled update check failed:', err)
+    })
+  }, intervalMs)
 }
 
 let agentSessionManager: AgentSessionManager | null = null
@@ -413,6 +450,12 @@ app.whenReady().then(async () => {
       preferencesStore.set('update.autoUpdate', enabled ? 'true' : 'false')
     })
 
+    ipcMain.handle('app:setUpdateCheckFrequency', (_e, frequency: string) => {
+      const normalized = normalizeUpdateCheckFrequency(frequency)
+      preferencesStore.set('update.checkFrequency', normalized)
+      scheduleRecurringUpdateCheck()
+    })
+
     ipcMain.handle('app:checkForUpdates', () => {
       manualCheckInProgress = true
       checkWithChannelResolution().catch((err) => {
@@ -466,9 +509,15 @@ app.whenReady().then(async () => {
       }, 10_000)
     })
 
-    checkWithChannelResolution().catch((err) => {
-      console.warn('Auto-update check failed:', err)
-    })
+    const checkFrequency = normalizeUpdateCheckFrequency(
+      preferencesStore.get('update.checkFrequency'),
+    )
+    if (checkFrequency !== 'never') {
+      checkWithChannelResolution().catch((err) => {
+        console.warn('Auto-update check failed:', err)
+      })
+      scheduleRecurringUpdateCheck()
+    }
   }
 
   // SECURITY: Validate and harden all <webview> tags before they attach.
@@ -512,6 +561,7 @@ app.whenReady().then(async () => {
 
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()
+  const globalConfigManager = new GlobalConfigManager(preferencesStore, keychainTokenStore)
   const taskTrackerManager = new TaskTrackerManager(preferencesStore, keychainTokenStore)
   const gitHubService = new GitHubService(preferencesStore, taskTrackerManager)
 
@@ -532,6 +582,7 @@ app.whenReady().then(async () => {
     tmuxManager,
     taskTrackerManager,
     repoConfigManager,
+    globalConfigManager,
     keychainTokenStore,
     gitHubService,
     remoteSessionService,
@@ -751,6 +802,10 @@ app.on('before-quit', (event) => {
   // During update install, skip cleanup that could interfere with Squirrel.
   // Window configs already saved; windows already destroyed.
   if (updateInstalling) {
+    if (updateCheckIntervalTimer) {
+      clearInterval(updateCheckIntervalTimer)
+      updateCheckIntervalTimer = null
+    }
     notchOverlay?.dispose()
     agentSessionManager?.dispose()
     remoteSessionService.dispose()
@@ -838,6 +893,10 @@ app.on('before-quit', (event) => {
   // explicitly killed the tmux server.
   windowManager.isQuitting = true
 
+  if (updateCheckIntervalTimer) {
+    clearInterval(updateCheckIntervalTimer)
+    updateCheckIntervalTimer = null
+  }
   notchOverlay?.dispose()
   agentSessionManager?.dispose()
   remoteSessionService.dispose()

@@ -98,20 +98,40 @@ export class GitRepository {
       path: dirPath,
     })).andThen((raw) => {
       const repoRoot = raw.trim()
-      return GitRepository.getBranch(repoRoot).andThen((branch) =>
-        GitRepository.listWorktrees(repoRoot).andThen((worktrees) =>
-          GitRepository.isDirty(repoRoot).andThen((isDirty) =>
-            GitRepository.getAheadBehind(repoRoot).map((aheadBehind) => ({
-              isGitRepo: true as const,
-              repoRoot,
-              branch,
-              worktrees,
-              isDirty,
-              aheadBehind,
-            })),
-          ),
-        ),
-      )
+      // Sub-commands use orElse so failures (empty repo, no upstream, etc.)
+      // don't cause detect() to report isGitRepo: false
+      return GitRepository.getBranch(repoRoot)
+        .orElse((e) => {
+          console.warn(`[git] getBranch failed for "${repoRoot}":`, e)
+          return okAsync<string | null, GitError>(null)
+        })
+        .andThen((branch) =>
+          GitRepository.listWorktrees(repoRoot)
+            .orElse((e) => {
+              console.warn(`[git] listWorktrees failed for "${repoRoot}":`, e)
+              return okAsync<GitWorktreeInfo[], GitError>([])
+            })
+            .andThen((worktrees) =>
+              GitRepository.isDirty(repoRoot)
+                .orElse((e) => {
+                  console.warn(`[git] isDirty failed for "${repoRoot}":`, e)
+                  return okAsync<boolean, GitError>(false)
+                })
+                .andThen((isDirty) =>
+                  GitRepository.getAheadBehind(repoRoot)
+                    // No warn — getAheadBehind fails routinely when there is no upstream
+                    .orElse(() => okAsync<{ ahead: number; behind: number } | null, GitError>(null))
+                    .map((aheadBehind) => ({
+                      isGitRepo: true as const,
+                      repoRoot,
+                      branch,
+                      worktrees,
+                      isDirty,
+                      aheadBehind,
+                    })),
+                ),
+            ),
+        )
     })
   }
 
@@ -332,6 +352,44 @@ export class GitRepository {
       .asyncAndThen(() => {
         const git = simpleGit(repoRoot)
         return gitCall('worktree add', git.raw(['worktree', 'add', '-b', branch, path, baseBranch]))
+      })
+      .map(() => undefined)
+  }
+
+  static worktreeAddCheckout(
+    repoRoot: string,
+    path: string,
+    branch: string,
+    createLocalTracking: boolean,
+  ): ResultAsync<void, GitError> {
+    return validateRef(branch)
+      .asyncAndThen(() => {
+        const git = simpleGit(repoRoot)
+
+        if (!createLocalTracking) {
+          return gitCall('worktree add', git.raw(['worktree', 'add', path, branch]))
+        }
+
+        const slash = branch.indexOf('/')
+        if (slash < 0) {
+          return gitCall('worktree add', git.raw(['worktree', 'add', path, branch]))
+        }
+        const localName = branch.slice(slash + 1)
+
+        // Use `git branch --list` instead of `show-ref --verify` so that a
+        // missing branch is signalled by empty output (no error), letting real
+        // failures (corrupt repo, permissions) surface as GitCommandFailed.
+        return validateRef(localName).asyncAndThen(() =>
+          gitCall(
+            'branch list',
+            git.raw(['branch', '--list', '--format=%(refname:short)', localName]),
+          ).andThen((output) => {
+            const exists = output.split('\n').some((line) => line.trim() === localName)
+            return exists
+              ? gitCall('worktree add', git.raw(['worktree', 'add', path, localName]))
+              : gitCall('worktree add', git.raw(['worktree', 'add', '-b', localName, path, branch]))
+          }),
+        )
       })
       .map(() => undefined)
   }

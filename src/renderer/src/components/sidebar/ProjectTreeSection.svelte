@@ -17,7 +17,7 @@
   import { worktreeBadges } from '../../lib/agents/agentState.svelte'
   import { getWorktreeAgentStatus } from '../../lib/agents/worktreeStatus.svelte'
   import { getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
-  import { getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
+  import { getResolvedConfig } from '../../lib/stores/taskTracker.svelte'
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
     if (wt.branch !== '(detached)') return wt.branch
@@ -118,7 +118,7 @@
   // GitHub PR badges
   let prMap = $derived(getBranchPRMap())
   let githubConnectionCount = $derived(
-    getTaskTrackerConnections().filter((c) => c.provider === 'github').length,
+    (getResolvedConfig()?.config.trackers ?? []).filter((t) => t.provider === 'github').length,
   )
 
   let prevGhConnCount = 0
