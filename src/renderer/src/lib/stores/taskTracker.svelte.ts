@@ -96,6 +96,9 @@ export async function saveRepoConfig(repoRoot: string, config: RepoConfig): Prom
   await window.api.repoConfigSave(repoRoot, plain)
   repoConfig = plain
   resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
+  if (resolvedConfig) {
+    await refreshCredentials(resolvedConfig.config.trackers)
+  }
 }
 
 export async function initRepoConfig(repoRoot: string): Promise<RepoConfig> {

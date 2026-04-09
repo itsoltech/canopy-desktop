@@ -150,13 +150,23 @@
       confirmLabel: 'Remove',
     })
     if (!ok) return
-    // Clean up keychain credentials for this tracker
+    // Clean up keychain credentials only if no other tracker shares the same provider+baseUrl
     const tracker = config.trackers.find((t) => t.id === trackerId)
     if (tracker?.baseUrl) {
-      try {
-        await window.api.keychainDeleteCredentials(tracker.provider, tracker.baseUrl)
-      } catch {
-        // best-effort cleanup
+      const otherConfig = scope === 'global' ? getRepoConfig() : getGlobalConfig()
+      const remaining = [
+        ...config.trackers.filter((t) => t.id !== trackerId),
+        ...(otherConfig?.trackers ?? []),
+      ]
+      const shared = remaining.some(
+        (t) => t.provider === tracker.provider && t.baseUrl === tracker.baseUrl,
+      )
+      if (!shared) {
+        try {
+          await window.api.keychainDeleteCredentials(tracker.provider, tracker.baseUrl)
+        } catch {
+          // best-effort cleanup
+        }
       }
     }
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
