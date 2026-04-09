@@ -106,20 +106,39 @@
     closeDialog()
   }
 
+  let modalEl: HTMLDivElement | undefined = $state()
+
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') closeDialog()
+    if (event.key === 'Tab' && modalEl) {
+      const focusable = modalEl.querySelectorAll<HTMLElement>(
+        'button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
   }
 
   onMount(() => {
     if (initialConfigDir && initialConfigName) {
       selectConfig(initialConfigDir, initialConfigName)
     }
+    modalEl?.focus()
   })
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="overlay" role="dialog" aria-label="Run Configurations" onkeydown={handleKeydown}>
-  <div class="modal">
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="modal" tabindex="0" bind:this={modalEl}>
     <div class="modal-header">
       <h2>Run Configurations</h2>
       <button class="close-btn" onclick={closeDialog}>
@@ -138,14 +157,20 @@
               </button>
             </div>
             {#each group.configurations as config (config.name)}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="tree-item"
                 class:active={!isNew &&
                   selectedKey?.configDir === group.configDir &&
                   selectedKey?.name === config.name}
                 onclick={() => selectConfig(group.configDir, config.name)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    selectConfig(group.configDir, config.name)
+                  }
+                }}
+                role="button"
+                tabindex="0"
               >
                 <span class="tree-item-name">{config.name}</span>
                 <div class="tree-item-actions">
@@ -312,6 +337,11 @@
     height: 28px;
     padding: 0 12px;
     cursor: pointer;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
   }
 
   .tree-item:hover {
