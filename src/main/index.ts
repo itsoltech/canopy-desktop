@@ -740,7 +740,10 @@ app.whenReady().then(async () => {
           )
         }
       }
-      if (windowConfigs.some((c) => c.paths.length > 0)) {
+      // Drop configs that are now empty after stale-path removal — otherwise
+      // they'd spawn blank ghost windows and get persisted back every restart.
+      windowConfigs = windowConfigs.filter((c) => c.paths.length > 0)
+      if (windowConfigs.length > 0) {
         preferencesStore.set('openWindowConfigs', JSON.stringify(windowConfigs))
       } else {
         preferencesStore.delete('openWindowConfigs')
