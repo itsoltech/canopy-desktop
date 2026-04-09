@@ -1223,35 +1223,7 @@ export function registerIpcHandlers(
     }
   })
 
-  // --- Repo Config ---
-
-  ipcMain.handle('repoConfig:load', async (_event, payload: { repoRoot: string }) => {
-    const result = await repoConfigManager.load(payload.repoRoot)
-    return result.unwrapOr(null)
-  })
-
-  ipcMain.handle(
-    'repoConfig:save',
-    async (_event, payload: { repoRoot: string; config: RepoConfig }) => {
-      const result = await repoConfigManager.save(payload.repoRoot, payload.config)
-      unwrapOrThrow(result, taskTrackerErrorMessage)
-    },
-  )
-
-  ipcMain.handle('repoConfig:exists', async (_event, payload: { repoRoot: string }) => {
-    return repoConfigManager.exists(payload.repoRoot)
-  })
-
-  ipcMain.handle('repoConfig:init', async (_event, payload: { repoRoot: string }) => {
-    const result = await repoConfigManager.init(payload.repoRoot)
-    return unwrapOrThrow(result, taskTrackerErrorMessage)
-  })
-
-  // --- Global Config ---
-
-  ipcMain.handle('globalConfig:load', () => {
-    return globalConfigManager.load()
-  })
+  // --- Shared config validation (used by both repo and global config handlers) ---
 
   const VALID_PROVIDERS = new Set(['jira', 'youtrack', 'github'])
 
@@ -1282,6 +1254,39 @@ export function registerIpcHandlers(
       (!o.prTemplate || typeof (o.prTemplate as Record<string, unknown>).titleTemplate === 'string')
     )
   }
+
+  // --- Repo Config ---
+
+  ipcMain.handle('repoConfig:load', async (_event, payload: { repoRoot: string }) => {
+    const result = await repoConfigManager.load(payload.repoRoot)
+    return result.unwrapOr(null)
+  })
+
+  ipcMain.handle(
+    'repoConfig:save',
+    async (_event, payload: { repoRoot: string; config: unknown }) => {
+      if (!isValidRepoConfig(payload.config)) {
+        throw new Error('Invalid config: check version, trackers, filters, and template fields')
+      }
+      const result = await repoConfigManager.save(payload.repoRoot, payload.config)
+      unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle('repoConfig:exists', async (_event, payload: { repoRoot: string }) => {
+    return repoConfigManager.exists(payload.repoRoot)
+  })
+
+  ipcMain.handle('repoConfig:init', async (_event, payload: { repoRoot: string }) => {
+    const result = await repoConfigManager.init(payload.repoRoot)
+    return unwrapOrThrow(result, taskTrackerErrorMessage)
+  })
+
+  // --- Global Config ---
+
+  ipcMain.handle('globalConfig:load', () => {
+    return globalConfigManager.load()
+  })
 
   ipcMain.handle('globalConfig:save', (_event, payload: { config: unknown }) => {
     if (!isValidRepoConfig(payload.config)) {
