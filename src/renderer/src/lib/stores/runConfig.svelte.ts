@@ -8,6 +8,8 @@ interface RunConfiguration {
   name: string
   command: string
   args?: string
+  cwd?: string
+  max_instances?: number
   env?: Record<string, string>
   pre_run?: string
   post_run?: string
@@ -121,10 +123,10 @@ export async function deleteRunConfig(configDir: string, name: string): Promise<
   await discoverConfigs()
 }
 
-function getGlobalRunningCount(name: string): number {
+function getGlobalRunningCount(configDir: string, name: string): number {
   let count = 0
   for (const proc of runningProcesses.values()) {
-    if (proc.name === name) count++
+    if (proc.configDir === configDir && proc.name === name) count++
   }
   return count
 }
@@ -145,7 +147,7 @@ export async function executeRunConfig(
     const config = findConfigEntry(configDir, name)
     const maxInstances = config?.max_instances ?? 0
     if (maxInstances > 0) {
-      const current = getGlobalRunningCount(name)
+      const current = getGlobalRunningCount(configDir, name)
       if (current >= maxInstances) {
         addToast(`"${name}" is already running (max ${maxInstances})`)
         return null
