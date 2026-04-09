@@ -553,6 +553,50 @@ const api = {
     ipcRenderer.invoke('repoConfig:exists', { repoRoot }) as Promise<boolean>,
   repoConfigInit: (repoRoot: string) => ipcRenderer.invoke('repoConfig:init', { repoRoot }),
 
+  // Global Config
+  globalConfigLoad: () => ipcRenderer.invoke('globalConfig:load'),
+  globalConfigSave: (config: unknown) => ipcRenderer.invoke('globalConfig:save', { config }),
+  globalConfigExists: () => ipcRenderer.invoke('globalConfig:exists') as Promise<boolean>,
+
+  // Resolved Config (merged global + repo)
+  trackerResolvedConfig: (repoRoot?: string) =>
+    ipcRenderer.invoke('tracker:resolvedConfig', { repoRoot }),
+
+  // Config-based tracker methods
+  trackerConfigFetchBoards: (repoRoot?: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchBoards', { repoRoot, trackerId }),
+  trackerConfigFetchStatuses: (repoRoot?: string, trackerId?: string, boardId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchStatuses', { repoRoot, trackerId, boardId }),
+  trackerConfigFetchTasks: (
+    repoRoot?: string,
+    trackerId?: string,
+    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+  ) => ipcRenderer.invoke('trackerConfig:fetchTasks', { repoRoot, trackerId, ...params }),
+  trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:getCurrentUser', { repoRoot, trackerId }),
+  trackerConfigFetchTaskComments: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => ipcRenderer.invoke('trackerConfig:fetchTaskComments', { repoRoot, taskKey, trackerId }),
+  trackerConfigFetchTaskAttachments: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => ipcRenderer.invoke('trackerConfig:fetchTaskAttachments', { repoRoot, taskKey, trackerId }),
+  trackerConfigDownloadAttachment: (
+    repoRoot: string | undefined,
+    url: string,
+    filename: string,
+    trackerId?: string,
+  ) =>
+    ipcRenderer.invoke('trackerConfig:downloadAttachment', {
+      repoRoot,
+      url,
+      filename,
+      trackerId,
+    }),
+
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) =>
     ipcRenderer.invoke('keychain:hasCredentials', { provider, baseUrl }) as Promise<boolean>,

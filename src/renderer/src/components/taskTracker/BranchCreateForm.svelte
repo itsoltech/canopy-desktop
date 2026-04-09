@@ -168,7 +168,11 @@
             const sessionId = pane.sessionId
             const ready = await waitForAgentIdle(sessionId)
             if (ready) {
-              const context = await fetchAndFormatTaskContext(connId, taskSnapshot)
+              const context = await fetchAndFormatTaskContext(
+                connId,
+                taskSnapshot,
+                workspaceState.repoRoot ?? undefined,
+              )
               await window.api.writePty(sessionId, context + '\n')
             }
           }

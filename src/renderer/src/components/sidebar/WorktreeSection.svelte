@@ -6,7 +6,7 @@
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import { getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
-  import { getTaskTrackerConnections } from '../../lib/stores/taskTracker.svelte'
+  import { getResolvedConfig } from '../../lib/stores/taskTracker.svelte'
 
   let mergedBranches = new SvelteSet<string>()
 
@@ -43,7 +43,7 @@
   })
 
   let githubConnectionCount = $derived(
-    getTaskTrackerConnections().filter((c) => c.provider === 'github').length,
+    (getResolvedConfig()?.config.trackers ?? []).filter((t) => t.provider === 'github').length,
   )
 
   // Fetch PRs when worktree list or GitHub connections change

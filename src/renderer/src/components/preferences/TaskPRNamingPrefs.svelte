@@ -1,16 +1,22 @@
 <script lang="ts">
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
-  import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
+  import {
+    getRepoConfig,
+    getGlobalConfig,
+    saveRepoConfig,
+    saveGlobalConfig,
+  } from '../../lib/stores/taskTracker.svelte'
 
   interface Props {
-    repoRoot: string
+    repoRoot?: string
     boards: Array<{ id: string; name: string }>
+    scope: 'global' | 'project'
   }
 
-  let { repoRoot, boards }: Props = $props()
+  let { repoRoot, boards, scope }: Props = $props()
 
-  let config = $derived(getRepoConfig())
+  let config = $derived(scope === 'global' ? getGlobalConfig() : getRepoConfig())
 
   type TemplateScope = 'default' | string
   let prScope = $state<TemplateScope>('default')
@@ -79,7 +85,11 @@
         [field]: value,
       }
     }
-    await saveRepoConfig(repoRoot, updated)
+    if (scope === 'global') {
+      await saveGlobalConfig(updated)
+    } else if (repoRoot) {
+      await saveRepoConfig(repoRoot, updated)
+    }
   }
 
   function onTitleTemplateSave(): void {
