@@ -863,6 +863,10 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
       }),
   )
 
+  if (saveTimers[worktreePath]) {
+    clearTimeout(saveTimers[worktreePath])
+    delete saveTimers[worktreePath]
+  }
   delete tabsByWorktree[worktreePath]
   delete activeTabId[worktreePath]
 

@@ -879,6 +879,7 @@
       alive = false
       unsubs.forEach((fn) => fn())
       window.removeEventListener('canopy:app-overlay', onAppOverlay)
+      if (capturedCredsTimer) clearTimeout(capturedCredsTimer)
       if (devtoolsOpen) {
         window.api.closeBrowserDevTools(browserId).catch(() => {})
       }

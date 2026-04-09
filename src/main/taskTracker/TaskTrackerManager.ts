@@ -14,6 +14,7 @@ import { GitRepository } from '../git/GitRepository'
 import { parseGitHubRemote } from '../github/remoteUrl'
 import type {
   TaskTrackerConnection,
+  TrackerConfig,
   RepoConfig,
   TrackerAttachment,
   TrackerBoard,
@@ -31,51 +32,76 @@ export class TaskTrackerManager {
     private keychainTokenStore?: KeychainTokenStore,
   ) {}
 
-  // --- Config-based methods (new) ---
+  // --- Config-based methods ---
 
-  private buildConnectionFromConfig(
-    config: RepoConfig,
+  private findTracker(config: RepoConfig, trackerId?: string): TrackerConfig | undefined {
+    if (config.trackers.length === 0) return undefined
+    if (trackerId) return config.trackers.find((t) => t.id === trackerId) ?? config.trackers[0]
+    return config.trackers[0]
+  }
+
+  private buildConnectionFromTracker(
+    tracker: TrackerConfig,
     projectKey?: string,
   ): TaskTrackerConnection {
-    const creds = this.keychainTokenStore?.getCredentials(
-      config.tracker.provider,
-      config.tracker.baseUrl,
-    )
+    const creds = this.keychainTokenStore?.getCredentials(tracker.provider, tracker.baseUrl)
     return {
-      id: 'repo-config',
-      provider: config.tracker.provider,
-      name: `${config.tracker.provider}:${config.tracker.baseUrl}`,
-      baseUrl: config.tracker.baseUrl,
-      projectKey: projectKey ?? '',
+      id: tracker.id,
+      provider: tracker.provider,
+      name: `${tracker.provider}:${tracker.baseUrl}`,
+      baseUrl: tracker.baseUrl,
+      projectKey: projectKey ?? tracker.projectKey ?? '',
       authPrefKey: '',
       username: creds?.username,
     }
   }
 
-  private getTokenFromConfig(config: RepoConfig): Result<string, TaskTrackerError> {
+  private getTokenFromTracker(tracker: TrackerConfig): Result<string, TaskTrackerError> {
     if (!this.keychainTokenStore) {
-      return err({ _tag: 'AuthTokenMissing', connectionName: config.tracker.baseUrl })
+      return err({ _tag: 'AuthTokenMissing', connectionName: tracker.baseUrl })
     }
-    const creds = this.keychainTokenStore.getCredentials(
-      config.tracker.provider,
-      config.tracker.baseUrl,
-    )
+    const creds = this.keychainTokenStore.getCredentials(tracker.provider, tracker.baseUrl)
     if (!creds) {
-      return err({ _tag: 'AuthTokenMissing', connectionName: config.tracker.baseUrl })
+      return err({ _tag: 'AuthTokenMissing', connectionName: tracker.baseUrl })
     }
     return ok(creds.token)
   }
 
   private resolveConfigConnection(
     config: RepoConfig,
+    trackerId?: string,
     projectKey?: string,
   ): Result<{ conn: TaskTrackerConnection; token: string }, TaskTrackerError> {
-    const conn = this.buildConnectionFromConfig(config, projectKey)
-    return this.getTokenFromConfig(config).map((token) => ({ conn, token }))
+    const tracker = this.findTracker(config, trackerId)
+    if (!tracker) {
+      return err({ _tag: 'ConfigNotFound', repoRoot: 'no trackers configured' })
+    }
+    const conn = this.buildConnectionFromTracker(tracker, projectKey)
+    return this.getTokenFromTracker(tracker).map((token) => ({ conn, token }))
   }
 
-  getConnectionFromConfig(config: RepoConfig, projectKey?: string): TaskTrackerConnection {
-    return this.buildConnectionFromConfig(config, projectKey)
+  /** Async variant that resolves GitHub projectKey from git remote when empty */
+  private resolveConfigConnectionAsync(
+    config: RepoConfig,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<{ conn: TaskTrackerConnection; token: string }, TaskTrackerError> {
+    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) =>
+      this.resolveGitHubConnection(conn, repoRoot).map((resolved) => ({
+        conn: resolved,
+        token,
+      })),
+    )
+  }
+
+  getConnectionFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+    projectKey?: string,
+  ): TaskTrackerConnection | null {
+    const tracker = this.findTracker(config, trackerId)
+    if (!tracker) return null
+    return this.buildConnectionFromTracker(tracker, projectKey)
   }
 
   testConnectionFromConfig(config: RepoConfig): ResultAsync<boolean, TaskTrackerError> {
@@ -88,24 +114,36 @@ export class TaskTrackerManager {
   testNewConnectionFromConfig(
     config: RepoConfig,
     token: string,
+    trackerId?: string,
   ): ResultAsync<boolean, TaskTrackerError> {
-    const conn = this.buildConnectionFromConfig(config)
+    const tracker = this.findTracker(config, trackerId)
+    if (!tracker) return errAsync({ _tag: 'ConfigNotFound', repoRoot: 'no trackers' })
+    const conn = this.buildConnectionFromTracker(tracker)
     const client = createProviderClient(conn.provider)
     return client.testConnection(conn, token)
   }
 
-  fetchBoardsFromConfig(config: RepoConfig): ResultAsync<TrackerBoard[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchBoards(conn, token)
-    })
+  fetchBoardsFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerBoard[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchBoards(conn, token)
+      },
+    )
   }
 
   fetchBoardsForNewFromConfig(
     config: RepoConfig,
     token: string,
+    trackerId?: string,
   ): ResultAsync<TrackerBoard[], TaskTrackerError> {
-    const conn = this.buildConnectionFromConfig(config)
+    const tracker = this.findTracker(config, trackerId)
+    if (!tracker) return errAsync({ _tag: 'ConfigNotFound', repoRoot: 'no trackers' })
+    const conn = this.buildConnectionFromTracker(tracker)
     const client = createProviderClient(conn.provider)
     return client.fetchBoards(conn, token)
   }
@@ -113,74 +151,105 @@ export class TaskTrackerManager {
   fetchStatusesFromConfig(
     config: RepoConfig,
     boardId?: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerStatus[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchStatuses(conn, token, boardId)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchStatuses(conn, token, boardId)
+      },
+    )
   }
 
   fetchTasksFromConfig(
     config: RepoConfig,
     params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerTask[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchTasks(conn, token, params)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTasks(conn, token, params)
+      },
+    )
   }
 
   getCurrentSprintFromConfig(
     config: RepoConfig,
     boardId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerSprint | null, TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.getCurrentSprint(conn, token, boardId)
-    })
+    return this.resolveConfigConnectionAsync(config, undefined, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.getCurrentSprint(conn, token, boardId)
+      },
+    )
   }
 
-  getCurrentUserFromConfig(config: RepoConfig): ResultAsync<string, TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.getCurrentUserDisplayName(conn, token)
-    })
+  getCurrentUserFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<string, TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.getCurrentUserDisplayName(conn, token)
+      },
+    )
   }
 
   fetchTaskCommentsFromConfig(
     config: RepoConfig,
     taskKey: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerComment[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchTaskComments(conn, token, taskKey)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskComments(conn, token, taskKey)
+      },
+    )
   }
 
   fetchTaskAttachmentsFromConfig(
     config: RepoConfig,
     taskKey: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerAttachment[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchTaskAttachments(conn, token, taskKey)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskAttachments(conn, token, taskKey)
+      },
+    )
   }
 
   findTaskByKeyFromConfig(
     config: RepoConfig,
     taskKey: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerTask | null, TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchTaskByKey(conn, token, taskKey)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskByKey(conn, token, taskKey)
+      },
+    )
   }
 
   downloadAttachmentFromConfig(
     config: RepoConfig,
     url: string,
     filename: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<string, TaskTrackerError> {
     const dlErr = (reason: string): TaskTrackerError => ({
       _tag: 'AttachmentDownloadFailed',
@@ -188,7 +257,7 @@ export class TaskTrackerManager {
       reason,
     })
 
-    return this.resolveConfigConnection(config)
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot)
       .andThen(({ conn, token }) => {
         const connBase = conn.baseUrl.replace(/\/$/, '')
         if (!url.startsWith(connBase)) {
@@ -196,7 +265,7 @@ export class TaskTrackerManager {
         }
         return ok({ conn, token })
       })
-      .asyncAndThen(({ conn, token }) => this.downloadToTempDir(url, filename, conn, token, dlErr))
+      .andThen(({ conn, token }) => this.downloadToTempDir(url, filename, conn, token, dlErr))
   }
 
   private downloadToTempDir(

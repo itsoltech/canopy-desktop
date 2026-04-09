@@ -47,153 +47,177 @@
     showEnvForm = false
   }
 
-  function removeEnvVar(key: string): void {
-    persistEnvEntries(envEntries.filter((e) => e.key !== key))
+  function removeEnvVar(index: number): void {
+    persistEnvEntries(envEntries.filter((_, i) => i !== index))
+  }
+
+  function updatePref(key: string): (e: Event) => void {
+    return (e: Event) => {
+      const target = e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      setPref(key, target.value)
+    }
   }
 </script>
 
 <div class="section">
-  <h3>Model & behavior</h3>
-  <label class="field">
-    <span class="field-label">Model</span>
-    <input
-      type="text"
-      class="field-input"
-      value={model}
-      placeholder="Default"
-      oninput={(e) => setPref('gemini.model', e.currentTarget.value)}
-    />
-    <span class="field-hint">Leave empty for Gemini CLI default</span>
-  </label>
+  <h3 class="section-title">Gemini</h3>
 
-  <label class="field">
-    <span class="field-label">Approval mode</span>
-    <CustomSelect
-      value={approvalMode}
-      options={[
-        { value: '', label: 'Default' },
-        { value: 'default', label: 'Prompt' },
-        { value: 'auto_edit', label: 'Auto Edit' },
-        { value: 'yolo', label: 'YOLO' },
-        { value: 'plan', label: 'Plan (read-only)' },
-      ]}
-      onChange={(v) => setPref('gemini.approvalMode', v)}
-    />
-  </label>
-</div>
+  <div class="subsection">
+    <h4 class="subsection-title">Model & behavior</h4>
 
-<div class="section">
-  <h3>API</h3>
-  <label class="field">
-    <span class="field-label">API key</span>
-    <input
-      type="password"
-      class="field-input"
-      value={apiKey}
-      placeholder="Uses GEMINI_API_KEY from environment"
-      oninput={(e) => setPref('gemini.apiKey', e.currentTarget.value)}
-    />
-  </label>
-</div>
+    <div class="field">
+      <label class="field-label" for="gemini-model">Model</label>
+      <input
+        id="gemini-model"
+        class="text-input"
+        type="text"
+        value={model}
+        onchange={updatePref('gemini.model')}
+        placeholder="Default"
+        spellcheck="false"
+      />
+      <span class="field-hint">Leave empty for Gemini CLI default</span>
+    </div>
 
-<div class="section">
-  <h3>Environment variables</h3>
-  <p class="field-hint">Extra env vars passed to Gemini CLI sessions</p>
-  {#if envEntries.length > 0}
-    <div class="env-list">
-      {#each envEntries as entry (entry.key)}
-        <div class="env-row">
-          <code class="env-key">{entry.key}</code>
-          <span class="env-eq">=</span>
-          <code class="env-val">{entry.value}</code>
-          <button class="env-remove" onclick={() => removeEnvVar(entry.key)}>&times;</button>
+    <div class="field">
+      <label class="field-label" for="gemini-approval">Approval mode</label>
+      <CustomSelect
+        id="gemini-approval"
+        value={approvalMode}
+        options={[
+          { value: '', label: 'Default' },
+          { value: 'default', label: 'Prompt' },
+          { value: 'auto_edit', label: 'Auto Edit' },
+          { value: 'yolo', label: 'YOLO' },
+          { value: 'plan', label: 'Plan (read-only)' },
+        ]}
+        onchange={(v) => setPref('gemini.approvalMode', v)}
+      />
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h4 class="subsection-title">API</h4>
+
+    <div class="field">
+      <label class="field-label" for="gemini-apikey">API key</label>
+      <input
+        id="gemini-apikey"
+        class="text-input"
+        type="password"
+        value={apiKey}
+        onchange={updatePref('gemini.apiKey')}
+        placeholder="Uses GEMINI_API_KEY from environment"
+        spellcheck="false"
+        autocomplete="off"
+      />
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h4 class="subsection-title">Environment variables</h4>
+
+    <p class="field-hint" style="margin: 0 0 4px;">Extra env vars passed to Gemini CLI sessions</p>
+
+    {#if envEntries.length > 0}
+      <div class="env-list">
+        {#each envEntries as entry, i (entry.key)}
+          <div class="env-row">
+            <span class="env-key">{entry.key}</span>
+            <span class="env-sep">=</span>
+            <span class="env-value">{entry.value}</span>
+            <button class="remove-btn" onclick={() => removeEnvVar(i)}>Remove</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if showEnvForm}
+      <div class="env-form">
+        <input
+          class="form-input"
+          bind:value={newEnvKey}
+          placeholder="VARIABLE_NAME"
+          spellcheck="false"
+          onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
+        />
+        <input
+          class="form-input"
+          bind:value={newEnvValue}
+          placeholder="value"
+          spellcheck="false"
+          onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
+        />
+        <div class="form-actions">
+          <button class="btn btn-cancel" onclick={() => (showEnvForm = false)}>Cancel</button>
+          <button class="btn btn-add" onclick={addEnvVar}>Add</button>
         </div>
-      {/each}
-    </div>
-  {/if}
-  {#if showEnvForm}
-    <div class="env-form">
-      <input
-        class="field-input env-input"
-        placeholder="KEY"
-        bind:value={newEnvKey}
-        onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
-      />
-      <span class="env-eq">=</span>
-      <input
-        class="field-input env-input"
-        placeholder="value"
-        bind:value={newEnvValue}
-        onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
-      />
-      <button class="btn btn-sm" onclick={addEnvVar}>Add</button>
-      <button class="btn btn-sm btn-ghost" onclick={() => (showEnvForm = false)}>Cancel</button>
-    </div>
-  {:else}
-    <button class="btn btn-sm" onclick={() => (showEnvForm = true)}>Add variable</button>
-  {/if}
-</div>
+      </div>
+    {:else}
+      <button class="btn btn-add-item" onclick={() => (showEnvForm = true)}>+ Add variable</button>
+    {/if}
+  </div>
 
-<div class="section">
-  <h3>Advanced</h3>
-  <label class="field">
-    <span class="field-label">Settings JSON override</span>
-    <textarea
-      class="field-textarea"
-      rows="4"
-      value={settingsJson}
-      placeholder={'{"key": "value"}'}
-      oninput={(e) => setPref('gemini.settingsJson', e.currentTarget.value)}
-    ></textarea>
-    <span class="field-hint"
-      >Merged into per-session .gemini/settings.json (hooks always preserved)</span
-    >
-  </label>
+  <div class="subsection">
+    <h4 class="subsection-title">Advanced</h4>
+
+    <div class="field">
+      <label class="field-label" for="gemini-settings">Settings JSON override</label>
+      <textarea
+        id="gemini-settings"
+        class="text-input textarea mono"
+        rows="4"
+        value={settingsJson}
+        onchange={updatePref('gemini.settingsJson')}
+        placeholder={'{"key": "value"}'}
+        spellcheck="false"
+      ></textarea>
+      <span class="field-hint"
+        >Merged into per-session .gemini/settings.json (hooks always preserved)</span
+      >
+    </div>
+  </div>
 </div>
 
 <style>
   .section {
-    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
   }
 
-  h3 {
-    font-size: 13px;
+  .section-title {
+    font-size: 15px;
     font-weight: 600;
     color: var(--c-text);
-    margin: 0 0 12px;
+    margin: 0;
+  }
+
+  .subsection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .subsection-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--c-text-muted);
+    margin: 0;
   }
 
   .field {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    margin-bottom: 12px;
   }
 
   .field-label {
     font-size: 12px;
+    font-weight: 500;
     color: var(--c-text-secondary);
-  }
-
-  .field-input {
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    padding: 6px 8px;
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-  }
-
-  .field-textarea {
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    padding: 6px 8px;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: 'SF Mono', 'Menlo', monospace;
-    resize: vertical;
   }
 
   .field-hint {
@@ -201,74 +225,153 @@
     color: var(--c-text-faint);
   }
 
+  .text-input {
+    padding: 6px 10px;
+    border: 1px solid var(--c-border);
+    border-radius: 6px;
+    background: var(--c-hover);
+    color: var(--c-text);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+  }
+
+  .text-input:focus {
+    border-color: var(--c-focus-ring);
+  }
+
+  .textarea {
+    resize: vertical;
+    min-height: 60px;
+  }
+
+  .mono {
+    font-family: monospace;
+    font-size: 12px;
+  }
+
+  /* Env var list */
   .env-list {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    margin-bottom: 8px;
   }
 
   .env-row {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 12px;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--c-border-subtle);
+    font-size: 13px;
   }
 
   .env-key {
-    color: var(--c-text-secondary);
+    color: var(--c-accent-text);
+    font-family: monospace;
+    font-size: 12px;
   }
 
-  .env-eq {
+  .env-sep {
     color: var(--c-text-faint);
   }
 
-  .env-val {
+  .env-value {
     color: var(--c-text-secondary);
+    font-family: monospace;
+    font-size: 12px;
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .env-remove {
-    background: none;
+  .remove-btn {
+    padding: 2px 8px;
     border: none;
+    border-radius: 4px;
+    background: var(--c-danger-bg);
     color: var(--c-danger-text);
+    font-size: 11px;
+    font-family: inherit;
     cursor: pointer;
-    font-size: 14px;
-    padding: 0 4px;
+    flex-shrink: 0;
   }
 
+  .remove-btn:hover {
+    filter: brightness(1.15);
+  }
+
+  /* Env form */
   .env-form {
     display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 8px;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+    background: var(--c-border-subtle);
   }
 
-  .env-input {
-    flex: 1;
-    min-width: 0;
+  .form-input {
+    padding: 6px 10px;
+    border: 1px solid var(--c-border);
+    border-radius: 6px;
+    background: var(--c-hover);
+    color: var(--c-text);
+    font-size: 13px;
+    font-family: monospace;
+    outline: none;
+  }
+
+  .form-input:focus {
+    border-color: var(--c-focus-ring);
+  }
+
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 
   .btn {
-    background: var(--c-active);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    color: var(--c-text);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
     cursor: pointer;
-    font-size: 12px;
-    padding: 4px 10px;
-  }
-
-  .btn-sm {
-    font-size: 11px;
-    padding: 3px 8px;
-  }
-
-  .btn-ghost {
-    background: none;
     border: none;
+  }
+
+  .btn-cancel {
+    background: var(--c-active);
+    color: var(--c-text);
+  }
+
+  .btn-add {
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+  }
+
+  .btn-add:hover {
+    background: var(--c-accent-bg-hover);
+  }
+
+  .btn-add-item {
+    align-self: flex-start;
+    padding: 6px 14px;
+    border: 1px dashed var(--c-text-faint);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--c-text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .btn-add-item:hover {
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 </style>

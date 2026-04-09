@@ -9,6 +9,8 @@
   import { openTool } from '../../lib/stores/tabs.svelte'
   import { getTheme } from '../../lib/terminal/themes'
   import { safeDirName } from '../../lib/sanitize'
+  import BranchPicker from './BranchPicker.svelte'
+  import { isRemoteOnly } from './utils'
 
   let {
     onClose,
@@ -23,13 +25,14 @@
   } = $props()
 
   type Step = 'loading' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
+  type Mode = 'new' | 'existing'
 
   let step = $state<Step>('loading')
+  let mode = $state<Mode>('new')
   let branches = $state<{ local: string[]; remote: string[] }>({ local: [], remote: [] })
   let branchQuery = $state('')
   let selectedBase = $state('')
   let newBranchName = $state('')
-  let selectedBranchIdx = $state(0)
   let errorMessage = $state('')
   let createdPath = $state('')
   let homedir = $state('')
@@ -52,11 +55,19 @@
   let projectName = $derived(repoRoot.split('/').pop() || 'project')
   let workspaceId = $derived(workspaceIdProp ?? workspaceState.workspace?.id)
 
+  let effectiveBranchName = $derived(
+    mode === 'new'
+      ? newBranchName
+      : selectedBase && isRemoteOnly(selectedBase, branches)
+        ? selectedBase.slice(selectedBase.indexOf('/') + 1)
+        : selectedBase,
+  )
+
   // Worktree dir: <baseDir>/<projectName>/<safeBranchName>
   let worktreeDir = $derived.by(() => {
-    if (!newBranchName) return ''
+    if (!effectiveBranchName) return ''
     const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
-    const safeName = safeDirName(newBranchName)
+    const safeName = safeDirName(effectiveBranchName)
     return `${baseDir}/${projectName}/${safeName}`
   })
 
@@ -132,28 +143,6 @@
     }
   }
 
-  // Fuzzy match for branch search
-  function fuzzyMatch(text: string, q: string): boolean {
-    if (!q) return true
-    const lower = text.toLowerCase()
-    let qi = 0
-    for (let i = 0; i < lower.length && qi < q.length; i++) {
-      if (lower[i] === q[qi]) qi++
-    }
-    return qi === q.length
-  }
-
-  let allBranches = $derived([...branches.local, ...branches.remote])
-  let filteredBranches = $derived(
-    branchQuery ? allBranches.filter((b) => fuzzyMatch(b, branchQuery.toLowerCase())) : allBranches,
-  )
-
-  $effect(() => {
-    if (selectedBranchIdx >= filteredBranches.length) {
-      selectedBranchIdx = Math.max(0, filteredBranches.length - 1)
-    }
-  })
-
   // Validate branch name
   let branchNameError = $derived.by(() => {
     if (!newBranchName) return null
@@ -177,8 +166,12 @@
     }
   }
 
-  function selectBranch(branch: string): void {
-    selectedBase = branch
+  function setMode(next: Mode): void {
+    if (mode === next) return
+    mode = next
+    selectedBase = ''
+    newBranchName = ''
+    // branchQuery preserved — search stays useful across modes
   }
 
   async function createWorktree(): Promise<void> {
@@ -186,6 +179,26 @@
     step = 'creating'
     try {
       await window.api.gitWorktreeAdd(repoRoot, worktreeDir, newBranchName, selectedBase)
+      createdPath = worktreeDirDisplay
+
+      if (hasSetupConfig() && workspaceId) {
+        step = 'setup'
+        await runSetup()
+      } else {
+        finishCreation()
+      }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err)
+      step = 'error'
+    }
+  }
+
+  async function createWorktreeFromExisting(): Promise<void> {
+    if (!selectedBase) return
+    step = 'creating'
+    try {
+      const createLocalTracking = isRemoteOnly(selectedBase, branches)
+      await window.api.gitWorktreeCheckout(repoRoot, worktreeDir, selectedBase, createLocalTracking)
       createdPath = worktreeDirDisplay
 
       if (hasSetupConfig() && workspaceId) {
@@ -247,29 +260,6 @@
     finishCreation()
   }
 
-  function handleBranchListKeydown(e: KeyboardEvent): void {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      selectedBranchIdx = (selectedBranchIdx + 1) % Math.max(1, filteredBranches.length)
-      scrollIntoView()
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      selectedBranchIdx =
-        (selectedBranchIdx - 1 + filteredBranches.length) % Math.max(1, filteredBranches.length)
-      scrollIntoView()
-    } else if (e.key === 'Enter' && filteredBranches.length > 0) {
-      e.preventDefault()
-      selectBranch(filteredBranches[selectedBranchIdx])
-    }
-  }
-
-  function scrollIntoView(): void {
-    requestAnimationFrame(() => {
-      const el = document.querySelector('.branch-item.selected')
-      el?.scrollIntoView({ block: 'nearest' })
-    })
-  }
-
   function setupTerminalAction(node: HTMLDivElement): { destroy: () => void } {
     initSetupTerminal(node)
     return { destroy: disposeSetupTerminal }
@@ -311,57 +301,7 @@
         <p class="status-text">Loading branches...</p>
       </div>
     {:else if step === 'pickBase'}
-      {#if !selectedBase}
-        <!-- Pick base branch -->
-        <div class="modal-body" onkeydown={handleBranchListKeydown}>
-          <div class="field-header">
-            <!-- svelte-ignore a11y_label_has_associated_control -->
-            <label class="field-label">Base branch</label>
-            <button
-              class="btn-refresh"
-              onclick={refreshBranches}
-              disabled={refreshing}
-              title="Fetch from remote"
-            >
-              <svg
-                class="refresh-icon"
-                class:spinning={refreshing}
-                width="14"
-                height="14"
-                viewBox="0 0 16 16"
-                fill="currentColor"
-              >
-                <path d="M13.65 2.35A8 8 0 1 0 16 8h-2a6 6 0 1 1-1.76-4.24L10 6h6V0l-2.35 2.35z" />
-              </svg>
-            </button>
-          </div>
-          <input
-            class="field-input"
-            type="text"
-            bind:value={branchQuery}
-            placeholder="Search branches..."
-            spellcheck="false"
-            autocomplete="off"
-          />
-          <div class="branch-list">
-            {#if filteredBranches.length === 0}
-              <div class="branch-empty">No branches found</div>
-            {:else}
-              {#each filteredBranches as branch, i (branch)}
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div
-                  class="branch-item"
-                  class:selected={i === selectedBranchIdx}
-                  onclick={() => selectBranch(branch)}
-                  onpointerenter={() => (selectedBranchIdx = i)}
-                >
-                  {branch}
-                </div>
-              {/each}
-            {/if}
-          </div>
-        </div>
-      {:else}
+      {#if mode === 'new' && selectedBase}
         <!-- Name new branch -->
         <div class="modal-body">
           <p class="field-info">Base: <strong>{selectedBase}</strong></p>
@@ -397,6 +337,58 @@
               Create
             </button>
           </div>
+        </div>
+      {:else}
+        <!-- Branch picker (shared between new-mode base selection and existing-mode checkout) -->
+        <div class="modal-body">
+          <div class="mode-toggle" role="radiogroup" aria-label="Branch mode">
+            <button
+              class="mode-btn"
+              class:active={mode === 'new'}
+              onclick={() => setMode('new')}
+              role="radio"
+              aria-checked={mode === 'new'}
+              type="button"
+            >
+              New branch
+            </button>
+            <button
+              class="mode-btn"
+              class:active={mode === 'existing'}
+              onclick={() => setMode('existing')}
+              role="radio"
+              aria-checked={mode === 'existing'}
+              type="button"
+            >
+              From existing branch
+            </button>
+          </div>
+          <BranchPicker
+            {branches}
+            bind:query={branchQuery}
+            bind:selectedBranch={selectedBase}
+            {refreshing}
+            onRefresh={refreshBranches}
+            label={mode === 'new' ? 'Base branch' : 'Branch to check out'}
+            showRemoteOnlyTag={mode === 'existing'}
+            highlightPicked={mode === 'existing'}
+            onCommit={mode === 'existing' ? createWorktreeFromExisting : undefined}
+          />
+          {#if mode === 'existing'}
+            {#if selectedBase && worktreeDir}
+              <p class="field-detail">Path: {worktreeDirDisplay}</p>
+            {/if}
+            <div class="modal-actions">
+              <button class="btn btn-cancel" onclick={onClose}>Cancel</button>
+              <button
+                class="btn btn-primary"
+                onclick={createWorktreeFromExisting}
+                disabled={!selectedBase}
+              >
+                Create
+              </button>
+            </div>
+          {/if}
         </div>
       {/if}
     {:else if step === 'creating'}
@@ -595,13 +587,6 @@
     align-items: center;
   }
 
-  .field-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 6px;
-  }
-
   .field-label {
     display: block;
     font-size: 11px;
@@ -609,53 +594,6 @@
     letter-spacing: 0.5px;
     color: var(--c-text-muted);
     text-transform: uppercase;
-  }
-
-  .btn-refresh {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      color 0.1s;
-  }
-
-  .btn-refresh:hover:not(:disabled) {
-    background: var(--c-active);
-    color: var(--c-text-secondary);
-  }
-
-  .btn-refresh:disabled {
-    cursor: default;
-    opacity: 0.5;
-  }
-
-  .refresh-icon {
-    transition: transform 0.2s;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .refresh-icon.spinning {
-    animation: spin 0.8s linear infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .refresh-icon.spinning {
-      animation: none;
-    }
   }
 
   .field-input {
@@ -704,32 +642,38 @@
     word-break: break-all;
   }
 
-  .branch-list {
-    margin-top: 8px;
-    max-height: 260px;
-    overflow-y: auto;
-    border: 1px solid var(--c-border-subtle);
+  .mode-toggle {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    margin: 0 0 12px;
+    background: var(--c-active);
     border-radius: 6px;
   }
 
-  .branch-item {
-    padding: 6px 10px;
-    font-size: 13px;
-    color: var(--c-text);
+  .mode-btn {
+    flex: 1;
+    padding: 5px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--c-text-muted);
+    font-size: 12px;
+    font-family: inherit;
     cursor: pointer;
-    transition: background 0.05s;
+    transition:
+      background 0.1s,
+      color 0.1s;
   }
 
-  .branch-item:hover,
-  .branch-item.selected {
-    background: var(--c-active);
+  .mode-btn:hover:not(.active) {
+    color: var(--c-text-secondary);
   }
 
-  .branch-empty {
-    padding: 16px 10px;
-    text-align: center;
-    font-size: 13px;
-    color: var(--c-text-faint);
+  .mode-btn.active {
+    background: var(--c-bg-overlay);
+    color: var(--c-text);
+    box-shadow: 0 1px 2px var(--c-shadow, rgba(0, 0, 0, 0.15));
   }
 
   .modal-actions {

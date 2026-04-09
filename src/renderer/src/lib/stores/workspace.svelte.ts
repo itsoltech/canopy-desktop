@@ -2,7 +2,7 @@ import { restoreLayout, closeAllTabsForWorktree } from './tabs.svelte'
 import {
   loadRepoConfig,
   getRepoConfig,
-  getHasCredentials,
+  hasAnyCredentials,
   loadActiveTask,
 } from './taskTracker.svelte'
 import { addToast } from './toast.svelte'
@@ -275,7 +275,7 @@ async function attachProjectImpl(
   try {
     if (info.repoRoot) {
       await loadRepoConfig(info.repoRoot)
-      if (getRepoConfig() && !getHasCredentials()) {
+      if (getRepoConfig()?.trackers.length && !hasAnyCredentials()) {
         addToast('Tracker requires authentication — configure token in Preferences')
       }
     }

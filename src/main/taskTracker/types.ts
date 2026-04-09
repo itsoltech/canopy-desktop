@@ -93,8 +93,10 @@ export interface TaskTrackerConfig {
 // --- Repo-level config types ---
 
 export interface TrackerConfig {
+  id: string
   provider: TaskTrackerProvider
   baseUrl: string
+  projectKey?: string
 }
 
 export interface BoardOverride {
@@ -104,11 +106,26 @@ export interface BoardOverride {
 
 export interface RepoConfig {
   version: 1
-  tracker: TrackerConfig
+  trackers: TrackerConfig[]
   branchTemplate?: BranchTemplateConfig & { typeMapping?: Record<string, string> }
   prTemplate?: PRTemplateConfig
   boardOverrides: Record<string, BoardOverride>
   filters: TaskFilterConfig
+}
+
+// --- Resolved config (merged global + repo) ---
+
+export type ConfigSource = 'global' | 'repo'
+
+export interface ResolvedConfig {
+  config: RepoConfig
+  source: {
+    branchTemplate: ConfigSource | 'default'
+    prTemplate: ConfigSource | 'default'
+    filters: ConfigSource | 'default'
+  }
+  hasGlobal: boolean
+  hasRepo: boolean
 }
 
 export interface TaskTrackerExportData {
