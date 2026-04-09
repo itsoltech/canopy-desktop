@@ -1,3 +1,14 @@
+## [0.10.0-next.11](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.10...v0.10.0-next.11) (2026-04-09)
+
+### Features
+
+* **worktree:** create worktree from existing branch ([#125](https://github.com/itsoltech/canopy-desktop/issues/125)) ([1b933dd](https://github.com/itsoltech/canopy-desktop/commit/1b933dd67eb4b5918923eae10ae39bdd508af261))
+
+### Bug Fixes
+
+* **titlebar:** prevent text wrap on narrow windows ([b0d0bc7](https://github.com/itsoltech/canopy-desktop/commit/b0d0bc7d33f50809510b598ddd30ac97b811f987))
+* **ui:** align Gemini prefs, keyboard symbols, and diff comment UX ([#124](https://github.com/itsoltech/canopy-desktop/issues/124)) ([71b3ec1](https://github.com/itsoltech/canopy-desktop/commit/71b3ec1845882ab83af10bb6f0c5d7a635028131))
+
 ## [0.10.0-next.10](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0-next.9...v0.10.0-next.10) (2026-04-09)
 
 ### Features
