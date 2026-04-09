@@ -48,10 +48,18 @@ export class RepoConfigManager {
         let trackers = (parsed as Record<string, unknown>).trackers as
           | RepoConfig['trackers']
           | undefined
+        const VALID_PROVIDERS = new Set(['jira', 'youtrack', 'github'])
         if (!trackers && (parsed as Record<string, unknown>).tracker) {
           const old = (parsed as Record<string, unknown>).tracker as {
             provider: string
             baseUrl: string
+          }
+          if (!VALID_PROVIDERS.has(old.provider)) {
+            return err({
+              _tag: 'ConfigParseError' as const,
+              repoRoot,
+              reason: `Unknown provider: ${old.provider}`,
+            })
           }
           trackers = [
             {

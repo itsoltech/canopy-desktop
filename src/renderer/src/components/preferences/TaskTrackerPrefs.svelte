@@ -51,16 +51,17 @@
 
     if (repoRoot) {
       await loadRepoConfig(repoRoot)
-      // Default to project scope when repo has config
-      if (repoConfig) scope = 'project'
+      // Read store directly to avoid stale $derived after await
+      if (getRepoConfig()) scope = 'project'
     }
 
-    if (hasCreds) {
+    if (hasAnyCredentials()) {
       await fetchBoards()
     }
 
-    if (config?.branchTemplate) {
-      branchNamingRef?.initTemplate(config.branchTemplate?.template ?? '')
+    const currentConfig = scope === 'global' ? getGlobalConfig() : getRepoConfig()
+    if (currentConfig?.branchTemplate) {
+      branchNamingRef?.initTemplate(currentConfig.branchTemplate?.template ?? '')
     }
   })
 

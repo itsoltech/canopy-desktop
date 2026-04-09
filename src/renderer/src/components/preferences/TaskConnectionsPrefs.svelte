@@ -150,6 +150,15 @@
       confirmLabel: 'Remove',
     })
     if (!ok) return
+    // Clean up keychain credentials for this tracker
+    const tracker = config.trackers.find((t) => t.id === trackerId)
+    if (tracker?.baseUrl) {
+      try {
+        await window.api.keychainDeleteCredentials(tracker.provider, tracker.baseUrl)
+      } catch {
+        // best-effort cleanup
+      }
+    }
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     updated.trackers = updated.trackers.filter((t) => t.id !== trackerId)
     try {
