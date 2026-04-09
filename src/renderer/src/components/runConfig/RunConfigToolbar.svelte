@@ -194,8 +194,7 @@
           <div class="dropdown-group-label">{group.label}</div>
           {#each group.items as item (item.configDir + item.name)}
             {@const itemRunning = getRunningIdsForName(item.name).length}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div
+            <button
               class="dropdown-item"
               class:selected={selected?.configDir === item.configDir &&
                 selected?.name === item.name}
@@ -228,15 +227,14 @@
                   <Play size={12} />
                 </button>
               {/if}
-            </div>
+            </button>
           {/each}
         {/each}
         <div class="dropdown-separator"></div>
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="dropdown-item edit-item" onclick={openManager}>
+        <button class="dropdown-item edit-item" onclick={openManager}>
           <Settings size={12} />
           <span>Edit Configurations...</span>
-        </div>
+        </button>
       </div>
     </div>
   {/if}

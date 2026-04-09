@@ -2119,6 +2119,17 @@ export function registerIpcHandlers(
 
   // --- Run Configurations ---
 
+  const runConfigInstances = new Map<string, number>()
+
+  function validateConfigDir(senderId: number, configDir: string): void {
+    const knownPaths = windowManager.getWorkspacePaths(senderId)
+    const normalized = path.resolve(configDir)
+    const isUnderKnown = [...knownPaths].some(
+      (p) => normalized === p || normalized.startsWith(p + path.sep),
+    )
+    if (!isUnderKnown) throw new Error(`Path "${configDir}" is not within a known workspace`)
+  }
+
   ipcMain.handle('runConfig:discover', async (_event, payload: { repoRoot: string }) => {
     const result = await runConfigManager.discover(payload.repoRoot)
     return result.unwrapOr([])
@@ -2126,7 +2137,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'runConfig:save',
-    async (_event, payload: { configDir: string; config: { configurations: unknown[] } }) => {
+    async (event, payload: { configDir: string; config: { configurations: unknown[] } }) => {
+      validateConfigDir(event.sender.id, payload.configDir)
       const result = await runConfigManager.saveFile(
         payload.configDir,
         payload.config as import('../runConfig/types').RunConfigFile,
@@ -2138,9 +2150,10 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'runConfig:addConfig',
     async (
-      _event,
+      event,
       payload: { configDir: string; configuration: import('../runConfig/types').RunConfiguration },
     ) => {
+      validateConfigDir(event.sender.id, payload.configDir)
       const result = await runConfigManager.addConfiguration(
         payload.configDir,
         payload.configuration,
@@ -2152,13 +2165,14 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'runConfig:updateConfig',
     async (
-      _event,
+      event,
       payload: {
         configDir: string
         name: string
         configuration: import('../runConfig/types').RunConfiguration
       },
     ) => {
+      validateConfigDir(event.sender.id, payload.configDir)
       const result = await runConfigManager.updateConfiguration(
         payload.configDir,
         payload.name,
@@ -2170,7 +2184,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'runConfig:deleteConfig',
-    async (_event, payload: { configDir: string; name: string }) => {
+    async (event, payload: { configDir: string; name: string }) => {
+      validateConfigDir(event.sender.id, payload.configDir)
       const result = await runConfigManager.deleteConfiguration(payload.configDir, payload.name)
       unwrapOrThrow(result, runConfigErrorMessage)
     },
@@ -2179,16 +2194,21 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'runConfig:execute',
     async (event, payload: { configDir: string; name: string; cwd?: string }) => {
+      validateConfigDir(event.sender.id, payload.configDir)
       const fileResult = await runConfigManager.loadFile(payload.configDir)
       const file = unwrapOrThrow(fileResult, runConfigErrorMessage)
       const config = file.configurations.find((c) => c.name === payload.name)
       if (!config) throw new Error(`Configuration "${payload.name}" not found`)
 
+      if (config.max_instances && config.max_instances > 0) {
+        const current = runConfigInstances.get(payload.name) ?? 0
+        if (current >= config.max_instances) {
+          throw new Error(`"${payload.name}" is already running (max ${config.max_instances})`)
+        }
+      }
+
       if (!payload.cwd) throw new Error('No worktree selected')
       const cwd = config.cwd ? path.resolve(payload.configDir, config.cwd) : payload.configDir
-      console.log(
-        `[runConfig] execute "${payload.name}" cwd=${cwd} configDir=${payload.configDir} worktree=${payload.cwd} config.cwd=${config.cwd ?? '(none)'}`,
-      )
       const env = config.env
       const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
 
@@ -2219,6 +2239,7 @@ export function registerIpcHandlers(
       const wsUrl = await wsBridge.create(session.id, session.pty)
       const senderId = event.sender.id
       windowManager.trackPtySession(senderId, session.id)
+      runConfigInstances.set(payload.name, (runConfigInstances.get(payload.name) ?? 0) + 1)
 
       const sender = event.sender
       session.pty.onExit(({ exitCode, signal }) => {
@@ -2226,6 +2247,9 @@ export function registerIpcHandlers(
           sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
         }
         windowManager.untrackPtySession(senderId, session.id)
+        const count = (runConfigInstances.get(payload.name) ?? 1) - 1
+        if (count <= 0) runConfigInstances.delete(payload.name)
+        else runConfigInstances.set(payload.name, count)
 
         // Post-run hook
         if (config.post_run) {
@@ -2237,7 +2261,25 @@ export function registerIpcHandlers(
             cwd,
             env,
           })
+          const POST_RUN_TIMEOUT = 30_000
+          let postDone = false
+          const postTimer = setTimeout(() => {
+            if (!postDone) {
+              postDone = true
+              ptyManager.kill(postSession.id)
+              if (!sender.isDestroyed()) {
+                sender.send('runConfig:postRunResult', {
+                  success: false,
+                  command: postCmd,
+                  exitCode: -1,
+                })
+              }
+            }
+          }, POST_RUN_TIMEOUT)
           postSession.pty.onExit(({ exitCode: postExit }) => {
+            if (postDone) return
+            postDone = true
+            clearTimeout(postTimer)
             if (!sender.isDestroyed()) {
               sender.send(
                 'runConfig:postRunResult',

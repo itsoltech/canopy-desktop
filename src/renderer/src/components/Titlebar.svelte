@@ -8,7 +8,7 @@
   const isMac = navigator.userAgent.includes('Mac')
 
   let showRunToolbar = $derived(
-    workspaceState.repoRoot && getPref('runConfig.showInTitlebar', 'true') === 'true',
+    workspaceState.repoRoot && getPref('runConfig.showInTitlebar', 'false') === 'true',
   )
 
   let activeTabName = $derived.by(() => {

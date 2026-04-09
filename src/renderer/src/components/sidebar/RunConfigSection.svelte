@@ -85,16 +85,13 @@
       {#each group.configurations as config (config.name)}
         {@const runningCount = getRunningSessionIds(config.name).length}
         <li class="config-item">
-          <span
+          <button
             class="config-name"
             title={`${config.command} ${config.args ?? ''}`}
             onclick={() => showRunConfigManager(group.configDir, config.name)}
-            role="button"
-            tabindex="-1"
-            onkeydown={() => {}}
           >
             {config.name}
-          </span>
+          </button>
           <div class="config-actions">
             {#if runningCount > 0}
               <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
@@ -167,8 +164,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 12px;
+    font-family: inherit;
     color: var(--c-text);
     cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
   }
 
   .config-name:hover {

@@ -30,7 +30,7 @@ const DEFAULT_CONFIG: SidebarSectionConfig[] = [
   { id: 'files', visible: false },
   { id: 'tools', visible: true },
   { id: 'tasks', visible: false },
-  { id: 'runConfigs', visible: true },
+  { id: 'runConfigs', visible: false },
 ]
 
 export function getSidebarConfig(raw: string): SidebarSectionConfig[] {
