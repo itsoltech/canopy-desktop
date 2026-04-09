@@ -961,8 +961,17 @@ export function registerIpcHandlers(
       ]
       if (payload.draft) args.push('--draft')
 
-      const { stdout } = await execFileAsync('gh', args, { cwd: payload.repoRoot })
-      return { url: stdout.trim() }
+      try {
+        const { stdout } = await execFileAsync('gh', args, { cwd: payload.repoRoot })
+        return { url: stdout.trim() }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(
+            'GitHub CLI (gh) is not installed. Install it from cli.github.com or configure a GitHub connection in Preferences.',
+          )
+        }
+        throw err
+      }
     },
   )
 
@@ -974,7 +983,10 @@ export function registerIpcHandlers(
         { cwd: payload.repoRoot },
       )
       return stdout.trim() || 'main'
-    } catch {
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        console.warn('[git:getDefaultBranch] gh CLI not found, falling back to "main"')
+      }
       return 'main'
     }
   })
@@ -2328,7 +2340,11 @@ export function registerIpcHandlers(
       }
 
       if (!payload.cwd) throw new Error('No worktree selected')
+      await validatePathAccess(event.sender.id, payload.cwd)
       const cwd = config.cwd ? path.resolve(payload.cwd, config.cwd) : payload.cwd
+      if (config.cwd && !cwd.startsWith(payload.cwd)) {
+        throw new Error('config.cwd must not escape the worktree directory')
+      }
       const env = config.env
       const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
 
