@@ -13,7 +13,7 @@ on:
 
 concurrency:
   group: claude-code-compat
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check:
@@ -22,7 +22,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -159,7 +158,7 @@ jobs:
           claude_args: |
             --model opus[1m]
             --effort max
-            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout:*),Bash(git branch:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git status:*),Bash(git fetch:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api:*),Bash(npm view:*),Bash(npm run lint:*),Bash(npm run format:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/claude-code-compat),Bash(git checkout -b chore/claude-code-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/claude-code-compat),Bash(git push origin chore/claude-code-compat:*),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/marckrenn/claude-code-changelog/:*),Bash(npm view:*)"
           settings: |
             {
               "env": {
@@ -179,11 +178,14 @@ jobs:
           git pull origin next --rebase
 
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          printf '{\n  "lastCheckedVersion": "%s",\n  "lastCheckedAt": "%s"\n}\n' \
-            "$TO_VERSION" "$TIMESTAMP" > .github/claude-code-version.json
+          jq -n --arg v "$TO_VERSION" --arg t "$TIMESTAMP" \
+            '{lastCheckedVersion: $v, lastCheckedAt: $t}' \
+            > .github/claude-code-version.json
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/claude-code-version.json
-          git commit -m "ci: update claude-code version tracker [skip ci]" || echo "No changes to commit"
-          git push origin next
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: update claude-code version tracker [skip ci]"
+            git push origin next
+          fi
