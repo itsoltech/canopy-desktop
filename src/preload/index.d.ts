@@ -493,15 +493,18 @@ interface CanopyAPI {
   trackerConfigFetchTaskComments: (
     repoRoot: string | undefined,
     taskKey: string,
+    trackerId?: string,
   ) => Promise<TrackerComment[]>
   trackerConfigFetchTaskAttachments: (
     repoRoot: string | undefined,
     taskKey: string,
+    trackerId?: string,
   ) => Promise<TrackerAttachment[]>
   trackerConfigDownloadAttachment: (
     repoRoot: string | undefined,
     url: string,
     filename: string,
+    trackerId?: string,
   ) => Promise<string>
 
   // Keychain

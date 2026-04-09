@@ -205,37 +205,51 @@ export class TaskTrackerManager {
   fetchTaskCommentsFromConfig(
     config: RepoConfig,
     taskKey: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerComment[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchTaskComments(conn, token, taskKey)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskComments(conn, token, taskKey)
+      },
+    )
   }
 
   fetchTaskAttachmentsFromConfig(
     config: RepoConfig,
     taskKey: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerAttachment[], TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchTaskAttachments(conn, token, taskKey)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskAttachments(conn, token, taskKey)
+      },
+    )
   }
 
   findTaskByKeyFromConfig(
     config: RepoConfig,
     taskKey: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<TrackerTask | null, TaskTrackerError> {
-    return this.resolveConfigConnection(config).asyncAndThen(({ conn, token }) => {
-      const client = createProviderClient(conn.provider)
-      return client.fetchTaskByKey(conn, token, taskKey)
-    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskByKey(conn, token, taskKey)
+      },
+    )
   }
 
   downloadAttachmentFromConfig(
     config: RepoConfig,
     url: string,
     filename: string,
+    trackerId?: string,
+    repoRoot?: string,
   ): ResultAsync<string, TaskTrackerError> {
     const dlErr = (reason: string): TaskTrackerError => ({
       _tag: 'AttachmentDownloadFailed',
@@ -243,7 +257,7 @@ export class TaskTrackerManager {
       reason,
     })
 
-    return this.resolveConfigConnection(config)
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot)
       .andThen(({ conn, token }) => {
         const connBase = conn.baseUrl.replace(/\/$/, '')
         if (!url.startsWith(connBase)) {
@@ -251,7 +265,7 @@ export class TaskTrackerManager {
         }
         return ok({ conn, token })
       })
-      .asyncAndThen(({ conn, token }) => this.downloadToTempDir(url, filename, conn, token, dlErr))
+      .andThen(({ conn, token }) => this.downloadToTempDir(url, filename, conn, token, dlErr))
   }
 
   private downloadToTempDir(

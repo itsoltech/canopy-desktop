@@ -1639,6 +1639,8 @@ export function registerIpcHandlers(
       const result = await taskTrackerManager.fetchTaskCommentsFromConfig(
         resolved.config,
         payload.taskKey,
+        payload.trackerId,
+        payload.repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -1653,6 +1655,8 @@ export function registerIpcHandlers(
       const result = await taskTrackerManager.fetchTaskAttachmentsFromConfig(
         resolved.config,
         payload.taskKey,
+        payload.trackerId,
+        payload.repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -1660,7 +1664,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:downloadAttachment',
-    async (_event, payload: { repoRoot?: string; url: string; filename: string }) => {
+    async (
+      _event,
+      payload: { repoRoot?: string; trackerId?: string; url: string; filename: string },
+    ) => {
       if (!payload.url || !/^https?:\/\//.test(payload.url)) throw new Error('Invalid URL')
       if (!payload.filename || /[\0/\\]/.test(payload.filename)) throw new Error('Invalid filename')
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
@@ -1669,6 +1676,8 @@ export function registerIpcHandlers(
         resolved.config,
         payload.url,
         payload.filename,
+        payload.trackerId,
+        payload.repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },

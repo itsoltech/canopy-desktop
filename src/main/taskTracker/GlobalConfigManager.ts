@@ -71,6 +71,8 @@ export class GlobalConfigManager {
       this.cacheValid = true
       return result
     } catch {
+      this.cached = null
+      this.cacheValid = true
       return null
     }
   }
