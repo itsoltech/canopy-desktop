@@ -120,6 +120,7 @@
       maxWidth="180px"
     />
   </div>
+  <div class="hint-row">Where to open links clicked or detected in terminal output</div>
 
   <h4 class="subsection-title">Default Viewports</h4>
 
@@ -256,6 +257,13 @@
   .select-label {
     color: rgba(255, 255, 255, 0.8);
     min-width: 160px;
+  }
+
+  .hint-row {
+    font-size: 11px;
+    color: var(--c-text-muted);
+    line-height: 1.5;
+    margin-top: -8px;
   }
 
   .viewport-list {

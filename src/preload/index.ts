@@ -297,6 +297,12 @@ const api = {
     ipcRenderer.invoke('git:revertFile', { repoRoot, filePath }),
   gitGenerateCommitMessage: (repoRoot: string) =>
     ipcRenderer.invoke('git:generateCommitMessage', { repoRoot }),
+  gitCreatePR: (
+    repoRoot: string,
+    params: { title: string; body: string; baseRefName: string; draft: boolean },
+  ) => ipcRenderer.invoke('git:createPR', { repoRoot, ...params }),
+  gitGetDefaultBranch: (repoRoot: string) =>
+    ipcRenderer.invoke('git:getDefaultBranch', { repoRoot }),
 
   // Browser (<webview> management)
   setupBrowserWebview: (browserId: string, webContentsId: number) =>

@@ -102,6 +102,9 @@
 
 <div class="section">
   <h3 class="section-title">Tools</h3>
+  <p class="section-desc">
+    Register custom CLI tools that appear in the command palette and can be opened as tabs.
+  </p>
 
   <div class="tool-list">
     {#each getTools() as tool (tool.id)}
@@ -210,6 +213,12 @@
     font-size: 15px;
     font-weight: 600;
     color: var(--c-text);
+    margin: 0;
+  }
+
+  .section-desc {
+    font-size: 12px;
+    color: var(--c-text-secondary);
     margin: 0;
   }
 

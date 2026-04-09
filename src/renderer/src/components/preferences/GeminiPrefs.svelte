@@ -81,6 +81,9 @@
 
     <div class="field">
       <label class="field-label" for="gemini-approval">Approval mode</label>
+      <span class="field-hint"
+        >Controls what Gemini can do without asking. YOLO = full autonomy, Plan = read-only</span
+      >
       <CustomSelect
         id="gemini-approval"
         value={approvalMode}
@@ -101,6 +104,7 @@
 
     <div class="field">
       <label class="field-label" for="gemini-apikey">API key</label>
+      <span class="field-hint">Google AI API key. Falls back to GEMINI_API_KEY env variable</span>
       <input
         id="gemini-apikey"
         class="text-input"

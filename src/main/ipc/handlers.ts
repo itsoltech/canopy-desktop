@@ -898,6 +898,58 @@ export function registerIpcHandlers(
     return generateCommitMessage(diff, preferencesStore)
   })
 
+  ipcMain.handle(
+    'git:createPR',
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        title: string
+        body: string
+        baseRefName: string
+        draft: boolean
+      },
+    ) => {
+      const pushResult = await GitRepository.push(payload.repoRoot)
+      if (pushResult.isErr()) {
+        throw new Error(`Failed to push branch: ${gitErrorMessage(pushResult.error)}`)
+      }
+
+      const branch = await GitRepository.getBranch(payload.repoRoot).unwrapOr(null)
+      if (!branch) throw new Error('Could not determine current branch')
+
+      const args = [
+        'pr',
+        'create',
+        '--title',
+        payload.title,
+        '--body',
+        payload.body || '',
+        '--base',
+        payload.baseRefName,
+        '--head',
+        branch,
+      ]
+      if (payload.draft) args.push('--draft')
+
+      const { stdout } = await execFileAsync('gh', args, { cwd: payload.repoRoot })
+      return { url: stdout.trim() }
+    },
+  )
+
+  ipcMain.handle('git:getDefaultBranch', async (_event, payload: { repoRoot: string }) => {
+    try {
+      const { stdout } = await execFileAsync(
+        'gh',
+        ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+        { cwd: payload.repoRoot },
+      )
+      return stdout.trim() || 'main'
+    } catch {
+      return 'main'
+    }
+  })
+
   // --- Layouts ---
 
   ipcMain.handle(

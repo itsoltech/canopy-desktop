@@ -84,6 +84,9 @@
       maxWidth="180px"
     />
   </div>
+  <div class="hint-row">
+    Stable gets tested releases. Pre-release includes newest features but may have bugs
+  </div>
 
   <div class="select-row">
     <span class="select-label">Check frequency</span>
@@ -99,6 +102,7 @@
       maxWidth="180px"
     />
   </div>
+  <div class="hint-row">How often the app checks for new versions in the background</div>
 
   <div class="check-row">
     <button class="check-btn" onclick={checkNow} disabled={checkState === 'checking'}>
@@ -145,6 +149,13 @@
   .select-label {
     color: var(--c-text);
     min-width: 160px;
+  }
+
+  .hint-row {
+    font-size: 11px;
+    color: var(--c-text-muted);
+    line-height: 1.5;
+    margin-top: -8px;
   }
 
   .check-row {

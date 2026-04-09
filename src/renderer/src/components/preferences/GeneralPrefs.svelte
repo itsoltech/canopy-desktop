@@ -65,11 +65,13 @@
     <CustomCheckbox checked={reopenLast} onchange={toggleReopen} />
     <span>Reopen last workspace on startup</span>
   </label>
+  <div class="hint-row">Restore the previous workspace tabs and layout when the app starts</div>
 
   <label class="checkbox-row">
     <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
     <span>Show session status in notch overlay</span>
   </label>
+  <div class="hint-row">Show active session info in the macOS notch area</div>
 
   <label class="checkbox-row">
     <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
@@ -102,6 +104,7 @@
       maxWidth="180px"
     />
   </div>
+  <div class="hint-row select">Default tool to open when creating a new tab</div>
 
   <div class="select-row">
     <span class="select-label">New worktree</span>
@@ -112,6 +115,7 @@
       maxWidth="180px"
     />
   </div>
+  <div class="hint-row select">Default tool to open in new worktree tabs</div>
 
   <div class="info-row">
     <span class="info-label">Shell</span>
@@ -182,6 +186,10 @@
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;
+  }
+
+  .hint-row.select {
+    padding-left: 0;
   }
 
   .action-row {

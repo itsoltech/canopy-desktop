@@ -60,6 +60,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 12px 8px;
+    min-height: 20px;
+    max-height: 20px;
   }
 
   .section-toggle {

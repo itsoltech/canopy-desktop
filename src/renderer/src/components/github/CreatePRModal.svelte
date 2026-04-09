@@ -12,20 +12,33 @@
   let defaultBranch = $state('main')
   let submitting = $state(false)
   let titleEl: HTMLInputElement | undefined = $state()
+  let mode: 'github' | 'cli' = $state('cli')
 
   onMount(async () => {
     titleEl?.focus()
     const repoRoot = workspaceState.repoRoot
     if (!repoRoot) return
 
+    // Try GitHub API first, fall back to gh CLI for default branch
     try {
       const info = await window.api.githubGetRepoInfo(repoRoot)
       if (info) {
         defaultBranch = info.defaultBranch
         baseRefName = info.defaultBranch
+        mode = 'github'
+      } else {
+        const branch = await window.api.gitGetDefaultBranch(repoRoot)
+        defaultBranch = branch
+        baseRefName = branch
       }
     } catch {
-      // Keep defaults on network/auth error
+      try {
+        const branch = await window.api.gitGetDefaultBranch(repoRoot)
+        defaultBranch = branch
+        baseRefName = branch
+      } catch {
+        // Keep defaults
+      }
     }
 
     const branch = workspaceState.branch
@@ -40,16 +53,25 @@
 
     submitting = true
     try {
-      const pr = await window.api.githubCreatePR(repoRoot, {
+      const params = {
         title: title.trim(),
         body,
         baseRefName: baseRefName || defaultBranch,
         draft,
-      })
-      addToast(`PR #${pr.number} created`)
-      window.api.openExternal(pr.url)
+      }
+
+      if (mode === 'github') {
+        const pr = await window.api.githubCreatePR(repoRoot, params)
+        addToast(`PR #${pr.number} created`)
+        window.api.openExternal(pr.url)
+        loadBranchPRs(repoRoot)
+      } else {
+        const result = await window.api.gitCreatePR(repoRoot, params)
+        addToast('PR created')
+        window.api.openExternal(result.url)
+      }
+
       closeDialog()
-      loadBranchPRs(repoRoot)
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to create PR')
     } finally {
