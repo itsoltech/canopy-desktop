@@ -88,10 +88,11 @@
     const updated = JSON.parse(JSON.stringify(config)) as typeof config
     const normalizedUrl = editBaseUrl.replace(/\/$/, '')
 
+    let newTrackerId: string | null = null
     if (editingId === '__new__') {
-      const id = `${editProvider}-${crypto.randomUUID().slice(0, 8)}`
+      newTrackerId = `${editProvider}-${crypto.randomUUID().slice(0, 8)}`
       updated.trackers.push({
-        id,
+        id: newTrackerId,
         provider: editProvider,
         baseUrl: normalizedUrl,
         projectKey: editProjectKey || undefined,
@@ -118,6 +119,9 @@
       addToast(e instanceof Error ? e.message : 'Failed to save connection')
       return
     }
+
+    // After successful save, switch to edit mode so retries don't duplicate
+    if (newTrackerId) editingId = newTrackerId
 
     if (editToken) {
       try {
