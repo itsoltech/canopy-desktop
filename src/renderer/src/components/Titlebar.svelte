@@ -86,6 +86,16 @@
     font-weight: 500;
     color: var(--c-text-secondary);
     letter-spacing: 0.5px;
+
+    display: inline-block;
+    max-width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
+    padding: 0 8px;
+    vertical-align: middle;
   }
 
   .branch {
@@ -109,5 +119,19 @@
   .dirty {
     color: var(--c-warning-text);
     margin-left: 2px;
+  }
+
+  /* Narrow windows: drop the active pane/process title first */
+  @media (max-width: 820px) {
+    .tab-name {
+      display: none;
+    }
+  }
+
+  /* Very narrow (defensive — current BrowserWindow minWidth is 600): drop branch too */
+  @media (max-width: 560px) {
+    .branch {
+      display: none;
+    }
   }
 </style>
