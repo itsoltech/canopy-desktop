@@ -22,16 +22,17 @@ jobs:
       || (github.event_name == 'pull_request_review'
         && github.event.review.state == 'changes_requested'
         && github.event.review.user.type == 'User'
-        && contains(github.event.review.body, '@claude'))
+        && contains(github.event.review.body, 'claude-fix'))
       || (github.event_name == 'issue_comment'
         && github.event.issue.pull_request != null
         && github.event.comment.user.type == 'User'
-        && contains(github.event.comment.body, '@claude'))
+        && contains(github.event.comment.body, 'claude-fix'))
       || (github.event_name == 'pull_request_review_comment'
         && github.event.comment.user.type == 'User'
-        && contains(github.event.comment.body, '@claude'))
+        && contains(github.event.comment.body, 'claude-fix'))
       || (github.event_name == 'pull_request_review_comment'
-        && github.event.comment.user.login == 'claude[bot]')
+        && github.event.comment.user.login == 'claude[bot]'
+        && contains(github.event.pull_request.labels.*.name, 'auto-fix'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:

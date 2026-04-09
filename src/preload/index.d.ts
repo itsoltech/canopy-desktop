@@ -354,6 +354,12 @@ interface CanopyAPI {
     branch: string,
     baseBranch: string,
   ) => Promise<void>
+  gitWorktreeCheckout: (
+    repoRoot: string,
+    path: string,
+    branch: string,
+    createLocalTracking: boolean,
+  ) => Promise<void>
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) => Promise<void>
   gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>

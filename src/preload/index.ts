@@ -270,6 +270,18 @@ const api = {
     ipcRenderer.invoke('git:branchMerged', { repoRoot, branch }),
   gitWorktreeAdd: (repoRoot: string, path: string, branch: string, baseBranch: string) =>
     ipcRenderer.invoke('git:worktreeAdd', { repoRoot, path, branch, baseBranch }),
+  gitWorktreeCheckout: (
+    repoRoot: string,
+    path: string,
+    branch: string,
+    createLocalTracking: boolean,
+  ) =>
+    ipcRenderer.invoke('git:worktreeCheckout', {
+      repoRoot,
+      path,
+      branch,
+      createLocalTracking,
+    }),
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) =>
     ipcRenderer.invoke('git:worktreeRemove', { repoRoot, path, force }),
   gitUnmergedCommits: (repoRoot: string, branch: string) =>
