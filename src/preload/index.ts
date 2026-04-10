@@ -124,8 +124,10 @@ const api = {
   updateSkill: (id: string, workspacePath?: string) =>
     ipcRenderer.invoke('skills:update', { id, workspacePath }),
 
-  toggleSkillAgent: (id: string, agent: string, enabled: boolean) =>
-    ipcRenderer.invoke('skills:toggleAgent', { id, agent, enabled }),
+  toggleSkillAgent: (id: string, agent: string, enabled: boolean, workspacePath?: string) =>
+    ipcRenderer.invoke('skills:toggleAgent', { id, agent, enabled, workspacePath }),
+
+  scanSkills: (workspacePath?: string) => ipcRenderer.invoke('skills:scan', { workspacePath }),
 
   // Agent session
   updateAgentTitle: (sessionId: string, title: string) =>

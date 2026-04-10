@@ -19,6 +19,29 @@
 
   let expandedId: string | null = $state(null)
 
+  let scannedSkills = $state<
+    Array<{
+      id: string
+      name: string
+      description: string
+      agent: string
+      scope: string
+      filePath: string
+    }>
+  >([])
+  let scanning = $state(false)
+
+  async function scanForSkills(): Promise<void> {
+    scanning = true
+    try {
+      scannedSkills = await window.api.scanSkills(workspaceState.selectedWorktreePath ?? undefined)
+    } catch (e) {
+      console.error('Scan failed:', e)
+    } finally {
+      scanning = false
+    }
+  }
+
   async function installSkill(): Promise<void> {
     if (!installSource.trim()) {
       installError = 'Source is required'
@@ -67,7 +90,12 @@
 
   async function toggleAgent(skillId: string, agent: string, enabled: boolean): Promise<void> {
     try {
-      await window.api.toggleSkillAgent(skillId, agent, enabled)
+      await window.api.toggleSkillAgent(
+        skillId,
+        agent,
+        enabled,
+        workspaceState.selectedWorktreePath ?? undefined,
+      )
     } catch (e) {
       console.error('Failed to toggle agent:', e)
     }
@@ -241,6 +269,26 @@
         showInstallForm = true
       }}>+ Install Skill</button
     >
+    <button class="btn btn-add-skill" onclick={scanForSkills} disabled={scanning}>
+      {scanning ? 'Scanning...' : 'Scan for Skills'}
+    </button>
+  {/if}
+
+  {#if scannedSkills.length > 0}
+    <div class="scan-section">
+      <h4 class="scan-title">Discovered Skills</h4>
+      <div class="skill-list">
+        {#each scannedSkills as skill (skill.filePath)}
+          <div class="skill-row">
+            <div class="skill-main">
+              <span class="skill-name">{skill.name}</span>
+              <span class="skill-agents">{skill.agent}</span>
+              <span class="scan-scope">{skill.scope}</span>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -474,6 +522,26 @@
   .btn-add-skill:hover {
     background: var(--c-hover);
     color: var(--c-text);
+  }
+
+  .scan-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .scan-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--c-text-secondary);
+    margin: 0;
+  }
+
+  .scan-scope {
+    font-size: 10px;
+    color: var(--c-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   .btn-action {

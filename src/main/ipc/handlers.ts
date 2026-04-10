@@ -68,9 +68,11 @@ import { runConfigErrorMessage } from '../runConfig/errors'
 import type { SkillRegistry } from '../skills/SkillRegistry'
 import type { SkillInstaller } from '../skills/SkillInstaller'
 import type { SkillStore } from '../skills/SkillStore'
-import type { SkillsCliServer } from '../skills/SkillsCliServer'
 import type { SkillInstallOptions, SkillListOptions } from '../skills/types'
 import { skillErrorMessage } from '../skills/errors'
+import { getTransformer } from '../skills/SkillTransformer'
+import { scanSkills } from '../skills/SkillScanner'
+import type { SkillAgentTarget } from '../skills/types'
 import { resolveShell } from '../pty/PtyManager'
 
 function shellExecArgs(command: string): { command: string; args: string[] } {
@@ -107,7 +109,6 @@ export function registerIpcHandlers(
   skillRegistry: SkillRegistry,
   skillInstaller: SkillInstaller,
   skillStore: SkillStore,
-  skillsCliServer: SkillsCliServer,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -122,8 +123,6 @@ export function registerIpcHandlers(
       if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
     }
   }
-
-  skillsCliServer.onSkillsChanged(broadcastSkillsChanged)
 
   function persistWindowConfigs(): void {
     const configs = windowManager.getAllWindowConfigs()
@@ -2506,7 +2505,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'skills:toggleAgent',
-    (_event, payload: { id: string; agent: string; enabled: boolean }) => {
+    (_event, payload: { id: string; agent: string; enabled: boolean; workspacePath?: string }) => {
       const skill = skillRegistry.get(payload.id)
       if (!skill) throw new Error(`Skill not found: ${payload.id}`)
       const enabledAgents = payload.enabled
@@ -2514,8 +2513,26 @@ export function registerIpcHandlers(
         : skill.enabledAgents.filter((a) => a !== payload.agent)
       skillStore.updateEnabledAgents(payload.id, enabledAgents)
       skillRegistry.refresh()
+
+      // Deploy or undeploy the agent's files
+      const updatedSkill = skillRegistry.get(payload.id)
+      if (updatedSkill && payload.workspacePath) {
+        const transformer = getTransformer(payload.agent as SkillAgentTarget)
+        if (transformer) {
+          if (payload.enabled) {
+            transformer.deploy(updatedSkill, payload.workspacePath)
+          } else {
+            transformer.undeploy(updatedSkill, payload.workspacePath)
+          }
+        }
+      }
+
       broadcastSkillsChanged()
       return { success: true }
     },
   )
+
+  ipcMain.handle('skills:scan', (_event, payload?: { workspacePath?: string }) => {
+    return JSON.parse(JSON.stringify(scanSkills(payload?.workspacePath)))
+  })
 }

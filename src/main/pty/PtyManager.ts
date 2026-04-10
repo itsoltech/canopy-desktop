@@ -53,17 +53,6 @@ export class PtyManager {
       COLORTERM: 'truecolor',
       TERM: 'xterm-256color',
     } as Record<string, string>
-    // Inject Canopy skills CLI env vars (set on process.env after login env is cached).
-    // The auth token is passed via a file path (mode 0o600) rather than the token value
-    // itself, so it is not exposed to arbitrary child processes (npm scripts, git hooks, etc).
-    if (process.env.CANOPY_SKILLS_PORT) {
-      baseEnv.CANOPY_SKILLS_PORT = process.env.CANOPY_SKILLS_PORT
-      baseEnv.CANOPY_SKILLS_TOKEN_FILE = process.env.CANOPY_SKILLS_TOKEN_FILE ?? ''
-    }
-    const resourcesPath = process.env.CANOPY_SKILLS_PATH
-    if (resourcesPath) {
-      baseEnv.PATH = `${resourcesPath}${os.platform() === 'win32' ? ';' : ':'}${baseEnv.PATH || ''}`
-    }
     const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv
 
     const p = pty.spawn(finalCommand, finalArgs, {
