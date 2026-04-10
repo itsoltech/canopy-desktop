@@ -71,6 +71,13 @@ export class SkillInstaller {
     // 6. Deploy to each agent directory (before saving to DB — partial deploy must not persist)
     // Global skills deploy to globalDir (no workspacePath needed); project skills require it
     const targetRoot = opts.workspacePath ?? (skill.scope === 'global' ? '' : null)
+    if (targetRoot === null && skill.scope === 'project') {
+      return err({
+        _tag: 'InstallFailed',
+        skillId: skill.id,
+        reason: 'workspacePath is required for project-scoped skill installation',
+      })
+    }
     if (targetRoot !== null) {
       const deployedAgents: typeof skill.enabledAgents = []
       for (const agent of skill.enabledAgents) {
@@ -149,11 +156,12 @@ export class SkillInstaller {
     if (!skill) return err({ _tag: 'SkillNotFound', skillId })
 
     // Undeploy from all agent directories
-    if (workspacePath) {
+    const removeTarget = workspacePath ?? (skill.scope === 'global' ? '' : null)
+    if (removeTarget !== null) {
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
-        await transformer.undeploy(skill, workspacePath)
+        await transformer.undeploy(skill, removeTarget)
       }
     }
 

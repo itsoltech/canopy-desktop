@@ -2528,7 +2528,14 @@ export function registerIpcHandlers(
       const transformer = getTransformer(payload.agent as SkillAgentTarget)
       if (transformer) {
         if (skill.scope === 'project' && !payload.workspacePath) {
-          throw new Error('workspacePath is required for project-scoped skill agent toggle')
+          unwrapOrThrow(
+            err({
+              _tag: 'InstallFailed',
+              skillId: payload.id,
+              reason: 'workspacePath is required for project-scoped skill agent toggle',
+            } as SkillError),
+            skillErrorMessage,
+          )
         }
         // Pass empty string for global — transformers check scope and use globalDir()
         const targetRoot = payload.workspacePath ?? ''
