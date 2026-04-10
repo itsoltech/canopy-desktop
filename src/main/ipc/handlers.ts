@@ -3,7 +3,7 @@ import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electr
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
-import type { Result } from 'neverthrow'
+import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
@@ -2513,11 +2513,12 @@ export function registerIpcHandlers(
       _event,
       payload: { id: string; agent: string; enabled: boolean; workspacePath?: string },
     ) => {
-      const skill = skillRegistry.get(payload.id)
-      if (!skill) {
-        const notFound: SkillError = { _tag: 'SkillNotFound', skillId: payload.id }
-        throw new Error(skillErrorMessage(notFound))
-      }
+      const skill = unwrapOrThrow(
+        skillRegistry.get(payload.id)
+          ? ok(skillRegistry.get(payload.id)!)
+          : err({ _tag: 'SkillNotFound' as const, skillId: payload.id } as SkillError),
+        skillErrorMessage,
+      )
       const previousEnabledAgents = [...skill.enabledAgents]
       const enabledAgents = payload.enabled
         ? [...new Set([...skill.enabledAgents, payload.agent])]

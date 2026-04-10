@@ -62,7 +62,15 @@ export const claudeTransformer: SkillTransformer = {
       )
       if (symlinkResult.isErr()) return err(symlinkResult.error)
     } else {
-      await writeFile(filePath, content, 'utf-8')
+      const writeResult = await ResultAsync.fromPromise(
+        writeFile(filePath, content, 'utf-8'),
+        (e): SkillError => ({
+          _tag: 'InstallFailed',
+          skillId: skill.id,
+          reason: `Failed to write file: ${e instanceof Error ? e.message : String(e)}`,
+        }),
+      )
+      if (writeResult.isErr()) return err(writeResult.error)
     }
 
     return ok(filePath)

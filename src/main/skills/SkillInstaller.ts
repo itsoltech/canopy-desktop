@@ -251,6 +251,18 @@ export class SkillInstaller {
       })
     }
 
+    // Block sensitive directories within home
+    const sensitive = ['.ssh', '.gnupg', '.aws', '.config/gcloud', '.kube']
+    for (const dir of sensitive) {
+      if (resolved.startsWith(join(home, dir))) {
+        return err({
+          _tag: 'InvalidSource',
+          source: localPath,
+          reason: `Access denied: ${dir} is a sensitive directory`,
+        })
+      }
+    }
+
     let fileStat: Awaited<ReturnType<typeof stat>>
     try {
       fileStat = await stat(resolved)
@@ -272,9 +284,17 @@ export class SkillInstaller {
       })
     }
 
-    const content = await readFile(resolved, 'utf-8')
+    const readResult = await fromExternalCall(
+      readFile(resolved, 'utf-8'),
+      (e): SkillError => ({
+        _tag: 'FetchFailed',
+        source: resolved,
+        cause: e instanceof Error ? e.message : String(e),
+      }),
+    )
+    if (readResult.isErr()) return err(readResult.error)
     const fileName = basename(resolved).replace(/\.[^.]+$/, '')
-    return ok({ content, fileName, sourceType: 'local', sourceUri: resolved })
+    return ok({ content: readResult.value, fileName, sourceType: 'local', sourceUri: resolved })
   }
 
   private async readSkillDir(
@@ -298,9 +318,17 @@ export class SkillInstaller {
     const allFiles = await readdir(dir)
     const files = allFiles.filter((f) => f.endsWith('.md'))
     if (files.length > 0) {
-      const content = await readFile(join(dir, files[0]), 'utf-8')
+      const readResult = await fromExternalCall(
+        readFile(join(dir, files[0]), 'utf-8'),
+        (e): SkillError => ({
+          _tag: 'FetchFailed',
+          source: sourceUri,
+          cause: e instanceof Error ? e.message : String(e),
+        }),
+      )
+      if (readResult.isErr()) return err(readResult.error)
       const fileName = basename(dir)
-      return ok({ content, fileName, sourceType, sourceUri })
+      return ok({ content: readResult.value, fileName, sourceType, sourceUri })
     }
 
     return err({
