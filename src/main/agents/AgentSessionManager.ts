@@ -262,6 +262,8 @@ export class AgentSessionManager extends EventEmitter {
           unlinkSync(fullPath)
         } else if (entry.startsWith('gemini-home-') && statSync(fullPath).isDirectory()) {
           rmSync(fullPath, { recursive: true, force: true })
+        } else if (entry.startsWith('opencode-config-') && statSync(fullPath).isDirectory()) {
+          rmSync(fullPath, { recursive: true, force: true })
         }
       } catch {
         // Ignore

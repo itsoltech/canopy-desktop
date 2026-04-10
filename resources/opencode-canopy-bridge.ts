@@ -20,8 +20,10 @@ const basePath = process.env.CANOPY_HOOK_PATH || ''
 
 async function postHook(payload: Record<string, unknown>): Promise<void> {
   if (!port || !token) return
+  if (!/^\d+$/.test(port)) return
   try {
-    await fetch(`http://127.0.0.1:${port}${basePath}/hook`, {
+    const url = new URL(`http://127.0.0.1:${port}${basePath}/hook`)
+    await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

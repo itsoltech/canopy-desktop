@@ -1,7 +1,7 @@
 import { match, P } from 'ts-pattern'
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
+import { copyFileSync, mkdirSync, rmSync } from 'fs'
 import { join } from 'path'
-import os from 'os'
+import { randomUUID } from 'crypto'
 import { is } from '@electron-toolkit/utils'
 import type {
   AgentAdapter,
@@ -14,8 +14,6 @@ import type {
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
 import { summarizeToolInput } from '../utils'
-
-const PLUGIN_FILENAME = 'canopy-bridge.ts'
 
 const EVENT_MAP: Record<string, NormalizedEventName> = {
   SessionCreated: 'SessionStart',
@@ -34,38 +32,6 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
 
 const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
 
-/**
- * Ensure the canopy bridge plugin is installed in ~/.config/opencode/plugins/.
- * The plugin is idempotent — it no-ops when CANOPY_HOOK_PORT is absent,
- * so it's safe to leave installed permanently.
- * Only overwrites if the source file is newer or content differs.
- */
-function ensureBridgePlugin(): void {
-  const pluginsDir = join(os.homedir(), '.config', 'opencode', 'plugins')
-  const destPath = join(pluginsDir, PLUGIN_FILENAME)
-
-  const sourcePath = is.dev
-    ? join(process.cwd(), 'resources', 'opencode-canopy-bridge.ts')
-    : join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'opencode-canopy-bridge.ts')
-
-  if (!existsSync(sourcePath)) return
-
-  mkdirSync(pluginsDir, { recursive: true })
-
-  // Skip copy if content is identical
-  if (existsSync(destPath)) {
-    try {
-      const src = readFileSync(sourcePath)
-      const dst = readFileSync(destPath)
-      if (src.equals(dst)) return
-    } catch {
-      /* overwrite on read error */
-    }
-  }
-
-  copyFileSync(sourcePath, destPath)
-}
-
 export const opencodeAdapter: AgentAdapter = {
   agentType: 'opencode' as AgentType,
   toolId: 'opencode',
@@ -74,17 +40,29 @@ export const opencodeAdapter: AgentAdapter = {
   idleEvents: new Set(['SessionStatusIdle', 'SessionIdle', 'SessionError', 'SessionDeleted']),
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  setupSettings(_settingsPath, _worktreePath, _hookScriptPath, _statusLineScriptPath, _overrides) {
-    // Install bridge plugin into ~/.config/opencode/plugins/ (idempotent).
-    // The plugin reads CANOPY_HOOK_PORT/TOKEN/PATH from env at runtime,
-    // so it works per-session without per-session file management.
-    ensureBridgePlugin()
+  setupSettings(settingsPath, _worktreePath, _hookScriptPath, _statusLineScriptPath, _overrides) {
+    // Create a per-session config dir inside Canopy's userData with the bridge plugin.
+    // OPENCODE_CONFIG_DIR is an additive search path — OpenCode discovers plugins/
+    // inside it alongside the user's own ~/.config/opencode/ config.
+    // This avoids writing to the user's external OpenCode config directory.
+    const configDir = join(settingsPath, '..', `opencode-config-${randomUUID()}`)
+    const pluginsDir = join(configDir, 'plugins')
+    mkdirSync(pluginsDir, { recursive: true })
+
+    const bridgeSource = is.dev
+      ? join(process.cwd(), 'resources', 'opencode-canopy-bridge.ts')
+      : join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'opencode-canopy-bridge.ts')
+    copyFileSync(bridgeSource, join(pluginsDir, 'canopy-bridge.ts'))
 
     return {
       args: [],
-      env: {},
+      env: { OPENCODE_CONFIG_DIR: configDir },
       cleanup: () => {
-        // No cleanup needed — the plugin is harmless without env vars
+        try {
+          rmSync(configDir, { recursive: true, force: true })
+        } catch {
+          /* best-effort */
+        }
       },
     }
   },
