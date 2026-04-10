@@ -103,6 +103,21 @@ interface RunConfigManagerState {
   selectConfigName?: string
 }
 
+export interface CrashReportData {
+  timestamp: string
+  type: string
+  errorMessage: string
+  stack?: string
+  appVersion: string
+  electronVersion: string
+  os: string
+}
+
+interface CrashReportState {
+  type: 'crashReport'
+  data: CrashReportData
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -124,6 +139,7 @@ type DialogState =
   | RemoteAcceptDeviceState
   | RunConfigEditorState
   | RunConfigManagerState
+  | CrashReportState
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
@@ -237,6 +253,10 @@ export function showRunConfigManager(configDir?: string, configName?: string): v
     selectConfigDir: configDir,
     selectConfigName: configName,
   }
+}
+
+export function showCrashReport(data: CrashReportData): void {
+  dialogState.current = { type: 'crashReport', data }
 }
 
 export function closeDialog(): void {

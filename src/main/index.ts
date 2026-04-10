@@ -33,6 +33,7 @@ import { validateBounds, cascadeBounds } from './windowBounds'
 import { TelemetryManager } from './telemetry/TelemetryManager'
 import { RemoteSessionService } from './remote/RemoteSessionService'
 import { PerfHudService } from './perf/PerfHudService'
+import { CrashReporter } from './crash/CrashReporter'
 import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
 
@@ -173,6 +174,7 @@ const scheduleRecurringUpdateCheck = (): void => {
 
 let agentSessionManager: AgentSessionManager | null = null
 let notchOverlay: NotchOverlayManager | null = null
+let crashReporter: CrashReporter | null = null
 
 // Register canopy:// URL scheme
 if (process.defaultApp) {
@@ -376,9 +378,46 @@ app.whenReady().then(async () => {
 
   electronApp.setAppUserModelId('tech.itsol.canopy')
 
+  crashReporter = new CrashReporter()
+
+  if (app.isPackaged) {
+    crashReporter.init()
+
+    process.on('uncaughtException', (error) => {
+      crashReporter?.recordCrash('uncaughtException', error)
+    })
+
+    process.on('unhandledRejection', (reason) => {
+      crashReporter?.recordCrash(
+        'unhandledRejection',
+        reason instanceof Error ? reason : new Error(String(reason)),
+      )
+    })
+
+    app.on('child-process-gone', (_event, details) => {
+      if (details.reason !== 'clean-exit') {
+        crashReporter?.recordCrash(
+          'childProcessGone',
+          new Error(`${details.type} process crashed: ${details.reason}`),
+        )
+      }
+    })
+  }
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
-    if (app.isPackaged) window.on('focus', () => telemetryManager.onWindowFocus())
+    if (app.isPackaged) {
+      window.on('focus', () => telemetryManager.onWindowFocus())
+
+      window.webContents.on('render-process-gone', (_event, details) => {
+        if (details.reason !== 'clean-exit') {
+          crashReporter?.recordCrash(
+            'rendererCrash',
+            new Error(`Renderer crashed: ${details.reason}`),
+          )
+        }
+      })
+    }
   })
 
   buildAppMenu()
@@ -768,6 +807,12 @@ app.whenReady().then(async () => {
       postLaunchSent = true
       if (PERF) performance.mark('app:firstWindowReady')
 
+      const crashData = crashReporter?.getCrashReport()
+      if (crashData) {
+        win.webContents.send('app:crashReport', crashData)
+        crashReporter?.clearCrashReport()
+      }
+
       if (isFirstLaunch) {
         win.webContents.send('app:showOnboarding', { mode: 'first-launch' })
       } else if (versionChanged && lastSeenVersion) {
@@ -879,6 +924,7 @@ app.on('before-quit', (event) => {
       clearInterval(updateCheckIntervalTimer)
       updateCheckIntervalTimer = null
     }
+    crashReporter?.clearSentinel()
     notchOverlay?.dispose()
     agentSessionManager?.dispose()
     remoteSessionService.dispose()
@@ -971,6 +1017,7 @@ app.on('before-quit', (event) => {
     clearInterval(updateCheckIntervalTimer)
     updateCheckIntervalTimer = null
   }
+  crashReporter?.clearSentinel()
   notchOverlay?.dispose()
   agentSessionManager?.dispose()
   remoteSessionService.dispose()
