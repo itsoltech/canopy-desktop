@@ -30,9 +30,9 @@
     try {
       const result = await window.api.installSkill({
         source: installSource.trim(),
-        agents: installAgents,
-        scope: installScope,
-        method: installMethod,
+        agents: [...installAgents],
+        scope: String(installScope),
+        method: String(installMethod),
       })
       if (result?.__error) {
         installError = result.message
