@@ -1297,15 +1297,6 @@ export function movePaneToTarget(
     if (!removeResult.tree) return false // was the only pane — should not happen
     const newTree = graftSubtree(removeResult.tree, targetPaneId, direction, leaf, position)
     if (!newTree) {
-      // Depth exceeded — rollback: re-graft the pane back
-      const rollback = graftSubtree(
-        removeResult.tree,
-        firstLeaf(removeResult.tree).id,
-        direction,
-        leaf,
-        'second',
-      )
-      if (rollback) sourceTab.rootSplit = rollback
       return false
     }
     sourceTab.rootSplit = newTree
@@ -1315,17 +1306,6 @@ export function movePaneToTarget(
     // Cross-tab move: graft into target tab
     const newTargetTree = graftSubtree(targetTab.rootSplit, targetPaneId, direction, leaf, position)
     if (!newTargetTree) {
-      // Depth exceeded — rollback: put pane back in source
-      if (removeResult.tree) {
-        const rollback = graftSubtree(
-          removeResult.tree,
-          firstLeaf(removeResult.tree).id,
-          direction,
-          leaf,
-          'second',
-        )
-        if (rollback) sourceTab.rootSplit = rollback
-      }
       return false
     }
 

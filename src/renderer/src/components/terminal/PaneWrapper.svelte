@@ -176,7 +176,6 @@
   class="pane-wrapper"
   class:focused
   class:drag-source={isDragSource}
-  title={isMultiPane ? 'Alt+drag to move pane' : undefined}
   onclick={onFocus}
   bind:this={wrapperEl}
 >
