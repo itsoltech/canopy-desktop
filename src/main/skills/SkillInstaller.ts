@@ -164,6 +164,13 @@ export class SkillInstaller {
 
     // Undeploy from all agent directories
     const removeTarget = workspacePath ?? (skill.scope === 'global' ? '' : null)
+    if (removeTarget === null && skill.scope === 'project') {
+      return err({
+        _tag: 'InstallFailed',
+        skillId: skill.id,
+        reason: 'workspacePath is required for project-scoped skill removal',
+      })
+    }
     if (removeTarget !== null) {
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
