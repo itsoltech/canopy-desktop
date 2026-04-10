@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getSkills } from '../../lib/stores/skills.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
 
   const agentLabels: Record<string, string> = {
     claude: 'Claude',
@@ -33,6 +34,7 @@
         agents: [...installAgents],
         scope: String(installScope),
         method: String(installMethod),
+        workspacePath: workspaceState.selectedWorktreePath ?? undefined,
       })
       if (result?.__error) {
         installError = result.message
@@ -52,7 +54,10 @@
 
   async function removeSkill(id: string): Promise<void> {
     try {
-      const result = await window.api.removeSkill(id)
+      const result = await window.api.removeSkill(
+        id,
+        workspaceState.selectedWorktreePath ?? undefined,
+      )
       if (result?.__error) console.error('Failed to remove skill:', result.message)
     } catch (e) {
       console.error('Failed to remove skill:', e)
@@ -61,7 +66,10 @@
 
   async function updateSkill(id: string): Promise<void> {
     try {
-      const result = await window.api.updateSkill(id)
+      const result = await window.api.updateSkill(
+        id,
+        workspaceState.selectedWorktreePath ?? undefined,
+      )
       if (result?.__error) console.error('Failed to update skill:', result.message)
     } catch (e) {
       console.error('Failed to update skill:', e)
