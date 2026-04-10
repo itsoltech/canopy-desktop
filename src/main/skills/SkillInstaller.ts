@@ -129,6 +129,13 @@ export class SkillInstaller {
 
     // Deploy before updating DB
     const updateTarget = workspacePath ?? (existing.scope === 'global' ? '' : null)
+    if (updateTarget === null && existing.scope === 'project') {
+      return err({
+        _tag: 'InstallFailed',
+        skillId: skill.id,
+        reason: 'workspacePath is required for project-scoped skill update',
+      })
+    }
     if (updateTarget !== null) {
       const deployedAgents: typeof skill.enabledAgents = []
       for (const agent of skill.enabledAgents) {
