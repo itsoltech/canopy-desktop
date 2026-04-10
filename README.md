@@ -1,13 +1,17 @@
 <p align="center">
-  <img src="resources/icon.png" alt="Canopy" width="128" height="128">
+  <img src="resources/icon.png" alt="Canopy desktop app icon" width="128" height="128">
 </p>
 
 <h1 align="center">Canopy</h1>
 
-<h3 align="center">One canopy. Every branch.</h3>
+<p align="center"><strong>One canopy. Every branch.</strong></p>
 
 <p align="center">
-  A workstation for developers who run AI agents across multiple projects at once.
+  A desktop app for developers who run AI coding agents across multiple git worktrees at once.
+</p>
+
+<p align="center">
+  <sub>AI coding terminal and multi-agent developer workstation for macOS, Windows, and Linux</sub>
 </p>
 
 <p align="center">
@@ -26,57 +30,61 @@
   <img src="docs/screenshot.png" alt="Canopy — Claude Code AI, Git sidebar, and multi-pane terminal in one window" width="800">
 </p>
 
-## Everything you need, nothing you don't
+## GPU-accelerated terminal emulator (xterm.js + WebGL)
 
-### GPU-accelerated terminal
+Canopy uses WebGL-powered rendering with tmux session persistence across restarts. Drag and drop panes to split, reorder, move between groups, or detach into separate windows. Tabs, persistent sessions, and your shell config work out of the box.
 
-WebGL-powered rendering, drag & drop panel splits, tabs, and persistent sessions that remember your setup. Rearrange panes by dragging them where you need them. Your shell config works out of the box.
+## AI coding agents
 
-### Claude Code integration
+Claude Code with a real-time Inspector panel tracking costs, context usage, tool calls, and tasks per session. Gemini CLI, Codex, and OpenCode run the same way. Canopy works as a GUI for Claude Code, Gemini CLI, and other AI pair programming tools. Pick a default startup tool per tab or per worktree. AI-powered commit message generation included.
 
-Built in, not bolted on. Real-time Inspector panel tracks costs, context usage, tool calls, and tasks per session. Configure your API provider, model, permission mode, and system prompts from Preferences. AI-powered commit message generation included.
+## Git worktree GUI and branch management
 
-### Session status in the notch
+Canopy sidebar shows branches, worktrees, and merge status at a glance. Create worktrees from new or existing branches with one click. Push, pull, fetch, stash, and commit without leaving the window. Worktree setup commands run automatically on creation.
 
-On macOS, a notch overlay shows live Claude session status. Color-coded indicators (green for idle, orange for working, red for permission needed) auto-peek when state changes. Hover to expand and see per-session workspace, branch, and status. Click a row to focus that window.
+## Code review and GitHub
 
-### Git & worktree management
+GitHub integration via GraphQL. A diff review panel shows all changes with inline commenting per line. Create pull requests and track their status and CI checks from the sidebar.
 
-Your branches, your worktrees, all visible at a glance. One-click worktree creation with automated setup actions. Push, pull, fetch, stash, commit from the sidebar. Branch management with merge status indicators.
+## Jira and YouTrack integration
 
-### Multi-project workspaces
+Connect Jira or YouTrack to view boards, sprints, and assigned tasks. Create branches directly from task keys. Task context is sent to agent sessions so agents know what they're working on.
 
-Multiple projects in one window with persistent layouts that remember your exact configuration. All open projects and the active worktree restore automatically after app updates. Welcome Dashboard for quick access to recent projects.
+## Built-in browser
 
-### Built-in browser
+Each worktree gets its own browser tab. Device emulation presets for iPhone, iPad, Pixel, Samsung, and custom viewports. Credential storage backed by the OS keyring. Favorites for quick access. Element and screenshot capture feed directly into AI agent context.
 
-Each worktree gets its own browser tab with element and screenshot capture for AI agents. Switch branches, switch context, your test page follows.
+## Developer tool for macOS, Windows, and Linux
 
-### Tool launcher & command palette
+Multiple projects in one window with persistent layouts that restore after restarts, including window position, size, and state. Native filesystem watcher powers a live file tree in the sidebar. macOS notch overlay shows color-coded agent status. Bottom status bar with toggleable CPU/RAM HUD. Keystroke visualizer with WPM tracking. Command palette and custom tool launcher. Run configurations via `.canopy/run.toml`. WebRTC remote control from mobile via QR pairing (beta).
 
-Launch Claude Code, LazyGit, Codex, Gemini, OpenCode, or any custom tool. Add your own CLI tools with custom commands, arguments, icons, and categories. Keyboard-first command palette puts every action at your fingertips.
+## Auto-updates and diagnostics
 
-## Three agents. Three branches. One screen.
+Auto-updates with stable and next (pre-release) channels. Post-update modal shows changelog from GitHub Releases. Crash detection records diagnostics and can file GitHub issues. Guided onboarding on first launch. Anonymous daily telemetry via Umami, opt-in only.
 
-Create a worktree from any branch. Launch Claude Code in its context. Open more worktrees, run more agents in parallel. Each session gets its own terminal, inspector, and browser tab. Switch between them from one screen.
+## Multi-agent development workflow
+
+Canopy lets you create a worktree from any branch. Launch an agent in its context. Open more worktrees, run more agents in parallel. Each session gets its own terminal, inspector, and browser tab. Switch between them from one screen.
 
 ## Free. No subscription. No account. No middleman.
 
-Canopy is not an editor and not a terminal. It is a workstation for managing AI-powered development across multiple branches simultaneously. Your API keys, your Claude Code license, your Codex or Gemini setup. You manage them, we don't touch them.
+Canopy is not an editor and not a terminal. It is a workstation for managing AI-powered development across multiple branches simultaneously. It replaces the need to juggle multiple terminal windows when running parallel AI coding sessions. Your API keys, your Claude Code license, your Codex or Gemini setup. You manage them, we don't touch them.
 
 ## Download
 
-- **macOS** — DMG or ZIP (code signed & notarized, Apple Silicon + Intel)
-- **Windows** — NSIS installer
-- **Linux** — AppImage or DEB
+- **macOS** - DMG or ZIP (code signed and notarized, Apple Silicon + Intel)
+- **Windows** - NSIS installer (code signed)
+- **Linux** - AppImage or DEB
 
-**[Download Canopy](https://github.com/itsoltech/canopy-desktop/releases/latest)** — free, source-available, cross-platform.
-
-Auto-updates built in.
+**[Download Canopy](https://github.com/itsoltech/canopy-desktop/releases/latest)** - free, source-available, cross-platform desktop app for developers. Auto-updates built in.
 
 ## Tech stack
 
-Electron &bull; Svelte 5 &bull; TypeScript &bull; xterm.js &bull; node-pty &bull; SQLite &bull; simple-git
+Electron &bull; Svelte 5 &bull; TypeScript &bull; xterm.js &bull; node-pty &bull; tmux &bull; SQLite &bull; simple-git
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
