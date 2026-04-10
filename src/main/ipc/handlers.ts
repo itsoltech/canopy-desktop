@@ -2330,27 +2330,34 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:install', async (_event, payload: SkillInstallOptions) => {
     const result = await skillInstaller.install(payload)
-    const skill = unwrapOrThrow(result, skillErrorMessage)
+    if (result.isErr()) {
+      return { __error: true, message: skillErrorMessage(result.error) }
+    }
     skillRegistry.refresh()
     broadcastSkillsChanged()
-    return JSON.parse(JSON.stringify(skill))
+    return JSON.parse(JSON.stringify(result.value))
   })
 
   ipcMain.handle('skills:remove', (_event, payload: { id: string; workspacePath?: string }) => {
     const result = skillInstaller.remove(payload.id, payload.workspacePath)
-    unwrapOrThrow(result, skillErrorMessage)
+    if (result.isErr()) {
+      return { __error: true, message: skillErrorMessage(result.error) }
+    }
     skillRegistry.refresh()
     broadcastSkillsChanged()
+    return { success: true }
   })
 
   ipcMain.handle(
     'skills:update',
     async (_event, payload: { id: string; workspacePath?: string }) => {
       const result = await skillInstaller.update(payload.id, payload.workspacePath)
-      const skill = unwrapOrThrow(result, skillErrorMessage)
+      if (result.isErr()) {
+        return { __error: true, message: skillErrorMessage(result.error) }
+      }
       skillRegistry.refresh()
       broadcastSkillsChanged()
-      return JSON.parse(JSON.stringify(skill))
+      return JSON.parse(JSON.stringify(result.value))
     },
   )
 
@@ -2358,13 +2365,14 @@ export function registerIpcHandlers(
     'skills:toggleAgent',
     (_event, payload: { id: string; agent: string; enabled: boolean }) => {
       const skill = skillRegistry.get(payload.id)
-      if (!skill) throw new Error(`Skill not found: ${payload.id}`)
+      if (!skill) return { __error: true, message: `Skill not found: ${payload.id}` }
       const enabledAgents = payload.enabled
         ? [...new Set([...skill.enabledAgents, payload.agent])]
         : skill.enabledAgents.filter((a) => a !== payload.agent)
       skillStore.updateEnabledAgents(payload.id, enabledAgents)
       skillRegistry.refresh()
       broadcastSkillsChanged()
+      return { success: true }
     },
   )
 }

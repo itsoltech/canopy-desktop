@@ -28,17 +28,21 @@
     installError = ''
 
     try {
-      await window.api.installSkill({
+      const result = await window.api.installSkill({
         source: installSource.trim(),
         agents: installAgents,
         scope: installScope,
         method: installMethod,
       })
-      installSource = ''
-      installAgents = ['claude']
-      installScope = 'project'
-      installMethod = 'copy'
-      showInstallForm = false
+      if (result?.__error) {
+        installError = result.message
+      } else {
+        installSource = ''
+        installAgents = ['claude']
+        installScope = 'project'
+        installMethod = 'copy'
+        showInstallForm = false
+      }
     } catch (e) {
       installError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -48,7 +52,8 @@
 
   async function removeSkill(id: string): Promise<void> {
     try {
-      await window.api.removeSkill(id)
+      const result = await window.api.removeSkill(id)
+      if (result?.__error) console.error('Failed to remove skill:', result.message)
     } catch (e) {
       console.error('Failed to remove skill:', e)
     }
@@ -56,7 +61,8 @@
 
   async function updateSkill(id: string): Promise<void> {
     try {
-      await window.api.updateSkill(id)
+      const result = await window.api.updateSkill(id)
+      if (result?.__error) console.error('Failed to update skill:', result.message)
     } catch (e) {
       console.error('Failed to update skill:', e)
     }
@@ -100,34 +106,59 @@
           <span class="skill-agents">
             {skill.enabledAgents.map((a) => agentLabels[a] ?? a).join(', ')}
           </span>
-          <span class="skill-scope">{skill.scope}</span>
-          <span class="skill-source">{skill.sourceType}</span>
         </div>
 
         {#if expandedId === skill.id}
           <div class="skill-details">
             <p class="skill-description">{skill.description || 'No description'}</p>
-            <div class="skill-meta">
-              <span>Source: {skill.sourceUri}</span>
-              <span>Method: {skill.installMethod}</span>
-              <span>Version: {skill.version}</span>
+
+            <div class="meta-item">
+              <span class="meta-label">Source</span>
+              <span class="meta-value">{skill.sourceUri}</span>
             </div>
+            <div class="skill-meta-row">
+              <div class="meta-item">
+                <span class="meta-label">Scope</span>
+                <span class="meta-value">{skill.scope}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Type</span>
+                <span class="meta-value">{skill.sourceType}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Method</span>
+                <span class="meta-value">{skill.installMethod}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Version</span>
+                <span class="meta-value">{skill.version}</span>
+              </div>
+            </div>
+
             <div class="agent-toggles">
-              {#each skill.agents as agent (agent)}
-                <label class="agent-toggle">
-                  <input
-                    type="checkbox"
-                    checked={skill.enabledAgents.includes(agent)}
-                    onchange={() =>
-                      toggleAgent(skill.id, agent, !skill.enabledAgents.includes(agent))}
-                  />
-                  {agentLabels[agent] ?? agent}
-                </label>
-              {/each}
+              <span class="meta-label">Agents</span>
+              <div class="agent-toggle-list">
+                {#each skill.agents as agent (agent)}
+                  <label class="agent-toggle">
+                    <input
+                      type="checkbox"
+                      checked={skill.enabledAgents.includes(agent)}
+                      onchange={() =>
+                        toggleAgent(skill.id, agent, !skill.enabledAgents.includes(agent))}
+                    />
+                    {agentLabels[agent] ?? agent}
+                  </label>
+                {/each}
+              </div>
             </div>
+
             <div class="skill-actions">
-              <button class="btn btn-update" onclick={() => updateSkill(skill.id)}>Update</button>
-              <button class="btn btn-remove" onclick={() => removeSkill(skill.id)}>Remove</button>
+              <button class="btn btn-action btn-update" onclick={() => updateSkill(skill.id)}
+                >Update</button
+              >
+              <button class="btn btn-action btn-remove" onclick={() => removeSkill(skill.id)}
+                >Remove</button
+              >
             </div>
           </div>
         {/if}
@@ -258,58 +289,70 @@
     flex: 1;
   }
 
-  .skill-scope {
-    font-size: 10px;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .skill-source {
-    font-size: 10px;
-    color: var(--c-text-faint);
-    font-family: monospace;
-  }
-
   .skill-details {
-    padding: 8px 10px;
+    padding: 10px 12px;
     border-top: 1px solid var(--c-border);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
   }
 
   .skill-description {
     font-size: 12px;
     color: var(--c-text-secondary);
     margin: 0;
+    line-height: 1.4;
   }
 
-  .skill-meta {
+  .skill-meta-row {
     display: flex;
-    gap: 16px;
+    gap: 24px;
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .meta-label {
     font-size: 11px;
-    color: var(--c-text-faint);
-    font-family: monospace;
+    font-weight: 600;
+    color: var(--c-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .meta-value {
+    font-size: 12px;
+    color: var(--c-text);
+    word-break: break-all;
   }
 
   .agent-toggles {
     display: flex;
-    gap: 12px;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .agent-toggle-list {
+    display: flex;
+    gap: 14px;
   }
 
   .agent-toggle {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--c-text);
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     cursor: pointer;
   }
 
   .skill-actions {
     display: flex;
     gap: 8px;
+    padding-top: 4px;
   }
 
   .empty-state {
@@ -427,17 +470,22 @@
     color: var(--c-text);
   }
 
+  .btn-action {
+    font-size: 12px;
+    padding: 5px 14px;
+  }
+
   .btn-update {
     background: var(--c-accent-bg);
     color: var(--c-accent-text);
-    font-size: 11px;
-    padding: 2px 8px;
+  }
+
+  .btn-update:hover {
+    background: var(--c-accent-bg-hover);
   }
 
   .btn-remove {
     background: var(--c-danger-bg);
     color: var(--c-danger-text);
-    font-size: 11px;
-    padding: 2px 8px;
   }
 </style>
