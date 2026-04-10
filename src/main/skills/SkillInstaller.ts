@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
-import { join, basename, resolve, normalize, extname } from 'path'
+import { join, basename, resolve, normalize, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
 import type { Result } from 'neverthrow'
@@ -121,11 +121,19 @@ export class SkillInstaller {
 
     // Deploy before updating DB — partial deploy must not persist
     if (workspacePath) {
+      const deployedAgents: typeof skill.enabledAgents = []
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
         const deployResult = await transformer.deploy(skill, workspacePath)
-        if (deployResult.isErr()) return err(deployResult.error)
+        if (deployResult.isErr()) {
+          for (const deployed of deployedAgents) {
+            const t = getTransformer(deployed)
+            if (t) await t.undeploy(skill, workspacePath)
+          }
+          return err(deployResult.error)
+        }
+        deployedAgents.push(agent)
       }
     }
 
@@ -250,8 +258,8 @@ export class SkillInstaller {
 
   private async fetchFromLocal(localPath: string): Promise<Result<SourceResolution, SkillError>> {
     const resolved = normalize(resolve(localPath))
-    const home = normalize(homedir())
-    const tmp = normalize(tmpdir())
+    const home = normalize(homedir()) + sep
+    const tmp = normalize(tmpdir()) + sep
     if (!resolved.startsWith(home) && !resolved.startsWith(tmp)) {
       return err({
         _tag: 'InvalidSource',
@@ -260,18 +268,12 @@ export class SkillInstaller {
       })
     }
 
-    // Allowlist: only permit dotfile directories that are known skill/agent config paths
-    if (resolved.startsWith(join(home, '.'))) {
-      const allowedDotDirs = [
-        '.claude',
-        '.gemini',
-        '.cursor',
-        '.opencode',
-        '.agents',
-        '.config/claude',
-      ]
-      const isAllowed = allowedDotDirs.some((d) => resolved.startsWith(join(home, d)))
-      if (!isAllowed) {
+    // Allowlist: dotfile directories must be known agent config paths
+    const relativeToHome = resolved.slice(home.length)
+    const firstSegment = relativeToHome.split(sep)[0]
+    if (firstSegment.startsWith('.')) {
+      const allowedDotDirs = ['.claude', '.gemini', '.cursor', '.opencode', '.agents']
+      if (!allowedDotDirs.includes(firstSegment)) {
         return err({
           _tag: 'InvalidSource',
           source: localPath,

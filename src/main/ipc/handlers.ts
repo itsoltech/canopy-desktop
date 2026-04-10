@@ -2524,19 +2524,20 @@ export function registerIpcHandlers(
         : skill.enabledAgents.filter((a) => a !== payload.agent)
 
       // Deploy or undeploy files BEFORE updating DB
-      if (payload.workspacePath) {
-        const transformer = getTransformer(payload.agent as SkillAgentTarget)
-        if (transformer) {
-          // Build a temporary skill object with updated agents for deploy
-          const skillForDeploy = { ...skill, enabledAgents }
-          if (payload.enabled) {
-            const deployResult = await transformer.deploy(skillForDeploy, payload.workspacePath)
-            unwrapOrThrow(deployResult, skillErrorMessage)
-          } else {
-            const undeployResult = await transformer.undeploy(skillForDeploy, payload.workspacePath)
-            unwrapOrThrow(undeployResult, skillErrorMessage)
-          }
+      const targetRoot = payload.workspacePath ?? (skill.scope === 'global' ? undefined : undefined)
+      const transformer = getTransformer(payload.agent as SkillAgentTarget)
+      if (transformer && targetRoot) {
+        const skillForDeploy = { ...skill, enabledAgents }
+        if (payload.enabled) {
+          const deployResult = await transformer.deploy(skillForDeploy, targetRoot)
+          unwrapOrThrow(deployResult, skillErrorMessage)
+        } else {
+          const undeployResult = await transformer.undeploy(skillForDeploy, targetRoot)
+          unwrapOrThrow(undeployResult, skillErrorMessage)
         }
+      } else if (skill.scope === 'project' && !payload.workspacePath) {
+        // Project-scoped skills need a workspace path for file operations
+        throw new Error('workspacePath is required for project-scoped skill agent toggle')
       }
 
       // Update DB only after successful deploy/undeploy
