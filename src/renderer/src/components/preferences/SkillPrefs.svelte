@@ -195,7 +195,10 @@
   </div>
 
   {#if skills.length === 0}
-    <p class="empty-state">No skills installed. Click below to install your first skill.</p>
+    <p class="empty-state">
+      No skills installed yet. Install from a local path, URL, or GitHub, or scan to discover
+      existing ones.
+    </p>
   {/if}
 
   {#if showInstallForm}
@@ -260,20 +263,22 @@
       </div>
     </div>
   {:else}
-    <button
-      class="btn btn-add-skill"
-      onclick={() => {
-        installSource = ''
-        installAgents = ['claude']
-        installScope = 'project'
-        installMethod = 'copy'
-        installError = ''
-        showInstallForm = true
-      }}>+ Install Skill</button
-    >
-    <button class="btn btn-add-skill" onclick={scanForSkills} disabled={scanning}>
-      {scanning ? 'Scanning...' : 'Scan for Skills'}
-    </button>
+    <div class="button-row">
+      <button
+        class="btn btn-add-skill"
+        onclick={() => {
+          installSource = ''
+          installAgents = ['claude']
+          installScope = 'project'
+          installMethod = 'copy'
+          installError = ''
+          showInstallForm = true
+        }}>+ Install Skill</button
+      >
+      <button class="btn btn-add-skill" onclick={scanForSkills} disabled={scanning}>
+        {scanning ? 'Scanning...' : 'Scan for Skills'}
+      </button>
+    </div>
   {/if}
 
   {#if scannedSkills.length > 0}
@@ -529,8 +534,12 @@
     cursor: not-allowed;
   }
 
+  .button-row {
+    display: flex;
+    gap: 8px;
+  }
+
   .btn-add-skill {
-    align-self: flex-start;
     padding: 6px 14px;
     border: 1px dashed var(--c-text-faint);
     border-radius: 6px;
