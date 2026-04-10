@@ -8,6 +8,7 @@
   import ShortcutsPrefs from './ShortcutsPrefs.svelte'
   import ClaudePrefs from './ClaudePrefs.svelte'
   import GeminiPrefs from './GeminiPrefs.svelte'
+  import CodexPrefs from './CodexPrefs.svelte'
   import UpdatePrefs from './UpdatePrefs.svelte'
   import ViewportsPrefs from './ViewportsPrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
@@ -27,7 +28,7 @@
     { label: 'General', sections: ['General', 'Updates', 'Privacy', 'Shortcuts'] },
     { label: 'Features', sections: ['Notch', 'Misc'] },
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
-    { label: 'AI Agents', sections: ['Claude', 'Gemini'] },
+    { label: 'AI Agents', sections: ['Claude', 'Gemini', 'Codex'] },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
     { label: 'Security', sections: ['Remote Control'] },
@@ -106,6 +107,8 @@
         <ClaudePrefs />
       {:else if activeSection === 'Gemini'}
         <GeminiPrefs />
+      {:else if activeSection === 'Codex'}
+        <CodexPrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
       {:else if activeSection === 'Web Browser'}

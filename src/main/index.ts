@@ -406,9 +406,9 @@ app.whenReady().then(async () => {
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
-    window.on('focus', () => telemetryManager.onWindowFocus())
-
     if (app.isPackaged) {
+      window.on('focus', () => telemetryManager.onWindowFocus())
+
       window.webContents.on('render-process-gone', (_event, details) => {
         if (details.reason !== 'clean-exit') {
           crashReporter?.recordCrash(

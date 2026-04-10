@@ -1,18 +1,18 @@
-name: Claude Code Compatibility Check
+name: Codex CLI Compatibility Check
 
 on:
   schedule:
-    # Twice daily at 06:17 and 18:17 UTC (offset from :00/:30)
-    - cron: '17 6,18 * * *'
+    # Twice daily at 06:43 and 18:43 UTC (offset from claude-code-compat)
+    - cron: '43 6,18 * * *'
   workflow_dispatch:
     inputs:
       from_version:
-        description: 'Force check from this version (e.g., v2.1.90). Overrides tracked version.'
+        description: 'Force check from this version (e.g., rust-v0.117.0). Overrides tracked version.'
         required: false
         type: string
 
 concurrency:
-  group: claude-code-compat
+  group: codex-compat
   cancel-in-progress: false
 
 jobs:
@@ -40,19 +40,25 @@ jobs:
       - name: Read tracked version
         id: tracked
         run: |
-          if [ -f .github/claude-code-version.json ]; then
-            VERSION=$(jq -r '.lastCheckedVersion' .github/claude-code-version.json)
+          if [ -f .github/codex-version.json ]; then
+            VERSION=$(jq -r '.lastCheckedVersion' .github/codex-version.json)
           else
-            VERSION="v0.0.0"
+            VERSION="rust-v0.0.0"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch latest release from changelog repo
+      - name: Fetch latest stable release from openai/codex
         id: latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LATEST=$(gh api repos/marckrenn/claude-code-changelog/releases/latest --jq '.tag_name')
+          # Filter out alpha/beta/rc prereleases, take first (most recent) stable
+          LATEST=$(gh api repos/openai/codex/releases --paginate \
+            --jq '[.[] | select(.tag_name | test("alpha|beta|rc") | not)] | .[0].tag_name')
+          if [ -z "$LATEST" ]; then
+            echo "No stable releases found" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           echo "version=$LATEST" >> "$GITHUB_OUTPUT"
 
       - name: Determine version range
@@ -62,6 +68,11 @@ jobs:
           TRACKED_VERSION: ${{ steps.tracked.outputs.version }}
           LATEST_VERSION: ${{ steps.latest.outputs.version }}
         run: |
+          if [ -z "$LATEST_VERSION" ]; then
+            echo "new_releases=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ -n "$INPUT_FROM_VERSION" ]; then
             FROM="$INPUT_FROM_VERSION"
           else
@@ -88,17 +99,21 @@ jobs:
           FROM_VERSION: ${{ steps.range.outputs.from }}
           TO_VERSION: ${{ steps.range.outputs.to }}
         run: |
-          # Fetch all release tags, filter to those between FROM and TO
-          RELEASES=$(gh api repos/marckrenn/claude-code-changelog/releases --paginate --jq '.[].tag_name')
+          # Fetch all stable release tags from openai/codex
+          RELEASES=$(gh api repos/openai/codex/releases --paginate \
+            --jq '[.[] | select(.tag_name | test("alpha|beta|rc") | not)] | .[].tag_name')
 
-          # Filter versions: keep only those > FROM and <= TO
+          # Strip rust-v prefix for semver comparison, then filter
           FILTERED=$(echo "$RELEASES" | while read -r tag; do
-            if [ "$(printf '%s\n%s' "$FROM_VERSION" "$tag" | sort -V | head -1)" = "$FROM_VERSION" ] && \
+            FROM_STRIPPED="${FROM_VERSION#rust-v}"
+            TO_STRIPPED="${TO_VERSION#rust-v}"
+            TAG_STRIPPED="${tag#rust-v}"
+            if [ "$(printf '%s\n%s' "$FROM_STRIPPED" "$TAG_STRIPPED" | sort -V | head -1)" = "$FROM_STRIPPED" ] && \
                [ "$tag" != "$FROM_VERSION" ] && \
-               [ "$(printf '%s\n%s' "$tag" "$TO_VERSION" | sort -V | head -1)" = "$tag" ]; then
+               [ "$(printf '%s\n%s' "$TAG_STRIPPED" "$TO_STRIPPED" | sort -V | head -1)" = "$TAG_STRIPPED" ]; then
               echo "$tag"
             fi
-          done | sort -V)
+          done | sort -t'v' -k2 -V)
 
           echo "Versions to analyze:"
           echo "$FILTERED"
@@ -107,7 +122,7 @@ jobs:
           > /tmp/release-notes.md
           for tag in $FILTERED; do
             echo "Fetching release notes for $tag..."
-            BODY=$(gh api "repos/marckrenn/claude-code-changelog/releases/tags/$tag" --jq '.body // "No release notes."')
+            BODY=$(gh api "repos/openai/codex/releases/tags/$tag" --jq '.body // "No release notes."')
             {
               echo "### ${tag}"
               echo ""
@@ -129,7 +144,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER=$(gh pr list --head chore/claude-code-compat --state open --json number --jq '.[0].number // empty')
+          PR_NUMBER=$(gh pr list --head chore/codex-compat --state open --json number --jq '.[0].number // empty')
           echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
       # ── Read prompt ───────────────────────────────────────────
@@ -140,7 +155,7 @@ jobs:
           # Randomized delimiter prevents injection via untrusted release notes
           DELIM="PROMPT_EOF_$(openssl rand -hex 8)"
           echo "content<<${DELIM}" >> "$GITHUB_OUTPUT"
-          cat .github/prompts/claude-code-compat.md >> "$GITHUB_OUTPUT"
+          cat .github/prompts/codex-compat.md >> "$GITHUB_OUTPUT"
           echo "" >> "$GITHUB_OUTPUT"
           echo "## Release Notes" >> "$GITHUB_OUTPUT"
           echo "" >> "$GITHUB_OUTPUT"
@@ -165,7 +180,7 @@ jobs:
           claude_args: |
             --model opus[1m]
             --effort max
-            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/claude-code-compat),Bash(git checkout -b chore/claude-code-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/claude-code-compat),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/marckrenn/claude-code-changelog/:*),Bash(npm view:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/codex-compat),Bash(git checkout -b chore/codex-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/codex-compat),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/openai/codex/:*)"
           settings: |
             {
               "env": {
@@ -190,13 +205,13 @@ jobs:
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           jq -n --arg v "$TO_VERSION" --arg t "$TIMESTAMP" \
             '{lastCheckedVersion: $v, lastCheckedAt: $t}' \
-            > .github/claude-code-version.json
+            > .github/codex-version.json
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/claude-code-version.json
+          git add .github/codex-version.json
           if ! git diff --cached --quiet; then
-            git commit -m "ci: update claude-code version tracker [skip ci]"
+            git commit -m "ci: update codex version tracker [skip ci]"
             git push origin next
           fi
 
@@ -205,9 +220,9 @@ jobs:
         if: steps.range.outputs.new_releases == 'true'
         run: |
           # Only rebase if the compat branch exists on the remote
-          if git ls-remote --exit-code origin chore/claude-code-compat >/dev/null 2>&1; then
-            git fetch origin chore/claude-code-compat
-            git checkout chore/claude-code-compat
+          if git ls-remote --exit-code origin chore/codex-compat >/dev/null 2>&1; then
+            git fetch origin chore/codex-compat
+            git checkout chore/codex-compat
             git rebase next || { git rebase --abort; echo "Rebase conflict — skipping"; exit 0; }
-            git push origin chore/claude-code-compat --force-with-lease
+            git push origin chore/codex-compat --force-with-lease
           fi

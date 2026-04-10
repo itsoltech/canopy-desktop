@@ -1,7 +1,7 @@
 import { match } from 'ts-pattern'
 import { SvelteDate } from 'svelte/reactivity'
 
-export type AgentType = 'claude' | 'gemini'
+export type AgentType = 'claude' | 'gemini' | 'codex'
 
 export interface SubagentRecord {
   agentId: string
@@ -140,6 +140,12 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
   if (extra) {
     if (typeof extra.contextPercent === 'number') session.contextPercent = extra.contextPercent
     if (typeof extra.contextSize === 'number') session.contextSize = extra.contextSize
+    // Merge agent-specific extras (Codex: cwd, transcriptPath, turnId, etc.)
+    for (const [k, v] of Object.entries(extra)) {
+      if (k !== 'contextPercent' && k !== 'contextSize') {
+        session.extra[k] = v
+      }
+    }
   }
 
   match(event.event)
@@ -162,6 +168,11 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
     })
     .with('PromptSubmit', () => {
       session.status = { type: 'thinking' }
+      // Track turn count (Codex provides turn_id per turn)
+      if (extra?.turnId) {
+        const count = (session.extra.turnCount as number | undefined) ?? 0
+        session.extra.turnCount = count + 1
+      }
     })
     .with('BeforeToolUse', () => {
       session.status = {
