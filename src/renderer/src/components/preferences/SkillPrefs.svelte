@@ -232,8 +232,16 @@
       </div>
     </div>
   {:else}
-    <button class="btn btn-add-skill" onclick={() => (showInstallForm = true)}
-      >+ Install Skill</button
+    <button
+      class="btn btn-add-skill"
+      onclick={() => {
+        installSource = ''
+        installAgents = ['claude']
+        installScope = 'project'
+        installMethod = 'copy'
+        installError = ''
+        showInstallForm = true
+      }}>+ Install Skill</button
     >
   {/if}
 </div>
