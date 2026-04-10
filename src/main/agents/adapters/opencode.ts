@@ -30,7 +30,12 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
   TodoUpdated: 'Notification',
 }
 
-const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
+const INTERNAL_BLOCKED = new Set([
+  'CANOPY_HOOK_PORT',
+  'CANOPY_HOOK_TOKEN',
+  'ELECTRON_RUN_AS_NODE',
+  'OPENCODE_CONFIG_DIR',
+])
 
 export const opencodeAdapter: AgentAdapter = {
   agentType: 'opencode' as AgentType,
@@ -149,7 +154,7 @@ export const opencodeAdapter: AgentAdapter = {
           if (
             typeof v === 'string' &&
             !BLOCKED_ENV_VARS.has(k.toUpperCase()) &&
-            !INTERNAL_BLOCKED.has(k)
+            !INTERNAL_BLOCKED.has(k.toUpperCase())
           ) {
             env[k] = v
           }
