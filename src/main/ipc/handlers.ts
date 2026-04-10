@@ -2519,36 +2519,29 @@ export function registerIpcHandlers(
           : err({ _tag: 'SkillNotFound' as const, skillId: payload.id } as SkillError),
         skillErrorMessage,
       )
-      const previousEnabledAgents = [...skill.enabledAgents]
-      const enabledAgents = payload.enabled
-        ? [...new Set([...skill.enabledAgents, payload.agent])]
+      const enabledAgents: SkillAgentTarget[] = payload.enabled
+        ? ([...new Set([...skill.enabledAgents, payload.agent])] as SkillAgentTarget[])
         : skill.enabledAgents.filter((a) => a !== payload.agent)
-      skillStore.updateEnabledAgents(payload.id, enabledAgents)
-      skillRegistry.refresh()
 
-      // Deploy or undeploy the agent's files
-      const updatedSkill = skillRegistry.get(payload.id)
-      if (updatedSkill && payload.workspacePath) {
+      // Deploy or undeploy files BEFORE updating DB
+      if (payload.workspacePath) {
         const transformer = getTransformer(payload.agent as SkillAgentTarget)
         if (transformer) {
+          // Build a temporary skill object with updated agents for deploy
+          const skillForDeploy = { ...skill, enabledAgents }
           if (payload.enabled) {
-            const deployResult = await transformer.deploy(updatedSkill, payload.workspacePath)
-            if (deployResult.isErr()) {
-              skillStore.updateEnabledAgents(payload.id, previousEnabledAgents)
-              skillRegistry.refresh()
-              unwrapOrThrow(deployResult, skillErrorMessage)
-            }
+            const deployResult = await transformer.deploy(skillForDeploy, payload.workspacePath)
+            unwrapOrThrow(deployResult, skillErrorMessage)
           } else {
-            const undeployResult = await transformer.undeploy(updatedSkill, payload.workspacePath)
-            if (undeployResult.isErr()) {
-              skillStore.updateEnabledAgents(payload.id, previousEnabledAgents)
-              skillRegistry.refresh()
-              unwrapOrThrow(undeployResult, skillErrorMessage)
-            }
+            const undeployResult = await transformer.undeploy(skillForDeploy, payload.workspacePath)
+            unwrapOrThrow(undeployResult, skillErrorMessage)
           }
         }
       }
 
+      // Update DB only after successful deploy/undeploy
+      skillStore.updateEnabledAgents(payload.id, enabledAgents)
+      skillRegistry.refresh()
       broadcastSkillsChanged()
       return { success: true }
     },

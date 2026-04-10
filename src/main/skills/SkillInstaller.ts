@@ -70,11 +70,20 @@ export class SkillInstaller {
 
     // 6. Deploy to each agent directory (before saving to DB — partial deploy must not persist)
     if (opts.workspacePath) {
+      const deployedAgents: typeof skill.enabledAgents = []
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
         const deployResult = await transformer.deploy(skill, opts.workspacePath)
-        if (deployResult.isErr()) return err(deployResult.error)
+        if (deployResult.isErr()) {
+          // Rollback: undeploy already-deployed agents
+          for (const deployed of deployedAgents) {
+            const t = getTransformer(deployed)
+            if (t) await t.undeploy(skill, opts.workspacePath!)
+          }
+          return err(deployResult.error)
+        }
+        deployedAgents.push(agent)
       }
     }
 
@@ -251,14 +260,23 @@ export class SkillInstaller {
       })
     }
 
-    // Block sensitive directories within home
-    const sensitive = ['.ssh', '.gnupg', '.aws', '.config/gcloud', '.kube']
-    for (const dir of sensitive) {
-      if (resolved.startsWith(join(home, dir))) {
+    // Allowlist: only permit dotfile directories that are known skill/agent config paths
+    if (resolved.startsWith(join(home, '.'))) {
+      const allowedDotDirs = [
+        '.claude',
+        '.gemini',
+        '.cursor',
+        '.opencode',
+        '.agents',
+        '.config/claude',
+      ]
+      const isAllowed = allowedDotDirs.some((d) => resolved.startsWith(join(home, d)))
+      if (!isAllowed) {
         return err({
           _tag: 'InvalidSource',
           source: localPath,
-          reason: `Access denied: ${dir} is a sensitive directory`,
+          reason:
+            'Only agent config directories (.claude, .gemini, .cursor, .opencode, .agents) are allowed within dotfiles',
         })
       }
     }
@@ -315,7 +333,16 @@ export class SkillInstaller {
       }
     }
 
-    const allFiles = await readdir(dir)
+    const readdirResult = await fromExternalCall(
+      readdir(dir),
+      (e): SkillError => ({
+        _tag: 'FetchFailed',
+        source: sourceUri,
+        cause: e instanceof Error ? e.message : String(e),
+      }),
+    )
+    if (readdirResult.isErr()) return err(readdirResult.error)
+    const allFiles = readdirResult.value
     const files = allFiles.filter((f) => f.endsWith('.md'))
     if (files.length > 0) {
       const readResult = await fromExternalCall(
