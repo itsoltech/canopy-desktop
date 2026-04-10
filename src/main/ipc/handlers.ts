@@ -70,6 +70,7 @@ import type { SkillInstaller } from '../skills/SkillInstaller'
 import type { SkillStore } from '../skills/SkillStore'
 import type { SkillInstallOptions, SkillListOptions } from '../skills/types'
 import { skillErrorMessage } from '../skills/errors'
+import type { SkillError } from '../skills/errors'
 import { getTransformer } from '../skills/SkillTransformer'
 import { scanSkills } from '../skills/SkillScanner'
 import type { SkillAgentTarget } from '../skills/types'
@@ -2513,7 +2514,11 @@ export function registerIpcHandlers(
       payload: { id: string; agent: string; enabled: boolean; workspacePath?: string },
     ) => {
       const skill = skillRegistry.get(payload.id)
-      if (!skill) throw new Error(`Skill not found: ${payload.id}`)
+      if (!skill) {
+        const notFound: SkillError = { _tag: 'SkillNotFound', skillId: payload.id }
+        throw new Error(skillErrorMessage(notFound))
+      }
+      const previousEnabledAgents = [...skill.enabledAgents]
       const enabledAgents = payload.enabled
         ? [...new Set([...skill.enabledAgents, payload.agent])]
         : skill.enabledAgents.filter((a) => a !== payload.agent)
@@ -2526,9 +2531,19 @@ export function registerIpcHandlers(
         const transformer = getTransformer(payload.agent as SkillAgentTarget)
         if (transformer) {
           if (payload.enabled) {
-            await transformer.deploy(updatedSkill, payload.workspacePath)
+            const deployResult = await transformer.deploy(updatedSkill, payload.workspacePath)
+            if (deployResult.isErr()) {
+              skillStore.updateEnabledAgents(payload.id, previousEnabledAgents)
+              skillRegistry.refresh()
+              unwrapOrThrow(deployResult, skillErrorMessage)
+            }
           } else {
-            await transformer.undeploy(updatedSkill, payload.workspacePath)
+            const undeployResult = await transformer.undeploy(updatedSkill, payload.workspacePath)
+            if (undeployResult.isErr()) {
+              skillStore.updateEnabledAgents(payload.id, previousEnabledAgents)
+              skillRegistry.refresh()
+              unwrapOrThrow(undeployResult, skillErrorMessage)
+            }
           }
         }
       }

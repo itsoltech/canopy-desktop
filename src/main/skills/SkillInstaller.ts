@@ -1,7 +1,6 @@
 import { execFile } from 'child_process'
-import { readFileSync, existsSync, statSync, readdirSync, rmSync } from 'fs'
-import { mkdtemp } from 'fs/promises'
-import { join, basename, resolve } from 'path'
+import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
+import { join, basename, resolve, normalize, extname } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
 import type { Result } from 'neverthrow'
@@ -150,7 +149,7 @@ export class SkillInstaller {
     if (source.startsWith('http://') || source.startsWith('https://')) {
       return this.fetchFromUrl(source)
     }
-    return this.fetchFromLocal(source)
+    return await this.fetchFromLocal(source)
   }
 
   private async fetchFromGitHub(ref: string): Promise<Result<SourceResolution, SkillError>> {
@@ -200,10 +199,10 @@ export class SkillInstaller {
       if (cloneResult.isErr()) return err(cloneResult.error)
 
       const skillDir = subpath ? join(tmpDir, subpath) : tmpDir
-      return this.readSkillDir(skillDir, `github:${ref}`, 'github')
+      return await this.readSkillDir(skillDir, `github:${ref}`, 'github')
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
-      rmSync(tmpDir, { recursive: true, force: true })
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     }
   }
 
@@ -240,50 +239,66 @@ export class SkillInstaller {
     return ok({ content, fileName, sourceType: 'url', sourceUri: url })
   }
 
-  private fetchFromLocal(localPath: string): Result<SourceResolution, SkillError> {
-    const resolved = resolve(localPath)
-    const home = homedir()
-    if (!resolved.startsWith(home) && !resolved.startsWith('/tmp')) {
+  private async fetchFromLocal(localPath: string): Promise<Result<SourceResolution, SkillError>> {
+    const resolved = normalize(resolve(localPath))
+    const home = normalize(homedir())
+    const tmp = normalize(tmpdir())
+    if (!resolved.startsWith(home) && !resolved.startsWith(tmp)) {
       return err({
         _tag: 'InvalidSource',
         source: localPath,
-        reason: 'Path must be within home directory or /tmp',
+        reason: 'Path must be within home directory or temp directory',
       })
     }
 
-    if (!existsSync(resolved)) {
+    let fileStat: Awaited<ReturnType<typeof stat>>
+    try {
+      fileStat = await stat(resolved)
+    } catch {
       return err({ _tag: 'InvalidSource', source: localPath, reason: 'Path does not exist' })
     }
 
-    const stat = statSync(resolved)
-
-    if (stat.isDirectory()) {
-      return this.readSkillDir(resolved, resolved, 'local')
+    if (fileStat.isDirectory()) {
+      return await this.readSkillDir(resolved, resolved, 'local')
     }
 
-    const content = readFileSync(resolved, 'utf-8')
+    // Validate file extension for single files
+    const ext = extname(localPath).toLowerCase()
+    if (!['.md', '.yaml', '.yml', '.mdc'].includes(ext)) {
+      return err({
+        _tag: 'InvalidSource',
+        source: localPath,
+        reason: 'Only .md, .yaml, .yml, and .mdc files are supported',
+      })
+    }
+
+    const content = await readFile(resolved, 'utf-8')
     const fileName = basename(resolved).replace(/\.[^.]+$/, '')
     return ok({ content, fileName, sourceType: 'local', sourceUri: resolved })
   }
 
-  private readSkillDir(
+  private async readSkillDir(
     dir: string,
     sourceUri: string,
     sourceType: 'github' | 'local',
-  ): Result<SourceResolution, SkillError> {
+  ): Promise<Result<SourceResolution, SkillError>> {
     const candidates = ['SKILL.md', 'canopy-skill.yaml', 'skill.md']
     for (const candidate of candidates) {
       const filePath = join(dir, candidate)
-      if (existsSync(filePath)) {
-        const content = readFileSync(filePath, 'utf-8')
+      try {
+        await access(filePath)
+        const content = await readFile(filePath, 'utf-8')
         const fileName = basename(dir)
         return ok({ content, fileName, sourceType, sourceUri })
+      } catch {
+        continue
       }
     }
 
-    const files = readdirSync(dir).filter((f) => f.endsWith('.md'))
+    const allFiles = await readdir(dir)
+    const files = allFiles.filter((f) => f.endsWith('.md'))
     if (files.length > 0) {
-      const content = readFileSync(join(dir, files[0]), 'utf-8')
+      const content = await readFile(join(dir, files[0]), 'utf-8')
       const fileName = basename(dir)
       return ok({ content, fileName, sourceType, sourceUri })
     }

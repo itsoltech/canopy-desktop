@@ -1,5 +1,4 @@
-import { readdir, readFile } from 'fs/promises'
-import { existsSync } from 'fs'
+import { readdir, readFile, access } from 'fs/promises'
 import { join, basename } from 'path'
 import os from 'os'
 import { is } from '@electron-toolkit/utils'
@@ -74,7 +73,11 @@ async function scanDirectory(
   scope: 'project' | 'global',
   extensions: string[],
 ): Promise<ScannedSkill[]> {
-  if (!existsSync(dir)) return []
+  try {
+    await access(dir)
+  } catch {
+    return []
+  }
 
   const results: ScannedSkill[] = []
 
