@@ -105,6 +105,12 @@ const {
   store: skillStore,
 } = initSkills(database)
 const skillsCliServer = new SkillsCliServer(skillRegistry, skillInstaller)
+skillsCliServer.onSkillsChanged(() => {
+  const skills = skillRegistry.getAll()
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
+  }
+})
 const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()

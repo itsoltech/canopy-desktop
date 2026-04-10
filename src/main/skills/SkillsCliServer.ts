@@ -8,11 +8,20 @@ export class SkillsCliServer {
   private server: http.Server | null = null
   private port = 0
   readonly authToken = randomBytes(32).toString('hex')
+  private onChange: (() => void) | null = null
 
   constructor(
     private registry: SkillRegistry,
     private installer: SkillInstaller,
   ) {}
+
+  onSkillsChanged(callback: () => void): void {
+    this.onChange = callback
+  }
+
+  private notifyChanged(): void {
+    this.onChange?.()
+  }
 
   async start(): Promise<number> {
     if (this.server) return this.port
@@ -96,6 +105,7 @@ export class SkillsCliServer {
         const result = await this.installer.install(args as unknown as SkillInstallOptions)
         if (result.isErr()) throw new Error(result.error._tag + ': ' + JSON.stringify(result.error))
         this.registry.refresh()
+        this.notifyChanged()
         return result.value
       }
       case 'remove': {
@@ -105,6 +115,7 @@ export class SkillsCliServer {
         )
         if (result.isErr()) throw new Error(result.error._tag + ': ' + JSON.stringify(result.error))
         this.registry.refresh()
+        this.notifyChanged()
         return { success: true }
       }
       case 'update': {
@@ -114,6 +125,7 @@ export class SkillsCliServer {
         )
         if (result.isErr()) throw new Error(result.error._tag + ': ' + JSON.stringify(result.error))
         this.registry.refresh()
+        this.notifyChanged()
         return result.value
       }
       default:
