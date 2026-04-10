@@ -1,8 +1,13 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { getSkills } from '../../lib/stores/skills.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
 
   const skills = $derived(getSkills())
+
+  onMount(() => {
+    scanForSkills()
+  })
 
   const agentLabels: Record<string, string> = {
     claude: 'Claude',
