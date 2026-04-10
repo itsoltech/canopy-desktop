@@ -10,6 +10,7 @@ import type { NotchSessionStatus } from '../notch/types'
 import { getAdapter, registerAdapter, isAgentTool as isRegistered } from './registry'
 import { claudeAdapter } from './adapters/claude'
 import { geminiAdapter } from './adapters/gemini'
+import { opencodeAdapter } from './adapters/opencode'
 
 interface AgentSession {
   agentType: AgentType
@@ -46,6 +47,7 @@ export class AgentSessionManager extends EventEmitter {
     // Register built-in adapters
     registerAdapter(claudeAdapter)
     registerAdapter(geminiAdapter)
+    registerAdapter(opencodeAdapter)
   }
 
   get sessionCount(): number {

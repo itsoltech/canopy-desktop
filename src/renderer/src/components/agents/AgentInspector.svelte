@@ -2,6 +2,7 @@
   import { match, P } from 'ts-pattern'
   import type { AgentSessionState } from '../../lib/agents/agentState.svelte'
   import ClaudeExtras from './ClaudeExtras.svelte'
+  import OpenCodeExtras from './OpenCodeExtras.svelte'
 
   let {
     state,
@@ -157,6 +158,8 @@
   <!-- Agent-specific extras -->
   {#if state.agentType === 'claude'}
     <ClaudeExtras extra={state.extra} />
+  {:else if state.agentType === 'opencode'}
+    <OpenCodeExtras extra={state.extra} />
   {/if}
 
   <!-- Tasks -->
