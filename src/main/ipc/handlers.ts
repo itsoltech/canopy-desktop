@@ -112,7 +112,7 @@ export function registerIpcHandlers(
   }
 
   function broadcastSkillsChanged(): void {
-    const skills = skillRegistry.getAll()
+    const skills = JSON.parse(JSON.stringify(skillRegistry.getAll()))
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
     }
@@ -2320,11 +2320,12 @@ export function registerIpcHandlers(
   // --- Skills ---
 
   ipcMain.handle('skills:list', (_event, payload?: SkillListOptions) => {
-    return skillRegistry.list(payload)
+    return JSON.parse(JSON.stringify(skillRegistry.list(payload)))
   })
 
   ipcMain.handle('skills:get', (_event, payload: { id: string }) => {
-    return skillRegistry.get(payload.id) ?? null
+    const skill = skillRegistry.get(payload.id)
+    return skill ? JSON.parse(JSON.stringify(skill)) : null
   })
 
   ipcMain.handle('skills:install', async (_event, payload: SkillInstallOptions) => {
@@ -2332,7 +2333,7 @@ export function registerIpcHandlers(
     const skill = unwrapOrThrow(result, skillErrorMessage)
     skillRegistry.refresh()
     broadcastSkillsChanged()
-    return skill
+    return JSON.parse(JSON.stringify(skill))
   })
 
   ipcMain.handle('skills:remove', (_event, payload: { id: string; workspacePath?: string }) => {
@@ -2349,7 +2350,7 @@ export function registerIpcHandlers(
       const skill = unwrapOrThrow(result, skillErrorMessage)
       skillRegistry.refresh()
       broadcastSkillsChanged()
-      return skill
+      return JSON.parse(JSON.stringify(skill))
     },
   )
 

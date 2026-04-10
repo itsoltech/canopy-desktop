@@ -106,7 +106,7 @@ const {
 } = initSkills(database)
 const skillsCliServer = new SkillsCliServer(skillRegistry, skillInstaller)
 skillsCliServer.onSkillsChanged(() => {
-  const skills = skillRegistry.getAll()
+  const skills = JSON.parse(JSON.stringify(skillRegistry.getAll()))
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
   }
