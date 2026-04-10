@@ -32,7 +32,7 @@
       {#if transcriptPath}
         <span class="info-key">Transcript</span>
         <span class="info-val mono" title={transcriptPath}
-          >{shortPath(transcriptPath).split('/').pop()}</span
+          >{shortPath(transcriptPath).split(/[/\\]/).pop()}</span
         >
       {/if}
     </div>
