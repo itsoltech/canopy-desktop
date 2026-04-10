@@ -40,10 +40,12 @@ try:
         print()
         for s in skills:
             agents = ', '.join(s.get('enabledAgents', []))
-            print(f'  \033[1m{s[\"name\"]}\033[0m  ({s[\"id\"]})')
-            print(f'    Agents: {agents}  Scope: {s[\"scope\"]}  Source: {s[\"sourceType\"]}')
+            print(f'  \033[1m{s[\"name\"]}\033[0m  \033[2m({s[\"id\"]})\033[0m')
             if s.get('description'):
                 print(f'    {s[\"description\"]}')
+            print(f'    \033[1mAgents:\033[0m  {agents}')
+            print(f'    \033[1mScope:\033[0m   {s[\"scope\"]}')
+            print(f'    \033[1mSource:\033[0m  {s[\"sourceType\"]}')
             print()
 except Exception as e:
     print(f'Error: {e}', file=sys.stderr)
@@ -58,7 +60,7 @@ except Exception as e:
       exit 1
     fi
     shift
-    ARGS="{\"source\":\"$SOURCE\""
+    ARGS="{\"source\":\"$SOURCE\",\"workspacePath\":\"$PWD\""
     while [ $# -gt 0 ]; do
       case "$1" in
         --agent) ARGS="$ARGS,\"agents\":[\"$2\"]"; shift 2 ;;
@@ -90,7 +92,7 @@ except Exception as e:
     RESULT=$(curl -s -X POST "$BASE_URL" \
       -H "Content-Type: application/json" \
       -H "X-Canopy-Auth: $CANOPY_SKILLS_TOKEN" \
-      -d "{\"action\":\"remove\",\"args\":{\"id\":\"$ID\"}}" 2>/dev/null)
+      -d "{\"action\":\"remove\",\"args\":{\"id\":\"$ID\",\"workspacePath\":\"$PWD\"}}" 2>/dev/null)
     if echo "$RESULT" | grep -q '"error"'; then
       echo "Error: $(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null || echo "$RESULT")"
       exit 1
@@ -107,7 +109,7 @@ except Exception as e:
     RESULT=$(curl -s -X POST "$BASE_URL" \
       -H "Content-Type: application/json" \
       -H "X-Canopy-Auth: $CANOPY_SKILLS_TOKEN" \
-      -d "{\"action\":\"update\",\"args\":{\"id\":\"$ID\"}}" 2>/dev/null)
+      -d "{\"action\":\"update\",\"args\":{\"id\":\"$ID\",\"workspacePath\":\"$PWD\"}}" 2>/dev/null)
     if echo "$RESULT" | grep -q '"error"'; then
       echo "Error: $(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null || echo "$RESULT")"
       exit 1
