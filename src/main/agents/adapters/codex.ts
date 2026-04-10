@@ -12,7 +12,7 @@ import type {
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
-import { summarizeToolInput } from '../utils'
+import { deepMerge, summarizeToolInput } from '../utils'
 
 const CODEX_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']
 
@@ -26,35 +26,16 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
 
 const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
 
+const CODEX_GITIGNORE_ENTRY = '.codex/'
+
 /** Refcount for concurrent Codex sessions sharing the same worktree hooks.json */
 interface WorktreeRef {
   count: number
   original: string | null
   createdDir: boolean
+  addedGitignore: boolean
 }
 const worktreeRefs = new Map<string, WorktreeRef>()
-
-function deepMerge(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>,
-): Record<string, unknown> {
-  const out = { ...target }
-  for (const [key, val] of Object.entries(source)) {
-    if (
-      val !== null &&
-      typeof val === 'object' &&
-      !Array.isArray(val) &&
-      typeof out[key] === 'object' &&
-      out[key] !== null &&
-      !Array.isArray(out[key])
-    ) {
-      out[key] = deepMerge(out[key] as Record<string, unknown>, val as Record<string, unknown>)
-    } else {
-      out[key] = val
-    }
-  }
-  return out
-}
 
 export const codexAdapter: AgentAdapter = {
   agentType: 'codex' as AgentType,
@@ -87,7 +68,22 @@ export const codexAdapter: AgentAdapter = {
         }
       }
 
-      ref = { count: 0, original, createdDir }
+      // Ensure .codex/ is gitignored so hooks.json (containing local paths) isn't committed
+      let addedGitignore = false
+      const gitignorePath = join(worktreePath, '.gitignore')
+      try {
+        const content = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
+        const lines = content.split('\n')
+        if (!lines.some((l) => l.trim() === CODEX_GITIGNORE_ENTRY || l.trim() === '.codex')) {
+          const suffix = content.length > 0 && !content.endsWith('\n') ? '\n' : ''
+          writeFileSync(gitignorePath, content + suffix + CODEX_GITIGNORE_ENTRY + '\n', 'utf-8')
+          addedGitignore = true
+        }
+      } catch {
+        /* gitignore may be unwritable */
+      }
+
+      ref = { count: 0, original, createdDir, addedGitignore }
       worktreeRefs.set(worktreePath, ref)
     }
     ref.count++
@@ -132,6 +128,20 @@ export const codexAdapter: AgentAdapter = {
             }
           } catch {
             /* best-effort */
+          }
+          // Remove gitignore entry we added
+          if (r.addedGitignore) {
+            try {
+              const gitignorePath = join(worktreePath, '.gitignore')
+              const content = readFileSync(gitignorePath, 'utf-8')
+              const cleaned = content
+                .split('\n')
+                .filter((l) => l.trim() !== CODEX_GITIGNORE_ENTRY)
+                .join('\n')
+              writeFileSync(gitignorePath, cleaned, 'utf-8')
+            } catch {
+              /* best-effort */
+            }
           }
           worktreeRefs.delete(worktreePath)
         }
@@ -209,7 +219,7 @@ export const codexAdapter: AgentAdapter = {
           if (
             typeof v === 'string' &&
             !BLOCKED_ENV_VARS.has(k.toUpperCase()) &&
-            !INTERNAL_BLOCKED.has(k)
+            !INTERNAL_BLOCKED.has(k.toUpperCase())
           ) {
             env[k] = v
           }

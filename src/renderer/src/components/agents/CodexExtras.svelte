@@ -7,7 +7,7 @@
   let lastMessage = $derived((extra.lastAssistantMessage as string | undefined) ?? null)
 
   function shortPath(p: string): string {
-    const home = p.match(/^\/Users\/[^/]+/)
+    const home = p.match(/^(?:\/Users\/[^/]+|\/home\/[^/]+|[A-Z]:\\Users\\[^\\]+)/)
     if (home) return '~' + p.slice(home[0].length)
     return p
   }

@@ -23,7 +23,7 @@ import type {
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
-import { summarizeToolInput } from '../utils'
+import { deepMerge, summarizeToolInput } from '../utils'
 
 /** Model ID -> context window size in tokens (lazy-loaded) */
 let geminiModelLimits: Record<string, number> | null = null
@@ -81,28 +81,6 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
 }
 
 const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
-
-function deepMerge(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>,
-): Record<string, unknown> {
-  const out = { ...target }
-  for (const [key, val] of Object.entries(source)) {
-    if (
-      val !== null &&
-      typeof val === 'object' &&
-      !Array.isArray(val) &&
-      typeof out[key] === 'object' &&
-      out[key] !== null &&
-      !Array.isArray(out[key])
-    ) {
-      out[key] = deepMerge(out[key] as Record<string, unknown>, val as Record<string, unknown>)
-    } else {
-      out[key] = val
-    }
-  }
-  return out
-}
 
 export const geminiAdapter: AgentAdapter = {
   agentType: 'gemini' as AgentType,
@@ -277,7 +255,7 @@ export const geminiAdapter: AgentAdapter = {
           if (
             typeof v === 'string' &&
             !BLOCKED_ENV_VARS.has(k.toUpperCase()) &&
-            !INTERNAL_BLOCKED.has(k)
+            !INTERNAL_BLOCKED.has(k.toUpperCase())
           ) {
             env[k] = v
           }
