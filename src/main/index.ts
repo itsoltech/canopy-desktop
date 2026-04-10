@@ -381,7 +381,7 @@ app.whenReady().then(async () => {
   crashReporter = new CrashReporter()
 
   if (app.isPackaged) {
-    crashReporter!.init()
+    crashReporter.init()
 
     process.on('uncaughtException', (error) => {
       crashReporter?.recordCrash('uncaughtException', error)

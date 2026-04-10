@@ -529,7 +529,12 @@
     onCreateIssue={() => {
       if (dialogState.current.type !== 'crashReport') return
       const d = dialogState.current.data
-      const title = encodeURIComponent(`Crash: ${d.errorMessage.slice(0, 80)}`)
+      // Strip home directory paths from stack traces to avoid leaking local paths
+      const homeDir = d.os.startsWith('win32')
+        ? /[A-Z]:\\Users\\[^\\]+\\/gi
+        : /\/(?:Users|home)\/[^/]+\//g
+      const sanitize = (s: string): string => s.replace(homeDir, '~/')
+      const title = encodeURIComponent(`Crash: ${sanitize(d.errorMessage).slice(0, 80)}`)
       const body = encodeURIComponent(
         `## Crash report\n\n` +
           `- **Timestamp:** ${d.timestamp}\n` +
@@ -537,8 +542,8 @@
           `- **App version:** ${d.appVersion}\n` +
           `- **Electron:** ${d.electronVersion}\n` +
           `- **OS:** ${d.os}\n\n` +
-          `### Error\n\`\`\`\n${d.errorMessage}\n\`\`\`\n\n` +
-          (d.stack ? `### Stack trace\n\`\`\`\n${d.stack.slice(0, 3000)}\n\`\`\`\n` : ''),
+          `### Error\n\`\`\`\n${sanitize(d.errorMessage)}\n\`\`\`\n\n` +
+          (d.stack ? `### Stack trace\n\`\`\`\n${sanitize(d.stack).slice(0, 3000)}\n\`\`\`\n` : ''),
       )
       const url = `https://github.com/itsoltech/canopy-desktop/issues/new?title=${title}&body=${body}&labels=bug,crash`
       window.api.openExternal(url).catch(() => {
