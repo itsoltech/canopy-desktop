@@ -277,20 +277,39 @@
   {/if}
 
   {#if scannedSkills.length > 0}
+    {@const projectSkills = scannedSkills.filter((s) => s.scope === 'project')}
+    {@const globalSkills = scannedSkills.filter((s) => s.scope === 'global')}
     <div class="scan-section">
       <h4 class="scan-title">Discovered Skills</h4>
-      <p class="scan-note">These skills were found in agent directories on disk.</p>
-      <div class="skill-list">
-        {#each scannedSkills as skill (skill.filePath)}
-          <div class="skill-row">
-            <div class="skill-main">
-              <span class="skill-name">{skill.name}</span>
-              <span class="skill-agents">{skill.agent}</span>
-              <span class="scan-scope">{skill.scope}</span>
+      <p class="scan-note">Found in agent directories on disk. Includes manually added skills.</p>
+
+      {#if projectSkills.length > 0}
+        <span class="scan-group-label">Project</span>
+        <div class="skill-list">
+          {#each projectSkills as skill (skill.filePath)}
+            <div class="skill-row">
+              <div class="skill-main">
+                <span class="skill-name">{skill.name}</span>
+                <span class="skill-agents">{skill.agent}</span>
+              </div>
             </div>
-          </div>
-        {/each}
-      </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if globalSkills.length > 0}
+        <span class="scan-group-label">Global</span>
+        <div class="skill-list">
+          {#each globalSkills as skill (skill.filePath)}
+            <div class="skill-row">
+              <div class="skill-main">
+                <span class="skill-name">{skill.name}</span>
+                <span class="skill-agents">{skill.agent}</span>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -531,6 +550,15 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .scan-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-top: 4px;
   }
 
   .scan-title {
