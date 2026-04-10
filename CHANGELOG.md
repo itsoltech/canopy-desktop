@@ -1,3 +1,10 @@
+## [0.11.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.5...v0.11.0-next.6) (2026-04-10)
+
+### Bug Fixes
+
+* **ci:** queue concurrent code review runs instead of cancelling ([c43c40c](https://github.com/itsoltech/canopy-desktop/commit/c43c40c0faaf694fbebd899a8a6682d4be97b0e3))
+* **terminal:** debounce resize to prevent flickering ([#142](https://github.com/itsoltech/canopy-desktop/issues/142)) ([3bef79e](https://github.com/itsoltech/canopy-desktop/commit/3bef79eca725ea72cf9748af9834a3fc2cd37438))
+
 ## [0.11.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.4...v0.11.0-next.5) (2026-04-10)
 
 ### Features
