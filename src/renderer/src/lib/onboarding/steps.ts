@@ -111,7 +111,7 @@ export const onboardingSteps: OnboardingStep[] = [
     title: 'OpenCode integration',
     description:
       'OpenCode is now available as an AI agent in Canopy. Launch it from the tool launcher and configure it in Settings → OpenCode.',
-    introducedIn: '0.12.0',
+    introducedIn: '0.11.0',
     category: 'feature',
   },
   {
