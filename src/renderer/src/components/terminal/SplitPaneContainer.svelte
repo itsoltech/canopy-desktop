@@ -39,6 +39,7 @@
   })
 
   let layout = $derived(buildFlatLayout(node, containerWidth, containerHeight))
+  let isMultiPane = $derived(node.type !== 'leaf')
 
   function handleDividerDrag(
     splitId: string,
@@ -70,6 +71,7 @@
         {worktreePath}
         focused={rect.paneId === focusedPaneId}
         {active}
+        {isMultiPane}
         onFocus={() => onFocusPane(rect.paneId)}
       />
     </div>

@@ -31,7 +31,7 @@
     "_perf:note": "perf:* scripts use Unix env var syntax (macOS/Linux only)"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.98",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.100",
     "@electron-toolkit/utils": "^4.0.0",
     "@lucide/svelte": "^1.0.0-rc.1",
     "@parcel/watcher": "^2.5.6",
