@@ -69,17 +69,18 @@ export class SkillInstaller {
     }
 
     // 6. Deploy to each agent directory (before saving to DB — partial deploy must not persist)
-    if (opts.workspacePath) {
+    // Global skills deploy to globalDir (no workspacePath needed); project skills require it
+    const targetRoot = opts.workspacePath ?? (skill.scope === 'global' ? '' : null)
+    if (targetRoot !== null) {
       const deployedAgents: typeof skill.enabledAgents = []
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
-        const deployResult = await transformer.deploy(skill, opts.workspacePath)
+        const deployResult = await transformer.deploy(skill, targetRoot)
         if (deployResult.isErr()) {
-          // Rollback: undeploy already-deployed agents
           for (const deployed of deployedAgents) {
             const t = getTransformer(deployed)
-            if (t) await t.undeploy(skill, opts.workspacePath!)
+            if (t) await t.undeploy(skill, targetRoot)
           }
           return err(deployResult.error)
         }
@@ -119,17 +120,18 @@ export class SkillInstaller {
       installedAt: new Date().toISOString(),
     }
 
-    // Deploy before updating DB — partial deploy must not persist
-    if (workspacePath) {
+    // Deploy before updating DB
+    const updateTarget = workspacePath ?? (existing.scope === 'global' ? '' : null)
+    if (updateTarget !== null) {
       const deployedAgents: typeof skill.enabledAgents = []
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
-        const deployResult = await transformer.deploy(skill, workspacePath)
+        const deployResult = await transformer.deploy(skill, updateTarget)
         if (deployResult.isErr()) {
           for (const deployed of deployedAgents) {
             const t = getTransformer(deployed)
-            if (t) await t.undeploy(skill, workspacePath)
+            if (t) await t.undeploy(skill, updateTarget)
           }
           return err(deployResult.error)
         }
@@ -268,18 +270,20 @@ export class SkillInstaller {
       })
     }
 
-    // Allowlist: dotfile directories must be known agent config paths
-    const relativeToHome = resolved.slice(home.length)
-    const firstSegment = relativeToHome.split(sep)[0]
-    if (firstSegment.startsWith('.')) {
-      const allowedDotDirs = ['.claude', '.gemini', '.cursor', '.opencode', '.agents']
-      if (!allowedDotDirs.includes(firstSegment)) {
-        return err({
-          _tag: 'InvalidSource',
-          source: localPath,
-          reason:
-            'Only agent config directories (.claude, .gemini, .cursor, .opencode, .agents) are allowed within dotfiles',
-        })
+    // Allowlist: dotfile directories must be known agent config paths (only for home paths)
+    if (resolved.startsWith(home)) {
+      const relativeToHome = resolved.slice(home.length)
+      const firstSegment = relativeToHome.split(sep)[0]
+      if (firstSegment.startsWith('.')) {
+        const allowedDotDirs = ['.claude', '.gemini', '.cursor', '.opencode', '.agents']
+        if (!allowedDotDirs.includes(firstSegment)) {
+          return err({
+            _tag: 'InvalidSource',
+            source: localPath,
+            reason:
+              'Only agent config directories (.claude, .gemini, .cursor, .opencode, .agents) are allowed within dotfiles',
+          })
+        }
       }
     }
 
