@@ -21,11 +21,37 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, unknow
   const body = fmMatch[2].trim()
   const frontmatter: Record<string, unknown> = {}
 
-  for (const line of rawYaml.split('\n')) {
+  const lines = rawYaml.split('\n')
+  let currentKey: string | null = null
+  let currentList: string[] | null = null
+
+  for (const line of lines) {
+    // Multi-line YAML list item: "  - value"
+    const listMatch = line.match(/^\s+-\s+(.+)$/)
+    if (listMatch && currentKey) {
+      if (!currentList) currentList = []
+      currentList.push(listMatch[1].trim())
+      continue
+    }
+
+    // Flush previous list
+    if (currentKey && currentList) {
+      frontmatter[currentKey] = currentList
+      currentList = null
+      currentKey = null
+    }
+
     const colonIdx = line.indexOf(':')
     if (colonIdx === -1) continue
     const key = line.slice(0, colonIdx).trim()
     let value: unknown = line.slice(colonIdx + 1).trim()
+
+    // Empty value after colon — start of a multi-line list
+    if (value === '') {
+      currentKey = key
+      currentList = null
+      continue
+    }
 
     // Parse simple YAML arrays: ['a', 'b']
     if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
@@ -40,6 +66,12 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, unknow
     if (value === 'false') value = false
 
     if (key) frontmatter[key] = value
+    currentKey = null
+  }
+
+  // Flush trailing list
+  if (currentKey && currentList) {
+    frontmatter[currentKey] = currentList
   }
 
   return { frontmatter, body }
