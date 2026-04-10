@@ -1,6 +1,8 @@
-import { readdirSync, readFileSync, existsSync } from 'fs'
+import { readdir, readFile } from 'fs/promises'
+import { existsSync } from 'fs'
 import { join, basename } from 'path'
 import os from 'os'
+import { is } from '@electron-toolkit/utils'
 import { parseSkillContent } from './SkillParser'
 
 interface ScanTarget {
@@ -47,40 +49,45 @@ export interface ScannedSkill {
   prompt: string
 }
 
-export function scanSkills(workspacePath?: string): ScannedSkill[] {
+export async function scanSkills(workspacePath?: string): Promise<ScannedSkill[]> {
   const found: ScannedSkill[] = []
 
   for (const target of SCAN_TARGETS) {
     // Scan project directory
     if (workspacePath) {
       const projectDir = join(workspacePath, target.projectDir)
-      found.push(...scanDirectory(projectDir, target.agent, 'project', target.extensions))
+      found.push(...(await scanDirectory(projectDir, target.agent, 'project', target.extensions)))
     }
 
     // Scan global directory
-    found.push(...scanDirectory(target.globalDir, target.agent, 'global', target.extensions))
+    found.push(
+      ...(await scanDirectory(target.globalDir, target.agent, 'global', target.extensions)),
+    )
   }
 
   return found
 }
 
-function scanDirectory(
+async function scanDirectory(
   dir: string,
   agent: string,
   scope: 'project' | 'global',
   extensions: string[],
-): ScannedSkill[] {
+): Promise<ScannedSkill[]> {
   if (!existsSync(dir)) return []
 
   const results: ScannedSkill[] = []
 
   try {
-    const files = readdirSync(dir).filter((f) => extensions.some((ext) => f.endsWith(ext)))
+    // Filesystem boundary: directory listing may fail for permission or access reasons
+    const allFiles = await readdir(dir)
+    const files = allFiles.filter((f) => extensions.some((ext) => f.endsWith(ext)))
 
     for (const file of files) {
       const filePath = join(dir, file)
       try {
-        const content = readFileSync(filePath, 'utf-8')
+        // Filesystem boundary: individual files may be unreadable
+        const content = await readFile(filePath, 'utf-8')
         const id = basename(file, file.substring(file.lastIndexOf('.')))
         const parsed = parseSkillContent(content, filePath, id)
 
@@ -95,12 +102,14 @@ function scanDirectory(
             prompt: parsed.value.prompt,
           })
         }
-      } catch {
-        // Skip unreadable files
+      } catch (e) {
+        // Filesystem boundary: skip unreadable files
+        if (is.dev) console.warn(`[skills] Failed to read ${filePath}:`, e)
       }
     }
-  } catch {
-    // Skip unreadable directories
+  } catch (e) {
+    // Filesystem boundary: skip unreadable directories
+    if (is.dev) console.warn(`[skills] Failed to read directory ${dir}:`, e)
   }
 
   return results

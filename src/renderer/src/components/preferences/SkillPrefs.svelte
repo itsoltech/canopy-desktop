@@ -2,6 +2,8 @@
   import { getSkills } from '../../lib/stores/skills.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
 
+  const skills = $derived(getSkills())
+
   const agentLabels: Record<string, string> = {
     claude: 'Claude',
     gemini: 'Gemini',
@@ -118,7 +120,7 @@
   <h3 class="section-title">Skills</h3>
 
   <div class="skill-list">
-    {#each getSkills() as skill (skill.id)}
+    {#each skills as skill (skill.id)}
       <div class="skill-row">
         <div
           class="skill-main"
@@ -192,7 +194,7 @@
     {/each}
   </div>
 
-  {#if getSkills().length === 0}
+  {#if skills.length === 0}
     <p class="empty-state">No skills installed. Click below to install your first skill.</p>
   {/if}
 
@@ -277,6 +279,7 @@
   {#if scannedSkills.length > 0}
     <div class="scan-section">
       <h4 class="scan-title">Discovered Skills</h4>
+      <p class="scan-note">These skills were found in agent directories on disk.</p>
       <div class="skill-list">
         {#each scannedSkills as skill (skill.filePath)}
           <div class="skill-row">
@@ -534,6 +537,12 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--c-text-secondary);
+    margin: 0;
+  }
+
+  .scan-note {
+    font-size: 12px;
+    color: var(--c-text-faint);
     margin: 0;
   }
 

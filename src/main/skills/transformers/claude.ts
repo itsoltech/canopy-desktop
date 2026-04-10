@@ -1,6 +1,7 @@
 import { join } from 'path'
 import os from 'os'
-import { mkdirSync, writeFileSync, symlinkSync, unlinkSync, existsSync } from 'fs'
+import { mkdir, writeFile, symlink, unlink } from 'fs/promises'
+import { existsSync } from 'fs'
 import { ok, err } from '../../errors'
 import type { Result } from 'neverthrow'
 import type { SkillError } from '../errors'
@@ -15,9 +16,9 @@ export const claudeTransformer: SkillTransformer = {
     return join(os.homedir(), '.claude', 'commands')
   },
 
-  deploy(skill: CanopySkill, targetRoot: string): Result<string, SkillError> {
+  async deploy(skill: CanopySkill, targetRoot: string): Promise<Result<string, SkillError>> {
     const dir = skill.scope === 'global' ? this.globalDir() : join(targetRoot, this.projectDir)
-    mkdirSync(dir, { recursive: true })
+    await mkdir(dir, { recursive: true })
 
     const fileName = `${skill.id}.md`
     const filePath = join(dir, fileName)
@@ -38,8 +39,8 @@ export const claudeTransformer: SkillTransformer = {
 
     if (skill.installMethod === 'symlink' && skill.sourceType === 'local') {
       try {
-        if (existsSync(filePath)) unlinkSync(filePath)
-        symlinkSync(skill.sourceUri, filePath)
+        if (existsSync(filePath)) await unlink(filePath)
+        await symlink(skill.sourceUri, filePath)
       } catch (e) {
         return err({
           _tag: 'SymlinkFailed',
@@ -48,17 +49,17 @@ export const claudeTransformer: SkillTransformer = {
         })
       }
     } else {
-      writeFileSync(filePath, content, 'utf-8')
+      await writeFile(filePath, content, 'utf-8')
     }
 
     return ok(filePath)
   },
 
-  undeploy(skill: CanopySkill, targetRoot: string): Result<void, SkillError> {
+  async undeploy(skill: CanopySkill, targetRoot: string): Promise<Result<void, SkillError>> {
     const dir = skill.scope === 'global' ? this.globalDir() : join(targetRoot, this.projectDir)
     const filePath = join(dir, `${skill.id}.md`)
     try {
-      if (existsSync(filePath)) unlinkSync(filePath)
+      if (existsSync(filePath)) await unlink(filePath)
     } catch (e) {
       return err({
         _tag: 'InstallFailed',

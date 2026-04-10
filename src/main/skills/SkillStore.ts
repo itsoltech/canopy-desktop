@@ -77,6 +77,26 @@ export class SkillStore {
       )
   }
 
+  update(skill: CanopySkill): void {
+    this.db
+      .prepare(
+        `UPDATE skill_definitions SET name = ?, description = ?, version = ?, prompt = ?,
+         agents_json = ?, metadata_json = ?, enabled_agents_json = ?, installed_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        skill.name,
+        skill.description,
+        skill.version,
+        skill.prompt,
+        JSON.stringify(skill.agents),
+        JSON.stringify(skill.metadata),
+        JSON.stringify(skill.enabledAgents),
+        skill.installedAt,
+        skill.id,
+      )
+  }
+
   remove(id: string): boolean {
     const result = this.db.prepare('DELETE FROM skill_definitions WHERE id = ?').run(id)
     return result.changes > 0

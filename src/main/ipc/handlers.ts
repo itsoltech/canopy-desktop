@@ -2484,13 +2484,16 @@ export function registerIpcHandlers(
     return JSON.parse(JSON.stringify(skill))
   })
 
-  ipcMain.handle('skills:remove', (_event, payload: { id: string; workspacePath?: string }) => {
-    const result = skillInstaller.remove(payload.id, payload.workspacePath)
-    unwrapOrThrow(result, skillErrorMessage)
-    skillRegistry.refresh()
-    broadcastSkillsChanged()
-    return { success: true }
-  })
+  ipcMain.handle(
+    'skills:remove',
+    async (_event, payload: { id: string; workspacePath?: string }) => {
+      const result = await skillInstaller.remove(payload.id, payload.workspacePath)
+      unwrapOrThrow(result, skillErrorMessage)
+      skillRegistry.refresh()
+      broadcastSkillsChanged()
+      return { success: true }
+    },
+  )
 
   ipcMain.handle(
     'skills:update',
@@ -2505,7 +2508,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'skills:toggleAgent',
-    (_event, payload: { id: string; agent: string; enabled: boolean; workspacePath?: string }) => {
+    async (
+      _event,
+      payload: { id: string; agent: string; enabled: boolean; workspacePath?: string },
+    ) => {
       const skill = skillRegistry.get(payload.id)
       if (!skill) throw new Error(`Skill not found: ${payload.id}`)
       const enabledAgents = payload.enabled
@@ -2520,9 +2526,9 @@ export function registerIpcHandlers(
         const transformer = getTransformer(payload.agent as SkillAgentTarget)
         if (transformer) {
           if (payload.enabled) {
-            transformer.deploy(updatedSkill, payload.workspacePath)
+            await transformer.deploy(updatedSkill, payload.workspacePath)
           } else {
-            transformer.undeploy(updatedSkill, payload.workspacePath)
+            await transformer.undeploy(updatedSkill, payload.workspacePath)
           }
         }
       }
@@ -2532,7 +2538,8 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('skills:scan', (_event, payload?: { workspacePath?: string }) => {
-    return JSON.parse(JSON.stringify(scanSkills(payload?.workspacePath)))
+  ipcMain.handle('skills:scan', async (_event, payload?: { workspacePath?: string }) => {
+    const results = await scanSkills(payload?.workspacePath)
+    return JSON.parse(JSON.stringify(results))
   })
 }

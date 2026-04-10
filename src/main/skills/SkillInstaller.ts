@@ -1,8 +1,8 @@
 import { execFile } from 'child_process'
 import { readFileSync, existsSync, statSync, readdirSync, rmSync } from 'fs'
 import { mkdtemp } from 'fs/promises'
-import { join, basename } from 'path'
-import { tmpdir } from 'os'
+import { join, basename, resolve } from 'path'
+import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
 import type { Result } from 'neverthrow'
 import type { SkillError } from './errors'
@@ -74,7 +74,7 @@ export class SkillInstaller {
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
-        const deployResult = transformer.deploy(skill, opts.workspacePath)
+        const deployResult = await transformer.deploy(skill, opts.workspacePath)
         if (deployResult.isErr()) return err(deployResult.error)
       }
     }
@@ -100,10 +100,7 @@ export class SkillInstaller {
     )
     if (parsed.isErr()) return err(parsed.error)
 
-    // Remove old
-    this.store.remove(skillId)
-
-    // Re-install with same options
+    // Build updated skill
     const skill: CanopySkill = {
       ...existing,
       name: parsed.value.name || existing.name,
@@ -114,26 +111,22 @@ export class SkillInstaller {
       installedAt: new Date().toISOString(),
     }
 
-    // Deploy before re-inserting into DB — partial deploy must not persist
+    // Deploy before updating DB — partial deploy must not persist
     if (workspacePath) {
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
-        const deployResult = transformer.deploy(skill, workspacePath)
-        if (deployResult.isErr()) {
-          // Re-insert the old skill so the DB stays consistent
-          this.store.insert(existing)
-          return err(deployResult.error)
-        }
+        const deployResult = await transformer.deploy(skill, workspacePath)
+        if (deployResult.isErr()) return err(deployResult.error)
       }
     }
 
-    this.store.insert(skill)
+    this.store.update(skill)
 
     return ok(skill)
   }
 
-  remove(skillId: string, workspacePath?: string): Result<void, SkillError> {
+  async remove(skillId: string, workspacePath?: string): Promise<Result<void, SkillError>> {
     const skill = this.store.get(skillId)
     if (!skill) return err({ _tag: 'SkillNotFound', skillId })
 
@@ -142,7 +135,7 @@ export class SkillInstaller {
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
-        transformer.undeploy(skill, workspacePath)
+        await transformer.undeploy(skill, workspacePath)
       }
     }
 
@@ -173,6 +166,15 @@ export class SkillInstaller {
     const owner = parts[0]
     const repo = parts[1]
     const subpath = parts.slice(2).join('/')
+
+    const validName = /^[a-zA-Z0-9._-]+$/
+    if (!validName.test(owner) || !validName.test(repo)) {
+      return err({
+        _tag: 'InvalidSource',
+        source: `github:${ref}`,
+        reason: 'Invalid GitHub owner or repo name',
+      })
+    }
 
     const tmpDir = await mkdtemp(join(tmpdir(), 'canopy-skill-'))
 
@@ -238,20 +240,30 @@ export class SkillInstaller {
     return ok({ content, fileName, sourceType: 'url', sourceUri: url })
   }
 
-  private fetchFromLocal(path: string): Result<SourceResolution, SkillError> {
-    if (!existsSync(path)) {
-      return err({ _tag: 'InvalidSource', source: path, reason: 'Path does not exist' })
+  private fetchFromLocal(localPath: string): Result<SourceResolution, SkillError> {
+    const resolved = resolve(localPath)
+    const home = homedir()
+    if (!resolved.startsWith(home) && !resolved.startsWith('/tmp')) {
+      return err({
+        _tag: 'InvalidSource',
+        source: localPath,
+        reason: 'Path must be within home directory or /tmp',
+      })
     }
 
-    const stat = statSync(path)
+    if (!existsSync(resolved)) {
+      return err({ _tag: 'InvalidSource', source: localPath, reason: 'Path does not exist' })
+    }
+
+    const stat = statSync(resolved)
 
     if (stat.isDirectory()) {
-      return this.readSkillDir(path, path, 'local')
+      return this.readSkillDir(resolved, resolved, 'local')
     }
 
-    const content = readFileSync(path, 'utf-8')
-    const fileName = basename(path).replace(/\.[^.]+$/, '')
-    return ok({ content, fileName, sourceType: 'local', sourceUri: path })
+    const content = readFileSync(resolved, 'utf-8')
+    const fileName = basename(resolved).replace(/\.[^.]+$/, '')
+    return ok({ content, fileName, sourceType: 'local', sourceUri: resolved })
   }
 
   private readSkillDir(

@@ -6,8 +6,8 @@ export interface SkillTransformer {
   readonly agent: SkillAgentTarget
   readonly projectDir: string
   globalDir(): string
-  deploy(skill: CanopySkill, targetRoot: string): Result<string, SkillError>
-  undeploy(skill: CanopySkill, targetRoot: string): Result<void, SkillError>
+  deploy(skill: CanopySkill, targetRoot: string): Promise<Result<string, SkillError>>
+  undeploy(skill: CanopySkill, targetRoot: string): Promise<Result<void, SkillError>>
 }
 
 const transformers = new Map<SkillAgentTarget, SkillTransformer>()
