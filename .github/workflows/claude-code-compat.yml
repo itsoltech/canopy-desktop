@@ -199,3 +199,15 @@ jobs:
             git commit -m "ci: update claude-code version tracker [skip ci]"
             git push origin next
           fi
+
+      # ── Rebase compat branch onto updated next ───────────────
+      - name: Rebase compatibility branch
+        if: steps.range.outputs.new_releases == 'true'
+        run: |
+          # Only rebase if the compat branch exists on the remote
+          if git ls-remote --exit-code origin chore/claude-code-compat >/dev/null 2>&1; then
+            git fetch origin chore/claude-code-compat
+            git checkout chore/claude-code-compat
+            git rebase next || { git rebase --abort; echo "Rebase conflict — skipping"; exit 0; }
+            git push origin chore/claude-code-compat --force-with-lease
+          fi
