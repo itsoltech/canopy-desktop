@@ -2563,19 +2563,23 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('skills:deleteFile', async (_event, payload: { filePath: string }) => {
-    const filePath = payload.filePath
-    // Validate path is within known skill directories
-    const home = os.homedir() + path.sep
-    if (!filePath.startsWith(home)) {
-      throw new Error('Cannot delete files outside home directory')
+    const filePath = path.normalize(path.resolve(payload.filePath))
+    // Must have a skill file extension
+    const ext = path.extname(filePath).toLowerCase()
+    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+      throw new Error('Can only delete skill files (.md, .mdc, .yaml, .yml)')
     }
-    const relPath = filePath.slice(home.length).split(path.sep)[0]
-    const allowed = ['.claude', '.gemini', '.cursor', '.opencode', '.agents']
-    if (!relPath.startsWith('.') || !allowed.some((d) => relPath === d)) {
-      // Also allow project paths (not starting with dot)
-      if (relPath.startsWith('.')) {
-        throw new Error('Cannot delete files in this directory')
-      }
+    // Must be within a known skill directory pattern
+    const skillDirPatterns = [
+      /[/\\]\.claude[/\\](commands|skills)[/\\]/,
+      /[/\\]\.gemini[/\\]skills[/\\]/,
+      /[/\\]\.cursor[/\\]rules[/\\]/,
+      /[/\\]\.opencode[/\\]skills[/\\]/,
+      /[/\\]\.agents[/\\]skills[/\\]/,
+      /[/\\]\.claude[/\\]plugins[/\\]cache[/\\]/,
+    ]
+    if (!skillDirPatterns.some((p) => p.test(filePath))) {
+      throw new Error('Can only delete files within agent skill directories')
     }
     await fs.promises.unlink(filePath)
     return { success: true }

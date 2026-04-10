@@ -254,7 +254,16 @@ async function scanPluginsCache(cacheDir: string): Promise<ScannedSkill[]> {
 
           const versions = await readdir(pluginPath)
           // Use the latest version (last alphabetically)
-          const latestVersion = versions.sort().reverse()[0]
+          // Sort by semver-like segments numerically (e.g. 1.10.0 > 1.2.0)
+          const latestVersion = versions.sort((a, b) => {
+            const pa = a.split('.').map(Number)
+            const pb = b.split('.').map(Number)
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+              const diff = (pb[i] ?? 0) - (pa[i] ?? 0)
+              if (diff !== 0) return diff
+            }
+            return 0
+          })[0]
           if (!latestVersion) continue
 
           const skillsDir = join(pluginPath, latestVersion, 'skills')
