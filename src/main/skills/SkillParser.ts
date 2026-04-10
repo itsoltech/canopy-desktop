@@ -12,7 +12,24 @@ export interface ParsedSkill {
   metadata: Record<string, unknown>
 }
 
-/** Parse YAML frontmatter from SKILL.md format: --- \n key: value \n --- \n body */
+/**
+ * Parse YAML frontmatter from SKILL.md format: --- \n key: value \n --- \n body
+ *
+ * NOTE: This is a hand-rolled subset parser, not a full YAML implementation.
+ * It intentionally handles only the cases found in skill files:
+ *   - Simple scalar key-value pairs (string, boolean)
+ *   - Inline arrays: `key: ['a', 'b']` (JSON-compatible syntax only)
+ *   - Block sequence lists: `key:\n  - item`
+ *
+ * Limitations (not supported):
+ *   - Nested mappings / multi-level objects
+ *   - Quoted strings with escape sequences
+ *   - Multi-line scalars (| or > block scalars)
+ *   - Anchors, aliases, and merge keys
+ *   - Numeric or null coercion beyond booleans
+ *
+ * If skill frontmatter becomes more complex, replace with the `yaml` npm package.
+ */
 function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/)
   if (!fmMatch) return { frontmatter: {}, body: content.trim() }

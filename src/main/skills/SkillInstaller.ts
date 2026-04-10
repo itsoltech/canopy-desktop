@@ -1,9 +1,9 @@
 import { execFile } from 'child_process'
-import { readFileSync, existsSync, statSync, readdirSync } from 'fs'
+import { readFileSync, existsSync, statSync, readdirSync, rmSync } from 'fs'
+import { mkdtemp } from 'fs/promises'
 import { join, basename } from 'path'
 import { tmpdir } from 'os'
-import { mkdtempSync, rmSync } from 'fs'
-import { ok, err } from '../errors'
+import { ok, err, fromExternalCall } from '../errors'
 import type { Result } from 'neverthrow'
 import type { SkillError } from './errors'
 import type { CanopySkill, SkillInstallOptions, SkillAgentTarget } from './types'
@@ -69,10 +69,7 @@ export class SkillInstaller {
       installedAt: new Date().toISOString(),
     }
 
-    // 6. Save to DB
-    this.store.insert(skill)
-
-    // 7. Deploy to each agent directory
+    // 6. Deploy to each agent directory (before saving to DB — partial deploy must not persist)
     if (opts.workspacePath) {
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
@@ -81,6 +78,9 @@ export class SkillInstaller {
         if (deployResult.isErr()) return err(deployResult.error)
       }
     }
+
+    // 7. Save to DB only after all deploys succeed
+    this.store.insert(skill)
 
     return ok(skill)
   }
@@ -114,15 +114,21 @@ export class SkillInstaller {
       installedAt: new Date().toISOString(),
     }
 
-    this.store.insert(skill)
-
+    // Deploy before re-inserting into DB — partial deploy must not persist
     if (workspacePath) {
       for (const agent of skill.enabledAgents) {
         const transformer = getTransformer(agent)
         if (!transformer) continue
-        transformer.deploy(skill, workspacePath)
+        const deployResult = transformer.deploy(skill, workspacePath)
+        if (deployResult.isErr()) {
+          // Re-insert the old skill so the DB stays consistent
+          this.store.insert(existing)
+          return err(deployResult.error)
+        }
       }
     }
+
+    this.store.insert(skill)
 
     return ok(skill)
   }
@@ -168,53 +174,68 @@ export class SkillInstaller {
     const repo = parts[1]
     const subpath = parts.slice(2).join('/')
 
-    const tmpDir = mkdtempSync(join(tmpdir(), 'canopy-skill-'))
+    const tmpDir = await mkdtemp(join(tmpdir(), 'canopy-skill-'))
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        execFile(
-          'git',
-          ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
-          (error) => {
-            if (error) reject(error)
-            else resolve()
-          },
-        )
-      })
+      const cloneResult = await fromExternalCall(
+        new Promise<void>((resolve, reject) => {
+          execFile(
+            'git',
+            ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            (error) => {
+              if (error) reject(error)
+              else resolve()
+            },
+          )
+        }),
+        (e): SkillError => ({
+          _tag: 'FetchFailed',
+          source: `github:${ref}`,
+          cause: e instanceof Error ? e.message : String(e),
+        }),
+      )
+
+      if (cloneResult.isErr()) return err(cloneResult.error)
 
       const skillDir = subpath ? join(tmpDir, subpath) : tmpDir
       return this.readSkillDir(skillDir, `github:${ref}`, 'github')
-    } catch (e) {
-      return err({
-        _tag: 'FetchFailed',
-        source: `github:${ref}`,
-        cause: e instanceof Error ? e.message : String(e),
-      })
     } finally {
-      try {
-        rmSync(tmpDir, { recursive: true, force: true })
-      } catch {
-        /* ignore */
-      }
+      // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
+      rmSync(tmpDir, { recursive: true, force: true })
     }
   }
 
   private async fetchFromUrl(url: string): Promise<Result<SourceResolution, SkillError>> {
-    try {
-      const resp = await fetch(url)
-      if (!resp.ok) {
-        return err({ _tag: 'FetchFailed', source: url, cause: `HTTP ${resp.status}` })
-      }
-      const content = await resp.text()
-      const fileName = basename(new URL(url).pathname).replace(/\.[^.]+$/, '') || 'skill'
-      return ok({ content, fileName, sourceType: 'url', sourceUri: url })
-    } catch (e) {
-      return err({
+    const fetchResult = await fromExternalCall(
+      fetch(url),
+      (e): SkillError => ({
         _tag: 'FetchFailed',
         source: url,
         cause: e instanceof Error ? e.message : String(e),
-      })
+      }),
+    )
+
+    if (fetchResult.isErr()) return err(fetchResult.error)
+
+    const resp = fetchResult.value
+    if (!resp.ok) {
+      return err({ _tag: 'FetchFailed', source: url, cause: `HTTP ${resp.status}` })
     }
+
+    const textResult = await fromExternalCall(
+      resp.text(),
+      (e): SkillError => ({
+        _tag: 'FetchFailed',
+        source: url,
+        cause: e instanceof Error ? e.message : String(e),
+      }),
+    )
+
+    if (textResult.isErr()) return err(textResult.error)
+
+    const content = textResult.value
+    const fileName = basename(new URL(url).pathname).replace(/\.[^.]+$/, '') || 'skill'
+    return ok({ content, fileName, sourceType: 'url', sourceUri: url })
   }
 
   private fetchFromLocal(path: string): Result<SourceResolution, SkillError> {

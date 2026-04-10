@@ -29,22 +29,18 @@
     installError = ''
 
     try {
-      const result = await window.api.installSkill({
+      await window.api.installSkill({
         source: installSource.trim(),
         agents: [...installAgents],
         scope: String(installScope),
         method: String(installMethod),
         workspacePath: workspaceState.selectedWorktreePath ?? undefined,
       })
-      if (result?.__error) {
-        installError = result.message
-      } else {
-        installSource = ''
-        installAgents = ['claude']
-        installScope = 'project'
-        installMethod = 'copy'
-        showInstallForm = false
-      }
+      installSource = ''
+      installAgents = ['claude']
+      installScope = 'project'
+      installMethod = 'copy'
+      showInstallForm = false
     } catch (e) {
       installError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -52,13 +48,10 @@
     }
   }
 
-  async function removeSkill(id: string): Promise<void> {
+  async function removeSkill(id: string, name: string): Promise<void> {
+    if (!window.confirm(`Remove skill "${name}"?`)) return
     try {
-      const result = await window.api.removeSkill(
-        id,
-        workspaceState.selectedWorktreePath ?? undefined,
-      )
-      if (result?.__error) console.error('Failed to remove skill:', result.message)
+      await window.api.removeSkill(id, workspaceState.selectedWorktreePath ?? undefined)
     } catch (e) {
       console.error('Failed to remove skill:', e)
     }
@@ -66,11 +59,7 @@
 
   async function updateSkill(id: string): Promise<void> {
     try {
-      const result = await window.api.updateSkill(
-        id,
-        workspaceState.selectedWorktreePath ?? undefined,
-      )
-      if (result?.__error) console.error('Failed to update skill:', result.message)
+      await window.api.updateSkill(id, workspaceState.selectedWorktreePath ?? undefined)
     } catch (e) {
       console.error('Failed to update skill:', e)
     }
@@ -164,8 +153,9 @@
               <button class="btn btn-action btn-update" onclick={() => updateSkill(skill.id)}
                 >Update</button
               >
-              <button class="btn btn-action btn-remove" onclick={() => removeSkill(skill.id)}
-                >Remove</button
+              <button
+                class="btn btn-action btn-remove"
+                onclick={() => removeSkill(skill.id, skill.name)}>Remove</button
               >
             </div>
           </div>

@@ -1,11 +1,19 @@
 #!/bin/bash
 # canopy skills — manage agent skills via Canopy
-# Requires CANOPY_SKILLS_PORT and CANOPY_SKILLS_TOKEN env vars
+# Requires CANOPY_SKILLS_PORT and CANOPY_SKILLS_TOKEN_FILE env vars
 
 set -e
 
-if [ -z "$CANOPY_SKILLS_PORT" ] || [ -z "$CANOPY_SKILLS_TOKEN" ]; then
+if [ -z "$CANOPY_SKILLS_PORT" ] || [ -z "$CANOPY_SKILLS_TOKEN_FILE" ]; then
   echo "Error: Not running inside Canopy terminal" >&2
+  exit 1
+fi
+
+# Read token from file (written with mode 0o600 at startup) rather than from env,
+# so the plaintext token is never stored in the environment of child processes.
+CANOPY_SKILLS_TOKEN=$(cat "$CANOPY_SKILLS_TOKEN_FILE" 2>/dev/null)
+if [ -z "$CANOPY_SKILLS_TOKEN" ]; then
+  echo "Error: Could not read skills auth token" >&2
   exit 1
 fi
 
@@ -20,7 +28,7 @@ case "$action" in
     if [ "$1" = "--global" ]; then
       BODY='{"action":"list","args":{"scope":"global"}}'
     elif [ "$1" = "--agent" ] && [ -n "$2" ]; then
-      BODY="{\"action\":\"list\",\"args\":{\"agent\":\"$2\"}}"
+      BODY=$(jq -n --arg agent "$2" '{"action":"list","args":{"agent":$agent}}')
     fi
     RESULT=$(curl -s -X POST "$BASE_URL" \
       -H "Content-Type: application/json" \
@@ -60,21 +68,31 @@ except Exception as e:
       exit 1
     fi
     shift
-    ARGS="{\"source\":\"$SOURCE\",\"workspacePath\":\"$PWD\""
+    # Build args object safely using jq
+    ARGS=$(jq -n --arg source "$SOURCE" --arg workspacePath "$PWD" \
+      '{"source":$source,"workspacePath":$workspacePath}')
     while [ $# -gt 0 ]; do
       case "$1" in
-        --agent) ARGS="$ARGS,\"agents\":[\"$2\"]"; shift 2 ;;
-        --global) ARGS="$ARGS,\"scope\":\"global\""; shift ;;
-        --copy) ARGS="$ARGS,\"method\":\"copy\""; shift ;;
-        --symlink) ARGS="$ARGS,\"method\":\"symlink\""; shift ;;
+        --agent)
+          ARGS=$(echo "$ARGS" | jq --arg agent "$2" '. + {"agents":[$agent]}')
+          shift 2 ;;
+        --global)
+          ARGS=$(echo "$ARGS" | jq '. + {"scope":"global"}')
+          shift ;;
+        --copy)
+          ARGS=$(echo "$ARGS" | jq '. + {"method":"copy"}')
+          shift ;;
+        --symlink)
+          ARGS=$(echo "$ARGS" | jq '. + {"method":"symlink"}')
+          shift ;;
         *) shift ;;
       esac
     done
-    ARGS="$ARGS}"
+    BODY=$(jq -n --argjson args "$ARGS" '{"action":"install","args":$args}')
     RESULT=$(curl -s -X POST "$BASE_URL" \
       -H "Content-Type: application/json" \
       -H "X-Canopy-Auth: $CANOPY_SKILLS_TOKEN" \
-      -d "{\"action\":\"install\",\"args\":$ARGS}" 2>/dev/null)
+      -d "$BODY" 2>/dev/null)
     if echo "$RESULT" | grep -q '"error"'; then
       echo "Error: $(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null || echo "$RESULT")"
       exit 1
@@ -89,10 +107,12 @@ except Exception as e:
       echo "Usage: canopy skills remove <skill-id>"
       exit 1
     fi
+    BODY=$(jq -n --arg id "$ID" --arg workspacePath "$PWD" \
+      '{"action":"remove","args":{"id":$id,"workspacePath":$workspacePath}}')
     RESULT=$(curl -s -X POST "$BASE_URL" \
       -H "Content-Type: application/json" \
       -H "X-Canopy-Auth: $CANOPY_SKILLS_TOKEN" \
-      -d "{\"action\":\"remove\",\"args\":{\"id\":\"$ID\",\"workspacePath\":\"$PWD\"}}" 2>/dev/null)
+      -d "$BODY" 2>/dev/null)
     if echo "$RESULT" | grep -q '"error"'; then
       echo "Error: $(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null || echo "$RESULT")"
       exit 1
@@ -106,10 +126,12 @@ except Exception as e:
       echo "Usage: canopy skills update <skill-id>"
       exit 1
     fi
+    BODY=$(jq -n --arg id "$ID" --arg workspacePath "$PWD" \
+      '{"action":"update","args":{"id":$id,"workspacePath":$workspacePath}}')
     RESULT=$(curl -s -X POST "$BASE_URL" \
       -H "Content-Type: application/json" \
       -H "X-Canopy-Auth: $CANOPY_SKILLS_TOKEN" \
-      -d "{\"action\":\"update\",\"args\":{\"id\":\"$ID\",\"workspacePath\":\"$PWD\"}}" 2>/dev/null)
+      -d "$BODY" 2>/dev/null)
     if echo "$RESULT" | grep -q '"error"'; then
       echo "Error: $(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null || echo "$RESULT")"
       exit 1
@@ -123,10 +145,11 @@ except Exception as e:
       echo "Usage: canopy skills info <skill-id>"
       exit 1
     fi
+    BODY=$(jq -n --arg id "$ID" '{"action":"get","args":{"id":$id}}')
     RESULT=$(curl -s -X POST "$BASE_URL" \
       -H "Content-Type: application/json" \
       -H "X-Canopy-Auth: $CANOPY_SKILLS_TOKEN" \
-      -d "{\"action\":\"get\",\"args\":{\"id\":\"$ID\"}}" 2>/dev/null)
+      -d "$BODY" 2>/dev/null)
     echo "$RESULT" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)

@@ -66,10 +66,19 @@ export class SkillsCliServer {
       return
     }
 
-    // Read body
+    // Read body with 1MB size limit
+    const MAX_BODY = 1 * 1024 * 1024
     const chunks: Buffer[] = []
+    let totalSize = 0
     for await (const chunk of req) {
-      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
+      const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+      totalSize += buf.byteLength
+      if (totalSize > MAX_BODY) {
+        res.writeHead(413, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Request body too large' }))
+        return
+      }
+      chunks.push(buf)
     }
     const body = Buffer.concat(chunks).toString('utf-8')
 
@@ -98,10 +107,19 @@ export class SkillsCliServer {
         return { skills: this.registry.list(args as never) }
       }
       case 'get': {
-        const skill = this.registry.get(args.id as string)
+        if (typeof args.id !== 'string' || args.id === '') {
+          throw new Error('args.id must be a non-empty string')
+        }
+        const skill = this.registry.get(args.id)
         return skill ?? { error: `Skill not found: ${args.id}` }
       }
       case 'install': {
+        if (typeof args.source !== 'string' || args.source === '') {
+          throw new Error('args.source must be a non-empty string')
+        }
+        if (args.workspacePath !== undefined && typeof args.workspacePath !== 'string') {
+          throw new Error('args.workspacePath must be a string')
+        }
         const result = await this.installer.install(args as unknown as SkillInstallOptions)
         if (result.isErr()) throw new Error(result.error._tag + ': ' + JSON.stringify(result.error))
         this.registry.refresh()
@@ -109,18 +127,27 @@ export class SkillsCliServer {
         return result.value
       }
       case 'remove': {
-        const result = this.installer.remove(
-          args.id as string,
-          args.workspacePath as string | undefined,
-        )
+        if (typeof args.id !== 'string' || args.id === '') {
+          throw new Error('args.id must be a non-empty string')
+        }
+        if (args.workspacePath !== undefined && typeof args.workspacePath !== 'string') {
+          throw new Error('args.workspacePath must be a string')
+        }
+        const result = this.installer.remove(args.id, args.workspacePath as string | undefined)
         if (result.isErr()) throw new Error(result.error._tag + ': ' + JSON.stringify(result.error))
         this.registry.refresh()
         this.notifyChanged()
         return { success: true }
       }
       case 'update': {
+        if (typeof args.id !== 'string' || args.id === '') {
+          throw new Error('args.id must be a non-empty string')
+        }
+        if (args.workspacePath !== undefined && typeof args.workspacePath !== 'string') {
+          throw new Error('args.workspacePath must be a string')
+        }
         const result = await this.installer.update(
-          args.id as string,
+          args.id,
           args.workspacePath as string | undefined,
         )
         if (result.isErr()) throw new Error(result.error._tag + ': ' + JSON.stringify(result.error))

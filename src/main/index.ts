@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
 import os from 'os'
-import { existsSync, readFileSync, realpathSync } from 'fs'
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { match } from 'ts-pattern'
@@ -107,12 +107,6 @@ const {
   store: skillStore,
 } = initSkills(database)
 const skillsCliServer = new SkillsCliServer(skillRegistry, skillInstaller)
-skillsCliServer.onSkillsChanged(() => {
-  const skills = JSON.parse(JSON.stringify(skillRegistry.getAll()))
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
-  }
-})
 const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
@@ -608,17 +602,22 @@ app.whenReady().then(async () => {
     skillRegistry,
     skillInstaller,
     skillStore,
+    skillsCliServer,
   )
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')
 
-  // Start skills CLI server and inject env vars for terminal sessions
+  // Start skills CLI server and inject env vars for terminal sessions.
+  // The auth token is written to a temp file (mode 0o600) rather than stored directly in
+  // process.env, so it is not inherited by arbitrary child processes spawned in the terminal.
   const skillsCliPort = await skillsCliServer.start()
   const resourcesPath = is.dev
     ? join(app.getAppPath(), 'resources')
     : join(process.resourcesPath, 'resources')
+  const tokenFilePath = join(app.getPath('temp'), 'canopy-skills-token')
+  writeFileSync(tokenFilePath, skillsCliServer.authToken, { mode: 0o600 })
   process.env.CANOPY_SKILLS_PORT = String(skillsCliPort)
-  process.env.CANOPY_SKILLS_TOKEN = skillsCliServer.authToken
+  process.env.CANOPY_SKILLS_TOKEN_FILE = tokenFilePath
   process.env.CANOPY_SKILLS_PATH = resourcesPath
 
   if (PERF) {

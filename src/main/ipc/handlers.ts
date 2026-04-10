@@ -68,6 +68,7 @@ import { runConfigErrorMessage } from '../runConfig/errors'
 import type { SkillRegistry } from '../skills/SkillRegistry'
 import type { SkillInstaller } from '../skills/SkillInstaller'
 import type { SkillStore } from '../skills/SkillStore'
+import type { SkillsCliServer } from '../skills/SkillsCliServer'
 import type { SkillInstallOptions, SkillListOptions } from '../skills/types'
 import { skillErrorMessage } from '../skills/errors'
 import { resolveShell } from '../pty/PtyManager'
@@ -106,6 +107,7 @@ export function registerIpcHandlers(
   skillRegistry: SkillRegistry,
   skillInstaller: SkillInstaller,
   skillStore: SkillStore,
+  skillsCliServer: SkillsCliServer,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -120,6 +122,8 @@ export function registerIpcHandlers(
       if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
     }
   }
+
+  skillsCliServer.onSkillsChanged(broadcastSkillsChanged)
 
   function persistWindowConfigs(): void {
     const configs = windowManager.getAllWindowConfigs()
@@ -2475,19 +2479,15 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:install', async (_event, payload: SkillInstallOptions) => {
     const result = await skillInstaller.install(payload)
-    if (result.isErr()) {
-      return { __error: true, message: skillErrorMessage(result.error) }
-    }
+    const skill = unwrapOrThrow(result, skillErrorMessage)
     skillRegistry.refresh()
     broadcastSkillsChanged()
-    return JSON.parse(JSON.stringify(result.value))
+    return JSON.parse(JSON.stringify(skill))
   })
 
   ipcMain.handle('skills:remove', (_event, payload: { id: string; workspacePath?: string }) => {
     const result = skillInstaller.remove(payload.id, payload.workspacePath)
-    if (result.isErr()) {
-      return { __error: true, message: skillErrorMessage(result.error) }
-    }
+    unwrapOrThrow(result, skillErrorMessage)
     skillRegistry.refresh()
     broadcastSkillsChanged()
     return { success: true }
@@ -2497,12 +2497,10 @@ export function registerIpcHandlers(
     'skills:update',
     async (_event, payload: { id: string; workspacePath?: string }) => {
       const result = await skillInstaller.update(payload.id, payload.workspacePath)
-      if (result.isErr()) {
-        return { __error: true, message: skillErrorMessage(result.error) }
-      }
+      const skill = unwrapOrThrow(result, skillErrorMessage)
       skillRegistry.refresh()
       broadcastSkillsChanged()
-      return JSON.parse(JSON.stringify(result.value))
+      return JSON.parse(JSON.stringify(skill))
     },
   )
 
@@ -2510,7 +2508,7 @@ export function registerIpcHandlers(
     'skills:toggleAgent',
     (_event, payload: { id: string; agent: string; enabled: boolean }) => {
       const skill = skillRegistry.get(payload.id)
-      if (!skill) return { __error: true, message: `Skill not found: ${payload.id}` }
+      if (!skill) throw new Error(`Skill not found: ${payload.id}`)
       const enabledAgents = payload.enabled
         ? [...new Set([...skill.enabledAgents, payload.agent])]
         : skill.enabledAgents.filter((a) => a !== payload.agent)
