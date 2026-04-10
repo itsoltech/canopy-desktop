@@ -1268,6 +1268,112 @@ export async function moveTabToSplit(
   return true
 }
 
+// --- Move pane within or across tabs ---
+
+export function movePaneToTarget(
+  worktreePath: string,
+  sourceTabId: string,
+  sourcePaneId: string,
+  targetTabId: string,
+  targetPaneId: string,
+  zone: DropZone,
+): boolean {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return false
+
+  const sourceTab = tabs.find((t) => t.id === sourceTabId)
+  const targetTab = tabs.find((t) => t.id === targetTabId)
+  if (!sourceTab || !targetTab) return false
+
+  // Extract the source pane from its tree
+  const removeResult = treeRemovePane(sourceTab.rootSplit, sourcePaneId)
+  if (!removeResult) return false
+
+  const leaf = createLeaf(removeResult.removed)
+  const { direction, position } = mapZone(zone)
+
+  if (sourceTabId === targetTabId) {
+    // Same-tab reorder: removeResult.tree is the tree without the source pane
+    if (!removeResult.tree) return false // was the only pane — should not happen
+    const newTree = graftSubtree(removeResult.tree, targetPaneId, direction, leaf, position)
+    if (!newTree) {
+      return false
+    }
+    sourceTab.rootSplit = newTree
+    sourceTab.focusedPaneId = sourcePaneId
+    reconcileTabIdentity(sourceTab)
+  } else {
+    // Cross-tab move: graft into target tab
+    const newTargetTree = graftSubtree(targetTab.rootSplit, targetPaneId, direction, leaf, position)
+    if (!newTargetTree) {
+      return false
+    }
+
+    targetTab.rootSplit = newTargetTree
+    targetTab.focusedPaneId = sourcePaneId
+    reconcileTabIdentity(targetTab)
+
+    if (!removeResult.tree) {
+      // Source tab had only this pane — remove the tab
+      const sourceIdx = tabs.findIndex((t) => t.id === sourceTabId)
+      tabs.splice(sourceIdx, 1)
+      if (activeTabId[worktreePath] === sourceTabId) {
+        activeTabId[worktreePath] = targetTabId
+      }
+    } else {
+      sourceTab.rootSplit = removeResult.tree
+      sourceTab.focusedPaneId = firstLeaf(removeResult.tree).id
+      reconcileTabIdentity(sourceTab)
+    }
+
+    activeTabId[worktreePath] = targetTabId
+  }
+
+  scheduleSave(worktreePath)
+  return true
+}
+
+export function detachPaneToTab(
+  worktreePath: string,
+  sourceTabId: string,
+  sourcePaneId: string,
+): boolean {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return false
+
+  const sourceTab = tabs.find((t) => t.id === sourceTabId)
+  if (!sourceTab) return false
+
+  // Already a standalone tab — nothing to detach
+  if (sourceTab.rootSplit.type === 'leaf') return false
+
+  const removeResult = treeRemovePane(sourceTab.rootSplit, sourcePaneId)
+  if (!removeResult || !removeResult.tree) return false
+
+  // Update source tab
+  sourceTab.rootSplit = removeResult.tree
+  sourceTab.focusedPaneId = firstLeaf(removeResult.tree).id
+  reconcileTabIdentity(sourceTab)
+
+  // Create new tab for the detached pane
+  const removed = removeResult.removed
+  const newTab: TabInfo = {
+    id: nextTabId(),
+    toolId: removed.toolId,
+    toolName: removed.toolName,
+    name: computeDisplayName(removed.toolName, worktreePath, removed.toolId),
+    worktreePath,
+    rootSplit: createLeaf(removed),
+    focusedPaneId: removed.id,
+  }
+
+  tabs.push(newTab)
+  activeTabId[worktreePath] = newTab.id
+
+  scheduleSave(worktreePath)
+  return true
+}
+
 // --- Layout persistence ---
 
 const saveTimers: Record<string, ReturnType<typeof setTimeout>> = {}
