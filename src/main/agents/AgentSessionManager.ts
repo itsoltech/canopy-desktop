@@ -11,6 +11,7 @@ import { getAdapter, registerAdapter, isAgentTool as isRegistered } from './regi
 import { claudeAdapter } from './adapters/claude'
 import { geminiAdapter } from './adapters/gemini'
 import { opencodeAdapter } from './adapters/opencode'
+import { codexAdapter } from './adapters/codex'
 
 interface AgentSession {
   agentType: AgentType
@@ -48,6 +49,7 @@ export class AgentSessionManager extends EventEmitter {
     registerAdapter(claudeAdapter)
     registerAdapter(geminiAdapter)
     registerAdapter(opencodeAdapter)
+    registerAdapter(codexAdapter)
   }
 
   get sessionCount(): number {

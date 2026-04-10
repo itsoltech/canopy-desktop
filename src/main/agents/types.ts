@@ -1,6 +1,6 @@
 import type { SessionStatusType } from '../notch/types'
 
-export type AgentType = 'claude' | 'gemini' | 'opencode'
+export type AgentType = 'claude' | 'gemini' | 'opencode' | 'codex'
 
 export type NormalizedEventName =
   | 'SessionStart'

@@ -3,6 +3,7 @@
   import type { AgentSessionState } from '../../lib/agents/agentState.svelte'
   import ClaudeExtras from './ClaudeExtras.svelte'
   import OpenCodeExtras from './OpenCodeExtras.svelte'
+  import CodexExtras from './CodexExtras.svelte'
 
   let {
     state,
@@ -160,6 +161,8 @@
     <ClaudeExtras extra={state.extra} />
   {:else if state.agentType === 'opencode'}
     <OpenCodeExtras extra={state.extra} />
+  {:else if state.agentType === 'codex'}
+    <CodexExtras extra={state.extra} />
   {/if}
 
   <!-- Tasks -->

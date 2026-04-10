@@ -1,7 +1,20 @@
 <script lang="ts">
   import type { PaneSession } from '../../lib/stores/splitTree'
-  import { restartPane, updatePaneTitle, isAiToolId } from '../../lib/stores/tabs.svelte'
-  import { dragState, setDropTarget, type DropZone } from '../../lib/stores/dragState.svelte'
+  import {
+    restartPane,
+    updatePaneTitle,
+    isAiToolId,
+    movePaneToTarget,
+    detachPaneToTab,
+  } from '../../lib/stores/tabs.svelte'
+  import {
+    dragState,
+    setDropTarget,
+    startPaneDrag,
+    activateDrag,
+    clearDrag,
+    type DropZone,
+  } from '../../lib/stores/dragState.svelte'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
   import BrowserPane from '../browser/BrowserPane.svelte'
   import EditorPane from '../editor/EditorPane.svelte'
@@ -19,6 +32,7 @@
     worktreePath,
     focused,
     active,
+    isMultiPane = false,
     onFocus,
   }: {
     pane: PaneSession
@@ -26,6 +40,7 @@
     worktreePath: string
     focused: boolean
     active: boolean
+    isMultiPane?: boolean
     onFocus: () => void
   } = $props()
 
@@ -35,11 +50,18 @@
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
   let keystrokeVisualizerEnabled = $derived(prefs['keystrokeVisualizer.enabled'] === 'true')
 
-  // Whether this pane is a valid drop target
+  // Whether this pane is a valid drop target (for both tab and pane drags)
   let isValidTarget = $derived(
     dragState.isDragging &&
-      dragState.sourceTabId !== tabId &&
-      dragState.sourceWorktree === worktreePath,
+      dragState.sourceWorktree === worktreePath &&
+      (dragState.dragType === 'tab'
+        ? dragState.sourceTabId !== tabId
+        : dragState.sourcePaneId !== pane.id),
+  )
+
+  // Whether this pane is the drag source (for visual dimming)
+  let isDragSource = $derived(
+    dragState.dragType === 'pane' && dragState.sourcePaneId === pane.id && dragState.isDragging,
   )
 
   function computeZone(e: PointerEvent): DropZone | null {
@@ -76,6 +98,7 @@
     }
   }
 
+  // Drop target listener (active when a drag is in progress and this pane is a valid target)
   $effect(() => {
     if (!isValidTarget) {
       hoveredZone = null
@@ -87,11 +110,75 @@
       hoveredZone = null
     }
   })
+
+  // --- Alt+drag pane initiation (capture phase to intercept before terminal) ---
+
+  let paneDragStartX = 0
+  let paneDragStartY = 0
+  let paneDragActive = false
+
+  function handlePaneDragPointerDown(e: PointerEvent): void {
+    if (!e.altKey || e.button !== 0 || !isMultiPane) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    paneDragStartX = e.clientX
+    paneDragStartY = e.clientY
+    paneDragActive = false
+    startPaneDrag(tabId, pane.id, worktreePath)
+
+    window.addEventListener('pointermove', handlePaneDragMove)
+    window.addEventListener('pointerup', handlePaneDragEnd)
+  }
+
+  function handlePaneDragMove(e: PointerEvent): void {
+    const dx = e.clientX - paneDragStartX
+    const dy = e.clientY - paneDragStartY
+    if (!paneDragActive && Math.sqrt(dx * dx + dy * dy) > 5) {
+      paneDragActive = true
+      activateDrag()
+    }
+  }
+
+  function handlePaneDragEnd(): void {
+    window.removeEventListener('pointermove', handlePaneDragMove)
+    window.removeEventListener('pointerup', handlePaneDragEnd)
+
+    if (paneDragActive) {
+      const dt = dragState.dropTarget
+      if (dragState.detachToTabBar) {
+        detachPaneToTab(worktreePath, tabId, pane.id)
+      } else if (dt) {
+        movePaneToTarget(worktreePath, tabId, pane.id, dt.tabId, dt.paneId, dt.zone)
+      }
+    }
+
+    paneDragActive = false
+    clearDrag()
+  }
+
+  // Attach capture-phase listener to intercept Alt+click before terminal content
+  $effect(() => {
+    if (!wrapperEl) return
+    wrapperEl.addEventListener('pointerdown', handlePaneDragPointerDown, { capture: true })
+    return () => {
+      wrapperEl!.removeEventListener('pointerdown', handlePaneDragPointerDown, { capture: true })
+      // Safety: clean up window listeners if component unmounts mid-drag
+      window.removeEventListener('pointermove', handlePaneDragMove)
+      window.removeEventListener('pointerup', handlePaneDragEnd)
+    }
+  })
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="pane-wrapper" class:focused onclick={onFocus} bind:this={wrapperEl}>
+<div
+  class="pane-wrapper"
+  class:focused
+  class:drag-source={isDragSource}
+  onclick={onFocus}
+  bind:this={wrapperEl}
+>
   {#if pane.paneType === 'browser'}
     <BrowserPane
       browserId={pane.sessionId}
@@ -154,6 +241,10 @@
   .pane-wrapper.focused {
     outline: 1px solid var(--c-border);
     outline-offset: -1px;
+  }
+
+  .pane-wrapper.drag-source {
+    opacity: 0.4;
   }
 
   .pane-content {

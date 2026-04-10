@@ -122,6 +122,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.11.0',
     category: 'feature',
   },
+  {
+    id: 'pane-drag',
+    title: 'Drag panes to rearrange splits',
+    description:
+      'Hold Alt (Option on Mac) and drag any pane to reorder it within a split, move it to another tab, or drop it on the tab bar to detach it into its own tab.',
+    introducedIn: '0.11.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {
