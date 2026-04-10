@@ -98,6 +98,22 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.10.0',
     category: 'feature',
   },
+  {
+    id: 'remote-control',
+    title: 'Remote control (Beta)',
+    description:
+      'Mirror and control this Canopy window from your phone, tablet, or another laptop on the same WiFi. Enable it in Settings → Remote Control, then open "Remote Connection" from the command palette to scan a QR code and pair a device. Beta — expect rough edges while we iterate.',
+    introducedIn: '0.10.0',
+    category: 'feature',
+  },
+  {
+    id: 'perf-hud',
+    title: 'CPU and RAM in the status bar',
+    description:
+      'Enable "Show CPU and RAM usage in status bar" in Settings → General to see total CPU and memory across all Canopy processes, sampled once per second. Off by default — the sampler only runs while the indicator is visible, so there is no overhead when it is disabled.',
+    introducedIn: '0.11.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

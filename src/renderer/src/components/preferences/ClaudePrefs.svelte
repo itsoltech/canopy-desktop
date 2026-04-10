@@ -73,6 +73,7 @@
 
     <div class="field">
       <label class="field-label" for="claude-model">Model</label>
+      <span class="field-hint">Short name (sonnet, opus, haiku) or full model ID</span>
       <input
         id="claude-model"
         class="text-input"
@@ -86,6 +87,9 @@
 
     <div class="field">
       <label class="field-label" for="claude-perm">Permission mode</label>
+      <span class="field-hint"
+        >Controls what Claude can do without asking. Plan = read-only, Auto = full autonomy</span
+      >
       <CustomSelect
         id="claude-perm"
         value={permissionMode}
@@ -102,6 +106,7 @@
 
     <div class="field">
       <label class="field-label" for="claude-effort">Effort level</label>
+      <span class="field-hint">Higher effort means more thorough but slower responses</span>
       <CustomSelect
         id="claude-effort"
         value={effortLevel}
@@ -122,6 +127,8 @@
 
     <div class="field">
       <label class="field-label" for="claude-apikey">API key</label>
+      <span class="field-hint">Anthropic API key. Falls back to ANTHROPIC_API_KEY env variable</span
+      >
       <input
         id="claude-apikey"
         class="text-input"
@@ -136,6 +143,7 @@
 
     <div class="field">
       <label class="field-label" for="claude-baseurl">Base URL</label>
+      <span class="field-hint">Custom API endpoint. Leave empty for default Anthropic API</span>
       <input
         id="claude-baseurl"
         class="text-input"
@@ -149,6 +157,7 @@
 
     <div class="field">
       <label class="field-label" for="claude-provider">Provider</label>
+      <span class="field-hint">Cloud provider for the Claude API backend</span>
       <CustomSelect
         id="claude-provider"
         value={provider}
@@ -168,6 +177,9 @@
 
     <div class="field">
       <label class="field-label" for="claude-sysprompt">Append to system prompt</label>
+      <span class="field-hint"
+        >Extra instructions added after the default system prompt in every session</span
+      >
       <textarea
         id="claude-sysprompt"
         class="text-input textarea"
@@ -182,6 +194,7 @@
 
   <div class="subsection">
     <h4 class="subsection-title">Environment variables</h4>
+    <span class="field-hint">Extra env vars passed to Claude Code sessions</span>
 
     {#if envEntries.length > 0}
       <div class="env-list">

@@ -117,8 +117,14 @@ export async function attachProject(path: string): Promise<void> {
   await result
 }
 
-export async function restoreProjects(paths: string[], activeWorktreePath?: string): Promise<void> {
-  const result = attachQueue.then(() => restoreProjectsImpl(paths, activeWorktreePath))
+export async function restoreProjects(
+  paths: string[],
+  activeWorktreePath?: string,
+  removedPaths?: string[],
+): Promise<void> {
+  const result = attachQueue.then(() =>
+    restoreProjectsImpl(paths, activeWorktreePath, removedPaths),
+  )
   attachQueue = result
     .then(() => undefined)
     .catch((err) => {
@@ -163,7 +169,28 @@ function reorderProjects(batchOrder: Map<string, number>): void {
   }
 }
 
-async function restoreProjectsImpl(paths: string[], activeWorktreePath?: string): Promise<void> {
+async function restoreProjectsImpl(
+  paths: string[],
+  activeWorktreePath?: string,
+  removedPaths?: string[],
+): Promise<void> {
+  if (removedPaths && removedPaths.length > 0) {
+    // Show basename when unique, otherwise include parent dir so colliding
+    // names stay distinguishable (e.g. "src/foo/project" vs "home/bar/project").
+    const basenames = removedPaths.map(basename)
+    const hasCollision = new Set(basenames).size !== basenames.length
+    const labels = hasCollision
+      ? removedPaths.map((p) => {
+          const parts = p.split('/').filter(Boolean)
+          return parts.slice(-2).join('/') || p
+        })
+      : basenames
+    const plural = removedPaths.length === 1 ? 'project' : 'projects'
+    addToast(
+      `Removed ${removedPaths.length} stale ${plural} (folder missing): ${labels.join(', ')}`,
+    )
+  }
+
   const uniquePaths = [...new Set(paths)]
   if (uniquePaths.length === 0) {
     if (activeWorktreePath) await selectWorktree(activeWorktreePath)

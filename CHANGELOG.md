@@ -1,3 +1,25 @@
+## [0.11.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.3...v0.11.0-next.4) (2026-04-09)
+
+### Bug Fixes
+
+* **ui:** preference hints, PR creation, sidebar and runtime fixes ([#132](https://github.com/itsoltech/canopy-desktop/issues/132)) ([87a94eb](https://github.com/itsoltech/canopy-desktop/commit/87a94eb5ee0e79eebd28136b4abfae77594f31e6))
+
+## [0.11.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.2...v0.11.0-next.3) (2026-04-09)
+
+### Features
+
+* add toggleable cpu/ram hud in status bar ([#131](https://github.com/itsoltech/canopy-desktop/issues/131)) ([b2c18a9](https://github.com/itsoltech/canopy-desktop/commit/b2c18a960405074acd80290b75c0aacc8dead52f))
+
+### Bug Fixes
+
+* **workspace:** clean up stale project rows on startup restore ([#130](https://github.com/itsoltech/canopy-desktop/issues/130)) ([38fd658](https://github.com/itsoltech/canopy-desktop/commit/38fd658e6ab84e059963084fcb0b5d3cd88a692f)), closes [#128](https://github.com/itsoltech/canopy-desktop/issues/128)
+
+## [0.11.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.1...v0.11.0-next.2) (2026-04-09)
+
+### Features
+
+* **remote:** webrtc remote control via qr pairing (beta) ([#129](https://github.com/itsoltech/canopy-desktop/issues/129)) ([e6848f0](https://github.com/itsoltech/canopy-desktop/commit/e6848f06a5c7b4b2255bdfa0b55fc14039e5c7ec))
+
 ## [0.11.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0...v0.11.0-next.1) (2026-04-09)
 
 ### Features

@@ -89,6 +89,7 @@
 
   <div class="field">
     <span class="field-label">Pull Strategy</span>
+    <span class="field-hint">How local commits are integrated when pulling remote changes</span>
     <div class="radio-group">
       <label class="radio-row">
         <CustomRadio checked={pullRebase} onchange={() => setPullStrategy(true)} />

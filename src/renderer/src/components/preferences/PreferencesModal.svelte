@@ -16,6 +16,9 @@
   import PrivacyPrefs from './PrivacyPrefs.svelte'
   import FileWatcherPrefs from './FileWatcherPrefs.svelte'
   import SkillPrefs from './SkillPrefs.svelte'
+  import NotchPrefs from './NotchPrefs.svelte'
+  import MiscPrefs from './MiscPrefs.svelte'
+  import RemoteControlPrefs from './RemoteControlPrefs.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
 
@@ -23,10 +26,12 @@
 
   const groups = [
     { label: 'General', sections: ['General', 'Updates', 'Privacy', 'Shortcuts'] },
+    { label: 'Features', sections: ['Notch', 'Misc'] },
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
     { label: 'AI Agents', sections: ['Claude', 'Gemini', 'Skills'] },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
+    { label: 'Security', sections: ['Remote Control'] },
   ] as const
 
   type Section = (typeof groups)[number]['sections'][number]
@@ -116,6 +121,12 @@
         <PrivacyPrefs />
       {:else if activeSection === 'Shortcuts'}
         <ShortcutsPrefs />
+      {:else if activeSection === 'Notch'}
+        <NotchPrefs />
+      {:else if activeSection === 'Misc'}
+        <MiscPrefs />
+      {:else if activeSection === 'Remote Control'}
+        <RemoteControlPrefs />
       {/if}
     </div>
   </div>

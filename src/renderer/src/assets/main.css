@@ -1,4 +1,4 @@
-@import './base.css';
+@import '../../../renderer-shared/styles/tokens.css';
 
 body {
   overflow: hidden;

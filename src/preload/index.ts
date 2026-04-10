@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { GitInfo } from '../main/git/GitRepository'
+import type { RemoteSessionStatus } from '../main/remote/types'
 
 const api = {
   // PTY
@@ -14,6 +15,11 @@ const api = {
     ipcRenderer.invoke('pty:write', { sessionId, data }),
   hasChildProcess: (sessionId: string) =>
     ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
+  getPtyDimensions: (sessionId: string) =>
+    ipcRenderer.invoke('pty:getDimensions', { sessionId }) as Promise<{
+      cols: number
+      rows: number
+    } | null>,
 
   // Tmux
   tmuxIsAvailable: () => ipcRenderer.invoke('tmux:isAvailable') as Promise<boolean>,
@@ -323,6 +329,12 @@ const api = {
     ipcRenderer.invoke('git:revertFile', { repoRoot, filePath }),
   gitGenerateCommitMessage: (repoRoot: string) =>
     ipcRenderer.invoke('git:generateCommitMessage', { repoRoot }),
+  gitCreatePR: (
+    repoRoot: string,
+    params: { title: string; body: string; baseRefName: string; draft: boolean },
+  ) => ipcRenderer.invoke('git:createPR', { repoRoot, ...params }),
+  gitGetDefaultBranch: (repoRoot: string) =>
+    ipcRenderer.invoke('git:getDefaultBranch', { repoRoot }),
 
   // Browser (<webview> management)
   setupBrowserWebview: (browserId: string, webContentsId: number) =>
@@ -515,6 +527,23 @@ const api = {
       ipcRenderer.removeListener('pty:exit', handler)
     }
   },
+  /**
+   * Subscribe to PTY resize broadcasts. Fires whenever any session's PTY
+   * is resized (host desktop fit, split pane resize, etc.) so the remote
+   * host controller can relay the new dimensions to any connected peer.
+   * Returns an unsubscribe function — call it in a cleanup / onDestroy
+   * hook to avoid leaking listeners across session teardown.
+   */
+  onPtyResized: (callback: (sessionId: string, cols: number, rows: number) => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      data: { sessionId: string; cols: number; rows: number },
+    ): void => callback(data.sessionId, data.cols, data.rows)
+    ipcRenderer.on('pty:resized', handler)
+    return (): void => {
+      ipcRenderer.removeListener('pty:resized', handler)
+    }
+  },
 
   onWorktreeSetupProgress: (
     callback: (data: {
@@ -558,10 +587,16 @@ const api = {
     }
   },
 
-  onRestoreWindow: (callback: (data: { paths: string[]; activeWorktreePath?: string }) => void) => {
+  onRestoreWindow: (
+    callback: (data: {
+      paths: string[]
+      activeWorktreePath?: string
+      removedPaths?: string[]
+    }) => void,
+  ) => {
     const handler = (
       _event: IpcRendererEvent,
-      data: { paths: string[]; activeWorktreePath?: string },
+      data: { paths: string[]; activeWorktreePath?: string; removedPaths?: string[] },
     ): void => callback(data)
     ipcRenderer.on('workspace:restoreWindow', handler)
     return (): void => {
@@ -794,6 +829,44 @@ const api = {
   githubGetRepoIdentifier: (repoRoot: string) =>
     ipcRenderer.invoke('github:getRepoIdentifier', { repoRoot }),
 
+  // Remote control (WebRTC pairing via QR)
+  remote: {
+    start: () => ipcRenderer.invoke('remote:start') as Promise<{ pairingUrl: string }>,
+    stop: () => ipcRenderer.invoke('remote:stop') as Promise<void>,
+    getStatus: () => ipcRenderer.invoke('remote:getStatus') as Promise<RemoteSessionStatus>,
+    acceptDevice: (remember: boolean) =>
+      ipcRenderer.invoke('remote:acceptDevice', { remember }) as Promise<void>,
+    rejectDevice: () => ipcRenderer.invoke('remote:rejectDevice') as Promise<void>,
+    sendSignal: (msg: unknown) => ipcRenderer.invoke('remote:sendSignal', msg) as Promise<void>,
+    listTrustedDevices: () =>
+      ipcRenderer.invoke('remote:listTrustedDevices') as Promise<
+        Array<{
+          deviceId: string
+          name: string
+          addedAt: string
+          lastSeen: string
+          publicKeyJwk: unknown
+        }>
+      >,
+    removeTrustedDevice: (deviceId: string) =>
+      ipcRenderer.invoke('remote:removeTrustedDevice', { deviceId }) as Promise<void>,
+    onStatusChange: (callback: (status: RemoteSessionStatus) => void) => {
+      const handler = (_event: IpcRendererEvent, status: RemoteSessionStatus): void =>
+        callback(status)
+      ipcRenderer.on('remote:statusChange', handler)
+      return (): void => {
+        ipcRenderer.removeListener('remote:statusChange', handler)
+      }
+    },
+    onSignal: (callback: (msg: unknown) => void) => {
+      const handler = (_event: IpcRendererEvent, msg: unknown): void => callback(msg)
+      ipcRenderer.on('remote:signal', handler)
+      return (): void => {
+        ipcRenderer.removeListener('remote:signal', handler)
+      }
+    },
+  },
+
   // Performance diagnostics (only active when CANOPY_PERF=1)
   ...(process.env.CANOPY_PERF === '1'
     ? {
@@ -801,6 +874,20 @@ const api = {
         perfIpcLog: () => ipcRenderer.invoke('perf:ipcLog'),
       }
     : {}),
+
+  // Status-bar perf HUD (always available, opt-in via preference)
+  perfHud: {
+    start: () => ipcRenderer.invoke('perf:hud:start') as Promise<void>,
+    stop: () => ipcRenderer.invoke('perf:hud:stop') as Promise<void>,
+    onMetrics: (callback: (metrics: { cpu: number; memMb: number }) => void) => {
+      const handler = (_event: IpcRendererEvent, metrics: { cpu: number; memMb: number }): void =>
+        callback(metrics)
+      ipcRenderer.on('perf:hud:metrics', handler)
+      return (): void => {
+        ipcRenderer.removeListener('perf:hud:metrics', handler)
+      }
+    },
+  },
 
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

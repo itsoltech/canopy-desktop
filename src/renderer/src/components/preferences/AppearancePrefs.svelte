@@ -26,6 +26,7 @@
 
   <div class="field">
     <span class="field-label">Theme</span>
+    <span class="field-hint">Terminal color scheme</span>
     <div class="theme-grid" role="group" aria-label="Theme">
       {#each themeNames as name (name)}
         <button
@@ -41,6 +42,9 @@
 
   <div class="field">
     <label class="field-label" for="font-family">Font Family</label>
+    <span class="field-hint"
+      >Comma-separated list of fonts for the terminal. First available font is used</span
+    >
     <input
       id="font-family"
       class="text-input"
@@ -53,6 +57,7 @@
 
   <div class="field">
     <label class="field-label" for="font-size">Font Size</label>
+    <span class="field-hint">Terminal text size in pixels (8–24)</span>
     <CustomNumberInput
       id="font-size"
       value={fontSize}
@@ -131,6 +136,11 @@
     font-size: 13px;
     font-family: monospace;
     outline: none;
+  }
+
+  .field-hint {
+    font-size: 11px;
+    color: var(--c-text-faint);
   }
 
   .text-input:focus {

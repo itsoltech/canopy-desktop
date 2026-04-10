@@ -22,6 +22,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -179,9 +180,12 @@ jobs:
         env:
           TO_VERSION: ${{ steps.range.outputs.to }}
         run: |
-          # Claude may have switched branches — return to next
+          # Claude may have left unstaged changes or switched branches —
+          # discard everything and sync hard to the latest remote next.
+          git fetch origin next
           git checkout next
-          git pull origin next --rebase
+          git reset --hard origin/next
+          git clean -fdx -- ':!node_modules'
 
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           jq -n --arg v "$TO_VERSION" --arg t "$TIMESTAMP" \

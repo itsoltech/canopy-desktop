@@ -1,6 +1,6 @@
 {
   "name": "canopy",
-  "version": "0.11.0-next.1",
+  "version": "0.11.0-next.4",
   "description": "Developer terminal workstation",
   "main": "./out/main/index.js",
   "author": "ITSOL",
@@ -31,7 +31,7 @@
     "_perf:note": "perf:* scripts use Unix env var syntax (macOS/Linux only)"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.100",
     "@electron-toolkit/utils": "^4.0.0",
     "@lucide/svelte": "^1.0.0-rc.1",
     "@parcel/watcher": "^2.5.6",
@@ -49,6 +49,8 @@
     "marked": "^17.0.5",
     "neverthrow": "^8.2.0",
     "node-pty": "^1.1.0",
+    "qr-code-styling": "^1.9.2",
+    "selfsigned": "^5.5.0",
     "semver": "^7.7.4",
     "simple-git": "^3.33.0",
     "smol-toml": "^1.6.1",

@@ -200,7 +200,19 @@
         {/each}
 
         {#if grouped.size === 0}
-          <div class="tree-empty">No configurations</div>
+          <div class="tree-empty">
+            <p>No configurations</p>
+            {#if workspaceState.repoRoot}
+              <button
+                class="new-btn"
+                onclick={() => startNew(workspaceState.repoRoot!)}
+                aria-label="Create new configuration"
+              >
+                <Plus size={14} />
+                New configuration
+              </button>
+            {/if}
+          </div>
         {/if}
       </div>
 
@@ -404,6 +416,29 @@
     font-size: 11px;
     color: var(--c-text-faint);
     text-align: center;
+  }
+
+  .tree-empty p {
+    margin: 0 0 12px;
+  }
+
+  .new-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border: 1px dashed var(--c-text-faint);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--c-text-secondary);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .new-btn:hover {
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .editor-panel {

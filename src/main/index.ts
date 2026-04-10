@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
 import os from 'os'
-import { readFileSync, realpathSync } from 'fs'
+import { existsSync, readFileSync, realpathSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { match } from 'ts-pattern'
@@ -33,6 +33,8 @@ import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
 import { validateBounds, cascadeBounds } from './windowBounds'
 import { TelemetryManager } from './telemetry/TelemetryManager'
+import { RemoteSessionService } from './remote/RemoteSessionService'
+import { PerfHudService } from './perf/PerfHudService'
 import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
 
@@ -116,6 +118,8 @@ const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
 const tmuxManager = new TmuxManager(app.getPath('userData'))
+const remoteSessionService = new RemoteSessionService(preferencesStore)
+const perfHudService = new PerfHudService()
 windowManager.setTmuxManager(tmuxManager)
 windowManager.setOnWindowDispose((paths) => {
   for (const path of paths) {
@@ -599,6 +603,7 @@ app.whenReady().then(async () => {
     globalConfigManager,
     keychainTokenStore,
     gitHubService,
+    remoteSessionService,
     runConfigManager,
     skillRegistry,
     skillInstaller,
@@ -672,6 +677,16 @@ app.whenReady().then(async () => {
     })
   }
 
+  // Status-bar perf HUD (always available, gated by user preference in renderer)
+  ipcMain.handle('perf:hud:start', (event) => {
+    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    perfHudService.subscribe(event.sender)
+  })
+  ipcMain.handle('perf:hud:stop', (event) => {
+    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    perfHudService.unsubscribe(event.sender)
+  })
+
   ipcMain.handle('app:openExternal', (_event, { url }: { url: string }) => {
     if (!isSafeExternalUrl(url)) return
     return shell.openExternal(url)
@@ -732,6 +747,47 @@ app.whenReady().then(async () => {
       }
     }
 
+    // Drop any paths whose directory no longer exists on disk. Without this,
+    // restore would fail every launch with a toast, leaving an unreachable
+    // stale row in the workspaces table (see itsoltech/canopy-desktop#128).
+    const allRemovedPaths: string[] = []
+    for (const config of windowConfigs) {
+      const keptPaths: string[] = []
+      for (const p of config.paths) {
+        if (existsSync(p)) {
+          keptPaths.push(p)
+        } else {
+          allRemovedPaths.push(p)
+        }
+      }
+      config.paths = keptPaths
+      if (config.activeWorktreePath && !existsSync(config.activeWorktreePath)) {
+        config.activeWorktreePath = undefined
+      }
+    }
+    if (allRemovedPaths.length > 0) {
+      console.info('[restore] dropping stale paths (folder missing):', allRemovedPaths)
+      for (const p of allRemovedPaths) {
+        const ws = workspaceStore.getByPath(p)
+        if (ws) {
+          layoutStore.deleteAll(ws.id)
+          workspaceStore.remove(ws.id)
+        } else {
+          console.warn(
+            `[restore] no workspace row found for stale path "${p}" — skipping DB cleanup`,
+          )
+        }
+      }
+      // Drop configs that are now empty after stale-path removal — otherwise
+      // they'd spawn blank ghost windows and get persisted back every restart.
+      windowConfigs = windowConfigs.filter((c) => c.paths.length > 0)
+      if (windowConfigs.length > 0) {
+        preferencesStore.set('openWindowConfigs', JSON.stringify(windowConfigs))
+      } else {
+        preferencesStore.delete('openWindowConfigs')
+      }
+    }
+
     let postLaunchSent = false
     const sendPostLaunch = (win: BrowserWindow): void => {
       if (postLaunchSent) return
@@ -749,23 +805,40 @@ app.whenReady().then(async () => {
     }
 
     if (windowConfigs.length > 0) {
+      let removedPathsReported = false
       for (const config of windowConfigs) {
         const bounds = config.bounds ? validateBounds(config.bounds) : undefined
         const win = windowManager.createWindow({
           bounds,
           windowState: config.windowState,
         })
+        // Only surface the stale-cleanup toast in one window to avoid duplicates
+        const removedPaths =
+          !removedPathsReported && allRemovedPaths.length > 0 ? allRemovedPaths : undefined
+        if (removedPaths) removedPathsReported = true
         win.once('ready-to-show', () => {
           win.webContents.send('workspace:restoreWindow', {
             paths: config.paths,
             activeWorktreePath: config.activeWorktreePath,
+            removedPaths,
           })
           sendPostLaunch(win)
         })
       }
     } else {
       const win = windowManager.createWindow()
-      win.once('ready-to-show', () => sendPostLaunch(win))
+      win.once('ready-to-show', () => {
+        // If every saved config ended up empty (all projects deleted),
+        // we still need to surface the stale-cleanup toast here — the
+        // windowed restore branch above would have handled it otherwise.
+        if (allRemovedPaths.length > 0) {
+          win.webContents.send('workspace:restoreWindow', {
+            paths: [],
+            removedPaths: allRemovedPaths,
+          })
+        }
+        sendPostLaunch(win)
+      })
     }
   } else {
     const win = windowManager.createWindow()
@@ -835,6 +908,8 @@ app.on('before-quit', (event) => {
     notchOverlay?.dispose()
     agentSessionManager?.dispose()
     skillsCliServer.stop()
+    remoteSessionService.dispose()
+    perfHudService.shutdown()
     database.close()
     return
   }
@@ -925,6 +1000,8 @@ app.on('before-quit', (event) => {
   }
   notchOverlay?.dispose()
   agentSessionManager?.dispose()
+  remoteSessionService.dispose()
+  perfHudService.shutdown()
   windowManager.disposeAll()
   skillsCliServer.stop()
   database.close()
