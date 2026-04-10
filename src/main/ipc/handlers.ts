@@ -2561,4 +2561,23 @@ export function registerIpcHandlers(
     const results = await scanSkills(payload?.workspacePath)
     return JSON.parse(JSON.stringify(results))
   })
+
+  ipcMain.handle('skills:deleteFile', async (_event, payload: { filePath: string }) => {
+    const filePath = payload.filePath
+    // Validate path is within known skill directories
+    const home = os.homedir() + path.sep
+    if (!filePath.startsWith(home)) {
+      throw new Error('Cannot delete files outside home directory')
+    }
+    const relPath = filePath.slice(home.length).split(path.sep)[0]
+    const allowed = ['.claude', '.gemini', '.cursor', '.opencode', '.agents']
+    if (!relPath.startsWith('.') || !allowed.some((d) => relPath === d)) {
+      // Also allow project paths (not starting with dot)
+      if (relPath.startsWith('.')) {
+        throw new Error('Cannot delete files in this directory')
+      }
+    }
+    await fs.promises.unlink(filePath)
+    return { success: true }
+  })
 }

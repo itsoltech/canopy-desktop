@@ -129,6 +129,8 @@ const api = {
 
   scanSkills: (workspacePath?: string) => ipcRenderer.invoke('skills:scan', { workspacePath }),
 
+  deleteSkillFile: (filePath: string) => ipcRenderer.invoke('skills:deleteFile', { filePath }),
+
   // Agent session
   updateAgentTitle: (sessionId: string, title: string) =>
     ipcRenderer.invoke('agent:updateTitle', { sessionId, title }),

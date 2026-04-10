@@ -38,6 +38,9 @@
   >([])
   let scanning = $state(false)
 
+  const projectScanned = $derived(scannedSkills.filter((s) => s.scope === 'project'))
+  const globalScanned = $derived(scannedSkills.filter((s) => s.scope === 'global'))
+
   async function scanForSkills(): Promise<void> {
     scanning = true
     try {
@@ -71,6 +74,7 @@
       installScope = 'project'
       installMethod = 'copy'
       showInstallForm = false
+      await scanForSkills()
     } catch (e) {
       installError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -84,6 +88,16 @@
       await window.api.removeSkill(id, workspaceState.selectedWorktreePath ?? undefined)
     } catch (e) {
       console.error('Failed to remove skill:', e)
+    }
+  }
+
+  async function deleteScannedSkill(filePath: string, name: string): Promise<void> {
+    if (!window.confirm(`Delete skill file "${name}" from disk?`)) return
+    try {
+      await window.api.deleteSkillFile(filePath)
+      await scanForSkills()
+    } catch (e) {
+      console.error('Failed to delete skill file:', e)
     }
   }
 
@@ -124,86 +138,187 @@
 <div class="section">
   <h3 class="section-title">Skills</h3>
 
-  <div class="skill-list">
-    {#each skills as skill (skill.id)}
-      <div class="skill-row">
-        <div
-          class="skill-main"
-          role="button"
-          tabindex="0"
-          onclick={() => toggleExpand(skill.id)}
-          onkeydown={(e) => e.key === 'Enter' && toggleExpand(skill.id)}
-        >
-          <span class="skill-name">{skill.name}</span>
-          <span class="skill-agents">
-            {skill.enabledAgents.map((a) => agentLabels[a] ?? a).join(', ')}
-          </span>
-        </div>
-
-        {#if expandedId === skill.id}
-          <div class="skill-details">
-            <p class="skill-description">{skill.description || 'No description'}</p>
-
-            <div class="meta-item">
-              <span class="meta-label">Source</span>
-              <span class="meta-value">{skill.sourceUri}</span>
-            </div>
-            <div class="skill-meta-row">
-              <div class="meta-item">
-                <span class="meta-label">Scope</span>
-                <span class="meta-value">{skill.scope}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Type</span>
-                <span class="meta-value">{skill.sourceType}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Method</span>
-                <span class="meta-value">{skill.installMethod}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Version</span>
-                <span class="meta-value">{skill.version}</span>
-              </div>
-            </div>
-
-            <div class="agent-toggles">
-              <span class="meta-label">Agents</span>
-              <div class="agent-toggle-list">
-                {#each skill.agents as agent (agent)}
-                  <label class="agent-toggle">
-                    <input
-                      type="checkbox"
-                      checked={skill.enabledAgents.includes(agent)}
-                      onchange={() =>
-                        toggleAgent(skill.id, agent, !skill.enabledAgents.includes(agent))}
-                    />
-                    {agentLabels[agent] ?? agent}
-                  </label>
-                {/each}
-              </div>
-            </div>
-
-            <div class="skill-actions">
-              <button class="btn btn-action btn-update" onclick={() => updateSkill(skill.id)}
-                >Update</button
-              >
-              <button
-                class="btn btn-action btn-remove"
-                onclick={() => removeSkill(skill.id, skill.name)}>Remove</button
-              >
-            </div>
+  <!-- Installed skills (from DB) -->
+  {#if skills.length > 0}
+    <div class="skill-list">
+      {#each skills as skill (skill.id)}
+        <div class="skill-row">
+          <div
+            class="skill-main"
+            role="button"
+            tabindex="0"
+            onclick={() => toggleExpand(skill.id)}
+            onkeydown={(e) => e.key === 'Enter' && toggleExpand(skill.id)}
+          >
+            <span class="skill-name">{skill.name}</span>
+            <span class="skill-agents">
+              {skill.enabledAgents.map((a) => agentLabels[a] ?? a).join(', ')}
+            </span>
           </div>
-        {/if}
-      </div>
-    {/each}
-  </div>
 
-  {#if skills.length === 0}
+          {#if expandedId === skill.id}
+            <div class="skill-details">
+              <p class="skill-description">{skill.description || 'No description'}</p>
+
+              <div class="meta-item">
+                <span class="meta-label">Source</span>
+                <span class="meta-value">{skill.sourceUri}</span>
+              </div>
+              <div class="skill-meta-row">
+                <div class="meta-item">
+                  <span class="meta-label">Scope</span>
+                  <span class="meta-value">{skill.scope}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Type</span>
+                  <span class="meta-value">{skill.sourceType}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Method</span>
+                  <span class="meta-value">{skill.installMethod}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Version</span>
+                  <span class="meta-value">{skill.version}</span>
+                </div>
+              </div>
+
+              <div class="agent-toggles">
+                <span class="meta-label">Agents</span>
+                <div class="agent-toggle-list">
+                  {#each skill.agents as agent (agent)}
+                    <label class="agent-toggle">
+                      <input
+                        type="checkbox"
+                        checked={skill.enabledAgents.includes(agent)}
+                        onchange={() =>
+                          toggleAgent(skill.id, agent, !skill.enabledAgents.includes(agent))}
+                      />
+                      {agentLabels[agent] ?? agent}
+                    </label>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="skill-actions">
+                <button class="btn btn-action btn-update" onclick={() => updateSkill(skill.id)}
+                  >Update</button
+                >
+                <button
+                  class="btn btn-action btn-remove"
+                  onclick={() => removeSkill(skill.id, skill.name)}>Remove</button
+                >
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
+
+  <!-- Discovered skills (from disk scan) -->
+  {#if scannedSkills.length > 0}
+    {#if projectScanned.length > 0}
+      <span class="scan-group-label">Project Skills</span>
+      <div class="skill-list">
+        {#each projectScanned as skill (skill.filePath)}
+          <div class="skill-row">
+            <div
+              class="skill-main"
+              role="button"
+              tabindex="0"
+              onclick={() => toggleExpand(skill.filePath)}
+              onkeydown={(e) => e.key === 'Enter' && toggleExpand(skill.filePath)}
+            >
+              <span class="skill-name">{skill.name}</span>
+              <span class="skill-agents">{agentLabels[skill.agent] ?? skill.agent}</span>
+            </div>
+
+            {#if expandedId === skill.filePath}
+              <div class="skill-details">
+                <p class="skill-description">{skill.description || 'No description'}</p>
+                <div class="skill-meta-row">
+                  <div class="meta-item">
+                    <span class="meta-label">Agent</span>
+                    <span class="meta-value">{agentLabels[skill.agent] ?? skill.agent}</span>
+                  </div>
+                  <div class="meta-item">
+                    <span class="meta-label">Scope</span>
+                    <span class="meta-value">{skill.scope}</span>
+                  </div>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">File</span>
+                  <span class="meta-value">{skill.filePath}</span>
+                </div>
+                <div class="skill-actions">
+                  <button
+                    class="btn btn-action btn-remove"
+                    onclick={() => deleteScannedSkill(skill.filePath, skill.name)}>Delete</button
+                  >
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if globalScanned.length > 0}
+      <span class="scan-group-label">Global Skills</span>
+      <div class="skill-list">
+        {#each globalScanned as skill (skill.filePath)}
+          <div class="skill-row">
+            <div
+              class="skill-main"
+              role="button"
+              tabindex="0"
+              onclick={() => toggleExpand(skill.filePath)}
+              onkeydown={(e) => e.key === 'Enter' && toggleExpand(skill.filePath)}
+            >
+              <span class="skill-name">{skill.name}</span>
+              <span class="skill-agents">{agentLabels[skill.agent] ?? skill.agent}</span>
+            </div>
+
+            {#if expandedId === skill.filePath}
+              <div class="skill-details">
+                <p class="skill-description">{skill.description || 'No description'}</p>
+                <div class="skill-meta-row">
+                  <div class="meta-item">
+                    <span class="meta-label">Agent</span>
+                    <span class="meta-value">{agentLabels[skill.agent] ?? skill.agent}</span>
+                  </div>
+                  <div class="meta-item">
+                    <span class="meta-label">Scope</span>
+                    <span class="meta-value">{skill.scope}</span>
+                  </div>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">File</span>
+                  <span class="meta-value">{skill.filePath}</span>
+                </div>
+                <div class="skill-actions">
+                  <button
+                    class="btn btn-action btn-remove"
+                    onclick={() => deleteScannedSkill(skill.filePath, skill.name)}>Delete</button
+                  >
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {/if}
+
+  {#if skills.length === 0 && scannedSkills.length === 0 && !scanning}
     <p class="empty-state">
-      No skills installed yet. Install from a local path, URL, or GitHub, or scan to discover
-      existing ones.
+      No skills found. Install from a local path, URL, or GitHub, or scan to discover existing ones.
     </p>
+  {/if}
+
+  {#if scanning}
+    <p class="empty-state">Scanning for skills...</p>
   {/if}
 
   {#if showInstallForm}
@@ -281,45 +396,8 @@
         }}>+ Install Skill</button
       >
       <button class="btn btn-add-skill" onclick={scanForSkills} disabled={scanning}>
-        {scanning ? 'Scanning...' : 'Scan for Skills'}
+        {scanning ? 'Scanning...' : 'Rescan'}
       </button>
-    </div>
-  {/if}
-
-  {#if scannedSkills.length > 0}
-    {@const projectSkills = scannedSkills.filter((s) => s.scope === 'project')}
-    {@const globalSkills = scannedSkills.filter((s) => s.scope === 'global')}
-    <div class="scan-section">
-      <h4 class="scan-title">Discovered Skills</h4>
-      <p class="scan-note">Found in agent directories on disk. Includes manually added skills.</p>
-
-      {#if projectSkills.length > 0}
-        <span class="scan-group-label">Project</span>
-        <div class="skill-list">
-          {#each projectSkills as skill (skill.filePath)}
-            <div class="skill-row">
-              <div class="skill-main">
-                <span class="skill-name">{skill.name}</span>
-                <span class="skill-agents">{skill.agent}</span>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-
-      {#if globalSkills.length > 0}
-        <span class="scan-group-label">Global</span>
-        <div class="skill-list">
-          {#each globalSkills as skill (skill.filePath)}
-            <div class="skill-row">
-              <div class="skill-main">
-                <span class="skill-name">{skill.name}</span>
-                <span class="skill-agents">{skill.agent}</span>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
     </div>
   {/if}
 </div>
@@ -447,6 +525,14 @@
     margin: 0;
   }
 
+  .scan-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
   .install-form {
     display: flex;
     flex-direction: column;
@@ -558,41 +644,6 @@
   .btn-add-skill:hover {
     background: var(--c-hover);
     color: var(--c-text);
-  }
-
-  .scan-section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .scan-group-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    margin-top: 4px;
-  }
-
-  .scan-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--c-text-secondary);
-    margin: 0;
-  }
-
-  .scan-note {
-    font-size: 12px;
-    color: var(--c-text-faint);
-    margin: 0;
-  }
-
-  .scan-scope {
-    font-size: 10px;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
   }
 
   .btn-action {
