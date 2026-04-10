@@ -15,14 +15,14 @@ export class SkillStore {
     const rows = this.db
       .prepare('SELECT * FROM skill_definitions ORDER BY installed_at DESC')
       .all() as SkillDefinitionRow[]
-    return rows.map(skillFromRow) as CanopySkill[]
+    return JSON.parse(JSON.stringify(rows.map(skillFromRow)))
   }
 
   get(id: string): CanopySkill | undefined {
     const row = this.db.prepare('SELECT * FROM skill_definitions WHERE id = ?').get(id) as
       | SkillDefinitionRow
       | undefined
-    return row ? (skillFromRow(row) as CanopySkill) : undefined
+    return row ? JSON.parse(JSON.stringify(skillFromRow(row))) : undefined
   }
 
   list(opts?: SkillListOptions): CanopySkill[] {
@@ -45,7 +45,7 @@ export class SkillStore {
     sql += ' ORDER BY installed_at DESC'
 
     const rows = this.db.prepare(sql).all(...params) as SkillDefinitionRow[]
-    let skills = rows.map(skillFromRow) as CanopySkill[]
+    let skills: CanopySkill[] = JSON.parse(JSON.stringify(rows.map(skillFromRow)))
 
     if (opts?.agent) {
       skills = skills.filter((s) => s.agents.includes(opts.agent!))
