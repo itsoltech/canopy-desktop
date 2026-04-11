@@ -58,3 +58,7 @@ Use conventional commits: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test
 ## Specs and plans
 
 Never commit or push `SPEC.md` (or any other `*spec*.md` planning artefact) to the repo. Plans are scratch documents — keep them local. If a planning skill writes one, delete it before staging.
+
+## Documentation
+
+Feature behavior specs live in `docs/` (grouped into `core/`, `integrations/`, `features/`, `diagnostics/`). Reference them when verifying expected behavior. Update them when changing user-visible behavior.

@@ -24,3 +24,4 @@
 - [ ] Keyboard accessible (all interactive elements reachable via keyboard)
 - [ ] IPC follows `feature:action` naming and uses `invoke`/`handle`
 - [ ] Renderer code does not import Node.js modules directly
+- [ ] Behavior changes reflected in `docs/` (or N/A)

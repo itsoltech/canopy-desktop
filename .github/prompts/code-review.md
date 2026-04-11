@@ -50,6 +50,12 @@ Every new feature must earn its place. Prioritize high-impact additions that sol
 - Feature increases cognitive load (more things to learn/notice) disproportionate to its value.
 - New user-facing feature missing a corresponding onboarding step in `src/renderer/src/lib/onboarding/steps.ts`. Features that change defaults, add UI surfaces, or introduce new workflows should have a `category: 'feature'` step with the release version in `introducedIn` so users see it after upgrade. Keep the total step count low — onboarding must stay under 5 steps per release or users will skip it entirely.
 
+### Documentation
+
+- PR changes user-visible behavior of a documented feature but does not update the corresponding doc file in `docs/`.
+- PR adds a new feature domain (new directory under `src/main/`) without a corresponding doc in `docs/`.
+- New error variants added to an `errors.ts` file without being listed in the feature doc's Error States section.
+
 ### Cross-platform consistency
 
 This app targets macOS, Windows, and Linux. Platform-specific labels and behaviors are acceptable only in platform-exclusive features.

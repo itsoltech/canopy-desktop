@@ -90,6 +90,17 @@ This app targets macOS, Windows, and Linux. Shared features must not contain:
 
 Non-core features must be behind a feature flag, off by default. Users opt in. Only core functionality (security fixes, critical UX, essential workflows) may be auto-enabled.
 
+### Documentation
+
+Feature behavior is documented in `docs/`. When a PR changes user-visible behavior, update the relevant doc in the same PR. New feature domains need a new doc file. See `docs/README.md` for the template and index.
+
+Docs are grouped by layer:
+
+- `docs/core/` — terminal, git, worktree
+- `docs/integrations/` — task tracker, GitHub, agents, browser
+- `docs/features/` — run configurations, remote control, notch overlay, onboarding
+- `docs/diagnostics/` — telemetry, crash reporting, perf HUD, file watcher
+
 ## AI policy
 
 AI tools are allowed. We use them internally.
