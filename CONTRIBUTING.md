@@ -92,7 +92,9 @@ Non-core features must be behind a feature flag, off by default. Users opt in. O
 
 ### Documentation
 
-Feature behavior is documented in `docs/`. When a PR changes user-visible behavior, update the relevant doc in the same PR. New feature domains need a new doc file. See `docs/README.md` for the template and index.
+Feature behavior is documented in `docs/`. Code and docs ship together — a PR that changes behavior, configuration, error handling, or security properties must update the relevant doc in the same PR. New feature domains need a new doc file. See `docs/README.md` for the template and index.
+
+Each doc covers: Overview, Behavior (user-story workflows), Configuration (preference keys, config paths), Error States (from `errors.ts`), Security/Privacy, and Source Files. Update whichever sections the PR affects. The code review bot flags missing doc updates.
 
 Docs are grouped by layer:
 

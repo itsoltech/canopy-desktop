@@ -52,9 +52,17 @@ Every new feature must earn its place. Prioritize high-impact additions that sol
 
 ### Documentation
 
-- PR changes user-visible behavior of a documented feature but does not update the corresponding doc file in `docs/`.
+Feature behavior specs live in `docs/` (grouped into `core/`, `integrations/`, `features/`, `diagnostics/`). Cross-cutting patterns are in `docs/architecture.md`. Each feature doc has: Overview, Behavior, Configuration, Error States, Security/Privacy, Source Files. Code and docs must stay in sync — treat a missing doc update the same as a missing test.
+
+- PR changes user-visible behavior (workflows, UI states, defaults) but does not update the Behavior section of the corresponding doc in `docs/`.
 - PR adds a new feature domain (new directory under `src/main/`) without a corresponding doc in `docs/`.
-- New error variants added to an `errors.ts` file without being listed in the feature doc's Error States section.
+- New error variants added to an `errors.ts` file without being listed in the feature doc's Error States table.
+- New IPC channels (`ipcMain.handle`) added without being mentioned in the feature doc.
+- New preference keys or config file fields added without updating the Configuration section of the feature doc.
+- Changes to data collection, credential storage, or network requests without updating the Security/Privacy section of the affected feature doc.
+- New provider or adapter (task tracker provider, AI agent adapter) added without updating the relevant integration doc.
+- Feature or behavior removed but the corresponding doc still describes it as present.
+- Changes to cross-cutting patterns (IPC naming, error handling conventions, theming rules, state management approach) without updating `docs/architecture.md`.
 
 ### Cross-platform consistency
 
