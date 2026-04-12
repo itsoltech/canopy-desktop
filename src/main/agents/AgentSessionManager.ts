@@ -151,9 +151,14 @@ export class AgentSessionManager extends EventEmitter {
       },
     )
 
-    // Always use .sh scripts — Claude Code runs hooks via bash even on Windows
-    const hookScriptPath = this.getResourceScript('canopy-agent-hook.sh')
-    const statusLineScriptPath = this.getResourceScript('canopy-agent-statusline.sh')
+    // Claude Code CLI runs .sh hooks via bash on Windows; other CLIs need native .cmd scripts
+    const useCmd = process.platform === 'win32' && adapter.agentType !== 'claude'
+    const hookScriptPath = this.getResourceScript(
+      useCmd ? 'canopy-agent-hook.cmd' : 'canopy-agent-hook.sh',
+    )
+    const statusLineScriptPath = this.getResourceScript(
+      useCmd ? 'canopy-agent-statusline.cmd' : 'canopy-agent-statusline.sh',
+    )
 
     // Ensure scripts are executable
     if (process.platform !== 'win32') {
