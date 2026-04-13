@@ -488,15 +488,39 @@ export function registerIpcHandlers(
 
   // --- Agent Profiles ---
 
+  const KNOWN_AGENT_TYPES = new Set<AgentType>(['claude', 'gemini', 'opencode', 'codex'])
+
   ipcMain.handle('profile:list', async (_event, payload?: { agentType?: AgentType }) => {
     return (await profileStore.list(payload?.agentType)).unwrapOr([])
   })
 
   ipcMain.handle('profile:get', async (_event, payload: { id: string }) => {
+    if (!payload || typeof payload.id !== 'string') {
+      throw new Error('profile:get requires a string id')
+    }
     return (await profileStore.get(payload.id)).unwrapOr(null)
   })
 
   ipcMain.handle('profile:save', async (_event, input: ProfileInput) => {
+    if (!input || typeof input !== 'object') {
+      throw new Error('profile:save requires an input object')
+    }
+    if (typeof input.name !== 'string') {
+      throw new Error('profile:save: name must be a string')
+    }
+    if (typeof input.agentType !== 'string' || !KNOWN_AGENT_TYPES.has(input.agentType)) {
+      throw new Error(`profile:save: unknown agentType "${String(input.agentType)}"`)
+    }
+    if (input.id !== undefined && typeof input.id !== 'string') {
+      throw new Error('profile:save: id must be a string when provided')
+    }
+    if (input.prefs !== undefined && (typeof input.prefs !== 'object' || input.prefs === null)) {
+      throw new Error('profile:save: prefs must be an object')
+    }
+    if (input.apiKey !== undefined && input.apiKey !== null && typeof input.apiKey !== 'string') {
+      throw new Error('profile:save: apiKey must be a string, null, or omitted')
+    }
+
     const result = await profileStore.save(input)
     const profile = unwrapOrThrow(result, profileErrorMessage)
     await broadcastProfilesChanged()
@@ -504,6 +528,9 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('profile:delete', async (_event, payload: { id: string }) => {
+    if (!payload || typeof payload.id !== 'string') {
+      throw new Error('profile:delete requires a string id')
+    }
     const result = await profileStore.delete(payload.id)
     unwrapOrThrow(result, profileErrorMessage)
     await broadcastProfilesChanged()

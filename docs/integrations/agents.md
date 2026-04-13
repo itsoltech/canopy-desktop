@@ -187,6 +187,8 @@ Agent errors surface through the normalized event system rather than a dedicated
 - Codex's `.codex/hooks.json` (which contains local filesystem paths) is automatically added to `.gitignore`.
 - Gemini sessions run in isolated home directories so concurrent sessions do not interfere.
 - Credential autofill for the browser (separate feature) uses an isolated JavaScript world to prevent page script interception.
+- **Profile API key storage:** profile API keys are encrypted with Electron's `safeStorage`, which delegates to the OS keychain (Keychain on macOS, DPAPI on Windows, libsecret/kwallet on Linux). On Linux without a running keyring daemon, `safeStorage.isEncryptionAvailable()` returns false and the keys fall back to plain base64 in the SQLite file — **base64 is encoding, not encryption**, and the keys are trivially recoverable from `canopy.db`. A console warning is logged when this happens. To get OS-level encryption on Linux, install and start `gnome-keyring` or `kwallet` before launching Canopy. The same fallback applies to existing encrypted preference keys (`*.apiKey`, task tracker tokens) and to `CredentialStore`; this is not new behaviour, but profile users should be aware.
+- **Custom env var values** entered in the profile editor are masked by default in the UI (rendered as dots) and can be revealed per-row via a "Show" button. They are still stored in plain text inside the profile's `prefs_json` blob — they are not treated as secrets at the storage layer, so do not paste keys into the env vars field expecting encryption. Use the dedicated **API key** field for that.
 
 ## Source files
 

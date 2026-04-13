@@ -142,6 +142,20 @@
     }
   }
 
+  async function selectProfile(id: string): Promise<void> {
+    if (id === selectedId) return
+    if (dirty) {
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'You have unsaved changes in the current profile. Switch anyway?',
+        confirmLabel: 'Discard',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    selectedId = id
+  }
+
   async function handleDelete(profile: AgentProfileMasked): Promise<void> {
     const ok = await confirm({
       title: 'Delete profile',
@@ -178,7 +192,7 @@
         <ul class="profile-list">
           {#each agentProfiles as p (p.id)}
             <li class="profile-row" class:selected={selectedId === p.id}>
-              <button class="profile-row-select" onclick={() => (selectedId = p.id)} title={p.name}>
+              <button class="profile-row-select" onclick={() => selectProfile(p.id)} title={p.name}>
                 <span class="profile-name">{p.name}</span>
                 {#if p.isDefault}
                   <span class="badge-default">default</span>

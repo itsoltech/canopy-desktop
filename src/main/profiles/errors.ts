@@ -5,6 +5,7 @@ export type ProfileError =
   | { _tag: 'ProfileNotFound'; id: string }
   | { _tag: 'ProfileNameConflict'; agentType: AgentType; name: string }
   | { _tag: 'ProfileLastDeletion'; id: string }
+  | { _tag: 'ProfileReadError'; reason: string }
   | { _tag: 'ProfileWriteError'; reason: string }
   | { _tag: 'ProfileValidationError'; reason: string }
 
@@ -19,6 +20,7 @@ export function profileErrorMessage(error: ProfileError): string {
       { _tag: 'ProfileLastDeletion' },
       () => 'Cannot delete the only profile for this agent — create another one first',
     )
+    .with({ _tag: 'ProfileReadError' }, (e) => `Failed to read profile: ${e.reason}`)
     .with({ _tag: 'ProfileWriteError' }, (e) => `Failed to write profile: ${e.reason}`)
     .with({ _tag: 'ProfileValidationError' }, (e) => `Invalid profile: ${e.reason}`)
     .exhaustive()

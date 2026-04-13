@@ -114,7 +114,7 @@ export class ProfileStore {
       return okAsync(rows.map((r) => this.toMasked(this.rowToProfile(r))))
     } catch (e) {
       return errAsync({
-        _tag: 'ProfileWriteError',
+        _tag: 'ProfileReadError',
         reason: e instanceof Error ? e.message : String(e),
       })
     }
@@ -130,7 +130,7 @@ export class ProfileStore {
       return okAsync(this.rowToProfile(row))
     } catch (e) {
       return errAsync({
-        _tag: 'ProfileWriteError',
+        _tag: 'ProfileReadError',
         reason: e instanceof Error ? e.message : String(e),
       })
     }

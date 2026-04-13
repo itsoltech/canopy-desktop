@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { SvelteSet } from 'svelte/reactivity'
+
   let {
     customEnv,
     label = 'Environment variables',
@@ -24,6 +26,19 @@
   let showEnvForm = $state(false)
   let newEnvKey = $state('')
   let newEnvValue = $state('')
+
+  // Env var values often contain secrets (tokens, API keys). Mask by default
+  // so they're not exposed in screenshots or over-the-shoulder views; users
+  // can reveal individual rows on demand.
+  const revealed = new SvelteSet<string>()
+  function toggleReveal(key: string): void {
+    if (revealed.has(key)) revealed.delete(key)
+    else revealed.add(key)
+  }
+  function maskValue(value: string): string {
+    if (value.length === 0) return ''
+    return '•'.repeat(Math.min(value.length, 12))
+  }
 
   function persistEnvEntries(entries: Array<{ key: string; value: string }>): void {
     const obj: Record<string, string> = {}
@@ -55,10 +70,21 @@
   {#if envEntries.length > 0}
     <div class="env-list">
       {#each envEntries as entry, i (entry.key)}
+        {@const isRevealed = revealed.has(entry.key)}
         <div class="env-row">
           <span class="env-key">{entry.key}</span>
           <span class="env-sep">=</span>
-          <span class="env-value">{entry.value}</span>
+          <span class="env-value" class:masked={!isRevealed}>
+            {isRevealed ? entry.value : maskValue(entry.value)}
+          </span>
+          <button
+            class="reveal-btn"
+            onclick={() => toggleReveal(entry.key)}
+            title={isRevealed ? 'Hide value' : 'Show value'}
+            aria-label={isRevealed ? `Hide ${entry.key}` : `Show ${entry.key}`}
+          >
+            {isRevealed ? 'Hide' : 'Show'}
+          </button>
           <button class="remove-btn" onclick={() => removeEnvVar(i)}>Remove</button>
         </div>
       {/each}
@@ -147,6 +173,28 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .env-value.masked {
+    letter-spacing: 1px;
+    color: var(--c-text-faint);
+  }
+
+  .reveal-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--c-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--c-text-secondary);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .reveal-btn:hover {
+    background: var(--c-hover);
+    color: var(--c-text);
   }
 
   .remove-btn {
