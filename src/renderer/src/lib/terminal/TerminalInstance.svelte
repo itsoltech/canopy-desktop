@@ -361,7 +361,7 @@
           const mode = prefs.urlOpenMode || 'ask'
           if (mode === 'canopy') {
             const path = workspaceState.selectedWorktreePath
-            if (path) openTool('browser', path, url)
+            if (path) openTool('browser', path, { initialUrl: url })
           } else if (mode === 'system') {
             window.api.openExternal(url)
           } else {

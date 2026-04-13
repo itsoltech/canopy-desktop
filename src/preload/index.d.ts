@@ -297,7 +297,14 @@ interface CanopyAPI {
   spawnTool: (
     toolId: string,
     worktreePath: string,
-    options?: { cols?: number; rows?: number; workspaceName?: string; branch?: string },
+    options?: {
+      cols?: number
+      rows?: number
+      workspaceName?: string
+      branch?: string
+      resumeSessionId?: string
+      profileId?: string
+    },
   ) => Promise<ToolSpawnResult>
   addCustomTool: (tool: {
     id: string
@@ -705,6 +712,13 @@ interface CanopyAPI {
   // Platform
   platform: NodeJS.Platform
 
+  // Agent Profiles
+  listProfiles: (agentType?: AgentType) => Promise<AgentProfileMasked[]>
+  getProfile: (id: string) => Promise<AgentProfileMasked | null>
+  saveProfile: (input: ProfileInput) => Promise<AgentProfileMasked>
+  deleteProfile: (id: string) => Promise<void>
+  onProfilesChanged: (callback: (profiles: AgentProfileMasked[]) => void) => () => void
+
   // Run Configurations
   runConfigDiscover: (repoRoot: string) => Promise<RunConfigSource[]>
   runConfigSave: (configDir: string, config: RunConfigFile) => Promise<void>
@@ -745,6 +759,11 @@ interface RunConfigSource {
   relativePath: string
   file: RunConfigFile
 }
+
+type AgentType = import('../main/agents/types').AgentType
+type AgentProfileMasked = import('../main/profiles/types').AgentProfileMasked
+type ProfileInput = import('../main/profiles/types').ProfileInput
+type ProfilePrefs = import('../main/profiles/types').ProfilePrefs
 
 type RemoteSessionStatus = import('../main/remote/types').RemoteSessionStatus
 
