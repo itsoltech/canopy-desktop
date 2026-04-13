@@ -2,7 +2,7 @@ import type { DataChannelRpc } from '../../../../renderer-shared/rpc/DataChannel
 import type { RpcMethods, RpcMethodName } from '../../../../renderer-shared/rpc/methodList'
 import { StateSnapshotProvider } from './StateSnapshotProvider'
 import { PtyStreamForwarder } from './PtyStreamForwarder'
-import { checkAction } from './actionGuard'
+import { checkAction, resetSessionGrants } from './actionGuard'
 import { openTool, closeTab, switchTab, tabsByWorktree } from '../stores/tabs.svelte'
 import { selectWorktree } from '../stores/workspace.svelte'
 import { allPanes } from '../stores/splitTree'
@@ -178,6 +178,7 @@ export class HostRpcServer {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    resetSessionGrants()
     this.unsubPtyResized?.()
     this.unsubPtyResized = null
     this.ptyForwarder?.dispose()
