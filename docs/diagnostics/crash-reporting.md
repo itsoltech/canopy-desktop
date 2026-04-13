@@ -19,7 +19,10 @@ The crash reporter is active only in packaged (production) builds. In developmen
 1. On startup, `CrashReporter.init()` checks for a sentinel file `.canopy-running` in the user data directory (`app.getPath('userData')`).
 2. If the sentinel exists but no `crash-report.json` is present, the previous session exited without cleaning up. The reporter writes an `ungracefulShutdown` crash report with the message "The app did not shut down cleanly".
 3. The sentinel file is then (re)written with the current process PID.
-4. On graceful shutdown (`before-quit` or `window-all-closed`), `clearSentinel()` removes the sentinel file.
+4. On graceful shutdown, `clearSentinel()` removes the sentinel file. It is called from three places, in order of preference:
+   - The main `before-quit` handler (synchronous path, line ~1027 in `index.ts`).
+   - The updater-install branch of `before-quit` (line ~934), before Squirrel relaunches.
+   - A `process.on('exit')` fallback registered next to `CrashReporter.init()` — fires on any normal Node exit including SIGTERM/SIGINT and the `before-quit` async dialog paths (active-session confirm, tmux close-policy) that `preventDefault()` and return early without reaching the main cleanup block. This fallback cannot run on SIGKILL / Task Manager force-kill.
 
 ### Runtime crash recording
 
