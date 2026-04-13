@@ -85,7 +85,13 @@
           >
             {isRevealed ? 'Hide' : 'Show'}
           </button>
-          <button class="remove-btn" onclick={() => removeEnvVar(i)}>Remove</button>
+          <button
+            class="remove-btn"
+            onclick={() => removeEnvVar(i)}
+            aria-label={`Remove environment variable ${entry.key}`}
+          >
+            Remove
+          </button>
         </div>
       {/each}
     </div>
