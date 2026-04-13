@@ -167,7 +167,15 @@ export function getActiveAgentPane(): PaneSession | null {
 
   // 2) Any running agent pane in the active tab (common: agent split next to a Notes/Drawing pane).
   const inActive = allPanes(activeTab.rootSplit).find((p) => isAiToolId(p.toolId) && p.isRunning)
-  return inActive ?? null
+  if (inActive) return inActive
+
+  // 3) Any running agent pane in other tabs (e.g. drawing pane in its own tab).
+  for (const tab of tabs) {
+    if (tab.id === tabId) continue
+    const found = allPanes(tab.rootSplit).find((p) => isAiToolId(p.toolId) && p.isRunning)
+    if (found) return found
+  }
+  return null
 }
 
 export async function openTool(
