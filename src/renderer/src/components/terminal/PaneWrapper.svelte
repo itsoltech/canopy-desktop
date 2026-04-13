@@ -19,6 +19,8 @@
   import BrowserPane from '../browser/BrowserPane.svelte'
   import EditorPane from '../editor/EditorPane.svelte'
   import DiffPane from '../diff/DiffPane.svelte'
+  import NotesPane from '../notes/NotesPane.svelte'
+  import DrawingPane from '../drawing/DrawingPane.svelte'
   import ExitBanner from './ExitBanner.svelte'
   import DetachedOverlay from './DetachedOverlay.svelte'
   import WpmIndicator from './WpmIndicator.svelte'
@@ -192,6 +194,10 @@
     <EditorPane filePath={pane.filePath!} {active} />
   {:else if pane.paneType === 'diff'}
     <DiffPane {worktreePath} {active} />
+  {:else if pane.paneType === 'notes'}
+    <NotesPane paneSessionId={pane.sessionId} />
+  {:else if pane.paneType === 'drawing'}
+    <DrawingPane />
   {:else}
     <div class="pane-content">
       {#key pane.sessionId}

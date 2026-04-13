@@ -188,6 +188,22 @@
       })
 
       items.push({
+        id: 'app:open-notes',
+        label: 'Open Notes',
+        category: 'App',
+        description: 'Markdown scratch pad (in-memory, per worktree or project)',
+        action: () => openTool('notes', path),
+      })
+
+      items.push({
+        id: 'app:open-drawing',
+        label: 'Open Drawing',
+        category: 'App',
+        description: 'Freehand sketchpad — send to active agent',
+        action: () => openTool('drawing', path),
+      })
+
+      items.push({
         id: 'app:reopen-tab',
         label: 'Reopen Closed Tab',
         category: 'App',

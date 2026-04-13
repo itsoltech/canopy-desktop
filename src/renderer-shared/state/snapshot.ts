@@ -58,7 +58,7 @@ export interface TabSnapshot {
    * view to render (terminal vs browser vs editor vs diff). Undefined is
    * treated as "terminal" by the consumer.
    */
-  paneType?: 'terminal' | 'browser' | 'editor' | 'diff'
+  paneType?: 'terminal' | 'browser' | 'editor' | 'diff' | 'notes' | 'drawing'
   /**
    * Session id of the focused pane — required to send input (`pty.write` /
    * `agent.sendInput`) and to subscribe to PTY output. Undefined for panes
