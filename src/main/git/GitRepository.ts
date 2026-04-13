@@ -1,6 +1,6 @@
 import { ok, err, okAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
-import { readFile } from 'fs/promises'
+import { readFileSync } from 'fs'
 import { join } from 'path'
 import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
@@ -20,39 +20,45 @@ function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitErr
   return fromExternalCall(promise, (e) => gitErr(command, e))
 }
 
-function buildUntrackedDiffFile(
-  repoRoot: string,
-  filePath: string,
-): ResultAsync<DiffFile, GitError> {
-  return fromExternalCall(readFile(join(repoRoot, filePath), 'utf-8'), (e) =>
-    gitErr('readFile', e),
-  ).map((content) => {
-    const lines = content.split('\n')
-    if (lines[lines.length - 1] === '') lines.pop()
-    const changes = lines.map((line, i) => ({
-      type: 'add' as const,
-      content: line,
-      newLine: i + 1,
-    }))
-    return {
-      path: filePath,
-      status: 'added' as const,
-      hunks:
-        changes.length > 0
-          ? [
-              {
-                oldStart: 0,
-                oldLines: 0,
-                newStart: 1,
-                newLines: changes.length,
-                header: `@@ -0,0 +1,${changes.length} @@`,
-                changes,
-              },
-            ]
-          : [],
-      additions: changes.length,
-      deletions: 0,
-    }
+// Sync read instead of fs.promises.readFile: this function is called in a
+// hot loop (ChangesPanel/DiffPane refresh on every files:changed event,
+// debounced 200 ms), once per untracked file in parallel. The async
+// FileHandle code path was the trigger for the FileHandle::CloseReq::Resolve
+// crash in #150. Untracked files in a working copy are typically small and
+// few, so a synchronous read is cheap and removes the crash surface.
+function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<DiffFile, GitError> {
+  let content: string
+  try {
+    content = readFileSync(join(repoRoot, filePath), 'utf-8')
+  } catch (e) {
+    return err(gitErr('readFile', e))
+  }
+
+  const lines = content.split('\n')
+  if (lines[lines.length - 1] === '') lines.pop()
+  const changes = lines.map((line, i) => ({
+    type: 'add' as const,
+    content: line,
+    newLine: i + 1,
+  }))
+  return ok({
+    path: filePath,
+    status: 'added' as const,
+    hunks:
+      changes.length > 0
+        ? [
+            {
+              oldStart: 0,
+              oldLines: 0,
+              newStart: 1,
+              newLines: changes.length,
+              header: `@@ -0,0 +1,${changes.length} @@`,
+              changes,
+            },
+          ]
+        : [],
+    additions: changes.length,
+    deletions: 0,
   })
 }
 
@@ -451,19 +457,13 @@ export class GitRepository {
       untrackedFiles.andThen((files) => {
         if (files.length === 0) return okAsync<ParsedDiff, GitError>(parsed)
 
-        return fromExternalCall(
-          Promise.all(
-            files.map((file) =>
-              buildUntrackedDiffFile(repoRoot, file).match(
-                (f) => f as DiffFile | null,
-                () => null,
-              ),
-            ),
-          ).then((results) => results.filter((f): f is DiffFile => f !== null)),
-          (e) => gitErr('ls-files', e),
-        ).map((untrackedDiffFiles) => ({
+        const untrackedDiffFiles = files
+          .map((file) => buildUntrackedDiffFile(repoRoot, file).unwrapOr(null))
+          .filter((f): f is DiffFile => f !== null)
+
+        return okAsync<ParsedDiff, GitError>({
           files: [...parsed.files, ...untrackedDiffFiles],
-        }))
+        })
       }),
     )
   }
