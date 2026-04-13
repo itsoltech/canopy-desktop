@@ -102,6 +102,9 @@ export class ToolRegistry {
       category?: string
     }[],
   ): number {
+    // WHERE clause prevents a crafted import from hijacking a built-in tool
+    // (e.g. id: "shell"). On conflict with a non-custom row, the UPDATE is
+    // skipped and SQLite resolves the conflict as a silent no-op.
     const stmt = this.db.prepare(
       `INSERT INTO tool_definitions (id, name, command, args_json, icon, category, is_custom)
        VALUES (?, ?, ?, ?, ?, ?, 1)
@@ -111,12 +114,17 @@ export class ToolRegistry {
          args_json = excluded.args_json,
          icon = excluded.icon,
          category = excluded.category,
-         is_custom = 1`,
+         is_custom = 1
+       WHERE tool_definitions.is_custom = 1`,
     )
     const SHELL_META = /[;|&$`<>%^!()\\"]/
     let count = 0
     for (const tool of tools) {
-      this.validateId(tool.id)
+      try {
+        this.validateId(tool.id)
+      } catch {
+        continue
+      }
       if (!tool.command.trim()) continue
       if (/[/\\;|&$`<>%^!()"]/.test(tool.command)) continue
       if (tool.args?.some((arg) => SHELL_META.test(arg))) continue
