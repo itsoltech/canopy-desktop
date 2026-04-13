@@ -385,6 +385,11 @@ app.whenReady().then(async () => {
   if (app.isPackaged) {
     crashReporter.init()
 
+    // Fallback for before-quit async paths that return without clearing the sentinel (#147)
+    process.on('exit', () => {
+      crashReporter?.clearSentinel()
+    })
+
     process.on('uncaughtException', (error) => {
       crashReporter?.recordCrash('uncaughtException', error)
     })
