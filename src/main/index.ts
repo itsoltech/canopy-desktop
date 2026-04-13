@@ -156,7 +156,7 @@ const checkWithChannelResolution = async (): Promise<void> => {
     if (ch === 'next') {
       const effective = await resolveUpdateChannel(app.getVersion()).unwrapOr('next' as const)
       autoUpdater.channel = effective
-      autoUpdater.allowPrerelease = true
+      autoUpdater.allowPrerelease = effective === 'next'
     } else {
       autoUpdater.channel = 'latest'
       autoUpdater.allowPrerelease = false
