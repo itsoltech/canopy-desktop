@@ -15,6 +15,11 @@ export type ActionGuardProfile = 'none' | 'destructive' | 'full'
  * subsequent `pty.write` call from the same peer skips the confirm dialog
  * until the peer disconnects — `HostRpcServer.dispose` calls
  * `resetSessionGrants` to wipe this on disconnect.
+ *
+ * Lives at module scope because `RemoteHostController` is a singleton —
+ * only one peer is ever connected at a time. If that ever changes (two
+ * concurrent peers), move this state onto `HostRpcServer` per-instance
+ * or these grants will silently cross-contaminate sessions.
  */
 const sessionGrants = new Set<RpcMethodName>()
 
@@ -29,6 +34,16 @@ const sessionGrants = new Set<RpcMethodName>()
 const pendingGrants = new Map<RpcMethodName, Promise<boolean>>()
 
 /**
+ * Bumped every time `resetSessionGrants` runs (i.e. whenever a peer
+ * disconnects). `ensureSessionGrant` captures the current value before
+ * awaiting the confirm dialog and discards the result if the generation
+ * has changed by the time the user answers — otherwise a late "Allow"
+ * click during a disconnect/reconnect race would leak the grant onto a
+ * fresh peer session.
+ */
+let sessionGeneration = 0
+
+/**
  * Decides whether a method call coming from the remote peer needs host
  * user confirmation before it runs.
  */
@@ -37,12 +52,12 @@ export async function checkAction(method: RpcMethodName, params: unknown): Promi
   return match(profile)
     .with('none', () => Promise.resolve(true))
     .with('destructive', () => {
-      if (SESSION_GRANTABLE_METHODS.has(method)) return ensureSessionGrant(method, params)
+      if (SESSION_GRANTABLE_METHODS.has(method)) return ensureSessionGrant(method)
       if (DESTRUCTIVE_METHODS.has(method)) return confirmFromDesktop(method, params)
       return Promise.resolve(true)
     })
     .with('full', () => {
-      if (SESSION_GRANTABLE_METHODS.has(method)) return ensureSessionGrant(method, params)
+      if (SESSION_GRANTABLE_METHODS.has(method)) return ensureSessionGrant(method)
       return confirmFromDesktop(method, params)
     })
     .exhaustive()
@@ -57,9 +72,12 @@ export function getGuardProfile(): ActionGuardProfile {
 /**
  * Clear every session grant. Called from `HostRpcServer.dispose` whenever a
  * peer disconnects so that a reconnecting peer has to re-approve terminal
- * and agent access from scratch.
+ * and agent access from scratch. Bumps `sessionGeneration` so any
+ * still-pending dialog from the old session can't accidentally apply its
+ * approval to the new one.
  */
 export function resetSessionGrants(): void {
+  sessionGeneration++
   sessionGrants.clear()
   pendingGrants.clear()
 }
@@ -68,19 +86,26 @@ export function resetSessionGrants(): void {
  * Session-grant gate for `SESSION_GRANTABLE_METHODS`. Returns immediately
  * when the method is already granted; otherwise prompts once and caches
  * the result for the current peer session. Concurrent first-time calls
- * share a single in-flight dialog via `pendingGrants`.
+ * share a single in-flight dialog via `pendingGrants`. The captured
+ * `generationAtCall` guards against a dispose/reconnect happening while
+ * the dialog is still awaiting an answer — an "Allow" click from a
+ * disconnected peer's dialog must NOT grant access to the peer that
+ * replaced it.
  */
-async function ensureSessionGrant(method: RpcMethodName, params: unknown): Promise<boolean> {
+async function ensureSessionGrant(method: RpcMethodName): Promise<boolean> {
   if (sessionGrants.has(method)) return true
   const inFlight = pendingGrants.get(method)
   if (inFlight) return inFlight
+  const generationAtCall = sessionGeneration
   const p = (async () => {
     try {
-      const allowed = await confirmSessionGrant(method, params)
-      if (allowed) sessionGrants.add(method)
-      return allowed
+      const allowed = await confirmSessionGrant(method)
+      if (!allowed) return false
+      if (generationAtCall !== sessionGeneration) return false
+      sessionGrants.add(method)
+      return true
     } finally {
-      pendingGrants.delete(method)
+      if (generationAtCall === sessionGeneration) pendingGrants.delete(method)
     }
   })()
   pendingGrants.set(method, p)
@@ -93,8 +118,8 @@ async function ensureSessionGrant(method: RpcMethodName, params: unknown): Promi
  * click opens terminal input for the whole peer connection. Same 30s
  * auto-reject race as the per-call version.
  */
-async function confirmSessionGrant(method: RpcMethodName, params: unknown): Promise<boolean> {
-  const description = describeSessionGrant(method, params)
+async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
+  const description = describeSessionGrant(method)
   const result = await Promise.race([
     confirm({
       title: 'Remote session access request',
@@ -111,11 +136,10 @@ async function confirmSessionGrant(method: RpcMethodName, params: unknown): Prom
   return result
 }
 
-function describeSessionGrant(method: RpcMethodName, params: unknown): string {
-  const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
+function describeSessionGrant(method: RpcMethodName): string {
   return match(method as string)
-    .with('pty.write', () => `type into terminals (starting with session ${p.sessionId})`)
-    .with('agent.sendInput', () => `send prompts to agents (starting with session ${p.sessionId})`)
+    .with('pty.write', () => 'type into any terminal')
+    .with('agent.sendInput', () => 'send prompts to any agent')
     .otherwise(() => `execute ${method}`)
 }
 
