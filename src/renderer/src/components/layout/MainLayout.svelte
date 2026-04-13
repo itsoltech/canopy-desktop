@@ -20,10 +20,12 @@
   import RemoteAcceptDeviceModal from '../dialogs/RemoteAcceptDeviceModal.svelte'
   import RunConfigEditorModal from '../runConfig/RunConfigEditorModal.svelte'
   import RunConfigManagerModal from '../runConfig/RunConfigManagerModal.svelte'
+  import CrashReportDialog from '../dialogs/CrashReportDialog.svelte'
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import RightPanel from './RightPanel.svelte'
   import Toast from '../shared/Toast.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import {
     dialogState,
     closeDialog,
@@ -32,6 +34,7 @@
     showChangelog,
     showOnboardingWizard,
     showFeatureOnboarding,
+    showCrashReport,
   } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -300,6 +303,13 @@
     })
   })
 
+  // Subscribe to crash report push event
+  $effect(() => {
+    return window.api.onCrashReport((data) => {
+      showCrashReport(data)
+    })
+  })
+
   // Save layouts on window close
   $effect(() => {
     const handler = (): void => saveAllLayouts()
@@ -512,6 +522,36 @@
   <RunConfigManagerModal
     initialConfigDir={dialogState.current.selectConfigDir}
     initialConfigName={dialogState.current.selectConfigName}
+  />
+{:else if dialogState.current.type === 'crashReport'}
+  <CrashReportDialog
+    data={dialogState.current.data}
+    onCreateIssue={() => {
+      if (dialogState.current.type !== 'crashReport') return
+      const d = dialogState.current.data
+      // Strip home directory paths from stack traces to avoid leaking local paths
+      const homeDir = d.os.startsWith('win32')
+        ? /[A-Z]:\\Users\\[^\\]+\\/gi
+        : /\/(?:Users|home)\/[^/]+\//g
+      const sanitize = (s: string): string => s.replace(homeDir, '~/')
+      const title = encodeURIComponent(`Crash: ${sanitize(d.errorMessage).slice(0, 80)}`)
+      const body = encodeURIComponent(
+        `## Crash report\n\n` +
+          `- **Timestamp:** ${d.timestamp}\n` +
+          `- **Type:** ${d.type}\n` +
+          `- **App version:** ${d.appVersion}\n` +
+          `- **Electron:** ${d.electronVersion}\n` +
+          `- **OS:** ${d.os}\n\n` +
+          `### Error\n\`\`\`\n${sanitize(d.errorMessage)}\n\`\`\`\n\n` +
+          (d.stack ? `### Stack trace\n\`\`\`\n${sanitize(d.stack).slice(0, 3000)}\n\`\`\`\n` : ''),
+      )
+      const url = `https://github.com/itsoltech/canopy-desktop/issues/new?title=${title}&body=${body}&labels=bug,crash`
+      window.api.openExternal(url).catch(() => {
+        addToast('Failed to open browser. Copy the URL from your address bar to report manually.')
+      })
+      closeDialog()
+    }}
+    onDismiss={closeDialog}
   />
 {/if}
 

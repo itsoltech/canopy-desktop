@@ -107,10 +107,26 @@ export const onboardingSteps: OnboardingStep[] = [
     category: 'feature',
   },
   {
+    id: 'opencode',
+    title: 'OpenCode integration',
+    description:
+      'OpenCode is now available as an AI agent in Canopy. Launch it from the tool launcher and configure it in Settings → OpenCode.',
+    introducedIn: '0.11.0',
+    category: 'feature',
+  },
+  {
     id: 'perf-hud',
     title: 'CPU and RAM in the status bar',
     description:
       'Enable "Show CPU and RAM usage in status bar" in Settings → General to see total CPU and memory across all Canopy processes, sampled once per second. Off by default — the sampler only runs while the indicator is visible, so there is no overhead when it is disabled.',
+    introducedIn: '0.11.0',
+    category: 'feature',
+  },
+  {
+    id: 'pane-drag',
+    title: 'Drag panes to rearrange splits',
+    description:
+      'Hold Alt (Option on Mac) and drag any pane to reorder it within a split, move it to another tab, or drop it on the tab bar to detach it into its own tab.',
     introducedIn: '0.11.0',
     category: 'feature',
   },

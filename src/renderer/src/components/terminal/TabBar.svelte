@@ -14,7 +14,13 @@
   import { allPanes, findLeaf } from '../../lib/stores/splitTree'
   import { agentBadges, agentSessions, type BadgeType } from '../../lib/agents/agentState.svelte'
   import { browserSessions } from '../../lib/browser/browserState.svelte'
-  import { dragState, startDrag, activateDrag, clearDrag } from '../../lib/stores/dragState.svelte'
+  import {
+    dragState,
+    startDrag,
+    activateDrag,
+    clearDrag,
+    setDetachTarget,
+  } from '../../lib/stores/dragState.svelte'
   import {
     connectionStatus,
     type ConnectionStatus,
@@ -148,14 +154,14 @@
     dropTargetId = found
   }
 
-  async function handleDragEnd(): Promise<void> {
+  function handleDragEnd(): void {
     window.removeEventListener('pointermove', handleDragMove)
     window.removeEventListener('pointerup', handleDragEnd)
 
     // Check for panel-split drop first (drag from tab bar to a panel)
     const dt = dragState.dropTarget
     if (dragActive && dragTabId && dt) {
-      await moveTabToSplit(worktreePath, dragTabId, dt.tabId, dt.paneId, dt.zone)
+      void moveTabToSplit(worktreePath, dragTabId, dt.tabId, dt.paneId, dt.zone)
     } else if (dragActive && dragTabId && dropTargetId) {
       // Existing tab-reorder logic
       const fromIdx = tabs.findIndex((t) => t.id === dragTabId)
@@ -179,6 +185,87 @@
     dropTargetId = null
     clearDrag()
   }
+
+  // --- Pane drag: tab bar as detach target + tab-switch-on-hover ---
+
+  let isPaneDragActive = $derived(
+    dragState.dragType === 'pane' &&
+      dragState.isDragging &&
+      dragState.sourceWorktree === worktreePath,
+  )
+
+  let paneDragHoverTabId: string | null = $state(null)
+  let paneDragHoverTimer: ReturnType<typeof setTimeout> | null = null
+
+  function handlePaneDragOverTabBar(e: PointerEvent): void {
+    if (!containerEl) return
+
+    const barRect = containerEl.getBoundingClientRect()
+    const inBar =
+      e.clientX >= barRect.left &&
+      e.clientX <= barRect.right &&
+      e.clientY >= barRect.top &&
+      e.clientY <= barRect.bottom
+
+    if (!inBar) {
+      setDetachTarget(false)
+      clearHoverTimer()
+      paneDragHoverTabId = null
+      return
+    }
+
+    // Check if pointer is over a specific tab
+    const tabEls = containerEl.querySelectorAll<HTMLElement>('[data-tab-id]')
+    let hoveredTab: string | null = null
+    for (const el of tabEls) {
+      const rect = el.getBoundingClientRect()
+      if (e.clientX >= rect.left && e.clientX <= rect.right) {
+        hoveredTab = el.dataset.tabId ?? null
+        break
+      }
+    }
+
+    if (hoveredTab) {
+      // Over a tab — not a detach target, but potentially a tab-switch target
+      setDetachTarget(false)
+
+      if (hoveredTab !== dragState.sourceTabId && hoveredTab !== paneDragHoverTabId) {
+        clearHoverTimer()
+        paneDragHoverTabId = hoveredTab
+        paneDragHoverTimer = setTimeout(() => {
+          if (paneDragHoverTabId) {
+            void switchTab(paneDragHoverTabId)
+          }
+        }, 300)
+      }
+    } else {
+      // Over the tab bar but not over any tab — detach target
+      setDetachTarget(true)
+      clearHoverTimer()
+      paneDragHoverTabId = null
+    }
+  }
+
+  function clearHoverTimer(): void {
+    if (paneDragHoverTimer) {
+      clearTimeout(paneDragHoverTimer)
+      paneDragHoverTimer = null
+    }
+  }
+
+  $effect(() => {
+    if (!isPaneDragActive) {
+      clearHoverTimer()
+      paneDragHoverTabId = null
+      return
+    }
+    window.addEventListener('pointermove', handlePaneDragOverTabBar)
+    return () => {
+      window.removeEventListener('pointermove', handlePaneDragOverTabBar)
+      clearHoverTimer()
+      paneDragHoverTabId = null
+    }
+  })
 </script>
 
 {#if tabs.length > 0}
@@ -234,6 +321,10 @@
         </div>
       {/each}
     </div>
+
+    {#if isPaneDragActive && dragState.detachToTabBar}
+      <div class="detach-indicator" aria-label="Drop to detach pane as new tab">+</div>
+    {/if}
 
     {#if overflowTabs.length > 0}
       <div class="overflow-wrapper">
@@ -421,6 +512,22 @@
   .tab-close:hover {
     background: var(--c-hover-strong);
     color: var(--c-text);
+  }
+
+  .detach-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    flex-shrink: 0;
+    background: var(--c-accent-bg);
+    border: 1px solid var(--c-focus-ring);
+    border-radius: 4px;
+    color: var(--c-accent-text);
+    font-size: 16px;
+    font-weight: 600;
+    pointer-events: none;
+    margin: 2px 4px;
   }
 
   .overflow-wrapper {

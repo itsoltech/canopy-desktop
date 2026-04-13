@@ -1,0 +1,228 @@
+name: Codex CLI Compatibility Check
+
+on:
+  schedule:
+    # Twice daily at 06:43 and 18:43 UTC (offset from claude-code-compat)
+    - cron: '43 6,18 * * *'
+  workflow_dispatch:
+    inputs:
+      from_version:
+        description: 'Force check from this version (e.g., rust-v0.117.0). Overrides tracked version.'
+        required: false
+        type: string
+
+concurrency:
+  group: codex-compat
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: next
+          fetch-depth: 1
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - uses: volta-cli/action@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Version check (early exit if nothing new) ─────────────
+      - name: Read tracked version
+        id: tracked
+        run: |
+          if [ -f .github/codex-version.json ]; then
+            VERSION=$(jq -r '.lastCheckedVersion' .github/codex-version.json)
+          else
+            VERSION="rust-v0.0.0"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest stable release from openai/codex
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Filter out alpha/beta/rc prereleases, take first (most recent) stable
+          LATEST=$(gh api repos/openai/codex/releases --paginate \
+            --jq '[.[] | select(.tag_name | test("alpha|beta|rc") | not)] | .[0].tag_name')
+          if [ -z "$LATEST" ]; then
+            echo "No stable releases found" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+
+      - name: Determine version range
+        id: range
+        env:
+          INPUT_FROM_VERSION: ${{ inputs.from_version }}
+          TRACKED_VERSION: ${{ steps.tracked.outputs.version }}
+          LATEST_VERSION: ${{ steps.latest.outputs.version }}
+        run: |
+          if [ -z "$LATEST_VERSION" ]; then
+            echo "new_releases=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$INPUT_FROM_VERSION" ]; then
+            FROM="$INPUT_FROM_VERSION"
+          else
+            FROM="$TRACKED_VERSION"
+          fi
+          TO="$LATEST_VERSION"
+
+          if [ "$FROM" = "$TO" ]; then
+            echo "new_releases=false" >> "$GITHUB_OUTPUT"
+            echo "No new releases (tracked: $FROM, latest: $TO)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "new_releases=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "from=$FROM" >> "$GITHUB_OUTPUT"
+          echo "to=$TO" >> "$GITHUB_OUTPUT"
+
+      # ── Enumerate and fetch release notes ─────────────────────
+      - name: Fetch release notes for new versions
+        if: steps.range.outputs.new_releases == 'true'
+        id: releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FROM_VERSION: ${{ steps.range.outputs.from }}
+          TO_VERSION: ${{ steps.range.outputs.to }}
+        run: |
+          # Fetch all stable release tags from openai/codex
+          RELEASES=$(gh api repos/openai/codex/releases --paginate \
+            --jq '[.[] | select(.tag_name | test("alpha|beta|rc") | not)] | .[].tag_name')
+
+          # Strip rust-v prefix for semver comparison, then filter
+          FILTERED=$(echo "$RELEASES" | while read -r tag; do
+            FROM_STRIPPED="${FROM_VERSION#rust-v}"
+            TO_STRIPPED="${TO_VERSION#rust-v}"
+            TAG_STRIPPED="${tag#rust-v}"
+            if [ "$(printf '%s\n%s' "$FROM_STRIPPED" "$TAG_STRIPPED" | sort -V | head -1)" = "$FROM_STRIPPED" ] && \
+               [ "$tag" != "$FROM_VERSION" ] && \
+               [ "$(printf '%s\n%s' "$TAG_STRIPPED" "$TO_STRIPPED" | sort -V | head -1)" = "$TAG_STRIPPED" ]; then
+              echo "$tag"
+            fi
+          done | sort -t'v' -k2 -V)
+
+          echo "Versions to analyze:"
+          echo "$FILTERED"
+
+          # Fetch release body for each version and write to file
+          > /tmp/release-notes.md
+          for tag in $FILTERED; do
+            echo "Fetching release notes for $tag..."
+            BODY=$(gh api "repos/openai/codex/releases/tags/$tag" --jq '.body // "No release notes."')
+            {
+              echo "### ${tag}"
+              echo ""
+              echo "$BODY"
+              echo ""
+              echo "---"
+              echo ""
+            } >> /tmp/release-notes.md
+          done
+
+          echo "$FILTERED" > /tmp/version-list.txt
+          COUNT=$(echo "$FILTERED" | grep -c . || true)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      # ── Check for existing PR ─────────────────────────────────
+      - name: Check for existing compatibility PR
+        if: steps.range.outputs.new_releases == 'true'
+        id: existing_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr list --head chore/codex-compat --state open --json number --jq '.[0].number // empty')
+          echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # ── Read prompt ───────────────────────────────────────────
+      - name: Read analysis prompt
+        if: steps.range.outputs.new_releases == 'true'
+        id: prompt
+        run: |
+          # Randomized delimiter prevents injection via untrusted release notes
+          DELIM="PROMPT_EOF_$(openssl rand -hex 8)"
+          echo "content<<${DELIM}" >> "$GITHUB_OUTPUT"
+          cat .github/prompts/codex-compat.md >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "## Release Notes" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          cat /tmp/release-notes.md >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
+
+      # ── Run Claude Code analysis ──────────────────────────────
+      - name: Run compatibility analysis
+        if: steps.range.outputs.new_releases == 'true'
+        id: analysis
+        uses: anthropics/claude-code-action@v1
+        with:
+          allowed_bots: 'claude,dependabot'
+          claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            FROM_VERSION: ${{ steps.range.outputs.from }}
+            TO_VERSION: ${{ steps.range.outputs.to }}
+            EXISTING_PR: ${{ steps.existing_pr.outputs.number }}
+
+            ${{ steps.prompt.outputs.content }}
+          claude_args: |
+            --model opus[1m]
+            --effort max
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/codex-compat),Bash(git checkout -b chore/codex-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/codex-compat),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/openai/codex/:*)"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.ANTHROPIC_AUTH_TOKEN }}",
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}"
+              }
+            }
+
+      # ── Update version tracker ────────────────────────────────
+      - name: Update version tracker
+        if: steps.range.outputs.new_releases == 'true'
+        env:
+          TO_VERSION: ${{ steps.range.outputs.to }}
+        run: |
+          # Claude may have left unstaged changes or switched branches —
+          # discard everything and sync hard to the latest remote next.
+          git fetch origin next
+          git checkout next
+          git reset --hard origin/next
+          git clean -fdx -- ':!node_modules'
+
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n --arg v "$TO_VERSION" --arg t "$TIMESTAMP" \
+            '{lastCheckedVersion: $v, lastCheckedAt: $t}' \
+            > .github/codex-version.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/codex-version.json
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: update codex version tracker [skip ci]"
+            git push origin next
+          fi
+
+      # ── Rebase compat branch onto updated next ───────────────
+      - name: Rebase compatibility branch
+        if: steps.range.outputs.new_releases == 'true'
+        run: |
+          # Only rebase if the compat branch exists on the remote
+          if git ls-remote --exit-code origin chore/codex-compat >/dev/null 2>&1; then
+            git fetch origin chore/codex-compat
+            git checkout chore/codex-compat
+            git rebase next || { git rebase --abort; echo "Rebase conflict — skipping"; exit 0; }
+            git push origin chore/codex-compat --force-with-lease
+          fi

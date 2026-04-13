@@ -1,0 +1,201 @@
+name: OpenCode Compatibility Check
+
+on:
+  schedule:
+    # Twice daily at 07:43 and 19:43 UTC (offset from :00/:30)
+    - cron: '43 7,19 * * *'
+  workflow_dispatch:
+    inputs:
+      from_version:
+        description: 'Force check from this version (e.g., v1.4.2). Overrides tracked version.'
+        required: false
+        type: string
+
+concurrency:
+  group: opencode-compat
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: next
+          fetch-depth: 1
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - uses: volta-cli/action@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Version check (early exit if nothing new) ─────────────
+      - name: Read tracked version
+        id: tracked
+        run: |
+          if [ -f .github/opencode-version.json ]; then
+            VERSION=$(jq -r '.lastCheckedVersion' .github/opencode-version.json)
+          else
+            VERSION="v0.0.0"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest release from OpenCode repo
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST=$(gh api repos/anomalyco/opencode/releases/latest --jq '.tag_name')
+          echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+
+      - name: Determine version range
+        id: range
+        env:
+          INPUT_FROM_VERSION: ${{ inputs.from_version }}
+          TRACKED_VERSION: ${{ steps.tracked.outputs.version }}
+          LATEST_VERSION: ${{ steps.latest.outputs.version }}
+        run: |
+          if [ -n "$INPUT_FROM_VERSION" ]; then
+            FROM="$INPUT_FROM_VERSION"
+          else
+            FROM="$TRACKED_VERSION"
+          fi
+          TO="$LATEST_VERSION"
+
+          if [ "$FROM" = "$TO" ]; then
+            echo "new_releases=false" >> "$GITHUB_OUTPUT"
+            echo "No new releases (tracked: $FROM, latest: $TO)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "new_releases=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "from=$FROM" >> "$GITHUB_OUTPUT"
+          echo "to=$TO" >> "$GITHUB_OUTPUT"
+
+      # ── Enumerate and fetch release notes ─────────────────────
+      - name: Fetch release notes for new versions
+        if: steps.range.outputs.new_releases == 'true'
+        id: releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FROM_VERSION: ${{ steps.range.outputs.from }}
+          TO_VERSION: ${{ steps.range.outputs.to }}
+        run: |
+          # Fetch all release tags, filter to those between FROM and TO
+          RELEASES=$(gh api repos/anomalyco/opencode/releases --paginate --jq '.[].tag_name')
+
+          # Filter versions: keep only those > FROM and <= TO
+          FILTERED=$(echo "$RELEASES" | while read -r tag; do
+            if [ "$(printf '%s\n%s' "$FROM_VERSION" "$tag" | sort -V | head -1)" = "$FROM_VERSION" ] && \
+               [ "$tag" != "$FROM_VERSION" ] && \
+               [ "$(printf '%s\n%s' "$tag" "$TO_VERSION" | sort -V | head -1)" = "$tag" ]; then
+              echo "$tag"
+            fi
+          done | sort -V)
+
+          echo "Versions to analyze:"
+          echo "$FILTERED"
+
+          # Fetch release body for each version and write to file
+          > /tmp/release-notes.md
+          for tag in $FILTERED; do
+            echo "Fetching release notes for $tag..."
+            BODY=$(gh api "repos/anomalyco/opencode/releases/tags/$tag" --jq '.body // "No release notes."')
+            {
+              echo "### ${tag}"
+              echo ""
+              echo "$BODY"
+              echo ""
+              echo "---"
+              echo ""
+            } >> /tmp/release-notes.md
+          done
+
+          echo "$FILTERED" > /tmp/version-list.txt
+          COUNT=$(echo "$FILTERED" | grep -c . || true)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      # ── Check for existing PR ─────────────────────────────────
+      - name: Check for existing compatibility PR
+        if: steps.range.outputs.new_releases == 'true'
+        id: existing_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr list --head chore/opencode-compat --state open --json number --jq '.[0].number // empty')
+          echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # ── Read prompt ───────────────────────────────────────────
+      - name: Read analysis prompt
+        if: steps.range.outputs.new_releases == 'true'
+        id: prompt
+        run: |
+          # Randomized delimiter prevents injection via untrusted release notes
+          DELIM="PROMPT_EOF_$(openssl rand -hex 8)"
+          echo "content<<${DELIM}" >> "$GITHUB_OUTPUT"
+          cat .github/prompts/opencode-compat.md >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "## Release Notes" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          cat /tmp/release-notes.md >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
+
+      # ── Run Claude Code analysis ──────────────────────────────
+      - name: Run compatibility analysis
+        if: steps.range.outputs.new_releases == 'true'
+        id: analysis
+        uses: anthropics/claude-code-action@v1
+        with:
+          allowed_bots: 'claude,dependabot'
+          claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            FROM_VERSION: ${{ steps.range.outputs.from }}
+            TO_VERSION: ${{ steps.range.outputs.to }}
+            EXISTING_PR: ${{ steps.existing_pr.outputs.number }}
+
+            ${{ steps.prompt.outputs.content }}
+          claude_args: |
+            --model opus[1m]
+            --effort max
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/opencode-compat),Bash(git checkout -b chore/opencode-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/opencode-compat),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/anomalyco/opencode/:*),Bash(npm view:*)"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.ANTHROPIC_AUTH_TOKEN }}",
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}"
+              }
+            }
+
+      # ── Update version tracker ────────────────────────────────
+      - name: Update version tracker
+        if: steps.range.outputs.new_releases == 'true'
+        env:
+          TO_VERSION: ${{ steps.range.outputs.to }}
+        run: |
+          # Claude may have left unstaged changes or switched branches —
+          # discard everything and sync hard to the latest remote next.
+          git fetch origin next
+          git checkout next
+          git reset --hard origin/next
+          git clean -fdx -- ':!node_modules'
+
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n --arg v "$TO_VERSION" --arg t "$TIMESTAMP" \
+            '{lastCheckedVersion: $v, lastCheckedAt: $t}' \
+            > .github/opencode-version.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/opencode-version.json
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: update opencode version tracker [skip ci]"
+            git push origin next
+          fi

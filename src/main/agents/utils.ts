@@ -1,3 +1,25 @@
+export function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...target }
+  for (const [key, val] of Object.entries(source)) {
+    if (
+      val !== null &&
+      typeof val === 'object' &&
+      !Array.isArray(val) &&
+      typeof out[key] === 'object' &&
+      out[key] !== null &&
+      !Array.isArray(out[key])
+    ) {
+      out[key] = deepMerge(out[key] as Record<string, unknown>, val as Record<string, unknown>)
+    } else {
+      out[key] = val
+    }
+  }
+  return out
+}
+
 export function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 3) + '...' : text
 }
