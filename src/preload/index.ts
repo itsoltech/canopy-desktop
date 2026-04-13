@@ -102,6 +102,35 @@ const api = {
       category?: string
     },
   ) => ipcRenderer.invoke('tools:updateCustom', { id, changes }),
+
+  // Skills
+  listSkills: (opts?: { scope?: string; agent?: string; workspaceId?: string | null }) =>
+    ipcRenderer.invoke('skills:list', opts),
+
+  getSkill: (id: string) => ipcRenderer.invoke('skills:get', { id }),
+
+  installSkill: (opts: {
+    source: string
+    agents?: string[]
+    scope?: string
+    method?: string
+    workspaceId?: string | null
+    workspacePath?: string
+  }) => ipcRenderer.invoke('skills:install', opts),
+
+  removeSkill: (id: string, workspacePath?: string) =>
+    ipcRenderer.invoke('skills:remove', { id, workspacePath }),
+
+  updateSkill: (id: string, workspacePath?: string) =>
+    ipcRenderer.invoke('skills:update', { id, workspacePath }),
+
+  toggleSkillAgent: (id: string, agent: string, enabled: boolean, workspacePath?: string) =>
+    ipcRenderer.invoke('skills:toggleAgent', { id, agent, enabled, workspacePath }),
+
+  scanSkills: (workspacePath?: string) => ipcRenderer.invoke('skills:scan', { workspacePath }),
+
+  deleteSkillFile: (filePath: string) => ipcRenderer.invoke('skills:deleteFile', { filePath }),
+
   // Agent session
   updateAgentTitle: (sessionId: string, title: string) =>
     ipcRenderer.invoke('agent:updateTitle', { sessionId, title }),
@@ -496,6 +525,13 @@ const api = {
     ipcRenderer.on('tools:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('tools:changed', handler)
+    }
+  },
+  onSkillsChanged: (callback: (skills: unknown[]) => void) => {
+    const handler = (_event: IpcRendererEvent, skills: unknown[]): void => callback(skills)
+    ipcRenderer.on('skills:changed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('skills:changed', handler)
     }
   },
   onPtyExit: (

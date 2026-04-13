@@ -17,6 +17,7 @@
   import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
   import PrivacyPrefs from './PrivacyPrefs.svelte'
   import FileWatcherPrefs from './FileWatcherPrefs.svelte'
+  import SkillPrefs from './SkillPrefs.svelte'
   import NotchPrefs from './NotchPrefs.svelte'
   import MiscPrefs from './MiscPrefs.svelte'
   import RemoteControlPrefs from './RemoteControlPrefs.svelte'
@@ -29,7 +30,7 @@
     { label: 'General', sections: ['General', 'Updates', 'Privacy', 'Shortcuts'] },
     { label: 'Features', sections: ['Notch', 'Misc'] },
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
-    { label: 'AI Agents', sections: ['Claude', 'Gemini', 'OpenCode', 'Codex'] },
+    { label: 'AI Agents', sections: ['Claude', 'Gemini', 'OpenCode', 'Codex', 'Skills'] },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
     { label: 'Security', sections: ['Remote Control'] },
@@ -112,6 +113,8 @@
         <OpenCodePrefs />
       {:else if activeSection === 'Codex'}
         <CodexPrefs />
+      {:else if activeSection === 'Skills'}
+        <SkillPrefs />
       {:else if activeSection === 'Git'}
         <GitPrefs />
       {:else if activeSection === 'Web Browser'}
