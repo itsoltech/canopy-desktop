@@ -20,6 +20,7 @@ import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
+import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
@@ -106,6 +107,13 @@ const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
+const settingsExportService = new SettingsExportService(
+  database,
+  preferencesStore,
+  profileStore,
+  credentialStore,
+  toolRegistry,
+)
 const tmuxManager = new TmuxManager(app.getPath('userData'))
 const remoteSessionService = new RemoteSessionService(preferencesStore)
 const perfHudService = new PerfHudService()
@@ -642,6 +650,7 @@ app.whenReady().then(async () => {
     remoteSessionService,
     runConfigManager,
     profileStore,
+    settingsExportService,
   )
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')

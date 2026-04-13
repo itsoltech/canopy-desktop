@@ -256,6 +256,27 @@ const api = {
   openFolder: (defaultPath?: string) =>
     ipcRenderer.invoke('dialog:openFolder', defaultPath ? { defaultPath } : undefined),
 
+  // Settings export / import
+  exportSettings: () =>
+    ipcRenderer.invoke('settings:export') as Promise<{
+      path: string
+      counts: {
+        preferences: number
+        profiles: number
+        credentials: number
+        customTools: number
+      }
+    } | null>,
+  importSettings: () =>
+    ipcRenderer.invoke('settings:import') as Promise<{
+      counts: {
+        preferences: number
+        profiles: number
+        credentials: number
+        customTools: number
+      }
+    } | null>,
+
   // Git
   refreshWorkspaceGitStatus: (id: string, path: string) =>
     ipcRenderer.invoke('db:workspace:refreshGitStatus', { id, path }),

@@ -82,6 +82,58 @@ export class ToolRegistry {
     this.reload()
   }
 
+  /** Return only user-added tools. Used for settings export. */
+  listCustom(): ToolDefinition[] {
+    return this.getAll().filter((t) => t.isCustom)
+  }
+
+  /**
+   * Upsert custom tools from an import file, keyed by id. Reuses the
+   * validation from addCustom. Does not open a transaction — the caller
+   * wraps the full import in one outer transaction.
+   */
+  upsertCustomForImport(
+    tools: {
+      id: string
+      name: string
+      command: string
+      args?: string[]
+      icon?: string
+      category?: string
+    }[],
+  ): number {
+    const stmt = this.db.prepare(
+      `INSERT INTO tool_definitions (id, name, command, args_json, icon, category, is_custom)
+       VALUES (?, ?, ?, ?, ?, ?, 1)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         command = excluded.command,
+         args_json = excluded.args_json,
+         icon = excluded.icon,
+         category = excluded.category,
+         is_custom = 1`,
+    )
+    const SHELL_META = /[;|&$`<>%^!()\\"]/
+    let count = 0
+    for (const tool of tools) {
+      this.validateId(tool.id)
+      if (!tool.command.trim()) continue
+      if (/[/\\;|&$`<>%^!()"]/.test(tool.command)) continue
+      if (tool.args?.some((arg) => SHELL_META.test(arg))) continue
+      stmt.run(
+        tool.id,
+        tool.name,
+        tool.command,
+        JSON.stringify(tool.args ?? []),
+        tool.icon ?? 'terminal',
+        tool.category ?? 'system',
+      )
+      count++
+    }
+    this.reload()
+    return count
+  }
+
   removeCustom(id: string): void {
     this.validateId(id)
     this.db.prepare('DELETE FROM tool_definitions WHERE id = ? AND is_custom = 1').run(id)
