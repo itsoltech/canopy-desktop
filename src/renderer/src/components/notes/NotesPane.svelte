@@ -120,8 +120,8 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: var(--bg-primary, #1e1e1e);
-    color: var(--text-primary, #e0e0e0);
+    background: var(--c-bg);
+    color: var(--c-text);
     font-family:
       system-ui,
       -apple-system,
@@ -133,15 +133,15 @@
     align-items: center;
     gap: 12px;
     padding: 6px 10px;
-    border-bottom: 1px solid var(--border-color, #303030);
-    background: var(--bg-secondary, #252525);
+    border-bottom: 1px solid var(--c-border);
+    background: var(--c-bg-elevated);
     font-size: 12px;
     flex-shrink: 0;
   }
 
   .scope-toggle {
     display: inline-flex;
-    border: 1px solid var(--border-color, #3a3a3a);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
     overflow: hidden;
   }
@@ -149,19 +149,19 @@
   .scope-toggle button {
     background: transparent;
     border: 0;
-    color: var(--text-secondary, #a0a0a0);
+    color: var(--c-text-secondary);
     padding: 3px 10px;
     font-size: 12px;
     cursor: pointer;
   }
 
   .scope-toggle button.active {
-    background: var(--accent, #2563eb);
+    background: var(--c-accent);
     color: white;
   }
 
   .scope-label {
-    color: var(--text-secondary, #a0a0a0);
+    color: var(--c-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -170,8 +170,8 @@
 
   .preview-toggle {
     background: transparent;
-    color: var(--text-secondary, #a0a0a0);
-    border: 1px solid var(--border-color, #3a3a3a);
+    color: var(--c-text-secondary);
+    border: 1px solid var(--c-border);
     border-radius: 4px;
     padding: 3px 8px;
     font-size: 12px;
@@ -179,7 +179,7 @@
   }
 
   .preview-toggle:hover {
-    color: var(--text-primary, #e0e0e0);
+    color: var(--c-text);
   }
 
   .notes-body {
@@ -194,10 +194,10 @@
   }
 
   .editor {
-    background: var(--bg-primary, #1e1e1e);
-    color: var(--text-primary, #e0e0e0);
+    background: var(--c-bg);
+    color: var(--c-text);
     border: 0;
-    border-right: 1px solid var(--border-color, #303030);
+    border-right: 1px solid var(--c-border);
     outline: none;
     padding: 12px 14px;
     font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -226,7 +226,7 @@
   }
 
   .preview :global(code) {
-    background: var(--bg-secondary, #2a2a2a);
+    background: var(--c-bg-elevated);
     padding: 1px 4px;
     border-radius: 3px;
     font-family: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -234,7 +234,7 @@
   }
 
   .preview :global(pre) {
-    background: var(--bg-secondary, #2a2a2a);
+    background: var(--c-bg-elevated);
     padding: 8px 10px;
     border-radius: 4px;
     overflow-x: auto;
@@ -246,7 +246,7 @@
   }
 
   .preview :global(a) {
-    color: var(--accent, #60a5fa);
+    color: var(--c-accent);
   }
 
   .empty-state {
@@ -254,7 +254,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-secondary, #808080);
+    color: var(--c-text-muted);
     font-size: 13px;
   }
 </style>

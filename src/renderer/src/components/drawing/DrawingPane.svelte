@@ -16,7 +16,6 @@
 
   const COLORS = ['#e5e7eb', '#f87171', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa']
   const SIZES = [3, 6, 12]
-  const BG = '#1e1e1e'
 
   let canvasEl: HTMLCanvasElement | undefined = $state()
   let containerEl: HTMLDivElement | undefined = $state()
@@ -105,14 +104,23 @@
 
   // --- Rendering ---
 
+  function getThemeColor(prop: string, fallback: string): string {
+    if (!containerEl) return fallback
+    return getComputedStyle(containerEl).getPropertyValue(prop).trim() || fallback
+  }
+
   function redraw(): void {
     const canvas = canvasEl
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    const bg = getThemeColor('--c-bg', '#1e1e1e')
+    const accent = getThemeColor('--c-accent', '#60a5fa')
+    const accentBg = getThemeColor('--c-accent-bg', 'rgba(96, 165, 250, 0.12)')
+
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = BG
+    ctx.fillStyle = bg
     ctx.fillRect(0, 0, width, height)
 
     for (const s of strokes) {
@@ -121,7 +129,7 @@
       ctx.fill(path)
       if (selectedIds.has(s.id)) {
         ctx.save()
-        ctx.strokeStyle = '#60a5fa'
+        ctx.strokeStyle = accent
         ctx.lineWidth = 2
         ctx.stroke(path)
         ctx.restore()
@@ -137,8 +145,8 @@
       const y = Math.min(marquee.y0, marquee.y1)
       const w = Math.abs(marquee.x1 - marquee.x0)
       const h = Math.abs(marquee.y1 - marquee.y0)
-      ctx.fillStyle = 'rgba(96, 165, 250, 0.12)'
-      ctx.strokeStyle = '#60a5fa'
+      ctx.fillStyle = accentBg
+      ctx.strokeStyle = accent
       ctx.lineWidth = 1
       ctx.fillRect(x, y, w, h)
       ctx.strokeRect(x + 0.5, y + 0.5, w, h)
@@ -396,6 +404,7 @@
       // OS pasteboard write is performed on a separate thread. On macOS in particular,
       // a fast follow-up Ctrl+V can race the pasteboard and Claude reads stale contents.
       // 250ms is empirically enough; tradeoff vs. perceived latency.
+      // TODO: replace clipboard+Ctrl-V with a direct IPC channel (e.g. agent:pasteImage) for reliability
       await new Promise((resolve) => setTimeout(resolve, 250))
       await window.api.writePty(agent.sessionId, '\x16')
       addToast(`Sent to ${agent.toolName}`)
@@ -523,8 +532,8 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: var(--bg-primary, #1e1e1e);
-    color: var(--text-primary, #e0e0e0);
+    background: var(--c-bg);
+    color: var(--c-text);
   }
 
   .drawing-header {
@@ -532,16 +541,16 @@
     align-items: center;
     gap: 10px;
     padding: 6px 10px;
-    border-bottom: 1px solid var(--border-color, #303030);
-    background: var(--bg-secondary, #252525);
+    border-bottom: 1px solid var(--c-border);
+    background: var(--c-bg-elevated);
     flex-shrink: 0;
     flex-wrap: wrap;
   }
 
   .drawing-header button {
     background: transparent;
-    border: 1px solid var(--border-color, #3a3a3a);
-    color: var(--text-secondary, #a0a0a0);
+    border: 1px solid var(--c-border);
+    color: var(--c-text-secondary);
     padding: 4px 10px;
     font-size: 12px;
     border-radius: 4px;
@@ -554,7 +563,7 @@
   }
 
   .drawing-header button:not(:disabled):hover {
-    color: var(--text-primary, #e0e0e0);
+    color: var(--c-text);
   }
 
   .tool-group,
@@ -566,9 +575,9 @@
   }
 
   .drawing-header .active {
-    background: var(--accent, #2563eb);
+    background: var(--c-accent);
     color: white;
-    border-color: var(--accent, #2563eb);
+    border-color: var(--c-accent);
   }
 
   .drawing-header button.swatch {
@@ -576,7 +585,7 @@
     height: 22px;
     padding: 0;
     border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid var(--c-border);
     box-sizing: border-box;
     flex-shrink: 0;
   }
@@ -584,7 +593,7 @@
   .drawing-header button.swatch.active {
     background: inherit;
     border-color: transparent;
-    box-shadow: 0 0 0 2px white;
+    box-shadow: 0 0 0 2px var(--c-text);
   }
 
   .size-group button {
@@ -607,14 +616,14 @@
   }
 
   .drawing-header button.primary:not(:disabled) {
-    background: var(--accent, #2563eb);
+    background: var(--c-accent);
     color: white;
-    border-color: var(--accent, #2563eb);
+    border-color: var(--c-accent);
   }
 
   .drawing-header button.danger:not(:disabled):hover {
-    color: #f87171;
-    border-color: #b91c1c;
+    color: var(--c-danger-text);
+    border-color: var(--c-danger);
   }
 
   .canvas-wrap {
