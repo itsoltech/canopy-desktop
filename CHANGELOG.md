@@ -1,3 +1,9 @@
+## [0.11.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.7...v0.11.0-next.8) (2026-04-13)
+
+### Bug Fixes
+
+* **git:** coalesce GitWatcher refreshes to fix shutdown crash ([#147](https://github.com/itsoltech/canopy-desktop/issues/147)) ([#148](https://github.com/itsoltech/canopy-desktop/issues/148)) ([05b4467](https://github.com/itsoltech/canopy-desktop/commit/05b4467de482bea4d75325ce46386075da1e77b5))
+
 ## [0.11.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.6...v0.11.0-next.7) (2026-04-13)
 
 ### Features
