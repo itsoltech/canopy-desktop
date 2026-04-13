@@ -1,3 +1,26 @@
+## [0.11.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.5...v0.11.0-next.6) (2026-04-10)
+
+### Bug Fixes
+
+* **ci:** queue concurrent code review runs instead of cancelling ([c43c40c](https://github.com/itsoltech/canopy-desktop/commit/c43c40c0faaf694fbebd899a8a6682d4be97b0e3))
+* **terminal:** debounce resize to prevent flickering ([#142](https://github.com/itsoltech/canopy-desktop/issues/142)) ([3bef79e](https://github.com/itsoltech/canopy-desktop/commit/3bef79eca725ea72cf9748af9834a3fc2cd37438))
+
+## [0.11.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.4...v0.11.0-next.5) (2026-04-10)
+
+### Features
+
+* **agents:** add Codex agent integration ([#138](https://github.com/itsoltech/canopy-desktop/issues/138)) ([b4c2ada](https://github.com/itsoltech/canopy-desktop/commit/b4c2adad9d9cb82bc488dfd9b6a72feeacaeb2aa))
+* **agents:** add OpenCode integration via plugin bridge ([#139](https://github.com/itsoltech/canopy-desktop/issues/139)) ([28ac4d4](https://github.com/itsoltech/canopy-desktop/commit/28ac4d4ac6b4a4642e4e3f6d4239b5f97a96647e))
+* crash detection with GitHub issue reporting ([#140](https://github.com/itsoltech/canopy-desktop/issues/140)) ([54639dd](https://github.com/itsoltech/canopy-desktop/commit/54639dd22de6bf9f94bfeb7e8b68d97c00e63fe8))
+* **ui:** add pane drag-and-drop for reorder, move, and detach ([#137](https://github.com/itsoltech/canopy-desktop/issues/137)) ([518e47d](https://github.com/itsoltech/canopy-desktop/commit/518e47df97ea32742bb911c3000d2398c20ef31b))
+
+### Bug Fixes
+
+* **ci:** add id-token write permission to claude-code-compat workflow ([3f76be8](https://github.com/itsoltech/canopy-desktop/commit/3f76be8430d9cdf2bbfe29bc12e46ca7ab169a8f))
+* **ci:** hard reset before updating claude-code version tracker ([3b1b5d9](https://github.com/itsoltech/canopy-desktop/commit/3b1b5d91497cd152724a15c958409ec4c7aef92a))
+* **ci:** rebase compat branch after version tracker bump ([2f12e7b](https://github.com/itsoltech/canopy-desktop/commit/2f12e7b4eddb2f1607812d7bcc963a36aadb421a))
+* **telemetry:** deduplicate daily ping and disable in dev mode ([#141](https://github.com/itsoltech/canopy-desktop/issues/141)) ([70b094f](https://github.com/itsoltech/canopy-desktop/commit/70b094f03ffb303c36c37711a324b507c1f2c11b))
+
 ## [0.11.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.3...v0.11.0-next.4) (2026-04-09)
 
 ### Bug Fixes

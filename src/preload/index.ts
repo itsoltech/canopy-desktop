@@ -239,6 +239,26 @@ const api = {
     }
   },
 
+  // Crash reports
+  onCrashReport: (
+    callback: (data: {
+      timestamp: string
+      type: string
+      errorMessage: string
+      stack?: string
+      appVersion: string
+      electronVersion: string
+      os: string
+    }) => void,
+  ) => {
+    const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
+      callback(data)
+    ipcRenderer.on('app:crashReport', handler)
+    return (): void => {
+      ipcRenderer.removeListener('app:crashReport', handler)
+    }
+  },
+
   // About
   getAboutInfo: () => ipcRenderer.invoke('app:getAboutInfo'),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', { url }),

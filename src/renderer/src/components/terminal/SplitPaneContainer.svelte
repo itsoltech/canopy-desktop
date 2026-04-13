@@ -28,17 +28,28 @@
 
   $effect(() => {
     if (!containerEl) return
+    let rafId: number | null = null
     function measure(): void {
       containerWidth = containerEl!.clientWidth || 1
       containerHeight = containerEl!.clientHeight || 1
     }
     measure()
-    const observer = new ResizeObserver(measure)
+    const observer = new ResizeObserver(() => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        measure()
+      })
+    })
     observer.observe(containerEl)
-    return () => observer.disconnect()
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      observer.disconnect()
+    }
   })
 
   let layout = $derived(buildFlatLayout(node, containerWidth, containerHeight))
+  let isMultiPane = $derived(node.type !== 'leaf')
 
   function handleDividerDrag(
     splitId: string,
@@ -70,6 +81,7 @@
         {worktreePath}
         focused={rect.paneId === focusedPaneId}
         {active}
+        {isMultiPane}
         onFocus={() => onFocusPane(rect.paneId)}
       />
     </div>
@@ -104,6 +116,7 @@
     overflow: hidden;
     min-width: 80px;
     min-height: 60px;
+    contain: layout paint;
   }
 
   .divider-slot {

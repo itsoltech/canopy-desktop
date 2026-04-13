@@ -2,7 +2,7 @@ import { safeStorage } from 'electron'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
 
-const ENCRYPTED_KEYS = new Set(['claude.apiKey', 'gemini.apiKey'])
+const ENCRYPTED_KEYS = new Set(['claude.apiKey', 'gemini.apiKey', 'opencode.apiKey'])
 const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.']
 
 function isEncryptedKey(key: string): boolean {

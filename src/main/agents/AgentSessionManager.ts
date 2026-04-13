@@ -10,6 +10,8 @@ import type { NotchSessionStatus } from '../notch/types'
 import { getAdapter, registerAdapter, isAgentTool as isRegistered } from './registry'
 import { claudeAdapter } from './adapters/claude'
 import { geminiAdapter } from './adapters/gemini'
+import { opencodeAdapter } from './adapters/opencode'
+import { codexAdapter } from './adapters/codex'
 
 interface AgentSession {
   agentType: AgentType
@@ -46,6 +48,8 @@ export class AgentSessionManager extends EventEmitter {
     // Register built-in adapters
     registerAdapter(claudeAdapter)
     registerAdapter(geminiAdapter)
+    registerAdapter(opencodeAdapter)
+    registerAdapter(codexAdapter)
   }
 
   get sessionCount(): number {
@@ -259,6 +263,8 @@ export class AgentSessionManager extends EventEmitter {
         if (entry.startsWith('session-') && entry.endsWith('.json')) {
           unlinkSync(fullPath)
         } else if (entry.startsWith('gemini-home-') && statSync(fullPath).isDirectory()) {
+          rmSync(fullPath, { recursive: true, force: true })
+        } else if (entry.startsWith('opencode-config-') && statSync(fullPath).isDirectory()) {
           rmSync(fullPath, { recursive: true, force: true })
         }
       } catch {

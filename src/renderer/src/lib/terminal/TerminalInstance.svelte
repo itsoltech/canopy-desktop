@@ -51,6 +51,7 @@
   let pendingData = ''
   let writeScheduled = false
   let writeRafId: number | null = null
+  let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null
   let receivedChars = 0
   let startTerminal: (() => void) | null = null
 
@@ -445,24 +446,30 @@
       }
 
       resizeObserver = new ResizeObserver(() => {
-        if (!containerEl.clientWidth || !containerEl.clientHeight) return
-        const dims = fitAddon.proposeDimensions()
-        // Skip transient tiny sizes (e.g. window restore animation)
-        if (!dims || dims.cols < 10 || dims.rows < 3) return
-        if (dims.cols !== term.cols || dims.rows !== term.rows) {
-          const buffer = term.buffer.active
-          const isAtBottom = buffer.viewportY >= buffer.baseY
-          const savedY = buffer.viewportY
+        // Debounce: wait for resize to settle before re-fitting.
+        // During continuous drag, this skips all intermediate fits,
+        // avoiding WebGL texture churn (RAM spikes) and canvas flicker.
+        if (resizeDebounceTimer !== null) clearTimeout(resizeDebounceTimer)
+        resizeDebounceTimer = setTimeout(() => {
+          resizeDebounceTimer = null
+          if (!containerEl || !containerEl.clientWidth || !containerEl.clientHeight) return
+          const dims = fitAddon.proposeDimensions()
+          if (!dims || dims.cols < 10 || dims.rows < 3) return
+          if (dims.cols !== term.cols || dims.rows !== term.rows) {
+            const buffer = term.buffer.active
+            const isAtBottom = buffer.viewportY >= buffer.baseY
+            const savedY = buffer.viewportY
 
-          fitAddon.fit()
+            fitAddon.fit()
 
-          if (!isAtBottom) {
-            const currentY = term.buffer.active.viewportY
-            if (currentY !== savedY) {
-              term.scrollLines(savedY - currentY)
+            if (!isAtBottom) {
+              const currentY = term.buffer.active.viewportY
+              if (currentY !== savedY) {
+                term.scrollLines(savedY - currentY)
+              }
             }
           }
-        }
+        }, 80)
       })
       resizeObserver.observe(containerEl)
 
@@ -530,6 +537,7 @@
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
       termRef = null
+      if (resizeDebounceTimer !== null) clearTimeout(resizeDebounceTimer)
       if (resizeObserver) resizeObserver.disconnect()
       if (webglAddonRef) {
         webglAddonRef.dispose()
@@ -579,6 +587,7 @@
   .terminal-container {
     width: 100%;
     height: 100%;
+    contain: strict;
   }
 
   .progress-bar {

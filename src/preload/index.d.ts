@@ -235,6 +235,19 @@ interface CanopyAPI {
   getChangelogSinceVersion: (fromVersion: string) => Promise<ChangelogEntry[] | null>
   onShowChangelog: (callback: (data: { fromVersion: string }) => void) => () => void
 
+  // Crash reports
+  onCrashReport: (
+    callback: (data: {
+      timestamp: string
+      type: string
+      errorMessage: string
+      stack?: string
+      appVersion: string
+      electronVersion: string
+      os: string
+    }) => void,
+  ) => () => void
+
   // PTY
   spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>

@@ -1,7 +1,7 @@
 import { match } from 'ts-pattern'
 import { SvelteDate } from 'svelte/reactivity'
 
-export type AgentType = 'claude' | 'gemini'
+export type AgentType = 'claude' | 'gemini' | 'opencode' | 'codex'
 
 export interface SubagentRecord {
   agentId: string
@@ -140,6 +140,12 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
   if (extra) {
     if (typeof extra.contextPercent === 'number') session.contextPercent = extra.contextPercent
     if (typeof extra.contextSize === 'number') session.contextSize = extra.contextSize
+    // Merge agent-specific extras (Codex: cwd, transcriptPath, turnId, etc.)
+    for (const [k, v] of Object.entries(extra)) {
+      if (k !== 'contextPercent' && k !== 'contextSize') {
+        session.extra[k] = v
+      }
+    }
   }
 
   match(event.event)
@@ -162,6 +168,12 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
     })
     .with('PromptSubmit', () => {
       session.status = { type: 'thinking' }
+      delete session.extra.pendingQuestion
+      // Track turn count (Codex provides turn_id per turn)
+      if (extra?.turnId) {
+        const count = (session.extra.turnCount as number | undefined) ?? 0
+        session.extra.turnCount = count + 1
+      }
     })
     .with('BeforeToolUse', () => {
       session.status = {
@@ -174,9 +186,19 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
         type: 'waitingPermission',
         toolName: event.toolName ?? 'unknown',
       }
+      // OpenCode: store question details for inspector display
+      if (event.toolName === 'question' && event.toolInput) {
+        const questions = event.toolInput.questions as
+          | Array<{ question?: string; header?: string }>
+          | undefined
+        if (questions?.[0]) {
+          session.extra.pendingQuestion = questions[0].question ?? questions[0].header ?? ''
+        }
+      }
     })
     .with('AfterToolUse', () => {
       session.toolCallCount++
+      delete session.extra.pendingQuestion
       handleTaskToolUse(session, event)
     })
     .with('AfterToolUseFailure', () => {
@@ -184,6 +206,7 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
     })
     .with('Idle', () => {
       session.status = { type: 'idle' }
+      delete session.extra.pendingQuestion
     })
     .with('IdleFailure', () => {
       session.status = {
@@ -230,6 +253,24 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
           timestamp: Date.now(),
         },
       ]
+      // OpenCode: sync todo list → task list
+      const todos = extra?.opencodeTodos as
+        | Array<{ id: string; content: string; status: string }>
+        | undefined
+      if (todos) {
+        session.tasks = todos.slice(0, MAX_TASKS).map((t) => ({
+          id: t.id,
+          subject: t.content,
+          status:
+            t.status === 'completed'
+              ? ('completed' as const)
+              : t.status === 'in_progress'
+                ? ('in_progress' as const)
+                : ('pending' as const),
+          activeForm: null,
+          owner: null,
+        }))
+      }
     })
     .with('BeforeCompact', () => {
       session.status = { type: 'compacting' }
