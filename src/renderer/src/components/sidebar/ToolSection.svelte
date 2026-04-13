@@ -227,11 +227,4 @@
     white-space: nowrap;
     flex: 1;
   }
-
-  .profile-empty {
-    padding: 4px 12px 4px 30px;
-    font-size: 11px;
-    color: var(--c-text-faint);
-    font-style: italic;
-  }
 </style>

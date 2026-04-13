@@ -68,7 +68,7 @@ import { runConfigErrorMessage } from '../runConfig/errors'
 import type { ProfileStore } from '../profiles/ProfileStore'
 import { profileToReader } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
-import type { ProfileInput } from '../profiles/types'
+import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
 import type { AgentType, PreferencesReader } from '../agents/types'
 import { resolveShell } from '../pty/PtyManager'
 
@@ -488,7 +488,7 @@ export function registerIpcHandlers(
 
   // --- Agent Profiles ---
 
-  const KNOWN_AGENT_TYPES = new Set<AgentType>(['claude', 'gemini', 'opencode', 'codex'])
+  const KNOWN_AGENT_TYPES_SET: ReadonlySet<AgentType> = new Set(KNOWN_AGENT_TYPES)
 
   ipcMain.handle('profile:list', async (_event, payload?: { agentType?: AgentType }) => {
     return (await profileStore.list(payload?.agentType)).unwrapOr([])
@@ -508,7 +508,7 @@ export function registerIpcHandlers(
     if (typeof input.name !== 'string') {
       throw new Error('profile:save: name must be a string')
     }
-    if (typeof input.agentType !== 'string' || !KNOWN_AGENT_TYPES.has(input.agentType)) {
+    if (typeof input.agentType !== 'string' || !KNOWN_AGENT_TYPES_SET.has(input.agentType)) {
       throw new Error(`profile:save: unknown agentType "${String(input.agentType)}"`)
     }
     if (input.id !== undefined && typeof input.id !== 'string') {
