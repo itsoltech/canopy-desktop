@@ -476,7 +476,19 @@
             onpointerenter={() => (hoveredFilePath = file.path)}
             onpointerleave={() => (hoveredFilePath = null)}
           >
-            <div class="file-header" onclick={() => toggleCollapse(file.path)}>
+            <div
+              class="file-header"
+              role="button"
+              tabindex="0"
+              aria-expanded={!collapsedFiles.has(file.path)}
+              onclick={() => toggleCollapse(file.path)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  toggleCollapse(file.path)
+                }
+              }}
+            >
               <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>
                 <ChevronRight size={12} />
               </span>

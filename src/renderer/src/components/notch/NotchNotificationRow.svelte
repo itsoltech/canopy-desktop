@@ -199,5 +199,11 @@
     .row.highlight {
       animation: none;
     }
+    .row {
+      transition: none;
+    }
+    .row:active {
+      transform: none;
+    }
   }
 </style>
