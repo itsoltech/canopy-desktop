@@ -131,6 +131,66 @@ export class CredentialStore {
     }))
   }
 
+  /**
+   * Returns every credential with decrypted password. Main-process-only;
+   * never expose via IPC. Used for settings export.
+   */
+  listInternalDecrypted(): Credential[] {
+    const rows = this.db
+      .prepare('SELECT * FROM credentials ORDER BY domain, username')
+      .all() as CredentialRow[]
+    return rows.map((row) => ({
+      id: row.id,
+      domain: row.domain,
+      username: row.username,
+      password: this.decrypt(row.password_enc),
+      title: row.title,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  }
+
+  /**
+   * Upsert credentials from an import file, keyed by (domain, username).
+   * Existing rows are updated in place (id preserved); new rows get a fresh
+   * UUID. Re-encrypts passwords with this machine's safeStorage. Does not
+   * open a transaction — the caller wraps the full import in one outer
+   * transaction.
+   */
+  upsertForImport(
+    creds: {
+      domain: string
+      username: string
+      password: string
+      title?: string
+    }[],
+  ): number {
+    const findStmt = this.db.prepare('SELECT id FROM credentials WHERE domain = ? AND username = ?')
+    const updateStmt = this.db.prepare(
+      `UPDATE credentials
+         SET password_enc = ?, title = ?, updated_at = datetime('now')
+         WHERE id = ?`,
+    )
+    const insertStmt = this.db.prepare(
+      `INSERT INTO credentials (id, domain, username, password_enc, title, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+    )
+
+    let count = 0
+    for (const c of creds) {
+      if (!c.domain || !c.username) continue
+      const enc = this.encrypt(c.password)
+      const existing = findStmt.get(c.domain, c.username) as { id: string } | undefined
+      if (existing) {
+        updateStmt.run(enc, c.title ?? '', existing.id)
+      } else {
+        insertStmt.run(randomUUID(), c.domain, c.username, enc, c.title ?? '')
+      }
+      count++
+    }
+    return count
+  }
+
   /** Get single credential with decrypted password (for autofill) */
   getById(id: string): Credential | null {
     const row = this.db.prepare('SELECT * FROM credentials WHERE id = ?').get(id) as

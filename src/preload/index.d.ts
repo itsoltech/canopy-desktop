@@ -337,6 +337,25 @@ interface CanopyAPI {
   // Dialog
   openFolder: (defaultPath?: string) => Promise<string | null>
 
+  // Settings export / import
+  exportSettings: () => Promise<{
+    path: string
+    counts: {
+      preferences: number
+      profiles: number
+      credentials: number
+      customTools: number
+    }
+  } | null>
+  importSettings: () => Promise<{
+    counts: {
+      preferences: number
+      profiles: number
+      credentials: number
+      customTools: number
+    }
+  } | null>
+
   // Workspace Git Status
   refreshWorkspaceGitStatus: (id: string, path: string) => Promise<WorkspaceRow | null>
 

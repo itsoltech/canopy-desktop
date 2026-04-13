@@ -69,6 +69,8 @@ import type { ProfileStore } from '../profiles/ProfileStore'
 import { profileToReader } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
 import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
+import type { SettingsExportService } from '../settings/SettingsExport'
+import { settingsExportErrorMessage } from '../settings/errors'
 import type { AgentType, PreferencesReader } from '../agents/types'
 import { resolveShell } from '../pty/PtyManager'
 
@@ -104,6 +106,7 @@ export function registerIpcHandlers(
   remoteSessionService: RemoteSessionService,
   runConfigManager: RunConfigManager,
   profileStore: ProfileStore,
+  settingsExportService: SettingsExportService,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -470,6 +473,92 @@ export function registerIpcHandlers(
 
   ipcMain.handle('db:prefs:delete', (_event, payload: { key: string }) => {
     preferencesStore.delete(payload.key)
+  })
+
+  // --- Settings Export / Import ---
+
+  ipcMain.handle('settings:export', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+
+    const today = new Date().toISOString().slice(0, 10)
+    const defaultFilename = `canopy-settings-${today}.json`
+
+    const saveResult = await dialog.showSaveDialog(win, {
+      title: 'Export Canopy Settings',
+      defaultPath: defaultFilename,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (saveResult.canceled || !saveResult.filePath) return null
+
+    const buildResult = await settingsExportService.buildExport()
+    const file = unwrapOrThrow(buildResult, settingsExportErrorMessage)
+    const json = JSON.stringify(file, null, 2)
+
+    try {
+      await fs.promises.writeFile(saveResult.filePath, json, { encoding: 'utf8', mode: 0o600 })
+    } catch (e) {
+      throw new Error(
+        settingsExportErrorMessage({
+          _tag: 'ExportWriteError',
+          reason: e instanceof Error ? e.message : String(e),
+        }),
+      )
+    }
+
+    return {
+      path: saveResult.filePath,
+      counts: {
+        preferences: Object.keys(file.preferences).length,
+        profiles: file.profiles.length,
+        credentials: file.credentials.length,
+        customTools: file.customTools.length,
+      },
+    }
+  })
+
+  ipcMain.handle('settings:import', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+
+    const openResult = await dialog.showOpenDialog(win, {
+      title: 'Import Canopy Settings',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile'],
+    })
+    if (openResult.canceled || openResult.filePaths.length === 0) return null
+
+    let raw: string
+    try {
+      raw = await fs.promises.readFile(openResult.filePaths[0], 'utf8')
+    } catch (e) {
+      throw new Error(
+        settingsExportErrorMessage({
+          _tag: 'ImportReadError',
+          reason: e instanceof Error ? e.message : String(e),
+        }),
+      )
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (e) {
+      throw new Error(
+        settingsExportErrorMessage({
+          _tag: 'ImportParseError',
+          reason: e instanceof Error ? e.message : String(e),
+        }),
+      )
+    }
+
+    const applyResult = await settingsExportService.applyImport(parsed)
+    const counts = unwrapOrThrow(applyResult, settingsExportErrorMessage)
+
+    await broadcastProfilesChanged()
+    broadcastToolsChanged()
+
+    return { counts }
   })
 
   // --- Tools ---

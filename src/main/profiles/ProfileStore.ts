@@ -253,6 +253,78 @@ export class ProfileStore {
     }
   }
 
+  // --- Export / Import (main-process-only) ---
+
+  /**
+   * Returns every profile with decrypted apiKey. Never expose via IPC —
+   * used for settings export.
+   */
+  listInternal(): AgentProfile[] {
+    const rows = this.db
+      .prepare('SELECT * FROM agent_profiles ORDER BY agent_type, sort_index, name')
+      .all() as ProfileRow[]
+    return rows.map((r) => this.rowToProfile(r))
+  }
+
+  /**
+   * Upsert profiles from an import file, keyed by (agent_type, name).
+   * Existing profiles are updated in-place (preserves id, createdAt, and
+   * is_default). New profiles get a fresh UUID. Does not open a transaction —
+   * the caller wraps the full import in one outer transaction.
+   */
+  upsertForImport(
+    profiles: {
+      agentType: AgentType
+      name: string
+      isDefault?: boolean
+      sortIndex?: number
+      prefs: ProfilePrefs
+      apiKey: string | null
+    }[],
+  ): number {
+    const findStmt = this.db.prepare(
+      'SELECT * FROM agent_profiles WHERE agent_type = ? AND name = ?',
+    )
+    const updateStmt = this.db.prepare(
+      `UPDATE agent_profiles
+         SET prefs_json = ?, api_key_enc = ?, sort_index = ?, updated_at = datetime('now')
+         WHERE id = ?`,
+    )
+    const insertStmt = this.db.prepare(
+      `INSERT INTO agent_profiles
+         (id, agent_type, name, is_default, sort_index, prefs_json, api_key_enc)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+
+    let count = 0
+    for (const p of profiles) {
+      if (!isAgentType(p.agentType)) continue
+      const trimmed = p.name.trim()
+      if (!trimmed) continue
+
+      const prefsJson = JSON.stringify(p.prefs ?? {})
+      const apiKeyEnc =
+        typeof p.apiKey === 'string' && p.apiKey.length > 0 ? this.encrypt(p.apiKey) : null
+
+      const existing = findStmt.get(p.agentType, trimmed) as ProfileRow | undefined
+      if (existing) {
+        updateStmt.run(prefsJson, apiKeyEnc, p.sortIndex ?? existing.sort_index, existing.id)
+      } else {
+        insertStmt.run(
+          randomUUID(),
+          p.agentType,
+          trimmed,
+          p.isDefault ? 1 : 0,
+          p.sortIndex ?? 0,
+          prefsJson,
+          apiKeyEnc,
+        )
+      }
+      count++
+    }
+    return count
+  }
+
   // --- Migration of legacy global prefs into Default profiles ---
 
   ensureDefaults(): void {
