@@ -157,7 +157,7 @@
 
   .scope-toggle button.active {
     background: var(--c-accent);
-    color: white;
+    color: var(--c-bg);
   }
 
   .scope-label {

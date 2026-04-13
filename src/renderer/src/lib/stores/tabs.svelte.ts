@@ -27,10 +27,26 @@ import { getPref } from './preferences.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
 import { notesUiScope } from './notes.svelte'
 import { getProfileById } from './profiles.svelte'
+import { drawingsState } from './drawings.svelte'
+
+function hasRemainingDrawingPanes(excludeId: string): boolean {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      if (tab.suspended) continue
+      for (const p of allPanes(tab.rootSplit)) {
+        if (p.paneType === 'drawing' && p.id !== excludeId) return true
+      }
+    }
+  }
+  return false
+}
 
 function disposeEphemeralPaneState(pane: PaneSession): void {
   if (pane.paneType === 'notes') {
     delete notesUiScope[pane.sessionId]
+  }
+  if (pane.paneType === 'drawing' && !hasRemainingDrawingPanes(pane.id)) {
+    for (const key of Object.keys(drawingsState)) delete drawingsState[key]
   }
 }
 

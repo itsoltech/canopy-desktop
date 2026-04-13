@@ -1,16 +1,23 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { getStroke } from 'perfect-freehand'
   import {
     drawingsState,
     getDrawingKey,
     type Stroke,
-    type StrokePoint,
     type DrawTool,
   } from '../../lib/stores/drawings.svelte'
   import { getActiveAgentPane } from '../../lib/stores/tabs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import {
+    strokePath,
+    strokeBBox,
+    hitTest,
+    redraw,
+    canvasPoint,
+    pointFromEvent,
+    blobFromCanvas,
+  } from './drawingCanvas'
 
   // Drawing pane has no props — canvas state is keyed by project via drawingsState.
 
@@ -53,105 +60,21 @@
     })
   })
 
-  // --- Stroke geometry ---
-
-  function strokePath(stroke: Stroke): Path2D {
-    const path = new Path2D()
-    const outline = getStroke(stroke.points, {
-      size: stroke.size,
-      thinning: 0.55,
-      smoothing: 0.55,
-      streamline: 0.5,
-      simulatePressure: true,
-    })
-    if (outline.length === 0) return path
-    path.moveTo(outline[0][0], outline[0][1])
-    for (let i = 1; i < outline.length; i++) {
-      path.lineTo(outline[i][0], outline[i][1])
-    }
-    path.closePath()
-    return path
-  }
-
-  function strokeBBox(stroke: Stroke): { x: number; y: number; w: number; h: number } {
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity
-    for (const [x, y] of stroke.points) {
-      if (x < minX) minX = x
-      if (y < minY) minY = y
-      if (x > maxX) maxX = x
-      if (y > maxY) maxY = y
-    }
-    const pad = stroke.size
-    return { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad }
-  }
-
-  function hitTest(px: number, py: number): Stroke | null {
-    const canvas = canvasEl
-    if (!canvas) return null
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-    // Last drawn stroke sits on top — iterate back-to-front.
-    for (let i = strokes.length - 1; i >= 0; i--) {
-      if (ctx.isPointInPath(strokePath(strokes[i]), px * dpr, py * dpr)) {
-        return strokes[i]
-      }
-    }
-    return null
-  }
-
   // --- Rendering ---
 
-  function getThemeColor(prop: string, fallback: string): string {
-    if (!containerEl) return fallback
-    return getComputedStyle(containerEl).getPropertyValue(prop).trim() || fallback
-  }
-
-  function redraw(): void {
-    const canvas = canvasEl
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const bg = getThemeColor('--c-bg', '#1e1e1e')
-    const accent = getThemeColor('--c-accent', '#60a5fa')
-    const accentBg = getThemeColor('--c-accent-bg', 'rgba(96, 165, 250, 0.12)')
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = bg
-    ctx.fillRect(0, 0, width, height)
-
-    for (const s of strokes) {
-      const path = strokePath(s)
-      ctx.fillStyle = s.color
-      ctx.fill(path)
-      if (selectedIds.has(s.id)) {
-        ctx.save()
-        ctx.strokeStyle = accent
-        ctx.lineWidth = 2
-        ctx.stroke(path)
-        ctx.restore()
-      }
-    }
-    if (liveStroke) {
-      ctx.fillStyle = liveStroke.color
-      ctx.fill(strokePath(liveStroke))
-    }
-    if (marquee) {
-      ctx.save()
-      const x = Math.min(marquee.x0, marquee.x1)
-      const y = Math.min(marquee.y0, marquee.y1)
-      const w = Math.abs(marquee.x1 - marquee.x0)
-      const h = Math.abs(marquee.y1 - marquee.y0)
-      ctx.fillStyle = accentBg
-      ctx.strokeStyle = accent
-      ctx.lineWidth = 1
-      ctx.fillRect(x, y, w, h)
-      ctx.strokeRect(x + 0.5, y + 0.5, w, h)
-      ctx.restore()
-    }
+  function doRedraw(): void {
+    if (!canvasEl || !containerEl) return
+    redraw({
+      canvas: canvasEl,
+      container: containerEl,
+      dpr,
+      width,
+      height,
+      strokes,
+      liveStroke,
+      selectedIds,
+      marquee,
+    })
   }
 
   function resize(): void {
@@ -164,7 +87,7 @@
     canvasEl.height = Math.round(height * dpr)
     canvasEl.style.width = `${width}px`
     canvasEl.style.height = `${height}px`
-    redraw()
+    doRedraw()
   }
 
   $effect(() => {
@@ -172,7 +95,7 @@
     void liveStroke
     void marquee
     void selectedIds.size
-    redraw()
+    doRedraw()
   })
 
   onMount(() => {
@@ -195,25 +118,13 @@
   let activePointerId = -1
   let downPoint: { x: number; y: number } | null = null
 
-  function canvasPoint(e: PointerEvent): { x: number; y: number } {
-    const rect = canvasEl!.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
-  }
-
-  function pointFromEvent(e: PointerEvent): StrokePoint {
-    const { x, y } = canvasPoint(e)
-    const pressure = e.pressure > 0 ? e.pressure : 0.5
-    return [x, y, pressure]
-  }
-
   function onPointerDown(e: PointerEvent): void {
     if (!canvasEl) return
     if (e.button !== 0 && e.pointerType === 'mouse') return
-    // Move keyboard focus to the canvas wrapper so its onkeydown handler fires (Undo, Delete, Esc).
     containerEl?.focus({ preventScroll: true })
     canvasEl.setPointerCapture(e.pointerId)
     activePointerId = e.pointerId
-    const pt = canvasPoint(e)
+    const pt = canvasPoint(e, canvasEl)
     downPoint = pt
 
     if (tool === 'pen') {
@@ -222,13 +133,14 @@
         id: crypto.randomUUID(),
         color,
         size,
-        points: [pointFromEvent(e)],
+        points: [pointFromEvent(e, canvasEl)],
       }
       return
     }
 
-    // Select tool
-    const hit = hitTest(pt.x, pt.y)
+    const ctx = canvasEl.getContext('2d')
+    if (!ctx) return
+    const hit = hitTest(pt.x, pt.y, ctx, strokes, dpr)
     if (hit) {
       dragMode = 'click'
       if (e.shiftKey) {
@@ -248,13 +160,13 @@
   function onPointerMove(e: PointerEvent): void {
     if (e.pointerId !== activePointerId) return
 
-    if (dragMode === 'draw' && liveStroke) {
-      liveStroke.points = [...liveStroke.points, pointFromEvent(e)]
+    if (dragMode === 'draw' && liveStroke && canvasEl) {
+      liveStroke.points = [...liveStroke.points, pointFromEvent(e, canvasEl)]
       return
     }
 
-    if (dragMode === 'marquee' && marquee) {
-      const pt = canvasPoint(e)
+    if (dragMode === 'marquee' && marquee && canvasEl) {
+      const pt = canvasPoint(e, canvasEl)
       marquee = { ...marquee, x1: pt.x, y1: pt.y }
       return
     }
@@ -265,7 +177,7 @@
     const mode = dragMode
     dragMode = null
     activePointerId = -1
-    const up = canvasPoint(e)
+    const up = canvasPoint(e, canvasEl!)
     const down = downPoint
     downPoint = null
 
@@ -348,10 +260,6 @@
     }
   }
 
-  function blobFromCanvas(canvas: HTMLCanvasElement): Promise<Blob | null> {
-    return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'))
-  }
-
   async function exportPng(): Promise<Blob | null> {
     const canvas = canvasEl
     if (!canvas) return null
@@ -359,13 +267,12 @@
       addToast('Drawing is empty')
       return null
     }
-    // Temporarily clear selection highlights so they don't leak into export.
     const hadSelection = selectedIds.size > 0
     if (!hadSelection) return blobFromCanvas(canvas)
 
     const snapshot = [...selectedIds]
     selectedIds.clear()
-    redraw()
+    doRedraw()
     try {
       // Reuse the captured canvas reference — `canvasEl` could have been cleared
       // by an unmount between redraw() and toBlob().
@@ -576,7 +483,7 @@
 
   .drawing-header .active {
     background: var(--c-accent);
-    color: white;
+    color: var(--c-bg);
     border-color: var(--c-accent);
   }
 
@@ -617,7 +524,7 @@
 
   .drawing-header button.primary:not(:disabled) {
     background: var(--c-accent);
-    color: white;
+    color: var(--c-bg);
     border-color: var(--c-accent);
   }
 
