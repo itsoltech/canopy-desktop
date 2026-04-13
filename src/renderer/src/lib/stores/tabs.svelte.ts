@@ -26,6 +26,7 @@ import { confirm } from './dialogs.svelte'
 import { getPref } from './preferences.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
 import { notesUiScope } from './notes.svelte'
+import { getProfileById } from './profiles.svelte'
 
 function disposeEphemeralPaneState(pane: PaneSession): void {
   if (pane.paneType === 'notes') {
@@ -101,6 +102,7 @@ type SerializedSplitNode =
       browserDevToolsMode?: 'bottom' | 'right'
       filePath?: string
       tmuxSessionName?: string
+      profileId?: string
     }
   | { type: 'hsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
   | { type: 'vsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
@@ -134,11 +136,20 @@ function nextTabId(): string {
   return `tab-${++tabCounter}`
 }
 
-function computeDisplayName(toolName: string, worktreePath: string, toolId: string): string {
+function computeDisplayName(
+  toolName: string,
+  worktreePath: string,
+  toolId: string,
+  profileName?: string,
+): string {
+  const baseLabel =
+    profileName && profileName !== 'Default' ? `${toolName} (${profileName})` : toolName
   const existing = tabsByWorktree[worktreePath] ?? []
-  const sameToolCount = existing.filter((t) => t.toolId === toolId).length
-  if (sameToolCount === 0) return toolName
-  return `${toolName} #${sameToolCount + 1}`
+  const sameLabelCount = existing.filter(
+    (t) => t.name === baseLabel || t.name.startsWith(`${baseLabel} #`),
+  ).length
+  if (sameLabelCount === 0) return baseLabel
+  return `${baseLabel} #${sameLabelCount + 1}`
 }
 
 export function getActiveAgentPane(): PaneSession | null {
@@ -162,11 +173,12 @@ export function getActiveAgentPane(): PaneSession | null {
 export async function openTool(
   toolId: string,
   worktreePath: string,
-  initialUrl?: string,
+  options?: { initialUrl?: string; profileId?: string },
 ): Promise<TabInfo> {
   let pane: PaneSession
   const paneId = nextPaneId()
   let toolName: string
+  let profileName: string | undefined
 
   if (toolId === 'browser') {
     const browserId = crypto.randomUUID()
@@ -181,7 +193,7 @@ export async function openTool(
       exitCode: null,
       title: null,
       paneType: 'browser',
-      url: initialUrl,
+      url: options?.initialUrl,
     }
   } else if (toolId === 'notes' || toolId === 'drawing') {
     toolName = toolId === 'notes' ? 'Notes' : 'Drawing'
@@ -197,13 +209,21 @@ export async function openTool(
       paneType: toolId,
     }
   } else {
-    const options: { workspaceName?: string; branch?: string } = {}
+    const spawnOptions: {
+      workspaceName?: string
+      branch?: string
+      profileId?: string
+    } = {}
     if (AI_TOOL_IDS.has(toolId)) {
       const project = getProjectForWorktree(worktreePath)
-      options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
-      options.branch = workspaceState.branch ?? undefined
+      spawnOptions.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
+      spawnOptions.branch = workspaceState.branch ?? undefined
+      if (options?.profileId) {
+        spawnOptions.profileId = options.profileId
+        profileName = getProfileById(options.profileId)?.name
+      }
     }
-    const result = await window.api.spawnTool(toolId, worktreePath, options)
+    const result = await window.api.spawnTool(toolId, worktreePath, spawnOptions)
     toolName = result.toolName
     pane = {
       id: paneId,
@@ -215,6 +235,8 @@ export async function openTool(
       exitCode: null,
       title: null,
       tmuxSessionName: result.tmuxSessionName,
+      profileId: options?.profileId,
+      profileName,
     }
     if (AI_TOOL_IDS.has(toolId)) {
       initAgentSession(result.sessionId, toolId as AgentType)
@@ -222,7 +244,7 @@ export async function openTool(
   }
 
   const id = nextTabId()
-  const name = computeDisplayName(toolName, worktreePath, toolId)
+  const name = computeDisplayName(toolName, worktreePath, toolId, profileName)
 
   const tab: TabInfo = {
     id,
@@ -1460,6 +1482,9 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
     if (node.pane.tmuxSessionName) {
       leaf.tmuxSessionName = node.pane.tmuxSessionName
     }
+    if (node.pane.profileId) {
+      leaf.profileId = node.pane.profileId
+    }
     return leaf
   }
   // Collapse splits when one or both children are dead
@@ -1582,14 +1607,21 @@ async function restoreSplitNode(
         initAgentSession(result.sessionId, node.toolId as AgentType)
       }
     } else {
-      const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
+      const options: {
+        workspaceName?: string
+        branch?: string
+        resumeSessionId?: string
+        profileId?: string
+      } = {}
       if (AI_TOOL_IDS.has(node.toolId)) {
         const project = getProjectForWorktree(worktreePath)
         options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
         options.branch = workspaceState.branch ?? undefined
         options.resumeSessionId = node.agentSessionId ?? node.claudeSessionId
+        if (node.profileId) options.profileId = node.profileId
       }
       const result = await window.api.spawnTool(node.toolId, worktreePath, options)
+      const restoredProfile = node.profileId ? getProfileById(node.profileId) : undefined
       pane = {
         id: paneId,
         sessionId: result.sessionId,
@@ -1600,6 +1632,8 @@ async function restoreSplitNode(
         exitCode: null,
         title: null,
         tmuxSessionName: result.tmuxSessionName,
+        profileId: node.profileId,
+        profileName: restoredProfile?.name,
       }
       if (AI_TOOL_IDS.has(node.toolId)) {
         initAgentSession(result.sessionId, node.toolId as AgentType)

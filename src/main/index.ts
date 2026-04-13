@@ -13,12 +13,14 @@ import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
 import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
+import { ProfileStore } from './profiles/ProfileStore'
 import { registerIpcHandlers } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
 import { BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
+import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
 import { TmuxManager } from './pty/TmuxManager'
 import { TaskTrackerManager } from './taskTracker/TaskTrackerManager'
@@ -100,10 +102,18 @@ const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
 const onboardingStore = new OnboardingStore(database)
 const toolRegistry = new ToolRegistry(database)
+const profileStore = new ProfileStore(database, preferencesStore)
 const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
+const settingsExportService = new SettingsExportService(
+  database,
+  preferencesStore,
+  profileStore,
+  credentialStore,
+  toolRegistry,
+)
 const tmuxManager = new TmuxManager(app.getPath('userData'))
 const remoteSessionService = new RemoteSessionService(preferencesStore)
 const perfHudService = new PerfHudService()
@@ -383,6 +393,11 @@ app.whenReady().then(async () => {
   if (app.isPackaged) {
     crashReporter.init()
 
+    // Fallback for before-quit async paths that return without clearing the sentinel (#147)
+    process.on('exit', () => {
+      crashReporter?.clearSentinel()
+    })
+
     process.on('uncaughtException', (error) => {
       crashReporter?.recordCrash('uncaughtException', error)
     })
@@ -600,6 +615,10 @@ app.whenReady().then(async () => {
   windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
+  // Migrate legacy global agent prefs into Default profiles. safeStorage is
+  // guaranteed to be initialized inside app.whenReady().
+  profileStore.ensureDefaults()
+
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()
   const globalConfigManager = new GlobalConfigManager(preferencesStore, keychainTokenStore)
@@ -630,6 +649,8 @@ app.whenReady().then(async () => {
     gitHubService,
     remoteSessionService,
     runConfigManager,
+    profileStore,
+    settingsExportService,
   )
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')

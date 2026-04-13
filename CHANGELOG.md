@@ -1,3 +1,19 @@
+## [0.11.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.7...v0.11.0-next.8) (2026-04-13)
+
+### Bug Fixes
+
+* **git:** coalesce GitWatcher refreshes to fix shutdown crash ([#147](https://github.com/itsoltech/canopy-desktop/issues/147)) ([#148](https://github.com/itsoltech/canopy-desktop/issues/148)) ([05b4467](https://github.com/itsoltech/canopy-desktop/commit/05b4467de482bea4d75325ce46386075da1e77b5))
+
+## [0.11.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.6...v0.11.0-next.7) (2026-04-13)
+
+### Features
+
+* **agents:** named profiles per AI agent for multi-provider ([#146](https://github.com/itsoltech/canopy-desktop/issues/146)) ([c28e40b](https://github.com/itsoltech/canopy-desktop/commit/c28e40b12f3c4d96da7198b4972b94e77753aff5))
+
+### Bug Fixes
+
+* **remote:** grant pty.write/agent.sendInput once per session ([#145](https://github.com/itsoltech/canopy-desktop/issues/145)) ([f11b868](https://github.com/itsoltech/canopy-desktop/commit/f11b868212dd6b4b19821b59e5f5192b0e1b323c)), closes [#136](https://github.com/itsoltech/canopy-desktop/issues/136)
+
 ## [0.11.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.5...v0.11.0-next.6) (2026-04-10)
 
 ### Bug Fixes

@@ -77,13 +77,16 @@
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
   import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
+  import { initProfileStore, destroyProfileStore } from '../../lib/stores/profiles.svelte'
 
   onMount(() => {
     initToolStore()
+    initProfileStore()
     const stopRemoteListeners = initRemoteSessionListeners()
     return () => {
       stopRemoteListeners()
       destroyToolStore()
+      destroyProfileStore()
     }
   })
 
@@ -349,10 +352,10 @@
     window.api.setFocusedAgentSession(activeAgentPtySessionId)
   })
 
-  function handleLaunchTool(toolId: string): void {
+  function handleLaunchTool(toolId: string, opts?: { profileId?: string }): void {
     const path = workspaceState.selectedWorktreePath
     if (path) {
-      openTool(toolId, path).catch((err) => {
+      openTool(toolId, path, { profileId: opts?.profileId }).catch((err) => {
         console.error(`Failed to launch tool '${toolId}':`, err)
       })
     }

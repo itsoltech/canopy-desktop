@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import { prefs, setPref, loadPrefs } from '../../lib/stores/preferences.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
-  import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
+  import { closeDialog, confirm, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
   import { initOnboarding } from '../../lib/stores/onboarding.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
 
@@ -40,6 +41,51 @@
     await initOnboarding('first-launch')
     closeDialog()
     showOnboardingWizard()
+  }
+
+  async function handleExportSettings(): Promise<void> {
+    const ok = await confirm({
+      title: 'Export settings',
+      message: 'Save all app settings and integrations to a JSON file?',
+      details:
+        'The file will contain your AI agent API keys, Linear/Jira tokens, and saved credentials as plaintext. Store it somewhere only you can access.',
+      confirmLabel: 'Export',
+    })
+    if (!ok) return
+
+    try {
+      const result = await window.api.exportSettings()
+      if (!result) return
+      addToast(`Settings exported to ${result.path}`)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      addToast(`Export failed: ${message}`)
+    }
+  }
+
+  async function handleImportSettings(): Promise<void> {
+    const ok = await confirm({
+      title: 'Import settings',
+      message: 'Load settings from a JSON file?',
+      details:
+        'Existing settings with matching keys will be overwritten. Profiles, credentials, and custom tools not in the file are kept as-is.',
+      confirmLabel: 'Import',
+      destructive: true,
+    })
+    if (!ok) return
+
+    try {
+      const result = await window.api.importSettings()
+      if (!result) return
+      const { preferences, profiles, credentials, customTools } = result.counts
+      addToast(
+        `Imported ${preferences} preferences, ${profiles} profiles, ${credentials} credentials, ${customTools} tools`,
+      )
+      await loadPrefs()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      addToast(`Import failed: ${message}`)
+    }
   }
 </script>
 
@@ -92,6 +138,18 @@
 
   <div class="action-row">
     <button class="action-btn" onclick={rerunSetupWizard}>Re-run setup wizard</button>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-title">Backup & Restore</h3>
+  <div class="hint-row backup-hint">
+    Export all app settings, AI agent profiles, and integrations to a JSON file so you can restore
+    them on another machine. The file contains plaintext API keys and tokens — store it securely.
+  </div>
+  <div class="action-row action-row-gap">
+    <button class="action-btn" onclick={handleExportSettings}>Export Settings…</button>
+    <button class="action-btn" onclick={handleImportSettings}>Import Settings…</button>
   </div>
 </div>
 
@@ -160,8 +218,18 @@
     padding-left: 0;
   }
 
+  .hint-row.backup-hint {
+    padding-left: 0;
+    margin-top: 0;
+  }
+
   .action-row {
     padding-top: 4px;
+  }
+
+  .action-row-gap {
+    display: flex;
+    gap: 8px;
   }
 
   .action-btn {

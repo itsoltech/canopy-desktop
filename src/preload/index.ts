@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { GitInfo } from '../main/git/GitRepository'
 import type { RemoteSessionStatus } from '../main/remote/types'
+import type { AgentProfileMasked, ProfileInput } from '../main/profiles/types'
+import type { AgentType } from '../main/agents/types'
 
 const api = {
   // PTY
@@ -81,6 +83,7 @@ const api = {
       workspaceName?: string
       branch?: string
       resumeSessionId?: string
+      profileId?: string
     },
   ) => ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
   addCustomTool: (tool: {
@@ -252,6 +255,27 @@ const api = {
   // Dialog
   openFolder: (defaultPath?: string) =>
     ipcRenderer.invoke('dialog:openFolder', defaultPath ? { defaultPath } : undefined),
+
+  // Settings export / import
+  exportSettings: () =>
+    ipcRenderer.invoke('settings:export') as Promise<{
+      path: string
+      counts: {
+        preferences: number
+        profiles: number
+        credentials: number
+        customTools: number
+      }
+    } | null>,
+  importSettings: () =>
+    ipcRenderer.invoke('settings:import') as Promise<{
+      counts: {
+        preferences: number
+        profiles: number
+        credentials: number
+        customTools: number
+      }
+    } | null>,
 
   // Git
   refreshWorkspaceGitStatus: (id: string, path: string) =>
@@ -882,6 +906,20 @@ const api = {
 
   // Platform
   platform: process.platform,
+
+  // Agent Profiles
+  listProfiles: (agentType?: AgentType) =>
+    ipcRenderer.invoke('profile:list', { agentType }) as Promise<AgentProfileMasked[]>,
+  getProfile: (id: string) =>
+    ipcRenderer.invoke('profile:get', { id }) as Promise<AgentProfileMasked | null>,
+  saveProfile: (input: ProfileInput) =>
+    ipcRenderer.invoke('profile:save', input) as Promise<AgentProfileMasked>,
+  deleteProfile: (id: string) => ipcRenderer.invoke('profile:delete', { id }) as Promise<void>,
+  onProfilesChanged: (callback: (profiles: AgentProfileMasked[]) => void) => {
+    const handler = (_event: IpcRendererEvent, data: AgentProfileMasked[]): void => callback(data)
+    ipcRenderer.on('profile:changed', handler)
+    return () => ipcRenderer.removeListener('profile:changed', handler)
+  },
 
   // Run Configurations
   runConfigDiscover: (repoRoot: string) => ipcRenderer.invoke('runConfig:discover', { repoRoot }),

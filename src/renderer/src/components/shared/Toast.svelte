@@ -7,7 +7,7 @@
   function openInBrowser(): void {
     const path = workspaceState.selectedWorktreePath
     if (path) {
-      openTool('browser', path, toastState.url)
+      openTool('browser', path, { initialUrl: toastState.url })
     }
     dismissToast()
   }

@@ -297,7 +297,14 @@ interface CanopyAPI {
   spawnTool: (
     toolId: string,
     worktreePath: string,
-    options?: { cols?: number; rows?: number; workspaceName?: string; branch?: string },
+    options?: {
+      cols?: number
+      rows?: number
+      workspaceName?: string
+      branch?: string
+      resumeSessionId?: string
+      profileId?: string
+    },
   ) => Promise<ToolSpawnResult>
   addCustomTool: (tool: {
     id: string
@@ -329,6 +336,25 @@ interface CanopyAPI {
 
   // Dialog
   openFolder: (defaultPath?: string) => Promise<string | null>
+
+  // Settings export / import
+  exportSettings: () => Promise<{
+    path: string
+    counts: {
+      preferences: number
+      profiles: number
+      credentials: number
+      customTools: number
+    }
+  } | null>
+  importSettings: () => Promise<{
+    counts: {
+      preferences: number
+      profiles: number
+      credentials: number
+      customTools: number
+    }
+  } | null>
 
   // Workspace Git Status
   refreshWorkspaceGitStatus: (id: string, path: string) => Promise<WorkspaceRow | null>
@@ -705,6 +731,13 @@ interface CanopyAPI {
   // Platform
   platform: NodeJS.Platform
 
+  // Agent Profiles
+  listProfiles: (agentType?: AgentType) => Promise<AgentProfileMasked[]>
+  getProfile: (id: string) => Promise<AgentProfileMasked | null>
+  saveProfile: (input: ProfileInput) => Promise<AgentProfileMasked>
+  deleteProfile: (id: string) => Promise<void>
+  onProfilesChanged: (callback: (profiles: AgentProfileMasked[]) => void) => () => void
+
   // Run Configurations
   runConfigDiscover: (repoRoot: string) => Promise<RunConfigSource[]>
   runConfigSave: (configDir: string, config: RunConfigFile) => Promise<void>
@@ -745,6 +778,11 @@ interface RunConfigSource {
   relativePath: string
   file: RunConfigFile
 }
+
+type AgentType = import('../main/agents/types').AgentType
+type AgentProfileMasked = import('../main/profiles/types').AgentProfileMasked
+type ProfileInput = import('../main/profiles/types').ProfileInput
+type ProfilePrefs = import('../main/profiles/types').ProfilePrefs
 
 type RemoteSessionStatus = import('../main/remote/types').RemoteSessionStatus
 
