@@ -1393,8 +1393,9 @@ export function registerIpcHandlers(
   ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
     await validatePathAccess(event.sender.id, payload.filePath)
     const maxBytes = Math.min(payload.maxBytes ?? 1_048_576, 10_485_760)
-    const stat = await fs.promises.stat(payload.filePath)
-    const size = stat.size
+    // Sync stat too: closes the TOCTOU gap with the openSync below and removes
+    // the last await between validatePathAccess and the fd trio.
+    const size = fs.statSync(payload.filePath).size
     const readSize = Math.min(size, maxBytes)
 
     // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle

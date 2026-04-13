@@ -134,7 +134,7 @@ function parseIpsFile(filePath: string): NativeCrashInfo | null {
   let body: IpsBody
   try {
     header = JSON.parse(raw.slice(0, newlineIdx)) as IpsHeader
-    body = JSON.parse(raw.slice(newlineIdx + 1)) as IpsBody
+    body = JSON.parse(raw.slice(newlineIdx + 1).trim()) as IpsBody
   } catch {
     return null
   }
