@@ -1,3 +1,14 @@
+## [0.11.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.8...v0.11.0-next.9) (2026-04-13)
+
+### Features
+
+* **settings:** export and import app settings to JSON ([#151](https://github.com/itsoltech/canopy-desktop/issues/151)) ([60fbbbe](https://github.com/itsoltech/canopy-desktop/commit/60fbbbe964cb5849a75924b6a3679f574a5438c5))
+
+### Bug Fixes
+
+* **agents:** use .cmd hooks for codex/gemini on windows ([#143](https://github.com/itsoltech/canopy-desktop/issues/143)) ([78abe00](https://github.com/itsoltech/canopy-desktop/commit/78abe0088725fd0ae8d4885572bb66ca21c0df42))
+* **crash:** sync untracked-diff reads, recover macos .ips stacks ([#152](https://github.com/itsoltech/canopy-desktop/issues/152)) ([ef77d98](https://github.com/itsoltech/canopy-desktop/commit/ef77d98849f8d06d8e9c32085b6e6ee71d8c10a2)), closes [#150](https://github.com/itsoltech/canopy-desktop/issues/150)
+
 ## [0.11.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.7...v0.11.0-next.8) (2026-04-13)
 
 ### Bug Fixes
