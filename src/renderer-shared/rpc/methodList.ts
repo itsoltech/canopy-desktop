@@ -111,21 +111,33 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
   : [params: RpcMethods[M]['params']]
 
 /**
- * Methods considered destructive by the action-guard system. When the user's
- * `remote.actionGuard` profile is `'destructive'`, these trigger a confirm
- * modal on the desktop before they execute. `'full'` triggers it for every
- * method; `'none'` disables the guard entirely.
- *
- * `pty.write` and `agent.sendInput` are here because both ultimately
- * flow user-controlled text into a PTY and pressing Enter runs a shell
- * command — a remote peer with these methods unguarded can execute
- * arbitrary commands on the host. They're the highest-risk methods in
- * the whitelist and should require confirmation under the default
- * profile.
+ * Methods considered destructive by the action-guard system. In the
+ * `'destructive'` profile these trigger a confirm modal on every call.
+ * Only put methods here where a per-call prompt is tolerable (one-shot
+ * operations like closing a tab or killing a PTY) — anything on a
+ * keystroke path belongs in `SESSION_GRANTABLE_METHODS` instead.
  */
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
   'pty.kill',
+])
+
+/**
+ * Methods that feed a continuous stream of peer input into the host and
+ * would fire a confirm modal on every keystroke if they were in
+ * `DESTRUCTIVE_METHODS`. In both the `'destructive'` and `'full'` profiles
+ * the action-guard prompts the user once per peer session ("Allow terminal
+ * access for this session?"), then auto-allows every subsequent call for
+ * the same method until the peer disconnects. `HostRpcServer.dispose`
+ * calls `resetSessionGrants` so a reconnecting peer is re-prompted.
+ *
+ * Still the highest-risk surface in the whitelist — both methods ultimately
+ * flow peer-controlled text into a PTY where pressing Enter runs a shell
+ * command. The session-grant dialog copy must make the session-wide scope
+ * explicit. When adding a new method here, also add a description case in
+ * `describeSessionGrant` (actionGuard.ts).
+ */
+export const SESSION_GRANTABLE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'pty.write',
   'agent.sendInput',
 ])
