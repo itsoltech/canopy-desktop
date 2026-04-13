@@ -1395,27 +1395,36 @@ export function registerIpcHandlers(
     const maxBytes = Math.min(payload.maxBytes ?? 1_048_576, 10_485_760)
     const stat = await fs.promises.stat(payload.filePath)
     const size = stat.size
+    const readSize = Math.min(size, maxBytes)
 
-    const fd = await fs.promises.open(payload.filePath, 'r')
+    // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
+    // across multiple `await` points, which is the only call site in this
+    // codebase that exposes us to FileHandle::CloseReq::Resolve races (#150).
+    // A bounded read (≤10 MB) from local disk is fast enough to run inline.
+    const fd = fs.openSync(payload.filePath, 'r')
     try {
-      const readSize = Math.min(size, maxBytes)
       const buf = Buffer.alloc(readSize)
-      await fd.read(buf, 0, readSize, 0)
+      let offset = 0
+      while (offset < readSize) {
+        const bytesRead = fs.readSync(fd, buf, offset, readSize - offset, offset)
+        if (bytesRead === 0) break
+        offset += bytesRead
+      }
 
       // Binary detection: check first 8KB for null bytes
-      const detectEnd = Math.min(readSize, 8192)
+      const detectEnd = Math.min(offset, 8192)
       for (let i = 0; i < detectEnd; i++) {
         if (buf[i] === 0) return { binary: true, size }
       }
 
       return {
-        content: buf.toString('utf-8'),
+        content: buf.subarray(0, offset).toString('utf-8'),
         truncated: size > maxBytes,
         size,
         binary: false,
       }
     } finally {
-      await fd.close()
+      fs.closeSync(fd)
     }
   })
 
