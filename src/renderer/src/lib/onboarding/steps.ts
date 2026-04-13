@@ -130,6 +130,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.11.0',
     category: 'feature',
   },
+  {
+    id: 'agent-profiles',
+    title: 'Multiple profiles per AI agent',
+    description:
+      'Each AI agent (Claude, Gemini, OpenCode, Codex) now supports named profiles. Point one profile at Anthropic, another at Ollama, another at GLM or MinMax — each with its own API key, base URL, model, and env vars. Create profiles in Settings → (agent name), then expand the agent in the Tools sidebar to launch a specific profile. Your existing settings were migrated into a "Default" profile automatically.',
+    introducedIn: '0.11.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

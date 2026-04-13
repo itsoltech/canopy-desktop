@@ -111,36 +111,57 @@ Badges indicate attention state at two levels:
 
 On session destroy, the adapter's `cleanup()` function removes temporary settings files, isolated home directories, and restores modified project files (Codex's `.codex/hooks.json` and `.gitignore`). `cleanupOrphans()` runs at startup to remove stale session files from the hooks directory.
 
+### Profiles
+
+Each agent can have multiple named **profiles**, each holding a complete configuration snapshot (model, API key, base URL, provider, env vars, settings JSON override). Profiles let users switch between providers — e.g. a `Default` profile using Anthropic, an `Ollama` profile pointing at a local endpoint, a `GLM` or `MinMax` profile targeting alternative gateways — without rewriting global preferences each time.
+
+**Launching a profile.** The Tools sidebar renders each AI agent as a collapsible group when it has two or more profiles. Expanding the group lists the profiles; clicking one spawns the agent using that profile's configuration. When an agent has only a single profile (typically the `Default`), it renders as a flat launcher with no chevron — one click launches directly. If `profileId` is omitted from the `tool:spawn` payload, the spawn handler falls back to reading global preferences (legacy behaviour).
+
+**Profile → adapter seam.** Adapters are profile-agnostic: they take a `PreferencesReader` interface (`{ get(key): string | null }`). When `tool:spawn` receives a `profileId`, it wraps the profile in a `profileToReader()` shim that returns the profile's values for `${agentType}.*` keys and delegates all other keys to the global `preferencesStore`. This means adding profile support required zero changes to `AgentSessionManager` or any of the four adapter files. All three reader call sites in `tool:spawn` (settingsJson parsing, `getCliArgs`, `getEnvVars`) swap to the shim together.
+
+**Storage.** Profiles live in the `agent_profiles` SQLite table with columns `id`, `agent_type`, `name`, `is_default`, `sort_index`, `prefs_json`, `api_key_enc`, `created_at`, `updated_at`. `api_key_enc` is encrypted with Electron's `safeStorage` (identical pattern to `CredentialStore`; falls back to plain base64 on Linux without a keyring). The name is unique per agent type. Only a single profile per agent type may be deleted down to — the store returns `ProfileLastDeletion` if the user tries to remove the last profile.
+
+**Migration.** On first launch after the feature lands, `ProfileStore.ensureDefaults()` runs (inside `app.whenReady()`, after `safeStorage` is initialized) and — for each agent type with zero profiles — reads the legacy `${agentType}.*` keys from the `preferences` table and inserts a `Default` profile with those values. The legacy rows are left in place so downgrades remain safe. The migration is idempotent: it runs on every startup but is a no-op once profiles exist.
+
+**API key masking.** Profiles cross IPC as `AgentProfileMasked`, which replaces the decrypted `apiKey` with a boolean `hasApiKey`. The renderer never sees the decrypted key. On save, the renderer sends `apiKey: undefined` to keep the existing key, `apiKey: null` to clear it, or a new string to overwrite. The main process reads the decrypted key only via `ProfileStore.getInternal()`, which is never exposed over IPC.
+
+**Layout restore.** `PaneSession.profileId` is serialized with tab layouts so restored tabs re-spawn with the same profile. The tab display name appends the profile name when it is not `"Default"` (e.g. `Claude Code (Ollama)`).
+
 ## Configuration
 
-Preferences are per-agent and read from the preferences store via the adapter's `buildCliArgs()` and `buildEnvVars()` methods.
+Preferences for each agent are organized into **profiles** (see the Profiles section above). The per-agent configuration UI lives at Settings → Claude / Gemini / OpenCode / Codex and renders a two-pane list-and-form editor backed by `AgentProfilesPanel.svelte`. Existing global preferences from earlier versions are migrated into a `Default` profile automatically.
 
-| Preference key              | Agent    | Purpose                                           |
-| --------------------------- | -------- | ------------------------------------------------- |
-| `claude.model`              | Claude   | `--model` argument                                |
-| `claude.permissionMode`     | Claude   | `--permission-mode` argument                      |
-| `claude.effortLevel`        | Claude   | `--effort` argument                               |
-| `claude.appendSystemPrompt` | Claude   | `--append-system-prompt` argument                 |
-| `claude.apiKey`             | Claude   | `ANTHROPIC_API_KEY` env var                       |
-| `claude.baseUrl`            | Claude   | `ANTHROPIC_BASE_URL` env var                      |
-| `claude.provider`           | Claude   | Sets `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY` |
-| `claude.customEnv`          | Claude   | JSON object of additional env vars                |
-| `codex.model`               | Codex    | `--model` argument                                |
-| `codex.approvalMode`        | Codex    | `--ask-for-approval` argument                     |
-| `codex.sandbox`             | Codex    | `--sandbox` argument                              |
-| `codex.fullAuto`            | Codex    | `--full-auto` flag (when `"true"`)                |
-| `codex.profile`             | Codex    | `--profile` argument                              |
-| `codex.apiKey`              | Codex    | `OPENAI_API_KEY` env var                          |
-| `codex.baseUrl`             | Codex    | `OPENAI_BASE_URL` env var                         |
-| `codex.customEnv`           | Codex    | JSON object of additional env vars                |
-| `gemini.model`              | Gemini   | `--model` argument                                |
-| `gemini.approvalMode`       | Gemini   | `--approval-mode` argument                        |
-| `gemini.apiKey`             | Gemini   | `GEMINI_API_KEY` env var                          |
-| `gemini.customEnv`          | Gemini   | JSON object of additional env vars                |
-| `opencode.model`            | OpenCode | `--model` argument                                |
-| `opencode.apiKey`           | OpenCode | `ANTHROPIC_API_KEY` env var                       |
-| `opencode.settingsJson`     | OpenCode | `OPENCODE_CONFIG_CONTENT` env var                 |
-| `opencode.customEnv`        | OpenCode | JSON object of additional env vars                |
+The fields below describe the keys stored inside each profile's `prefs_json` (non-secret) and the separately encrypted `api_key_enc` column. Adapters read them via `${agentType}.<field>` lookups on the `PreferencesReader` shim.
+
+| Profile field          | Agent    | Purpose                                           |
+| ---------------------- | -------- | ------------------------------------------------- |
+| `model`                | Claude   | `--model` argument                                |
+| `permissionMode`       | Claude   | `--permission-mode` argument                      |
+| `effortLevel`          | Claude   | `--effort` argument                               |
+| `appendSystemPrompt`   | Claude   | `--append-system-prompt` argument                 |
+| `apiKey` _(encrypted)_ | Claude   | `ANTHROPIC_API_KEY` env var                       |
+| `baseUrl`              | Claude   | `ANTHROPIC_BASE_URL` env var                      |
+| `provider`             | Claude   | Sets `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY` |
+| `customEnv`            | Claude   | JSON object of additional env vars                |
+| `settingsJson`         | Claude   | Merged into per-session `settings.json`           |
+| `model`                | Codex    | `--model` argument                                |
+| `approvalMode`         | Codex    | `--ask-for-approval` argument                     |
+| `sandbox`              | Codex    | `--sandbox` argument                              |
+| `fullAuto`             | Codex    | `--full-auto` flag (when `"true"`)                |
+| `profile`              | Codex    | `--profile` argument                              |
+| `apiKey` _(encrypted)_ | Codex    | `OPENAI_API_KEY` env var                          |
+| `baseUrl`              | Codex    | `OPENAI_BASE_URL` env var                         |
+| `customEnv`            | Codex    | JSON object of additional env vars                |
+| `settingsJson`         | Codex    | Merged into per-session `.codex/hooks.json`       |
+| `model`                | Gemini   | `--model` argument                                |
+| `approvalMode`         | Gemini   | `--approval-mode` argument                        |
+| `apiKey` _(encrypted)_ | Gemini   | `GEMINI_API_KEY` env var                          |
+| `customEnv`            | Gemini   | JSON object of additional env vars                |
+| `settingsJson`         | Gemini   | Merged into per-session `.gemini/settings.json`   |
+| `model`                | OpenCode | `--model` argument                                |
+| `apiKey` _(encrypted)_ | OpenCode | `ANTHROPIC_API_KEY` env var                       |
+| `settingsJson`         | OpenCode | `OPENCODE_CONFIG_CONTENT` env var                 |
+| `customEnv`            | OpenCode | JSON object of additional env vars                |
 
 Custom env vars are filtered against a blocklist (`BLOCKED_ENV_VARS` from `security/envBlocklist`) and internal vars (`CANOPY_HOOK_PORT`, `CANOPY_HOOK_TOKEN`, `ELECTRON_RUN_AS_NODE`).
 
@@ -179,6 +200,16 @@ Agent errors surface through the normalized event system rather than a dedicated
   - `adapters/codex.ts` - Codex adapter
   - `adapters/gemini.ts` - Gemini CLI adapter
   - `adapters/opencode.ts` - OpenCode adapter
+- Profiles: `src/main/profiles/`
+  - `types.ts` - `AgentProfile`, `AgentProfileMasked`, `ProfilePrefs`, `ProfileInput`, `LEGACY_PREF_FIELDS`
+  - `errors.ts` - `ProfileError` tagged union with `ts-pattern.exhaustive()` formatter
+  - `ProfileStore.ts` - SQLite CRUD, `ensureDefaults()` migration, `profileToReader()` shim
 - Store: `src/renderer/src/lib/agents/agentState.svelte.ts`
 - Components: `src/renderer/src/lib/agents/`
   - `worktreeStatus.svelte.ts` - aggregate agent status per worktree
+- Renderer (profiles UI):
+  - `src/renderer/src/lib/stores/profiles.svelte.ts` - reactive profile list + CRUD actions
+  - `src/renderer/src/components/preferences/AgentProfilesPanel.svelte` - two-pane list + form editor
+  - `src/renderer/src/components/preferences/ProfileEnvVarsSection.svelte` - shared env-vars editor
+  - `src/renderer/src/components/preferences/{Claude,Gemini,OpenCode,Codex}ProfileForm.svelte` - per-agent field grids
+  - `src/renderer/src/components/sidebar/ToolSection.svelte` - expandable AI groups, flat single-profile launchers

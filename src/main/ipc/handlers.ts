@@ -65,6 +65,11 @@ import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
+import type { ProfileStore } from '../profiles/ProfileStore'
+import { profileToReader } from '../profiles/ProfileStore'
+import { profileErrorMessage } from '../profiles/errors'
+import type { ProfileInput } from '../profiles/types'
+import type { AgentType, PreferencesReader } from '../agents/types'
 import { resolveShell } from '../pty/PtyManager'
 
 function shellExecArgs(command: string): { command: string; args: string[] } {
@@ -98,11 +103,19 @@ export function registerIpcHandlers(
   gitHubService: GitHubService,
   remoteSessionService: RemoteSessionService,
   runConfigManager: RunConfigManager,
+  profileStore: ProfileStore,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('tools:changed', tools)
+    }
+  }
+
+  async function broadcastProfilesChanged(): Promise<void> {
+    const list = (await profileStore.list()).unwrapOr([])
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('profile:changed', list)
     }
   }
 
@@ -275,6 +288,7 @@ export function registerIpcHandlers(
         workspaceName?: string
         branch?: string
         resumeSessionId?: string
+        profileId?: string
       },
     ) => {
       const sender = event.sender
@@ -292,9 +306,24 @@ export function registerIpcHandlers(
         const senderWindow = BrowserWindow.fromWebContents(sender)
         if (!senderWindow) throw new Error('No window for agent session')
 
-        // Parse settings.json overrides from prefs
+        // Resolve preferences reader: profile shim if profileId is set,
+        // otherwise the global preferencesStore (legacy path).
+        let prefsReader: PreferencesReader = preferencesStore
+        if (payload.profileId) {
+          const profileResult = await profileStore.getInternal(payload.profileId)
+          if (profileResult.isErr()) {
+            throw new Error(profileErrorMessage(profileResult.error))
+          }
+          const profile = profileResult.value
+          if (profile.agentType !== tool.id) {
+            throw new Error(`Profile ${profile.name} is for ${profile.agentType}, not ${tool.id}`)
+          }
+          prefsReader = profileToReader(profile, preferencesStore)
+        }
+
+        // Parse settings.json overrides from prefs (via shim when profile-bound)
         let settingsOverrides: Record<string, unknown> | undefined
-        const settingsJsonRaw = preferencesStore.get(`${tool.id}.settingsJson`)
+        const settingsJsonRaw = prefsReader.get(`${tool.id}.settingsJson`)
         if (settingsJsonRaw) {
           try {
             settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
@@ -315,13 +344,13 @@ export function registerIpcHandlers(
         if (payload.resumeSessionId) {
           args.push(...agentSessionManager.getResumeArgs(tool.id, payload.resumeSessionId))
         }
-        args.push(...agentSessionManager.getCliArgs(tool.id, preferencesStore))
+        args.push(...agentSessionManager.getCliArgs(tool.id, prefsReader))
         env = {
           CANOPY_HOOK_PORT: String(agentSession.hookPort),
           CANOPY_HOOK_PATH: agentSession.hookPath,
           CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
           ...agentSession.settingsEnv,
-          ...agentSessionManager.getEnvVars(tool.id, preferencesStore),
+          ...agentSessionManager.getEnvVars(tool.id, prefsReader),
         }
         agentTempId = agentSession.tempId
       }
@@ -455,6 +484,29 @@ export function registerIpcHandlers(
 
   ipcMain.handle('tools:checkAvailability', async () => {
     return toolRegistry.checkAvailability()
+  })
+
+  // --- Agent Profiles ---
+
+  ipcMain.handle('profile:list', async (_event, payload?: { agentType?: AgentType }) => {
+    return (await profileStore.list(payload?.agentType)).unwrapOr([])
+  })
+
+  ipcMain.handle('profile:get', async (_event, payload: { id: string }) => {
+    return (await profileStore.get(payload.id)).unwrapOr(null)
+  })
+
+  ipcMain.handle('profile:save', async (_event, input: ProfileInput) => {
+    const result = await profileStore.save(input)
+    const profile = unwrapOrThrow(result, profileErrorMessage)
+    await broadcastProfilesChanged()
+    return profileStore.toMasked(profile)
+  })
+
+  ipcMain.handle('profile:delete', async (_event, payload: { id: string }) => {
+    const result = await profileStore.delete(payload.id)
+    unwrapOrThrow(result, profileErrorMessage)
+    await broadcastProfilesChanged()
   })
 
   // --- Environment / Dependencies ---

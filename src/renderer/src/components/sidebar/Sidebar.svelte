@@ -14,7 +14,7 @@
     onLaunchTool,
     width = 220,
   }: {
-    onLaunchTool: (toolId: string) => void
+    onLaunchTool: (toolId: string, opts?: { profileId?: string }) => void
     width?: number
   } = $props()
 
