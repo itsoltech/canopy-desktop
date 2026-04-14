@@ -10,7 +10,7 @@ import { Spacing } from '@/constants/theme'
 import { parsePairingUrl } from '@/lib/qr/parse-pairing-url'
 import { SavedInstancesStorage } from '@/lib/storage/saved-instances'
 
-export default function ScanScreen() {
+export default function ScanScreen(): React.ReactElement {
   const router = useRouter()
   const [permission, requestPermission] = useCameraPermissions()
   const scannedRef = useRef(false)
@@ -70,7 +70,7 @@ export default function ScanScreen() {
     )
   }
 
-  const handleScan = async (data: string) => {
+  const handleScan = async (data: string): Promise<void> => {
     if (scannedRef.current || processing) return
     scannedRef.current = true
     setProcessing(true)

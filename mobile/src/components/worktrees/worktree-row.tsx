@@ -11,7 +11,7 @@ type WorktreeRowProps = {
   onPress: () => void
 }
 
-export function WorktreeRow({ worktree, onPress }: WorktreeRowProps) {
+export function WorktreeRow({ worktree, onPress }: WorktreeRowProps): React.ReactElement {
   const theme = useTheme()
 
   return (

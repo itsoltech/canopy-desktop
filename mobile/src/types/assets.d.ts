@@ -5,3 +5,11 @@ declare module '*.ttf' {
   const src: string
   export default src
 }
+
+// React Native image imports. Metro returns an opaque asset source that
+// React Native's Image component (and expo-image) understand — typed here
+// as `number` to match the runtime shape.
+declare module '*.png' {
+  const src: number
+  export default src
+}

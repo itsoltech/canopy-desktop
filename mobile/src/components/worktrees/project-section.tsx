@@ -11,7 +11,10 @@ type ProjectSectionProps = {
   onWorktreePress: (project: ProjectSnapshot, worktree: WorktreeSnapshot) => void
 }
 
-export function ProjectSection({ project, onWorktreePress }: ProjectSectionProps) {
+export function ProjectSection({
+  project,
+  onWorktreePress,
+}: ProjectSectionProps): React.ReactElement {
   return (
     <View style={styles.section}>
       <View style={styles.header}>

@@ -47,7 +47,13 @@ export const mockProjects: ProjectSnapshot[] = [
   },
 ]
 
-export function makeMockInstance() {
+export function makeMockInstance(): {
+  nickname: string
+  hostname: string
+  lanIp: string
+  port: number
+  token: string
+} {
   const rand = Math.floor(Math.random() * 1000)
   return {
     nickname: `Mock #${rand}`,

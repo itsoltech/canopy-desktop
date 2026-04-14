@@ -11,6 +11,7 @@
     "reset-project": "node ./scripts/reset-project.js",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && npm run lint",
     "doctor": "npx expo-doctor",
     "build:dev": "eas build --profile development --platform ios",
     "build:dev:android": "eas build --profile development --platform android",

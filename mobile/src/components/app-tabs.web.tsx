@@ -16,7 +16,7 @@ import { ThemedView } from './themed-view'
 
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme'
 
-export default function AppTabs() {
+export default function AppTabs(): React.ReactElement {
   return (
     <Tabs>
       <TabSlot style={{ height: '100%' }} />
@@ -34,7 +34,11 @@ export default function AppTabs() {
   )
 }
 
-export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
+export function TabButton({
+  children,
+  isFocused,
+  ...props
+}: TabTriggerSlotProps): React.ReactElement {
   return (
     <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView
@@ -49,7 +53,7 @@ export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps
   )
 }
 
-export function CustomTabList(props: TabListProps) {
+export function CustomTabList(props: TabListProps): React.ReactElement {
   const scheme = useColorScheme()
   const colors = Colors[scheme === 'unspecified' ? 'light' : scheme]
 

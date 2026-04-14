@@ -26,7 +26,7 @@ function usePreferencesReady(): boolean {
   return ready
 }
 
-export default function RootLayout() {
+export default function RootLayout(): React.ReactElement {
   const ready = usePreferencesReady()
   const colorScheme = useColorScheme()
   return (
@@ -52,7 +52,7 @@ export default function RootLayout() {
   )
 }
 
-function EasUpdateAlert() {
+function EasUpdateAlert(): null {
   const { isUpdatePending } = Updates.useUpdates()
 
   const check = useCallback(async () => {
@@ -61,7 +61,9 @@ function EasUpdateAlert() {
       const res = await Updates.checkForUpdateAsync()
       if (!res.isAvailable) return
       await Updates.fetchUpdateAsync()
-    } catch {}
+    } catch {
+      /* ignore — network errors are expected offline */
+    }
   }, [])
 
   useEffect(() => {

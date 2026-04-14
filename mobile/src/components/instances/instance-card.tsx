@@ -12,7 +12,7 @@ type InstanceCardProps = {
   onPress: () => void
 }
 
-export function InstanceCard({ instance, onPress }: InstanceCardProps) {
+export function InstanceCard({ instance, onPress }: InstanceCardProps): React.ReactElement {
   const theme = useTheme()
 
   return (

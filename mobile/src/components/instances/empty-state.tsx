@@ -11,7 +11,10 @@ type EmptyStateProps = {
   onAddMockPress?: () => void
 }
 
-export function InstancesEmptyState({ onScanPress, onAddMockPress }: EmptyStateProps) {
+export function InstancesEmptyState({
+  onScanPress,
+  onAddMockPress,
+}: EmptyStateProps): React.ReactElement {
   const theme = useTheme()
 
   return (

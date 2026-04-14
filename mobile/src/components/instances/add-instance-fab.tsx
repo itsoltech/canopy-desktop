@@ -8,7 +8,7 @@ type AddInstanceFabProps = {
   onPress: () => void
 }
 
-export function AddInstanceFab({ onPress }: AddInstanceFabProps) {
+export function AddInstanceFab({ onPress }: AddInstanceFabProps): React.ReactElement {
   const theme = useTheme()
 
   return (

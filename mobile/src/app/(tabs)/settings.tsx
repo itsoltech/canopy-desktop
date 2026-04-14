@@ -18,7 +18,7 @@ const APP_THEME_LABELS: Record<AppThemeMode, string> = {
   system: 'System',
 }
 
-export default function SettingsScreen() {
+export default function SettingsScreen(): React.ReactElement {
   const version = Constants.expoConfig?.version ?? '—'
   const router = useRouter()
   const theme = useTheme()
@@ -72,7 +72,7 @@ export default function SettingsScreen() {
   )
 }
 
-function SettingsRow({ label, value }: { label: string; value: string }) {
+function SettingsRow({ label, value }: { label: string; value: string }): React.ReactElement {
   return (
     <View style={styles.row}>
       <ThemedText type="small">{label}</ThemedText>

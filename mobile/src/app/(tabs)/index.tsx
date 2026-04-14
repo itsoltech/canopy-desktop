@@ -12,14 +12,18 @@ import { useSavedInstances } from '@/hooks/use-saved-instances'
 import { makeMockInstance } from '@/lib/mock/projects'
 import { SavedInstancesStorage } from '@/lib/storage/saved-instances'
 
-export default function InstancesScreen() {
+export default function InstancesScreen(): React.ReactElement {
   const router = useRouter()
   const { instances, loading, error } = useSavedInstances()
 
-  const goToScan = () => router.push('/scan')
-  const goToDetail = (id: string) => router.push(`/instance/${id}`)
+  const goToScan = (): void => {
+    router.push('/scan')
+  }
+  const goToDetail = (id: string): void => {
+    router.push(`/instance/${id}`)
+  }
 
-  const addMock = async () => {
+  const addMock = async (): Promise<void> => {
     try {
       await SavedInstancesStorage.add(makeMockInstance())
     } catch (e) {
