@@ -52,6 +52,8 @@ export type TerminalViewHandle = {
   resize: (cols: number, rows: number) => void
   /** Focus the terminal so the soft keyboard pops. */
   focus: () => void
+  /** Blur the terminal's textarea to dismiss the soft keyboard. */
+  blur: () => void
   /** Re-run FitAddon against the current host dims and push them upstream. */
   refit: () => void
 }
@@ -128,6 +130,25 @@ export default function TerminalView({
       focus: () => {
         termRef.current?.focus()
       },
+      blur: () => {
+        // xterm's own blur unfocuses its internal textarea. We also blur
+        // whatever document.activeElement currently is as a belt-and-braces
+        // measure: iOS WKWebView dismisses the soft keyboard when no
+        // element inside the document holds focus.
+        try {
+          termRef.current?.blur()
+        } catch {
+          /* ignore — xterm might already be disposed */
+        }
+        try {
+          if (typeof document !== 'undefined') {
+            const active = document.activeElement as HTMLElement | null
+            active?.blur?.()
+          }
+        } catch {
+          /* ignore */
+        }
+      },
       refit: () => {
         tryFitRef.current?.()
       },
@@ -175,9 +196,95 @@ export default function TerminalView({
         void onInputRef.current(data)
       })
 
-      const focusTerm = (): void => term.focus()
-      host.addEventListener('pointerdown', focusTerm)
-      host.addEventListener('touchstart', focusTerm, { passive: true })
+      // Tap-vs-scroll gesture detector.
+      //
+      // - A brief, near-stationary touch focuses the terminal (and pops the
+      //   soft keyboard). Anything further than TAP_SLOP pixels or longer
+      //   than TAP_MAX_MS counts as a scroll instead and never focuses.
+      // - Vertical finger movement is forwarded to xterm's scrollback via
+      //   `term.scrollLines()`. We convert accumulated pixel deltas into
+      //   whole rows using the current host height / term.rows ratio, so
+      //   the scroll speed matches the visible row height regardless of
+      //   devicePixelRatio. Swiping DOWN (finger moves toward bottom)
+      //   reveals older content — same direction as pull-to-scroll on
+      //   native iOS lists.
+      const TAP_SLOP = 8
+      const TAP_MAX_MS = 500
+
+      let touchActive = false
+      let touchStartX = 0
+      let touchStartY = 0
+      let touchStartTime = 0
+      let touchLastY = 0
+      let scrollAccumulator = 0
+      let didScroll = false
+
+      const onTouchStart = (ev: TouchEvent): void => {
+        if (ev.touches.length !== 1) {
+          touchActive = false
+          return
+        }
+        const t = ev.touches[0]
+        touchActive = true
+        touchStartX = t.clientX
+        touchStartY = t.clientY
+        touchStartTime = Date.now()
+        touchLastY = t.clientY
+        scrollAccumulator = 0
+        didScroll = false
+      }
+
+      const onTouchMove = (ev: TouchEvent): void => {
+        if (!touchActive || ev.touches.length !== 1) return
+        const t = ev.touches[0]
+        const dx = t.clientX - touchStartX
+        const dy = t.clientY - touchStartY
+        if (!didScroll && Math.hypot(dx, dy) > TAP_SLOP) {
+          didScroll = true
+        }
+        if (!didScroll) return
+
+        // Block any default behaviour (rubber-band, text selection) now
+        // that we're claiming this gesture for scrolling. touchmove is
+        // registered with passive:false so preventDefault is honoured.
+        ev.preventDefault()
+
+        const moveDelta = t.clientY - touchLastY
+        touchLastY = t.clientY
+        scrollAccumulator += moveDelta
+
+        const pixelsPerRow = term.rows > 0 ? host.clientHeight / term.rows : 0
+        if (pixelsPerRow <= 0) return
+
+        const lines = Math.trunc(scrollAccumulator / pixelsPerRow)
+        if (lines !== 0) {
+          // Finger down (positive dy) → scroll UP in the buffer (older
+          // content). xterm's scrollLines uses the opposite sign.
+          term.scrollLines(-lines)
+          scrollAccumulator -= lines * pixelsPerRow
+        }
+      }
+
+      const onTouchEnd = (): void => {
+        if (!touchActive) return
+        const elapsed = Date.now() - touchStartTime
+        const wasTap = !didScroll && elapsed <= TAP_MAX_MS
+        touchActive = false
+        if (wasTap) {
+          term.focus()
+        }
+      }
+
+      const onTouchCancel = (): void => {
+        touchActive = false
+        didScroll = false
+        scrollAccumulator = 0
+      }
+
+      host.addEventListener('touchstart', onTouchStart, { passive: true })
+      host.addEventListener('touchmove', onTouchMove, { passive: false })
+      host.addEventListener('touchend', onTouchEnd, { passive: true })
+      host.addEventListener('touchcancel', onTouchCancel, { passive: true })
 
       const tryFit = (): void => {
         try {
@@ -244,8 +351,10 @@ export default function TerminalView({
       cleanupFn = () => {
         vv?.removeEventListener('resize', applyHostHeight)
         window.removeEventListener('resize', scheduleFit)
-        host.removeEventListener('pointerdown', focusTerm)
-        host.removeEventListener('touchstart', focusTerm)
+        host.removeEventListener('touchstart', onTouchStart)
+        host.removeEventListener('touchmove', onTouchMove)
+        host.removeEventListener('touchend', onTouchEnd)
+        host.removeEventListener('touchcancel', onTouchCancel)
         resizeObserver?.disconnect()
         if (fitDebounce !== null) {
           clearTimeout(fitDebounce)

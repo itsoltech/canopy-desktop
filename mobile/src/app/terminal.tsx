@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import { Keyboard, Pressable, StyleSheet, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { TerminalTabBar } from '@/components/terminal/tab-bar'
@@ -205,10 +205,34 @@ export default function TerminalScreen(): React.ReactElement {
     [api],
   )
 
+  // Dismiss the soft keyboard when the user taps anywhere in the header
+  // (back button area, title, or empty space around them). We try two
+  // paths: Keyboard.dismiss() resigns the native WKWebView's first
+  // responder, and the DOM handle's blur() unfocuses xterm's textarea
+  // from inside the webview. Either one alone is usually enough, but
+  // combining them is resilient to iOS quirks where the webview keeps
+  // the keyboard up until both sides agree focus is gone.
+  const dismissKeyboard = useCallback((): void => {
+    Keyboard.dismiss()
+    const blur = terminalRef.current?.blur
+    if (typeof blur === 'function') blur()
+  }, [])
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safeArea}>
-        <View style={styles.header}>
+        <View
+          style={styles.header}
+          // Observe touches without stealing the responder from the back
+          // button. Returning false keeps children (the Pressable) eligible
+          // to claim the gesture, but the capture callback still runs —
+          // which is where we dismiss the keyboard on every tap inside the
+          // header strip (back button, title area, or the gap between).
+          onStartShouldSetResponderCapture={(): boolean => {
+            dismissKeyboard()
+            return false
+          }}
+        >
           <Pressable
             onPress={() => router.back()}
             style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
