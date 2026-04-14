@@ -183,7 +183,6 @@
         color,
         size,
         type: SHAPE_TOOLS[tool],
-        points: [],
         rect: { x: pt.x, y: pt.y, w: 0, h: 0 },
       }
       return
@@ -218,7 +217,7 @@
     if (dragMode === 'draw' && liveStroke && canvasEl) {
       if (liveStroke.type === 'freehand') {
         liveStroke.points = [...liveStroke.points, pointFromEvent(e, canvasEl, panX, panY)]
-      } else if (shapeOrigin && liveStroke.rect) {
+      } else if (shapeOrigin && liveStroke.type !== 'freehand') {
         const pt = canvasPoint(e, canvasEl, panX, panY)
         let w = pt.x - shapeOrigin.x
         let h = pt.y - shapeOrigin.y
@@ -252,7 +251,7 @@
       const dy = pt.y - lastDragPoint.y
       for (const s of strokes) {
         if (!selectedIds.has(s.id)) continue
-        if (s.type !== 'freehand' && s.rect) {
+        if (s.type !== 'freehand') {
           s.rect = { ...s.rect, x: s.rect.x + dx, y: s.rect.y + dy }
         } else {
           for (const p of s.points) {
@@ -290,7 +289,7 @@
         if (liveStroke.points.length > 0) {
           strokes = [...strokes, liveStroke]
         }
-      } else if (liveStroke.rect) {
+      } else {
         const { w, h } = liveStroke.rect
         if (Math.abs(w) > 2 || Math.abs(h) > 2) {
           strokes = [...strokes, liveStroke]

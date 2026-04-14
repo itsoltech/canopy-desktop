@@ -1,6 +1,6 @@
 import { workspaceState, getProjectForWorktree } from './workspace.svelte'
 
-export type ShapeType = 'freehand' | 'rectangle' | 'ellipse' | 'line' | 'arrow'
+export type ShapeType = 'rectangle' | 'ellipse' | 'line' | 'arrow'
 export type DrawTool = 'pen' | 'select' | 'rectangle' | 'ellipse' | 'line' | 'arrow'
 
 /** A single input point captured from pointer events. */
@@ -13,14 +13,23 @@ export interface ShapeRect {
   h: number
 }
 
-export interface Stroke {
+export type FreehandStroke = {
+  id: string
+  color: string
+  size: number
+  type: 'freehand'
+  points: StrokePoint[]
+}
+
+export type ShapeStroke = {
   id: string
   color: string
   size: number
   type: ShapeType
-  points: StrokePoint[]
-  rect?: ShapeRect
+  rect: ShapeRect
 }
+
+export type Stroke = FreehandStroke | ShapeStroke
 
 /** Snapshot persisted per project. Stored as plain arrays — trivially serializable. */
 export const drawingsState: Record<string, Stroke[]> = $state({})

@@ -60,6 +60,14 @@
     notesState[key] = target.value
   }
 
+  function onPreviewPaste(e: ClipboardEvent): void {
+    e.preventDefault()
+    const html = e.clipboardData?.getData('text/html') ?? ''
+    const text = e.clipboardData?.getData('text/plain') ?? ''
+    const sanitized = html ? DOMPurify.sanitize(html) : DOMPurify.sanitize(text)
+    document.execCommand('insertHTML', false, sanitized)
+  }
+
   function onPreviewInput(): void {
     if (!previewEl || !key) return
     editSource = 'preview'
@@ -143,6 +151,7 @@
           contenteditable="true"
           bind:this={previewEl}
           oninput={onPreviewInput}
+          onpaste={onPreviewPaste}
           use:htmlContent={() => previewHtml}
         ></div>
       {/if}

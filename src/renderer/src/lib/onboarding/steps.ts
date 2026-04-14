@@ -138,6 +138,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.11.0',
     category: 'feature',
   },
+  {
+    id: 'drawing-shapes-notes-editing',
+    title: 'Drawing shapes and editable notes preview',
+    description:
+      'The Drawing pane now has four shape tools — Rectangle, Ellipse, Line, and Arrow. Click-drag to draw; hold Shift to constrain proportions or snap angles. Shapes support selection, move, delete, and undo just like freehand strokes. The Notes preview panel is now editable: click into the rendered markdown and type directly, and changes sync back to the editor in real time.',
+    introducedIn: '0.12.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

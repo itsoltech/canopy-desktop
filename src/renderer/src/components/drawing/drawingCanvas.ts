@@ -1,5 +1,6 @@
 import { getStroke } from 'perfect-freehand'
-import type { Stroke, StrokePoint } from '../../lib/stores/drawings.svelte'
+import { match, P } from 'ts-pattern'
+import type { Stroke, ShapeStroke, StrokePoint } from '../../lib/stores/drawings.svelte'
 
 export function strokePath(stroke: Stroke): Path2D {
   const path = new Path2D()
@@ -19,19 +20,18 @@ export function strokePath(stroke: Stroke): Path2D {
   return path
 }
 
-export function drawShape(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
-  if (!stroke.rect) return
+export function drawShape(ctx: CanvasRenderingContext2D, stroke: ShapeStroke): void {
   const { x, y, w, h } = stroke.rect
   ctx.strokeStyle = stroke.color
   ctx.lineWidth = stroke.size
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
 
-  switch (stroke.type) {
-    case 'rectangle':
+  match(stroke.type)
+    .with('rectangle', () => {
       ctx.strokeRect(x, y, w, h)
-      break
-    case 'ellipse': {
+    })
+    .with('ellipse', () => {
       const cx = x + w / 2
       const cy = y + h / 2
       const rx = Math.abs(w / 2)
@@ -39,15 +39,14 @@ export function drawShape(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
       ctx.beginPath()
       ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
       ctx.stroke()
-      break
-    }
-    case 'line':
+    })
+    .with('line', () => {
       ctx.beginPath()
       ctx.moveTo(x, y)
       ctx.lineTo(x + w, y + h)
       ctx.stroke()
-      break
-    case 'arrow': {
+    })
+    .with('arrow', () => {
       const ex = x + w
       const ey = y + h
       const angle = Math.atan2(h, w)
@@ -72,20 +71,16 @@ export function drawShape(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
       ctx.fillStyle = stroke.color
       ctx.fill()
       ctx.stroke()
-      break
-    }
-    default:
-      break
-  }
+    })
+    .exhaustive()
 }
 
-export function hitTestShape(px: number, py: number, stroke: Stroke): boolean {
-  if (!stroke.rect) return false
+export function hitTestShape(px: number, py: number, stroke: ShapeStroke): boolean {
   const { x, y, w, h } = stroke.rect
   const tolerance = Math.max(stroke.size, 6)
 
-  switch (stroke.type) {
-    case 'rectangle': {
+  return match(stroke.type)
+    .with('rectangle', () => {
       const minX = Math.min(x, x + w)
       const minY = Math.min(y, y + h)
       const maxX = Math.max(x, x + w)
@@ -99,8 +94,8 @@ export function hitTestShape(px: number, py: number, stroke: Stroke): boolean {
       const nearBottom =
         Math.abs(py - maxY) < tolerance && px >= minX - tolerance && px <= maxX + tolerance
       return nearLeft || nearRight || nearTop || nearBottom
-    }
-    case 'ellipse': {
+    })
+    .with('ellipse', () => {
       const cx = x + w / 2
       const cy = y + h / 2
       const rx = Math.abs(w / 2)
@@ -108,9 +103,8 @@ export function hitTestShape(px: number, py: number, stroke: Stroke): boolean {
       if (rx < 1 || ry < 1) return false
       const norm = ((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2
       return Math.abs(Math.sqrt(norm) - 1) * Math.min(rx, ry) < tolerance
-    }
-    case 'line':
-    case 'arrow': {
+    })
+    .with(P.union('line', 'arrow'), () => {
       const ex = x + w
       const ey = y + h
       const dx = ex - x
@@ -121,14 +115,12 @@ export function hitTestShape(px: number, py: number, stroke: Stroke): boolean {
       const closestX = x + t * dx
       const closestY = y + t * dy
       return Math.hypot(px - closestX, py - closestY) < tolerance
-    }
-    default:
-      return false
-  }
+    })
+    .exhaustive()
 }
 
 export function strokeBBox(stroke: Stroke): { x: number; y: number; w: number; h: number } {
-  if (stroke.type !== 'freehand' && stroke.rect) {
+  if (stroke.type !== 'freehand') {
     const { x, y, w, h } = stroke.rect
     const minX = Math.min(x, x + w)
     const minY = Math.min(y, y + h)
@@ -160,7 +152,7 @@ export function hitTest(
 ): Stroke | null {
   for (let i = strokes.length - 1; i >= 0; i--) {
     const s = strokes[i]
-    if (s.type !== 'freehand' && s.rect) {
+    if (s.type !== 'freehand') {
       if (hitTestShape(px, py, s)) return s
     } else {
       ctx.save()
@@ -209,7 +201,7 @@ export function redraw(params: RedrawParams): void {
   ctx.translate(params.panX, params.panY)
 
   for (const s of params.strokes) {
-    if (s.type !== 'freehand' && s.rect) {
+    if (s.type !== 'freehand') {
       ctx.save()
       drawShape(ctx, s)
       if (params.selectedIds.has(s.id)) {
@@ -233,7 +225,7 @@ export function redraw(params: RedrawParams): void {
     }
   }
   if (params.liveStroke) {
-    if (params.liveStroke.type !== 'freehand' && params.liveStroke.rect) {
+    if (params.liveStroke.type !== 'freehand') {
       ctx.save()
       drawShape(ctx, params.liveStroke)
       ctx.restore()
