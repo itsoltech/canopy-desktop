@@ -10,7 +10,7 @@
 
 Canopy includes a built-in browser tab that renders web content using Electron's `<webview>` tag backed by a `WebContentsView` for DevTools. Users can browse web pages, open an embedded DevTools panel, emulate mobile devices, autofill login credentials, capture screenshots, and manage a favorites list. Each browser tab runs in a shared persistent session partition (`persist:browser`) that is isolated from the main app's session.
 
-The `BrowserManager` in the main process handles security enforcement (popup blocking, navigation filtering, permission denial, keyboard shortcut interception) and DevTools lifecycle. The renderer tracks per-tab state (URL, title, favicon, loading, navigation, errors) in a reactive `browserSessions` record.
+The `BrowserManager` in the main process handles security enforcement (popup handling, navigation filtering, permission denial, keyboard shortcut interception) and DevTools lifecycle. The renderer tracks per-tab state (URL, title, favicon, loading, navigation, errors) in a reactive `browserSessions` record.
 
 ## Behavior
 
@@ -19,7 +19,7 @@ The `BrowserManager` in the main process handles security enforcement (popup blo
 1. User creates a new browser tab or opens a URL from elsewhere in the app.
 2. The renderer creates a `<webview>` element with `partition="persist:browser"` and calls `initBrowserSession(browserId)` to initialize the reactive state.
 3. The renderer calls `setupBrowserWebview(browserId, webContentsId)` via IPC.
-4. `BrowserManager.setup()` registers the webview's guest `WebContents` and attaches event listeners for popup blocking, navigation filtering, keyboard interception, focus forwarding, favicon detection, and context menu.
+4. `BrowserManager.setup()` registers the webview's guest `WebContents` and attaches event listeners for popup forwarding, navigation filtering, keyboard interception, focus forwarding, favicon detection, and context menu.
 
 ### Navigation
 
@@ -27,6 +27,7 @@ The `BrowserManager` in the main process handles security enforcement (popup blo
 2. The `will-navigate` handler blocks any navigation to non-HTTP(S) protocols (e.g., `javascript:`, `file:`, `data:`). Blocked navigations are silently prevented.
 3. On successful navigation, the renderer updates `url`, `title`, `canGoBack`, `canGoForward`, and clears any previous error state.
 4. Mouse back/forward buttons (app-command `browser-backward`/`browser-forward`) are handled at the window level and forwarded to the focused browser webview.
+5. Links with `target="_blank"` (and `window.open()` calls) are intercepted by `setWindowOpenHandler`. Valid HTTP(S) URLs are forwarded to the renderer via `browser:openUrl`. The renderer honors the `urlOpenMode` preference: `canopy` opens a new browser pane tab in the same worktree via `openTool('browser', ...)`, `system` delegates to `shell.openExternal`, and `ask` shows a toast letting the user pick. Forwarding is throttled to one popup per 500ms per webview.
 
 ### Loading states and errors
 
@@ -130,7 +131,7 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 | ---------------------- | ------------------------------------------------------ | -------------------------------------------------------------------- |
 | Page load failure      | Error overlay with Chromium error code and description | DNS failure, connection refused, SSL error, timeout                  |
 | Blocked navigation     | Nothing (silently prevented)                           | Page attempted navigation to non-HTTP(S) protocol                    |
-| Blocked popup          | Nothing (silently denied)                              | Page called `window.open()`                                          |
+| Throttled popup        | Nothing (silently denied)                              | Multiple `window.open()` / `target="_blank"` within 500ms            |
 | Blocked permission     | Nothing (silently denied)                              | Page requested camera, microphone, geolocation, or other permissions |
 | DevTools view creation | DevTools button has no effect                          | `WebContents` for the webview guest could not be found               |
 | Favicon fetch failure  | Tab shows no favicon                                   | CORS error, network error, or invalid favicon URL                    |
@@ -139,7 +140,7 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 
 - The browser runs in a dedicated Electron session partition (`persist:browser`), isolated from the app's main session. Cookies, storage, and cache are separate.
 - All permission requests (camera, microphone, geolocation, notifications, etc.) are denied via `setPermissionRequestHandler`.
-- Popups (`window.open()`) are blocked via `setWindowOpenHandler(() => ({ action: 'deny' }))`.
+- Popups (`window.open()`, `target="_blank"`) are denied at the Electron level via `setWindowOpenHandler`. Valid HTTP(S) URLs are instead forwarded to the renderer, which opens them as a new browser pane tab in the same worktree. The `<webview>` has `allowpopups` set so the handler is actually invoked. Forwarding is throttled to one popup per 500ms per webview to prevent flooding from malicious pages.
 - Navigation is restricted to `http:` and `https:` protocols.
 - Credential autofill runs in isolated JavaScript world 999 to prevent page scripts from observing the injected values.
 - The Chrome Debugger Protocol is attached only when device emulation is active and detached when emulation is cleared.

@@ -25,15 +25,18 @@
     updateBrowserPaneUrl,
     getAiSessions,
     focusSessionByPtyId,
+    openTool,
   } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
   import { showUrlToast } from '../../lib/stores/toast.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
 
   let {
     browserId,
+    worktreePath,
     active,
     focused,
     initialUrl,
@@ -41,6 +44,7 @@
     onFocus,
   }: {
     browserId: string
+    worktreePath: string
     active: boolean
     focused?: boolean
     initialUrl?: string
@@ -867,6 +871,17 @@
           updateDevToolsState(true)
         }
       }),
+      window.api.onBrowserOpenUrl((data) => {
+        if (data.browserId !== browserId) return
+        const mode = prefs.urlOpenMode || 'ask'
+        if (mode === 'canopy') {
+          openTool('browser', worktreePath, { initialUrl: data.url })
+        } else if (mode === 'system') {
+          window.api.openExternal(data.url)
+        } else {
+          showUrlToast(data.url)
+        }
+      }),
     ]
 
     // Listen for app-level overlays (Preferences, Command Palette, etc.)
@@ -1198,6 +1213,7 @@
           src="about:blank"
           partition="persist:browser"
           webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
+          allowpopups
           class="browser-webview"
           class:hidden={!!session?.error && !activeDevice}
           class:no-events={dragState.isDragging}

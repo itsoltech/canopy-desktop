@@ -184,6 +184,7 @@
   {#if pane.paneType === 'browser'}
     <BrowserPane
       browserId={pane.sessionId}
+      {worktreePath}
       {active}
       {focused}
       initialUrl={pane.url}
