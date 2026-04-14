@@ -50,12 +50,14 @@ export function drawShape(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
     case 'arrow': {
       const ex = x + w
       const ey = y + h
+      const angle = Math.atan2(h, w)
+      const headLen = Math.max(stroke.size * 4, 14)
+      const stopX = ex - headLen * 0.6 * Math.cos(angle)
+      const stopY = ey - headLen * 0.6 * Math.sin(angle)
       ctx.beginPath()
       ctx.moveTo(x, y)
-      ctx.lineTo(ex, ey)
+      ctx.lineTo(stopX, stopY)
       ctx.stroke()
-      const angle = Math.atan2(h, w)
-      const headLen = Math.max(stroke.size * 3, 10)
       ctx.beginPath()
       ctx.moveTo(ex, ey)
       ctx.lineTo(
@@ -69,6 +71,7 @@ export function drawShape(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
       ctx.closePath()
       ctx.fillStyle = stroke.color
       ctx.fill()
+      ctx.stroke()
       break
     }
     default:
