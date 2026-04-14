@@ -6,7 +6,7 @@
   import { setPref, getPref, prefs } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { getActiveAgentPane } from '../../lib/stores/tabs.svelte'
+  import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
   import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -253,14 +253,15 @@
 
   async function sendTaskToAgent(task: Task, e: MouseEvent): Promise<void> {
     e.stopPropagation()
-    const pane = getActiveAgentPane()
-    if (!pane) return
+    const result = getActiveAgentPane()
+    if (!result) return
     const context = await fetchAndFormatTaskContext(
       connectionId,
       task,
       workspaceState.repoRoot ?? undefined,
     )
-    await window.api.writePty(pane.sessionId, context + '\n')
+    await switchTab(result.tabId)
+    await window.api.writePty(result.pane.sessionId, context + '\n')
     addToast('Task sent to agent')
     closeDialog()
   }

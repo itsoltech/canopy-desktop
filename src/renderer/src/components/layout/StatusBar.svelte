@@ -62,12 +62,14 @@
 
   // --- Derived: focused pane type ---
 
-  type PaneKind = 'agent' | 'shell' | 'browser' | 'editor' | 'none'
+  type PaneKind = 'agent' | 'shell' | 'browser' | 'editor' | 'notes' | 'drawing' | 'none'
 
   let focusedPaneKind: PaneKind = $derived.by(() => {
     if (!focusedPane) return 'none'
     if (focusedPane.paneType === 'browser') return 'browser'
     if (focusedPane.paneType === 'editor') return 'editor'
+    if (focusedPane.paneType === 'notes') return 'notes'
+    if (focusedPane.paneType === 'drawing') return 'drawing'
     if (AI_TOOL_IDS.has(focusedPane.toolId)) return 'agent'
     return 'shell'
   })
@@ -281,6 +283,10 @@
         {/if}
       {:else if focusedPaneKind === 'shell'}
         <span class="status-item dim">Shell</span>
+      {:else if focusedPaneKind === 'notes'}
+        <span class="status-item dim">Notes</span>
+      {:else if focusedPaneKind === 'drawing'}
+        <span class="status-item dim">Drawing</span>
       {/if}
     </div>
 
