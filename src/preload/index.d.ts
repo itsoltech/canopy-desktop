@@ -441,6 +441,7 @@ interface CanopyAPI {
   getCredentialDecrypted: (
     id: string,
     domain: string,
+    purpose: 'autofill' | 'reveal',
   ) => Promise<{ id: string; username: string; password: string } | null>
   deleteCredential: (id: string) => Promise<void>
   listCredentials: () => Promise<

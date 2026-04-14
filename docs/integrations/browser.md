@@ -81,7 +81,7 @@ Users can add custom viewport presets stored in the `viewports.custom` preferenc
 ### Credential autofill
 
 1. User triggers autofill for a stored credential on the current page.
-2. The renderer calls `getCredentialDecrypted(id, domain)`. On the first call of the session the main process prompts the OS for authentication (Touch ID on macOS, `UserConsentVerifier` on Windows, a confirmation dialog on Linux). After a successful prompt the session is flagged as authenticated and subsequent autofills within the same app session skip the OS prompt — matching Chrome's behavior. The flag lives only in memory and is cleared automatically when the app quits.
+2. The renderer calls `getCredentialDecrypted(id, domain, 'autofill')`. On the first autofill of the session the main process prompts the OS for authentication (Touch ID on macOS, `UserConsentVerifier` on Windows, a confirmation dialog on Linux). After a successful prompt the session is flagged as authenticated and subsequent autofills within the same app session skip both the OS prompt and `safeStorage.decryptString()` — matching Chrome's autofill behavior. The flag and the in-memory decrypted credential cache live only in the main process and are cleared on app quit or on any credential save/delete/import. The `'reveal'` purpose used by Settings → Saved Passwords always re-authenticates and never consults the cache, so revealing a plaintext password in the UI always requires a fresh OS prompt — matching Chrome's `chrome://password-manager`.
 3. With the decrypted credential the renderer calls `fillBrowserCredential(browserId, username, password)`.
 4. `BrowserManager.fillCredential()` executes JavaScript in an isolated world (ID 999) that:
    - Finds the first `<input type="password">` on the page.

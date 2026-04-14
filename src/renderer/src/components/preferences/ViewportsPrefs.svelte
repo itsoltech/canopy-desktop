@@ -42,7 +42,7 @@
       if (revealTimer) clearTimeout(revealTimer)
       return
     }
-    const cred = await window.api.getCredentialDecrypted(id, domain)
+    const cred = await window.api.getCredentialDecrypted(id, domain, 'reveal')
     if (cred) {
       revealedId = id
       revealedPassword = cred.password

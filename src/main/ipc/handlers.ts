@@ -1,5 +1,12 @@
 import { match } from 'ts-pattern'
-import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electron'
+import {
+  ipcMain,
+  dialog,
+  shell,
+  BrowserWindow,
+  systemPreferences,
+  type IpcMainInvokeEvent,
+} from 'electron'
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
@@ -92,15 +99,64 @@ function shellExecArgs(command: string): { command: string; args: string[] } {
 // Session-level flag: once the user has successfully authenticated to reveal
 // a saved credential in the current app session, subsequent autofills reuse
 // that authentication instead of prompting the OS every time. Matches Chrome's
-// behavior and is cleared automatically on app quit (in-memory only).
+// autofill behavior and is cleared automatically on app quit (in-memory only).
+// Only the 'autofill' code path reads or writes this — the Settings "Reveal
+// Password" UI always re-authenticates.
 let credentialSessionAuthenticated = false
 
 // Session cache of already-decrypted credentials (keyed by id). Each cache hit
 // avoids a fresh safeStorage.decryptString() call, which on macOS triggers a
 // Keychain prompt for the "Safe Storage" item whenever the app binary
-// signature changes (e.g. after a rebuild). Cleared on any save/delete/import
-// so the cache never serves stale plaintext, and of course on app quit.
+// signature changes (e.g. after a rebuild). Only the 'autofill' path uses
+// this cache; 'reveal' always fetches fresh. Cleared on any save/delete/import
+// so stale plaintext is never returned, and on app quit.
 const credentialSessionCache = new Map<string, Credential>()
+
+// Dedupe concurrent first-use OS auth prompts for the autofill path. When two
+// autofill requests race past `credentialSessionAuthenticated === false` at
+// the same time (e.g. a form with both username and password fields), they
+// share one in-flight prompt instead of stacking two Touch ID dialogs.
+let credentialAutofillAuthInflight: Promise<boolean> | null = null
+
+async function runCredentialOsAuth(event: IpcMainInvokeEvent, domain: string): Promise<boolean> {
+  return match(process.platform)
+    .with('darwin', async () => {
+      try {
+        await systemPreferences.promptTouchID('reveal a saved password')
+        return true
+      } catch {
+        return false
+      }
+    })
+    .with('win32', async () => {
+      try {
+        const ps = `
+          Add-Type -AssemblyName System.Runtime.WindowsRuntime
+          $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
+          $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
+          if ($result -ne 'Verified') { exit 1 }
+        `
+        await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
+        return true
+      } catch {
+        return false
+      }
+    })
+    .otherwise(async () => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+      if (!win) return false
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        buttons: ['Reveal Password', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        title: 'Authentication Required',
+        message: 'Reveal saved password?',
+        detail: `You are about to reveal the password for ${domain}. Make sure no one is looking at your screen.`,
+      })
+      return response === 0
+    })
+}
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -1397,56 +1453,36 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'credentials:getDecrypted',
-    async (event, payload: { id: string; domain: string }) => {
-      // Fast path: if we've already decrypted this credential in the current
-      // session, return the cached plaintext without hitting safeStorage or
-      // the OS auth prompt at all.
+    async (event, payload: { id: string; domain: string; purpose: 'autofill' | 'reveal' }) => {
+      // Settings "Reveal Password" UI: always re-authenticate, never consult
+      // the session cache or flag, never update them. Matches Chrome's
+      // chrome://password-manager which re-prompts on every reveal regardless
+      // of whether autofill has already happened this session.
+      if (payload.purpose === 'reveal') {
+        const authed = await runCredentialOsAuth(event, payload.domain)
+        if (!authed) return null
+        const cred = credentialStore.getById(payload.id)
+        return cred && cred.domain === payload.domain ? cred : null
+      }
+
+      // Autofill path. Fast path: if we've already decrypted this credential
+      // in the current session, return the cached plaintext without hitting
+      // safeStorage or the OS auth prompt at all.
       const cached = credentialSessionCache.get(payload.id)
       if (cached && cached.domain === payload.domain) return cached
 
-      // Require OS authentication the first time credentials are revealed in
-      // this session; subsequent requests reuse the cached session flag so the
-      // user isn't re-prompted on every autofill.
+      // Require OS auth on first autofill of the session; subsequent autofills
+      // reuse the session flag. Concurrent first-use calls dedupe through
+      // credentialAutofillAuthInflight so only one Touch ID prompt appears
+      // even when two requests race.
       const authed = credentialSessionAuthenticated
         ? true
-        : await match(process.platform)
-            .with('darwin', async () => {
-              try {
-                await systemPreferences.promptTouchID('reveal a saved password')
-                return true
-              } catch {
-                return false
-              }
-            })
-            .with('win32', async () => {
-              try {
-                const ps = `
-                  Add-Type -AssemblyName System.Runtime.WindowsRuntime
-                  $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
-                  $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
-                  if ($result -ne 'Verified') { exit 1 }
-                `
-                await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
-                return true
-              } catch {
-                return false
-              }
-            })
-            .otherwise(async () => {
-              const win =
-                BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
-              if (!win) return false
-              const { response } = await dialog.showMessageBox(win, {
-                type: 'warning',
-                buttons: ['Reveal Password', 'Cancel'],
-                defaultId: 1,
-                cancelId: 1,
-                title: 'Authentication Required',
-                message: 'Reveal saved password?',
-                detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
-              })
-              return response === 0
-            })
+        : await (credentialAutofillAuthInflight ??= runCredentialOsAuth(
+            event,
+            payload.domain,
+          ).finally(() => {
+            credentialAutofillAuthInflight = null
+          }))
       if (!authed) return null
       credentialSessionAuthenticated = true
       // Fetch + decrypt only the requested credential (one safeStorage call),
