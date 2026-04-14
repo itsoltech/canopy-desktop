@@ -2742,12 +2742,17 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:deleteFile', async (_event, payload: { filePath: string }) => {
     const filePath = path.normalize(path.resolve(payload.filePath))
-    // Must have a skill file extension
     const ext = path.extname(filePath).toLowerCase()
     if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
-      throw new Error('Can only delete skill files (.md, .mdc, .yaml, .yml)')
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Can only delete skill files (.md, .mdc, .yaml, .yml)',
+        } as SkillError),
+        skillErrorMessage,
+      )
     }
-    // Must be within a known skill directory pattern
     const skillDirPatterns = [
       /[/\\]\.claude[/\\](commands|skills)[/\\]/,
       /[/\\]\.gemini[/\\]skills[/\\]/,
@@ -2757,7 +2762,14 @@ export function registerIpcHandlers(
       /[/\\]\.claude[/\\]plugins[/\\]cache[/\\]/,
     ]
     if (!skillDirPatterns.some((p) => p.test(filePath))) {
-      throw new Error('Can only delete files within agent skill directories')
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Can only delete files within agent skill directories',
+        } as SkillError),
+        skillErrorMessage,
+      )
     }
     await fs.promises.unlink(filePath)
     return { success: true }

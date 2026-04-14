@@ -353,12 +353,20 @@ export class SkillInstaller {
       const filePath = join(dir, candidate)
       try {
         await access(filePath)
-        const content = await readFile(filePath, 'utf-8')
-        const fileName = basename(dir)
-        return ok({ content, fileName, sourceType, sourceUri })
       } catch {
         continue
       }
+      const readResult = await fromExternalCall(
+        readFile(filePath, 'utf-8'),
+        (e): SkillError => ({
+          _tag: 'FetchFailed',
+          source: sourceUri,
+          cause: e instanceof Error ? e.message : String(e),
+        }),
+      )
+      if (readResult.isErr()) return err(readResult.error)
+      const fileName = basename(dir)
+      return ok({ content: readResult.value, fileName, sourceType, sourceUri })
     }
 
     const readdirResult = await fromExternalCall(
