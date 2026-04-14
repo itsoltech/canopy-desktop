@@ -81,12 +81,13 @@ Users can add custom viewport presets stored in the `viewports.custom` preferenc
 ### Credential autofill
 
 1. User triggers autofill for a stored credential on the current page.
-2. The renderer calls `fillBrowserCredential(browserId, username, password)`.
-3. `BrowserManager.fillCredential()` executes JavaScript in an isolated world (ID 999) that:
+2. The renderer calls `getCredentialDecrypted(id, domain, 'autofill')`. On the first autofill of the session the main process prompts the OS for authentication (Touch ID on macOS, `UserConsentVerifier` on Windows, a confirmation dialog on Linux). After a successful prompt the session is flagged as authenticated and subsequent autofills within the same app session skip both the OS prompt and `safeStorage.decryptString()` — matching Chrome's autofill behavior. The flag and the in-memory decrypted credential cache live only in the main process and are cleared on app quit or on any credential save/delete/import. The `'reveal'` purpose used by Settings → Saved Passwords always re-authenticates and never consults the cache, so revealing a plaintext password in the UI always requires a fresh OS prompt — matching Chrome's `chrome://password-manager`.
+3. With the decrypted credential the renderer calls `fillBrowserCredential(browserId, username, password)`.
+4. `BrowserManager.fillCredential()` executes JavaScript in an isolated world (ID 999) that:
    - Finds the first `<input type="password">` on the page.
    - Locates the nearest username field within the same form (by type `email`/`text` or name attributes containing `user`/`email`/`login`, or `autocomplete="username"`).
    - Sets values on both fields and dispatches `input` and `change` events with `bubbles: true` so frameworks detect the change.
-4. The isolated world prevents page scripts from intercepting the injected values.
+5. The isolated world prevents page scripts from intercepting the injected values.
 
 ### Screenshot capture
 

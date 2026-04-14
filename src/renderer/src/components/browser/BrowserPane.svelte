@@ -469,7 +469,7 @@
     const url = w.getURL()
     if (!url) return
     const domain = new URL(url).host
-    const cred = await window.api.getCredentialDecrypted(credId, domain)
+    const cred = await window.api.getCredentialDecrypted(credId, domain, 'autofill')
     if (!cred) return
     // Fill via main process isolated world — page scripts cannot intercept
     await window.api.fillBrowserCredential(browserId, cred.username, cred.password)
