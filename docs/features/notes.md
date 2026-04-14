@@ -43,7 +43,7 @@ Notes panes are non-terminal panes — they have no associated process, PTY, or 
 
 ### Worktree/project switching
 
-1. When the user selects a different worktree, the `$effect` watching `getDrawingKey()` detects the key change.
+1. When the user selects a different worktree, the `$effect` watching `getNoteKey()` detects the key change.
 2. The current note content is saved to `notesState[oldKey]`.
 3. Content for the new key is loaded (or initialized as empty).
 
