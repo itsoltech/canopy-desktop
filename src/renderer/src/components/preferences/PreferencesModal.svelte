@@ -151,10 +151,10 @@
 
   .prefs-container {
     outline: none;
-    width: 700px;
-    max-width: 90vw;
-    height: 500px;
-    max-height: 80vh;
+    width: 960px;
+    max-width: 92vw;
+    height: 680px;
+    max-height: 88vh;
     display: flex;
     background: var(--c-bg-overlay);
     border: 1px solid var(--c-border);

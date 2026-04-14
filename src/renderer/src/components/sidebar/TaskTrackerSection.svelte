@@ -152,7 +152,9 @@
               : 'Credentials required'}
           >
             <SquareKanban size={14} />
-            <span class="tracker-name">{tracker.baseUrl || 'Not configured'}</span>
+            <span class="tracker-name" title={tracker.baseUrl || 'Not configured'}
+              >{tracker.baseUrl || 'Not configured'}</span
+            >
             <span class="tracker-provider">{providerLabel(tracker.provider)}</span>
             {#if hasCreds}
               <ExternalLink size={12} />
@@ -165,7 +167,7 @@
     {#if activeTask}
       <div class="active-task">
         <span class="task-key">{activeTask.taskKey}</span>
-        <span class="task-summary">{activeTask.summary}</span>
+        <span class="task-summary" title={activeTask.summary}>{activeTask.summary}</span>
       </div>
     {/if}
 

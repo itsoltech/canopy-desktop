@@ -119,6 +119,26 @@ const migrations: Migration[] = [
   {
     id: 9,
     up: `
+      CREATE TABLE IF NOT EXISTS agent_profiles (
+        id          TEXT PRIMARY KEY,
+        agent_type  TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        is_default  INTEGER NOT NULL DEFAULT 0,
+        sort_index  INTEGER NOT NULL DEFAULT 0,
+        prefs_json  TEXT NOT NULL DEFAULT '{}',
+        api_key_enc TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_profiles_type_name
+        ON agent_profiles(agent_type, name);
+      CREATE INDEX IF NOT EXISTS idx_agent_profiles_type_sort
+        ON agent_profiles(agent_type, sort_index);
+    `,
+  },
+  {
+    id: 10,
+    up: `
       CREATE TABLE IF NOT EXISTS skill_definitions (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,

@@ -17,9 +17,13 @@ The crash reporter is active only in packaged (production) builds. In developmen
 ### Sentinel-based crash detection
 
 1. On startup, `CrashReporter.init()` checks for a sentinel file `.canopy-running` in the user data directory (`app.getPath('userData')`).
-2. If the sentinel exists but no `crash-report.json` is present, the previous session exited without cleaning up. The reporter writes an `ungracefulShutdown` crash report with the message "The app did not shut down cleanly".
-3. The sentinel file is then (re)written with the current process PID.
-4. On graceful shutdown (`before-quit` or `window-all-closed`), `clearSentinel()` removes the sentinel file.
+2. If the sentinel exists but no `crash-report.json` is present, the previous session exited without cleaning up. The reporter writes an `ungracefulShutdown` crash report.
+3. On macOS only, before writing the report the reporter also scans `~/Library/Logs/DiagnosticReports/` (and `…/Retired/`) for a recent `Canopy-*.ips` dump whose mtime is at or after the previous sentinel mtime. If one is found, the reporter parses the header and body JSON, extracts the triggered thread's symbolicated frames from the `.ips`, and attaches them to the report as `stack`, along with structured fields in `nativeCrash` (exception type, codes, termination reason, triggered thread name, incident id, source path). The `errorMessage` becomes e.g. `Native crash: EXC_BREAKPOINT (SIGTRAP) in CrBrowserMain` instead of the generic "did not shut down cleanly" string. If no matching `.ips` is found, the report falls back to the generic message with no stack. Windows and Linux native-dump recovery are not implemented — the same generic fallback applies there.
+4. The sentinel file is then (re)written with the current process PID.
+5. On graceful shutdown, `clearSentinel()` removes the sentinel file. It is called from three places, in order of preference:
+   - The main `before-quit` handler (synchronous path, line ~1027 in `index.ts`).
+   - The updater-install branch of `before-quit` (line ~934), before Squirrel relaunches.
+   - A `process.on('exit')` fallback registered next to `CrashReporter.init()` — fires on any normal Node exit including SIGTERM/SIGINT and the `before-quit` async dialog paths (active-session confirm, tmux close-policy) that `preventDefault()` and return early without reaching the main cleanup block. This fallback cannot run on SIGKILL / Task Manager force-kill.
 
 ### Runtime crash recording
 
@@ -72,7 +76,20 @@ The `crash-report.json` file stored in `app.getPath('userData')` contains:
 }
 ```
 
-The `stack` field is optional and absent for `ungracefulShutdown` reports (no error object is available in that case).
+The `stack` field is optional. For `ungracefulShutdown` reports it is absent unless a matching macOS `.ips` native dump was recovered, in which case the reporter also populates an optional `nativeCrash` object:
+
+```json
+{
+  "nativeCrash": {
+    "exceptionType": "EXC_BREAKPOINT (SIGTRAP)",
+    "exceptionCodes": "0x0000000000000001, 0x0000000113060e1c",
+    "terminationReason": "Trace/BPT trap: 5 (by exc handler)",
+    "triggeredThread": "CrBrowserMain",
+    "incidentId": "A1CE2AD8-CF3F-4E78-A2F1-7AA8328E8857",
+    "sourceFile": "/Users/you/Library/Logs/DiagnosticReports/Canopy-...-ips"
+  }
+}
+```
 
 ## Configuration
 
@@ -94,6 +111,7 @@ Home directory paths are stripped from stack traces before they are placed in th
 ## Source files
 
 - Main: `src/main/crash/CrashReporter.ts`
+- Native dump reader (macOS `.ips`): `src/main/crash/NativeCrashReader.ts`
 - IPC wiring: `src/main/index.ts` (crash handler registration near line 381, push to renderer near line 810)
 - Preload: `src/preload/index.ts` (`onCrashReport` listener)
 - Dialog: `src/renderer/src/components/dialogs/CrashReportDialog.svelte`

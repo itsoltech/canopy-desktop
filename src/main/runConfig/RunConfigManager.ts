@@ -51,6 +51,8 @@ export class RunConfigManager {
         await mkdir(join(configDir, CONFIG_DIR), { recursive: true })
         await writeFile(
           path,
+          // smol-toml's stringify() accepts an untyped Record; bridge RunConfigFile
+          // through `unknown` to satisfy the library's loose parameter type.
           stringify(config as unknown as Record<string, unknown>) + '\n',
           'utf-8',
         )

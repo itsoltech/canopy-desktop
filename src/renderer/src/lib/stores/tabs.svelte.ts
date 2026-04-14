@@ -25,6 +25,30 @@ import {
 import { confirm } from './dialogs.svelte'
 import { getPref } from './preferences.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
+import { notesUiScope } from './notes.svelte'
+import { getProfileById } from './profiles.svelte'
+import { drawingsState } from './drawings.svelte'
+
+function hasRemainingDrawingPanes(excludeId: string): boolean {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      if (tab.suspended) continue
+      for (const p of allPanes(tab.rootSplit)) {
+        if (p.paneType === 'drawing' && p.id !== excludeId) return true
+      }
+    }
+  }
+  return false
+}
+
+function disposeEphemeralPaneState(pane: PaneSession): void {
+  if (pane.paneType === 'notes') {
+    delete notesUiScope[pane.sessionId]
+  }
+  if (pane.paneType === 'drawing' && !hasRemainingDrawingPanes(pane.id)) {
+    for (const key of Object.keys(drawingsState)) delete drawingsState[key]
+  }
+}
 
 // --- Active process detection ---
 
@@ -94,6 +118,7 @@ type SerializedSplitNode =
       browserDevToolsMode?: 'bottom' | 'right'
       filePath?: string
       tmuxSessionName?: string
+      profileId?: string
     }
   | { type: 'hsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
   | { type: 'vsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
@@ -127,32 +152,58 @@ function nextTabId(): string {
   return `tab-${++tabCounter}`
 }
 
-function computeDisplayName(toolName: string, worktreePath: string, toolId: string): string {
+function computeDisplayName(
+  toolName: string,
+  worktreePath: string,
+  toolId: string,
+  profileName?: string,
+): string {
+  const baseLabel =
+    profileName && profileName !== 'Default' ? `${toolName} (${profileName})` : toolName
   const existing = tabsByWorktree[worktreePath] ?? []
-  const sameToolCount = existing.filter((t) => t.toolId === toolId).length
-  if (sameToolCount === 0) return toolName
-  return `${toolName} #${sameToolCount + 1}`
+  const sameLabelCount = existing.filter(
+    (t) => t.name === baseLabel || t.name.startsWith(`${baseLabel} #`),
+  ).length
+  if (sameLabelCount === 0) return baseLabel
+  return `${baseLabel} #${sameLabelCount + 1}`
 }
 
-export function getActiveAgentPane(): PaneSession | null {
+export function getActiveAgentPane(): { pane: PaneSession; tabId: string } | null {
   const path = workspaceState.selectedWorktreePath
   if (!path) return null
+  const tabs = tabsByWorktree[path]
+  if (!tabs) return null
   const tabId = activeTabId[path]
-  const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
-  if (!tab) return null
-  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (!focused || !isAiToolId(focused.toolId)) return null
-  return focused
+  const activeTab = tabs.find((t) => t.id === tabId)
+  if (!activeTab) return null
+
+  // 1) Focused pane in active tab, if it's an agent.
+  const focused = findLeaf(activeTab.rootSplit, activeTab.focusedPaneId)
+  if (focused && isAiToolId(focused.toolId) && focused.isRunning)
+    return { pane: focused, tabId: activeTab.id }
+
+  // 2) Any running agent pane in the active tab (common: agent split next to a Notes/Drawing pane).
+  const inActive = allPanes(activeTab.rootSplit).find((p) => isAiToolId(p.toolId) && p.isRunning)
+  if (inActive) return { pane: inActive, tabId: activeTab.id }
+
+  // 3) Any running agent pane in other tabs (e.g. drawing pane in its own tab).
+  for (const tab of tabs) {
+    if (tab.id === tabId) continue
+    const found = allPanes(tab.rootSplit).find((p) => isAiToolId(p.toolId) && p.isRunning)
+    if (found) return { pane: found, tabId: tab.id }
+  }
+  return null
 }
 
 export async function openTool(
   toolId: string,
   worktreePath: string,
-  initialUrl?: string,
+  options?: { initialUrl?: string; profileId?: string },
 ): Promise<TabInfo> {
   let pane: PaneSession
   const paneId = nextPaneId()
   let toolName: string
+  let profileName: string | undefined
 
   if (toolId === 'browser') {
     const browserId = crypto.randomUUID()
@@ -167,16 +218,37 @@ export async function openTool(
       exitCode: null,
       title: null,
       paneType: 'browser',
-      url: initialUrl,
+      url: options?.initialUrl,
+    }
+  } else if (toolId === 'notes' || toolId === 'drawing') {
+    toolName = toolId === 'notes' ? 'Notes' : 'Drawing'
+    pane = {
+      id: paneId,
+      sessionId: crypto.randomUUID(),
+      wsUrl: '',
+      toolId,
+      toolName,
+      isRunning: true,
+      exitCode: null,
+      title: null,
+      paneType: toolId,
     }
   } else {
-    const options: { workspaceName?: string; branch?: string } = {}
+    const spawnOptions: {
+      workspaceName?: string
+      branch?: string
+      profileId?: string
+    } = {}
     if (AI_TOOL_IDS.has(toolId)) {
       const project = getProjectForWorktree(worktreePath)
-      options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
-      options.branch = workspaceState.branch ?? undefined
+      spawnOptions.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
+      spawnOptions.branch = workspaceState.branch ?? undefined
+      if (options?.profileId) {
+        spawnOptions.profileId = options.profileId
+        profileName = getProfileById(options.profileId)?.name
+      }
     }
-    const result = await window.api.spawnTool(toolId, worktreePath, options)
+    const result = await window.api.spawnTool(toolId, worktreePath, spawnOptions)
     toolName = result.toolName
     pane = {
       id: paneId,
@@ -188,6 +260,8 @@ export async function openTool(
       exitCode: null,
       title: null,
       tmuxSessionName: result.tmuxSessionName,
+      profileId: options?.profileId,
+      profileName,
     }
     if (AI_TOOL_IDS.has(toolId)) {
       initAgentSession(result.sessionId, toolId as AgentType)
@@ -195,7 +269,7 @@ export async function openTool(
   }
 
   const id = nextTabId()
-  const name = computeDisplayName(toolName, worktreePath, toolId)
+  const name = computeDisplayName(toolName, worktreePath, toolId, profileName)
 
   const tab: TabInfo = {
     id,
@@ -379,10 +453,13 @@ export async function closeTab(tabId: string): Promise<void> {
       if (p.paneType === 'browser') {
         delete browserSessions[p.sessionId]
       }
+      disposeEphemeralPaneState(p)
     }
     await Promise.all(
       panes
-        .filter((p) => p.paneType !== 'editor')
+        .filter(
+          (p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing',
+        )
         .map((p) => {
           if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
           return window.api.killPty(p.sessionId, !!p.tmuxSessionName)
@@ -853,10 +930,11 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
   for (const p of allSessions) {
     if (agentSessions[p.sessionId]) removeAgentSession(p.sessionId)
     if (p.paneType === 'browser') delete browserSessions[p.sessionId]
+    disposeEphemeralPaneState(p)
   }
   await Promise.allSettled(
     allSessions
-      .filter((p) => p.paneType !== 'editor')
+      .filter((p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing')
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
         return window.api.killPty(p.sessionId, true)
@@ -879,9 +957,10 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
 export async function killAllTabs(): Promise<void> {
   const allTabsList = Object.values(tabsByWorktree).flat()
   const allSessions = allTabsList.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
+  for (const p of allSessions) disposeEphemeralPaneState(p)
   await Promise.all(
     allSessions
-      .filter((p) => p.paneType !== 'editor')
+      .filter((p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing')
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
         return window.api.killPty(p.sessionId, true)
@@ -1124,10 +1203,15 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
 
   const result = treeRemovePane(tab.rootSplit, tab.focusedPaneId)
   if (!result) return
+  disposeEphemeralPaneState(result.removed)
 
-  // Kill the removed pane's PTY or destroy browser view (editor panes have no session)
-  if (result.removed.paneType === 'editor') {
-    // No-op
+  // Kill the removed pane's PTY or destroy browser view (editor/notes/drawing panes have no session)
+  if (
+    result.removed.paneType === 'editor' ||
+    result.removed.paneType === 'notes' ||
+    result.removed.paneType === 'drawing'
+  ) {
+    // No-op — ephemeral or filesystem-backed only
   } else if (result.removed.paneType === 'browser') {
     delete browserSessions[result.removed.sessionId]
     await window.api.teardownBrowserWebview(result.removed.sessionId)
@@ -1388,6 +1472,10 @@ function scheduleSave(worktreePath: string): void {
 
 function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
   if (node.type === 'leaf') {
+    // Notes and drawing panes are inherently ephemeral — never persist
+    if (node.pane.paneType === 'notes' || node.pane.paneType === 'drawing') {
+      return null
+    }
     // Skip dead terminal panes — they would respawn as new sessions on restore
     if (
       node.pane.paneType !== 'editor' &&
@@ -1418,6 +1506,9 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
     }
     if (node.pane.tmuxSessionName) {
       leaf.tmuxSessionName = node.pane.tmuxSessionName
+    }
+    if (node.pane.profileId) {
+      leaf.profileId = node.pane.profileId
     }
     return leaf
   }
@@ -1541,14 +1632,21 @@ async function restoreSplitNode(
         initAgentSession(result.sessionId, node.toolId as AgentType)
       }
     } else {
-      const options: { workspaceName?: string; branch?: string; resumeSessionId?: string } = {}
+      const options: {
+        workspaceName?: string
+        branch?: string
+        resumeSessionId?: string
+        profileId?: string
+      } = {}
       if (AI_TOOL_IDS.has(node.toolId)) {
         const project = getProjectForWorktree(worktreePath)
         options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
         options.branch = workspaceState.branch ?? undefined
         options.resumeSessionId = node.agentSessionId ?? node.claudeSessionId
+        if (node.profileId) options.profileId = node.profileId
       }
       const result = await window.api.spawnTool(node.toolId, worktreePath, options)
+      const restoredProfile = node.profileId ? getProfileById(node.profileId) : undefined
       pane = {
         id: paneId,
         sessionId: result.sessionId,
@@ -1559,6 +1657,8 @@ async function restoreSplitNode(
         exitCode: null,
         title: null,
         tmuxSessionName: result.tmuxSessionName,
+        profileId: node.profileId,
+        profileName: restoredProfile?.name,
       }
       if (AI_TOOL_IDS.has(node.toolId)) {
         initAgentSession(result.sessionId, node.toolId as AgentType)

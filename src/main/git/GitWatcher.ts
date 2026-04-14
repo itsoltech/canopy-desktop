@@ -44,6 +44,10 @@ export class GitWatcher {
     dirty: false,
     aheadBehind: false,
   }
+  // In-flight guard: prevents overlapping refresh batches from piling up git subprocesses (#147)
+  private refreshInFlight = false
+  private pendingWhileInFlight: GitRefreshFlags | null = null
+  private stopped = false
   private lastInfo: GitInfo | null
 
   constructor(
@@ -74,10 +78,12 @@ export class GitWatcher {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer)
       this.debounceTimer = null
     }
+    this.pendingWhileInFlight = null
     const sub = this.subscription
     if (!sub) return
     this.subscription = null
@@ -136,23 +142,59 @@ export class GitWatcher {
   }
 
   private scheduleRefresh(changedPath: string): void {
+    if (this.stopped) return
     this.markPendingRefresh(changedPath)
+
+    if (this.refreshInFlight) {
+      if (!this.pendingWhileInFlight) {
+        this.pendingWhileInFlight = { ...this.pendingRefresh }
+      } else {
+        this.mergeFlags(this.pendingWhileInFlight, this.pendingRefresh)
+      }
+      this.pendingRefresh = {
+        branch: false,
+        worktrees: false,
+        dirty: false,
+        aheadBehind: false,
+      }
+      return
+    }
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer)
     }
-    this.debounceTimer = setTimeout(async () => {
+    this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null
-      try {
-        const changes = this.consumePendingRefresh()
-        const info = await this.refreshInfo(changes)
-        this.onChange(info, changes)
-      } catch {
-        // Ignore errors from git commands during refresh
-      } finally {
-        this.lastRefreshCompletedAt = Date.now()
-      }
+      if (this.stopped) return
+      void this.runRefresh(this.consumePendingRefresh())
     }, this.debounceMs)
+  }
+
+  private async runRefresh(changes: GitRefreshFlags): Promise<void> {
+    if (this.stopped) return
+    this.refreshInFlight = true
+    try {
+      const info = await this.refreshInfo(changes)
+      if (this.stopped) return
+      this.onChange(info, changes)
+    } catch {
+      // Ignore errors from git commands during refresh
+    } finally {
+      this.lastRefreshCompletedAt = Date.now()
+      this.refreshInFlight = false
+      if (!this.stopped && this.pendingWhileInFlight) {
+        const next = this.pendingWhileInFlight
+        this.pendingWhileInFlight = null
+        void this.runRefresh(next)
+      }
+    }
+  }
+
+  private mergeFlags(target: GitRefreshFlags, extra: GitRefreshFlags): void {
+    target.branch ||= extra.branch
+    target.worktrees ||= extra.worktrees
+    target.dirty ||= extra.dirty
+    target.aheadBehind ||= extra.aheadBehind
   }
 
   private consumePendingRefresh(): GitRefreshFlags {

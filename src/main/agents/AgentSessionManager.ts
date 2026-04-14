@@ -151,9 +151,18 @@ export class AgentSessionManager extends EventEmitter {
       },
     )
 
-    // Always use .sh scripts — Claude Code runs hooks via bash even on Windows
-    const hookScriptPath = this.getResourceScript('canopy-agent-hook.sh')
-    const statusLineScriptPath = this.getResourceScript('canopy-agent-statusline.sh')
+    // Codex and Gemini CLIs execute hooks via the system shell on Windows; use .cmd wrappers.
+    // Claude Code handles .sh via its own bash layer on Windows, so it always uses .sh.
+    // OpenCode uses a TS bridge plugin and does not consume hookScriptPath at all.
+    const useCmd =
+      process.platform === 'win32' &&
+      (adapter.agentType === 'codex' || adapter.agentType === 'gemini')
+    const hookScriptPath = this.getResourceScript(
+      useCmd ? 'canopy-agent-hook.cmd' : 'canopy-agent-hook.sh',
+    )
+    const statusLineScriptPath = this.getResourceScript(
+      useCmd ? 'canopy-agent-statusline.cmd' : 'canopy-agent-statusline.sh',
+    )
 
     // Ensure scripts are executable
     if (process.platform !== 'win32') {

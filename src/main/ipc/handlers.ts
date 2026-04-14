@@ -74,6 +74,13 @@ import type { SkillError } from '../skills/errors'
 import { getTransformer } from '../skills/SkillTransformer'
 import { scanSkills } from '../skills/SkillScanner'
 import type { SkillAgentTarget } from '../skills/types'
+import type { ProfileStore } from '../profiles/ProfileStore'
+import { profileToReader } from '../profiles/ProfileStore'
+import { profileErrorMessage } from '../profiles/errors'
+import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
+import type { SettingsExportService } from '../settings/SettingsExport'
+import { settingsExportErrorMessage } from '../settings/errors'
+import type { AgentType, PreferencesReader } from '../agents/types'
 import { resolveShell } from '../pty/PtyManager'
 
 function shellExecArgs(command: string): { command: string; args: string[] } {
@@ -110,6 +117,8 @@ export function registerIpcHandlers(
   skillRegistry: SkillRegistry,
   skillInstaller: SkillInstaller,
   skillStore: SkillStore,
+  profileStore: ProfileStore,
+  settingsExportService: SettingsExportService,
 ): void {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
@@ -122,6 +131,13 @@ export function registerIpcHandlers(
     const skills = JSON.parse(JSON.stringify(skillRegistry.getAll()))
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
+    }
+  }
+
+  async function broadcastProfilesChanged(): Promise<void> {
+    const list = (await profileStore.list()).unwrapOr([])
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('profile:changed', list)
     }
   }
 
@@ -294,6 +310,7 @@ export function registerIpcHandlers(
         workspaceName?: string
         branch?: string
         resumeSessionId?: string
+        profileId?: string
       },
     ) => {
       const sender = event.sender
@@ -311,9 +328,24 @@ export function registerIpcHandlers(
         const senderWindow = BrowserWindow.fromWebContents(sender)
         if (!senderWindow) throw new Error('No window for agent session')
 
-        // Parse settings.json overrides from prefs
+        // Resolve preferences reader: profile shim if profileId is set,
+        // otherwise the global preferencesStore (legacy path).
+        let prefsReader: PreferencesReader = preferencesStore
+        if (payload.profileId) {
+          const profileResult = await profileStore.getInternal(payload.profileId)
+          if (profileResult.isErr()) {
+            throw new Error(profileErrorMessage(profileResult.error))
+          }
+          const profile = profileResult.value
+          if (profile.agentType !== tool.id) {
+            throw new Error(`Profile ${profile.name} is for ${profile.agentType}, not ${tool.id}`)
+          }
+          prefsReader = profileToReader(profile, preferencesStore)
+        }
+
+        // Parse settings.json overrides from prefs (via shim when profile-bound)
         let settingsOverrides: Record<string, unknown> | undefined
-        const settingsJsonRaw = preferencesStore.get(`${tool.id}.settingsJson`)
+        const settingsJsonRaw = prefsReader.get(`${tool.id}.settingsJson`)
         if (settingsJsonRaw) {
           try {
             settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
@@ -334,13 +366,13 @@ export function registerIpcHandlers(
         if (payload.resumeSessionId) {
           args.push(...agentSessionManager.getResumeArgs(tool.id, payload.resumeSessionId))
         }
-        args.push(...agentSessionManager.getCliArgs(tool.id, preferencesStore))
+        args.push(...agentSessionManager.getCliArgs(tool.id, prefsReader))
         env = {
           CANOPY_HOOK_PORT: String(agentSession.hookPort),
           CANOPY_HOOK_PATH: agentSession.hookPath,
           CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
           ...agentSession.settingsEnv,
-          ...agentSessionManager.getEnvVars(tool.id, preferencesStore),
+          ...agentSessionManager.getEnvVars(tool.id, prefsReader),
         }
         agentTempId = agentSession.tempId
       }
@@ -462,6 +494,92 @@ export function registerIpcHandlers(
     preferencesStore.delete(payload.key)
   })
 
+  // --- Settings Export / Import ---
+
+  ipcMain.handle('settings:export', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+
+    const today = new Date().toISOString().slice(0, 10)
+    const defaultFilename = `canopy-settings-${today}.json`
+
+    const saveResult = await dialog.showSaveDialog(win, {
+      title: 'Export Canopy Settings',
+      defaultPath: defaultFilename,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (saveResult.canceled || !saveResult.filePath) return null
+
+    const buildResult = await settingsExportService.buildExport()
+    const file = unwrapOrThrow(buildResult, settingsExportErrorMessage)
+    const json = JSON.stringify(file, null, 2)
+
+    try {
+      await fs.promises.writeFile(saveResult.filePath, json, { encoding: 'utf8', mode: 0o600 })
+    } catch (e) {
+      throw new Error(
+        settingsExportErrorMessage({
+          _tag: 'ExportWriteError',
+          reason: e instanceof Error ? e.message : String(e),
+        }),
+      )
+    }
+
+    return {
+      path: saveResult.filePath,
+      counts: {
+        preferences: Object.keys(file.preferences).length,
+        profiles: file.profiles.length,
+        credentials: file.credentials.length,
+        customTools: file.customTools.length,
+      },
+    }
+  })
+
+  ipcMain.handle('settings:import', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+
+    const openResult = await dialog.showOpenDialog(win, {
+      title: 'Import Canopy Settings',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile'],
+    })
+    if (openResult.canceled || openResult.filePaths.length === 0) return null
+
+    let raw: string
+    try {
+      raw = await fs.promises.readFile(openResult.filePaths[0], 'utf8')
+    } catch (e) {
+      throw new Error(
+        settingsExportErrorMessage({
+          _tag: 'ImportReadError',
+          reason: e instanceof Error ? e.message : String(e),
+        }),
+      )
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (e) {
+      throw new Error(
+        settingsExportErrorMessage({
+          _tag: 'ImportParseError',
+          reason: e instanceof Error ? e.message : String(e),
+        }),
+      )
+    }
+
+    const applyResult = await settingsExportService.applyImport(parsed)
+    const counts = unwrapOrThrow(applyResult, settingsExportErrorMessage)
+
+    await broadcastProfilesChanged()
+    broadcastToolsChanged()
+
+    return { counts }
+  })
+
   // --- Tools ---
 
   ipcMain.handle('tools:list', () => {
@@ -474,6 +592,56 @@ export function registerIpcHandlers(
 
   ipcMain.handle('tools:checkAvailability', async () => {
     return toolRegistry.checkAvailability()
+  })
+
+  // --- Agent Profiles ---
+
+  const KNOWN_AGENT_TYPES_SET: ReadonlySet<AgentType> = new Set(KNOWN_AGENT_TYPES)
+
+  ipcMain.handle('profile:list', async (_event, payload?: { agentType?: AgentType }) => {
+    return (await profileStore.list(payload?.agentType)).unwrapOr([])
+  })
+
+  ipcMain.handle('profile:get', async (_event, payload: { id: string }) => {
+    if (!payload || typeof payload.id !== 'string') {
+      throw new Error('profile:get requires a string id')
+    }
+    return (await profileStore.get(payload.id)).unwrapOr(null)
+  })
+
+  ipcMain.handle('profile:save', async (_event, input: ProfileInput) => {
+    if (!input || typeof input !== 'object') {
+      throw new Error('profile:save requires an input object')
+    }
+    if (typeof input.name !== 'string') {
+      throw new Error('profile:save: name must be a string')
+    }
+    if (typeof input.agentType !== 'string' || !KNOWN_AGENT_TYPES_SET.has(input.agentType)) {
+      throw new Error(`profile:save: unknown agentType "${String(input.agentType)}"`)
+    }
+    if (input.id !== undefined && typeof input.id !== 'string') {
+      throw new Error('profile:save: id must be a string when provided')
+    }
+    if (input.prefs !== undefined && (typeof input.prefs !== 'object' || input.prefs === null)) {
+      throw new Error('profile:save: prefs must be an object')
+    }
+    if (input.apiKey !== undefined && input.apiKey !== null && typeof input.apiKey !== 'string') {
+      throw new Error('profile:save: apiKey must be a string, null, or omitted')
+    }
+
+    const result = await profileStore.save(input)
+    const profile = unwrapOrThrow(result, profileErrorMessage)
+    await broadcastProfilesChanged()
+    return profileStore.toMasked(profile)
+  })
+
+  ipcMain.handle('profile:delete', async (_event, payload: { id: string }) => {
+    if (!payload || typeof payload.id !== 'string') {
+      throw new Error('profile:delete requires a string id')
+    }
+    const result = await profileStore.delete(payload.id)
+    unwrapOrThrow(result, profileErrorMessage)
+    await broadcastProfilesChanged()
   })
 
   // --- Environment / Dependencies ---
@@ -1333,29 +1501,39 @@ export function registerIpcHandlers(
   ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
     await validatePathAccess(event.sender.id, payload.filePath)
     const maxBytes = Math.min(payload.maxBytes ?? 1_048_576, 10_485_760)
-    const stat = await fs.promises.stat(payload.filePath)
-    const size = stat.size
+    // Sync stat too: closes the TOCTOU gap with the openSync below and removes
+    // the last await between validatePathAccess and the fd trio.
+    const size = fs.statSync(payload.filePath).size
+    const readSize = Math.min(size, maxBytes)
 
-    const fd = await fs.promises.open(payload.filePath, 'r')
+    // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
+    // across multiple `await` points, which is the only call site in this
+    // codebase that exposes us to FileHandle::CloseReq::Resolve races (#150).
+    // A bounded read (≤10 MB) from local disk is fast enough to run inline.
+    const fd = fs.openSync(payload.filePath, 'r')
     try {
-      const readSize = Math.min(size, maxBytes)
       const buf = Buffer.alloc(readSize)
-      await fd.read(buf, 0, readSize, 0)
+      let offset = 0
+      while (offset < readSize) {
+        const bytesRead = fs.readSync(fd, buf, offset, readSize - offset, offset)
+        if (bytesRead === 0) break
+        offset += bytesRead
+      }
 
       // Binary detection: check first 8KB for null bytes
-      const detectEnd = Math.min(readSize, 8192)
+      const detectEnd = Math.min(offset, 8192)
       for (let i = 0; i < detectEnd; i++) {
         if (buf[i] === 0) return { binary: true, size }
       }
 
       return {
-        content: buf.toString('utf-8'),
+        content: buf.subarray(0, offset).toString('utf-8'),
         truncated: size > maxBytes,
         size,
         binary: false,
       }
     } finally {
-      await fd.close()
+      fs.closeSync(fd)
     }
   })
 
