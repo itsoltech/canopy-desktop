@@ -99,7 +99,7 @@ export default function TerminalView({
     const term = new XTerm({
       fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
       fontSize: 13,
-      lineHeight: 1.2,
+      lineHeight: 1,
       convertEol: true,
       cursorBlink: true,
       allowProposedApi: true,
