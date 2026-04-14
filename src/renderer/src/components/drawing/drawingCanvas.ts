@@ -62,7 +62,10 @@ export interface RedrawParams {
 }
 
 function getThemeColor(container: HTMLElement, prop: string, fallback: string): string {
-  return getComputedStyle(container).getPropertyValue(prop).trim() || fallback
+  const value = getComputedStyle(container).getPropertyValue(prop).trim()
+  if (value) return value
+  // Fall back to document root where theme vars are defined, in case container isn't styled yet
+  return getComputedStyle(document.documentElement).getPropertyValue(prop).trim() || fallback
 }
 
 export function redraw(params: RedrawParams): void {

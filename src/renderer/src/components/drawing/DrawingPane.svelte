@@ -7,8 +7,6 @@
     type Stroke,
     type DrawTool,
   } from '../../lib/stores/drawings.svelte'
-  import { getActiveAgentPane } from '../../lib/stores/tabs.svelte'
-  import { addToast } from '../../lib/stores/toast.svelte'
   import {
     strokePath,
     strokeBBox,
@@ -16,8 +14,15 @@
     redraw,
     canvasPoint,
     pointFromEvent,
-    blobFromCanvas,
   } from './drawingCanvas'
+  import {
+    deleteSelected,
+    selectAll,
+    undoLast,
+    exportPng,
+    sendToAgent,
+    copyPng,
+  } from './drawingActions'
 
   // Drawing pane has no props — canvas state is keyed by project via drawingsState.
 
@@ -210,26 +215,17 @@
     // 'click' mode: selection already adjusted on down; nothing to do on up.
   }
 
-  // --- Actions ---
+  // --- Actions (delegated to drawingActions.ts) ---
 
-  function deleteSelected(): void {
-    if (selectedIds.size === 0) return
-    strokes = strokes.filter((s) => !selectedIds.has(s.id))
-    selectedIds.clear()
+  function handleDelete(): void {
+    strokes = deleteSelected(strokes, selectedIds)
   }
 
-  function selectAll(): void {
-    for (const s of strokes) selectedIds.add(s.id)
+  function handleUndo(): void {
+    strokes = undoLast(strokes, selectedIds)
   }
 
-  function undo(): void {
-    if (strokes.length === 0) return
-    const last = strokes[strokes.length - 1]
-    selectedIds.delete(last.id)
-    strokes = strokes.slice(0, -1)
-  }
-
-  function clear(): void {
+  function handleClear(): void {
     if (strokes.length === 0) return
     strokes = []
     selectedIds.clear()
@@ -237,21 +233,20 @@
 
   function onKeyDown(e: KeyboardEvent): void {
     const mod = e.metaKey || e.ctrlKey
-
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault()
-      undo()
+      handleUndo()
       return
     }
     if (mod && e.key.toLowerCase() === 'a') {
       if (tool !== 'select') return
       e.preventDefault()
-      selectAll()
+      selectAll(strokes, selectedIds)
       return
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0) {
       e.preventDefault()
-      deleteSelected()
+      handleDelete()
       return
     }
     if (e.key === 'Escape' && selectedIds.size > 0) {
@@ -260,76 +255,19 @@
     }
   }
 
-  async function exportPng(): Promise<Blob | null> {
-    const canvas = canvasEl
-    if (!canvas) return null
-    if (strokes.length === 0) {
-      addToast('Drawing is empty')
-      return null
-    }
-    const hadSelection = selectedIds.size > 0
-    if (!hadSelection) return blobFromCanvas(canvas)
-
-    const snapshot = [...selectedIds]
-    selectedIds.clear()
-    doRedraw()
-    try {
-      // Reuse the captured canvas reference — `canvasEl` could have been cleared
-      // by an unmount between redraw() and toBlob().
-      return await blobFromCanvas(canvas)
-    } finally {
-      for (const id of snapshot) selectedIds.add(id)
-    }
-  }
-
-  async function sendToAgent(): Promise<void> {
-    if (sending) return
+  async function handleSendToAgent(): Promise<void> {
+    if (sending || !canvasEl) return
     sending = true
     try {
-      const blob = await exportPng()
-      if (!blob) return
-
-      const agent = getActiveAgentPane()
-      if (!agent) {
-        addToast('Open a Claude/Codex pane first')
-        return
-      }
-      if (!agent.isRunning) {
-        addToast('Agent pane is not running')
-        return
-      }
-
-      try {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      } catch (err) {
-        console.error('[drawing] clipboard.write failed:', err)
-        addToast('Clipboard copy failed — check permissions')
-        return
-      }
-
-      // navigator.clipboard.write resolves when the renderer accepts the write, but the
-      // OS pasteboard write is performed on a separate thread. On macOS in particular,
-      // a fast follow-up Ctrl+V can race the pasteboard and Claude reads stale contents.
-      // 250ms is empirically enough; tradeoff vs. perceived latency.
-      // TODO: replace clipboard+Ctrl-V with a direct IPC channel (e.g. agent:pasteImage) for reliability
-      await new Promise((resolve) => setTimeout(resolve, 250))
-      await window.api.writePty(agent.sessionId, '\x16')
-      addToast(`Sent to ${agent.toolName}`)
+      await sendToAgent(canvasEl, strokes, selectedIds, doRedraw)
     } finally {
       sending = false
     }
   }
 
-  async function copyPng(): Promise<void> {
-    const blob = await exportPng()
-    if (!blob) return
-    try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      addToast('Copied PNG to clipboard')
-    } catch (err) {
-      console.error('[drawing] clipboard.write failed:', err)
-      addToast('Clipboard copy failed')
-    }
+  async function handleCopyPng(): Promise<void> {
+    if (!canvasEl) return
+    await copyPng(canvasEl, strokes, selectedIds, doRedraw)
   }
 </script>
 
@@ -391,21 +329,21 @@
     <div class="spacer"></div>
 
     {#if selectedIds.size > 0}
-      <button type="button" class="danger" onclick={deleteSelected} title="Delete (Del)">
+      <button type="button" class="danger" onclick={handleDelete} title="Delete (Del)">
         Delete ({selectedIds.size})
       </button>
     {/if}
-    <button type="button" onclick={undo} disabled={strokes.length === 0} title="Undo (⌘Z)">
+    <button type="button" onclick={handleUndo} disabled={strokes.length === 0} title="Undo (⌘Z)">
       Undo
     </button>
-    <button type="button" class="danger" onclick={clear} disabled={strokes.length === 0}>
+    <button type="button" class="danger" onclick={handleClear} disabled={strokes.length === 0}>
       Clear
     </button>
-    <button type="button" onclick={copyPng} disabled={strokes.length === 0}>Copy PNG</button>
+    <button type="button" onclick={handleCopyPng} disabled={strokes.length === 0}>Copy PNG</button>
     <button
       type="button"
       class="primary"
-      onclick={sendToAgent}
+      onclick={handleSendToAgent}
       disabled={sending || strokes.length === 0}
     >
       {sending ? 'Sending…' : 'Send to agent'}
