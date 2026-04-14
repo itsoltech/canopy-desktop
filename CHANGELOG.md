@@ -1,3 +1,9 @@
+## [0.12.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0...v0.12.0-next.1) (2026-04-14)
+
+### Features
+
+* **panes:** add in-memory notes and drawing panes ([#149](https://github.com/itsoltech/canopy-desktop/issues/149)) ([9ff9149](https://github.com/itsoltech/canopy-desktop/commit/9ff9149c0e364a3200f0227581f7cbbdc98364ea))
+
 ## [0.11.0](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0...v0.11.0) (2026-04-13)
 
 ### Features
