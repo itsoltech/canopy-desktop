@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
+  import { match } from 'ts-pattern'
   import { Search, RotateCw, ChevronRight, Copy } from 'lucide-svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -218,16 +219,20 @@
   }
 
   function statusLabel(status: DiffFile['status']): string {
-    if (status === 'added') return 'Added'
-    if (status === 'modified') return 'Modified'
-    if (status === 'deleted') return 'Deleted'
-    return 'Renamed'
+    return match(status)
+      .with('added', () => 'Added')
+      .with('modified', () => 'Modified')
+      .with('deleted', () => 'Deleted')
+      .with('renamed', () => 'Renamed')
+      .exhaustive()
   }
 
   function statusClass(status: DiffFile['status']): string {
-    if (status === 'added') return 'badge-added'
-    if (status === 'deleted') return 'badge-deleted'
-    return 'badge-modified'
+    return match(status)
+      .with('added', () => 'badge-added')
+      .with('deleted', () => 'badge-deleted')
+      .with('modified', 'renamed', () => 'badge-modified')
+      .exhaustive()
   }
 
   function toggleCollapse(path: string): void {
