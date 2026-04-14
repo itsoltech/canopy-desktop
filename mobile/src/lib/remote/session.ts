@@ -1,3 +1,4 @@
+import { SavedInstancesStorage } from '../storage/saved-instances'
 import type { SavedInstance } from '../storage/saved-instances-types'
 import { PeerController, type PeerPhase } from './PeerController'
 import type { RemoteApi } from './RemoteApi'
@@ -99,7 +100,11 @@ export async function connect(instance: SavedInstance): Promise<void> {
   }
   pc.onPhaseChange = (phase) => {
     if (currentInstanceId !== instance.id) return
-    setState(phaseToState(phase, instance.id, latestApi ?? pc.remoteApi))
+    const nextState = phaseToState(phase, instance.id, latestApi ?? pc.remoteApi)
+    setState(nextState)
+    if (nextState.kind === 'ready') {
+      void SavedInstancesStorage.update(instance.id, { lastConnectedAt: new Date().toISOString() })
+    }
   }
 
   pc.start()
