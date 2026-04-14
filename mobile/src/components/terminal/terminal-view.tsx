@@ -5,10 +5,10 @@ import '@xterm/xterm/css/xterm.css'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { type DOMImperativeFactory, useDOMImperativeHandle } from 'expo/dom'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import jetBrainsMonoRegular from '../../../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf'
-import { resolveTerminalPalette } from '../../constants/terminal-themes'
+import { resolveTerminalPalette, type TerminalPalette } from '../../constants/terminal-themes'
 import type { TerminalThemeId } from '../../lib/storage/app-preferences-types'
 
 const PRIMARY_FONT = 'JetBrainsMonoNerdFontMono'
@@ -80,8 +80,25 @@ export default function TerminalView({
   onInput,
   onResize,
 }: Props): React.ReactElement {
+  const containerRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
+
+  // Soft-keyboard toolbar state. The toolbar renders inside the WebView
+  // (not as a React Native sibling) so taps on it can't make WKWebView
+  // resign first responder — if they did, the iOS keyboard would snap shut
+  // every time the user tried to press Ctrl/Esc/Tab. See `onMouseDown`
+  // below: it preventDefault's to stop the button stealing focus from
+  // xterm's internal textarea on the native-side pointer event.
+  const [keyboardVisible, setKeyboardVisible] = useState(false)
+  const [ctrlArmed, setCtrlArmed] = useState(false)
+  const [altArmed, setAltArmed] = useState(false)
+
+  // Mirror armed state into refs so the xterm `onData` handler — which is
+  // registered once inside the init effect and runs for every keystroke —
+  // can read the latest values without being re-registered on each toggle.
+  const ctrlArmedRef = useRef(false)
+  const altArmedRef = useRef(false)
 
   // Mirror the latest theme inputs into refs so the init effect can read
   // them without listing them in deps. Listing them would rebuild the whole
@@ -192,8 +209,32 @@ export default function TerminalView({
 
       // Forward every keystroke to the native side. No local echo — the
       // remote PTY will echo back through the stream channel.
+      //
+      // The sticky Ctrl / Alt toolbar buttons intercept the next keystroke
+      // here: when Ctrl is armed, we rewrite the typed letter into the
+      // corresponding control byte (`code & 0x1f`, the standard Ctrl+char
+      // mapping — works for a-z, A-Z, `@[\]^_` and space→NUL), then
+      // auto-release. Alt prepends ESC to the typed sequence, matching
+      // xterm's Meta behavior. Both release after a single keystroke so
+      // the user can type normally again.
       term.onData((data) => {
-        void onInputRef.current(data)
+        let out = data
+        if (ctrlArmedRef.current && out.length === 1) {
+          const code = out.charCodeAt(0)
+          if (code >= 0x40 && code <= 0x7f) {
+            out = String.fromCharCode(code & 0x1f)
+          } else if (code === 0x20) {
+            out = '\x00'
+          }
+          ctrlArmedRef.current = false
+          setCtrlArmed(false)
+        }
+        if (altArmedRef.current) {
+          out = '\x1b' + out
+          altArmedRef.current = false
+          setAltArmed(false)
+        }
+        void onInputRef.current(out)
       })
 
       // Tap-vs-scroll gesture detector.
@@ -328,28 +369,47 @@ export default function TerminalView({
       document.body.style.padding = '0'
       document.body.style.backgroundColor = initialPalette.background
 
-      // Size the xterm host to the visible viewport (visualViewport) rather
-      // than 100vh. When the iOS soft keyboard slides up, WKWebView shrinks
-      // `visualViewport.height` to the area above the keyboard but keeps
-      // `100vh` at the full WebView frame height — so `100vh` would leave
-      // half the terminal hidden under the keyboard. visualViewport.resize
-      // fires as the keyboard animates, we reflect it into host.style.height,
-      // ResizeObserver catches the change, tryFit recomputes cols/rows, and
-      // onResize pushes the new size to the remote PTY.
+      // Size the outer container to the visible viewport (visualViewport)
+      // rather than 100vh. When the iOS soft keyboard slides up, WKWebView
+      // shrinks `visualViewport.height` to the area above the keyboard but
+      // keeps `100vh` at the full WebView frame height — so `100vh` would
+      // leave half the terminal hidden under the keyboard. visualViewport
+      // .resize fires as the keyboard animates, we reflect it into the
+      // container's height, ResizeObserver catches the resulting change on
+      // `host` (flex child), tryFit recomputes cols/rows, and onResize
+      // pushes the new size to the remote PTY.
+      //
+      // We target the container (not `host` directly) so the toolbar
+      // sibling gets its share of the visible viewport via flex layout
+      // without having to subtract its height manually on every resize.
       //
       // Crucially we do NOT resize the native View that hosts the WebView —
       // changing the WebView's outer frame while a textarea is focused
       // causes WKWebView to resign first responder and dismiss the keyboard
       // again right after it appears.
       const vv = typeof window !== 'undefined' ? window.visualViewport : null
-      const applyHostHeight = (): void => {
-        host.style.height = vv ? `${vv.height}px` : '100vh'
+      const container = containerRef.current
+      const applyContainerHeight = (): void => {
+        const target = container ?? host
+        target.style.height = vv ? `${vv.height}px` : '100vh'
       }
-      applyHostHeight()
-      vv?.addEventListener('resize', applyHostHeight)
+      // Detect soft-keyboard state by comparing visualViewport height to
+      // the full window height. WKWebView doesn't expose a direct keyboard
+      // event, but whenever the keyboard slides up, visualViewport shrinks
+      // by at least ~200px. The 100px threshold filters out incidental
+      // diffs (e.g. transient safe-area animations on orientation change).
+      const updateKeyboardVisible = (): void => {
+        const kbUp = vv ? window.innerHeight - vv.height > 100 : false
+        setKeyboardVisible(kbUp)
+      }
+      applyContainerHeight()
+      updateKeyboardVisible()
+      vv?.addEventListener('resize', applyContainerHeight)
+      vv?.addEventListener('resize', updateKeyboardVisible)
 
       cleanupFn = () => {
-        vv?.removeEventListener('resize', applyHostHeight)
+        vv?.removeEventListener('resize', applyContainerHeight)
+        vv?.removeEventListener('resize', updateKeyboardVisible)
         window.removeEventListener('resize', scheduleFit)
         host.removeEventListener('touchstart', onTouchStart)
         host.removeEventListener('touchmove', onTouchMove)
@@ -393,5 +453,110 @@ export default function TerminalView({
     document.body.style.backgroundColor = palette.background
   }, [terminalThemeId, themeMode])
 
-  return <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
+  const emit = useCallback((seq: string): void => {
+    void onInputRef.current(seq)
+  }, [])
+
+  const toggleCtrl = useCallback((): void => {
+    const next = !ctrlArmedRef.current
+    ctrlArmedRef.current = next
+    setCtrlArmed(next)
+  }, [])
+
+  const toggleAlt = useCallback((): void => {
+    const next = !altArmedRef.current
+    altArmedRef.current = next
+    setAltArmed(next)
+  }, [])
+
+  const palette = resolveTerminalPalette(terminalThemeId, themeMode)
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        width: '100%',
+        height: '100%',
+      }}
+    >
+      <div ref={hostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} />
+      <div
+        style={{
+          display: keyboardVisible ? 'flex' : 'none',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          padding: '6px 8px',
+          overflowX: 'auto',
+          background: palette.background,
+          borderTop: `1px solid ${palette.foreground}33`,
+          flexShrink: 0,
+        }}
+        // Any pointer-down that lands on the toolbar strip (between or
+        // around buttons) must not steal focus from xterm's textarea,
+        // otherwise the iOS soft keyboard dismisses on every tap gap.
+        onMouseDown={(e): void => e.preventDefault()}
+      >
+        <ToolbarKey label="Esc" onPress={(): void => emit('\x1b')} palette={palette} />
+        <ToolbarKey label="Tab" onPress={(): void => emit('\t')} palette={palette} />
+        <ToolbarKey label="⇧Tab" onPress={(): void => emit('\x1b[Z')} palette={palette} />
+        <ToolbarKey label="Ctrl" onPress={toggleCtrl} palette={palette} active={ctrlArmed} />
+        <ToolbarKey label="Alt" onPress={toggleAlt} palette={palette} active={altArmed} />
+        <ToolbarKey label="←" onPress={(): void => emit('\x1b[D')} palette={palette} />
+        <ToolbarKey label="→" onPress={(): void => emit('\x1b[C')} palette={palette} />
+        <ToolbarKey label="↑" onPress={(): void => emit('\x1b[A')} palette={palette} />
+        <ToolbarKey label="↓" onPress={(): void => emit('\x1b[B')} palette={palette} />
+      </div>
+    </div>
+  )
+}
+
+// A single toolbar button. Rendered as a `<button>` so it gets native
+// click semantics (iOS VoiceOver, etc.). The `onMouseDown` handler is the
+// critical bit: browsers move focus to the clicked element on mousedown
+// *before* click fires, which would resign xterm's textarea as first
+// responder and dismiss the iOS keyboard. `preventDefault()` blocks that
+// focus shift but leaves the click event intact, so `onPress` still runs.
+function ToolbarKey({
+  label,
+  onPress,
+  palette,
+  active = false,
+}: {
+  label: string
+  onPress: () => void
+  palette: TerminalPalette
+  active?: boolean
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      onMouseDown={(e): void => e.preventDefault()}
+      onClick={onPress}
+      style={{
+        minWidth: 44,
+        height: 36,
+        padding: '0 10px',
+        fontFamily: FONT_STACK,
+        fontSize: 14,
+        fontWeight: active ? 600 : 400,
+        color: active ? palette.background : palette.foreground,
+        background: active ? palette.foreground : `${palette.foreground}1a`,
+        border: `1px solid ${palette.foreground}44`,
+        borderRadius: 6,
+        cursor: 'pointer',
+        flexShrink: 0,
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
+        WebkitTapHighlightColor: 'transparent',
+        touchAction: 'manipulation',
+      }}
+    >
+      {label}
+    </button>
+  )
 }
