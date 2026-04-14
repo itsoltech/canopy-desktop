@@ -1,3 +1,9 @@
+## [0.12.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.1...v0.12.0-next.2) (2026-04-14)
+
+### Features
+
+* **skills:** add skill installation CLI for agents ([#135](https://github.com/itsoltech/canopy-desktop/issues/135)) ([5bf2e5b](https://github.com/itsoltech/canopy-desktop/commit/5bf2e5b66346a2725470ca9e5fe2a159779abd0d))
+
 ## [0.12.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0...v0.12.0-next.1) (2026-04-14)
 
 ### Features
