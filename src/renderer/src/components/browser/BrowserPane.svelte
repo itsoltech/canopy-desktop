@@ -25,6 +25,7 @@
     updateBrowserPaneUrl,
     getAiSessions,
     focusSessionByPtyId,
+    openTool,
   } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
@@ -34,6 +35,7 @@
 
   let {
     browserId,
+    worktreePath,
     active,
     focused,
     initialUrl,
@@ -41,6 +43,7 @@
     onFocus,
   }: {
     browserId: string
+    worktreePath: string
     active: boolean
     focused?: boolean
     initialUrl?: string
@@ -867,6 +870,11 @@
           updateDevToolsState(true)
         }
       }),
+      window.api.onBrowserOpenUrl((data) => {
+        if (data.browserId === browserId) {
+          openTool('browser', worktreePath, { initialUrl: data.url })
+        }
+      }),
     ]
 
     // Listen for app-level overlays (Preferences, Command Palette, etc.)
@@ -1198,6 +1206,7 @@
           src="about:blank"
           partition="persist:browser"
           webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
+          allowpopups
           class="browser-webview"
           class:hidden={!!session?.error && !activeDevice}
           class:no-events={dragState.isDragging}

@@ -109,8 +109,18 @@ export class BrowserManager {
     }
     this.entries.set(browserId, entry)
 
-    // Block popups
-    wc.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // target="_blank" / window.open → forward URL to renderer so it can open a new browser tab
+    wc.setWindowOpenHandler(({ url }) => {
+      try {
+        const parsed = new URL(url)
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          this.sendToRenderer(browserId, 'browser:openUrl', { browserId, url })
+        }
+      } catch {
+        // Invalid URL, ignore
+      }
+      return { action: 'deny' }
+    })
 
     // Only allow http(s) navigation
     wc.on('will-navigate', (event, url) => {
