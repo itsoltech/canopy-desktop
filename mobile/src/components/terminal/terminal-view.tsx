@@ -7,8 +7,41 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { type DOMImperativeFactory, useDOMImperativeHandle } from 'expo/dom'
 import { useEffect, useRef } from 'react'
 
+import jetBrainsMonoRegular from '../../../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf'
 import { resolveTerminalPalette } from '../../constants/terminal-themes'
 import type { TerminalThemeId } from '../../lib/storage/app-preferences-types'
+
+const PRIMARY_FONT = 'JetBrainsMonoNerdFontMono'
+const FONT_STACK = `"${PRIMARY_FONT}", Menlo, Monaco, "SF Mono", monospace`
+
+// Load the bundled Nerd Font at module import so it's usually ready by the
+// time the user navigates to the terminal screen. xterm measures glyph
+// width at construction time from whatever font is actually loaded — if we
+// don't wait, it locks in Menlo metrics and columns misalign once the real
+// font swaps in. The init effect awaits this promise before constructing
+// XTerm. Catches failures silently so the terminal still comes up with the
+// system monospace stack.
+const fontReady: Promise<void> = (() => {
+  if (typeof document === 'undefined' || typeof FontFace === 'undefined') {
+    return Promise.resolve()
+  }
+  try {
+    const face = new FontFace(PRIMARY_FONT, `url(${jetBrainsMonoRegular}) format('truetype')`)
+    return face
+      .load()
+      .then((loaded) => {
+        // FontFaceSet is Set-like per spec but TypeScript's lib.dom doesn't
+        // model `.add()` on it. Cast through a minimal structural type.
+        const fontSet = document.fonts as FontFaceSet & { add(font: FontFace): void }
+        fontSet.add(loaded)
+      })
+      .catch(() => {
+        /* fall back to system mono */
+      })
+  } catch {
+    return Promise.resolve()
+  }
+})()
 
 export type TerminalViewHandle = {
   /** Write raw data (can include ANSI escapes) into the terminal. */
@@ -94,81 +127,109 @@ export default function TerminalView({
     const host = hostRef.current
     if (!host) return
 
-    const initialPalette = resolveTerminalPalette(terminalThemeIdRef.current, themeModeRef.current)
+    let cancelled = false
+    let cleanupFn: (() => void) | null = null
 
-    const term = new XTerm({
-      fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
-      fontSize: 13,
-      lineHeight: 1,
-      convertEol: true,
-      cursorBlink: true,
-      allowProposedApi: true,
-      theme: initialPalette,
-    })
+    const init = async (): Promise<void> => {
+      // Wait for the Nerd Font to be loaded so xterm measures glyph width
+      // against the real font, not the Menlo fallback.
+      await fontReady
+      if (cancelled) return
+      if (!hostRef.current) return
 
-    const fit = new FitAddon()
-    term.loadAddon(fit)
-    term.open(host)
-    termRef.current = term
+      const initialPalette = resolveTerminalPalette(
+        terminalThemeIdRef.current,
+        themeModeRef.current,
+      )
 
-    // Forward every keystroke to the native side. No local echo — the
-    // remote PTY will echo back through the stream channel.
-    term.onData((data) => {
-      void onInputRef.current(data)
-    })
+      const term = new XTerm({
+        fontFamily: FONT_STACK,
+        fontSize: 13,
+        lineHeight: 1,
+        convertEol: true,
+        cursorBlink: true,
+        allowProposedApi: true,
+        theme: initialPalette,
+      })
 
-    const focusTerm = (): void => term.focus()
-    host.addEventListener('pointerdown', focusTerm)
-    host.addEventListener('touchstart', focusTerm, { passive: true })
+      const fit = new FitAddon()
+      term.loadAddon(fit)
+      term.open(host)
+      termRef.current = term
 
-    const tryFit = (): void => {
-      try {
-        fit.fit()
-        void onResizeRef.current(term.cols, term.rows)
-      } catch {
-        // fit can throw briefly while the host element has zero size
+      // Forward every keystroke to the native side. No local echo — the
+      // remote PTY will echo back through the stream channel.
+      term.onData((data) => {
+        void onInputRef.current(data)
+      })
+
+      const focusTerm = (): void => term.focus()
+      host.addEventListener('pointerdown', focusTerm)
+      host.addEventListener('touchstart', focusTerm, { passive: true })
+
+      const tryFit = (): void => {
+        try {
+          fit.fit()
+          void onResizeRef.current(term.cols, term.rows)
+        } catch {
+          // fit can throw briefly while the host element has zero size
+        }
+      }
+
+      tryFit()
+
+      const resizeObserver =
+        typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => tryFit()) : null
+      resizeObserver?.observe(host)
+      window.addEventListener('resize', tryFit)
+
+      document.body.style.margin = '0'
+      document.body.style.padding = '0'
+      document.body.style.backgroundColor = initialPalette.background
+
+      // Size the xterm host to the visible viewport (visualViewport) rather
+      // than 100vh. When the iOS soft keyboard slides up, WKWebView shrinks
+      // `visualViewport.height` to the area above the keyboard but keeps
+      // `100vh` at the full WebView frame height — so `100vh` would leave
+      // half the terminal hidden under the keyboard. visualViewport.resize
+      // fires as the keyboard animates, we reflect it into host.style.height,
+      // ResizeObserver catches the change, tryFit recomputes cols/rows, and
+      // onResize pushes the new size to the remote PTY.
+      //
+      // Crucially we do NOT resize the native View that hosts the WebView —
+      // changing the WebView's outer frame while a textarea is focused
+      // causes WKWebView to resign first responder and dismiss the keyboard
+      // again right after it appears.
+      const vv = typeof window !== 'undefined' ? window.visualViewport : null
+      const applyHostHeight = (): void => {
+        host.style.height = vv ? `${vv.height}px` : '100vh'
+      }
+      applyHostHeight()
+      vv?.addEventListener('resize', applyHostHeight)
+
+      cleanupFn = () => {
+        vv?.removeEventListener('resize', applyHostHeight)
+        window.removeEventListener('resize', tryFit)
+        host.removeEventListener('pointerdown', focusTerm)
+        host.removeEventListener('touchstart', focusTerm)
+        resizeObserver?.disconnect()
+        term.dispose()
+        termRef.current = null
+      }
+
+      // If the effect was already torn down while awaiting the font, run
+      // cleanup now so we don't leak the XTerm instance we just created.
+      if (cancelled) {
+        cleanupFn()
+        cleanupFn = null
       }
     }
 
-    tryFit()
-
-    const resizeObserver =
-      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => tryFit()) : null
-    resizeObserver?.observe(host)
-    window.addEventListener('resize', tryFit)
-
-    document.body.style.margin = '0'
-    document.body.style.padding = '0'
-    document.body.style.backgroundColor = initialPalette.background
-
-    // Size the xterm host to the visible viewport (visualViewport) rather
-    // than 100vh. When the iOS soft keyboard slides up, WKWebView shrinks
-    // `visualViewport.height` to the area above the keyboard but keeps
-    // `100vh` at the full WebView frame height — so `100vh` would leave
-    // half the terminal hidden under the keyboard. visualViewport.resize
-    // fires as the keyboard animates, we reflect it into host.style.height,
-    // ResizeObserver catches the change, tryFit recomputes cols/rows, and
-    // onResize pushes the new size to the remote PTY.
-    //
-    // Crucially we do NOT resize the native View that hosts the WebView —
-    // changing the WebView's outer frame while a textarea is focused causes
-    // WKWebView to resign first responder and dismiss the keyboard again
-    // right after it appears.
-    const vv = typeof window !== 'undefined' ? window.visualViewport : null
-    const applyHostHeight = (): void => {
-      host.style.height = vv ? `${vv.height}px` : '100vh'
-    }
-    applyHostHeight()
-    vv?.addEventListener('resize', applyHostHeight)
+    void init()
 
     return () => {
-      vv?.removeEventListener('resize', applyHostHeight)
-      window.removeEventListener('resize', tryFit)
-      host.removeEventListener('pointerdown', focusTerm)
-      host.removeEventListener('touchstart', focusTerm)
-      resizeObserver?.disconnect()
-      term.dispose()
-      termRef.current = null
+      cancelled = true
+      cleanupFn?.()
     }
   }, [])
 
