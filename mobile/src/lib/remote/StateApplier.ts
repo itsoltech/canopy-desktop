@@ -6,6 +6,7 @@ import type { RemoteApi } from './RemoteApi'
 import {
   applyActiveTabDelta,
   applyActiveWorktreeDelta,
+  applyProfilesDelta,
   applyProjectsDelta,
   applyStateSnapshot,
   applyTabsDelta,
@@ -13,7 +14,12 @@ import {
   resetMirrorState,
 } from './mirror-state'
 import { STATE_DELTA_TOPICS } from './protocol/state-deltas'
-import type { ProjectSnapshot, TabSnapshot, ToolSnapshot } from './protocol/state-snapshot'
+import type {
+  ProfileSnapshot,
+  ProjectSnapshot,
+  TabSnapshot,
+  ToolSnapshot,
+} from './protocol/state-snapshot'
 
 /**
  * Peer-side adapter that pulls the initial snapshot from the host via
@@ -81,6 +87,10 @@ export class StateApplier {
       .with('tools', () => {
         if (!Array.isArray(data)) return
         applyToolsDelta(data as ToolSnapshot[])
+      })
+      .with('profiles', () => {
+        if (!Array.isArray(data)) return
+        applyProfilesDelta(data as ProfileSnapshot[])
       })
       .exhaustive()
   }

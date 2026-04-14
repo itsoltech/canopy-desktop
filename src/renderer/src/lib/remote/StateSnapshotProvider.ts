@@ -1,6 +1,7 @@
 import type { DataChannelRpc } from '../../../../renderer-shared/rpc/DataChannelRpc'
 import { REMOTE_PROTOCOL_VERSION } from '../../../../renderer-shared/rpc/protocol'
 import type {
+  ProfileSnapshot,
   ProjectSnapshot,
   StateSnapshot,
   TabSnapshot,
@@ -11,6 +12,7 @@ import { projects, workspaceState, type ProjectState } from '../stores/workspace
 import { remoteSession } from '../stores/remoteSession.svelte'
 import { tabsByWorktree, activeTabId, type TabInfo } from '../stores/tabs.svelte'
 import { getTools, getToolAvailability } from '../stores/tools.svelte'
+import { getProfiles } from '../stores/profiles.svelte'
 import { findLeaf } from '../stores/splitTree'
 
 /**
@@ -79,6 +81,10 @@ export class StateSnapshotProvider {
         $effect(() => {
           rpc.emit('tools', serializeTools())
         })
+
+        $effect(() => {
+          rpc.emit('profiles', serializeProfiles())
+        })
       })
     } catch (err) {
       console.error(
@@ -116,6 +122,7 @@ export class StateSnapshotProvider {
       rpc.emit('activeTab', { ...activeTabId })
       rpc.emit('activeWorktree', workspaceState.selectedWorktreePath)
       rpc.emit('tools', serializeTools())
+      rpc.emit('profiles', serializeProfiles())
     } catch (err) {
       console.warn('[remote] rebroadcast failed:', err)
     }
@@ -144,6 +151,7 @@ export class StateSnapshotProvider {
       activeTabByWorktree: { ...activeTabId },
       activeWorktreePath: workspaceState.selectedWorktreePath,
       tools: serializeTools(),
+      profiles: serializeProfiles(),
     }
   }
 }
@@ -199,6 +207,21 @@ function serializeTools(): ToolSnapshot[] {
     isCustom: t.isCustom,
     available: availability[t.id] !== false,
   }))
+}
+
+function serializeProfiles(): ProfileSnapshot[] {
+  // Trim to the minimum the peer picker needs — NEVER include
+  // `prefs.customEnv` / `prefs.settingsJson`: those routinely hold API
+  // tokens and provider URLs and must not cross the WebRTC wire.
+  return getProfiles()
+    .map((p) => ({
+      id: p.id,
+      agentType: p.agentType,
+      name: p.name,
+      isDefault: p.isDefault,
+      sortIndex: p.sortIndex,
+    }))
+    .sort((a, b) => a.sortIndex - b.sortIndex || a.name.localeCompare(b.name))
 }
 
 function getLanIpFromStatus(): string {

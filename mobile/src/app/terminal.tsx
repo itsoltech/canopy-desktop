@@ -1,11 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Keyboard, Pressable, StyleSheet, View } from 'react-native'
+import { Alert, Keyboard, Pressable, StyleSheet, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { TerminalTabBar } from '@/components/terminal/tab-bar'
 import TerminalView, { type TerminalViewHandle } from '@/components/terminal/terminal-view'
+import { ToolPickerSheet } from '@/components/terminal/tool-picker-sheet'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { resolveTerminalPalette } from '@/constants/terminal-themes'
@@ -13,7 +14,13 @@ import { Spacing } from '@/constants/theme'
 import { useAppPreferences } from '@/hooks/use-app-preferences'
 import { useColorScheme } from '@/hooks/use-color-scheme'
 import { useRemoteSession } from '@/hooks/use-remote-session'
-import { useActiveTabId, useTabsFor } from '@/hooks/use-remote-state'
+import {
+  useActiveTabId,
+  useIsHydrated,
+  useProfiles,
+  useTabsFor,
+  useTools,
+} from '@/hooks/use-remote-state'
 import { useSavedInstance } from '@/hooks/use-saved-instances'
 import { useTheme } from '@/hooks/use-theme'
 
@@ -43,6 +50,11 @@ export default function TerminalScreen(): React.ReactElement {
   const [localTabId, setLocalTabId] = useState<string | null>(null)
   const activeTabId = localTabId ?? remoteActiveTabId ?? tabs[0]?.id ?? null
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null
+
+  const tools = useTools()
+  const profiles = useProfiles()
+  const hydrated = useIsHydrated()
+  const [pickerVisible, setPickerVisible] = useState(false)
 
   const themeMode: 'light' | 'dark' = colorScheme === 'dark' ? 'dark' : 'light'
   const slotBackground = resolveTerminalPalette(terminalThemeId, themeMode).background
@@ -205,6 +217,50 @@ export default function TerminalScreen(): React.ReactElement {
     [api],
   )
 
+  const handleToolPick = useCallback(
+    async (toolId: string, profileId?: string) => {
+      setPickerVisible(false)
+      if (!api) return
+      try {
+        const result = await api.tools.spawn(toolId, worktreePath, profileId)
+        setLocalTabId(result.tabId)
+        void api.tabs.activate(result.tabId).catch(() => {
+          /* ignore */
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setStreamError(msg)
+      }
+    },
+    [api, worktreePath],
+  )
+
+  const handleTabLongPress = useCallback(
+    (tabId: string) => {
+      if (!api) return
+      const tab = tabs.find((t) => t.id === tabId)
+      const label = tab?.name ?? 'Tab'
+      Alert.alert(label, undefined, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Close tab',
+          style: 'destructive',
+          onPress: () => {
+            // Drop any local override pointing at the tab we're about to
+            // close so the `activeTabId` fallback (`remoteActiveTabId ??
+            // tabs[0]?.id`) can pick up whatever the host chooses next.
+            setLocalTabId((current) => (current === tabId ? null : current))
+            void api.tabs.close(tabId).catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err)
+              setStreamError(msg)
+            })
+          },
+        },
+      ])
+    },
+    [api, tabs],
+  )
+
   // Dismiss the soft keyboard when the user taps anywhere in the header
   // (back button area, title, or empty space around them). We try two
   // paths: Keyboard.dismiss() resigns the native WKWebView's first
@@ -256,7 +312,13 @@ export default function TerminalScreen(): React.ReactElement {
             ) : null}
           </View>
         </View>
-        <TerminalTabBar tabs={tabs} activeId={activeTabId} onSelect={handleTabSelect} />
+        <TerminalTabBar
+          tabs={tabs}
+          activeId={activeTabId}
+          onSelect={handleTabSelect}
+          onLongPress={api ? handleTabLongPress : undefined}
+          onNewTab={api ? () => setPickerVisible(true) : undefined}
+        />
         {streamError ? (
           <View style={styles.banner}>
             <ThemedText type="small" themeColor="textSecondary">
@@ -267,34 +329,46 @@ export default function TerminalScreen(): React.ReactElement {
       </SafeAreaView>
 
       <View style={[styles.terminalSlot, { backgroundColor: slotBackground }]}>
-        {activeTab ? (
-          // NOTE: deliberately NO `key={activeTab.id}`. Remounting the
-          // TerminalView on every tab switch re-creates the underlying
-          // WebView but the Expo DOM ref-Proxy is only installed when
-          // `terminalRef.current == null`. React never clears our ref on
-          // remount (the wrapper assigns it imperatively, not via
-          // useImperativeHandle), so the second mount would reuse the
-          // stale Proxy bound to a dead webview and all writes would
-          // silently no-op. Keeping one stable TerminalView avoids that
-          // trap — we clear its xterm content in the subscription effect
-          // whenever sessionId changes.
-          <TerminalView
-            ref={terminalRef}
-            themeMode={themeMode}
-            terminalThemeId={terminalThemeId}
-            onInput={onInput}
-            onResize={onResize}
-            dom={{
-              style: { flex: 1 },
-              matchContents: false,
-              keyboardDisplayRequiresUserAction: false,
-              hideKeyboardAccessoryView: true,
-              automaticallyAdjustContentInsets: false,
-              scrollEnabled: false,
-            }}
-          />
-        ) : (
-          <View style={styles.emptyWrap}>
+        {/*
+          NOTE: TerminalView must stay mounted for the entire lifetime of
+          this screen — never gate it behind a ternary, never give it a
+          `key={activeTab.id}`, never swap it out when `activeTab` is
+          null. The Expo DOM-component ref is a Proxy installed exactly
+          once, the first time `terminalRef.current` is assigned. React
+          does NOT clear our ref on unmount because the wrapper assigns
+          it imperatively (not via useImperativeHandle), so any remount
+          reuses the stale Proxy bound to a dead webview and every
+          `write()` silently no-ops. Empty / loading state is rendered
+          as an absolute overlay on top of the stable TerminalView
+          instead — the xterm underneath just sits empty (the
+          subscription effect bails early when sessionId is null). The
+          subscription effect clears xterm content whenever sessionId
+          changes, so switching tabs stays clean.
+        */}
+        <TerminalView
+          ref={terminalRef}
+          themeMode={themeMode}
+          terminalThemeId={terminalThemeId}
+          onInput={onInput}
+          onResize={onResize}
+          dom={{
+            style: { flex: 1 },
+            matchContents: false,
+            keyboardDisplayRequiresUserAction: false,
+            hideKeyboardAccessoryView: true,
+            automaticallyAdjustContentInsets: false,
+            scrollEnabled: false,
+          }}
+        />
+        {activeTab ? null : (
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              styles.emptyOverlay,
+              { backgroundColor: slotBackground },
+            ]}
+          >
             <ThemedText type="small" themeColor="textSecondary">
               {sessionState.kind === 'ready'
                 ? 'No tabs in this worktree'
@@ -303,6 +377,15 @@ export default function TerminalScreen(): React.ReactElement {
           </View>
         )}
       </View>
+
+      <ToolPickerSheet
+        visible={pickerVisible}
+        tools={tools}
+        profiles={profiles}
+        hydrated={hydrated}
+        onSelect={handleToolPick}
+        onClose={() => setPickerVisible(false)}
+      />
     </ThemedView>
   )
 }
@@ -349,8 +432,7 @@ const styles = StyleSheet.create({
   terminalSlot: {
     flex: 1,
   },
-  emptyWrap: {
-    flex: 1,
+  emptyOverlay: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.four,

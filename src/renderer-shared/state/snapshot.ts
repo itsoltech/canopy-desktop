@@ -21,6 +21,7 @@ export interface StateSnapshot {
   activeTabByWorktree: Record<string, string>
   activeWorktreePath: string | null
   tools: ToolSnapshot[]
+  profiles: ProfileSnapshot[]
 }
 
 export interface HostInfoSnapshot {
@@ -79,4 +80,19 @@ export interface ToolSnapshot {
   category: string
   isCustom: boolean
   available: boolean
+}
+
+/**
+ * Minimal profile descriptor sent to the remote peer. Deliberately *not* a
+ * re-export of `AgentProfileMasked` — that type carries `prefs.customEnv`
+ * and `prefs.settingsJson`, which frequently contain API tokens and other
+ * secrets. The peer only needs enough to render a picker and pass a
+ * `profileId` back to `tools.spawn`.
+ */
+export interface ProfileSnapshot {
+  id: string
+  agentType: 'claude' | 'gemini' | 'opencode' | 'codex'
+  name: string
+  isDefault: boolean
+  sortIndex: number
 }

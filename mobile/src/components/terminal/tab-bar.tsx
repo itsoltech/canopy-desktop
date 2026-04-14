@@ -1,7 +1,9 @@
 import { SymbolView } from 'expo-symbols'
+import { useEffect, useRef } from 'react'
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 
 import { ThemedText } from '@/components/themed-text'
+import { resolveToolIcon } from '@/constants/tool-icons'
 import { Spacing } from '@/constants/theme'
 import { useTheme } from '@/hooks/use-theme'
 import type { TabSnapshot } from '@/lib/mock/snapshot-types'
@@ -10,27 +12,35 @@ type Props = {
   tabs: TabSnapshot[]
   activeId: string | null
   onSelect: (id: string) => void
+  onLongPress?: (id: string) => void
+  onNewTab?: () => void
 }
 
-type IconDescriptor = Parameters<typeof SymbolView>[0]['name']
-
-function iconForTool(toolId: string): IconDescriptor {
-  switch (toolId) {
-    case 'claude':
-      return { ios: 'sparkles', android: 'auto_awesome', web: 'auto_awesome' }
-    case 'shell':
-    default:
-      return { ios: 'terminal', android: 'terminal', web: 'terminal' }
-  }
-}
-
-export function TerminalTabBar({ tabs, activeId, onSelect }: Props): React.ReactElement | null {
+export function TerminalTabBar({
+  tabs,
+  activeId,
+  onSelect,
+  onLongPress,
+  onNewTab,
+}: Props): React.ReactElement | null {
   const theme = useTheme()
+  const scrollViewRef = useRef<ScrollView>(null)
 
-  if (tabs.length === 0) return null
+  // When the active tab is the trailing entry (e.g. right after a new
+  // spawn), scroll the bar to reveal it. Idempotent — scrollToEnd on an
+  // already-scrolled view is a no-op.
+  useEffect(() => {
+    if (tabs.length === 0) return
+    if (tabs[tabs.length - 1]?.id === activeId) {
+      scrollViewRef.current?.scrollToEnd({ animated: true })
+    }
+  }, [tabs, activeId])
+
+  if (tabs.length === 0 && !onNewTab) return null
 
   return (
     <ScrollView
+      ref={scrollViewRef}
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.content}
@@ -41,6 +51,8 @@ export function TerminalTabBar({ tabs, activeId, onSelect }: Props): React.React
           <Pressable
             key={tab.id}
             onPress={() => onSelect(tab.id)}
+            onLongPress={onLongPress ? () => onLongPress(tab.id) : undefined}
+            delayLongPress={350}
             style={({ pressed }) => [
               styles.tab,
               {
@@ -50,7 +62,7 @@ export function TerminalTabBar({ tabs, activeId, onSelect }: Props): React.React
             ]}
           >
             <SymbolView
-              name={iconForTool(tab.toolId)}
+              name={resolveToolIcon(tab.toolId)}
               size={14}
               weight={active ? 'semibold' : 'regular'}
               tintColor={active ? theme.text : theme.textSecondary}
@@ -65,6 +77,25 @@ export function TerminalTabBar({ tabs, activeId, onSelect }: Props): React.React
           </Pressable>
         )
       })}
+      {onNewTab ? (
+        <Pressable
+          onPress={onNewTab}
+          style={({ pressed }) => [
+            styles.newTab,
+            { backgroundColor: theme.backgroundElement },
+            pressed && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="New tool"
+        >
+          <SymbolView
+            name={{ ios: 'plus', android: 'add', web: 'add' }}
+            size={14}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
+      ) : null}
       <View style={styles.trailingSpacer} />
     </ScrollView>
   )
@@ -84,6 +115,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     borderRadius: Spacing.three,
+  },
+  newTab: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.three,
+    minWidth: Spacing.five,
   },
   pressed: {
     opacity: 0.7,

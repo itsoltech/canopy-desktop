@@ -22,6 +22,7 @@ export interface StateSnapshot {
   activeTabByWorktree: Record<string, string>
   activeWorktreePath: string | null
   tools: ToolSnapshot[]
+  profiles: ProfileSnapshot[]
 }
 
 export interface HostInfoSnapshot {
@@ -80,4 +81,18 @@ export interface ToolSnapshot {
   category: string
   isCustom: boolean
   available: boolean
+}
+
+/**
+ * Minimal profile descriptor mirrored from the host. Deliberately omits
+ * `prefs` and the api-key marker so nothing sensitive crosses the wire —
+ * the peer only needs enough to render a picker and pass `profileId` back
+ * to `tools.spawn`.
+ */
+export interface ProfileSnapshot {
+  id: string
+  agentType: 'claude' | 'gemini' | 'opencode' | 'codex'
+  name: string
+  isDefault: boolean
+  sortIndex: number
 }

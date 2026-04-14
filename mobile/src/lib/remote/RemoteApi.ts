@@ -18,7 +18,11 @@ export interface RemoteApi {
     getSnapshot: () => Promise<RpcMethods['state.getSnapshot']['result']>
   }
   tools: {
-    spawn: (toolId: string, worktreePath: string) => Promise<RpcMethods['tools.spawn']['result']>
+    spawn: (
+      toolId: string,
+      worktreePath: string,
+      profileId?: string,
+    ) => Promise<RpcMethods['tools.spawn']['result']>
   }
   tabs: {
     close: (tabId: string) => Promise<void>
@@ -55,7 +59,8 @@ export function createRemoteApi(rpc: DataChannelRpc): RemoteApi {
       getSnapshot: () => client.call('state.getSnapshot'),
     },
     tools: {
-      spawn: (toolId, worktreePath) => client.call('tools.spawn', { toolId, worktreePath }),
+      spawn: (toolId, worktreePath, profileId) =>
+        client.call('tools.spawn', { toolId, worktreePath, profileId }),
     },
     tabs: {
       close: (tabId) => client.call('tabs.close', { tabId }),

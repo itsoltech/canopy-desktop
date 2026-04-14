@@ -1,5 +1,6 @@
 import type {
   HostInfoSnapshot,
+  ProfileSnapshot,
   ProjectSnapshot,
   StateSnapshot,
   TabSnapshot,
@@ -24,6 +25,7 @@ export type MirrorState = {
   activeTabByWorktree: Record<string, string>
   activeWorktreePath: string | null
   tools: ToolSnapshot[]
+  profiles: ProfileSnapshot[]
 }
 
 const emptyState: MirrorState = {
@@ -34,6 +36,7 @@ const emptyState: MirrorState = {
   activeTabByWorktree: {},
   activeWorktreePath: null,
   tools: [],
+  profiles: [],
 }
 
 let state: MirrorState = emptyState
@@ -63,6 +66,7 @@ export function applyStateSnapshot(snapshot: StateSnapshot): void {
     activeTabByWorktree: snapshot.activeTabByWorktree,
     activeWorktreePath: snapshot.activeWorktreePath,
     tools: snapshot.tools,
+    profiles: snapshot.profiles ?? [],
   }
   notify()
 }
@@ -89,6 +93,11 @@ export function applyActiveWorktreeDelta(activeWorktreePath: string | null): voi
 
 export function applyToolsDelta(tools: ToolSnapshot[]): void {
   state = { ...state, tools }
+  notify()
+}
+
+export function applyProfilesDelta(profiles: ProfileSnapshot[]): void {
+  state = { ...state, profiles }
   notify()
 }
 

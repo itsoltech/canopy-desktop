@@ -27,7 +27,7 @@ export interface RpcMethods {
 
   // Tools + tabs
   'tools.spawn': {
-    params: { toolId: string; worktreePath: string }
+    params: { toolId: string; worktreePath: string; profileId?: string }
     result: { tabId: string }
   }
   'tabs.close': {

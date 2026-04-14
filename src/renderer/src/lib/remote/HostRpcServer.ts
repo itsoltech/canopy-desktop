@@ -64,7 +64,8 @@ export class HostRpcServer {
     this.register('tools.spawn', async (params) => {
       const toolId = assertString(params, 'toolId', 'tools.spawn')
       const worktreePath = assertString(params, 'worktreePath', 'tools.spawn')
-      const tab = await openTool(toolId, worktreePath)
+      const profileId = optionalString(params, 'profileId', 'tools.spawn')
+      const tab = await openTool(toolId, worktreePath, profileId ? { profileId } : undefined)
       provider.rebroadcast()
       return { tabId: tab.id }
     })
@@ -229,6 +230,18 @@ function assertString(obj: unknown, key: string, method: string): string {
   const value = (obj as Record<string, unknown>)[key]
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`${method}: "${key}" must be a non-empty string`)
+  }
+  return value
+}
+
+function optionalString(obj: unknown, key: string, method: string): string | undefined {
+  if (typeof obj !== 'object' || obj === null) {
+    throw new Error(`${method}: params must be an object`)
+  }
+  const value = (obj as Record<string, unknown>)[key]
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${method}: "${key}" must be a non-empty string when present`)
   }
   return value
 }
