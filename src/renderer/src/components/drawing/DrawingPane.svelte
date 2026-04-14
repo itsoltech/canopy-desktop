@@ -643,6 +643,7 @@
     min-height: 0;
     position: relative;
     overflow: hidden;
+    outline: none;
   }
 
   canvas {
