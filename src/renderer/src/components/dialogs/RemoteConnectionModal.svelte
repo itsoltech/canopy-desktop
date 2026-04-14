@@ -66,6 +66,7 @@
     match(status)
       .with({ kind: 'idle' }, () => 'Ready')
       .with({ kind: 'starting' }, () => 'Starting signaling server…')
+      .with({ kind: 'listening' }, () => 'Listening for trusted devices')
       .with({ kind: 'waiting' }, () => 'Waiting for device to scan')
       .with({ kind: 'peerArrived' }, (s) => `Device requesting pairing: ${s.device.deviceName}`)
       .with({ kind: 'paired' }, (s) => `Connected to ${s.deviceName}`)
@@ -87,7 +88,10 @@
     // calling `remote.start()` would throw `AlreadyRunning`.
     try {
       const existing = await window.api.remote.getStatus()
-      if (existing.kind === 'idle' || existing.kind === 'error') {
+      // `listening` means the server is already up (from auto-listen) but
+      // there's no QR token yet — calling start() here upgrades it to
+      // `waiting` and generates the token on the already-bound port.
+      if (existing.kind === 'idle' || existing.kind === 'error' || existing.kind === 'listening') {
         await window.api.remote.start()
       }
       // Otherwise the store is already subscribed to status changes via
