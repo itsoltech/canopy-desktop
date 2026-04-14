@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^14.0.0",
+    "@expo/ui": "~55.0.11",
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/elements": "^2.9.10",
     "@react-navigation/native": "^7.1.33",
@@ -52,6 +53,7 @@
     "expo-system-ui": "~55.0.15",
     "expo-updates": "~55.0.20",
     "expo-web-browser": "~55.0.14",
+    "expo-widgets": "^55.0.13",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-native": "0.83.4",
@@ -70,5 +72,8 @@
     "@types/react": "~19.2.2",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "volta": {
+    "node": "22.20.0"
+  }
 }
