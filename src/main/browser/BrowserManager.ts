@@ -95,7 +95,7 @@ export class BrowserManager {
 
   /**
    * Register a renderer-created <webview> for keyboard interception,
-   * popup blocking, navigation filtering, and favicon forwarding.
+   * popup handling, navigation filtering, and favicon forwarding.
    */
   setup(browserId: string, wcId: number, win: BrowserWindow, sender: WebContents): void {
     const wc = this.guestContents.get(wcId) ?? findWebContents(wcId)
