@@ -41,6 +41,13 @@ Notes panes are non-terminal panes — they have no associated process, PTY, or 
 2. Clicking **Hide preview** collapses back to editor-only.
 3. The preview panel uses a monospace font with styled headings, code blocks, and links.
 
+### Editing in preview
+
+1. When the preview panel is visible, it is editable — the user can click into the rendered markdown and type directly.
+2. Changes in the preview are converted back to markdown using `turndown` and written to `notesState[key]`.
+3. Changes from the editor textarea update the preview, and vice versa. An `editSource` flag prevents circular updates.
+4. The preview shows a "Click to edit..." placeholder when empty.
+
 ### Worktree/project switching
 
 1. When the user selects a different worktree, the `$effect` watching `getNoteKey()` detects the key change.

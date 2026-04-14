@@ -21,6 +21,16 @@ Drawings are stored in renderer memory keyed by project (repo root). They are ep
 3. On pointer up, the live stroke is committed to the strokes array.
 4. Each frame, `redraw()` clears the canvas, fills the theme background, and renders all committed strokes plus the in-progress live stroke using `perfect-freehand` outlines.
 
+### Shapes
+
+1. With a shape tool active (**Rect**, **Ellipse**, **Line**, or **Arrow**), the user clicks and drags on the canvas.
+2. The origin point is the pointer-down position; the current pointer position defines the shape extent.
+3. A live preview of the shape renders during the drag.
+4. On pointer up, shapes smaller than 2px in both dimensions are discarded.
+5. **Shift** constrains: rectangles to squares, ellipses to circles, lines/arrows to 45° angle increments.
+6. Shapes use the current color and stroke size. They are outline-only (no fill).
+7. Shapes participate in all selection, move, delete, and undo operations identically to freehand strokes.
+
 ### Selection
 
 1. With the **Select** tool active, clicking a stroke selects it (highlighted with an accent-colored outline). **Shift+click** toggles individual strokes.
@@ -34,15 +44,16 @@ Middle mouse button pans the canvas viewport regardless of the active tool. Stro
 
 ### Actions
 
-| Action          | Trigger                                           | Effect                            |
-| --------------- | ------------------------------------------------- | --------------------------------- |
-| Delete selected | **Delete** / **Backspace** key, or toolbar button | Removes selected strokes          |
-| Undo            | **Cmd+Z**                                         | Removes the last committed stroke |
-| Select all      | **Cmd+A** (select mode)                           | Selects all strokes               |
-| Deselect        | **Escape**                                        | Clears the selection              |
-| Move selected   | Drag a selected stroke (select mode)              | Repositions all selected strokes  |
-| Pan canvas      | **Middle mouse button** drag                      | Scrolls the canvas viewport       |
-| Clear           | Toolbar button                                    | Removes all strokes               |
+| Action          | Trigger                                           | Effect                               |
+| --------------- | ------------------------------------------------- | ------------------------------------ |
+| Delete selected | **Delete** / **Backspace** key, or toolbar button | Removes selected strokes             |
+| Undo            | **Cmd+Z**                                         | Removes the last committed stroke    |
+| Select all      | **Cmd+A** (select mode)                           | Selects all strokes                  |
+| Deselect        | **Escape**                                        | Clears the selection                 |
+| Move selected   | Drag a selected stroke (select mode)              | Repositions all selected strokes     |
+| Pan canvas      | **Middle mouse button** drag                      | Scrolls the canvas viewport          |
+| Draw shape      | Click-drag with shape tool, Shift for constrain   | Creates rectangle/ellipse/line/arrow |
+| Clear           | Toolbar button                                    | Removes all strokes                  |
 
 ### Exporting
 
@@ -71,7 +82,7 @@ Middle mouse button pans the canvas viewport regardless of the active tool. Stro
 
 ## Tools and options
 
-**Tools:** Pen (freehand drawing), Select (click/marquee/shift-multi-select)
+**Tools:** Pen (freehand drawing), Select (click/marquee/shift-multi-select), Rectangle, Ellipse, Line, Arrow
 
 **Colors:** 6 swatches — light gray (`#e5e7eb`), red (`#f87171`), amber (`#fbbf24`), emerald (`#34d399`), blue (`#60a5fa`), purple (`#a78bfa`)
 
