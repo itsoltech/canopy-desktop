@@ -1,3 +1,33 @@
+## [0.11.0](https://github.com/itsoltech/canopy-desktop/compare/v0.10.0...v0.11.0) (2026-04-13)
+
+### Features
+
+* add run configurations system with .canopy/run.toml ([#126](https://github.com/itsoltech/canopy-desktop/issues/126)) ([865c4e4](https://github.com/itsoltech/canopy-desktop/commit/865c4e467644833199adf0fc1df7ca4c6a682642))
+* add toggleable cpu/ram hud in status bar ([#131](https://github.com/itsoltech/canopy-desktop/issues/131)) ([b2c18a9](https://github.com/itsoltech/canopy-desktop/commit/b2c18a960405074acd80290b75c0aacc8dead52f))
+* **agents:** add Codex agent integration ([#138](https://github.com/itsoltech/canopy-desktop/issues/138)) ([b4c2ada](https://github.com/itsoltech/canopy-desktop/commit/b4c2adad9d9cb82bc488dfd9b6a72feeacaeb2aa))
+* **agents:** add OpenCode integration via plugin bridge ([#139](https://github.com/itsoltech/canopy-desktop/issues/139)) ([28ac4d4](https://github.com/itsoltech/canopy-desktop/commit/28ac4d4ac6b4a4642e4e3f6d4239b5f97a96647e))
+* **agents:** named profiles per AI agent for multi-provider ([#146](https://github.com/itsoltech/canopy-desktop/issues/146)) ([c28e40b](https://github.com/itsoltech/canopy-desktop/commit/c28e40b12f3c4d96da7198b4972b94e77753aff5))
+* crash detection with GitHub issue reporting ([#140](https://github.com/itsoltech/canopy-desktop/issues/140)) ([54639dd](https://github.com/itsoltech/canopy-desktop/commit/54639dd22de6bf9f94bfeb7e8b68d97c00e63fe8))
+* **remote:** webrtc remote control via qr pairing (beta) ([#129](https://github.com/itsoltech/canopy-desktop/issues/129)) ([e6848f0](https://github.com/itsoltech/canopy-desktop/commit/e6848f06a5c7b4b2255bdfa0b55fc14039e5c7ec))
+* **settings:** export and import app settings to JSON ([#151](https://github.com/itsoltech/canopy-desktop/issues/151)) ([60fbbbe](https://github.com/itsoltech/canopy-desktop/commit/60fbbbe964cb5849a75924b6a3679f574a5438c5))
+* **ui:** add pane drag-and-drop for reorder, move, and detach ([#137](https://github.com/itsoltech/canopy-desktop/issues/137)) ([518e47d](https://github.com/itsoltech/canopy-desktop/commit/518e47df97ea32742bb911c3000d2398c20ef31b))
+
+### Bug Fixes
+
+* **agents:** use .cmd hooks for codex/gemini on windows ([#143](https://github.com/itsoltech/canopy-desktop/issues/143)) ([78abe00](https://github.com/itsoltech/canopy-desktop/commit/78abe0088725fd0ae8d4885572bb66ca21c0df42))
+* **ci:** add id-token write permission to claude-code-compat workflow ([3f76be8](https://github.com/itsoltech/canopy-desktop/commit/3f76be8430d9cdf2bbfe29bc12e46ca7ab169a8f))
+* **ci:** hard reset before updating claude-code version tracker ([3b1b5d9](https://github.com/itsoltech/canopy-desktop/commit/3b1b5d91497cd152724a15c958409ec4c7aef92a))
+* **ci:** queue concurrent code review runs instead of cancelling ([c43c40c](https://github.com/itsoltech/canopy-desktop/commit/c43c40c0faaf694fbebd899a8a6682d4be97b0e3))
+* **ci:** rebase compat branch after version tracker bump ([2f12e7b](https://github.com/itsoltech/canopy-desktop/commit/2f12e7b4eddb2f1607812d7bcc963a36aadb421a))
+* **crash:** sync untracked-diff reads, recover macos .ips stacks ([#152](https://github.com/itsoltech/canopy-desktop/issues/152)) ([ef77d98](https://github.com/itsoltech/canopy-desktop/commit/ef77d98849f8d06d8e9c32085b6e6ee71d8c10a2)), closes [#150](https://github.com/itsoltech/canopy-desktop/issues/150)
+* **git:** coalesce GitWatcher refreshes to fix shutdown crash ([#147](https://github.com/itsoltech/canopy-desktop/issues/147)) ([#148](https://github.com/itsoltech/canopy-desktop/issues/148)) ([05b4467](https://github.com/itsoltech/canopy-desktop/commit/05b4467de482bea4d75325ce46386075da1e77b5))
+* **remote:** grant pty.write/agent.sendInput once per session ([#145](https://github.com/itsoltech/canopy-desktop/issues/145)) ([f11b868](https://github.com/itsoltech/canopy-desktop/commit/f11b868212dd6b4b19821b59e5f5192b0e1b323c)), closes [#136](https://github.com/itsoltech/canopy-desktop/issues/136)
+* **telemetry:** deduplicate daily ping and disable in dev mode ([#141](https://github.com/itsoltech/canopy-desktop/issues/141)) ([70b094f](https://github.com/itsoltech/canopy-desktop/commit/70b094f03ffb303c36c37711a324b507c1f2c11b))
+* **terminal:** debounce resize to prevent flickering ([#142](https://github.com/itsoltech/canopy-desktop/issues/142)) ([3bef79e](https://github.com/itsoltech/canopy-desktop/commit/3bef79eca725ea72cf9748af9834a3fc2cd37438))
+* **ui:** preference hints, PR creation, sidebar and runtime fixes ([#132](https://github.com/itsoltech/canopy-desktop/issues/132)) ([87a94eb](https://github.com/itsoltech/canopy-desktop/commit/87a94eb5ee0e79eebd28136b4abfae77594f31e6))
+* **updater:** allow pre-release users to update to newer stable ([#153](https://github.com/itsoltech/canopy-desktop/issues/153)) ([7505ad9](https://github.com/itsoltech/canopy-desktop/commit/7505ad974a629ee83e60794e4ba4adb22d9db780))
+* **workspace:** clean up stale project rows on startup restore ([#130](https://github.com/itsoltech/canopy-desktop/issues/130)) ([38fd658](https://github.com/itsoltech/canopy-desktop/commit/38fd658e6ab84e059963084fcb0b5d3cd88a692f)), closes [#128](https://github.com/itsoltech/canopy-desktop/issues/128)
+
 ## [0.11.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0-next.8...v0.11.0-next.9) (2026-04-13)
 
 ### Features
