@@ -90,6 +90,29 @@ export interface RpcMethods {
     params: { url: string }
     result: { substitutedUrl: string }
   }
+
+  // Git & worktree management — mutations on repo state.
+  'git.listBranches': {
+    params: { repoRoot: string }
+    result: { local: string[]; remote: string[]; current: string | null }
+  }
+  'worktree.add': {
+    params: { repoRoot: string; path: string; branch: string; baseBranch: string }
+    result: void
+  }
+  'worktree.addCheckout': {
+    params: {
+      repoRoot: string
+      path: string
+      branch: string
+      createLocalTracking: boolean
+    }
+    result: void
+  }
+  'worktree.remove': {
+    params: { repoRoot: string; path: string; force: boolean }
+    result: void
+  }
 }
 
 export type RpcMethodName = keyof RpcMethods
@@ -105,6 +128,7 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
   'pty.kill',
+  'worktree.remove',
 ])
 
 export const SESSION_GRANTABLE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([

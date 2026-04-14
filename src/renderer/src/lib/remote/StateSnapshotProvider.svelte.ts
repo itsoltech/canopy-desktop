@@ -8,6 +8,8 @@ import type {
   ToolSnapshot,
   WorktreeSnapshot,
 } from '../../../../renderer-shared/state/snapshot'
+import { agentSessions } from '../agents/agentState.svelte'
+import { getWorktreeAgentStatus } from '../agents/worktreeStatus.svelte'
 import { projects, workspaceState, type ProjectState } from '../stores/workspace.svelte'
 import { remoteSession } from '../stores/remoteSession.svelte'
 import { tabsByWorktree, activeTabId, type TabInfo } from '../stores/tabs.svelte'
@@ -57,6 +59,15 @@ export class StateSnapshotProvider {
     try {
       this.disposeEffects = $effect.root(() => {
         $effect(() => {
+          // Explicitly walk every agent session and read `.status.type` so
+          // Svelte's dep tracker pins this effect to agent status mutations,
+          // independent of the transitive read through
+          // `serializeWorktree → getWorktreeAgentStatus`. Without this the
+          // deep nested proxy read can be missed, leaving mobile dots frozen
+          // at their initial snapshot state.
+          for (const id in agentSessions) {
+            void agentSessions[id]?.status.type
+          }
           rpc.emit('projects', projects.map(serializeProject))
         })
 
@@ -172,7 +183,15 @@ function serializeWorktree(wt: {
   branch: string
   isMain: boolean
 }): WorktreeSnapshot {
-  return { path: wt.path, branch: wt.branch, isMain: wt.isMain }
+  // Reading agentSessions through getWorktreeAgentStatus inside the
+  // projects $effect means Svelte tracks it too, so agent status changes
+  // trigger a fresh 'projects' delta without needing a separate topic.
+  return {
+    path: wt.path,
+    branch: wt.branch,
+    isMain: wt.isMain,
+    agentStatus: getWorktreeAgentStatus(wt.path),
+  }
 }
 
 function serializeTab(tab: TabInfo): TabSnapshot {

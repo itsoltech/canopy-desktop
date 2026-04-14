@@ -40,6 +40,10 @@ export default function RootLayout(): React.ReactElement {
           <Stack.Screen name="terminal" options={{ headerShown: false }} />
           <Stack.Screen name="settings/appearance" options={{ headerShown: false }} />
           <Stack.Screen
+            name="worktree/new"
+            options={{ presentation: 'modal', headerShown: false }}
+          />
+          <Stack.Screen
             name="scan"
             options={{
               presentation: 'modal',

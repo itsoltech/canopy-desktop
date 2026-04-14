@@ -45,6 +45,14 @@ export interface RemoteApi {
   browser: {
     openExternal: (url: string) => Promise<RpcMethods['browser.openExternal']['result']>
   }
+  git: {
+    listBranches: (repoRoot: string) => Promise<RpcMethods['git.listBranches']['result']>
+  }
+  worktree: {
+    add: (args: RpcMethods['worktree.add']['params']) => Promise<void>
+    addCheckout: (args: RpcMethods['worktree.addCheckout']['params']) => Promise<void>
+    remove: (args: RpcMethods['worktree.remove']['params']) => Promise<void>
+  }
   /** Escape hatch for topic subscriptions (projects/tabs/pty.data.<id>). */
   subscribe: <T>(topic: string, handler: (data: T) => void) => () => void
 }
@@ -82,6 +90,14 @@ export function createRemoteApi(rpc: DataChannelRpc): RemoteApi {
     },
     browser: {
       openExternal: (url) => client.call('browser.openExternal', { url }),
+    },
+    git: {
+      listBranches: (repoRoot) => client.call('git.listBranches', { repoRoot }),
+    },
+    worktree: {
+      add: (args) => client.call('worktree.add', args),
+      addCheckout: (args) => client.call('worktree.addCheckout', args),
+      remove: (args) => client.call('worktree.remove', args),
     },
     subscribe: (topic, handler) => client.subscribe(topic, handler),
   }

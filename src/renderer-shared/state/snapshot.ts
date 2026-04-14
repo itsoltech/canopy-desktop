@@ -41,10 +41,21 @@ export interface ProjectSnapshot {
   worktrees: WorktreeSnapshot[]
 }
 
+export type WorktreeAgentStatus = 'none' | 'idle' | 'working' | 'waitingPermission' | 'error'
+
 export interface WorktreeSnapshot {
   path: string
   branch: string
   isMain: boolean
+  /**
+   * Aggregate AI agent status across every agent session tied to this
+   * worktree. Mirrors desktop sidebar's colored-dot indicator so the peer
+   * can render the same idle / working / waitingPermission / error states.
+   * Optional so a peer connected to an older host (pre-agent-status) that
+   * doesn't populate it falls back gracefully to 'none' via the nullish
+   * coalescing on the consumer side.
+   */
+  agentStatus?: WorktreeAgentStatus
 }
 
 export interface TabSnapshot {

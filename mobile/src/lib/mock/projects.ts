@@ -8,9 +8,19 @@ export const mockProjects: ProjectSnapshot[] = [
     isGitRepo: true,
     repoRoot: '/Users/nix/canopy',
     worktrees: [
-      { path: '/Users/nix/canopy', branch: 'main', isMain: true },
-      { path: '/Users/nix/canopy/worktrees/next', branch: 'next', isMain: false },
-      { path: '/Users/nix/canopy/worktrees/fix-crash', branch: 'fix-crash-23', isMain: false },
+      { path: '/Users/nix/canopy', branch: 'main', isMain: true, agentStatus: 'none' },
+      {
+        path: '/Users/nix/canopy/worktrees/next',
+        branch: 'next',
+        isMain: false,
+        agentStatus: 'none',
+      },
+      {
+        path: '/Users/nix/canopy/worktrees/fix-crash',
+        branch: 'fix-crash-23',
+        isMain: false,
+        agentStatus: 'none',
+      },
     ],
   },
   {
@@ -20,8 +30,13 @@ export const mockProjects: ProjectSnapshot[] = [
     isGitRepo: true,
     repoRoot: '/Users/nix/party-perfect',
     worktrees: [
-      { path: '/Users/nix/party-perfect', branch: 'main', isMain: true },
-      { path: '/Users/nix/party-perfect/worktrees/feat-api', branch: 'feat-api', isMain: false },
+      { path: '/Users/nix/party-perfect', branch: 'main', isMain: true, agentStatus: 'none' },
+      {
+        path: '/Users/nix/party-perfect/worktrees/feat-api',
+        branch: 'feat-api',
+        isMain: false,
+        agentStatus: 'none',
+      },
     ],
   },
   {
@@ -31,10 +46,25 @@ export const mockProjects: ProjectSnapshot[] = [
     isGitRepo: true,
     repoRoot: '/Users/nix/notes',
     worktrees: [
-      { path: '/Users/nix/notes', branch: 'main', isMain: true },
-      { path: '/Users/nix/notes/wt/draft', branch: 'draft-launch', isMain: false },
-      { path: '/Users/nix/notes/wt/refactor', branch: 'refactor', isMain: false },
-      { path: '/Users/nix/notes/wt/archive', branch: 'archive', isMain: false },
+      { path: '/Users/nix/notes', branch: 'main', isMain: true, agentStatus: 'none' },
+      {
+        path: '/Users/nix/notes/wt/draft',
+        branch: 'draft-launch',
+        isMain: false,
+        agentStatus: 'none',
+      },
+      {
+        path: '/Users/nix/notes/wt/refactor',
+        branch: 'refactor',
+        isMain: false,
+        agentStatus: 'none',
+      },
+      {
+        path: '/Users/nix/notes/wt/archive',
+        branch: 'archive',
+        isMain: false,
+        agentStatus: 'none',
+      },
     ],
   },
   {

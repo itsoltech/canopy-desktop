@@ -42,10 +42,18 @@ export interface ProjectSnapshot {
   worktrees: WorktreeSnapshot[]
 }
 
+export type WorktreeAgentStatus = 'none' | 'idle' | 'working' | 'waitingPermission' | 'error'
+
 export interface WorktreeSnapshot {
   path: string
   branch: string
   isMain: boolean
+  /**
+   * Aggregate AI agent status across every agent session tied to this
+   * worktree. Optional so an older host without the field still parses;
+   * consumers treat undefined as 'none'.
+   */
+  agentStatus?: WorktreeAgentStatus
 }
 
 export interface TabSnapshot {

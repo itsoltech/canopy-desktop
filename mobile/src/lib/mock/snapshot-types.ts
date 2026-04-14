@@ -4,5 +4,6 @@
 export type {
   ProjectSnapshot,
   TabSnapshot,
+  WorktreeAgentStatus,
   WorktreeSnapshot,
 } from '@/lib/remote/protocol/state-snapshot'

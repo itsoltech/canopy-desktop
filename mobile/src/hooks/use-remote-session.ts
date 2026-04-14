@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 
+import type { RemoteApi } from '@/lib/remote/RemoteApi'
 import {
   connect as connectSession,
   disconnect as disconnectSession,
@@ -19,6 +20,7 @@ import type { SavedInstance } from '@/lib/storage/saved-instances-types'
  */
 export function useRemoteSession(): {
   state: SessionState
+  api: RemoteApi | null
   connect: (instance: SavedInstance) => Promise<void>
   disconnect: () => Promise<void>
 } {
@@ -27,5 +29,7 @@ export function useRemoteSession(): {
   const connect = useCallback((instance: SavedInstance) => connectSession(instance), [])
   const disconnect = useCallback(() => disconnectSession(), [])
 
-  return { state, connect, disconnect }
+  const api = state.kind === 'ready' ? state.api : null
+
+  return { state, api, connect, disconnect }
 }
