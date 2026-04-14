@@ -95,7 +95,7 @@ export class BrowserManager {
 
   /**
    * Register a renderer-created <webview> for keyboard interception,
-   * popup blocking, navigation filtering, and favicon forwarding.
+   * popup handling, navigation filtering, and favicon forwarding.
    */
   setup(browserId: string, wcId: number, win: BrowserWindow, sender: WebContents): void {
     const wc = this.guestContents.get(wcId) ?? findWebContents(wcId)
@@ -109,8 +109,23 @@ export class BrowserManager {
     }
     this.entries.set(browserId, entry)
 
-    // Block popups
-    wc.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // target="_blank" / window.open → forward URL to renderer so it can open a new browser tab
+    // Throttled to prevent a malicious page from flooding the app via window.open() in a loop
+    let lastPopupAt = 0
+    wc.setWindowOpenHandler(({ url }) => {
+      const now = Date.now()
+      if (now - lastPopupAt < 500) return { action: 'deny' }
+      try {
+        const parsed = new URL(url)
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          lastPopupAt = now
+          this.sendToRenderer(browserId, 'browser:openUrl', { browserId, url })
+        }
+      } catch {
+        // Invalid URL, ignore
+      }
+      return { action: 'deny' }
+    })
 
     // Only allow http(s) navigation
     wc.on('will-navigate', (event, url) => {

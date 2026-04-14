@@ -419,8 +419,8 @@ const api = {
     >,
   saveCredential: (domain: string, username: string, password: string, title?: string) =>
     ipcRenderer.invoke('credentials:save', { domain, username, password, title }),
-  getCredentialDecrypted: (id: string, domain: string) =>
-    ipcRenderer.invoke('credentials:getDecrypted', { id, domain }) as Promise<{
+  getCredentialDecrypted: (id: string, domain: string, purpose: 'autofill' | 'reveal') =>
+    ipcRenderer.invoke('credentials:getDecrypted', { id, domain, purpose }) as Promise<{
       id: string
       username: string
       password: string
@@ -458,6 +458,15 @@ const api = {
     ipcRenderer.on('browser:focused', handler)
     return (): void => {
       ipcRenderer.removeListener('browser:focused', handler)
+    }
+  },
+
+  onBrowserOpenUrl: (callback: (data: { browserId: string; url: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string; url: string }): void =>
+      callback(data)
+    ipcRenderer.on('browser:openUrl', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:openUrl', handler)
     }
   },
 

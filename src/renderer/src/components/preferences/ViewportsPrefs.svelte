@@ -42,7 +42,7 @@
       if (revealTimer) clearTimeout(revealTimer)
       return
     }
-    const cred = await window.api.getCredentialDecrypted(id, domain)
+    const cred = await window.api.getCredentialDecrypted(id, domain, 'reveal')
     if (cred) {
       revealedId = id
       revealedPassword = cred.password
@@ -108,7 +108,7 @@
   <h3 class="section-title">Web Browser</h3>
 
   <div class="select-row">
-    <span class="select-label">Open URLs from terminal in</span>
+    <span class="select-label">Open external URLs in</span>
     <CustomSelect
       value={urlOpenMode}
       options={[
@@ -120,7 +120,10 @@
       maxWidth="180px"
     />
   </div>
-  <div class="hint-row">Where to open links clicked or detected in terminal output</div>
+  <div class="hint-row">
+    Where to open links clicked in terminal output or <code>target="_blank"</code> links from the browser
+    pane
+  </div>
 
   <h4 class="subsection-title">Default Viewports</h4>
 
