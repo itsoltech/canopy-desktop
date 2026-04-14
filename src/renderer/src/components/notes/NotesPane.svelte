@@ -75,7 +75,9 @@
   // Assigns pre-sanitized HTML from `previewHtml`. Only call with DOMPurify-cleaned output.
   function htmlContent(node: HTMLElement, html: () => string): void {
     $effect(() => {
-      node.innerHTML = html()
+      const value = html()
+      if (document.activeElement === node) return
+      node.innerHTML = value
     })
   }
 </script>
