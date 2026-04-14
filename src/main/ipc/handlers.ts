@@ -3,7 +3,7 @@ import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electr
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
-import type { Result } from 'neverthrow'
+import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
@@ -65,6 +65,15 @@ import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
+import type { SkillRegistry } from '../skills/SkillRegistry'
+import type { SkillInstaller } from '../skills/SkillInstaller'
+import type { SkillStore } from '../skills/SkillStore'
+import type { SkillInstallOptions, SkillListOptions } from '../skills/types'
+import { skillErrorMessage } from '../skills/errors'
+import type { SkillError } from '../skills/errors'
+import { getTransformer } from '../skills/SkillTransformer'
+import { scanSkills } from '../skills/SkillScanner'
+import type { SkillAgentTarget } from '../skills/types'
 import type { ProfileStore } from '../profiles/ProfileStore'
 import { profileToReader } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
@@ -105,6 +114,9 @@ export function registerIpcHandlers(
   gitHubService: GitHubService,
   remoteSessionService: RemoteSessionService,
   runConfigManager: RunConfigManager,
+  skillRegistry: SkillRegistry,
+  skillInstaller: SkillInstaller,
+  skillStore: SkillStore,
   profileStore: ProfileStore,
   settingsExportService: SettingsExportService,
 ): void {
@@ -112,6 +124,13 @@ export function registerIpcHandlers(
     const tools = toolRegistry.getAll()
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('tools:changed', tools)
+    }
+  }
+
+  function broadcastSkillsChanged(): void {
+    const skills = JSON.parse(JSON.stringify(skillRegistry.getAll()))
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
     }
   }
 
@@ -2624,4 +2643,135 @@ export function registerIpcHandlers(
       return { sessionId: session.id, wsUrl }
     },
   )
+
+  // --- Skills ---
+
+  ipcMain.handle('skills:list', (_event, payload?: SkillListOptions) => {
+    return JSON.parse(JSON.stringify(skillRegistry.list(payload)))
+  })
+
+  ipcMain.handle('skills:get', (_event, payload: { id: string }) => {
+    const skill = skillRegistry.get(payload.id)
+    return skill ? JSON.parse(JSON.stringify(skill)) : null
+  })
+
+  ipcMain.handle('skills:install', async (_event, payload: SkillInstallOptions) => {
+    const result = await skillInstaller.install(payload)
+    const skill = unwrapOrThrow(result, skillErrorMessage)
+    skillRegistry.refresh()
+    broadcastSkillsChanged()
+    return JSON.parse(JSON.stringify(skill))
+  })
+
+  ipcMain.handle(
+    'skills:remove',
+    async (_event, payload: { id: string; workspacePath?: string }) => {
+      const result = await skillInstaller.remove(payload.id, payload.workspacePath)
+      unwrapOrThrow(result, skillErrorMessage)
+      skillRegistry.refresh()
+      broadcastSkillsChanged()
+      return { success: true }
+    },
+  )
+
+  ipcMain.handle(
+    'skills:update',
+    async (_event, payload: { id: string; workspacePath?: string }) => {
+      const result = await skillInstaller.update(payload.id, payload.workspacePath)
+      const skill = unwrapOrThrow(result, skillErrorMessage)
+      skillRegistry.refresh()
+      broadcastSkillsChanged()
+      return JSON.parse(JSON.stringify(skill))
+    },
+  )
+
+  ipcMain.handle(
+    'skills:toggleAgent',
+    async (
+      _event,
+      payload: { id: string; agent: string; enabled: boolean; workspacePath?: string },
+    ) => {
+      const skill = unwrapOrThrow(
+        skillRegistry.get(payload.id)
+          ? ok(skillRegistry.get(payload.id)!)
+          : err({ _tag: 'SkillNotFound' as const, skillId: payload.id } as SkillError),
+        skillErrorMessage,
+      )
+      const enabledAgents: SkillAgentTarget[] = payload.enabled
+        ? ([...new Set([...skill.enabledAgents, payload.agent])] as SkillAgentTarget[])
+        : skill.enabledAgents.filter((a) => a !== payload.agent)
+
+      // Deploy or undeploy files BEFORE updating DB
+      // Global skills use transformer's globalDir(); project skills need workspacePath
+      const transformer = getTransformer(payload.agent as SkillAgentTarget)
+      if (transformer) {
+        if (skill.scope === 'project' && !payload.workspacePath) {
+          unwrapOrThrow(
+            err({
+              _tag: 'InstallFailed',
+              skillId: payload.id,
+              reason: 'workspacePath is required for project-scoped skill agent toggle',
+            } as SkillError),
+            skillErrorMessage,
+          )
+        }
+        // Pass empty string for global — transformers check scope and use globalDir()
+        const targetRoot = payload.workspacePath ?? ''
+        const skillForDeploy = { ...skill, enabledAgents }
+        if (payload.enabled) {
+          const deployResult = await transformer.deploy(skillForDeploy, targetRoot)
+          unwrapOrThrow(deployResult, skillErrorMessage)
+        } else {
+          const undeployResult = await transformer.undeploy(skillForDeploy, targetRoot)
+          unwrapOrThrow(undeployResult, skillErrorMessage)
+        }
+      }
+
+      // Update DB only after successful deploy/undeploy
+      skillStore.updateEnabledAgents(payload.id, enabledAgents)
+      skillRegistry.refresh()
+      broadcastSkillsChanged()
+      return { success: true }
+    },
+  )
+
+  ipcMain.handle('skills:scan', async (_event, payload?: { workspacePath?: string }) => {
+    const results = await scanSkills(payload?.workspacePath)
+    return JSON.parse(JSON.stringify(results))
+  })
+
+  ipcMain.handle('skills:deleteFile', async (_event, payload: { filePath: string }) => {
+    const filePath = path.normalize(path.resolve(payload.filePath))
+    const ext = path.extname(filePath).toLowerCase()
+    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Can only delete skill files (.md, .mdc, .yaml, .yml)',
+        } as SkillError),
+        skillErrorMessage,
+      )
+    }
+    const skillDirPatterns = [
+      /[/\\]\.claude[/\\](commands|skills)[/\\]/,
+      /[/\\]\.gemini[/\\]skills[/\\]/,
+      /[/\\]\.cursor[/\\]rules[/\\]/,
+      /[/\\]\.opencode[/\\]skills[/\\]/,
+      /[/\\]\.agents[/\\]skills[/\\]/,
+      /[/\\]\.claude[/\\]plugins[/\\]cache[/\\]/,
+    ]
+    if (!skillDirPatterns.some((p) => p.test(filePath))) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Can only delete files within agent skill directories',
+        } as SkillError),
+        skillErrorMessage,
+      )
+    }
+    await fs.promises.unlink(filePath)
+    return { success: true }
+  })
 }

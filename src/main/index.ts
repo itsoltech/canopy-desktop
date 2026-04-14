@@ -13,6 +13,7 @@ import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
 import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
+import { initSkills } from './skills'
 import { ProfileStore } from './profiles/ProfileStore'
 import { registerIpcHandlers } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
@@ -102,6 +103,11 @@ const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
 const onboardingStore = new OnboardingStore(database)
 const toolRegistry = new ToolRegistry(database)
+const {
+  registry: skillRegistry,
+  installer: skillInstaller,
+  store: skillStore,
+} = initSkills(database)
 const profileStore = new ProfileStore(database, preferencesStore)
 const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
@@ -649,6 +655,9 @@ app.whenReady().then(async () => {
     gitHubService,
     remoteSessionService,
     runConfigManager,
+    skillRegistry,
+    skillInstaller,
+    skillStore,
     profileStore,
     settingsExportService,
   )
