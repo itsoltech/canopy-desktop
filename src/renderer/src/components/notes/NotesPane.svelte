@@ -1,6 +1,7 @@
 <script lang="ts">
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
+  import TurndownService from 'turndown'
   import {
     notesState,
     notesUiScope,
@@ -8,6 +9,12 @@
     getNoteLabel,
     type NoteScope,
   } from '../../lib/stores/notes.svelte'
+
+  const turndown = new TurndownService({
+    headingStyle: 'atx',
+    codeBlockStyle: 'fenced',
+    bulletListMarker: '-',
+  })
 
   let { paneSessionId }: { paneSessionId: string } = $props()
 
@@ -18,11 +25,15 @@
 
   let previewHtml = $state('')
   let showPreview = $state(true)
+  let editSource: 'editor' | 'preview' | null = $state(null)
+  let editSourceTimer: ReturnType<typeof setTimeout> | null = null
+  let previewEl: HTMLDivElement | undefined = $state()
 
   let parseGen = 0
   $effect(() => {
     const raw = content
     const gen = ++parseGen
+    if (editSource === 'preview') return
     if (!raw.trim()) {
       previewHtml = ''
       return
@@ -41,7 +52,24 @@
   function onInput(e: Event): void {
     const target = e.target as HTMLTextAreaElement
     if (!key) return
+    editSource = 'editor'
+    if (editSourceTimer) clearTimeout(editSourceTimer)
+    editSourceTimer = setTimeout(() => {
+      editSource = null
+    }, 350)
     notesState[key] = target.value
+  }
+
+  function onPreviewInput(): void {
+    if (!previewEl || !key) return
+    editSource = 'preview'
+    if (editSourceTimer) clearTimeout(editSourceTimer)
+    editSourceTimer = setTimeout(() => {
+      editSource = null
+    }, 350)
+    const html = previewEl.innerHTML
+    const md = turndown.turndown(html)
+    notesState[key] = md
   }
 
   // Assigns pre-sanitized HTML from `previewHtml`. Only call with DOMPurify-cleaned output.
@@ -108,7 +136,13 @@
         oninput={onInput}
       ></textarea>
       {#if showPreview}
-        <div class="preview markdown-body" use:htmlContent={() => previewHtml}></div>
+        <div
+          class="preview markdown-body"
+          contenteditable="true"
+          bind:this={previewEl}
+          oninput={onPreviewInput}
+          use:htmlContent={() => previewHtml}
+        ></div>
       {/if}
     </div>
   {/if}
@@ -256,5 +290,16 @@
     justify-content: center;
     color: var(--c-text-muted);
     font-size: 13px;
+  }
+
+  .preview:empty::before {
+    content: 'Click to edit...';
+    color: var(--c-text-muted);
+    font-style: italic;
+  }
+
+  .preview[contenteditable='true'] {
+    outline: none;
+    cursor: text;
   }
 </style>
