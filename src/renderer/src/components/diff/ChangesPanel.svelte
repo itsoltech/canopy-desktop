@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { match } from 'ts-pattern'
   import { RotateCw, Check, X } from 'lucide-svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -106,17 +107,21 @@
   }
 
   function statusIcon(status: DiffFile['status']): string {
-    if (status === 'added') return '+'
-    if (status === 'modified') return 'M'
-    if (status === 'deleted') return '\u2212'
-    return '\u2192'
+    return match(status)
+      .with('added', () => '+')
+      .with('modified', () => 'M')
+      .with('deleted', () => '\u2212')
+      .with('renamed', () => '\u2192')
+      .exhaustive()
   }
 
   function statusClass(status: DiffFile['status']): string {
-    if (status === 'added') return 'status-added'
-    if (status === 'modified') return 'status-modified'
-    if (status === 'deleted') return 'status-deleted'
-    return 'status-renamed'
+    return match(status)
+      .with('added', () => 'status-added')
+      .with('modified', () => 'status-modified')
+      .with('deleted', () => 'status-deleted')
+      .with('renamed', () => 'status-renamed')
+      .exhaustive()
   }
 
   function handleClick(file: DiffFile): void {

@@ -125,7 +125,7 @@
       <h2 id="tmux-browser-title" class="title">
         Tmux Sessions <span class="badge-experimental">Experimental</span>
       </h2>
-      <button class="close-btn" onclick={closeDialog}>&#x2715;</button>
+      <button class="close-btn" onclick={closeDialog} aria-label="Close dialog">&#x2715;</button>
     </div>
 
     {#if error}
@@ -146,7 +146,7 @@
                 {session.name}
               </div>
               <div class="session-meta">
-                <span class="session-cwd">{session.cwd}</span>
+                <span class="session-cwd" title={session.cwd}>{session.cwd}</span>
                 <span class="session-time">{relativeTime(session.created)}</span>
               </div>
             </div>
