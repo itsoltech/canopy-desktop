@@ -67,7 +67,7 @@
     editSourceTimer = setTimeout(() => {
       editSource = null
     }, 350)
-    const html = previewEl.innerHTML
+    const html = DOMPurify.sanitize(previewEl.innerHTML)
     const md = turndown.turndown(html)
     notesState[key] = md
   }

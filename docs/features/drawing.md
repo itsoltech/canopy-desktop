@@ -35,7 +35,7 @@ Drawings are stored in renderer memory keyed by project (repo root). They are ep
 
 1. With the **Select** tool active, clicking a stroke selects it (highlighted with an accent-colored outline). **Shift+click** toggles individual strokes.
 2. Dragging on empty space draws a marquee rectangle. On release, all strokes whose bounding boxes intersect the marquee are selected. **Shift+drag** adds to the existing selection.
-3. Hit testing uses `CanvasRenderingContext2D.isPointInPath()` against stroke outlines, iterating top-to-bottom (last drawn first).
+3. Hit testing iterates top-to-bottom (last drawn first). Freehand strokes use `CanvasRenderingContext2D.isPointInPath()` against stroke outlines. Shape strokes use geometric proximity checks (edge distance for rectangles, normalized ellipse equation for ellipses, point-to-segment distance for lines/arrows).
 4. **Moving strokes:** Clicking and dragging a selected stroke repositions all selected strokes. A drag shorter than 3px is treated as a click-to-reselect instead.
 
 ### Canvas pan
