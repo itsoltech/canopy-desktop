@@ -27,7 +27,7 @@ The `BrowserManager` in the main process handles security enforcement (popup han
 2. The `will-navigate` handler blocks any navigation to non-HTTP(S) protocols (e.g., `javascript:`, `file:`, `data:`). Blocked navigations are silently prevented.
 3. On successful navigation, the renderer updates `url`, `title`, `canGoBack`, `canGoForward`, and clears any previous error state.
 4. Mouse back/forward buttons (app-command `browser-backward`/`browser-forward`) are handled at the window level and forwarded to the focused browser webview.
-5. Links with `target="_blank"` (and `window.open()` calls) are intercepted by `setWindowOpenHandler`. Valid HTTP(S) URLs are forwarded to the renderer via `browser:openUrl`, which opens them as a new browser pane tab in the same worktree using `openTool('browser', ...)`. Forwarding is throttled to one popup per 500ms per webview.
+5. Links with `target="_blank"` (and `window.open()` calls) are intercepted by `setWindowOpenHandler`. Valid HTTP(S) URLs are forwarded to the renderer via `browser:openUrl`. The renderer honors the `urlOpenMode` preference: `canopy` opens a new browser pane tab in the same worktree via `openTool('browser', ...)`, `system` delegates to `shell.openExternal`, and `ask` shows a toast letting the user pick. Forwarding is throttled to one popup per 500ms per webview.
 
 ### Loading states and errors
 

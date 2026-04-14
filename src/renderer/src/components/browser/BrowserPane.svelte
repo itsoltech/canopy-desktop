@@ -30,6 +30,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
   import { showUrlToast } from '../../lib/stores/toast.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
 
@@ -871,8 +872,14 @@
         }
       }),
       window.api.onBrowserOpenUrl((data) => {
-        if (data.browserId === browserId) {
+        if (data.browserId !== browserId) return
+        const mode = prefs.urlOpenMode || 'ask'
+        if (mode === 'canopy') {
           openTool('browser', worktreePath, { initialUrl: data.url })
+        } else if (mode === 'system') {
+          window.api.openExternal(data.url)
+        } else {
+          showUrlToast(data.url)
         }
       }),
     ]
