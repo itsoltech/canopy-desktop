@@ -26,6 +26,11 @@ Drawings are stored in renderer memory keyed by project (repo root). They are ep
 1. With the **Select** tool active, clicking a stroke selects it (highlighted with an accent-colored outline). **Shift+click** toggles individual strokes.
 2. Dragging on empty space draws a marquee rectangle. On release, all strokes whose bounding boxes intersect the marquee are selected. **Shift+drag** adds to the existing selection.
 3. Hit testing uses `CanvasRenderingContext2D.isPointInPath()` against stroke outlines, iterating top-to-bottom (last drawn first).
+4. **Moving strokes:** Clicking and dragging a selected stroke repositions all selected strokes. A drag shorter than 3px is treated as a click-to-reselect instead.
+
+### Canvas pan
+
+Middle mouse button pans the canvas viewport regardless of the active tool. Strokes are stored in world-space coordinates; the pan offset is applied at render time via `ctx.translate()`. Pan resets to (0, 0) on worktree/project switch.
 
 ### Actions
 
@@ -35,6 +40,8 @@ Drawings are stored in renderer memory keyed by project (repo root). They are ep
 | Undo            | **Cmd+Z**                                         | Removes the last committed stroke |
 | Select all      | **Cmd+A** (select mode)                           | Selects all strokes               |
 | Deselect        | **Escape**                                        | Clears the selection              |
+| Move selected   | Drag a selected stroke (select mode)              | Repositions all selected strokes  |
+| Pan canvas      | **Middle mouse button** drag                      | Scrolls the canvas viewport       |
 | Clear           | Toolbar button                                    | Removes all strokes               |
 
 ### Exporting
@@ -46,9 +53,10 @@ Drawings are stored in renderer memory keyed by project (repo root). They are ep
 
 1. User clicks **Send to agent**.
 2. The drawing is exported as PNG and written to the clipboard.
-3. After a 250ms delay (macOS pasteboard race), `Ctrl+V` is injected into the active agent PTY via `window.api.writePty()`.
-4. Agent pane detection searches in priority order: focused pane in active tab, any running agent in active tab, any running agent in other tabs.
-5. A toast confirms success or reports errors (no agent pane, pane not running, clipboard failure).
+3. The active tab switches to the agent's tab if it is in a different tab.
+4. After a 250ms delay (macOS pasteboard race), `Ctrl+V` is injected into the active agent PTY via `window.api.writePty()`.
+5. Agent pane detection searches in priority order: focused pane in active tab, any running agent in active tab, any running agent in other tabs.
+6. A toast confirms success or reports errors (no agent pane, pane not running, clipboard failure).
 
 ### Worktree/project switching
 
