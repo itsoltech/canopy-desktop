@@ -110,10 +110,15 @@ export class BrowserManager {
     this.entries.set(browserId, entry)
 
     // target="_blank" / window.open → forward URL to renderer so it can open a new browser tab
+    // Throttled to prevent a malicious page from flooding the app via window.open() in a loop
+    let lastPopupAt = 0
     wc.setWindowOpenHandler(({ url }) => {
+      const now = Date.now()
+      if (now - lastPopupAt < 500) return { action: 'deny' }
       try {
         const parsed = new URL(url)
         if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          lastPopupAt = now
           this.sendToRenderer(browserId, 'browser:openUrl', { browserId, url })
         }
       } catch {
