@@ -168,7 +168,7 @@ function computeDisplayName(
   return `${baseLabel} #${sameLabelCount + 1}`
 }
 
-export function getActiveAgentPane(): PaneSession | null {
+export function getActiveAgentPane(): { pane: PaneSession; tabId: string } | null {
   const path = workspaceState.selectedWorktreePath
   if (!path) return null
   const tabs = tabsByWorktree[path]
@@ -179,17 +179,18 @@ export function getActiveAgentPane(): PaneSession | null {
 
   // 1) Focused pane in active tab, if it's an agent.
   const focused = findLeaf(activeTab.rootSplit, activeTab.focusedPaneId)
-  if (focused && isAiToolId(focused.toolId) && focused.isRunning) return focused
+  if (focused && isAiToolId(focused.toolId) && focused.isRunning)
+    return { pane: focused, tabId: activeTab.id }
 
   // 2) Any running agent pane in the active tab (common: agent split next to a Notes/Drawing pane).
   const inActive = allPanes(activeTab.rootSplit).find((p) => isAiToolId(p.toolId) && p.isRunning)
-  if (inActive) return inActive
+  if (inActive) return { pane: inActive, tabId: activeTab.id }
 
   // 3) Any running agent pane in other tabs (e.g. drawing pane in its own tab).
   for (const tab of tabs) {
     if (tab.id === tabId) continue
     const found = allPanes(tab.rootSplit).find((p) => isAiToolId(p.toolId) && p.isRunning)
-    if (found) return found
+    if (found) return { pane: found, tabId: tab.id }
   }
   return null
 }

@@ -7,7 +7,14 @@
     type Stroke,
     type DrawTool,
   } from '../../lib/stores/drawings.svelte'
-  import { strokeBBox, hitTest, redraw, canvasPoint, pointFromEvent } from './drawingCanvas'
+  import {
+    strokeBBox,
+    hitTest,
+    redraw,
+    canvasPoint,
+    screenPoint,
+    pointFromEvent,
+  } from './drawingCanvas'
   import { deleteSelected, selectAll, undoLast, sendToAgent, copyPng } from './drawingActions'
 
   // Drawing pane has no props — canvas state is keyed by project via drawingsState.
@@ -32,6 +39,8 @@
 
   const selectedIds = new SvelteSet<string>()
   let marquee: { x0: number; y0: number; x1: number; y1: number } | null = $state(null)
+  let panX = $state(0)
+  let panY = $state(0)
 
   // Single combined effect: handle worktree/project switches AND mirror local strokes
   // into the persisted store. `untrack` on the writes prevents this effect from
@@ -45,6 +54,8 @@
         currentKey = k
         strokes = k ? [...(drawingsState[k] ?? [])] : []
         selectedIds.clear()
+        panX = 0
+        panY = 0
       } else if (currentKey) {
         drawingsState[currentKey] = [...localStrokes]
       }
@@ -61,6 +72,8 @@
       dpr,
       width,
       height,
+      panX,
+      panY,
       strokes,
       liveStroke,
       selectedIds,
@@ -86,6 +99,8 @@
     void liveStroke
     void marquee
     void selectedIds.size
+    void panX
+    void panY
     doRedraw()
   })
 
@@ -104,19 +119,34 @@
 
   // --- Pointer handling ---
 
-  type DragMode = 'draw' | 'marquee' | 'click' | null
+  type DragMode = 'draw' | 'marquee' | 'click' | 'move' | 'pan' | null
   let dragMode: DragMode = null
   let activePointerId = -1
   let downPoint: { x: number; y: number } | null = null
+  let lastDragPoint: { x: number; y: number } | null = null
+  let isPanning = $state(false)
 
   function onPointerDown(e: PointerEvent): void {
     if (!canvasEl) return
+
+    if (e.button === 1 && e.pointerType === 'mouse') {
+      e.preventDefault()
+      containerEl?.focus({ preventScroll: true })
+      canvasEl.setPointerCapture(e.pointerId)
+      activePointerId = e.pointerId
+      dragMode = 'pan'
+      isPanning = true
+      lastDragPoint = screenPoint(e, canvasEl)
+      return
+    }
+
     if (e.button !== 0 && e.pointerType === 'mouse') return
     containerEl?.focus({ preventScroll: true })
     canvasEl.setPointerCapture(e.pointerId)
     activePointerId = e.pointerId
-    const pt = canvasPoint(e, canvasEl)
+    const pt = canvasPoint(e, canvasEl, panX, panY)
     downPoint = pt
+    lastDragPoint = pt
 
     if (tool === 'pen') {
       dragMode = 'draw'
@@ -124,7 +154,7 @@
         id: crypto.randomUUID(),
         color,
         size,
-        points: [pointFromEvent(e, canvasEl)],
+        points: [pointFromEvent(e, canvasEl, panX, panY)],
       }
       return
     }
@@ -133,18 +163,22 @@
     if (!ctx) return
     const hit = hitTest(pt.x, pt.y, ctx, strokes, dpr)
     if (hit) {
-      dragMode = 'click'
       if (e.shiftKey) {
         if (selectedIds.has(hit.id)) selectedIds.delete(hit.id)
         else selectedIds.add(hit.id)
-      } else if (!selectedIds.has(hit.id)) {
+        dragMode = 'click'
+      } else if (selectedIds.has(hit.id)) {
+        dragMode = 'move'
+      } else {
         selectedIds.clear()
         selectedIds.add(hit.id)
+        dragMode = 'move'
       }
     } else {
       dragMode = 'marquee'
       if (!e.shiftKey) selectedIds.clear()
-      marquee = { x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y }
+      const sp = screenPoint(e, canvasEl)
+      marquee = { x0: sp.x, y0: sp.y, x1: sp.x, y1: sp.y }
     }
   }
 
@@ -152,13 +186,37 @@
     if (e.pointerId !== activePointerId) return
 
     if (dragMode === 'draw' && liveStroke && canvasEl) {
-      liveStroke.points = [...liveStroke.points, pointFromEvent(e, canvasEl)]
+      liveStroke.points = [...liveStroke.points, pointFromEvent(e, canvasEl, panX, panY)]
       return
     }
 
     if (dragMode === 'marquee' && marquee && canvasEl) {
-      const pt = canvasPoint(e, canvasEl)
-      marquee = { ...marquee, x1: pt.x, y1: pt.y }
+      const sp = screenPoint(e, canvasEl)
+      marquee = { ...marquee, x1: sp.x, y1: sp.y }
+      return
+    }
+
+    if (dragMode === 'move' && lastDragPoint && canvasEl) {
+      const pt = canvasPoint(e, canvasEl, panX, panY)
+      const dx = pt.x - lastDragPoint.x
+      const dy = pt.y - lastDragPoint.y
+      for (const s of strokes) {
+        if (!selectedIds.has(s.id)) continue
+        for (const p of s.points) {
+          p[0] += dx
+          p[1] += dy
+        }
+      }
+      strokes = [...strokes]
+      lastDragPoint = pt
+      return
+    }
+
+    if (dragMode === 'pan' && lastDragPoint && canvasEl) {
+      const sp = screenPoint(e, canvasEl)
+      panX += sp.x - lastDragPoint.x
+      panY += sp.y - lastDragPoint.y
+      lastDragPoint = sp
       return
     }
   }
@@ -168,9 +226,10 @@
     const mode = dragMode
     dragMode = null
     activePointerId = -1
-    const up = canvasPoint(e, canvasEl!)
+    isPanning = false
     const down = downPoint
     downPoint = null
+    lastDragPoint = null
 
     if (mode === 'draw' && liveStroke) {
       if (liveStroke.points.length > 0) {
@@ -180,11 +239,12 @@
       return
     }
 
-    if (mode === 'marquee' && marquee && down) {
-      const moved = Math.hypot(up.x - down.x, up.y - down.y) > 3
+    if (mode === 'marquee' && marquee && canvasEl) {
+      const sp = screenPoint(e, canvasEl)
+      const moved = Math.hypot(sp.x - marquee.x0, sp.y - marquee.y0) > 3
       if (moved) {
-        const rx = Math.min(marquee.x0, marquee.x1)
-        const ry = Math.min(marquee.y0, marquee.y1)
+        const rx = Math.min(marquee.x0, marquee.x1) - panX
+        const ry = Math.min(marquee.y0, marquee.y1) - panY
         const rw = Math.abs(marquee.x1 - marquee.x0)
         const rh = Math.abs(marquee.y1 - marquee.y0)
         for (const s of strokes) {
@@ -193,12 +253,25 @@
           if (intersects) selectedIds.add(s.id)
         }
       }
-      // If the marquee didn't actually move, pointerdown already cleared selection (or kept shift-anchored) — nothing more to do.
       marquee = null
       return
     }
 
-    // 'click' mode: selection already adjusted on down; nothing to do on up.
+    if (mode === 'move' && down && canvasEl) {
+      const pt = canvasPoint(e, canvasEl, panX, panY)
+      const moved = Math.hypot(pt.x - down.x, pt.y - down.y) > 3
+      if (!moved) {
+        const ctx = canvasEl.getContext('2d')
+        if (ctx) {
+          const hit = hitTest(pt.x, pt.y, ctx, strokes, dpr)
+          if (hit) {
+            selectedIds.clear()
+            selectedIds.add(hit.id)
+          }
+        }
+      }
+      return
+    }
   }
 
   // --- Actions (delegated to drawingActions.ts) ---
@@ -344,10 +417,14 @@
     role="application"
     aria-label="Drawing canvas"
     onkeydown={onKeyDown}
+    onauxclick={(e) => {
+      if (e.button === 1) e.preventDefault()
+    }}
   >
     <canvas
       bind:this={canvasEl}
       class:select-cursor={tool === 'select'}
+      class:panning={isPanning}
       onpointerdown={onPointerDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
@@ -472,5 +549,9 @@
 
   canvas.select-cursor {
     cursor: default;
+  }
+
+  canvas.panning {
+    cursor: grabbing;
   }
 </style>

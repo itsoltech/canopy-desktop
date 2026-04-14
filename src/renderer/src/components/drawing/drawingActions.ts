@@ -1,5 +1,5 @@
 import type { Stroke } from '../../lib/stores/drawings.svelte'
-import { getActiveAgentPane } from '../../lib/stores/tabs.svelte'
+import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
 import { addToast } from '../../lib/stores/toast.svelte'
 import { blobFromCanvas } from './drawingCanvas'
 
@@ -52,12 +52,12 @@ export async function sendToAgent(
   const blob = await exportPng(canvas, strokes, selectedIds, doRedraw)
   if (!blob) return
 
-  const agent = getActiveAgentPane()
-  if (!agent) {
+  const result = getActiveAgentPane()
+  if (!result) {
     addToast('Open a Claude/Codex pane first')
     return
   }
-  if (!agent.isRunning) {
+  if (!result.pane.isRunning) {
     addToast('Agent pane is not running')
     return
   }
@@ -70,10 +70,12 @@ export async function sendToAgent(
     return
   }
 
+  await switchTab(result.tabId)
+
   // OS pasteboard write is async on macOS; fast follow-up Ctrl+V can race it
   await new Promise((resolve) => setTimeout(resolve, 250))
-  await window.api.writePty(agent.sessionId, '\x16')
-  addToast(`Sent to ${agent.toolName}`)
+  await window.api.writePty(result.pane.sessionId, '\x16')
+  addToast(`Sent to ${result.pane.toolName}`)
 }
 
 export async function copyPng(

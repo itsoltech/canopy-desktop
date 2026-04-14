@@ -41,11 +41,15 @@ export function hitTest(
   strokes: Stroke[],
   dpr: number,
 ): Stroke | null {
+  ctx.save()
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   for (let i = strokes.length - 1; i >= 0; i--) {
     if (ctx.isPointInPath(strokePath(strokes[i]), px * dpr, py * dpr)) {
+      ctx.restore()
       return strokes[i]
     }
   }
+  ctx.restore()
   return null
 }
 
@@ -55,6 +59,8 @@ export interface RedrawParams {
   dpr: number
   width: number
   height: number
+  panX: number
+  panY: number
   strokes: Stroke[]
   liveStroke: Stroke | null
   selectedIds: ReadonlySet<string>
@@ -80,6 +86,8 @@ export function redraw(params: RedrawParams): void {
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, params.width, params.height)
 
+  ctx.translate(params.panX, params.panY)
+
   for (const s of params.strokes) {
     const path = strokePath(s)
     ctx.fillStyle = s.color
@@ -98,6 +106,7 @@ export function redraw(params: RedrawParams): void {
   }
   if (params.marquee) {
     ctx.save()
+    ctx.setTransform(params.dpr, 0, 0, params.dpr, 0, 0)
     const x = Math.min(params.marquee.x0, params.marquee.x1)
     const y = Math.min(params.marquee.y0, params.marquee.y1)
     const w = Math.abs(params.marquee.x1 - params.marquee.x0)
@@ -111,13 +120,28 @@ export function redraw(params: RedrawParams): void {
   }
 }
 
-export function canvasPoint(e: PointerEvent, canvas: HTMLCanvasElement): { x: number; y: number } {
+export function canvasPoint(
+  e: PointerEvent,
+  canvas: HTMLCanvasElement,
+  panX = 0,
+  panY = 0,
+): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect()
+  return { x: e.clientX - rect.left - panX, y: e.clientY - rect.top - panY }
+}
+
+export function screenPoint(e: PointerEvent, canvas: HTMLCanvasElement): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect()
   return { x: e.clientX - rect.left, y: e.clientY - rect.top }
 }
 
-export function pointFromEvent(e: PointerEvent, canvas: HTMLCanvasElement): StrokePoint {
-  const { x, y } = canvasPoint(e, canvas)
+export function pointFromEvent(
+  e: PointerEvent,
+  canvas: HTMLCanvasElement,
+  panX = 0,
+  panY = 0,
+): StrokePoint {
+  const { x, y } = canvasPoint(e, canvas, panX, panY)
   const pressure = e.pressure > 0 ? e.pressure : 0.5
   return [x, y, pressure]
 }
