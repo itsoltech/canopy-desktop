@@ -460,6 +460,7 @@ interface CanopyAPI {
   ) => () => void
   onBrowserDevToolsOpened: (callback: (data: { browserId: string }) => void) => () => void
   onBrowserFocused: (callback: (data: { browserId: string }) => void) => () => void
+  onBrowserOpenUrl: (callback: (data: { browserId: string; url: string }) => void) => () => void
 
   // Worktree Setup
   runWorktreeSetup: (

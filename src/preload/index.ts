@@ -461,6 +461,15 @@ const api = {
     }
   },
 
+  onBrowserOpenUrl: (callback: (data: { browserId: string; url: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string; url: string }): void =>
+      callback(data)
+    ipcRenderer.on('browser:openUrl', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:openUrl', handler)
+    }
+  },
+
   // Worktree Setup
   runWorktreeSetup: (workspaceId: string, repoRoot: string, newWorktreePath: string) =>
     ipcRenderer.invoke('worktree:runSetup', { workspaceId, repoRoot, newWorktreePath }),
