@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
   import TurndownService from 'turndown'
@@ -28,6 +29,10 @@
   let editSource: 'editor' | 'preview' | null = $state(null)
   let editSourceTimer: ReturnType<typeof setTimeout> | null = null
   let previewEl: HTMLDivElement | undefined = $state()
+
+  onDestroy(() => {
+    if (editSourceTimer) clearTimeout(editSourceTimer)
+  })
 
   let parseGen = 0
   $effect(() => {
@@ -64,8 +69,8 @@
     e.preventDefault()
     const html = e.clipboardData?.getData('text/html') ?? ''
     const text = e.clipboardData?.getData('text/plain') ?? ''
-    const sanitized = html ? DOMPurify.sanitize(html) : DOMPurify.sanitize(text)
-    document.execCommand('insertHTML', false, sanitized)
+    const sanitized = html ? DOMPurify.sanitize(html) : ''
+    document.execCommand(sanitized ? 'insertHTML' : 'insertText', false, sanitized || text)
   }
 
   function onPreviewInput(): void {
