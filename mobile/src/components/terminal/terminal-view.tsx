@@ -52,6 +52,8 @@ export type TerminalViewHandle = {
   resize: (cols: number, rows: number) => void
   /** Focus the terminal so the soft keyboard pops. */
   focus: () => void
+  /** Re-run FitAddon against the current host dims and push them upstream. */
+  refit: () => void
 }
 
 type Props = {
@@ -97,6 +99,13 @@ export default function TerminalView({
   const onResizeRef = useRef(onResize)
   onResizeRef.current = onResize
 
+  // `tryFit` is defined inside the init effect so it closes over the local
+  // `fit`/`term`. Stash it in a ref so the imperative `refit()` method can
+  // invoke it from outside the effect — used by terminal.tsx to re-fit on
+  // tab switches when the visible host height (e.g. keyboard-adjusted) is
+  // unchanged but the xterm was clobbered by a pty.resized replay event.
+  const tryFitRef = useRef<(() => void) | null>(null)
+
   // Expo's DOM-component-aware variant of useImperativeHandle. Methods must
   // be serializable (JSON args, void return) because they cross the native
   // ↔ webview bridge via injectJavaScript. We type the handle more
@@ -118,6 +127,9 @@ export default function TerminalView({
       },
       focus: () => {
         termRef.current?.focus()
+      },
+      refit: () => {
+        tryFitRef.current?.()
       },
     }),
     [],
@@ -175,13 +187,35 @@ export default function TerminalView({
           // fit can throw briefly while the host element has zero size
         }
       }
+      tryFitRef.current = tryFit
+
+      // Debounced variant used by the host ResizeObserver and window
+      // `resize` listener. The initial mount tryFit() is still sync because
+      // no keyboard is animating at that point.
+      //
+      // On iOS the first terminal tap opens the keyboard and WKWebView
+      // starts animating its visualViewport down. Our visualViewport.resize
+      // handler writes the new height into host.style.height each frame,
+      // which fires the ResizeObserver, which — without this debounce —
+      // would call fit.fit() and term.resize() during the animation. That
+      // DOM reflow makes WKWebView resign first responder and immediately
+      // dismiss the keyboard again. Delaying the fit until the viewport
+      // settles lets the keyboard animation complete first.
+      let fitDebounce: ReturnType<typeof setTimeout> | null = null
+      const scheduleFit = (): void => {
+        if (fitDebounce !== null) clearTimeout(fitDebounce)
+        fitDebounce = setTimeout(() => {
+          fitDebounce = null
+          tryFit()
+        }, 150)
+      }
 
       tryFit()
 
       const resizeObserver =
-        typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => tryFit()) : null
+        typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => scheduleFit()) : null
       resizeObserver?.observe(host)
-      window.addEventListener('resize', tryFit)
+      window.addEventListener('resize', scheduleFit)
 
       document.body.style.margin = '0'
       document.body.style.padding = '0'
@@ -209,10 +243,15 @@ export default function TerminalView({
 
       cleanupFn = () => {
         vv?.removeEventListener('resize', applyHostHeight)
-        window.removeEventListener('resize', tryFit)
+        window.removeEventListener('resize', scheduleFit)
         host.removeEventListener('pointerdown', focusTerm)
         host.removeEventListener('touchstart', focusTerm)
         resizeObserver?.disconnect()
+        if (fitDebounce !== null) {
+          clearTimeout(fitDebounce)
+          fitDebounce = null
+        }
+        tryFitRef.current = null
         term.dispose()
         termRef.current = null
       }

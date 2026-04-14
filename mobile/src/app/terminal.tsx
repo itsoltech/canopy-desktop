@@ -129,8 +129,23 @@ export default function TerminalScreen(): React.ReactElement {
       setStreamError(msg)
     })
 
+    // After the new session's replay lands (which includes a pty.resized
+    // echoing the session's stored dims), re-fit xterm to the current host
+    // height and push those dims to the remote PTY. Without this, switching
+    // tabs while the iOS keyboard is open leaves the new session sized for
+    // the session's previous (keyboard-closed) viewport, so the bottom rows
+    // end up hidden under the keyboard. The short delay lets the replay
+    // events settle before we correct — otherwise a late pty.resized would
+    // clobber our fit right after it ran.
+    const refitTimer = setTimeout(() => {
+      if (cancelled) return
+      const refit = terminalRef.current?.refit
+      if (typeof refit === 'function') refit()
+    }, 120)
+
     return () => {
       cancelled = true
+      clearTimeout(refitTimer)
       for (const un of unsubscribers) {
         try {
           un()
