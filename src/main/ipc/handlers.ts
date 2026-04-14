@@ -14,7 +14,7 @@ import type { ToolRegistry } from '../tools/ToolRegistry'
 import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { BrowserManager } from '../browser/BrowserManager'
-import type { CredentialStore } from '../db/CredentialStore'
+import type { CredentialStore, Credential } from '../db/CredentialStore'
 import { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -88,6 +88,19 @@ function shellExecArgs(command: string): { command: string; args: string[] } {
   const flag = os.platform() === 'win32' ? '-Command' : '-lc'
   return { command: shell.command, args: [flag, command] }
 }
+
+// Session-level flag: once the user has successfully authenticated to reveal
+// a saved credential in the current app session, subsequent autofills reuse
+// that authentication instead of prompting the OS every time. Matches Chrome's
+// behavior and is cleared automatically on app quit (in-memory only).
+let credentialSessionAuthenticated = false
+
+// Session cache of already-decrypted credentials (keyed by id). Each cache hit
+// avoids a fresh safeStorage.decryptString() call, which on macOS triggers a
+// Keychain prompt for the "Safe Storage" item whenever the app binary
+// signature changes (e.g. after a rebuild). Cleared on any save/delete/import
+// so the cache never serves stale plaintext, and of course on app quit.
+const credentialSessionCache = new Map<string, Credential>()
 
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
@@ -573,6 +586,7 @@ export function registerIpcHandlers(
 
     const applyResult = await settingsExportService.applyImport(parsed)
     const counts = unwrapOrThrow(applyResult, settingsExportErrorMessage)
+    credentialSessionCache.clear()
 
     await broadcastProfilesChanged()
     broadcastToolsChanged()
@@ -1361,11 +1375,13 @@ export function registerIpcHandlers(
     'credentials:save',
     (_event, payload: { domain: string; username: string; password: string; title?: string }) => {
       credentialStore.save(payload.domain, payload.username, payload.password, payload.title)
+      credentialSessionCache.clear()
     },
   )
 
   ipcMain.handle('credentials:delete', (_event, payload: { id: string }) => {
     credentialStore.delete(payload.id)
+    credentialSessionCache.delete(payload.id)
   })
 
   ipcMain.handle('credentials:getAll', () => {
@@ -1382,47 +1398,63 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'credentials:getDecrypted',
     async (event, payload: { id: string; domain: string }) => {
-      // Require system authentication before revealing passwords
-      const authed = await match(process.platform)
-        .with('darwin', async () => {
-          try {
-            await systemPreferences.promptTouchID('reveal a saved password')
-            return true
-          } catch {
-            return false
-          }
-        })
-        .with('win32', async () => {
-          try {
-            const ps = `
-              Add-Type -AssemblyName System.Runtime.WindowsRuntime
-              $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
-              $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
-              if ($result -ne 'Verified') { exit 1 }
-            `
-            await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
-            return true
-          } catch {
-            return false
-          }
-        })
-        .otherwise(async () => {
-          const win =
-            BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
-          if (!win) return false
-          const { response } = await dialog.showMessageBox(win, {
-            type: 'warning',
-            buttons: ['Reveal Password', 'Cancel'],
-            defaultId: 1,
-            cancelId: 1,
-            title: 'Authentication Required',
-            message: 'Reveal saved password?',
-            detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
-          })
-          return response === 0
-        })
+      // Fast path: if we've already decrypted this credential in the current
+      // session, return the cached plaintext without hitting safeStorage or
+      // the OS auth prompt at all.
+      const cached = credentialSessionCache.get(payload.id)
+      if (cached && cached.domain === payload.domain) return cached
+
+      // Require OS authentication the first time credentials are revealed in
+      // this session; subsequent requests reuse the cached session flag so the
+      // user isn't re-prompted on every autofill.
+      const authed = credentialSessionAuthenticated
+        ? true
+        : await match(process.platform)
+            .with('darwin', async () => {
+              try {
+                await systemPreferences.promptTouchID('reveal a saved password')
+                return true
+              } catch {
+                return false
+              }
+            })
+            .with('win32', async () => {
+              try {
+                const ps = `
+                  Add-Type -AssemblyName System.Runtime.WindowsRuntime
+                  $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
+                  $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
+                  if ($result -ne 'Verified') { exit 1 }
+                `
+                await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
+                return true
+              } catch {
+                return false
+              }
+            })
+            .otherwise(async () => {
+              const win =
+                BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+              if (!win) return false
+              const { response } = await dialog.showMessageBox(win, {
+                type: 'warning',
+                buttons: ['Reveal Password', 'Cancel'],
+                defaultId: 1,
+                cancelId: 1,
+                title: 'Authentication Required',
+                message: 'Reveal saved password?',
+                detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
+              })
+              return response === 0
+            })
       if (!authed) return null
-      return credentialStore.getForDomain(payload.domain).find((c) => c.id === payload.id) ?? null
+      credentialSessionAuthenticated = true
+      // Fetch + decrypt only the requested credential (one safeStorage call),
+      // instead of decrypting every credential stored for this domain.
+      const cred = credentialStore.getById(payload.id)
+      if (!cred || cred.domain !== payload.domain) return null
+      credentialSessionCache.set(cred.id, cred)
+      return cred
     },
   )
 
