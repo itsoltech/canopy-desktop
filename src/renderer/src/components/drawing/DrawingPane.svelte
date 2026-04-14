@@ -7,22 +7,8 @@
     type Stroke,
     type DrawTool,
   } from '../../lib/stores/drawings.svelte'
-  import {
-    strokePath,
-    strokeBBox,
-    hitTest,
-    redraw,
-    canvasPoint,
-    pointFromEvent,
-  } from './drawingCanvas'
-  import {
-    deleteSelected,
-    selectAll,
-    undoLast,
-    exportPng,
-    sendToAgent,
-    copyPng,
-  } from './drawingActions'
+  import { strokeBBox, hitTest, redraw, canvasPoint, pointFromEvent } from './drawingCanvas'
+  import { deleteSelected, selectAll, undoLast, sendToAgent, copyPng } from './drawingActions'
 
   // Drawing pane has no props — canvas state is keyed by project via drawingsState.
 
