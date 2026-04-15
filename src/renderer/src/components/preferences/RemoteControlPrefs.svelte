@@ -77,7 +77,10 @@
   <p class="hint-row intro">
     Control Canopy from another device on your local WiFi network — phone, tablet, or another
     laptop. Scan a QR code from the command palette to pair a device. Connections are end-to-end
-    encrypted via WebRTC DTLS, but the signaling server only listens while a pairing modal is open.
+    encrypted via WebRTC DTLS. Once you have a trusted device, the signaling server stays bound in
+    the background on every app launch so that device can reconnect without you reopening the
+    pairing modal — disable the toggle below or remove all trusted devices to stop this auto-listen
+    behavior.
   </p>
 
   <div class="security-note">
@@ -102,8 +105,9 @@
     <span>Enable remote control</span>
   </label>
   <div class="hint-row">
-    When disabled, the command palette does not expose the "Open Remote Connection" action and the
-    signaling server is never bound, even momentarily.
+    When disabled, the command palette does not expose the "Open Remote Connection" action, the
+    signaling server is never bound (including listen mode), and trusted devices cannot reconnect
+    until the toggle is re-enabled.
   </div>
 
   <fieldset class="guard-group" class:disabled={!enabled} disabled={!enabled}>
