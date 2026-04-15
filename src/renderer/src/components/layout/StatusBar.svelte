@@ -8,6 +8,7 @@
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { perfHudState, enablePerfHud, disablePerfHud } from '../../lib/stores/perfHud.svelte'
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
+  import { Settings } from '@lucide/svelte'
 
   const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
@@ -366,6 +367,15 @@
           />
         </svg>
       </button>
+
+      <button
+        class="status-item settings-btn"
+        aria-label="Open Settings"
+        title="Open Settings"
+        onclick={() => showPreferences()}
+      >
+        <Settings size={13} />
+      </button>
     </div>
   </footer>
 {/if}
@@ -512,6 +522,10 @@
 
   .inspector-toggle:hover {
     color: var(--c-text);
+  }
+
+  .settings-btn {
+    color: var(--c-text-muted);
   }
 
   @keyframes badge-pulse {
