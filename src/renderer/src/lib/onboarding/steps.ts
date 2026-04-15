@@ -138,6 +138,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.11.0',
     category: 'feature',
   },
+  {
+    id: 'status-bar-settings',
+    title: 'Quick Settings access',
+    description:
+      'The gear icon at the right of the status bar opens Settings directly. You can also use ⌘, / Ctrl+, or the command palette.',
+    introducedIn: '0.12.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {
