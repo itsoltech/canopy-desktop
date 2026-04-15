@@ -1,3 +1,15 @@
+## [0.12.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.2...v0.12.0-next.3) (2026-04-15)
+
+### Features
+
+* add shape tools to drawing and editable notes preview ([#160](https://github.com/itsoltech/canopy-desktop/issues/160)) ([9213b6c](https://github.com/itsoltech/canopy-desktop/commit/9213b6cb4b16c9cf14961ff02c87eb0ea7ad626e))
+
+### Bug Fixes
+
+* **browser:** open target="_blank" links in new tab ([#158](https://github.com/itsoltech/canopy-desktop/issues/158)) ([ef38eb2](https://github.com/itsoltech/canopy-desktop/commit/ef38eb284ccb65da382f5aa06826c7dd66fd167d)), closes [#155](https://github.com/itsoltech/canopy-desktop/issues/155)
+* **credentials:** cache auth and decrypted credentials per session ([#159](https://github.com/itsoltech/canopy-desktop/issues/159)) ([8c00c65](https://github.com/itsoltech/canopy-desktop/commit/8c00c65ac6c59d27419f8156a2107c06a0239ee7))
+* **ui:** settings button in status bar + section spacing fix ([#162](https://github.com/itsoltech/canopy-desktop/issues/162)) ([0b49849](https://github.com/itsoltech/canopy-desktop/commit/0b49849f2b2a94347d5da8638dc777d09e63fbf7))
+
 ## [0.12.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.1...v0.12.0-next.2) (2026-04-14)
 
 ### Features
