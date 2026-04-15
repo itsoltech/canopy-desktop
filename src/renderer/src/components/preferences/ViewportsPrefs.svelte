@@ -6,6 +6,7 @@
   } from '../../lib/browser/browserState.svelte'
   import type { ViewportPreset } from '../../lib/browser/browserState.svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { onMount } from 'svelte'
@@ -30,7 +31,14 @@
     credentials = await window.api.listCredentials()
   }
 
-  async function deleteCredential(id: string): Promise<void> {
+  async function deleteCredential(id: string, domain: string, username: string): Promise<void> {
+    const ok = await confirm({
+      title: 'Delete saved password',
+      message: `Delete the saved password for ${username} on ${domain}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     await window.api.deleteCredential(id)
     await loadCredentials()
   }
@@ -218,7 +226,10 @@
               <Eye size={13} />
             {/if}
           </button>
-          <button class="remove-btn" onclick={() => deleteCredential(cred.id)}>Remove</button>
+          <button
+            class="remove-btn"
+            onclick={() => deleteCredential(cred.id, cred.domain, cred.username)}>Remove</button
+          >
         </div>
       </div>
     {:else}
