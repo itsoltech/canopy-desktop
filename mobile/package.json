@@ -53,7 +53,6 @@
     "expo-system-ui": "~55.0.15",
     "expo-updates": "~55.0.20",
     "expo-web-browser": "~55.0.14",
-    "expo-widgets": "^55.0.13",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-native": "0.83.4",

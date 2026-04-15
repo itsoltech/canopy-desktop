@@ -9,7 +9,6 @@ import { Alert } from 'react-native'
 import { AnimatedSplashOverlay } from '@/components/animated-icon'
 import { AppConfig } from '@/config/app-config'
 import { useColorScheme } from '@/hooks/use-color-scheme'
-import { initAgentActivityManager } from '@/lib/live-activity/activity-manager'
 import { AppPreferencesStorage } from '@/lib/storage/app-preferences'
 
 function usePreferencesReady(): boolean {
@@ -30,7 +29,6 @@ function usePreferencesReady(): boolean {
 export default function RootLayout(): React.ReactElement {
   const ready = usePreferencesReady()
   const colorScheme = useColorScheme()
-  useEffect(() => initAgentActivityManager(), [])
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <EasUpdateAlert />

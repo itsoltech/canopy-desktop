@@ -83,27 +83,6 @@ const base = {
       // the NSCameraUsageDescription / NSMicrophoneUsageDescription keys
       // the plugin unconditionally writes. We use data channels only.
       './plugins/strip-webrtc-ios-permissions.js',
-      [
-        'expo-widgets',
-        {
-          bundleIdentifier: 'tech.itsol.canopy.widgets',
-          groupIdentifier: 'group.tech.itsol.canopy',
-          enablePushNotifications: false,
-          // At least one widget entry with a valid family is required for
-          // expo-widgets to reference `WidgetLiveActivity()` in the generated
-          // WidgetBundle. An empty `supportedFamilies` array would render as
-          // invalid Swift (`.supportedFamilies([.])`). The home-screen widget
-          // itself is unused — only the Live Activity surface matters.
-          widgets: [
-            {
-              name: 'CanopyAgentActivity',
-              displayName: 'Canopy Agents',
-              description: 'Live status of AI coding agents',
-              supportedFamilies: ['systemSmall'],
-            },
-          ],
-        },
-      ],
     ],
     experiments: {
       typedRoutes: true,
