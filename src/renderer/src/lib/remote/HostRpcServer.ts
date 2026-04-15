@@ -4,7 +4,7 @@ import { StateSnapshotProvider } from './StateSnapshotProvider.svelte'
 import { PtyStreamForwarder } from './PtyStreamForwarder'
 import { checkAction, resetSessionGrants } from './actionGuard'
 import { openTool, closeTab, switchTab, tabsByWorktree } from '../stores/tabs.svelte'
-import { selectWorktree } from '../stores/workspace.svelte'
+import { attachProject, selectWorktree } from '../stores/workspace.svelte'
 import { allPanes } from '../stores/splitTree'
 import { substituteLocalhost } from '../../../../renderer-shared/url/localhostSubstitution'
 import { remoteSession } from '../stores/remoteSession.svelte'
@@ -207,6 +207,14 @@ export class HostRpcServer {
       const path = assertString(params, 'path', 'worktree.remove')
       const force = assertBoolean(params, 'force', 'worktree.remove')
       await window.api.gitWorktreeRemove(repoRoot, path, force)
+      provider.rebroadcast()
+    })
+
+    this.register('project.attach', async (params) => {
+      const rawPath = assertString(params, 'path', 'project.attach')
+      const homedir = await window.api.getHomedir()
+      const path = rawPath.startsWith('~/') ? homedir + rawPath.slice(1) : rawPath
+      await attachProject(path)
       provider.rebroadcast()
     })
 

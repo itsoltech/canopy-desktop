@@ -122,6 +122,12 @@ export interface RpcMethods {
     params: { repoRoot: string; path: string; force: boolean }
     result: void
   }
+
+  // Project management — peer can attach a new directory to the host workspace.
+  'project.attach': {
+    params: { path: string }
+    result: void
+  }
 }
 
 export type RpcMethodName = keyof RpcMethods

@@ -12,7 +12,7 @@ import { ThemedView } from '@/components/themed-view'
 import { resolveTerminalPalette } from '@/constants/terminal-themes'
 import { Spacing } from '@/constants/theme'
 import { useAppPreferences } from '@/hooks/use-app-preferences'
-import { useColorScheme } from '@/hooks/use-color-scheme'
+import { useTerminalColorScheme } from '@/hooks/use-color-scheme'
 import { useRemoteSession } from '@/hooks/use-remote-session'
 import {
   useActiveTabId,
@@ -31,7 +31,7 @@ export default function TerminalScreen(): React.ReactElement {
   }>()
   const router = useRouter()
   const theme = useTheme()
-  const colorScheme = useColorScheme()
+  const colorScheme = useTerminalColorScheme()
   const { instance } = useSavedInstance(instanceId)
   const { state: sessionState } = useRemoteSession()
   const { terminalThemeId } = useAppPreferences()
@@ -376,6 +376,20 @@ export default function TerminalScreen(): React.ReactElement {
             </ThemedText>
           </View>
         )}
+        {sessionState.kind === 'reconnecting' ? (
+          <View
+            pointerEvents="box-only"
+            style={[
+              StyleSheet.absoluteFill,
+              styles.reconnectingOverlay,
+              { backgroundColor: slotBackground },
+            ]}
+          >
+            <ThemedText type="small" themeColor="textSecondary">
+              Reconnecting…
+            </ThemedText>
+          </View>
+        ) : null}
       </View>
 
       <ToolPickerSheet
@@ -433,6 +447,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   emptyOverlay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.four,
+  },
+  reconnectingOverlay: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.four,

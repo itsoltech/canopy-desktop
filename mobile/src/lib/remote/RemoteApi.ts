@@ -53,6 +53,9 @@ export interface RemoteApi {
     addCheckout: (args: RpcMethods['worktree.addCheckout']['params']) => Promise<void>
     remove: (args: RpcMethods['worktree.remove']['params']) => Promise<void>
   }
+  project: {
+    attach: (path: string) => Promise<void>
+  }
   /** Escape hatch for topic subscriptions (projects/tabs/pty.data.<id>). */
   subscribe: <T>(topic: string, handler: (data: T) => void) => () => void
 }
@@ -98,6 +101,9 @@ export function createRemoteApi(rpc: DataChannelRpc): RemoteApi {
       add: (args) => client.call('worktree.add', args),
       addCheckout: (args) => client.call('worktree.addCheckout', args),
       remove: (args) => client.call('worktree.remove', args),
+    },
+    project: {
+      attach: (path) => client.call('project.attach', { path }),
     },
     subscribe: (topic, handler) => client.subscribe(topic, handler),
   }

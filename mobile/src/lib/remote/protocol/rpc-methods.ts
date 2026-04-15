@@ -113,6 +113,10 @@ export interface RpcMethods {
     params: { repoRoot: string; path: string; force: boolean }
     result: void
   }
+  'project.attach': {
+    params: { path: string }
+    result: void
+  }
 }
 
 export type RpcMethodName = keyof RpcMethods

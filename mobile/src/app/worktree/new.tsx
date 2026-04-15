@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
@@ -215,10 +215,13 @@ export default function NewWorktreeScreen(): React.ReactElement {
             <>
               <FieldLabel>{mode === 'new' ? 'Base branch' : 'Branch to check out'}</FieldLabel>
               <Pressable
-                onPress={() => setPickerOpen(true)}
-                style={({ pressed }) => [pressed && styles.pressed]}
+                onPress={submitting ? undefined : () => setPickerOpen(true)}
+                style={({ pressed }) => [pressed && !submitting && styles.pressed]}
               >
-                <ThemedView type="backgroundElement" style={styles.pickerField}>
+                <ThemedView
+                  type="backgroundElement"
+                  style={[styles.pickerField, submitting && styles.disabled]}
+                >
                   <ThemedText type="small" numberOfLines={1} style={styles.pickerText}>
                     {selectedBase || 'Select a branch'}
                   </ThemedText>
@@ -234,7 +237,10 @@ export default function NewWorktreeScreen(): React.ReactElement {
               {mode === 'new' && (
                 <>
                   <FieldLabel>New branch name</FieldLabel>
-                  <ThemedView type="backgroundElement" style={styles.inputWrap}>
+                  <ThemedView
+                    type="backgroundElement"
+                    style={[styles.inputWrap, submitting && styles.disabled]}
+                  >
                     <TextInput
                       value={newBranchName}
                       onChangeText={setNewBranchName}
@@ -242,6 +248,7 @@ export default function NewWorktreeScreen(): React.ReactElement {
                       placeholderTextColor={theme.textSecondary}
                       autoCapitalize="none"
                       autoCorrect={false}
+                      editable={!submitting}
                       style={[styles.input, { color: theme.text }]}
                     />
                   </ThemedView>
@@ -249,7 +256,10 @@ export default function NewWorktreeScreen(): React.ReactElement {
               )}
 
               <FieldLabel>Path</FieldLabel>
-              <ThemedView type="backgroundElement" style={styles.inputWrap}>
+              <ThemedView
+                type="backgroundElement"
+                style={[styles.inputWrap, submitting && styles.disabled]}
+              >
                 <TextInput
                   value={customPath}
                   onChangeText={setCustomPath}
@@ -257,6 +267,7 @@ export default function NewWorktreeScreen(): React.ReactElement {
                   placeholderTextColor={theme.textSecondary}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  editable={!submitting}
                   style={[styles.input, styles.inputMono, { color: theme.text }]}
                 />
               </ThemedView>
@@ -304,75 +315,77 @@ export default function NewWorktreeScreen(): React.ReactElement {
       </SafeAreaView>
 
       <Modal visible={pickerOpen} animationType="slide" onRequestClose={() => setPickerOpen(false)}>
-        <ThemedView style={styles.modalContainer}>
-          <SafeAreaView style={styles.safeArea} edges={['top']}>
-            <View style={styles.header}>
-              <Pressable
-                onPress={() => setPickerOpen(false)}
-                style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
-              >
-                <SymbolView
-                  name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-                  size={20}
-                  weight="semibold"
-                  tintColor={theme.text}
-                />
-              </Pressable>
-              <View style={styles.headerTitle}>
-                <ThemedText type="subtitle">Pick branch</ThemedText>
-              </View>
-            </View>
-            <ThemedView type="backgroundElement" style={styles.searchWrap}>
-              <TextInput
-                value={branchQuery}
-                onChangeText={setBranchQuery}
-                placeholder="Search branches"
-                placeholderTextColor={theme.textSecondary}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={[styles.input, { color: theme.text }]}
-              />
-            </ThemedView>
-            <FlatList
-              data={filteredBranches}
-              keyExtractor={(item) => item.key}
-              renderItem={({ item }) => (
+        <SafeAreaProvider>
+          <ThemedView style={styles.modalContainer}>
+            <SafeAreaView style={styles.safeArea} edges={['top']}>
+              <View style={styles.header}>
                 <Pressable
-                  onPress={() => {
-                    setSelectedBase(item.name)
-                    setPickerOpen(false)
-                    setBranchQuery('')
-                  }}
-                  style={({ pressed }) => [styles.branchRow, pressed && styles.pressed]}
+                  onPress={() => setPickerOpen(false)}
+                  style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
                 >
-                  <View style={styles.branchText}>
-                    <ThemedText type="small" numberOfLines={1}>
-                      {item.name}
-                    </ThemedText>
-                    {item.isCurrent && (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        current
-                      </ThemedText>
-                    )}
-                    {item.isRemote && (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        remote
-                      </ThemedText>
-                    )}
-                  </View>
-                  {item.name === selectedBase && (
-                    <SymbolView
-                      name={{ ios: 'checkmark', android: 'check', web: 'check' }}
-                      size={14}
-                      weight="semibold"
-                      tintColor={theme.text}
-                    />
-                  )}
+                  <SymbolView
+                    name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
+                    size={20}
+                    weight="semibold"
+                    tintColor={theme.text}
+                  />
                 </Pressable>
-              )}
-            />
-          </SafeAreaView>
-        </ThemedView>
+                <View style={styles.headerTitle}>
+                  <ThemedText type="subtitle">Pick branch</ThemedText>
+                </View>
+              </View>
+              <ThemedView type="backgroundElement" style={styles.searchWrap}>
+                <TextInput
+                  value={branchQuery}
+                  onChangeText={setBranchQuery}
+                  placeholder="Search branches"
+                  placeholderTextColor={theme.textSecondary}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.input, { color: theme.text }]}
+                />
+              </ThemedView>
+              <FlatList
+                data={filteredBranches}
+                keyExtractor={(item) => item.key}
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => {
+                      setSelectedBase(item.name)
+                      setPickerOpen(false)
+                      setBranchQuery('')
+                    }}
+                    style={({ pressed }) => [styles.branchRow, pressed && styles.pressed]}
+                  >
+                    <View style={styles.branchText}>
+                      <ThemedText type="small" numberOfLines={1}>
+                        {item.name}
+                      </ThemedText>
+                      {item.isCurrent && (
+                        <ThemedText type="small" themeColor="textSecondary">
+                          current
+                        </ThemedText>
+                      )}
+                      {item.isRemote && (
+                        <ThemedText type="small" themeColor="textSecondary">
+                          remote
+                        </ThemedText>
+                      )}
+                    </View>
+                    {item.name === selectedBase && (
+                      <SymbolView
+                        name={{ ios: 'checkmark', android: 'check', web: 'check' }}
+                        size={14}
+                        weight="semibold"
+                        tintColor={theme.text}
+                      />
+                    )}
+                  </Pressable>
+                )}
+              />
+            </SafeAreaView>
+          </ThemedView>
+        </SafeAreaProvider>
       </Modal>
     </ThemedView>
   )

@@ -16,32 +16,31 @@ export function InstanceCard({ instance, onPress }: InstanceCardProps): React.Re
   const theme = useTheme()
 
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.pressable, pressed && styles.pressed]}
-    >
-      <ThemedView type="backgroundElement" style={styles.card}>
-        <View style={styles.headerRow}>
-          <ThemedText type="smallBold" numberOfLines={1} style={styles.nickname}>
-            {instance.nickname}
+    <Pressable onPress={onPress} style={styles.pressable}>
+      {({ pressed }) => (
+        <ThemedView type={pressed ? 'backgroundSelected' : 'backgroundElement'} style={styles.card}>
+          <View style={styles.headerRow}>
+            <ThemedText type="smallBold" numberOfLines={1} style={styles.nickname}>
+              {instance.nickname}
+            </ThemedText>
+            <SymbolView
+              name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+              size={14}
+              weight="medium"
+              tintColor={theme.textSecondary}
+            />
+          </View>
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+            {instance.hostname}
           </ThemedText>
-          <SymbolView
-            name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-            size={14}
-            weight="medium"
-            tintColor={theme.textSecondary}
-          />
-        </View>
-        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-          {instance.hostname}
-        </ThemedText>
-        <ThemedText type="code" themeColor="textSecondary" numberOfLines={1}>
-          {instance.lanIp}:{instance.port}
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary" style={styles.lastConnected}>
-          {formatLastConnected(instance.lastConnectedAt)}
-        </ThemedText>
-      </ThemedView>
+          <ThemedText type="code" themeColor="textSecondary" numberOfLines={1}>
+            {instance.lanIp}:{instance.port}
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.lastConnected}>
+            {formatLastConnected(instance.lastConnectedAt)}
+          </ThemedText>
+        </ThemedView>
+      )}
     </Pressable>
   )
 }
@@ -63,9 +62,6 @@ function formatLastConnected(iso?: string): string {
 const styles = StyleSheet.create({
   pressable: {
     borderRadius: Spacing.three,
-  },
-  pressed: {
-    opacity: 0.7,
   },
   card: {
     borderRadius: Spacing.three,

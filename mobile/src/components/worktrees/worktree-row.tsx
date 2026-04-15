@@ -1,5 +1,6 @@
 import { SymbolView } from 'expo-symbols'
-import { Alert, Pressable, StyleSheet, View } from 'react-native'
+import { useState } from 'react'
+import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native'
 
 import { ThemedText } from '@/components/themed-text'
 import { Spacing } from '@/constants/theme'
@@ -23,7 +24,8 @@ const STATUS_COLORS: Record<Exclude<WorktreeAgentStatus, 'none'>, string> = {
 export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): React.ReactElement {
   const theme = useTheme()
   const { api } = useRemoteSession()
-  const canRemove = !worktree.isMain && repoRoot !== null && api !== null
+  const [removing, setRemoving] = useState(false)
+  const canRemove = !worktree.isMain && repoRoot !== null && api !== null && !removing
 
   const confirmRemove = (): void => {
     if (!canRemove || !api || !repoRoot) return
@@ -33,9 +35,11 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
         text: 'Remove',
         style: 'destructive',
         onPress: async () => {
+          setRemoving(true)
           try {
             await api.worktree.remove({ repoRoot, path: worktree.path, force: false })
           } catch (e) {
+            setRemoving(false)
             Alert.alert('Could not remove worktree', e instanceof Error ? e.message : String(e))
           }
         },
@@ -46,7 +50,14 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
   const agentStatus = worktree.agentStatus ?? 'none'
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+    <Pressable
+      onPress={removing ? undefined : onPress}
+      style={({ pressed }) => [
+        styles.row,
+        pressed && !removing && styles.pressed,
+        removing && styles.dimmed,
+      ]}
+    >
       {agentStatus !== 'none' ? (
         <View style={[styles.statusDot, { backgroundColor: STATUS_COLORS[agentStatus] }]} />
       ) : (
@@ -71,7 +82,9 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
           </ThemedText>
         )}
       </View>
-      {canRemove && (
+      {removing ? (
+        <ActivityIndicator size="small" style={styles.removeBtn} />
+      ) : canRemove ? (
         <Pressable
           onPress={confirmRemove}
           hitSlop={8}
@@ -85,7 +98,7 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
             tintColor="#ff453a"
           />
         </Pressable>
-      )}
+      ) : null}
       <SymbolView
         name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
         size={12}
@@ -120,5 +133,8 @@ const styles = StyleSheet.create({
   },
   removeBtn: {
     padding: Spacing.one,
+  },
+  dimmed: {
+    opacity: 0.5,
   },
 })

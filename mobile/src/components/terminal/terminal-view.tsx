@@ -481,7 +481,9 @@ export default function TerminalView({
         height: '100%',
       }}
     >
-      <div ref={hostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} />
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', padding: 4 }}>
+        <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
+      </div>
       <div
         style={{
           display: keyboardVisible ? 'flex' : 'none',

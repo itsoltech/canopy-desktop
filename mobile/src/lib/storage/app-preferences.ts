@@ -30,10 +30,13 @@ const loadPromise: Promise<void> = SecureStore.getItemAsync(STORAGE_KEY)
         const appTheme = isAppThemeMode(obj.appTheme)
           ? obj.appTheme
           : DEFAULT_APP_PREFERENCES.appTheme
+        const terminalThemeMode = isAppThemeMode(obj.terminalThemeMode)
+          ? obj.terminalThemeMode
+          : DEFAULT_APP_PREFERENCES.terminalThemeMode
         const terminalThemeId = isTerminalThemeId(obj.terminalThemeId)
           ? obj.terminalThemeId
           : DEFAULT_APP_PREFERENCES.terminalThemeId
-        current = { appTheme, terminalThemeId }
+        current = { appTheme, terminalThemeMode, terminalThemeId }
       }
     } catch {
       // keep defaults on parse error

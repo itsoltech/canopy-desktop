@@ -172,10 +172,25 @@ export default function InstanceDetailScreen(): React.ReactElement {
             </View>
           ) : null}
 
-          <View style={styles.sectionLabelWrap}>
+          <View style={styles.sectionLabelRow}>
             <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>
               PROJECTS & WORKTREES
             </ThemedText>
+            {sessionState.kind === 'ready' && (
+              <Pressable
+                onPress={() => router.push('/project/new' as never)}
+                style={({ pressed }) => [styles.addProjectBtn, pressed && styles.pressed]}
+                accessibilityLabel="Attach project"
+              >
+                <SymbolView
+                  name={{ ios: 'plus', android: 'add', web: 'add' }}
+                  size={12}
+                  weight="semibold"
+                  tintColor={theme.text}
+                />
+                <ThemedText type="smallBold">project</ThemedText>
+              </Pressable>
+            )}
           </View>
 
           <View style={styles.projects}>
@@ -236,6 +251,8 @@ function sessionBannerText(state: ReturnType<typeof useRemoteSession>['state']):
           return 'Establishing WebRTC connection…'
       }
       return 'Connecting…'
+    case 'reconnecting':
+      return 'Reconnecting…'
     case 'ready':
       return null
     case 'error':
@@ -310,12 +327,24 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     padding: Spacing.three,
   },
-  sectionLabelWrap: {
+  sectionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.four,
   },
   sectionLabel: {
     fontSize: 12,
     letterSpacing: 0.5,
+  },
+  addProjectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    borderRadius: Spacing.two,
+    backgroundColor: 'rgba(127, 127, 127, 0.15)',
   },
   projects: {
     paddingHorizontal: Spacing.four,

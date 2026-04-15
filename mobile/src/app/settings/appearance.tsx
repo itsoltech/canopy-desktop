@@ -18,14 +18,26 @@ const APP_THEME_OPTIONS: ReadonlyArray<{ id: AppThemeMode; label: string }> = [
   { id: 'system', label: 'System' },
 ]
 
+const TERMINAL_MODE_OPTIONS: ReadonlyArray<{ id: AppThemeMode; label: string }> = [
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+  { id: 'system', label: 'Follow app' },
+]
+
 export default function AppearanceScreen(): React.ReactElement {
   const router = useRouter()
   const theme = useTheme()
-  const { appTheme, terminalThemeId } = useAppPreferences()
+  const { appTheme, terminalThemeMode, terminalThemeId } = useAppPreferences()
 
   const setAppTheme = (mode: AppThemeMode): void => {
     void AppPreferencesStorage.set({ appTheme: mode }).catch(() => {
       /* best-effort; stays in memory either way */
+    })
+  }
+
+  const setTerminalThemeMode = (mode: AppThemeMode): void => {
+    void AppPreferencesStorage.set({ terminalThemeMode: mode }).catch(() => {
+      /* best-effort */
     })
   }
 
@@ -74,6 +86,35 @@ export default function AppearanceScreen(): React.ReactElement {
                 >
                   <ThemedText type="small">{opt.label}</ThemedText>
                   {appTheme === opt.id ? (
+                    <SymbolView
+                      name={{ ios: 'checkmark', android: 'check', web: 'check' }}
+                      size={16}
+                      weight="semibold"
+                      tintColor={theme.text}
+                    />
+                  ) : null}
+                </Pressable>
+              </View>
+            ))}
+          </ThemedView>
+        </View>
+
+        <View style={styles.section}>
+          <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>
+            TERMINAL MODE
+          </ThemedText>
+          <ThemedView type="backgroundElement" style={styles.card}>
+            {TERMINAL_MODE_OPTIONS.map((opt, idx) => (
+              <View key={opt.id}>
+                {idx > 0 ? <View style={styles.divider} /> : null}
+                <Pressable
+                  onPress={() => setTerminalThemeMode(opt.id)}
+                  style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: terminalThemeMode === opt.id }}
+                >
+                  <ThemedText type="small">{opt.label}</ThemedText>
+                  {terminalThemeMode === opt.id ? (
                     <SymbolView
                       name={{ ios: 'checkmark', android: 'check', web: 'check' }}
                       size={16}
