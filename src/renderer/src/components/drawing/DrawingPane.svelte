@@ -6,6 +6,7 @@
     getDrawingKey,
     type Stroke,
     type DrawTool,
+    type ShapeType,
   } from '../../lib/stores/drawings.svelte'
   import {
     strokeBBox,
@@ -126,6 +127,19 @@
   let lastDragPoint: { x: number; y: number } | null = null
   let isPanning = $state(false)
 
+  const SHAPE_TOOLS: Record<string, ShapeType> = {
+    rectangle: 'rectangle',
+    ellipse: 'ellipse',
+    line: 'line',
+    arrow: 'arrow',
+  }
+
+  function isShapeTool(t: DrawTool): t is 'rectangle' | 'ellipse' | 'line' | 'arrow' {
+    return t in SHAPE_TOOLS
+  }
+
+  let shapeOrigin: { x: number; y: number } | null = null
+
   function onPointerDown(e: PointerEvent): void {
     if (!canvasEl) return
 
@@ -154,7 +168,22 @@
         id: crypto.randomUUID(),
         color,
         size,
+        type: 'freehand',
         points: [pointFromEvent(e, canvasEl, panX, panY)],
+      }
+      return
+    }
+
+    if (isShapeTool(tool)) {
+      dragMode = 'draw'
+      const pt = canvasPoint(e, canvasEl, panX, panY)
+      shapeOrigin = pt
+      liveStroke = {
+        id: crypto.randomUUID(),
+        color,
+        size,
+        type: SHAPE_TOOLS[tool],
+        rect: { x: pt.x, y: pt.y, w: 0, h: 0 },
       }
       return
     }
@@ -186,7 +215,27 @@
     if (e.pointerId !== activePointerId) return
 
     if (dragMode === 'draw' && liveStroke && canvasEl) {
-      liveStroke.points = [...liveStroke.points, pointFromEvent(e, canvasEl, panX, panY)]
+      if (liveStroke.type === 'freehand') {
+        liveStroke.points = [...liveStroke.points, pointFromEvent(e, canvasEl, panX, panY)]
+      } else if (shapeOrigin && liveStroke.type !== 'freehand') {
+        const pt = canvasPoint(e, canvasEl, panX, panY)
+        let w = pt.x - shapeOrigin.x
+        let h = pt.y - shapeOrigin.y
+        if (e.shiftKey) {
+          if (liveStroke.type === 'line' || liveStroke.type === 'arrow') {
+            const angle = Math.atan2(h, w)
+            const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4)
+            const len = Math.hypot(w, h)
+            w = len * Math.cos(snapped)
+            h = len * Math.sin(snapped)
+          } else {
+            const side = Math.max(Math.abs(w), Math.abs(h))
+            w = side * Math.sign(w || 1)
+            h = side * Math.sign(h || 1)
+          }
+        }
+        liveStroke = { ...liveStroke, rect: { x: shapeOrigin.x, y: shapeOrigin.y, w, h } }
+      }
       return
     }
 
@@ -202,9 +251,13 @@
       const dy = pt.y - lastDragPoint.y
       for (const s of strokes) {
         if (!selectedIds.has(s.id)) continue
-        for (const p of s.points) {
-          p[0] += dx
-          p[1] += dy
+        if (s.type !== 'freehand') {
+          s.rect = { ...s.rect, x: s.rect.x + dx, y: s.rect.y + dy }
+        } else {
+          for (const p of s.points) {
+            p[0] += dx
+            p[1] += dy
+          }
         }
       }
       strokes = [...strokes]
@@ -232,10 +285,18 @@
     lastDragPoint = null
 
     if (mode === 'draw' && liveStroke) {
-      if (liveStroke.points.length > 0) {
-        strokes = [...strokes, liveStroke]
+      if (liveStroke.type === 'freehand') {
+        if (liveStroke.points.length > 0) {
+          strokes = [...strokes, liveStroke]
+        }
+      } else {
+        const { w, h } = liveStroke.rect
+        if (Math.abs(w) > 2 || Math.abs(h) > 2) {
+          strokes = [...strokes, liveStroke]
+        }
       }
       liveStroke = null
+      shapeOrigin = null
       return
     }
 
@@ -353,6 +414,47 @@
       >
         Select
       </button>
+      <span class="tool-sep"></span>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={tool === 'rectangle'}
+        class:active={tool === 'rectangle'}
+        onclick={() => (tool = 'rectangle')}
+        title="Rectangle (Shift for square)"
+      >
+        Rect
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={tool === 'ellipse'}
+        class:active={tool === 'ellipse'}
+        onclick={() => (tool = 'ellipse')}
+        title="Ellipse (Shift for circle)"
+      >
+        Ellipse
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={tool === 'line'}
+        class:active={tool === 'line'}
+        onclick={() => (tool = 'line')}
+        title="Line (Shift to snap angle)"
+      >
+        Line
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={tool === 'arrow'}
+        class:active={tool === 'arrow'}
+        onclick={() => (tool = 'arrow')}
+        title="Arrow (Shift to snap angle)"
+      >
+        Arrow
+      </button>
     </div>
 
     <div class="swatches" role="radiogroup" aria-label="Color">
@@ -424,6 +526,7 @@
     <canvas
       bind:this={canvasEl}
       class:select-cursor={tool === 'select'}
+      class:crosshair-cursor={isShapeTool(tool)}
       class:panning={isPanning}
       onpointerdown={onPointerDown}
       onpointermove={onPointerMove}
@@ -539,6 +642,7 @@
     min-height: 0;
     position: relative;
     overflow: hidden;
+    outline: none;
   }
 
   canvas {
@@ -549,6 +653,17 @@
 
   canvas.select-cursor {
     cursor: default;
+  }
+
+  canvas.crosshair-cursor {
+    cursor: crosshair;
+  }
+
+  .tool-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--c-border);
+    margin: 0 2px;
   }
 
   canvas.panning {

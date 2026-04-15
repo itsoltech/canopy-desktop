@@ -41,6 +41,17 @@ Notes panes are non-terminal panes — they have no associated process, PTY, or 
 2. Clicking **Hide preview** collapses back to editor-only.
 3. The preview panel uses a monospace font with styled headings, code blocks, and links.
 
+### Editing in preview
+
+1. When the preview panel is visible, it is editable — the user can click into the rendered markdown and type directly.
+2. Changes in the preview are converted back to markdown using `turndown` and written to `notesState[key]`.
+3. Changes from the editor textarea update the preview, and vice versa. An `editSource` flag prevents circular updates.
+4. The preview shows a "Click to edit..." placeholder when empty.
+
+**Focus/sync trade-off:** While the preview panel has focus, incoming `innerHTML` updates from the textarea are skipped to prevent the cursor from jumping to the beginning of the element. This means that if the user is actively editing in the preview, changes typed simultaneously in the textarea will not appear in the preview until the user blurs out of it. Once focus leaves the preview, the next markdown parse cycle re-syncs it.
+
+**Paste handling:** The preview panel intercepts `paste` events and sanitizes the incoming HTML with DOMPurify before inserting it. This keeps the rendered DOM clean and ensures the markdown round-trip through `turndown` operates on safe input. Plain-text pastes are inserted as-is after sanitization.
+
 ### Worktree/project switching
 
 1. When the user selects a different worktree, the `$effect` watching `getNoteKey()` detects the key change.
