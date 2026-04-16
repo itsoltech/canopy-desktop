@@ -76,6 +76,7 @@
         { value: 'low', label: 'Low' },
         { value: 'medium', label: 'Medium' },
         { value: 'high', label: 'High' },
+        { value: 'xhigh', label: 'Extra High (Opus 4.7+)' },
         { value: 'max', label: 'Max' },
       ]}
       onchange={(v) => set('effortLevel', v)}
