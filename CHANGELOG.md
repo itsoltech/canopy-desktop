@@ -1,3 +1,9 @@
+## [0.12.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.4...v0.12.0-next.5) (2026-04-16)
+
+### Bug Fixes
+
+* fetch full task description before sending to agent ([#166](https://github.com/itsoltech/canopy-desktop/issues/166)) ([#167](https://github.com/itsoltech/canopy-desktop/issues/167)) ([7735c6e](https://github.com/itsoltech/canopy-desktop/commit/7735c6ed5a4d9ed884d97ee6b10d441cf44f22b9))
+
 ## [0.12.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.3...v0.12.0-next.4) (2026-04-16)
 
 ### Features
