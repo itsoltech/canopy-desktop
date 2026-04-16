@@ -98,7 +98,7 @@ Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`.
 ### Sending task context to an AI agent
 
 1. User clicks "Send to Agent" on a task.
-2. Canopy fetches comments and downloads attachments (with fallback from config-based API to legacy connection-based API).
+2. Canopy fetches three things in parallel: the full task details (to get the description, which list fetches omit for performance), comments, and attachments — each with fallback from config-based API to legacy connection-based API.
 3. A formatted context string is assembled: task header, metadata (status, priority, type), URL, description, comments, and attachment file references (`@/path/to/file`).
 4. This text is injected into the agent's prompt.
 5. Attachment files are cleaned up after 60 seconds via `taskTrackerCleanupAttachments`.
