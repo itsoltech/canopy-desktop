@@ -83,7 +83,9 @@ export async function fetchAndFormatTaskContext(
   task: TaskContextInput,
   repoRoot?: string,
 ): Promise<string> {
-  const [comments, rawAttachments] = await Promise.all([
+  const [fullTask, comments, rawAttachments] = await Promise.all([
+    // Re-fetch full task to get description (list fetch omits it for performance)
+    window.api.taskTrackerFindTaskByKey(task.key).catch(() => null),
     window.api
       .trackerConfigFetchTaskComments(repoRoot, task.key, connectionId)
       .catch(() => window.api.taskTrackerFetchTaskComments(connectionId, task.key).catch(() => [])),
@@ -93,6 +95,10 @@ export async function fetchAndFormatTaskContext(
         window.api.taskTrackerFetchTaskAttachments(connectionId, task.key).catch(() => []),
       ),
   ])
+
+  const resolvedTask: TaskContextInput = fullTask
+    ? { ...task, description: fullTask.description || task.description }
+    : task
 
   const attachments: TaskAttachmentPath[] = []
   const failedAttachments: string[] = []
@@ -113,7 +119,7 @@ export async function fetchAndFormatTaskContext(
     }
   }
 
-  const context = formatTaskContext(task, comments, attachments, failedAttachments)
+  const context = formatTaskContext(resolvedTask, comments, attachments, failedAttachments)
 
   // Schedule cleanup of downloaded attachment files
   if (attachments.length > 0) {
