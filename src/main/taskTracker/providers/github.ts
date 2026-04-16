@@ -136,7 +136,7 @@ const COMMENTS_QUERY = `
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
-      comments(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      comments(first: 50, orderBy: {field: UPDATED_AT, direction: ASC}) {
         nodes {
           id, body
           author { login }

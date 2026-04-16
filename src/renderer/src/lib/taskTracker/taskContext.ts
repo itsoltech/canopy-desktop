@@ -47,7 +47,11 @@ export function formatTaskContext(
   if (task.url) lines.push(`URL: ${task.url}`)
 
   if (task.description) {
-    lines.push('', '## Description', truncate(task.description.trim(), MAX_DESCRIPTION_LENGTH))
+    lines.push(
+      '',
+      '## Description',
+      truncate(task.description.trim().replace(/\r\n?/g, '\n'), MAX_DESCRIPTION_LENGTH),
+    )
   }
 
   if (comments && comments.length > 0) {
@@ -55,7 +59,7 @@ export function formatTaskContext(
     lines.push('', '## Comments')
     for (const c of recent) {
       const date = c.created ? c.created.slice(0, 10) : ''
-      const body = truncate(c.body.trim(), MAX_COMMENT_LENGTH)
+      const body = truncate(c.body.trim().replace(/\r\n?/g, '\n'), MAX_COMMENT_LENGTH)
       lines.push(`[${date} ${c.author}]: ${body}`)
     }
   }
