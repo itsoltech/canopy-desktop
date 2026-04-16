@@ -79,8 +79,13 @@ function applyStatus(status: RemoteSessionStatus): void {
   }
 
   // Tear down the controller on return to idle or an error state. The main
-  // process already closed the peer WebSocket by this point.
-  if (status.kind === 'idle' || status.kind === 'error') {
+  // process already closed the peer WebSocket by this point. `listening`
+  // also means the peer is gone (we reach it from the reaper / idle path
+  // via returnToListening); leaving a dangling RTCPeerConnection alive
+  // would leak resources and run stale ICE timers into the void. A fresh
+  // pair attempt later will rebuild the controller via the
+  // offer-arrived-first branch in `onSignal` below.
+  if (status.kind === 'idle' || status.kind === 'error' || status.kind === 'listening') {
     teardownHostController()
   }
 
@@ -131,6 +136,16 @@ export function initRemoteSessionListeners(): () => void {
     })
 
   const unsubStatus = window.api.remote.onStatusChange((status) => applyStatus(status))
+
+  // Best-effort: ask the main process to bring the signaling server up in
+  // passive listen mode so a previously trusted phone can reconnect without
+  // the user re-opening the Remote Connection modal after a desktop
+  // restart. The main process silently no-ops unless the user has opted in
+  // and has ≥1 trusted device; on success we'll receive a `statusChange`
+  // event transitioning to `listening` through the listener above.
+  window.api.remote.ensureListening().catch(() => {
+    // Never surfaces errors — listen mode is opportunistic.
+  })
   const unsubSignal = window.api.remote.onSignal((msg) => {
     // Signals from the main process only reach this renderer if it's the
     // designated host window (see `RemoteSessionService.handlePeerSignal`), so

@@ -27,5 +27,17 @@ export default defineConfig(
       'svelte/no-unused-svelte-ignore': 'off',
     },
   },
+  // Plain JavaScript config files (Expo `app.config.js`, its plugins,
+  // one-off scripts) are legitimately CommonJS. Turn off the
+  // TypeScript-only rules that don't make sense for them — `require()` is
+  // the expected module system here, and return-type annotations are a TS
+  // construct.
+  {
+    files: ['**/*.{js,cjs,mjs}'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/explicit-function-return-type': 'off',
+    },
+  },
   eslintConfigPrettier,
 )

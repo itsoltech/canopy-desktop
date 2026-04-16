@@ -798,6 +798,7 @@ interface RemoteTrustedDevice {
 
 interface RemoteAPI {
   start: () => Promise<{ pairingUrl: string }>
+  ensureListening: () => Promise<void>
   stop: () => Promise<void>
   getStatus: () => Promise<RemoteSessionStatus>
   acceptDevice: (remember: boolean) => Promise<void>

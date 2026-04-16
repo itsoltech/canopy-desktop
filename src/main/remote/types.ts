@@ -7,6 +7,15 @@ export type RemoteSessionStatus =
   | { kind: 'idle' }
   | { kind: 'starting' }
   | {
+      // Signaling server is bound and waiting for a previously trusted device
+      // to reconnect. No active pairing session — untrusted peers are
+      // rejected until the user explicitly starts a QR pairing.
+      kind: 'listening'
+      hostname: string
+      lanIp: string
+      port: number
+    }
+  | {
       kind: 'waiting'
       pairingUrl: string
       hostname: string

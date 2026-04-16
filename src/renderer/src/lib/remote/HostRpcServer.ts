@@ -1,10 +1,10 @@
 import type { DataChannelRpc } from '../../../../renderer-shared/rpc/DataChannelRpc'
 import type { RpcMethods, RpcMethodName } from '../../../../renderer-shared/rpc/methodList'
-import { StateSnapshotProvider } from './StateSnapshotProvider'
+import { StateSnapshotProvider } from './StateSnapshotProvider.svelte'
 import { PtyStreamForwarder } from './PtyStreamForwarder'
 import { checkAction, resetSessionGrants } from './actionGuard'
 import { openTool, closeTab, switchTab, tabsByWorktree } from '../stores/tabs.svelte'
-import { selectWorktree } from '../stores/workspace.svelte'
+import { attachProject, selectWorktree } from '../stores/workspace.svelte'
 import { allPanes } from '../stores/splitTree'
 import { substituteLocalhost } from '../../../../renderer-shared/url/localhostSubstitution'
 import { remoteSession } from '../stores/remoteSession.svelte'
@@ -64,7 +64,8 @@ export class HostRpcServer {
     this.register('tools.spawn', async (params) => {
       const toolId = assertString(params, 'toolId', 'tools.spawn')
       const worktreePath = assertString(params, 'worktreePath', 'tools.spawn')
-      const tab = await openTool(toolId, worktreePath)
+      const profileId = optionalString(params, 'profileId', 'tools.spawn')
+      const tab = await openTool(toolId, worktreePath, profileId ? { profileId } : undefined)
       provider.rebroadcast()
       return { tabId: tab.id }
     })
@@ -170,6 +171,53 @@ export class HostRpcServer {
       return { substitutedUrl: substituteLocalhost(url, getHostLanIp()) }
     })
 
+    // Git / worktree mutations. Each fans out to the preload IPC bridge
+    // (which already handles `~/` expansion and surfaces git errors as
+    // string messages), then rebroadcasts state so the peer mirror
+    // reflects the new worktree list without waiting for the next delta.
+    this.register('git.listBranches', async (params) => {
+      const repoRoot = assertString(params, 'repoRoot', 'git.listBranches')
+      return await window.api.gitBranches(repoRoot)
+    })
+
+    this.register('worktree.add', async (params) => {
+      const repoRoot = assertString(params, 'repoRoot', 'worktree.add')
+      const path = assertString(params, 'path', 'worktree.add')
+      const branch = assertString(params, 'branch', 'worktree.add')
+      const baseBranch = assertString(params, 'baseBranch', 'worktree.add')
+      await window.api.gitWorktreeAdd(repoRoot, path, branch, baseBranch)
+      provider.rebroadcast()
+    })
+
+    this.register('worktree.addCheckout', async (params) => {
+      const repoRoot = assertString(params, 'repoRoot', 'worktree.addCheckout')
+      const path = assertString(params, 'path', 'worktree.addCheckout')
+      const branch = assertString(params, 'branch', 'worktree.addCheckout')
+      const createLocalTracking = assertBoolean(
+        params,
+        'createLocalTracking',
+        'worktree.addCheckout',
+      )
+      await window.api.gitWorktreeCheckout(repoRoot, path, branch, createLocalTracking)
+      provider.rebroadcast()
+    })
+
+    this.register('worktree.remove', async (params) => {
+      const repoRoot = assertString(params, 'repoRoot', 'worktree.remove')
+      const path = assertString(params, 'path', 'worktree.remove')
+      const force = assertBoolean(params, 'force', 'worktree.remove')
+      await window.api.gitWorktreeRemove(repoRoot, path, force)
+      provider.rebroadcast()
+    })
+
+    this.register('project.attach', async (params) => {
+      const rawPath = assertString(params, 'path', 'project.attach')
+      const homedir = await window.api.getHomedir()
+      const path = rawPath.startsWith('~/') ? homedir + rawPath.slice(1) : rawPath
+      await attachProject(path)
+      provider.rebroadcast()
+    })
+
     // Diagnostic log so we can confirm in the dev console that the whole
     // registration sequence completed without interruption.
     console.log('[remote] HostRpcServer: registered all handlers')
@@ -229,6 +277,29 @@ function assertString(obj: unknown, key: string, method: string): string {
   const value = (obj as Record<string, unknown>)[key]
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`${method}: "${key}" must be a non-empty string`)
+  }
+  return value
+}
+
+function assertBoolean(obj: unknown, key: string, method: string): boolean {
+  if (typeof obj !== 'object' || obj === null) {
+    throw new Error(`${method}: params must be an object`)
+  }
+  const value = (obj as Record<string, unknown>)[key]
+  if (typeof value !== 'boolean') {
+    throw new Error(`${method}: "${key}" must be a boolean`)
+  }
+  return value
+}
+
+function optionalString(obj: unknown, key: string, method: string): string | undefined {
+  if (typeof obj !== 'object' || obj === null) {
+    throw new Error(`${method}: params must be an object`)
+  }
+  const value = (obj as Record<string, unknown>)[key]
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${method}: "${key}" must be a non-empty string when present`)
   }
   return value
 }

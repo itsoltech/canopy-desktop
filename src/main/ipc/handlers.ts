@@ -553,6 +553,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('db:prefs:set', (_event, payload: { key: string; value: string }) => {
     preferencesStore.set(payload.key, payload.value)
+    if (payload.key === 'remote.enabled' && payload.value === 'false') {
+      void remoteSessionService.stop()
+    }
   })
 
   ipcMain.handle('db:prefs:getAll', () => {
@@ -2474,6 +2477,19 @@ export function registerIpcHandlers(
     // to this window only, not broadcast to the other windows.
     const result = await remoteSessionService.start(event.sender.id)
     return unwrapOrThrow(result, remoteServerErrorMessage)
+  })
+
+  ipcMain.handle('remote:ensureListening', async (event) => {
+    // Best-effort: auto-bind the signaling server in listen mode so a
+    // previously trusted phone can reconnect without the user opening the
+    // Remote Connection modal. Silently no-ops if the user hasn't opted in,
+    // has no trusted devices, or the network is unavailable. Swallowed
+    // errors never surface to the renderer — a failed listen should not
+    // block app startup or UI rendering.
+    await remoteSessionService.ensureListening(event.sender.id).match(
+      () => {},
+      () => {},
+    )
   })
 
   ipcMain.handle('remote:stop', async () => {

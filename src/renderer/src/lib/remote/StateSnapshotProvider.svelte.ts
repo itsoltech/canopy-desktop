@@ -1,16 +1,20 @@
 import type { DataChannelRpc } from '../../../../renderer-shared/rpc/DataChannelRpc'
 import { REMOTE_PROTOCOL_VERSION } from '../../../../renderer-shared/rpc/protocol'
 import type {
+  ProfileSnapshot,
   ProjectSnapshot,
   StateSnapshot,
   TabSnapshot,
   ToolSnapshot,
   WorktreeSnapshot,
 } from '../../../../renderer-shared/state/snapshot'
+import { agentSessions } from '../agents/agentState.svelte'
+import { getWorktreeAgentStatus } from '../agents/worktreeStatus.svelte'
 import { projects, workspaceState, type ProjectState } from '../stores/workspace.svelte'
 import { remoteSession } from '../stores/remoteSession.svelte'
 import { tabsByWorktree, activeTabId, type TabInfo } from '../stores/tabs.svelte'
 import { getTools, getToolAvailability } from '../stores/tools.svelte'
+import { getProfiles } from '../stores/profiles.svelte'
 import { findLeaf } from '../stores/splitTree'
 
 /**
@@ -55,6 +59,15 @@ export class StateSnapshotProvider {
     try {
       this.disposeEffects = $effect.root(() => {
         $effect(() => {
+          // Explicitly walk every agent session and read `.status.type` so
+          // Svelte's dep tracker pins this effect to agent status mutations,
+          // independent of the transitive read through
+          // `serializeWorktree → getWorktreeAgentStatus`. Without this the
+          // deep nested proxy read can be missed, leaving mobile dots frozen
+          // at their initial snapshot state.
+          for (const id in agentSessions) {
+            void agentSessions[id]?.status.type
+          }
           rpc.emit('projects', projects.map(serializeProject))
         })
 
@@ -78,6 +91,10 @@ export class StateSnapshotProvider {
 
         $effect(() => {
           rpc.emit('tools', serializeTools())
+        })
+
+        $effect(() => {
+          rpc.emit('profiles', serializeProfiles())
         })
       })
     } catch (err) {
@@ -116,6 +133,7 @@ export class StateSnapshotProvider {
       rpc.emit('activeTab', { ...activeTabId })
       rpc.emit('activeWorktree', workspaceState.selectedWorktreePath)
       rpc.emit('tools', serializeTools())
+      rpc.emit('profiles', serializeProfiles())
     } catch (err) {
       console.warn('[remote] rebroadcast failed:', err)
     }
@@ -144,6 +162,7 @@ export class StateSnapshotProvider {
       activeTabByWorktree: { ...activeTabId },
       activeWorktreePath: workspaceState.selectedWorktreePath,
       tools: serializeTools(),
+      profiles: serializeProfiles(),
     }
   }
 }
@@ -164,7 +183,15 @@ function serializeWorktree(wt: {
   branch: string
   isMain: boolean
 }): WorktreeSnapshot {
-  return { path: wt.path, branch: wt.branch, isMain: wt.isMain }
+  // Reading agentSessions through getWorktreeAgentStatus inside the
+  // projects $effect means Svelte tracks it too, so agent status changes
+  // trigger a fresh 'projects' delta without needing a separate topic.
+  return {
+    path: wt.path,
+    branch: wt.branch,
+    isMain: wt.isMain,
+    agentStatus: getWorktreeAgentStatus(wt.path),
+  }
 }
 
 function serializeTab(tab: TabInfo): TabSnapshot {
@@ -199,6 +226,21 @@ function serializeTools(): ToolSnapshot[] {
     isCustom: t.isCustom,
     available: availability[t.id] !== false,
   }))
+}
+
+function serializeProfiles(): ProfileSnapshot[] {
+  // Trim to the minimum the peer picker needs — NEVER include
+  // `prefs.customEnv` / `prefs.settingsJson`: those routinely hold API
+  // tokens and provider URLs and must not cross the WebRTC wire.
+  return getProfiles()
+    .map((p) => ({
+      id: p.id,
+      agentType: p.agentType,
+      name: p.name,
+      isDefault: p.isDefault,
+      sortIndex: p.sortIndex,
+    }))
+    .sort((a, b) => a.sortIndex - b.sortIndex || a.name.localeCompare(b.name))
 }
 
 function getLanIpFromStatus(): string {
