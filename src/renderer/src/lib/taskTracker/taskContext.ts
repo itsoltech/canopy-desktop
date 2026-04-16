@@ -19,13 +19,23 @@ interface TaskAttachmentPath {
   localPath: string
 }
 
-const MAX_DESCRIPTION_LENGTH = 3000
 const MAX_COMMENTS = 15
-const MAX_COMMENT_LENGTH = 1000
 
-function truncate(text: string, max: number): string {
-  if (text.length <= max) return text
-  return text.slice(0, max) + '...'
+function normalizeTaskText(text: string): string {
+  return text.replace(/\r\n?/g, '\n').replace(/\u2028|\u2029/g, '\n')
+}
+
+function formatMultilineText(text: string): string {
+  return normalizeTaskText(text)
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function pushMultiline(lines: string[], text: string): void {
+  for (const line of text.split('\n')) {
+    lines.push(line)
+  }
 }
 
 export function formatTaskContext(
@@ -36,7 +46,7 @@ export function formatTaskContext(
 ): string {
   const lines: string[] = ['Work on the following task:', '']
 
-  lines.push(`# ${task.key}: ${task.summary}`)
+  lines.push(`# ${task.key}: ${normalizeTaskText(task.summary).trim()}`)
 
   const meta: string[] = []
   if (task.status) meta.push(`Status: ${task.status}`)
@@ -47,11 +57,11 @@ export function formatTaskContext(
   if (task.url) lines.push(`URL: ${task.url}`)
 
   if (task.description) {
-    lines.push(
-      '',
-      '## Description',
-      truncate(task.description.trim().replace(/\r\n?/g, '\n'), MAX_DESCRIPTION_LENGTH),
-    )
+    const description = formatMultilineText(task.description)
+    if (description) {
+      lines.push('', '## Description')
+      pushMultiline(lines, description)
+    }
   }
 
   if (comments && comments.length > 0) {
@@ -59,9 +69,14 @@ export function formatTaskContext(
     lines.push('', '## Comments')
     for (const c of recent) {
       const date = c.created ? c.created.slice(0, 10) : ''
-      const body = truncate(c.body.trim().replace(/\r\n?/g, '\n'), MAX_COMMENT_LENGTH)
-      lines.push(`[${date} ${c.author}]: ${body}`)
+      const author = normalizeTaskText(c.author).trim()
+      const body = formatMultilineText(c.body)
+      const header = [date, author].filter(Boolean).join(' ')
+      lines.push(header ? `[${header}]` : '[Comment]')
+      if (body) pushMultiline(lines, body)
+      lines.push('')
     }
+    if (lines.at(-1) === '') lines.pop()
   }
 
   if (

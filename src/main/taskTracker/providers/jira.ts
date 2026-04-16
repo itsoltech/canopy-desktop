@@ -86,14 +86,20 @@ function parseSprintNumber(name: string): number | undefined {
   return match ? parseInt(match[0], 10) : undefined
 }
 
+function normalizeTrackerText(text: string): string {
+  return text.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
 function adfToPlainText(node: unknown): string {
   if (!node || typeof node !== 'object') return typeof node === 'string' ? node : ''
   const n = node as { type?: string; text?: string; content?: unknown[] }
   if (n.type === 'text') return n.text ?? ''
+  if (n.type === 'hardBreak') return '\n'
   if (Array.isArray(n.content)) {
     const parts = n.content.map(adfToPlainText)
-    if (n.type === 'paragraph' || n.type === 'heading') return parts.join('') + '\n'
-    if (n.type === 'listItem') return '• ' + parts.join('')
+    if (n.type === 'paragraph' || n.type === 'heading') return parts.join('').trimEnd() + '\n\n'
+    if (n.type === 'listItem') return '• ' + parts.join('').trim() + '\n'
+    if (n.type === 'bulletList' || n.type === 'orderedList') return parts.join('') + '\n'
     return parts.join('')
   }
   return ''
@@ -105,7 +111,9 @@ function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {
     key: task.key,
     summary: f.summary ?? '',
     description:
-      typeof f.description === 'string' ? f.description : adfToPlainText(f.description).trim(),
+      typeof f.description === 'string'
+        ? normalizeTrackerText(f.description)
+        : normalizeTrackerText(adfToPlainText(f.description)),
     status: f.status?.name ?? '',
     priority: f.priority?.name ?? '',
     type: mapTaskType(f),
@@ -274,7 +282,10 @@ export const jiraClient: TaskTrackerProviderClient = {
         (c): TrackerComment => ({
           id: c.id,
           author: c.author?.displayName ?? '',
-          body: typeof c.body === 'string' ? c.body : adfToPlainText(c.body).trim(),
+          body:
+            typeof c.body === 'string'
+              ? normalizeTrackerText(c.body)
+              : normalizeTrackerText(adfToPlainText(c.body)),
           created: c.created ?? '',
         }),
       ),
