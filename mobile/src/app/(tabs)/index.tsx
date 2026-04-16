@@ -47,7 +47,18 @@ export default function InstancesScreen(): React.ReactElement {
   }
 
   const removeInstance = (id: string): void => {
-    void SavedInstancesStorage.remove(id).catch(() => {})
+    Alert.alert(
+      'Remove instance',
+      'This will delete the saved connection. You will need to re-scan the QR code to reconnect.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => void SavedInstancesStorage.remove(id).catch(() => {}),
+        },
+      ],
+    )
   }
 
   const showEmpty = !loading && instances !== null && instances.length === 0

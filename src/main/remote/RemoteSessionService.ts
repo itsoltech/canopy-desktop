@@ -435,6 +435,9 @@ export class RemoteSessionService {
   // ===== SignalingServer callbacks =====
 
   private handlePairAttempt(msg: PairMessage): PairResponse {
+    if (!this.isEnabledInPreferences()) {
+      return { ok: false, reason: 'remote control disabled' }
+    }
     const ts = new Date().toISOString().slice(11, 23)
     const incomingDeviceId =
       typeof msg.deviceId === 'string' && msg.deviceId.length > 0 ? msg.deviceId : null

@@ -553,6 +553,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('db:prefs:set', (_event, payload: { key: string; value: string }) => {
     preferencesStore.set(payload.key, payload.value)
+    if (payload.key === 'remote.enabled' && payload.value === 'false') {
+      void remoteSessionService.stop()
+    }
   })
 
   ipcMain.handle('db:prefs:getAll', () => {

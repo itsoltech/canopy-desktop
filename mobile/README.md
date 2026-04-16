@@ -1,56 +1,52 @@
-# Welcome to your Expo app 👋
+# Canopy Remote
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+iOS companion app for [Canopy](https://itsol.tech/canopy) — control your desktop terminal from your phone over local Wi-Fi. Connects via WebRTC data channels after a one-time QR code pair.
 
-## Get started
+## Prerequisites
 
-1. Install dependencies
+- Node.js 22+
+- [EAS CLI](https://docs.expo.dev/eas-update/getting-started/): `npm i -g eas-cli`
+- Xcode 15+ (for iOS simulator / device builds)
+- A running Canopy desktop instance with remote control enabled (see [protocol docs](../docs/features/remote-control.md))
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Setup
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Build profiles
 
-### Other setup steps
+| Profile             | Command                                                    | Output                         |
+| ------------------- | ---------------------------------------------------------- | ------------------------------ |
+| iOS simulator (dev) | `eas build --profile development-simulator --platform ios` | `.app` for Simulator           |
+| iOS device (dev)    | `eas build --profile development --platform ios`           | `.ipa` for TestFlight internal |
+| Production          | `eas build --profile production --platform ios`            | App Store `.ipa`               |
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Dev against a local desktop
 
-## Learn more
+1. Start the desktop app: `npm run dev` from the repo root
+2. In Canopy: Preferences → Security → Remote Control → enable
+3. Open pairing modal: `Cmd+Shift+P` → "Open Remote Connection"
+4. Install the simulator build, tap Connect, scan the QR code
+5. Accept on the desktop — the session is live
 
-To learn more about developing your project with Expo, look at the following resources:
+## EAS submit
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Set the following env vars before submitting (or store them in EAS environment variables with `eas env:create`):
 
-## Join the community
+```
+EXPO_APPLE_ID        # Apple ID email used for App Store Connect
+EXPO_ASC_APP_ID      # Numeric App Store Connect App ID
+EXPO_APPLE_TEAM_ID   # 10-character Apple Team ID
+```
 
-Join our community of developers creating universal apps.
+Then run:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+eas submit --profile production --platform ios
+```
+
+## Protocol
+
+See [docs/features/remote-control.md](../docs/features/remote-control.md) for the full pairing flow, WebRTC architecture, trust model, and listen mode behaviour.
