@@ -14,7 +14,7 @@
   let timer: ReturnType<typeof setTimeout> | null = null
   let portalEl: HTMLDivElement | null = null
 
-  function handleEnter(event: MouseEvent): void {
+  function handleEnter(event: MouseEvent | FocusEvent): void {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
     x = rect.left + rect.width / 2
     y = rect.bottom + 4
@@ -79,6 +79,8 @@
   onmouseenter={handleEnter}
   onmouseleave={dismiss}
   onmousedown={dismiss}
+  onfocusin={handleEnter}
+  onfocusout={dismiss}
 >
   {@render children()}
 </span>

@@ -302,10 +302,18 @@
             <span
               class="tab-badge connection-badge"
               class:disconnected={connState === 'disconnected'}
+              role="status"
+              aria-label={connState === 'disconnected' ? 'Disconnected' : 'Reconnecting'}
               title={connState === 'disconnected' ? 'Disconnected' : 'Reconnecting...'}
             ></span>
           {:else if badge !== 'none'}
-            <span class="tab-badge" class:orange={badge === 'permission'}></span>
+            <span
+              class="tab-badge"
+              class:orange={badge === 'permission'}
+              role="status"
+              aria-label={badge === 'permission' ? 'Permission required' : 'Unread activity'}
+              title={badge === 'permission' ? 'Permission required' : 'Unread activity'}
+            ></span>
           {/if}
           <button
             class="tab-close"

@@ -155,14 +155,18 @@
 
     {#if hasAnyRunning}
       <Tooltip text={`Stop all (${totalRunningCount})`}>
-        <button class="stop-btn" onclick={handleStop}>
+        <button
+          class="stop-btn"
+          onclick={handleStop}
+          aria-label={`Stop all (${totalRunningCount})`}
+        >
           <Square size={10} />
           <span class="count-badge">{totalRunningCount}</span>
         </button>
       </Tooltip>
     {:else}
       <Tooltip text="Run">
-        <button class="play-btn" onclick={handlePlay}>
+        <button class="play-btn" onclick={handlePlay} aria-label="Run">
           <Play size={12} />
         </button>
       </Tooltip>
@@ -175,6 +179,7 @@
           const target = getActiveTarget()
           showRunConfigManager(target?.configDir, target?.name)
         }}
+        aria-label="Manage configurations"
       >
         <Settings size={12} />
       </button>
@@ -216,6 +221,7 @@
                 <button
                   class="dropdown-item-stop"
                   title={itemRunning > 1 ? `Stop all (${itemRunning})` : 'Stop'}
+                  aria-label={itemRunning > 1 ? `Stop all (${itemRunning})` : 'Stop'}
                   onclick={(e) => {
                     e.stopPropagation()
                     stopItem(item.configDir, item.name)
@@ -230,6 +236,7 @@
                 <button
                   class="dropdown-item-play"
                   title="Run"
+                  aria-label="Run {item.name}"
                   onclick={(e) => {
                     e.stopPropagation()
                     runItem(item.configDir, item.name)
