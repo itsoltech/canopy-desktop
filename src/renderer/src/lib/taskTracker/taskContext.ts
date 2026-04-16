@@ -19,6 +19,8 @@ interface TaskAttachmentPath {
   localPath: string
 }
 
+// Description and comment bodies are sent without a character cap — the agent manages
+// its own context window and will summarise or ignore content as needed.
 const MAX_COMMENTS = 15
 
 function normalizeTaskText(text: string): string {
