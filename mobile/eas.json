@@ -55,6 +55,12 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "damianp96@gmail.com",
+        "ascAppId": "6762201660",
+        "appleTeamId": "728Q2DZV73"
+      }
+    }
   }
 }

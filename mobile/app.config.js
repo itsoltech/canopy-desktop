@@ -19,7 +19,11 @@ const base = {
       checkAutomatically: 'NEVER',
     },
     ios: {
-      icon: './assets/expo.icon',
+      icon: {
+        light: './assets/images/icon-ios-light.png',
+        dark: './assets/images/icon-ios-dark.png',
+        tinted: './assets/images/icon-ios-tinted.png',
+      },
       bundleIdentifier: 'tech.itsol.canopy',
       supportsTablet: true,
       infoPlist: {
@@ -29,7 +33,7 @@ const base = {
     android: {
       package: 'tech.itsol.canopy',
       adaptiveIcon: {
-        backgroundColor: '#E6F4FE',
+        backgroundColor: '#FFFFFF',
         foregroundImage: './assets/images/android-icon-foreground.png',
         backgroundImage: './assets/images/android-icon-background.png',
         monochromeImage: './assets/images/android-icon-monochrome.png',
@@ -56,10 +60,12 @@ const base = {
       [
         'expo-splash-screen',
         {
-          backgroundColor: '#208AEF',
+          backgroundColor: '#FFFFFF',
+          image: './assets/images/splash-icon.png',
+          imageWidth: 200,
           android: {
             image: './assets/images/splash-icon.png',
-            imageWidth: 76,
+            imageWidth: 200,
           },
         },
       ],
