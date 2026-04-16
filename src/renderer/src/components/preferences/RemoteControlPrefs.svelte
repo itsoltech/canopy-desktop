@@ -41,7 +41,13 @@
     }
   }
 
-  async function removeDevice(deviceId: string): Promise<void> {
+  async function removeDevice(deviceId: string, name: string): Promise<void> {
+    if (
+      !confirm(
+        `Remove "${name}" from trusted devices? It will need manual approval to connect again.`,
+      )
+    )
+      return
     try {
       await window.api.remote.removeTrustedDevice(deviceId)
       await loadTrustedDevices()
@@ -178,7 +184,7 @@
             <button
               type="button"
               class="device-remove"
-              onclick={() => removeDevice(device.deviceId)}
+              onclick={() => removeDevice(device.deviceId, device.name)}
               title="Remove trusted device"
             >
               Remove
