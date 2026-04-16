@@ -2020,10 +2020,12 @@ export function registerIpcHandlers(
     },
   )
 
+  const TASK_KEY_RE = /^[A-Za-z0-9_#-]+-?\d+$/
+
   ipcMain.handle(
     'trackerConfig:fetchTaskComments',
     async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
-      if (!/^[A-Za-z0-9_#-]+-?\d+$/.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTaskCommentsFromConfig(
@@ -2039,7 +2041,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:fetchTaskAttachments',
     async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
-      if (!/^[A-Za-z0-9_#-]+-?\d+$/.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTaskAttachmentsFromConfig(
@@ -2076,7 +2078,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:findTaskByKey',
     async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
-      if (!/^[A-Za-z0-9_#-]+-?\d+$/.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.findTaskByKeyFromConfig(
@@ -2088,8 +2090,6 @@ export function registerIpcHandlers(
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
-
-  const TASK_KEY_RE = /^[A-Za-z0-9_#-]+-?\d+$/
 
   ipcMain.handle(
     'taskTracker:fetchTaskComments',
