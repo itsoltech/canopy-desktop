@@ -1,3 +1,9 @@
+## [0.12.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.3...v0.12.0-next.4) (2026-04-16)
+
+### Features
+
+* **mobile:** remote control companion app for iOS ([#165](https://github.com/itsoltech/canopy-desktop/issues/165)) ([d56e233](https://github.com/itsoltech/canopy-desktop/commit/d56e233909144994c3f6687f989626b0e411ec0b))
+
 ## [0.12.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.2...v0.12.0-next.3) (2026-04-15)
 
 ### Features
