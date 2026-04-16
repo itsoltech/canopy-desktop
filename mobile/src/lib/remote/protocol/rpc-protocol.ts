@@ -1,5 +1,4 @@
-// Copied from src/renderer-shared/rpc/protocol.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer-shared/rpc/protocol.ts when the wire protocol changes.
 
 /**
  * Constants describing the WebRTC remote-control wire protocol.

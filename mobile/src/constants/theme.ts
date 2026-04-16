@@ -63,3 +63,14 @@ export const Spacing = {
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0
 export const MaxContentWidth = 800
+
+/** iOS system semantic colors for agent/worktree status indicators. */
+export const StatusColors = {
+  idle: '#30d158',
+  working: '#0a84ff',
+  waitingPermission: '#ffd60a',
+  error: '#ff453a',
+} as const
+
+/** iOS system red — used for destructive actions and validation errors. */
+export const DangerColor = '#ff453a'

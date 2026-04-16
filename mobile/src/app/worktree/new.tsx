@@ -15,7 +15,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
-import { Spacing } from '@/constants/theme'
+import { DangerColor, Spacing } from '@/constants/theme'
 import { useRemoteSession } from '@/hooks/use-remote-session'
 import { useProjects } from '@/hooks/use-remote-state'
 import { useTheme } from '@/hooks/use-theme'
@@ -562,10 +562,10 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     padding: Spacing.three,
     borderWidth: 1,
-    borderColor: '#ff453a',
+    borderColor: DangerColor,
   },
   errorText: {
-    color: '#ff453a',
+    color: DangerColor,
   },
   actions: {
     flexDirection: 'row',

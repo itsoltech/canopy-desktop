@@ -1,5 +1,4 @@
-// Copied from src/renderer/src/remote/lib/api.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer/src/remote/lib/api.ts when the wire protocol changes.
 
 import type { DataChannelRpc } from './DataChannelRpc'
 import { PeerRpcClient } from './PeerRpcClient'

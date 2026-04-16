@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native'
 
 import { ThemedText } from '@/components/themed-text'
-import { Spacing } from '@/constants/theme'
+import { Spacing, StatusColors } from '@/constants/theme'
 import { useRemoteSession } from '@/hooks/use-remote-session'
 import { useTheme } from '@/hooks/use-theme'
 import type { WorktreeAgentStatus, WorktreeSnapshot } from '@/lib/mock/snapshot-types'
@@ -14,12 +14,7 @@ type WorktreeRowProps = {
   onPress: () => void
 }
 
-const STATUS_COLORS: Record<Exclude<WorktreeAgentStatus, 'none'>, string> = {
-  idle: '#30d158',
-  working: '#0a84ff',
-  waitingPermission: '#ffd60a',
-  error: '#ff453a',
-}
+const STATUS_COLORS: Record<Exclude<WorktreeAgentStatus, 'none'>, string> = StatusColors
 
 export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): React.ReactElement {
   const theme = useTheme()

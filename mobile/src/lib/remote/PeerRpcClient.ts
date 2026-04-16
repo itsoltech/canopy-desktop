@@ -1,5 +1,4 @@
-// Copied from src/renderer/src/remote/lib/peer/PeerRpcClient.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer/src/remote/lib/peer/PeerRpcClient.ts when the wire protocol changes.
 
 import type { DataChannelRpc } from './DataChannelRpc'
 import type { CallArgs, RpcMethodName, RpcMethods } from './protocol/rpc-methods'

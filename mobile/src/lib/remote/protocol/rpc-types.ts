@@ -1,5 +1,4 @@
-// Copied from src/renderer-shared/rpc/types.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer-shared/rpc/types.ts when the wire protocol changes.
 
 /**
  * Wire protocol for RPC over RTCDataChannel between Canopy host and remote peer.

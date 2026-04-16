@@ -1,5 +1,4 @@
-// Copied from src/renderer-shared/state/deltas.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer-shared/state/deltas.ts when the wire protocol changes.
 
 import type { ProfileSnapshot, ProjectSnapshot, TabSnapshot, ToolSnapshot } from './state-snapshot'
 

@@ -1,5 +1,4 @@
-// Copied from src/renderer-shared/state/snapshot.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer-shared/state/snapshot.ts when the wire protocol changes.
 
 /**
  * Serialized snapshot of the Canopy host's relevant stores, sent to the

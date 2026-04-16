@@ -1,5 +1,4 @@
-// Copied from src/renderer-shared/rpc/methodList.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer-shared/rpc/methodList.ts when the wire protocol changes.
 
 import type { StateSnapshot } from './state-snapshot'
 

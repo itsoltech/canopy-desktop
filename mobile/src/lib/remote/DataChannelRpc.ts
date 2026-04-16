@@ -1,5 +1,4 @@
-// Copied from src/renderer-shared/rpc/DataChannelRpc.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer-shared/rpc/DataChannelRpc.ts when the wire protocol changes.
 //
 // Runtime note: `crypto.getRandomValues()` requires the
 // `react-native-get-random-values` polyfill to be imported at app entry

@@ -1,5 +1,4 @@
-// Copied from src/renderer-shared/remote/iceConfig.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer-shared/remote/iceConfig.ts when the wire protocol changes.
 
 /**
  * ICE servers used by both the Canopy host and the remote peer when

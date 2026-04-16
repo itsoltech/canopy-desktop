@@ -1,5 +1,4 @@
-// Copied from src/renderer-shared/remote/signalingProtocol.ts
-// Keep in sync when the wire protocol changes.
+// Keep in sync with src/renderer-shared/remote/signalingProtocol.ts when the wire protocol changes.
 
 /**
  * Wire protocol for the WebRTC signaling WebSocket at `/signaling`.
