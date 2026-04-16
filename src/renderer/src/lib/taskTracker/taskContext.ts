@@ -85,7 +85,9 @@ export async function fetchAndFormatTaskContext(
 ): Promise<string> {
   const [fullTask, comments, rawAttachments] = await Promise.all([
     // Re-fetch full task to get description (list fetch omits it for performance)
-    window.api.taskTrackerFindTaskByKey(task.key).catch(() => null),
+    window.api
+      .trackerConfigFindTaskByKey(repoRoot, task.key, connectionId)
+      .catch(() => window.api.taskTrackerFindTaskByKey(task.key).catch(() => null)),
     window.api
       .trackerConfigFetchTaskComments(repoRoot, task.key, connectionId)
       .catch(() => window.api.taskTrackerFetchTaskComments(connectionId, task.key).catch(() => [])),

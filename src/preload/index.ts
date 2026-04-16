@@ -733,6 +733,8 @@ const api = {
       filename,
       trackerId,
     }),
+  trackerConfigFindTaskByKey: (repoRoot: string | undefined, taskKey: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:findTaskByKey', { repoRoot, taskKey, trackerId }),
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) =>

@@ -560,6 +560,11 @@ interface CanopyAPI {
     filename: string,
     trackerId?: string,
   ) => Promise<string>
+  trackerConfigFindTaskByKey: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => Promise<TrackerTask | null>
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
