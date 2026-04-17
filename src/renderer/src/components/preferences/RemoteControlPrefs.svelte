@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
   type GuardProfile = 'none' | 'destructive' | 'full'
@@ -42,12 +43,13 @@
   }
 
   async function removeDevice(deviceId: string, name: string): Promise<void> {
-    if (
-      !confirm(
-        `Remove "${name}" from trusted devices? It will need manual approval to connect again.`,
-      )
-    )
-      return
+    const ok = await confirm({
+      title: 'Remove Trusted Device',
+      message: `Remove "${name}" from trusted devices? It will need manual approval to connect again.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await window.api.remote.removeTrustedDevice(deviceId)
       await loadTrustedDevices()
