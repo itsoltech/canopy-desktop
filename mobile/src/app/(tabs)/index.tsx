@@ -80,20 +80,22 @@ export default function InstancesScreen(): React.ReactElement {
           />
         </SafeAreaView>
       ) : (
-        <FlatList
-          data={instances ?? []}
-          keyExtractor={(i) => i.id}
-          ListHeaderComponent={<LargeTitle />}
-          contentContainerStyle={styles.listContent}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          renderItem={({ item }) => (
-            <SwipeableInstanceCard
-              instance={item}
-              onPress={() => goToDetail(item.id)}
-              onRemove={() => removeInstance(item.id)}
-            />
-          )}
-        />
+        <SafeAreaView edges={['top']} style={styles.container}>
+          <FlatList
+            data={instances ?? []}
+            keyExtractor={(i) => i.id}
+            ListHeaderComponent={<LargeTitle />}
+            contentContainerStyle={styles.listContent}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            renderItem={({ item }) => (
+              <SwipeableInstanceCard
+                instance={item}
+                onPress={() => goToDetail(item.id)}
+                onRemove={() => removeInstance(item.id)}
+              />
+            )}
+          />
+        </SafeAreaView>
       )}
 
       {!showEmpty && <AddInstanceFab onPress={goToScan} />}
@@ -175,7 +177,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
   },
   listContent: {
-    paddingTop: TOP_INSET,
     paddingHorizontal: Spacing.four,
     paddingBottom: BottomTabInset + Spacing.six + Spacing.four,
   },
