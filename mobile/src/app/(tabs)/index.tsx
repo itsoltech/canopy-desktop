@@ -4,7 +4,7 @@ import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable'
 import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native'
-import { initialWindowMetrics } from 'react-native-safe-area-context'
+import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { AddInstanceFab } from '@/components/instances/add-instance-fab'
 import { InstancesEmptyState } from '@/components/instances/empty-state'
@@ -16,8 +16,6 @@ import { useSavedInstances } from '@/hooks/use-saved-instances'
 import { makeMockInstance } from '@/lib/mock/projects'
 import { SavedInstancesStorage } from '@/lib/storage/saved-instances'
 import type { SavedInstance } from '@/lib/storage/saved-instances-types'
-
-const TOP_INSET = initialWindowMetrics?.insets.top ?? 0
 
 function LargeTitle(): React.ReactElement {
   return (
@@ -74,13 +72,13 @@ export default function InstancesScreen(): React.ReactElement {
       )}
 
       {showEmpty ? (
-        <View style={styles.emptyContainer}>
+        <SafeAreaView edges={['top']} style={styles.emptyContainer}>
           <LargeTitle />
           <InstancesEmptyState
             onScanPress={goToScan}
             onAddMockPress={__DEV__ ? addMock : undefined}
           />
-        </View>
+        </SafeAreaView>
       ) : (
         <FlatList
           data={instances ?? []}
@@ -174,6 +172,7 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     flex: 1,
+    paddingHorizontal: Spacing.four,
   },
   listContent: {
     paddingTop: TOP_INSET,
