@@ -1,3 +1,9 @@
+## [0.12.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.6...v0.12.0-next.7) (2026-04-17)
+
+### Features
+
+* add pane tab strip for split terminal management ([#170](https://github.com/itsoltech/canopy-desktop/issues/170)) ([e08dee8](https://github.com/itsoltech/canopy-desktop/commit/e08dee8243b35586c59557073f481270a93bc40b))
+
 ## [0.12.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.5...v0.12.0-next.6) (2026-04-17)
 
 ### Bug Fixes
