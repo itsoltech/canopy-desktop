@@ -154,6 +154,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.12.0',
     category: 'feature',
   },
+  {
+    id: 'pane-tab-strip-controls',
+    title: 'Pane tab strip controls',
+    description:
+      'Split panes now show a tab strip with quick actions: drag the strip to move the pane, use Detach to turn it into its own tab, or use Close to close just that pane.',
+    introducedIn: '0.12.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

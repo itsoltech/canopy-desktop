@@ -1178,18 +1178,23 @@ export async function splitFocusedPane(
   scheduleSave(worktreePath)
 }
 
-export async function closeFocusedPane(worktreePath: string): Promise<void> {
+export async function closePane(
+  worktreePath: string,
+  tabId: string,
+  paneId: string,
+): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return
 
-  const tabId = activeTabId[worktreePath]
   const tab = tabs.find((t) => t.id === tabId)
   if (!tab) return
 
-  // Check if focused pane has active process before closing
-  const focusedPane = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (focusedPane && focusedPane.isRunning) {
-    const description = await getActiveProcessDescription([focusedPane])
+  const pane = findLeaf(tab.rootSplit, paneId)
+  if (!pane) return
+
+  // Check if this pane has active process before closing
+  if (pane.isRunning) {
+    const description = await getActiveProcessDescription([pane])
     if (description) {
       const confirmed = await confirm({
         title: 'Close pane?',
@@ -1201,7 +1206,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     }
   }
 
-  const result = treeRemovePane(tab.rootSplit, tab.focusedPaneId)
+  const result = treeRemovePane(tab.rootSplit, paneId)
   if (!result) return
   disposeEphemeralPaneState(result.removed)
 
@@ -1221,8 +1226,6 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
 
   if (!result.tree) {
     // Last pane — close the tab entirely
-    // Remove from closed tabs push since closeTab will handle it
-    // But we already cleaned up the session, so we handle it manually
     if (!closedTabs[worktreePath]) closedTabs[worktreePath] = []
     closedTabs[worktreePath].push({
       toolId: tab.toolId,
@@ -1252,6 +1255,17 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     reconcileTabIdentity(tab)
   }
   scheduleSave(worktreePath)
+}
+
+export async function closeFocusedPane(worktreePath: string): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+
+  const tabId = activeTabId[worktreePath]
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  await closePane(worktreePath, tab.id, tab.focusedPaneId)
 }
 
 export function navigatePaneFocus(

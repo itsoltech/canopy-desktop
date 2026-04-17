@@ -23,6 +23,7 @@
     sessionId,
     wsUrl,
     active = true,
+    focused = true,
     visible = true,
     isAiTool = false,
     onTitleChange,
@@ -30,6 +31,7 @@
     sessionId: string
     wsUrl: string
     active?: boolean
+    focused?: boolean
     visible?: boolean
     isAiTool?: boolean
     onTitleChange?: (title: string) => void
@@ -80,7 +82,7 @@
   // Focus terminal when tab becomes active (deferred to next frame so the
   // container has left display:none and the browser has finished layout)
   $effect(() => {
-    if (active && termRef) {
+    if (focused && termRef) {
       const term = termRef
       requestAnimationFrame(() => term.focus())
     }
