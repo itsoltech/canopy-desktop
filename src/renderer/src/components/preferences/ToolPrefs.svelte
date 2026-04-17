@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getTools } from '../../lib/stores/tools.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
 
@@ -51,7 +52,14 @@
     }
   }
 
-  async function removeTool(id: string): Promise<void> {
+  async function removeTool(id: string, name: string): Promise<void> {
+    const ok = await confirm({
+      title: 'Remove Tool',
+      message: `Remove tool "${name}"? This cannot be undone.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     await window.api.removeCustomTool(id)
   }
 
@@ -153,7 +161,8 @@
           <span class="tool-category">{tool.category}</span>
           {#if tool.isCustom}
             <button class="edit-btn" onclick={() => startEdit(tool)}>Edit</button>
-            <button class="remove-btn" onclick={() => removeTool(tool.id)}>Remove</button>
+            <button class="remove-btn" onclick={() => removeTool(tool.id, tool.name)}>Remove</button
+            >
           {:else}
             <span class="builtin-badge">built-in</span>
           {/if}
