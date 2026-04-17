@@ -1,3 +1,9 @@
+## [0.12.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.5...v0.12.0-next.6) (2026-04-17)
+
+### Bug Fixes
+
+* wrap task-paste in bracketed-paste markers to prevent fragmentation ([0ee7bd9](https://github.com/itsoltech/canopy-desktop/commit/0ee7bd9424865f99adf4d48d47f0c8bbe853f299)), closes [#166](https://github.com/itsoltech/canopy-desktop/issues/166)
+
 ## [0.12.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.4...v0.12.0-next.5) (2026-04-16)
 
 ### Bug Fixes
