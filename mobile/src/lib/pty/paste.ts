@@ -1,3 +1,9 @@
+// KEEP IN SYNC with `src/renderer/src/lib/pty/paste.ts`. Mobile is a
+// separate Expo workspace and can't import from the renderer, so the
+// sanitizer + bracketed-paste wrapper is duplicated here. Any fix to
+// one file (e.g. widening the CSI final-byte set in sanitizePtyInput)
+// must be applied to the other.
+
 // eslint-disable-next-line no-control-regex
 const BRACKETED_PASTE_END = /\x1b\[201~/g
 

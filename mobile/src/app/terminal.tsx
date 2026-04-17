@@ -179,22 +179,33 @@ export default function TerminalScreen(): React.ReactElement {
     }
   }, [api, sessionId, scheduleFlush])
 
+  // Translate a thrown api.pty.write error into a user-facing banner.
+  // Keyboard strokes, paste, and any future write path (drag-and-drop,
+  // shortcut macros) funnel through here so the brittle regex-against-
+  // error-message check lives in exactly one place.
+  const handleWriteError = useCallback((err: unknown): void => {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (/ActionRejected|rejected/i.test(msg)) {
+      setStreamError('Approve terminal input on desktop to continue')
+    }
+  }, [])
+
   // Stable forever — read api/sessionId from refs so switching tabs doesn't
   // invalidate these callbacks and rebuild the xterm via terminal-view's
   // internal useEffect.
-  const onInput = useCallback(async (data: string) => {
-    const api = apiRef.current
-    const sid = sessionIdRef.current
-    if (!api || !sid) return
-    try {
-      await api.pty.write(sid, data)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (/ActionRejected|rejected/i.test(msg)) {
-        setStreamError('Approve terminal input on desktop to continue')
+  const onInput = useCallback(
+    async (data: string) => {
+      const api = apiRef.current
+      const sid = sessionIdRef.current
+      if (!api || !sid) return
+      try {
+        await api.pty.write(sid, data)
+      } catch (err) {
+        handleWriteError(err)
       }
-    }
-  }, [])
+    },
+    [handleWriteError],
+  )
 
   const onResize = useCallback(async (cols: number, rows: number) => {
     const api = apiRef.current
@@ -217,19 +228,21 @@ export default function TerminalScreen(): React.ReactElement {
     let text = ''
     try {
       text = await Clipboard.getStringAsync()
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setStreamError(`Could not read clipboard: ${msg}`)
       return
     }
-    if (!text) return
+    if (!text) {
+      setStreamError('Clipboard is empty')
+      return
+    }
     try {
       await api.pty.write(sid, wrapAsBracketedPaste(text))
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (/ActionRejected|rejected/i.test(msg)) {
-        setStreamError('Approve terminal input on desktop to continue')
-      }
+      handleWriteError(err)
     }
-  }, [])
+  }, [handleWriteError])
 
   const pasteDisabled = !api || !sessionId
 
