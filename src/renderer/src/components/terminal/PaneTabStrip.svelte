@@ -1,13 +1,9 @@
 <script lang="ts">
   import { ExternalLink, X } from '@lucide/svelte'
   import type { PaneSession } from '../../lib/stores/splitTree'
-  import { closePane, detachPaneToTab, movePaneToTarget } from '../../lib/stores/tabs.svelte'
-  import {
-    dragState,
-    startPaneDrag,
-    activateDrag,
-    clearDrag,
-  } from '../../lib/stores/dragState.svelte'
+  import { closePane, detachPaneToTab } from '../../lib/stores/tabs.svelte'
+  import { startPaneDrag, activateDrag, clearDrag } from '../../lib/stores/dragState.svelte'
+  import { resolvePaneDrop } from '../../lib/stores/paneDrag'
 
   let {
     pane,
@@ -37,7 +33,6 @@
     if (target.closest('.strip-action')) return
 
     e.preventDefault()
-    onFocus()
 
     dragStartX = e.clientX
     dragStartY = e.clientY
@@ -62,12 +57,7 @@
     window.removeEventListener('pointerup', handleDragEnd)
 
     if (dragActive) {
-      const dt = dragState.dropTarget
-      if (dragState.detachToTabBar) {
-        detachPaneToTab(worktreePath, tabId, pane.id)
-      } else if (dt) {
-        movePaneToTarget(worktreePath, tabId, pane.id, dt.tabId, dt.paneId, dt.zone)
-      }
+      resolvePaneDrop(worktreePath, tabId, pane.id)
     }
 
     dragActive = false

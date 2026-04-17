@@ -1,12 +1,6 @@
 <script lang="ts">
   import type { PaneSession } from '../../lib/stores/splitTree'
-  import {
-    restartPane,
-    updatePaneTitle,
-    isAiToolId,
-    movePaneToTarget,
-    detachPaneToTab,
-  } from '../../lib/stores/tabs.svelte'
+  import { restartPane, updatePaneTitle, isAiToolId } from '../../lib/stores/tabs.svelte'
   import {
     dragState,
     setDropTarget,
@@ -15,6 +9,7 @@
     clearDrag,
     type DropZone,
   } from '../../lib/stores/dragState.svelte'
+  import { resolvePaneDrop } from '../../lib/stores/paneDrag'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
   import BrowserPane from '../browser/BrowserPane.svelte'
   import EditorPane from '../editor/EditorPane.svelte'
@@ -148,12 +143,7 @@
     window.removeEventListener('pointerup', handlePaneDragEnd)
 
     if (paneDragActive) {
-      const dt = dragState.dropTarget
-      if (dragState.detachToTabBar) {
-        detachPaneToTab(worktreePath, tabId, pane.id)
-      } else if (dt) {
-        movePaneToTarget(worktreePath, tabId, pane.id, dt.tabId, dt.paneId, dt.zone)
-      }
+      resolvePaneDrop(worktreePath, tabId, pane.id)
     }
 
     paneDragActive = false
