@@ -165,13 +165,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="pane-wrapper"
-  class:focused
-  class:drag-source={isDragSource}
-  onclick={onFocus}
-  bind:this={wrapperEl}
->
+<div class="pane-wrapper" class:drag-source={isDragSource} onclick={onFocus} bind:this={wrapperEl}>
   {#if isMultiPane}
     <PaneTabStrip {pane} {tabId} {worktreePath} {focused} {onFocus} />
   {/if}
