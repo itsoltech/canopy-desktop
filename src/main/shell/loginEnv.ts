@@ -19,10 +19,12 @@ export async function resolveLoginEnv(): Promise<Record<string, string>> {
   const shell = process.env.SHELL || '/bin/bash'
 
   return new Promise((resolve) => {
-    // Use env -0 for null-byte separated output to handle multi-line values
+    // Use -i (interactive) instead of -li (login) to avoid running
+    // expensive rc file operations (update checks, prompts, etc.) while still
+    // capturing PATH modifications from .bashrc/.zshrc
     execFile(
       shell,
-      ['-li', '-c', 'env -0'],
+      ['-i', '-c', 'env -0'],
       { timeout: 10000, maxBuffer: 1024 * 1024 },
       (err, stdout) => {
         if (err) {

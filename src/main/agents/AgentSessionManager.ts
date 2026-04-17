@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Notification } from 'electron'
 import { join } from 'path'
-import { mkdirSync, readdirSync, unlinkSync, rmSync, existsSync, chmodSync, statSync } from 'fs'
+import { readdir, unlink, rm, access, stat } from 'fs/promises'
+import { mkdirSync, chmodSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
 import { is } from '@electron-toolkit/utils'
@@ -263,18 +264,28 @@ export class AgentSessionManager extends EventEmitter {
     this.sessions.delete(ptySessionId)
   }
 
-  cleanupOrphans(): void {
-    if (!existsSync(this.hooksDir)) return
-    const entries = readdirSync(this.hooksDir)
+  async cleanupOrphans(): Promise<void> {
+    try {
+      await access(this.hooksDir)
+    } catch {
+      return
+    }
+    const entries = await readdir(this.hooksDir)
     for (const entry of entries) {
       const fullPath = join(this.hooksDir, entry)
       try {
         if (entry.startsWith('session-') && entry.endsWith('.json')) {
-          unlinkSync(fullPath)
-        } else if (entry.startsWith('gemini-home-') && statSync(fullPath).isDirectory()) {
-          rmSync(fullPath, { recursive: true, force: true })
-        } else if (entry.startsWith('opencode-config-') && statSync(fullPath).isDirectory()) {
-          rmSync(fullPath, { recursive: true, force: true })
+          await unlink(fullPath)
+        } else if (entry.startsWith('gemini-home-')) {
+          const entryStat = await stat(fullPath)
+          if (entryStat.isDirectory()) {
+            await rm(fullPath, { recursive: true, force: true })
+          }
+        } else if (entry.startsWith('opencode-config-')) {
+          const entryStat = await stat(fullPath)
+          if (entryStat.isDirectory()) {
+            await rm(fullPath, { recursive: true, force: true })
+          }
         }
       } catch {
         // Ignore

@@ -617,13 +617,14 @@ app.whenReady().then(async () => {
   browserManager.ensurePartition()
 
   agentSessionManager = new AgentSessionManager()
-  agentSessionManager.cleanupOrphans()
+  await agentSessionManager.cleanupOrphans()
   windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
   // Migrate legacy global agent prefs into Default profiles. safeStorage is
   // guaranteed to be initialized inside app.whenReady().
-  profileStore.ensureDefaults()
+  // Defer to allow window creation to proceed without blocking
+  setImmediate(() => profileStore.ensureDefaults())
 
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()
