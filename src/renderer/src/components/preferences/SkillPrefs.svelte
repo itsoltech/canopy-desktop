@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getSkills } from '../../lib/stores/skills.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
 
   const skills = $derived(getSkills())
@@ -83,7 +84,13 @@
   }
 
   async function removeSkill(id: string, name: string): Promise<void> {
-    if (!window.confirm(`Remove skill "${name}"?`)) return
+    const ok = await confirm({
+      title: 'Remove Skill',
+      message: `Remove skill "${name}"?`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await window.api.removeSkill(id, workspaceState.selectedWorktreePath ?? undefined)
     } catch (e) {
@@ -92,7 +99,13 @@
   }
 
   async function deleteScannedSkill(filePath: string, name: string): Promise<void> {
-    if (!window.confirm(`Delete skill file "${name}" from disk?`)) return
+    const ok = await confirm({
+      title: 'Delete Skill File',
+      message: `Delete skill file "${name}" from disk? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await window.api.deleteSkillFile(filePath)
       await scanForSkills()

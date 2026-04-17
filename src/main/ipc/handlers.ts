@@ -244,7 +244,22 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'pty:resize',
     (_event, payload: { sessionId: string; cols: number; rows: number }) => {
-      ptyManager.resize(payload.sessionId, payload.cols, payload.rows)
+      // Validate dimensions: positive integers within sane terminal bounds.
+      // node-pty will otherwise throw on NaN / negative / huge values and
+      // a malformed payload would be broadcast to every window as-is.
+      const cols = payload?.cols
+      const rows = payload?.rows
+      if (
+        !Number.isInteger(cols) ||
+        !Number.isInteger(rows) ||
+        cols < 1 ||
+        rows < 1 ||
+        cols > 10_000 ||
+        rows > 10_000
+      ) {
+        return
+      }
+      ptyManager.resize(payload.sessionId, cols, rows)
       // Broadcast the new dimensions to every open window so the remote
       // host controller (running inside the host renderer) can relay them
       // to any connected WebRTC peer. Without this, a peer's xterm stays

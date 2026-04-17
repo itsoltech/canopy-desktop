@@ -103,7 +103,14 @@
     error = ''
   }
 
-  function removeViewport(name: string): void {
+  async function removeViewport(name: string): Promise<void> {
+    const ok = await confirm({
+      title: 'Remove Viewport',
+      message: `Remove custom viewport "${name}"?`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     const updated: Record<string, ViewportPreset> = {}
     for (const [key, value] of Object.entries(getCustomViewports())) {
       if (key !== name) updated[key] = value

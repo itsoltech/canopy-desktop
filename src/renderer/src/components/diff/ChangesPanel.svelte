@@ -4,6 +4,7 @@
   import { RotateCw, Check, X } from 'lucide-svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import type { DiffFile, ParsedDiff } from '../../lib/types/diff'
 
   let {
@@ -140,7 +141,12 @@
 
   async function handleRevert(e: Event, path: string): Promise<void> {
     e.stopPropagation()
-    const ok = window.confirm('Revert all changes to this file? This cannot be undone.')
+    const ok = await confirm({
+      title: 'Revert File',
+      message: `Revert all changes to "${path}"? This cannot be undone.`,
+      confirmLabel: 'Revert',
+      destructive: true,
+    })
     if (!ok) return
     try {
       await window.api.gitRevertFile(worktreePath, path)
@@ -190,21 +196,29 @@
       <button
         class="filter-btn"
         class:filter-active={statusFilter === 'all'}
+        aria-label="Show all files"
+        aria-pressed={statusFilter === 'all'}
         onclick={() => (statusFilter = 'all')}>All</button
       >
       <button
         class="filter-btn"
         class:filter-active={statusFilter === 'added'}
+        aria-label="Filter added files"
+        aria-pressed={statusFilter === 'added'}
         onclick={() => (statusFilter = statusFilter === 'added' ? 'all' : 'added')}>A</button
       >
       <button
         class="filter-btn"
         class:filter-active={statusFilter === 'modified'}
+        aria-label="Filter modified files"
+        aria-pressed={statusFilter === 'modified'}
         onclick={() => (statusFilter = statusFilter === 'modified' ? 'all' : 'modified')}>M</button
       >
       <button
         class="filter-btn"
         class:filter-active={statusFilter === 'deleted'}
+        aria-label="Filter deleted files"
+        aria-pressed={statusFilter === 'deleted'}
         onclick={() => (statusFilter = statusFilter === 'deleted' ? 'all' : 'deleted')}>D</button
       >
     </div>
@@ -243,12 +257,14 @@
               <button
                 class="action-btn stage"
                 onclick={(e) => handleStage(e, file.path)}
-                title="Stage"><Check size={12} /></button
+                title="Stage"
+                aria-label="Stage file"><Check size={12} /></button
               >
               <button
                 class="action-btn revert"
                 onclick={(e) => handleRevert(e, file.path)}
-                title="Revert"><X size={12} /></button
+                title="Revert"
+                aria-label="Revert file"><X size={12} /></button
               >
             </span>
           {/if}
