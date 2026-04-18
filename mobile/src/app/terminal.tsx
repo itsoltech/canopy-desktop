@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -23,6 +24,7 @@ import {
 } from '@/hooks/use-remote-state'
 import { useSavedInstance } from '@/hooks/use-saved-instances'
 import { useTheme } from '@/hooks/use-theme'
+import { wrapAsBracketedPaste } from '@/lib/pty/paste'
 
 export default function TerminalScreen(): React.ReactElement {
   const { instanceId, worktreePath: encodedPath } = useLocalSearchParams<{
@@ -177,22 +179,33 @@ export default function TerminalScreen(): React.ReactElement {
     }
   }, [api, sessionId, scheduleFlush])
 
+  // Translate a thrown api.pty.write error into a user-facing banner.
+  // Keyboard strokes, paste, and any future write path (drag-and-drop,
+  // shortcut macros) funnel through here so the brittle regex-against-
+  // error-message check lives in exactly one place.
+  const handleWriteError = useCallback((err: unknown): void => {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (/ActionRejected|rejected/i.test(msg)) {
+      setStreamError('Approve terminal input on desktop to continue')
+    }
+  }, [])
+
   // Stable forever — read api/sessionId from refs so switching tabs doesn't
   // invalidate these callbacks and rebuild the xterm via terminal-view's
   // internal useEffect.
-  const onInput = useCallback(async (data: string) => {
-    const api = apiRef.current
-    const sid = sessionIdRef.current
-    if (!api || !sid) return
-    try {
-      await api.pty.write(sid, data)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (/ActionRejected|rejected/i.test(msg)) {
-        setStreamError('Approve terminal input on desktop to continue')
+  const onInput = useCallback(
+    async (data: string) => {
+      const api = apiRef.current
+      const sid = sessionIdRef.current
+      if (!api || !sid) return
+      try {
+        await api.pty.write(sid, data)
+      } catch (err) {
+        handleWriteError(err)
       }
-    }
-  }, [])
+    },
+    [handleWriteError],
+  )
 
   const onResize = useCallback(async (cols: number, rows: number) => {
     const api = apiRef.current
@@ -204,6 +217,34 @@ export default function TerminalScreen(): React.ReactElement {
       /* ignore — not fatal, dimensions will drift */
     }
   }, [])
+
+  // Read the system clipboard, sanitize, wrap in bracketed-paste markers
+  // and ship to the active PTY in one shot. No trailing CR — the user
+  // reviews the pasted prompt and presses Enter themselves.
+  const handlePaste = useCallback(async () => {
+    const api = apiRef.current
+    const sid = sessionIdRef.current
+    if (!api || !sid) return
+    let text = ''
+    try {
+      text = await Clipboard.getStringAsync()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setStreamError(`Could not read clipboard: ${msg}`)
+      return
+    }
+    if (!text) {
+      setStreamError('Clipboard is empty')
+      return
+    }
+    try {
+      await api.pty.write(sid, wrapAsBracketedPaste(text))
+    } catch (err) {
+      handleWriteError(err)
+    }
+  }, [handleWriteError])
+
+  const pasteDisabled = !api || !sessionId
 
   const handleTabSelect = useCallback(
     (tabId: string) => {
@@ -319,6 +360,34 @@ export default function TerminalScreen(): React.ReactElement {
           onLongPress={api ? handleTabLongPress : undefined}
           onNewTab={api ? () => setPickerVisible(true) : undefined}
         />
+        <View style={[styles.actionBar, { borderTopColor: theme.backgroundElement }]}>
+          <Pressable
+            onPress={handlePaste}
+            disabled={pasteDisabled}
+            style={({ pressed }) => [
+              styles.actionButton,
+              { backgroundColor: theme.backgroundElement },
+              pressed && styles.pressed,
+              pasteDisabled && styles.actionButtonDisabled,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Paste from clipboard"
+          >
+            <SymbolView
+              name={{
+                ios: 'doc.on.clipboard',
+                android: 'content_paste',
+                web: 'content_paste',
+              }}
+              size={14}
+              weight="semibold"
+              tintColor={theme.textSecondary}
+            />
+            <ThemedText type="small" themeColor="textSecondary">
+              Paste
+            </ThemedText>
+          </Pressable>
+        </View>
         {streamError ? (
           <View style={styles.banner}>
             <ThemedText type="small" themeColor="textSecondary">
@@ -438,6 +507,25 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
+  },
+  actionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.three,
+  },
+  actionButtonDisabled: {
+    opacity: 0.4,
   },
   banner: {
     paddingHorizontal: Spacing.four,

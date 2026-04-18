@@ -1,8 +1,8 @@
-// KEEP IN SYNC with `mobile/src/lib/pty/paste.ts`. The mobile Expo
-// workspace can't import from the renderer, so the sanitizer +
-// bracketed-paste wrapper is duplicated there. Any fix to one file
-// (e.g. widening the CSI final-byte set in sanitizePtyInput) must be
-// applied to the other.
+// KEEP IN SYNC with `src/renderer/src/lib/pty/paste.ts`. Mobile is a
+// separate Expo workspace and can't import from the renderer, so the
+// sanitizer + bracketed-paste wrapper is duplicated here. Any fix to
+// one file (e.g. widening the CSI final-byte set in sanitizePtyInput)
+// must be applied to the other.
 
 // eslint-disable-next-line no-control-regex
 const BRACKETED_PASTE_END = /\x1b\[201~/g
@@ -31,13 +31,11 @@ export function sanitizePtyInput(text: string): string {
 
 /**
  * Wrap text in bracketed-paste markers so the CLI on the other end of the
- * PTY treats multi-chunk arrivals (e.g. ConPTY splitting a large write)
- * as one paste instead of firing its line-at-a-time / timing-based input
- * handlers on the fragments.
+ * PTY treats multi-chunk arrivals as one paste instead of firing its
+ * line-at-a-time / timing-based input handlers on the fragments.
  *
  * Any stray `\x1b[201~` inside the content is stripped first — it would
- * otherwise terminate the paste early, and task descriptions can contain
- * arbitrary terminal transcripts.
+ * otherwise terminate the paste early.
  */
 export function wrapAsBracketedPaste(text: string): string {
   const sanitised = sanitizePtyInput(text).replace(BRACKETED_PASTE_END, '')
