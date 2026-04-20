@@ -91,10 +91,11 @@
 
   .segmented-control {
     display: flex;
-    background: var(--c-active);
-    border-radius: 8px;
-    padding: 2px;
+    gap: 4px;
     width: 100%;
+    background: var(--c-bg-input);
+    border-radius: var(--r-lg);
+    padding: 3px;
   }
 
   .segment {
@@ -103,27 +104,27 @@
     align-items: center;
     justify-content: center;
     gap: 5px;
-    height: 26px;
+    height: 24px;
     font-size: 11px;
     font-weight: 500;
-    color: var(--c-text-faint);
+    color: var(--c-text-secondary);
     cursor: pointer;
     border: none;
     background: none;
     font-family: inherit;
-    border-radius: 6px;
+    border-radius: var(--r-md);
     transition:
       background 0.15s ease,
       color 0.15s ease;
   }
 
   .segment:hover:not(.active) {
-    color: var(--c-text-secondary);
-    background: color-mix(in srgb, var(--c-bg-elevated) 50%, transparent);
+    color: var(--c-text);
+    background: var(--c-hover);
   }
 
   .segment.active {
-    background: var(--c-bg-elevated);
+    background: var(--c-active);
     color: var(--c-text);
   }
 

@@ -187,8 +187,53 @@
 
 {#if projects.length > 0}
   <footer class="status-bar">
-    <!-- LEFT: git & worktree -->
-    <div class="section left">
+    <!-- Focused pane context flows from the left -->
+    {#if focusedPaneKind === 'agent' && activeAgent}
+      <span
+        class="status-item agent-status"
+        class:permission={activeAgent.status.type === 'waitingPermission'}
+        class:error={activeAgent.status.type === 'error'}
+        class:working={activeAgent.status.type === 'thinking' ||
+          activeAgent.status.type === 'toolCalling' ||
+          activeAgent.status.type === 'compacting'}
+      >
+        {agentStatusLabel(activeAgent)}
+      </span>
+
+      {#if activeAgent.model}
+        <span class="status-item dim">{activeAgent.model}</span>
+      {/if}
+
+      {#if activeAgent.contextPercent != null}
+        <span
+          class="status-item context mono"
+          style="color: {contextColor(activeAgent.contextPercent)}"
+          title="Context window usage"
+        >
+          ctx {activeAgent.contextPercent}%
+        </span>
+      {/if}
+
+      {#if activeAgent.costUsd != null}
+        <span class="status-item mono" title="Session cost">
+          {formatCost(activeAgent.costUsd)}
+        </span>
+      {/if}
+
+      {#if taskProgress}
+        <span class="status-item dim" title="Task progress">
+          {taskProgress.done}/{taskProgress.total} tasks
+        </span>
+      {/if}
+    {:else if focusedPaneKind === 'shell'}
+      <span class="status-item dim">Shell</span>
+    {:else if focusedPaneKind === 'notes'}
+      <span class="status-item dim">Notes</span>
+    {:else if focusedPaneKind === 'drawing'}
+      <span class="status-item dim">Drawing</span>
+    {/if}
+
+    <div class="push">
       {#if workspaceState.isGitRepo && workspaceState.branch}
         <button
           class="status-item branch"
@@ -202,7 +247,7 @@
               d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 2.122a2.25 2.25 0 1 0-1 0v1.836A2.252 2.252 0 0 0 2 9.5a2.25 2.25 0 1 0 3.163.132l2.382-2.382A1.75 1.75 0 0 1 8.783 6.75h1.467a2.25 2.25 0 1 0 0-1.5H8.783a3.25 3.25 0 0 0-2.299.952L4.5 8.186V5.372ZM4.25 12a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Zm8.25-6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"
             />
           </svg>
-          <span class="label">{workspaceState.branch}</span>
+          <span class="label mono">{workspaceState.branch}</span>
           {#if workspaceState.isDirty}
             <span class="dirty-dot" title="Uncommitted changes" aria-hidden="true"></span>
           {/if}
@@ -212,7 +257,7 @@
           {@const ahead = workspaceState.aheadBehind.ahead}
           {@const behind = workspaceState.aheadBehind.behind}
           <button
-            class="status-item sync"
+            class="status-item sync mono"
             aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
               ? ', '
               : ''}{behind > 0 ? `${behind} behind` : ''}"
@@ -221,12 +266,8 @@
               ? `${behind} behind`
               : ''}"
           >
-            {#if ahead > 0}
-              <span class="sync-label" aria-hidden="true">&#8593;{ahead}</span>
-            {/if}
-            {#if behind > 0}
-              <span class="sync-label" aria-hidden="true">&#8595;{behind}</span>
-            {/if}
+            {#if ahead > 0}<span aria-hidden="true">&#8593;{ahead}</span>{/if}
+            {#if behind > 0}<span aria-hidden="true">&#8595;{behind}</span>{/if}
           </button>
         {/if}
       {/if}
@@ -241,58 +282,7 @@
           <span class="label">{worktreeName}</span>
         </span>
       {/if}
-    </div>
 
-    <!-- CENTER: focused pane context -->
-    <div class="section center">
-      {#if focusedPaneKind === 'agent' && activeAgent}
-        <span
-          class="status-item agent-status"
-          class:permission={activeAgent.status.type === 'waitingPermission'}
-          class:error={activeAgent.status.type === 'error'}
-          class:working={activeAgent.status.type === 'thinking' ||
-            activeAgent.status.type === 'toolCalling' ||
-            activeAgent.status.type === 'compacting'}
-        >
-          {agentStatusLabel(activeAgent)}
-        </span>
-
-        {#if activeAgent.model}
-          <span class="status-item dim">{activeAgent.model}</span>
-        {/if}
-
-        {#if activeAgent.contextPercent != null}
-          <span
-            class="status-item context"
-            style="color: {contextColor(activeAgent.contextPercent)}"
-            title="Context window usage"
-          >
-            ctx {activeAgent.contextPercent}%
-          </span>
-        {/if}
-
-        {#if activeAgent.costUsd != null}
-          <span class="status-item dim" title="Session cost">
-            {formatCost(activeAgent.costUsd)}
-          </span>
-        {/if}
-
-        {#if taskProgress}
-          <span class="status-item dim" title="Task progress">
-            {taskProgress.done}/{taskProgress.total} tasks
-          </span>
-        {/if}
-      {:else if focusedPaneKind === 'shell'}
-        <span class="status-item dim">Shell</span>
-      {:else if focusedPaneKind === 'notes'}
-        <span class="status-item dim">Notes</span>
-      {:else if focusedPaneKind === 'drawing'}
-        <span class="status-item dim">Drawing</span>
-      {/if}
-    </div>
-
-    <!-- RIGHT: global indicators -->
-    <div class="section right">
       {#if perfHudEnabled && perfHudState.metrics}
         <button
           class="status-item dim perf-hud"
@@ -384,58 +374,47 @@
   .status-bar {
     display: flex;
     align-items: center;
-    height: 24px;
+    gap: 12px;
+    height: var(--h-status-bar);
     padding: 0 8px;
-    background: var(--c-bg-glass-heavy);
+    background: var(--c-bg-glass);
     border-top: 1px solid var(--c-border-subtle);
-    font-size: 11px;
+    font-family: var(--font-sans);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
     color: var(--c-text-secondary);
     user-select: none;
     -webkit-app-region: no-drag;
     flex-shrink: 0;
   }
 
-  .section {
+  .push {
+    margin-left: auto;
     display: flex;
     align-items: center;
-    gap: 2px;
-  }
-
-  .section.left {
-    flex: 1;
-    justify-content: flex-start;
-  }
-
-  .section.center {
-    flex: 0 1 auto;
-    justify-content: center;
-    gap: 6px;
-    overflow: hidden;
-  }
-
-  .section.right {
-    flex: 1;
-    justify-content: flex-end;
+    gap: 12px;
   }
 
   .status-item {
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 0 5px;
-    height: 20px;
-    border-radius: 3px;
+    line-height: 1;
     white-space: nowrap;
     border: none;
     background: none;
     color: inherit;
     font: inherit;
-    cursor: default;
-    line-height: 1;
+    padding: 0;
   }
 
   button.status-item {
     cursor: pointer;
+    padding: 2px 4px;
+    border-radius: var(--r-sm);
+    transition:
+      background 0.1s,
+      color 0.1s;
   }
 
   button.status-item:hover {
@@ -443,10 +422,22 @@
     color: var(--c-text);
   }
 
+  .status-item svg {
+    width: 12px;
+    height: 12px;
+    color: var(--c-text-muted);
+    flex-shrink: 0;
+  }
+
   .label {
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 140px;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
   }
 
   .branch .label {
@@ -543,9 +534,5 @@
     .permission-bell {
       animation: none;
     }
-  }
-
-  svg {
-    flex-shrink: 0;
   }
 </style>

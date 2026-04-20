@@ -8,7 +8,6 @@
     moveTab,
     moveTabToSplit,
     getTabDisplayName,
-    getTabFocusedToolId,
     type TabInfo,
   } from '../../lib/stores/tabs.svelte'
   import { allPanes, findLeaf } from '../../lib/stores/splitTree'
@@ -25,17 +24,28 @@
     connectionStatus,
     type ConnectionStatus,
   } from '../../lib/terminal/connectionState.svelte'
-  import ToolIcon from '../shared/ToolIcon.svelte'
+  onMount(() => {
+    async function pollShellBusy(): Promise<void> {
+      const updates: Record<string, boolean> = {}
+      for (const tab of tabs) {
+        for (const p of allPanes(tab.rootSplit)) {
+          if (!agentSessions[p.sessionId] && p.isRunning) {
+            try {
+              updates[p.sessionId] = await window.api.hasChildProcess(p.sessionId)
+            } catch {
+              updates[p.sessionId] = false
+            }
+          }
+        }
+      }
+      shellBusyState = updates
+    }
 
-  let toolIcons: Record<string, string> = $state({})
-
-  onMount(async () => {
-    const tools = await window.api.listTools()
-    const map: Record<string, string> = {}
-    for (const t of tools) map[t.id] = t.icon
-    toolIcons = map
+    void pollShellBusy()
+    const shellPollTimer = setInterval(() => void pollShellBusy(), 2000)
 
     return () => {
+      clearInterval(shellPollTimer)
       window.removeEventListener('pointermove', handleDragMove)
       window.removeEventListener('pointerup', handleDragEnd)
     }
@@ -59,6 +69,36 @@
     return 'none'
   }
 
+  function getTabStatusDot(tab: TabInfo): { color: string; pulse: boolean } | null {
+    const badge = getTabBadge(tab)
+    if (badge === 'permission') return { color: 'var(--c-warning)', pulse: true }
+    if (badge === 'unread') return { color: 'var(--c-accent)', pulse: true }
+
+    const panes = allPanes(tab.rootSplit)
+    let priority = 0
+
+    for (const p of panes) {
+      const session = agentSessions[p.sessionId]
+      if (session) {
+        const t = session.status.type
+        if (t === 'waitingPermission') return { color: 'var(--c-warning)', pulse: true }
+        if (t === 'error') priority = Math.max(priority, 5)
+        else if (t === 'thinking' || t === 'toolCalling' || t === 'compacting' || t === 'starting')
+          priority = Math.max(priority, 4)
+        else if (t === 'idle' || t === 'ended') priority = Math.max(priority, 3)
+      } else {
+        priority = Math.max(priority, shellBusyState[p.sessionId] ? 2 : 1)
+      }
+    }
+
+    if (priority === 5) return { color: 'var(--c-danger)', pulse: false }
+    if (priority === 4) return { color: 'var(--c-accent)', pulse: true }
+    if (priority === 3) return { color: 'var(--c-success)', pulse: false }
+    if (priority === 2) return { color: 'var(--c-accent)', pulse: true }
+    if (priority === 1) return { color: 'var(--c-success)', pulse: false }
+    return null
+  }
+
   function getConnectionState(tab: TabInfo): ConnectionStatus | null {
     const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
@@ -72,6 +112,8 @@
   let { worktreePath }: { worktreePath: string } = $props()
 
   let tabs = $derived(tabsByWorktree[worktreePath] ?? [])
+
+  let shellBusyState: Record<string, boolean> = $state({})
   let currentActiveId = $derived(activeTabId[worktreePath])
 
   let showOverflow = $state(false)
@@ -272,10 +314,8 @@
   <div class="tab-bar" class:drag-active={dragActive} bind:this={containerEl}>
     <div class="tabs-row">
       {#each visibleTabs as tab (tab.id)}
-        {@const badge = getTabBadge(tab)}
         {@const connState = getConnectionState(tab)}
         {@const favicon = getTabFavicon(tab)}
-        {@const focusedToolId = getTabFocusedToolId(tab)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
@@ -294,8 +334,13 @@
         >
           {#if favicon}
             <img class="tab-favicon" src={favicon} alt="" width="12" height="12" />
-          {:else if toolIcons[focusedToolId]}
-            <ToolIcon icon={toolIcons[focusedToolId]} size={12} />
+          {:else}
+            {@const dot = getTabStatusDot(tab)}
+            <span
+              class="tab-status-dot"
+              class:pulse={dot?.pulse ?? false}
+              style:background={dot?.color ?? 'var(--c-text-faint)'}
+            ></span>
           {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>
           {#if connState}
@@ -305,14 +350,6 @@
               role="status"
               aria-label={connState === 'disconnected' ? 'Disconnected' : 'Reconnecting'}
               title={connState === 'disconnected' ? 'Disconnected' : 'Reconnecting...'}
-            ></span>
-          {:else if badge !== 'none'}
-            <span
-              class="tab-badge"
-              class:orange={badge === 'permission'}
-              role="status"
-              aria-label={badge === 'permission' ? 'Permission required' : 'Unread activity'}
-              title={badge === 'permission' ? 'Permission required' : 'Unread activity'}
             ></span>
           {/if}
           <button
@@ -431,16 +468,17 @@
   }
 
   .tab.active {
-    background: var(--c-active);
+    background: var(--c-bg);
     color: var(--c-text);
+    box-shadow: inset 0 -1px 0 var(--c-accent);
   }
 
   .tab.exited {
-    color: rgba(255, 150, 50, 0.6);
+    color: color-mix(in srgb, var(--c-blazing) 60%, transparent);
   }
 
   .tab.exited.active {
-    color: rgba(255, 150, 50, 0.9);
+    color: color-mix(in srgb, var(--c-blazing) 90%, transparent);
   }
 
   .tab-name {
@@ -455,13 +493,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--c-accent-text);
     flex-shrink: 0;
-  }
-
-  .tab-badge.orange {
-    background: var(--c-warning-text);
-    animation: badge-pulse 1.5s ease-in-out infinite;
   }
 
   .tab-badge.connection-badge {
@@ -472,6 +504,17 @@
   .tab-badge.connection-badge.disconnected {
     background: var(--c-danger-text);
     animation: none;
+  }
+
+  .tab-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .tab-status-dot.pulse {
+    animation: badge-pulse 1.5s ease-in-out infinite;
   }
 
   @keyframes badge-pulse {
@@ -485,8 +528,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .tab-badge.orange,
-    .tab-badge.connection-badge {
+    .tab-badge.connection-badge,
+    .tab-status-dot.pulse {
       animation: none;
     }
   }
@@ -578,7 +621,7 @@
     border-radius: 6px;
     padding: 4px;
     z-index: 100;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-menu);
   }
 
   .overflow-item {
