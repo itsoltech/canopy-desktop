@@ -138,6 +138,30 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.11.0',
     category: 'feature',
   },
+  {
+    id: 'drawing-shapes-notes-editing',
+    title: 'Drawing shapes and editable notes preview',
+    description:
+      'The Drawing pane now has four shape tools — Rectangle, Ellipse, Line, and Arrow. Click-drag to draw; hold Shift to constrain proportions or snap angles. Shapes support selection, move, delete, and undo just like freehand strokes. The Notes preview panel is now editable: click into the rendered markdown and type directly, and changes sync back to the editor in real time.',
+    introducedIn: '0.12.0',
+    category: 'feature',
+  },
+  {
+    id: 'status-bar-settings',
+    title: 'Quick Settings access',
+    description:
+      'The gear icon at the right of the status bar opens Settings directly. You can also use ⌘, / Ctrl+, or the command palette.',
+    introducedIn: '0.12.0',
+    category: 'feature',
+  },
+  {
+    id: 'pane-tab-strip-controls',
+    title: 'Pane tab strip controls',
+    description:
+      'Split panes now show a tab strip with quick actions: drag the strip to move the pane, use Detach to turn it into its own tab, or use Close to close just that pane.',
+    introducedIn: '0.12.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

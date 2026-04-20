@@ -44,7 +44,8 @@
   /** Toggle for revealing the full URL with its token. Hidden by default. */
   let showFullUrl = $state(false)
   let hostname = $derived(
-    status.kind === 'waiting' ||
+    status.kind === 'listening' ||
+      status.kind === 'waiting' ||
       status.kind === 'peerArrived' ||
       status.kind === 'paired' ||
       status.kind === 'reconnecting'
@@ -66,6 +67,7 @@
     match(status)
       .with({ kind: 'idle' }, () => 'Ready')
       .with({ kind: 'starting' }, () => 'Starting signaling server…')
+      .with({ kind: 'listening' }, () => 'Listening for trusted devices')
       .with({ kind: 'waiting' }, () => 'Waiting for device to scan')
       .with({ kind: 'peerArrived' }, (s) => `Device requesting pairing: ${s.device.deviceName}`)
       .with({ kind: 'paired' }, (s) => `Connected to ${s.deviceName}`)
@@ -87,7 +89,10 @@
     // calling `remote.start()` would throw `AlreadyRunning`.
     try {
       const existing = await window.api.remote.getStatus()
-      if (existing.kind === 'idle' || existing.kind === 'error') {
+      // `listening` means the server is already up (from auto-listen) but
+      // there's no QR token yet — calling start() here upgrades it to
+      // `waiting` and generates the token on the already-bound port.
+      if (existing.kind === 'idle' || existing.kind === 'error' || existing.kind === 'listening') {
         await window.api.remote.start()
       }
       // Otherwise the store is already subscribed to status changes via
@@ -236,6 +241,23 @@
     {:else if statusKind === 'starting'}
       <div class="placeholder">
         <p>Starting signaling server…</p>
+      </div>
+    {:else if statusKind === 'listening'}
+      <!-- Listen mode: server is already bound in the background waiting for
+           trusted devices. Opening the modal calls `start()` in onMount to
+           upgrade this to `waiting` and generate a fresh QR token, so this
+           block is visible only in the brief window between mount and the
+           upgrade (or if the upgrade fails). Show a helpful message instead
+           of the bare "Loading…" placeholder. -->
+      <div class="connected-block">
+        <p class="connected-headline">Listening for trusted devices</p>
+        {#if hostname}
+          <div class="meta">
+            <span class="meta-label">Host</span>
+            <span class="meta-value">{hostname}</span>
+          </div>
+        {/if}
+        <p class="subtitle">Generating a new pairing code…</p>
       </div>
     {:else if statusKind === 'paired' || statusKind === 'reconnecting'}
       <!-- Connected state: show the device name + host info instead of the
@@ -478,6 +500,14 @@
     animation: pulse 1.4s ease-in-out infinite;
   }
 
+  /* Listen mode: server is bound passively, waiting for trusted-device
+     reconnects. Visually quieter than `waiting` (no glow, slower pulse)
+     to communicate "alive but idle" rather than "actively pairing". */
+  .status-row[data-kind='listening'] .status-dot {
+    background: var(--c-success);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+
   .status-row[data-kind='peerArrived'] .status-dot {
     background: var(--c-accent);
     box-shadow: 0 0 8px var(--c-accent);
@@ -512,6 +542,7 @@
   @media (prefers-reduced-motion: reduce) {
     .status-row[data-kind='waiting'] .status-dot,
     .status-row[data-kind='starting'] .status-dot,
+    .status-row[data-kind='listening'] .status-dot,
     .status-row[data-kind='reconnecting'] .status-dot {
       animation: none;
     }

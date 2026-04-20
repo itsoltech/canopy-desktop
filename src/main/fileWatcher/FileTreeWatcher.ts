@@ -1,6 +1,7 @@
 import { relative, sep } from 'path'
 import * as watcher from '@parcel/watcher'
 import { ResultAsync, okAsync } from 'neverthrow'
+import { match } from 'ts-pattern'
 import { fromExternalCall, errorMessage } from '../errors'
 import type { FileWatcherError } from './errors'
 import { SAFETY_IGNORE_PATTERNS } from './defaults'
@@ -20,14 +21,11 @@ export interface FileChangeEvent {
 const DEBOUNCE_MS = 50
 
 function mapEventType(type: watcher.Event['type']): FileChangeEvent['type'] {
-  switch (type) {
-    case 'create':
-      return 'add'
-    case 'update':
-      return 'change'
-    case 'delete':
-      return 'unlink'
-  }
+  return match(type)
+    .with('create', () => 'add' as const)
+    .with('update', () => 'change' as const)
+    .with('delete', () => 'unlink' as const)
+    .exhaustive()
 }
 
 function toRelative(root: string, absPath: string): string {

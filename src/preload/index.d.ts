@@ -441,6 +441,7 @@ interface CanopyAPI {
   getCredentialDecrypted: (
     id: string,
     domain: string,
+    purpose: 'autofill' | 'reveal',
   ) => Promise<{ id: string; username: string; password: string } | null>
   deleteCredential: (id: string) => Promise<void>
   listCredentials: () => Promise<
@@ -460,6 +461,7 @@ interface CanopyAPI {
   ) => () => void
   onBrowserDevToolsOpened: (callback: (data: { browserId: string }) => void) => () => void
   onBrowserFocused: (callback: (data: { browserId: string }) => void) => () => void
+  onBrowserOpenUrl: (callback: (data: { browserId: string; url: string }) => void) => () => void
 
   // Worktree Setup
   runWorktreeSetup: (
@@ -558,6 +560,11 @@ interface CanopyAPI {
     filename: string,
     trackerId?: string,
   ) => Promise<string>
+  trackerConfigFindTaskByKey: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => Promise<TrackerTask | null>
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
@@ -796,6 +803,7 @@ interface RemoteTrustedDevice {
 
 interface RemoteAPI {
   start: () => Promise<{ pairingUrl: string }>
+  ensureListening: () => Promise<void>
   stop: () => Promise<void>
   getStatus: () => Promise<RemoteSessionStatus>
   acceptDevice: (remember: boolean) => Promise<void>

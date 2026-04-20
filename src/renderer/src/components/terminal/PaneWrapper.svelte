@@ -1,12 +1,6 @@
 <script lang="ts">
   import type { PaneSession } from '../../lib/stores/splitTree'
-  import {
-    restartPane,
-    updatePaneTitle,
-    isAiToolId,
-    movePaneToTarget,
-    detachPaneToTab,
-  } from '../../lib/stores/tabs.svelte'
+  import { restartPane, updatePaneTitle, isAiToolId } from '../../lib/stores/tabs.svelte'
   import {
     dragState,
     setDropTarget,
@@ -15,10 +9,14 @@
     clearDrag,
     type DropZone,
   } from '../../lib/stores/dragState.svelte'
+  import { resolvePaneDrop } from '../../lib/stores/paneDrag'
   import TerminalInstance from '../../lib/terminal/TerminalInstance.svelte'
   import BrowserPane from '../browser/BrowserPane.svelte'
   import EditorPane from '../editor/EditorPane.svelte'
   import DiffPane from '../diff/DiffPane.svelte'
+  import NotesPane from '../notes/NotesPane.svelte'
+  import DrawingPane from '../drawing/DrawingPane.svelte'
+  import PaneTabStrip from './PaneTabStrip.svelte'
   import ExitBanner from './ExitBanner.svelte'
   import DetachedOverlay from './DetachedOverlay.svelte'
   import WpmIndicator from './WpmIndicator.svelte'
@@ -145,12 +143,7 @@
     window.removeEventListener('pointerup', handlePaneDragEnd)
 
     if (paneDragActive) {
-      const dt = dragState.dropTarget
-      if (dragState.detachToTabBar) {
-        detachPaneToTab(worktreePath, tabId, pane.id)
-      } else if (dt) {
-        movePaneToTarget(worktreePath, tabId, pane.id, dt.tabId, dt.paneId, dt.zone)
-      }
+      resolvePaneDrop(worktreePath, tabId, pane.id)
     }
 
     paneDragActive = false
@@ -172,58 +165,64 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="pane-wrapper"
-  class:focused
-  class:drag-source={isDragSource}
-  onclick={onFocus}
-  bind:this={wrapperEl}
->
-  {#if pane.paneType === 'browser'}
-    <BrowserPane
-      browserId={pane.sessionId}
-      {active}
-      {focused}
-      initialUrl={pane.url}
-      onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
-      {onFocus}
-    />
-  {:else if pane.paneType === 'editor'}
-    <EditorPane filePath={pane.filePath!} {active} />
-  {:else if pane.paneType === 'diff'}
-    <DiffPane {worktreePath} {active} />
-  {:else}
-    <div class="pane-content">
-      {#key pane.sessionId}
-        <TerminalInstance
-          sessionId={pane.sessionId}
-          wsUrl={pane.wsUrl}
-          active={active && focused}
-          visible={active}
-          isAiTool={isAiToolId(pane.toolId)}
-          onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
-        />
-      {/key}
-      {#if wpmEnabled}
-        <WpmIndicator sessionId={pane.sessionId} />
-      {/if}
-      {#if keystrokeVisualizerEnabled}
-        <KeystrokeVisualizer sessionId={pane.sessionId} />
-      {/if}
-      {#if !pane.isRunning && pane.detached && pane.tmuxSessionName}
-        <DetachedOverlay
-          tmuxSessionName={pane.tmuxSessionName}
-          onReattach={() => reattachTmuxPane(worktreePath, tabId, pane.id)}
-          onKill={() => killTmuxPane(worktreePath, tabId, pane.id)}
-        />
-      {:else if !pane.isRunning}
-        <ExitBanner
-          exitCode={pane.exitCode}
-          onRestart={() => restartPane(worktreePath, tabId, pane.id)}
-        />
-      {/if}
-    </div>
+<div class="pane-wrapper" class:drag-source={isDragSource} onclick={onFocus} bind:this={wrapperEl}>
+  {#if isMultiPane}
+    <PaneTabStrip {pane} {tabId} {worktreePath} {focused} {onFocus} />
   {/if}
+
+  <div class="pane-body">
+    {#if pane.paneType === 'browser'}
+      <BrowserPane
+        browserId={pane.sessionId}
+        {worktreePath}
+        {active}
+        {focused}
+        initialUrl={pane.url}
+        onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
+        {onFocus}
+      />
+    {:else if pane.paneType === 'editor'}
+      <EditorPane filePath={pane.filePath!} {active} />
+    {:else if pane.paneType === 'diff'}
+      <DiffPane {worktreePath} {active} />
+    {:else if pane.paneType === 'notes'}
+      <NotesPane paneSessionId={pane.sessionId} />
+    {:else if pane.paneType === 'drawing'}
+      <DrawingPane />
+    {:else}
+      <div class="pane-content">
+        {#key pane.sessionId}
+          <TerminalInstance
+            sessionId={pane.sessionId}
+            wsUrl={pane.wsUrl}
+            {active}
+            focused={active && focused}
+            visible={active}
+            isAiTool={isAiToolId(pane.toolId)}
+            onTitleChange={(title) => updatePaneTitle(pane.sessionId, title)}
+          />
+        {/key}
+        {#if wpmEnabled}
+          <WpmIndicator sessionId={pane.sessionId} />
+        {/if}
+        {#if keystrokeVisualizerEnabled}
+          <KeystrokeVisualizer sessionId={pane.sessionId} />
+        {/if}
+        {#if !pane.isRunning && pane.detached && pane.tmuxSessionName}
+          <DetachedOverlay
+            tmuxSessionName={pane.tmuxSessionName}
+            onReattach={() => reattachTmuxPane(worktreePath, tabId, pane.id)}
+            onKill={() => killTmuxPane(worktreePath, tabId, pane.id)}
+          />
+        {:else if !pane.isRunning}
+          <ExitBanner
+            exitCode={pane.exitCode}
+            onRestart={() => restartPane(worktreePath, tabId, pane.id)}
+          />
+        {/if}
+      </div>
+    {/if}
+  </div>
 
   {#if hoveredZone}
     <div class="drop-zone-overlay {hoveredZone}"></div>
@@ -233,14 +232,18 @@
 <style>
   .pane-wrapper {
     position: relative;
+    display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100%;
     overflow: hidden;
   }
 
-  .pane-wrapper.focused {
-    outline: 1px solid var(--c-border);
-    outline-offset: -1px;
+  .pane-body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .pane-wrapper.drag-source {

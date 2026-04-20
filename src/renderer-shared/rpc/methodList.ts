@@ -27,7 +27,7 @@ export interface RpcMethods {
 
   // Tools + tabs — Phase 7 write surface
   'tools.spawn': {
-    params: { toolId: string; worktreePath: string }
+    params: { toolId: string; worktreePath: string; profileId?: string }
     result: { tabId: string }
   }
   'tabs.close': {
@@ -96,6 +96,38 @@ export interface RpcMethods {
     params: { url: string }
     result: { substitutedUrl: string }
   }
+
+  // Git & worktree management — peer-initiated mutations on repo state.
+  // Each handler fans out to the matching `window.api.git*` IPC call and
+  // triggers a full state rebroadcast so the peer mirror picks up the
+  // new worktree list (or its removal) immediately.
+  'git.listBranches': {
+    params: { repoRoot: string }
+    result: { local: string[]; remote: string[]; current: string | null }
+  }
+  'worktree.add': {
+    params: { repoRoot: string; path: string; branch: string; baseBranch: string }
+    result: void
+  }
+  'worktree.addCheckout': {
+    params: {
+      repoRoot: string
+      path: string
+      branch: string
+      createLocalTracking: boolean
+    }
+    result: void
+  }
+  'worktree.remove': {
+    params: { repoRoot: string; path: string; force: boolean }
+    result: void
+  }
+
+  // Project management — peer can attach a new directory to the host workspace.
+  'project.attach': {
+    params: { path: string }
+    result: void
+  }
 }
 
 export type RpcMethodName = keyof RpcMethods
@@ -120,6 +152,7 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
   'pty.kill',
+  'worktree.remove',
 ])
 
 /**

@@ -167,7 +167,7 @@
     background: var(--c-bg-overlay);
     border: 1px solid var(--c-border);
     border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-modal);
     padding: 20px;
   }
 
@@ -182,14 +182,14 @@
   .dialog-textarea {
     width: 100%;
     border: 1px solid var(--c-border);
-    border-radius: 6px;
+    border-radius: var(--r-md);
     background: var(--c-bg-input);
     color: var(--c-text);
     font-size: 13px;
     font-family: inherit;
-    padding: 8px 10px;
+    padding: 6px 10px;
     outline: none;
-    transition: border-color 0.1s;
+    transition: border-color var(--dur-fast);
     box-sizing: border-box;
   }
 
@@ -252,7 +252,7 @@
     cursor: pointer;
     border: none;
     outline: none;
-    transition: background 0.1s;
+    transition: background var(--dur-fast);
   }
 
   .btn:focus-visible {

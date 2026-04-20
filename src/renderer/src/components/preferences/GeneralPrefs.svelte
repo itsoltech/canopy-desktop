@@ -160,6 +160,10 @@
     gap: 16px;
   }
 
+  .section + .section {
+    margin-top: 24px;
+  }
+
   .section-title {
     font-size: 15px;
     font-weight: 600;

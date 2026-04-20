@@ -21,6 +21,7 @@ export interface StateSnapshot {
   activeTabByWorktree: Record<string, string>
   activeWorktreePath: string | null
   tools: ToolSnapshot[]
+  profiles: ProfileSnapshot[]
 }
 
 export interface HostInfoSnapshot {
@@ -40,10 +41,21 @@ export interface ProjectSnapshot {
   worktrees: WorktreeSnapshot[]
 }
 
+export type WorktreeAgentStatus = 'none' | 'idle' | 'working' | 'waitingPermission' | 'error'
+
 export interface WorktreeSnapshot {
   path: string
   branch: string
   isMain: boolean
+  /**
+   * Aggregate AI agent status across every agent session tied to this
+   * worktree. Mirrors desktop sidebar's colored-dot indicator so the peer
+   * can render the same idle / working / waitingPermission / error states.
+   * Optional so a peer connected to an older host (pre-agent-status) that
+   * doesn't populate it falls back gracefully to 'none' via the nullish
+   * coalescing on the consumer side.
+   */
+  agentStatus?: WorktreeAgentStatus
 }
 
 export interface TabSnapshot {
@@ -58,7 +70,7 @@ export interface TabSnapshot {
    * view to render (terminal vs browser vs editor vs diff). Undefined is
    * treated as "terminal" by the consumer.
    */
-  paneType?: 'terminal' | 'browser' | 'editor' | 'diff'
+  paneType?: 'terminal' | 'browser' | 'editor' | 'diff' | 'notes' | 'drawing'
   /**
    * Session id of the focused pane — required to send input (`pty.write` /
    * `agent.sendInput`) and to subscribe to PTY output. Undefined for panes
@@ -79,4 +91,19 @@ export interface ToolSnapshot {
   category: string
   isCustom: boolean
   available: boolean
+}
+
+/**
+ * Minimal profile descriptor sent to the remote peer. Deliberately *not* a
+ * re-export of `AgentProfileMasked` — that type carries `prefs.customEnv`
+ * and `prefs.settingsJson`, which frequently contain API tokens and other
+ * secrets. The peer only needs enough to render a picker and pass a
+ * `profileId` back to `tools.spawn`.
+ */
+export interface ProfileSnapshot {
+  id: string
+  agentType: 'claude' | 'gemini' | 'opencode' | 'codex'
+  name: string
+  isDefault: boolean
+  sortIndex: number
 }

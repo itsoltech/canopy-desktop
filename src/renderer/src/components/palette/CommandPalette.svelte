@@ -188,6 +188,22 @@
       })
 
       items.push({
+        id: 'app:open-notes',
+        label: 'Open Notes',
+        category: 'App',
+        description: 'Markdown scratch pad (in-memory, per worktree or project)',
+        action: () => openTool('notes', path),
+      })
+
+      items.push({
+        id: 'app:open-drawing',
+        label: 'Open Drawing',
+        category: 'App',
+        description: 'Freehand sketchpad — send to active agent',
+        action: () => openTool('drawing', path),
+      })
+
+      items.push({
         id: 'app:reopen-tab',
         label: 'Reopen Closed Tab',
         category: 'App',
@@ -687,13 +703,15 @@
 
   .palette-container {
     width: 520px;
-    max-height: 400px;
+    max-height: 440px;
     display: flex;
     flex-direction: column;
     background: var(--c-bg-overlay);
     border: 1px solid var(--c-border);
-    border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    border-radius: var(--r-xl);
+    box-shadow: var(--shadow-modal);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
     overflow: hidden;
     align-self: flex-start;
   }
@@ -747,12 +765,12 @@
   .palette-item {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
+    gap: 10px;
+    padding: 7px 14px;
     cursor: pointer;
     font-size: 13px;
     color: var(--c-text);
-    transition: background 0.05s;
+    transition: background var(--dur-fast);
   }
 
   .palette-item.selected {

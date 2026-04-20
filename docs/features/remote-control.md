@@ -24,6 +24,19 @@ Remote control must be explicitly enabled in Settings before it appears in the c
 2. Toggle "Enable remote control" on. This sets the `remote.enabled` preference to `true`.
 3. The "Remote Connection" command now appears in the command palette.
 
+Once the feature is enabled **and** at least one trusted device exists, Canopy brings the signaling server up automatically on every app launch (see "Listen mode" below). Disabling the toggle or removing all trusted devices stops this auto-start on the next launch.
+
+### Listen mode (trusted reconnect)
+
+Listen mode lets a previously trusted device — typically the mobile remote — reconnect to Canopy after a desktop restart without the user having to open the Remote Connection modal first.
+
+1. At app mount, the renderer calls `remote:ensureListening`. The main process silently no-ops unless `remote.enabled === 'true'`, the `TrustedDeviceStore` has at least one entry, and a usable LAN interface is available. Any failure is logged and returns to `idle` — listen mode never surfaces errors to the user.
+2. On success, the `SignalingServer` is bound (re-using the saved `remote.lastPort` when possible so the peer client's origin stays stable) and the session transitions to `listening`. There is no pairing token in this state — only trusted devices whose `deviceId` already matches an entry in the store can pair. Untrusted pair attempts are rejected.
+3. When a trusted peer connects, the service transitions directly from `listening` → `paired`, auto-accepts, and updates the `lastSeen` timestamp.
+4. Opening the Remote Connection modal while in `listening` state upgrades the session to `waiting` in place: a fresh token is generated on the already-bound port and the QR is shown. This happens inside `onMount` via `remote:start`, so users never see the listening state as a separate screen unless the server reaches it from a paired session (reaper fire, idle timeout, QR expiry — see below).
+
+Listen mode keeps the signaling server bound on `0.0.0.0` in the background for the lifetime of the app, not just while the modal is open. This is covered in "Security and privacy" below.
+
 ### Starting a pairing session
 
 1. Open the command palette and select "Remote Connection."
@@ -59,7 +72,7 @@ Remote control must be explicitly enabled in Settings before it appears in the c
 1. When the peer WebSocket closes while in `paired` state, the session transitions to `reconnecting`.
 2. A 30-second reaper timer starts. During this window, the peer can reconnect (e.g. after a page refresh) by re-sending a `pair` message with the same token and device ID.
 3. If the peer reconnects within the window, the same-device-refresh check allows the pair attempt through, and the trust/accept flow runs again (auto-accept for trusted devices, manual accept otherwise).
-4. If 30 seconds pass without reconnection, the reaper fires and calls `stop()`, tearing down the session and returning to `idle`.
+4. If 30 seconds pass without reconnection, the reaper fires. When listen mode is eligible (feature enabled, ≥1 trusted device, server still bound, `currentPairing` populated with host/port), the session drops back to `listening` instead of fully stopping — the port stays bound so the trusted device can wake the session back up later without any UI on the desktop. Otherwise the reaper calls `stop()` and returns to `idle`.
 
 ### Rejecting a device
 
@@ -73,7 +86,7 @@ Remote control must be explicitly enabled in Settings before it appears in the c
 
 ### Idle timeout
 
-While paired, an idle timer of 15 minutes runs. Each signaling message (SDP, ICE, or data-channel relay) resets the timer. If no activity occurs for 15 minutes, the session auto-closes.
+While paired, an idle timer of 15 minutes runs. Each signaling message (SDP, ICE, or data-channel relay) resets the timer. If no activity occurs for 15 minutes, the same listen-mode calculus from the disconnect reaper applies: when eligible, the session drops back to `listening` and keeps the port bound for trusted reconnects; otherwise it fully tears down to `idle`. QR expiry (the 10-minute `waiting` deadline) follows the same rule — it drops back to `listening` when eligible.
 
 ## Configuration
 
@@ -101,7 +114,7 @@ Trusted devices can be viewed and removed in Settings. Each entry stores `device
 
 ## Security and privacy
 
-The signaling server binds on `0.0.0.0`, making it reachable from any device on the local network. It only listens while a session is explicitly active (user opened the modal) and shuts down when the session ends.
+The signaling server binds on `0.0.0.0`, making it reachable from any device on the local network. It shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. With **listen mode** (feature enabled and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user opening a modal first — see "Listen mode" under Behavior. In this mode the server accepts only trusted `deviceId`s; any other pair attempt is rejected before reaching the accept prompt.
 
 Pairing tokens are 32 random bytes (hex-encoded, 64 characters). Token comparison uses Node.js `timingSafeEqual` to prevent timing attacks. Tokens are single-use per session.
 

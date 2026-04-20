@@ -1,4 +1,4 @@
-import type { ProjectSnapshot, TabSnapshot, ToolSnapshot } from './snapshot'
+import type { ProfileSnapshot, ProjectSnapshot, TabSnapshot, ToolSnapshot } from './snapshot'
 
 /**
  * Delta event topics the Canopy host emits through the RPC `state` event
@@ -16,6 +16,7 @@ export type StateDelta =
   | { topic: 'activeTab'; data: Record<string, string> }
   | { topic: 'activeWorktree'; data: string | null }
   | { topic: 'tools'; data: ToolSnapshot[] }
+  | { topic: 'profiles'; data: ProfileSnapshot[] }
 
 /** All topic names known to the delta protocol. Useful as a runtime guard. */
 export const STATE_DELTA_TOPICS = [
@@ -24,6 +25,7 @@ export const STATE_DELTA_TOPICS = [
   'activeTab',
   'activeWorktree',
   'tools',
+  'profiles',
 ] as const
 
 export type StateDeltaTopic = (typeof STATE_DELTA_TOPICS)[number]

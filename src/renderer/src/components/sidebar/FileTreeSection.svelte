@@ -240,8 +240,8 @@
     color: var(--c-text-faint);
     cursor: pointer;
     transition:
-      background 0.1s,
-      color 0.1s;
+      background var(--dur-fast),
+      color var(--dur-fast);
   }
 
   .refresh-btn:hover:not(:disabled) {
@@ -320,7 +320,7 @@
   }
 
   .tree-row :global(.folder-icon) {
-    color: rgba(180, 160, 120, 0.7);
+    color: color-mix(in srgb, var(--c-blazing-text) 70%, transparent);
   }
 
   .entry-name {
@@ -349,7 +349,7 @@
     border: 1px solid var(--c-border);
     border-radius: 6px;
     padding: 4px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-menu);
     backdrop-filter: blur(12px);
     z-index: 1002;
   }
@@ -357,7 +357,7 @@
   .ctx-item {
     display: block;
     width: 100%;
-    padding: 6px 12px;
+    padding: 6px 10px;
     font-size: 12px;
     color: var(--c-text);
     background: none;

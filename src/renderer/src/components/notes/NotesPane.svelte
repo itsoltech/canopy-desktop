@@ -1,0 +1,321 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte'
+  import { marked } from 'marked'
+  import DOMPurify from 'dompurify'
+  import TurndownService from 'turndown'
+  import {
+    notesState,
+    notesUiScope,
+    getNoteKey,
+    getNoteLabel,
+    type NoteScope,
+  } from '../../lib/stores/notes.svelte'
+
+  const turndown = new TurndownService({
+    headingStyle: 'atx',
+    codeBlockStyle: 'fenced',
+    bulletListMarker: '-',
+  })
+
+  let { paneSessionId }: { paneSessionId: string } = $props()
+
+  const scope = $derived<NoteScope>(notesUiScope[paneSessionId] ?? 'worktree')
+  const key = $derived(getNoteKey(scope))
+  const label = $derived(getNoteLabel(scope))
+  const content = $derived(key ? (notesState[key] ?? '') : '')
+
+  let previewHtml = $state('')
+  let showPreview = $state(true)
+  let editSource: 'editor' | 'preview' | null = $state(null)
+  let editSourceTimer: ReturnType<typeof setTimeout> | null = null
+  let previewEl: HTMLDivElement | undefined = $state()
+
+  onDestroy(() => {
+    if (editSourceTimer) clearTimeout(editSourceTimer)
+  })
+
+  let parseGen = 0
+  $effect(() => {
+    const raw = content
+    const gen = ++parseGen
+    if (editSource === 'preview') return
+    if (!raw.trim()) {
+      previewHtml = ''
+      return
+    }
+    Promise.resolve(marked.parse(raw)).then((html) => {
+      // Drop stale results from earlier, slower parses.
+      if (gen !== parseGen) return
+      previewHtml = DOMPurify.sanitize(html)
+    })
+  })
+
+  function setScope(next: NoteScope): void {
+    notesUiScope[paneSessionId] = next
+  }
+
+  function onInput(e: Event): void {
+    const target = e.target as HTMLTextAreaElement
+    if (!key) return
+    editSource = 'editor'
+    if (editSourceTimer) clearTimeout(editSourceTimer)
+    editSourceTimer = setTimeout(() => {
+      editSource = null
+    }, 350)
+    notesState[key] = target.value
+  }
+
+  function onPreviewPaste(e: ClipboardEvent): void {
+    e.preventDefault()
+    const html = e.clipboardData?.getData('text/html') ?? ''
+    const text = e.clipboardData?.getData('text/plain') ?? ''
+    const sanitized = html ? DOMPurify.sanitize(html) : ''
+    document.execCommand(sanitized ? 'insertHTML' : 'insertText', false, sanitized || text)
+  }
+
+  function onPreviewInput(): void {
+    if (!previewEl || !key) return
+    editSource = 'preview'
+    if (editSourceTimer) clearTimeout(editSourceTimer)
+    editSourceTimer = setTimeout(() => {
+      editSource = null
+    }, 350)
+    const html = DOMPurify.sanitize(previewEl.innerHTML)
+    const md = turndown.turndown(html)
+    notesState[key] = md
+  }
+
+  // Assigns pre-sanitized HTML from `previewHtml`. Only call with DOMPurify-cleaned output.
+  function htmlContent(node: HTMLElement, html: () => string): void {
+    $effect(() => {
+      const value = html()
+      if (document.activeElement === node) return
+      node.innerHTML = value
+    })
+  }
+</script>
+
+<div class="notes-pane">
+  <header class="notes-header">
+    <div class="scope-toggle" role="tablist" aria-label="Note scope">
+      <button
+        type="button"
+        role="tab"
+        id="notes-tab-worktree-{paneSessionId}"
+        aria-controls="notes-panel-{paneSessionId}"
+        aria-selected={scope === 'worktree'}
+        class:active={scope === 'worktree'}
+        onclick={() => setScope('worktree')}
+      >
+        Worktree
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="notes-tab-project-{paneSessionId}"
+        aria-controls="notes-panel-{paneSessionId}"
+        aria-selected={scope === 'project'}
+        class:active={scope === 'project'}
+        onclick={() => setScope('project')}
+      >
+        Project
+      </button>
+    </div>
+    <span class="scope-label" title={label}>{label}</span>
+    <button
+      type="button"
+      class="preview-toggle"
+      aria-pressed={showPreview}
+      onclick={() => (showPreview = !showPreview)}
+      title="Toggle preview"
+    >
+      {showPreview ? 'Hide preview' : 'Show preview'}
+    </button>
+  </header>
+
+  {#if !key}
+    <div class="empty-state">No active worktree.</div>
+  {:else}
+    <div
+      class="notes-body"
+      class:split={showPreview}
+      role="tabpanel"
+      id="notes-panel-{paneSessionId}"
+      aria-labelledby="notes-tab-{scope}-{paneSessionId}"
+    >
+      <textarea
+        class="editor"
+        spellcheck="false"
+        placeholder="# Notes — markdown supported. Lives only in memory (no file)."
+        value={content}
+        oninput={onInput}
+      ></textarea>
+      {#if showPreview}
+        <div
+          class="preview markdown-body"
+          contenteditable="true"
+          bind:this={previewEl}
+          oninput={onPreviewInput}
+          onpaste={onPreviewPaste}
+          use:htmlContent={() => previewHtml}
+        ></div>
+      {/if}
+    </div>
+  {/if}
+</div>
+
+<style>
+  .notes-pane {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    background: var(--c-bg);
+    color: var(--c-text);
+    font-family:
+      system-ui,
+      -apple-system,
+      sans-serif;
+  }
+
+  .notes-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--c-border);
+    background: var(--c-bg-elevated);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  .scope-toggle {
+    display: inline-flex;
+    border: 1px solid var(--c-border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .scope-toggle button {
+    background: transparent;
+    border: 0;
+    color: var(--c-text-secondary);
+    padding: 3px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .scope-toggle button.active {
+    background: var(--c-accent);
+    color: var(--c-bg);
+  }
+
+  .scope-label {
+    color: var(--c-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .preview-toggle {
+    background: transparent;
+    color: var(--c-text-secondary);
+    border: 1px solid var(--c-border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .preview-toggle:hover {
+    color: var(--c-text);
+  }
+
+  .notes-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .notes-body.split {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .editor {
+    background: var(--c-bg);
+    color: var(--c-text);
+    border: 0;
+    border-right: 1px solid var(--c-border);
+    outline: none;
+    padding: 12px 14px;
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    resize: none;
+    width: 100%;
+    height: 100%;
+  }
+
+  .notes-body:not(.split) .editor {
+    border-right: 0;
+  }
+
+  .preview {
+    overflow: auto;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .preview :global(h1),
+  .preview :global(h2),
+  .preview :global(h3) {
+    margin: 1em 0 0.4em;
+  }
+
+  .preview :global(code) {
+    background: var(--c-bg-elevated);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 12px;
+  }
+
+  .preview :global(pre) {
+    background: var(--c-bg-elevated);
+    padding: 8px 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+  }
+
+  .preview :global(pre code) {
+    background: transparent;
+    padding: 0;
+  }
+
+  .preview :global(a) {
+    color: var(--c-accent);
+  }
+
+  .empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--c-text-muted);
+    font-size: 13px;
+  }
+
+  .preview:empty::before {
+    content: 'Click to edit...';
+    color: var(--c-text-muted);
+    font-style: italic;
+  }
+
+  .preview[contenteditable='true'] {
+    outline: none;
+    cursor: text;
+  }
+</style>

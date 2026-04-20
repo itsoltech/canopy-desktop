@@ -126,6 +126,17 @@ export class RemoteSessionService {
    * user can retry without restarting the app.
    */
   start(hostWcId: number): ResultAsync<{ pairingUrl: string }, RemoteServerError> {
+    // Fast path: signaling server is already bound from an auto-listen
+    // pass (see `ensureListening`). Upgrade to `waiting` by generating a
+    // fresh one-shot token + QR URL on the existing listener — no rebind,
+    // no bundle reload. The caller becomes the host window so peer signals
+    // reach the renderer that opened the QR modal.
+    if (this.status.kind === 'listening') {
+      this.hostWcId = hostWcId
+      const { lanIp, port } = this.status
+      return okAsync(this.beginPairing(lanIp, port))
+    }
+
     if (this.status.kind !== 'idle' && this.status.kind !== 'error') {
       return errAsync({ _tag: 'AlreadyRunning' })
     }
@@ -166,40 +177,143 @@ export class RemoteSessionService {
         if (String(port) !== savedPortRaw) {
           this.preferencesStore.set(LAST_PORT_PREF_KEY, String(port))
         }
-        const token = randomBytes(TOKEN_BYTES).toString('hex')
-        this.pendingToken = token
-        const expiresAt = Date.now() + PAIRING_TTL_MS
-        const hostname = osHostname()
-        const pairingUrl = buildPairingUrl({
-          host: iface.address,
-          port,
-          token,
-          hostname,
-        })
-        const info: PairingUrlInfo = {
-          pairingUrl,
-          hostname,
-          lanIp: iface.address,
-          port,
-          expiresAt,
-        }
-        this.currentPairing = info
-        this.scheduleExpiry(PAIRING_TTL_MS)
-        this.setStatus({
-          kind: 'waiting',
-          pairingUrl,
-          hostname,
-          lanIp: iface.address,
-          port,
-          expiresAt,
-        })
-        return { pairingUrl }
+        return this.beginPairing(iface.address, port)
       })
       .mapErr((e) => {
         this.setStatus({ kind: 'error', message: `Failed to start: ${e._tag}` })
         this.cleanupSession()
         return e
       })
+  }
+
+  /**
+   * Start the signaling server in passive listen mode if the user has a
+   * previously trusted device. This is how a paired phone reconnects after
+   * the desktop app is closed and reopened without the user needing to open
+   * the Remote Connection modal: the server is listening on the same saved
+   * port, and `handlePairAttempt` recognizes the trusted `deviceId` and
+   * auto-accepts without a one-shot token.
+   *
+   * Called from the renderer root layout on app mount. Best-effort: any
+   * failure leaves the session idle and the user can still start a QR
+   * pairing manually. Conditions:
+   *   - `remote.enabled === 'true'` (user opted in)
+   *   - TrustedDeviceStore has ≥1 entry
+   *   - A usable LAN interface is available
+   * Missing any of these is a silent no-op.
+   *
+   * Idempotent: if the server is already running (either from a prior
+   * listen-mode start or a manual `start()`), the method only rebinds the
+   * host renderer if the previous one is gone (dev reload, window closed).
+   */
+  ensureListening(hostWcId: number): ResultAsync<void, RemoteServerError> {
+    // Already running — keep the server up, just adopt the caller as the
+    // host renderer if the previous one is destroyed. We do NOT blindly
+    // reassign: a mid-session window claiming listening should not steal
+    // signaling from an active host.
+    if (this.signalingServer.isRunning) {
+      const prev = this.hostWcId
+      let prevLive = false
+      if (prev !== null) {
+        const wc = webContentsNs.fromId(prev)
+        prevLive = !!wc && !wc.isDestroyed()
+      }
+      if (!prevLive) {
+        this.hostWcId = hostWcId
+      }
+      return okAsync(undefined)
+    }
+
+    if (!this.isEnabledInPreferences()) return okAsync(undefined)
+    if (this.trustedDevices.list().length === 0) return okAsync(undefined)
+
+    const iface = selectPrimaryInterface()
+    if (!iface) return okAsync(undefined)
+
+    this.hostWcId = hostWcId
+    const bundleRoot = this.resolveBundleRoot()
+    const savedPortRaw = this.preferencesStore.get(LAST_PORT_PREF_KEY)
+    const savedPort = savedPortRaw && /^\d+$/.test(savedPortRaw) ? parseInt(savedPortRaw, 10) : 0
+
+    return this.signalingServer
+      .start({
+        bundleRoot,
+        preferredPort: savedPort,
+        handlers: {
+          onPairAttempt: (msg) => this.handlePairAttempt(msg),
+          onPeerSignal: (msg) => this.handlePeerSignal(msg),
+          onPeerDisconnected: () => this.handlePeerDisconnected(),
+        },
+      })
+      .map(({ port }) => {
+        if (String(port) !== savedPortRaw) {
+          this.preferencesStore.set(LAST_PORT_PREF_KEY, String(port))
+        }
+        const hostname = osHostname()
+        // Populate `currentPairing` so the trusted auto-accept branch in
+        // `handlePairAttempt` can pluck hostname/lanIp/port from it when
+        // the trusted peer arrives. `pairingUrl` / `expiresAt` are
+        // sentinels — nothing surfaces them to the UI while we're in
+        // `listening`, and the next `start()` call will overwrite them
+        // with real values via `beginPairing`.
+        this.currentPairing = {
+          pairingUrl: '',
+          hostname,
+          lanIp: iface.address,
+          port,
+          expiresAt: Number.POSITIVE_INFINITY,
+        }
+        // Deliberately NO pendingToken: untrusted peers cannot pair from
+        // listening mode, only trusted devices whose deviceId matches an
+        // entry already in the TrustedDeviceStore.
+        this.setStatus({ kind: 'listening', hostname, lanIp: iface.address, port })
+      })
+      .mapErr((e) => {
+        // Best-effort: listen mode failing should not block the app. Log
+        // and return to idle so the user can still start a session
+        // manually from the Remote Connection modal.
+        console.warn('[remote] ensureListening failed:', e._tag)
+        this.hostWcId = null
+        return e
+      })
+  }
+
+  /**
+   * Generate a fresh one-shot pairing token + QR URL and transition to
+   * `waiting`. Assumes the signaling server is already listening. Shared by
+   * the `start()` cold-start path (after `SignalingServer.start` succeeds)
+   * and the `start()` fast path that upgrades an already-listening server
+   * out of `listening` into `waiting`.
+   */
+  private beginPairing(lanIp: string, port: number): { pairingUrl: string } {
+    const token = randomBytes(TOKEN_BYTES).toString('hex')
+    this.pendingToken = token
+    const expiresAt = Date.now() + PAIRING_TTL_MS
+    const hostname = osHostname()
+    const pairingUrl = buildPairingUrl({
+      host: lanIp,
+      port,
+      token,
+      hostname,
+    })
+    const info: PairingUrlInfo = {
+      pairingUrl,
+      hostname,
+      lanIp,
+      port,
+      expiresAt,
+    }
+    this.currentPairing = info
+    this.scheduleExpiry(PAIRING_TTL_MS)
+    this.setStatus({
+      kind: 'waiting',
+      pairingUrl,
+      hostname,
+      lanIp,
+      port,
+      expiresAt,
+    })
+    return { pairingUrl }
   }
 
   /**
@@ -321,19 +435,44 @@ export class RemoteSessionService {
   // ===== SignalingServer callbacks =====
 
   private handlePairAttempt(msg: PairMessage): PairResponse {
+    if (!this.isEnabledInPreferences()) {
+      return { ok: false, reason: 'remote control disabled' }
+    }
     const ts = new Date().toISOString().slice(11, 23)
+    const incomingDeviceId =
+      typeof msg.deviceId === 'string' && msg.deviceId.length > 0 ? msg.deviceId : null
+    const isTrustedDevice =
+      incomingDeviceId !== null && this.trustedDevices.isTrusted(incomingDeviceId)
     console.log(`[remote ${ts}] handlePairAttempt:`, {
       status: this.status.kind,
-      incomingDeviceId: msg.deviceId ?? null,
+      incomingDeviceId,
       lastPairedDeviceId: this.lastPairedDeviceId,
-      isTrusted: msg.deviceId ? this.trustedDevices.isTrusted(msg.deviceId) : false,
+      isTrusted: isTrustedDevice,
     })
-    if (!this.pendingToken) {
-      return { ok: false, reason: 'no active pairing' }
+
+    // Trusted devices bypass the one-shot token check. This is the whole
+    // reason the fix exists: a phone that paired previously reconnects
+    // after a desktop restart with its persistent deviceId but no fresh
+    // token (the old token from SavedInstance expired with the previous
+    // session, and listening mode intentionally has no pendingToken).
+    //
+    // SECURITY: the MVP trust semantics (Phase 11) authenticate a trusted
+    // device by `deviceId` alone. The deviceId is a long random string
+    // generated by the mobile app and persisted in SecureStore, but it
+    // travels on the wire — any LAN peer that captures a previous pair
+    // frame could replay it. This is the same threat model as the
+    // one-shot token (which also travels on the wire) for the same
+    // LAN-only binding. Cryptographic challenge-response via publicKeyJwk
+    // is deferred to Phase 14 hardening (see TrustedDeviceStore.ts:7-12).
+    if (!isTrustedDevice) {
+      if (!this.pendingToken) {
+        return { ok: false, reason: 'no active pairing' }
+      }
+      if (!tokensMatch(msg.token, this.pendingToken)) {
+        return { ok: false, reason: 'invalid token' }
+      }
     }
-    if (!tokensMatch(msg.token, this.pendingToken)) {
-      return { ok: false, reason: 'invalid token' }
-    }
+
     // Single-device policy: if we're already paired or have a pending peer,
     // reject newcomers — EXCEPT when the "new" pair attempt comes from the
     // same device that's already paired. That happens when the peer refreshes
@@ -342,8 +481,6 @@ export class RemoteSessionService {
     // has processed the old WS close event. Without this allowance the
     // refresh would be rejected as "another device already paired" and the
     // session would stall.
-    const incomingDeviceId =
-      typeof msg.deviceId === 'string' && msg.deviceId.length > 0 ? msg.deviceId : null
     const isSameDeviceRefresh =
       incomingDeviceId !== null && incomingDeviceId === this.lastPairedDeviceId
     if ((this.pendingDevice || this.status.kind === 'paired') && !isSameDeviceRefresh) {
@@ -381,7 +518,6 @@ export class RemoteSessionService {
     // accept modal even though the user had asked for automatic trust
     // — this eliminates that flash by never reaching a state that
     // would cause the modal to render.
-    const isTrustedDevice = this.trustedDevices.isTrusted(device.deviceId)
     if (isTrustedDevice && this.currentPairing) {
       this.trustedDevices.updateLastSeen(device.deviceId)
       this.pendingDevice = null
@@ -467,11 +603,23 @@ export class RemoteSessionService {
         this.clearReaperTimer()
         this.reaperTimer = setTimeout(() => {
           if (this.status.kind === 'reconnecting') {
-            console.log('[remote] reaper fired — session teardown after disconnect timeout')
-            this.stop().match(
-              () => {},
-              () => {},
-            )
+            // Normally this reaper tore the session down entirely. But when
+            // the session was established from `listening` mode (auto-listen
+            // for trusted devices), we want the server to remain bound so
+            // the phone can reconnect later without the user reopening any
+            // UI on the desktop. If we still have trusted devices and the
+            // feature is enabled, drop back to `listening` instead of
+            // stopping — cheap, and the whole point of this feature.
+            if (this.canReturnToListening()) {
+              console.log('[remote] reaper fired — returning to listening for trusted reconnects')
+              this.returnToListening()
+            } else {
+              console.log('[remote] reaper fired — session teardown after disconnect timeout')
+              this.stop().match(
+                () => {},
+                () => {},
+              )
+            }
           }
         }, REAPER_WINDOW_MS)
       } else {
@@ -493,13 +641,71 @@ export class RemoteSessionService {
     if (this.status.kind !== 'paired') return
     this.idleTimer = setTimeout(() => {
       if (this.status.kind === 'paired') {
-        console.log('[remote] idle timeout — auto-closing session')
-        this.stop().match(
-          () => {},
-          () => {},
-        )
+        // Same calculus as the disconnect reaper above: if the user has
+        // trusted devices and opted in, drop back to `listening` instead of
+        // fully tearing down so the phone can wake the session back up
+        // without UI gymnastics on the desktop.
+        if (this.canReturnToListening()) {
+          console.log('[remote] idle timeout — returning to listening for trusted reconnects')
+          this.returnToListening()
+        } else {
+          console.log('[remote] idle timeout — auto-closing session')
+          this.stop().match(
+            () => {},
+            () => {},
+          )
+        }
       }
     }, IDLE_TIMEOUT_MS)
+  }
+
+  /**
+   * True iff a reaped/idled session should drop back to `listening` rather
+   * than fully stop. Requires: opted in, ≥1 trusted device, server still
+   * bound, and a populated `currentPairing` so we know the host/port to
+   * stay listening on.
+   */
+  private canReturnToListening(): boolean {
+    return (
+      this.isEnabledInPreferences() &&
+      this.trustedDevices.list().length > 0 &&
+      this.signalingServer.isRunning &&
+      this.currentPairing !== null
+    )
+  }
+
+  /**
+   * Soft reset back to listening mode without releasing the signaling
+   * server port. Clears per-session state (pending token, pending device,
+   * idle/reaper timers) but keeps `currentPairing` populated with
+   * host/port so a subsequent trusted-device pair attempt can still pluck
+   * those fields from it. Caller must have verified `canReturnToListening`.
+   */
+  private returnToListening(): void {
+    const pairing = this.currentPairing
+    if (!pairing) {
+      this.stop().match(
+        () => {},
+        () => {},
+      )
+      return
+    }
+    this.clearExpiryTimer()
+    this.clearReaperTimer()
+    this.clearIdleTimer()
+    this.pendingToken = null
+    this.pendingDevice = null
+    this.lastPairedDeviceName = null
+    this.lastPairedDeviceId = null
+    const { hostname, lanIp, port } = pairing
+    this.currentPairing = {
+      pairingUrl: '',
+      hostname,
+      lanIp,
+      port,
+      expiresAt: Number.POSITIVE_INFINITY,
+    }
+    this.setStatus({ kind: 'listening', hostname, lanIp, port })
   }
 
   // ===== helpers =====
@@ -521,12 +727,21 @@ export class RemoteSessionService {
   private scheduleExpiry(ms: number): void {
     this.clearExpiryTimer()
     this.pairingExpiryTimer = setTimeout(() => {
-      // Only auto-stop if still waiting; if peer arrived or paired, keep going.
+      // Only auto-expire if still waiting for a scan; if peer arrived or
+      // paired, keep going. On expiry: if we can drop back to listening
+      // (user has trusted devices + feature enabled), do so — that keeps
+      // the signaling port bound so a previously trusted phone can still
+      // reconnect after the QR times out. Otherwise fully stop.
       if (this.status.kind === 'waiting') {
-        this.stop().match(
-          () => {},
-          () => {},
-        )
+        if (this.canReturnToListening()) {
+          console.log('[remote] QR expiry — returning to listening for trusted reconnects')
+          this.returnToListening()
+        } else {
+          this.stop().match(
+            () => {},
+            () => {},
+          )
+        }
       }
     }, ms)
   }

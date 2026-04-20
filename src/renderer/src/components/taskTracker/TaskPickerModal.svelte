@@ -6,8 +6,9 @@
   import { setPref, getPref, prefs } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { getActiveAgentPane } from '../../lib/stores/tabs.svelte'
+  import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
   import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
+  import { wrapAsBracketedPaste } from '../../lib/pty/paste'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
@@ -122,7 +123,10 @@
   // Branch creation state
   let selectedTask: Task | null = $state(null)
 
+  let searchInputEl: HTMLInputElement | null = $state(null)
+
   onMount(async () => {
+    searchInputEl?.focus()
     await loadBoards()
   })
 
@@ -253,14 +257,15 @@
 
   async function sendTaskToAgent(task: Task, e: MouseEvent): Promise<void> {
     e.stopPropagation()
-    const pane = getActiveAgentPane()
-    if (!pane) return
+    const result = getActiveAgentPane()
+    if (!result) return
     const context = await fetchAndFormatTaskContext(
       connectionId,
       task,
       workspaceState.repoRoot ?? undefined,
     )
-    await window.api.writePty(pane.sessionId, context + '\n')
+    await switchTab(result.tabId)
+    await window.api.writePty(result.pane.sessionId, wrapAsBracketedPaste(context) + '\r')
     addToast('Task sent to agent')
     closeDialog()
   }
@@ -354,6 +359,7 @@
         <Search size={14} />
         <input
           class="search-input"
+          bind:this={searchInputEl}
           bind:value={searchQuery}
           placeholder="Search by key or title..."
           oninput={() => (selectedIndex = 0)}
@@ -413,6 +419,7 @@
                   copyTaskToClipboard(task, e)
                 }}
                 title="Copy to clipboard"
+                aria-label="Copy task to clipboard"
               >
                 <Copy size={12} />
               </button>

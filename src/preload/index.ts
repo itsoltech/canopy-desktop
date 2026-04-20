@@ -105,6 +105,35 @@ const api = {
       category?: string
     },
   ) => ipcRenderer.invoke('tools:updateCustom', { id, changes }),
+
+  // Skills
+  listSkills: (opts?: { scope?: string; agent?: string; workspaceId?: string | null }) =>
+    ipcRenderer.invoke('skills:list', opts),
+
+  getSkill: (id: string) => ipcRenderer.invoke('skills:get', { id }),
+
+  installSkill: (opts: {
+    source: string
+    agents?: string[]
+    scope?: string
+    method?: string
+    workspaceId?: string | null
+    workspacePath?: string
+  }) => ipcRenderer.invoke('skills:install', opts),
+
+  removeSkill: (id: string, workspacePath?: string) =>
+    ipcRenderer.invoke('skills:remove', { id, workspacePath }),
+
+  updateSkill: (id: string, workspacePath?: string) =>
+    ipcRenderer.invoke('skills:update', { id, workspacePath }),
+
+  toggleSkillAgent: (id: string, agent: string, enabled: boolean, workspacePath?: string) =>
+    ipcRenderer.invoke('skills:toggleAgent', { id, agent, enabled, workspacePath }),
+
+  scanSkills: (workspacePath?: string) => ipcRenderer.invoke('skills:scan', { workspacePath }),
+
+  deleteSkillFile: (filePath: string) => ipcRenderer.invoke('skills:deleteFile', { filePath }),
+
   // Agent session
   updateAgentTitle: (sessionId: string, title: string) =>
     ipcRenderer.invoke('agent:updateTitle', { sessionId, title }),
@@ -390,8 +419,8 @@ const api = {
     >,
   saveCredential: (domain: string, username: string, password: string, title?: string) =>
     ipcRenderer.invoke('credentials:save', { domain, username, password, title }),
-  getCredentialDecrypted: (id: string, domain: string) =>
-    ipcRenderer.invoke('credentials:getDecrypted', { id, domain }) as Promise<{
+  getCredentialDecrypted: (id: string, domain: string, purpose: 'autofill' | 'reveal') =>
+    ipcRenderer.invoke('credentials:getDecrypted', { id, domain, purpose }) as Promise<{
       id: string
       username: string
       password: string
@@ -429,6 +458,15 @@ const api = {
     ipcRenderer.on('browser:focused', handler)
     return (): void => {
       ipcRenderer.removeListener('browser:focused', handler)
+    }
+  },
+
+  onBrowserOpenUrl: (callback: (data: { browserId: string; url: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { browserId: string; url: string }): void =>
+      callback(data)
+    ipcRenderer.on('browser:openUrl', handler)
+    return (): void => {
+      ipcRenderer.removeListener('browser:openUrl', handler)
     }
   },
 
@@ -520,6 +558,13 @@ const api = {
     ipcRenderer.on('tools:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('tools:changed', handler)
+    }
+  },
+  onSkillsChanged: (callback: (skills: unknown[]) => void) => {
+    const handler = (_event: IpcRendererEvent, skills: unknown[]): void => callback(skills)
+    ipcRenderer.on('skills:changed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('skills:changed', handler)
     }
   },
   onPtyExit: (
@@ -688,6 +733,8 @@ const api = {
       filename,
       trackerId,
     }),
+  trackerConfigFindTaskByKey: (repoRoot: string | undefined, taskKey: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:findTaskByKey', { repoRoot, taskKey, trackerId }),
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) =>
@@ -844,6 +891,12 @@ const api = {
   // Remote control (WebRTC pairing via QR)
   remote: {
     start: () => ipcRenderer.invoke('remote:start') as Promise<{ pairingUrl: string }>,
+    // Best-effort request from the renderer on app mount — brings the
+    // signaling server up in passive listen mode iff the user has opted in
+    // and has ≥1 trusted device, so a previously paired phone can reconnect
+    // without the user re-opening the Remote Connection modal. Never
+    // rejects; failures are silently no-oped on the main side.
+    ensureListening: () => ipcRenderer.invoke('remote:ensureListening') as Promise<void>,
     stop: () => ipcRenderer.invoke('remote:stop') as Promise<void>,
     getStatus: () => ipcRenderer.invoke('remote:getStatus') as Promise<RemoteSessionStatus>,
     acceptDevice: (remember: boolean) =>

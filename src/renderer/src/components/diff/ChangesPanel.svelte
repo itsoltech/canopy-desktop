@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { match } from 'ts-pattern'
   import { RotateCw, Check, X } from 'lucide-svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import type { DiffFile, ParsedDiff } from '../../lib/types/diff'
 
   let {
@@ -106,17 +108,21 @@
   }
 
   function statusIcon(status: DiffFile['status']): string {
-    if (status === 'added') return '+'
-    if (status === 'modified') return 'M'
-    if (status === 'deleted') return '\u2212'
-    return '\u2192'
+    return match(status)
+      .with('added', () => '+')
+      .with('modified', () => 'M')
+      .with('deleted', () => '\u2212')
+      .with('renamed', () => '\u2192')
+      .exhaustive()
   }
 
   function statusClass(status: DiffFile['status']): string {
-    if (status === 'added') return 'status-added'
-    if (status === 'modified') return 'status-modified'
-    if (status === 'deleted') return 'status-deleted'
-    return 'status-renamed'
+    return match(status)
+      .with('added', () => 'status-added')
+      .with('modified', () => 'status-modified')
+      .with('deleted', () => 'status-deleted')
+      .with('renamed', () => 'status-renamed')
+      .exhaustive()
   }
 
   function handleClick(file: DiffFile): void {
@@ -135,7 +141,12 @@
 
   async function handleRevert(e: Event, path: string): Promise<void> {
     e.stopPropagation()
-    const ok = window.confirm('Revert all changes to this file? This cannot be undone.')
+    const ok = await confirm({
+      title: 'Revert File',
+      message: `Revert all changes to "${path}"? This cannot be undone.`,
+      confirmLabel: 'Revert',
+      destructive: true,
+    })
     if (!ok) return
     try {
       await window.api.gitRevertFile(worktreePath, path)
@@ -185,21 +196,29 @@
       <button
         class="filter-btn"
         class:filter-active={statusFilter === 'all'}
+        aria-label="Show all files"
+        aria-pressed={statusFilter === 'all'}
         onclick={() => (statusFilter = 'all')}>All</button
       >
       <button
         class="filter-btn"
         class:filter-active={statusFilter === 'added'}
+        aria-label="Filter added files"
+        aria-pressed={statusFilter === 'added'}
         onclick={() => (statusFilter = statusFilter === 'added' ? 'all' : 'added')}>A</button
       >
       <button
         class="filter-btn"
         class:filter-active={statusFilter === 'modified'}
+        aria-label="Filter modified files"
+        aria-pressed={statusFilter === 'modified'}
         onclick={() => (statusFilter = statusFilter === 'modified' ? 'all' : 'modified')}>M</button
       >
       <button
         class="filter-btn"
         class:filter-active={statusFilter === 'deleted'}
+        aria-label="Filter deleted files"
+        aria-pressed={statusFilter === 'deleted'}
         onclick={() => (statusFilter = statusFilter === 'deleted' ? 'all' : 'deleted')}>D</button
       >
     </div>
@@ -238,12 +257,14 @@
               <button
                 class="action-btn stage"
                 onclick={(e) => handleStage(e, file.path)}
-                title="Stage"><Check size={12} /></button
+                title="Stage"
+                aria-label="Stage file"><Check size={12} /></button
               >
               <button
                 class="action-btn revert"
                 onclick={(e) => handleRevert(e, file.path)}
-                title="Revert"><X size={12} /></button
+                title="Revert"
+                aria-label="Revert file"><X size={12} /></button
               >
             </span>
           {/if}
@@ -433,9 +454,9 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 8px 3px 12px;
+    padding: 3px 10px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     line-height: 1.4;
     position: relative;
   }
@@ -447,7 +468,7 @@
   .file-item.file-visible {
     background: var(--c-border-subtle);
     border-left: 2px solid var(--c-accent);
-    padding-left: 10px;
+    padding-left: 8px;
   }
 
   .status-icon {

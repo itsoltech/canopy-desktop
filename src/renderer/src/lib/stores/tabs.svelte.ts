@@ -25,7 +25,30 @@ import {
 import { confirm } from './dialogs.svelte'
 import { getPref } from './preferences.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
+import { notesUiScope } from './notes.svelte'
 import { getProfileById } from './profiles.svelte'
+import { drawingsState } from './drawings.svelte'
+
+function hasRemainingDrawingPanes(excludeId: string): boolean {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      if (tab.suspended) continue
+      for (const p of allPanes(tab.rootSplit)) {
+        if (p.paneType === 'drawing' && p.id !== excludeId) return true
+      }
+    }
+  }
+  return false
+}
+
+function disposeEphemeralPaneState(pane: PaneSession): void {
+  if (pane.paneType === 'notes') {
+    delete notesUiScope[pane.sessionId]
+  }
+  if (pane.paneType === 'drawing' && !hasRemainingDrawingPanes(pane.id)) {
+    for (const key of Object.keys(drawingsState)) delete drawingsState[key]
+  }
+}
 
 // --- Active process detection ---
 
@@ -145,15 +168,31 @@ function computeDisplayName(
   return `${baseLabel} #${sameLabelCount + 1}`
 }
 
-export function getActiveAgentPane(): PaneSession | null {
+export function getActiveAgentPane(): { pane: PaneSession; tabId: string } | null {
   const path = workspaceState.selectedWorktreePath
   if (!path) return null
+  const tabs = tabsByWorktree[path]
+  if (!tabs) return null
   const tabId = activeTabId[path]
-  const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
-  if (!tab) return null
-  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (!focused || !isAiToolId(focused.toolId)) return null
-  return focused
+  const activeTab = tabs.find((t) => t.id === tabId)
+  if (!activeTab) return null
+
+  // 1) Focused pane in active tab, if it's an agent.
+  const focused = findLeaf(activeTab.rootSplit, activeTab.focusedPaneId)
+  if (focused && isAiToolId(focused.toolId) && focused.isRunning)
+    return { pane: focused, tabId: activeTab.id }
+
+  // 2) Any running agent pane in the active tab (common: agent split next to a Notes/Drawing pane).
+  const inActive = allPanes(activeTab.rootSplit).find((p) => isAiToolId(p.toolId) && p.isRunning)
+  if (inActive) return { pane: inActive, tabId: activeTab.id }
+
+  // 3) Any running agent pane in other tabs (e.g. drawing pane in its own tab).
+  for (const tab of tabs) {
+    if (tab.id === tabId) continue
+    const found = allPanes(tab.rootSplit).find((p) => isAiToolId(p.toolId) && p.isRunning)
+    if (found) return { pane: found, tabId: tab.id }
+  }
+  return null
 }
 
 export async function openTool(
@@ -180,6 +219,19 @@ export async function openTool(
       title: null,
       paneType: 'browser',
       url: options?.initialUrl,
+    }
+  } else if (toolId === 'notes' || toolId === 'drawing') {
+    toolName = toolId === 'notes' ? 'Notes' : 'Drawing'
+    pane = {
+      id: paneId,
+      sessionId: crypto.randomUUID(),
+      wsUrl: '',
+      toolId,
+      toolName,
+      isRunning: true,
+      exitCode: null,
+      title: null,
+      paneType: toolId,
     }
   } else {
     const spawnOptions: {
@@ -401,10 +453,13 @@ export async function closeTab(tabId: string): Promise<void> {
       if (p.paneType === 'browser') {
         delete browserSessions[p.sessionId]
       }
+      disposeEphemeralPaneState(p)
     }
     await Promise.all(
       panes
-        .filter((p) => p.paneType !== 'editor')
+        .filter(
+          (p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing',
+        )
         .map((p) => {
           if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
           return window.api.killPty(p.sessionId, !!p.tmuxSessionName)
@@ -875,10 +930,11 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
   for (const p of allSessions) {
     if (agentSessions[p.sessionId]) removeAgentSession(p.sessionId)
     if (p.paneType === 'browser') delete browserSessions[p.sessionId]
+    disposeEphemeralPaneState(p)
   }
   await Promise.allSettled(
     allSessions
-      .filter((p) => p.paneType !== 'editor')
+      .filter((p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing')
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
         return window.api.killPty(p.sessionId, true)
@@ -901,9 +957,10 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
 export async function killAllTabs(): Promise<void> {
   const allTabsList = Object.values(tabsByWorktree).flat()
   const allSessions = allTabsList.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
+  for (const p of allSessions) disposeEphemeralPaneState(p)
   await Promise.all(
     allSessions
-      .filter((p) => p.paneType !== 'editor')
+      .filter((p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing')
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
         return window.api.killPty(p.sessionId, true)
@@ -977,11 +1034,6 @@ export function getAiSessions(worktreePath: string): AiSessionInfo[] {
 export function getTabDisplayName(tab: TabInfo): string {
   const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
   return focused?.title || tab.name
-}
-
-export function getTabFocusedToolId(tab: TabInfo): string {
-  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  return focused?.toolId ?? tab.toolId
 }
 
 export function getActivePtySessionId(): string | null {
@@ -1121,18 +1173,23 @@ export async function splitFocusedPane(
   scheduleSave(worktreePath)
 }
 
-export async function closeFocusedPane(worktreePath: string): Promise<void> {
+export async function closePane(
+  worktreePath: string,
+  tabId: string,
+  paneId: string,
+): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return
 
-  const tabId = activeTabId[worktreePath]
   const tab = tabs.find((t) => t.id === tabId)
   if (!tab) return
 
-  // Check if focused pane has active process before closing
-  const focusedPane = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (focusedPane && focusedPane.isRunning) {
-    const description = await getActiveProcessDescription([focusedPane])
+  const pane = findLeaf(tab.rootSplit, paneId)
+  if (!pane) return
+
+  // Check if this pane has active process before closing
+  if (pane.isRunning) {
+    const description = await getActiveProcessDescription([pane])
     if (description) {
       const confirmed = await confirm({
         title: 'Close pane?',
@@ -1144,12 +1201,17 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     }
   }
 
-  const result = treeRemovePane(tab.rootSplit, tab.focusedPaneId)
+  const result = treeRemovePane(tab.rootSplit, paneId)
   if (!result) return
+  disposeEphemeralPaneState(result.removed)
 
-  // Kill the removed pane's PTY or destroy browser view (editor panes have no session)
-  if (result.removed.paneType === 'editor') {
-    // No-op
+  // Kill the removed pane's PTY or destroy browser view (editor/notes/drawing panes have no session)
+  if (
+    result.removed.paneType === 'editor' ||
+    result.removed.paneType === 'notes' ||
+    result.removed.paneType === 'drawing'
+  ) {
+    // No-op — ephemeral or filesystem-backed only
   } else if (result.removed.paneType === 'browser') {
     delete browserSessions[result.removed.sessionId]
     await window.api.teardownBrowserWebview(result.removed.sessionId)
@@ -1159,8 +1221,6 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
 
   if (!result.tree) {
     // Last pane — close the tab entirely
-    // Remove from closed tabs push since closeTab will handle it
-    // But we already cleaned up the session, so we handle it manually
     if (!closedTabs[worktreePath]) closedTabs[worktreePath] = []
     closedTabs[worktreePath].push({
       toolId: tab.toolId,
@@ -1190,6 +1250,17 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     reconcileTabIdentity(tab)
   }
   scheduleSave(worktreePath)
+}
+
+export async function closeFocusedPane(worktreePath: string): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+
+  const tabId = activeTabId[worktreePath]
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  await closePane(worktreePath, tab.id, tab.focusedPaneId)
 }
 
 export function navigatePaneFocus(
@@ -1410,6 +1481,10 @@ function scheduleSave(worktreePath: string): void {
 
 function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
   if (node.type === 'leaf') {
+    // Notes and drawing panes are inherently ephemeral — never persist
+    if (node.pane.paneType === 'notes' || node.pane.paneType === 'drawing') {
+      return null
+    }
     // Skip dead terminal panes — they would respawn as new sessions on restore
     if (
       node.pane.paneType !== 'editor' &&

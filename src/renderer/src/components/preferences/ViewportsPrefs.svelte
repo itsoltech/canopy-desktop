@@ -6,6 +6,7 @@
   } from '../../lib/browser/browserState.svelte'
   import type { ViewportPreset } from '../../lib/browser/browserState.svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { onMount } from 'svelte'
@@ -30,7 +31,14 @@
     credentials = await window.api.listCredentials()
   }
 
-  async function deleteCredential(id: string): Promise<void> {
+  async function deleteCredential(id: string, domain: string, username: string): Promise<void> {
+    const ok = await confirm({
+      title: 'Delete saved password',
+      message: `Delete the saved password for ${username} on ${domain}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     await window.api.deleteCredential(id)
     await loadCredentials()
   }
@@ -42,7 +50,7 @@
       if (revealTimer) clearTimeout(revealTimer)
       return
     }
-    const cred = await window.api.getCredentialDecrypted(id, domain)
+    const cred = await window.api.getCredentialDecrypted(id, domain, 'reveal')
     if (cred) {
       revealedId = id
       revealedPassword = cred.password
@@ -95,7 +103,14 @@
     error = ''
   }
 
-  function removeViewport(name: string): void {
+  async function removeViewport(name: string): Promise<void> {
+    const ok = await confirm({
+      title: 'Remove Viewport',
+      message: `Remove custom viewport "${name}"?`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     const updated: Record<string, ViewportPreset> = {}
     for (const [key, value] of Object.entries(getCustomViewports())) {
       if (key !== name) updated[key] = value
@@ -108,7 +123,7 @@
   <h3 class="section-title">Web Browser</h3>
 
   <div class="select-row">
-    <span class="select-label">Open URLs from terminal in</span>
+    <span class="select-label">Open external URLs in</span>
     <CustomSelect
       value={urlOpenMode}
       options={[
@@ -120,7 +135,10 @@
       maxWidth="180px"
     />
   </div>
-  <div class="hint-row">Where to open links clicked or detected in terminal output</div>
+  <div class="hint-row">
+    Where to open links clicked in terminal output or <code>target="_blank"</code> links from the browser
+    pane
+  </div>
 
   <h4 class="subsection-title">Default Viewports</h4>
 
@@ -215,7 +233,10 @@
               <Eye size={13} />
             {/if}
           </button>
-          <button class="remove-btn" onclick={() => deleteCredential(cred.id)}>Remove</button>
+          <button
+            class="remove-btn"
+            onclick={() => deleteCredential(cred.id, cred.domain, cred.username)}>Remove</button
+          >
         </div>
       </div>
     {:else}

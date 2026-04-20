@@ -13,6 +13,7 @@ import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
 import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
+import { initSkills } from './skills'
 import { ProfileStore } from './profiles/ProfileStore'
 import { registerIpcHandlers } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
@@ -102,6 +103,11 @@ const preferencesStore = new PreferencesStore(database)
 const layoutStore = new LayoutStore(database)
 const onboardingStore = new OnboardingStore(database)
 const toolRegistry = new ToolRegistry(database)
+const {
+  registry: skillRegistry,
+  installer: skillInstaller,
+  store: skillStore,
+} = initSkills(database)
 const profileStore = new ProfileStore(database, preferencesStore)
 const telemetryManager = new TelemetryManager(preferencesStore)
 const windowManager = new WindowManager(ptyManager, wsBridge)
@@ -611,13 +617,14 @@ app.whenReady().then(async () => {
   browserManager.ensurePartition()
 
   agentSessionManager = new AgentSessionManager()
-  agentSessionManager.cleanupOrphans()
+  await agentSessionManager.cleanupOrphans()
   windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
   // Migrate legacy global agent prefs into Default profiles. safeStorage is
   // guaranteed to be initialized inside app.whenReady().
-  profileStore.ensureDefaults()
+  // Defer to allow window creation to proceed without blocking
+  setImmediate(() => profileStore.ensureDefaults())
 
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()
@@ -649,6 +656,9 @@ app.whenReady().then(async () => {
     gitHubService,
     remoteSessionService,
     runConfigManager,
+    skillRegistry,
+    skillInstaller,
+    skillStore,
     profileStore,
     settingsExportService,
   )

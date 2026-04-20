@@ -1,9 +1,16 @@
 import { match } from 'ts-pattern'
-import { ipcMain, dialog, shell, BrowserWindow, systemPreferences } from 'electron'
+import {
+  ipcMain,
+  dialog,
+  shell,
+  BrowserWindow,
+  systemPreferences,
+  type IpcMainInvokeEvent,
+} from 'electron'
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
-import type { Result } from 'neverthrow'
+import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
@@ -14,7 +21,7 @@ import type { ToolRegistry } from '../tools/ToolRegistry'
 import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { BrowserManager } from '../browser/BrowserManager'
-import type { CredentialStore } from '../db/CredentialStore'
+import type { CredentialStore, Credential } from '../db/CredentialStore'
 import { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -65,6 +72,15 @@ import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
+import type { SkillRegistry } from '../skills/SkillRegistry'
+import type { SkillInstaller } from '../skills/SkillInstaller'
+import type { SkillStore } from '../skills/SkillStore'
+import type { SkillInstallOptions, SkillListOptions } from '../skills/types'
+import { skillErrorMessage } from '../skills/errors'
+import type { SkillError } from '../skills/errors'
+import { getTransformer } from '../skills/SkillTransformer'
+import { scanSkills } from '../skills/SkillScanner'
+import type { SkillAgentTarget } from '../skills/types'
 import type { ProfileStore } from '../profiles/ProfileStore'
 import { profileToReader } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
@@ -78,6 +94,68 @@ function shellExecArgs(command: string): { command: string; args: string[] } {
   const shell = resolveShell()
   const flag = os.platform() === 'win32' ? '-Command' : '-lc'
   return { command: shell.command, args: [flag, command] }
+}
+
+// Session-level flag: once the user has successfully authenticated to reveal
+// a saved credential in the current app session, subsequent autofills reuse
+// that authentication instead of prompting the OS every time. Matches Chrome's
+// autofill behavior and is cleared automatically on app quit (in-memory only).
+// Only the 'autofill' code path reads or writes this — the Settings "Reveal
+// Password" UI always re-authenticates.
+let credentialSessionAuthenticated = false
+
+// Session cache of already-decrypted credentials (keyed by id). Each cache hit
+// avoids a fresh safeStorage.decryptString() call, which on macOS triggers a
+// Keychain prompt for the "Safe Storage" item whenever the app binary
+// signature changes (e.g. after a rebuild). Only the 'autofill' path uses
+// this cache; 'reveal' always fetches fresh. Cleared on any save/delete/import
+// so stale plaintext is never returned, and on app quit.
+const credentialSessionCache = new Map<string, Credential>()
+
+// Dedupe concurrent first-use OS auth prompts for the autofill path. When two
+// autofill requests race past `credentialSessionAuthenticated === false` at
+// the same time (e.g. a form with both username and password fields), they
+// share one in-flight prompt instead of stacking two Touch ID dialogs.
+let credentialAutofillAuthInflight: Promise<boolean> | null = null
+
+async function runCredentialOsAuth(event: IpcMainInvokeEvent, domain: string): Promise<boolean> {
+  return match(process.platform)
+    .with('darwin', async () => {
+      try {
+        await systemPreferences.promptTouchID('reveal a saved password')
+        return true
+      } catch {
+        return false
+      }
+    })
+    .with('win32', async () => {
+      try {
+        const ps = `
+          Add-Type -AssemblyName System.Runtime.WindowsRuntime
+          $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
+          $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
+          if ($result -ne 'Verified') { exit 1 }
+        `
+        await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
+        return true
+      } catch {
+        return false
+      }
+    })
+    .otherwise(async () => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+      if (!win) return false
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        buttons: ['Reveal Password', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        title: 'Authentication Required',
+        message: 'Reveal saved password?',
+        detail: `You are about to reveal the password for ${domain}. Make sure no one is looking at your screen.`,
+      })
+      return response === 0
+    })
 }
 
 function resolveShellArgs(): string[] {
@@ -105,6 +183,9 @@ export function registerIpcHandlers(
   gitHubService: GitHubService,
   remoteSessionService: RemoteSessionService,
   runConfigManager: RunConfigManager,
+  skillRegistry: SkillRegistry,
+  skillInstaller: SkillInstaller,
+  skillStore: SkillStore,
   profileStore: ProfileStore,
   settingsExportService: SettingsExportService,
 ): void {
@@ -112,6 +193,13 @@ export function registerIpcHandlers(
     const tools = toolRegistry.getAll()
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('tools:changed', tools)
+    }
+  }
+
+  function broadcastSkillsChanged(): void {
+    const skills = JSON.parse(JSON.stringify(skillRegistry.getAll()))
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('skills:changed', skills)
     }
   }
 
@@ -156,7 +244,22 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'pty:resize',
     (_event, payload: { sessionId: string; cols: number; rows: number }) => {
-      ptyManager.resize(payload.sessionId, payload.cols, payload.rows)
+      // Validate dimensions: positive integers within sane terminal bounds.
+      // node-pty will otherwise throw on NaN / negative / huge values and
+      // a malformed payload would be broadcast to every window as-is.
+      const cols = payload?.cols
+      const rows = payload?.rows
+      if (
+        !Number.isInteger(cols) ||
+        !Number.isInteger(rows) ||
+        cols < 1 ||
+        rows < 1 ||
+        cols > 10_000 ||
+        rows > 10_000
+      ) {
+        return
+      }
+      ptyManager.resize(payload.sessionId, cols, rows)
       // Broadcast the new dimensions to every open window so the remote
       // host controller (running inside the host renderer) can relay them
       // to any connected WebRTC peer. Without this, a peer's xterm stays
@@ -465,6 +568,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('db:prefs:set', (_event, payload: { key: string; value: string }) => {
     preferencesStore.set(payload.key, payload.value)
+    if (payload.key === 'remote.enabled' && payload.value === 'false') {
+      void remoteSessionService.stop()
+    }
   })
 
   ipcMain.handle('db:prefs:getAll', () => {
@@ -554,6 +660,7 @@ export function registerIpcHandlers(
 
     const applyResult = await settingsExportService.applyImport(parsed)
     const counts = unwrapOrThrow(applyResult, settingsExportErrorMessage)
+    credentialSessionCache.clear()
 
     await broadcastProfilesChanged()
     broadcastToolsChanged()
@@ -655,8 +762,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('app:homedir', () => os.homedir())
 
-  ipcMain.handle('app:showInFolder', (_event, payload: { path: string }) => {
-    shell.showItemInFolder(payload.path)
+  ipcMain.handle('app:showInFolder', async (event, payload: { path: string }) => {
+    const resolved = await validatePathAccess(event.sender.id, payload.path)
+    shell.showItemInFolder(resolved)
   })
 
   // --- App: Multi-window ---
@@ -831,14 +939,14 @@ export function registerIpcHandlers(
       throw new Error('Invalid repoRoot: must be an absolute path string')
     }
     // Enforce that the watched path belongs to one of the window's workspaces
-    await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
 
     const senderId = event.sender.id
 
     // Only one watcher per window — dispose any previous one first
     windowManager.disposeFileWatcher(senderId)
 
-    const watcher = new FileTreeWatcher(payload.repoRoot, (events) => {
+    const watcher = new FileTreeWatcher(resolved, (events) => {
       if (!event.sender.isDestroyed()) {
         event.sender.send('files:changed', { repoRoot: payload.repoRoot, events })
       }
@@ -1342,11 +1450,13 @@ export function registerIpcHandlers(
     'credentials:save',
     (_event, payload: { domain: string; username: string; password: string; title?: string }) => {
       credentialStore.save(payload.domain, payload.username, payload.password, payload.title)
+      credentialSessionCache.clear()
     },
   )
 
   ipcMain.handle('credentials:delete', (_event, payload: { id: string }) => {
     credentialStore.delete(payload.id)
+    credentialSessionCache.delete(payload.id)
   })
 
   ipcMain.handle('credentials:getAll', () => {
@@ -1362,48 +1472,44 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'credentials:getDecrypted',
-    async (event, payload: { id: string; domain: string }) => {
-      // Require system authentication before revealing passwords
-      const authed = await match(process.platform)
-        .with('darwin', async () => {
-          try {
-            await systemPreferences.promptTouchID('reveal a saved password')
-            return true
-          } catch {
-            return false
-          }
-        })
-        .with('win32', async () => {
-          try {
-            const ps = `
-              Add-Type -AssemblyName System.Runtime.WindowsRuntime
-              $null = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
-              $result = [Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync('Canopy wants to reveal a saved password').GetAwaiter().GetResult()
-              if ($result -ne 'Verified') { exit 1 }
-            `
-            await execFileAsync('powershell', ['-NoProfile', '-Command', ps])
-            return true
-          } catch {
-            return false
-          }
-        })
-        .otherwise(async () => {
-          const win =
-            BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
-          if (!win) return false
-          const { response } = await dialog.showMessageBox(win, {
-            type: 'warning',
-            buttons: ['Reveal Password', 'Cancel'],
-            defaultId: 1,
-            cancelId: 1,
-            title: 'Authentication Required',
-            message: 'Reveal saved password?',
-            detail: `You are about to reveal the password for ${payload.domain}. Make sure no one is looking at your screen.`,
-          })
-          return response === 0
-        })
+    async (event, payload: { id: string; domain: string; purpose: 'autofill' | 'reveal' }) => {
+      // Settings "Reveal Password" UI: always re-authenticate, never consult
+      // the session cache or flag, never update them. Matches Chrome's
+      // chrome://password-manager which re-prompts on every reveal regardless
+      // of whether autofill has already happened this session.
+      if (payload.purpose === 'reveal') {
+        const authed = await runCredentialOsAuth(event, payload.domain)
+        if (!authed) return null
+        const cred = credentialStore.getById(payload.id)
+        return cred && cred.domain === payload.domain ? cred : null
+      }
+
+      // Autofill path. Fast path: if we've already decrypted this credential
+      // in the current session, return the cached plaintext without hitting
+      // safeStorage or the OS auth prompt at all.
+      const cached = credentialSessionCache.get(payload.id)
+      if (cached && cached.domain === payload.domain) return cached
+
+      // Require OS auth on first autofill of the session; subsequent autofills
+      // reuse the session flag. Concurrent first-use calls dedupe through
+      // credentialAutofillAuthInflight so only one Touch ID prompt appears
+      // even when two requests race.
+      const authed = credentialSessionAuthenticated
+        ? true
+        : await (credentialAutofillAuthInflight ??= runCredentialOsAuth(
+            event,
+            payload.domain,
+          ).finally(() => {
+            credentialAutofillAuthInflight = null
+          }))
       if (!authed) return null
-      return credentialStore.getForDomain(payload.domain).find((c) => c.id === payload.id) ?? null
+      credentialSessionAuthenticated = true
+      // Fetch + decrypt only the requested credential (one safeStorage call),
+      // instead of decrypting every credential stored for this domain.
+      const cred = credentialStore.getById(payload.id)
+      if (!cred || cred.domain !== payload.domain) return null
+      credentialSessionCache.set(cred.id, cred)
+      return cred
     },
   )
 
@@ -1435,11 +1541,26 @@ export function registerIpcHandlers(
     return false
   }
 
-  async function validatePathAccess(wcId: number, targetPath: string): Promise<void> {
+  // Realpath-normalize workspace roots too: otherwise a macOS workspace at
+  // `/var/...` (which resolves to `/private/var/...`) would never match a
+  // target's realpath and all reads get rejected; conversely a symlinked
+  // workspace root could fail to block a sibling path under the same
+  // unnormalized prefix. Returns the resolved target path so callers can
+  // open/stat/readdir it directly, closing the TOCTOU window between
+  // validation and the filesystem call.
+  async function validatePathAccess(wcId: number, targetPath: string): Promise<string> {
     const resolved = path.normalize(await fs.promises.realpath(targetPath))
     const allowed = windowManager.getWorkspacePaths(wcId)
-    const ok = allowed.some((wp) => {
-      const normalWp = path.normalize(wp)
+    const resolvedAllowed = await Promise.all(
+      allowed.map(async (wp) => {
+        try {
+          return path.normalize(await fs.promises.realpath(wp))
+        } catch {
+          return path.normalize(wp)
+        }
+      }),
+    )
+    const ok = resolvedAllowed.some((normalWp) => {
       // Windows paths are case-insensitive
       if (process.platform === 'win32') {
         const r = resolved.toLowerCase()
@@ -1449,11 +1570,12 @@ export function registerIpcHandlers(
       return resolved === normalWp || resolved.startsWith(normalWp + path.sep)
     })
     if (!ok) throw new Error('Access denied: path outside workspace')
+    return resolved
   }
 
   ipcMain.handle('fs:readDir', async (event, payload: { dirPath: string }) => {
-    await validatePathAccess(event.sender.id, payload.dirPath)
-    const entries = await fs.promises.readdir(payload.dirPath, { withFileTypes: true })
+    const resolved = await validatePathAccess(event.sender.id, payload.dirPath)
+    const entries = await fs.promises.readdir(resolved, { withFileTypes: true })
     const ignorePatterns = getIgnorePatterns()
     const filtered = entries.filter((e) => !isIgnoredEntry(e.name, ignorePatterns))
     const results = await Promise.all(
@@ -1462,7 +1584,7 @@ export function registerIpcHandlers(
         let size = 0
         if (!isDir) {
           try {
-            const s = await fs.promises.stat(path.join(payload.dirPath, entry.name))
+            const s = await fs.promises.stat(path.join(resolved, entry.name))
             size = s.size
           } catch {
             return null
@@ -1480,18 +1602,20 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
-    await validatePathAccess(event.sender.id, payload.filePath)
+    const resolved = await validatePathAccess(event.sender.id, payload.filePath)
     const maxBytes = Math.min(payload.maxBytes ?? 1_048_576, 10_485_760)
     // Sync stat too: closes the TOCTOU gap with the openSync below and removes
-    // the last await between validatePathAccess and the fd trio.
-    const size = fs.statSync(payload.filePath).size
+    // the last await between validatePathAccess and the fd trio. Operating on
+    // the realpath'd target prevents a symlink swap between validation and
+    // open from redirecting the read outside the workspace.
+    const size = fs.statSync(resolved).size
     const readSize = Math.min(size, maxBytes)
 
     // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
     // across multiple `await` points, which is the only call site in this
     // codebase that exposes us to FileHandle::CloseReq::Resolve races (#150).
     // A bounded read (≤10 MB) from local disk is fast enough to run inline.
-    const fd = fs.openSync(payload.filePath, 'r')
+    const fd = fs.openSync(resolved, 'r')
     try {
       const buf = Buffer.alloc(readSize)
       let offset = 0
@@ -1552,28 +1676,32 @@ export function registerIpcHandlers(
 
   // --- Repo Config ---
 
-  ipcMain.handle('repoConfig:load', async (_event, payload: { repoRoot: string }) => {
-    const result = await repoConfigManager.load(payload.repoRoot)
+  ipcMain.handle('repoConfig:load', async (event, payload: { repoRoot: string }) => {
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await repoConfigManager.load(resolved)
     return result.unwrapOr(null)
   })
 
   ipcMain.handle(
     'repoConfig:save',
-    async (_event, payload: { repoRoot: string; config: unknown }) => {
+    async (event, payload: { repoRoot: string; config: unknown }) => {
+      const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
       if (!isValidRepoConfig(payload.config)) {
         throw new Error('Invalid config: check version, trackers, filters, and template fields')
       }
-      const result = await repoConfigManager.save(payload.repoRoot, payload.config)
+      const result = await repoConfigManager.save(resolved, payload.config)
       unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
-  ipcMain.handle('repoConfig:exists', async (_event, payload: { repoRoot: string }) => {
-    return repoConfigManager.exists(payload.repoRoot)
+  ipcMain.handle('repoConfig:exists', async (event, payload: { repoRoot: string }) => {
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
+    return repoConfigManager.exists(resolved)
   })
 
-  ipcMain.handle('repoConfig:init', async (_event, payload: { repoRoot: string }) => {
-    const result = await repoConfigManager.init(payload.repoRoot)
+  ipcMain.handle('repoConfig:init', async (event, payload: { repoRoot: string }) => {
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await repoConfigManager.init(resolved)
     return unwrapOrThrow(result, taskTrackerErrorMessage)
   })
 
@@ -1930,10 +2058,12 @@ export function registerIpcHandlers(
     },
   )
 
+  const TASK_KEY_RE = /^[A-Za-z0-9_#-]+-?\d+$/
+
   ipcMain.handle(
     'trackerConfig:fetchTaskComments',
     async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
-      if (!/^[A-Za-z0-9_#-]+-?\d+$/.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTaskCommentsFromConfig(
@@ -1949,7 +2079,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:fetchTaskAttachments',
     async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
-      if (!/^[A-Za-z0-9_#-]+-?\d+$/.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTaskAttachmentsFromConfig(
@@ -1983,7 +2113,21 @@ export function registerIpcHandlers(
     },
   )
 
-  const TASK_KEY_RE = /^[A-Za-z0-9_#-]+-?\d+$/
+  ipcMain.handle(
+    'trackerConfig:findTaskByKey',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.findTaskByKeyFromConfig(
+        resolved.config,
+        payload.taskKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
 
   ipcMain.handle(
     'taskTracker:fetchTaskComments',
@@ -2213,12 +2357,15 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:findPR',
-    async (_event, payload: { repoRoot: string; branch: string }) => {
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      // Reject leading-`-` branch names so they can't be consumed as gh flags.
+      if (typeof payload.branch !== 'string' || payload.branch.startsWith('-')) return null
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       try {
         const { stdout } = await execFileAsync(
           'gh',
           ['pr', 'view', payload.branch, '--json', 'url', '--jq', '.url'],
-          { cwd: payload.repoRoot },
+          { cwd: resolvedRepo },
         )
         return stdout.trim() || null
       } catch {
@@ -2389,6 +2536,19 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, remoteServerErrorMessage)
   })
 
+  ipcMain.handle('remote:ensureListening', async (event) => {
+    // Best-effort: auto-bind the signaling server in listen mode so a
+    // previously trusted phone can reconnect without the user opening the
+    // Remote Connection modal. Silently no-ops if the user hasn't opted in,
+    // has no trusted devices, or the network is unavailable. Swallowed
+    // errors never surface to the renderer — a failed listen should not
+    // block app startup or UI rendering.
+    await remoteSessionService.ensureListening(event.sender.id).match(
+      () => {},
+      () => {},
+    )
+  })
+
   ipcMain.handle('remote:stop', async () => {
     const result = await remoteSessionService.stop()
     return unwrapOrThrow(result, remoteServerErrorMessage)
@@ -2440,17 +2600,17 @@ export function registerIpcHandlers(
   const runConfigInstances = new Map<string, number>()
 
   ipcMain.handle('runConfig:discover', async (event, payload: { repoRoot: string }) => {
-    await validatePathAccess(event.sender.id, payload.repoRoot)
-    const result = await runConfigManager.discover(payload.repoRoot)
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await runConfigManager.discover(resolved)
     return result.unwrapOr([])
   })
 
   ipcMain.handle(
     'runConfig:save',
     async (event, payload: { configDir: string; config: { configurations: unknown[] } }) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
+      const resolved = await validatePathAccess(event.sender.id, payload.configDir)
       const result = await runConfigManager.saveFile(
-        payload.configDir,
+        resolved,
         payload.config as import('../runConfig/types').RunConfigFile,
       )
       unwrapOrThrow(result, runConfigErrorMessage)
@@ -2463,11 +2623,8 @@ export function registerIpcHandlers(
       event,
       payload: { configDir: string; configuration: import('../runConfig/types').RunConfiguration },
     ) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
-      const result = await runConfigManager.addConfiguration(
-        payload.configDir,
-        payload.configuration,
-      )
+      const resolved = await validatePathAccess(event.sender.id, payload.configDir)
+      const result = await runConfigManager.addConfiguration(resolved, payload.configuration)
       unwrapOrThrow(result, runConfigErrorMessage)
     },
   )
@@ -2482,9 +2639,9 @@ export function registerIpcHandlers(
         configuration: import('../runConfig/types').RunConfiguration
       },
     ) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
+      const resolved = await validatePathAccess(event.sender.id, payload.configDir)
       const result = await runConfigManager.updateConfiguration(
-        payload.configDir,
+        resolved,
         payload.name,
         payload.configuration,
       )
@@ -2495,8 +2652,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'runConfig:deleteConfig',
     async (event, payload: { configDir: string; name: string }) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
-      const result = await runConfigManager.deleteConfiguration(payload.configDir, payload.name)
+      const resolved = await validatePathAccess(event.sender.id, payload.configDir)
+      const result = await runConfigManager.deleteConfiguration(resolved, payload.name)
       unwrapOrThrow(result, runConfigErrorMessage)
     },
   )
@@ -2504,22 +2661,21 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'runConfig:execute',
     async (event, payload: { configDir: string; name: string; cwd?: string }) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
-      const fileResult = await runConfigManager.loadFile(payload.configDir)
+      const resolvedConfigDir = await validatePathAccess(event.sender.id, payload.configDir)
+      const fileResult = await runConfigManager.loadFile(resolvedConfigDir)
       const file = unwrapOrThrow(fileResult, runConfigErrorMessage)
       const config = file.configurations.find((c) => c.name === payload.name)
       if (!config) throw new Error(`Configuration "${payload.name}" not found`)
 
       if (config.max_instances && config.max_instances > 0) {
-        const current = runConfigInstances.get(`${payload.configDir}::${payload.name}`) ?? 0
+        const current = runConfigInstances.get(`${resolvedConfigDir}::${payload.name}`) ?? 0
         if (current >= config.max_instances) {
           throw new Error(`"${payload.name}" is already running (max ${config.max_instances})`)
         }
       }
 
       if (!payload.cwd) throw new Error('No worktree selected')
-      await validatePathAccess(event.sender.id, payload.cwd)
-      const worktreeRoot = path.resolve(payload.cwd)
+      const worktreeRoot = await validatePathAccess(event.sender.id, payload.cwd)
       const cwd = config.cwd ? path.resolve(worktreeRoot, config.cwd) : worktreeRoot
       if (config.cwd && cwd !== worktreeRoot && !cwd.startsWith(worktreeRoot + path.sep)) {
         throw new Error('config.cwd must not escape the worktree directory')
@@ -2566,7 +2722,7 @@ export function registerIpcHandlers(
       const wsUrl = await wsBridge.create(session.id, session.pty)
       const senderId = event.sender.id
       windowManager.trackPtySession(senderId, session.id)
-      const instanceKey = `${payload.configDir}::${payload.name}`
+      const instanceKey = `${resolvedConfigDir}::${payload.name}`
       runConfigInstances.set(instanceKey, (runConfigInstances.get(instanceKey) ?? 0) + 1)
 
       const sender = event.sender
@@ -2575,9 +2731,9 @@ export function registerIpcHandlers(
           sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
         }
         windowManager.untrackPtySession(senderId, session.id)
-        const count = (runConfigInstances.get(`${payload.configDir}::${payload.name}`) ?? 1) - 1
-        if (count <= 0) runConfigInstances.delete(`${payload.configDir}::${payload.name}`)
-        else runConfigInstances.set(`${payload.configDir}::${payload.name}`, count)
+        const count = (runConfigInstances.get(instanceKey) ?? 1) - 1
+        if (count <= 0) runConfigInstances.delete(instanceKey)
+        else runConfigInstances.set(instanceKey, count)
 
         // Post-run hook
         if (config.post_run) {
@@ -2624,4 +2780,135 @@ export function registerIpcHandlers(
       return { sessionId: session.id, wsUrl }
     },
   )
+
+  // --- Skills ---
+
+  ipcMain.handle('skills:list', (_event, payload?: SkillListOptions) => {
+    return JSON.parse(JSON.stringify(skillRegistry.list(payload)))
+  })
+
+  ipcMain.handle('skills:get', (_event, payload: { id: string }) => {
+    const skill = skillRegistry.get(payload.id)
+    return skill ? JSON.parse(JSON.stringify(skill)) : null
+  })
+
+  ipcMain.handle('skills:install', async (_event, payload: SkillInstallOptions) => {
+    const result = await skillInstaller.install(payload)
+    const skill = unwrapOrThrow(result, skillErrorMessage)
+    skillRegistry.refresh()
+    broadcastSkillsChanged()
+    return JSON.parse(JSON.stringify(skill))
+  })
+
+  ipcMain.handle(
+    'skills:remove',
+    async (_event, payload: { id: string; workspacePath?: string }) => {
+      const result = await skillInstaller.remove(payload.id, payload.workspacePath)
+      unwrapOrThrow(result, skillErrorMessage)
+      skillRegistry.refresh()
+      broadcastSkillsChanged()
+      return { success: true }
+    },
+  )
+
+  ipcMain.handle(
+    'skills:update',
+    async (_event, payload: { id: string; workspacePath?: string }) => {
+      const result = await skillInstaller.update(payload.id, payload.workspacePath)
+      const skill = unwrapOrThrow(result, skillErrorMessage)
+      skillRegistry.refresh()
+      broadcastSkillsChanged()
+      return JSON.parse(JSON.stringify(skill))
+    },
+  )
+
+  ipcMain.handle(
+    'skills:toggleAgent',
+    async (
+      _event,
+      payload: { id: string; agent: string; enabled: boolean; workspacePath?: string },
+    ) => {
+      const skill = unwrapOrThrow(
+        skillRegistry.get(payload.id)
+          ? ok(skillRegistry.get(payload.id)!)
+          : err({ _tag: 'SkillNotFound' as const, skillId: payload.id } as SkillError),
+        skillErrorMessage,
+      )
+      const enabledAgents: SkillAgentTarget[] = payload.enabled
+        ? ([...new Set([...skill.enabledAgents, payload.agent])] as SkillAgentTarget[])
+        : skill.enabledAgents.filter((a) => a !== payload.agent)
+
+      // Deploy or undeploy files BEFORE updating DB
+      // Global skills use transformer's globalDir(); project skills need workspacePath
+      const transformer = getTransformer(payload.agent as SkillAgentTarget)
+      if (transformer) {
+        if (skill.scope === 'project' && !payload.workspacePath) {
+          unwrapOrThrow(
+            err({
+              _tag: 'InstallFailed',
+              skillId: payload.id,
+              reason: 'workspacePath is required for project-scoped skill agent toggle',
+            } as SkillError),
+            skillErrorMessage,
+          )
+        }
+        // Pass empty string for global — transformers check scope and use globalDir()
+        const targetRoot = payload.workspacePath ?? ''
+        const skillForDeploy = { ...skill, enabledAgents }
+        if (payload.enabled) {
+          const deployResult = await transformer.deploy(skillForDeploy, targetRoot)
+          unwrapOrThrow(deployResult, skillErrorMessage)
+        } else {
+          const undeployResult = await transformer.undeploy(skillForDeploy, targetRoot)
+          unwrapOrThrow(undeployResult, skillErrorMessage)
+        }
+      }
+
+      // Update DB only after successful deploy/undeploy
+      skillStore.updateEnabledAgents(payload.id, enabledAgents)
+      skillRegistry.refresh()
+      broadcastSkillsChanged()
+      return { success: true }
+    },
+  )
+
+  ipcMain.handle('skills:scan', async (_event, payload?: { workspacePath?: string }) => {
+    const results = await scanSkills(payload?.workspacePath)
+    return JSON.parse(JSON.stringify(results))
+  })
+
+  ipcMain.handle('skills:deleteFile', async (_event, payload: { filePath: string }) => {
+    const filePath = path.normalize(path.resolve(payload.filePath))
+    const ext = path.extname(filePath).toLowerCase()
+    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Can only delete skill files (.md, .mdc, .yaml, .yml)',
+        } as SkillError),
+        skillErrorMessage,
+      )
+    }
+    const skillDirPatterns = [
+      /[/\\]\.claude[/\\](commands|skills)[/\\]/,
+      /[/\\]\.gemini[/\\]skills[/\\]/,
+      /[/\\]\.cursor[/\\]rules[/\\]/,
+      /[/\\]\.opencode[/\\]skills[/\\]/,
+      /[/\\]\.agents[/\\]skills[/\\]/,
+      /[/\\]\.claude[/\\]plugins[/\\]cache[/\\]/,
+    ]
+    if (!skillDirPatterns.some((p) => p.test(filePath))) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Can only delete files within agent skill directories',
+        } as SkillError),
+        skillErrorMessage,
+      )
+    }
+    await fs.promises.unlink(filePath)
+    return { success: true }
+  })
 }

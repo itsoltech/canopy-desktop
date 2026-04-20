@@ -1,0 +1,43 @@
+name: Mobile Production
+
+on:
+  push:
+    branches: ['main']
+    paths:
+      - 'mobile/**'
+      - '.eas/workflows/mobile-production.yml'
+
+concurrency:
+  cancel_in_progress: true
+  group: ${{ workflow.filename }}-${{ github.ref }}
+
+jobs:
+  build_ios:
+    name: Build iOS
+    type: build
+    params:
+      platform: ios
+      profile: production
+
+  build_android:
+    name: Build Android
+    type: build
+    params:
+      platform: android
+      profile: production
+
+  testflight:
+    name: Submit to TestFlight
+    type: testflight
+    needs: [build_ios]
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
+      profile: production
+
+  submit_android:
+    name: Submit to Play Store
+    type: submit
+    needs: [build_android]
+    params:
+      build_id: ${{ needs.build_android.outputs.build_id }}
+      profile: production
