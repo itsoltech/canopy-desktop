@@ -188,7 +188,9 @@ export class DataChannelRpc {
       .with({ kind: 'event' }, (evt) => {
         this.handleEvent(evt.topic, evt.data)
       })
-      .exhaustive()
+      .otherwise((frame) => {
+        console.warn(`[${this.label}] unknown frame kind`, frame)
+      })
   }
 
   private handleClose = (): void => {

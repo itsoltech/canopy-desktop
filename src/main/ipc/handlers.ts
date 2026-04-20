@@ -1677,31 +1677,31 @@ export function registerIpcHandlers(
   // --- Repo Config ---
 
   ipcMain.handle('repoConfig:load', async (event, payload: { repoRoot: string }) => {
-    await validatePathAccess(event.sender.id, payload.repoRoot)
-    const result = await repoConfigManager.load(payload.repoRoot)
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await repoConfigManager.load(resolved)
     return result.unwrapOr(null)
   })
 
   ipcMain.handle(
     'repoConfig:save',
     async (event, payload: { repoRoot: string; config: unknown }) => {
-      await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
       if (!isValidRepoConfig(payload.config)) {
         throw new Error('Invalid config: check version, trackers, filters, and template fields')
       }
-      const result = await repoConfigManager.save(payload.repoRoot, payload.config)
+      const result = await repoConfigManager.save(resolved, payload.config)
       unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
   ipcMain.handle('repoConfig:exists', async (event, payload: { repoRoot: string }) => {
-    await validatePathAccess(event.sender.id, payload.repoRoot)
-    return repoConfigManager.exists(payload.repoRoot)
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
+    return repoConfigManager.exists(resolved)
   })
 
   ipcMain.handle('repoConfig:init', async (event, payload: { repoRoot: string }) => {
-    await validatePathAccess(event.sender.id, payload.repoRoot)
-    const result = await repoConfigManager.init(payload.repoRoot)
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await repoConfigManager.init(resolved)
     return unwrapOrThrow(result, taskTrackerErrorMessage)
   })
 
