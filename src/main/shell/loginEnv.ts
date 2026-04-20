@@ -19,16 +19,18 @@ export async function resolveLoginEnv(): Promise<Record<string, string>> {
   const shell = process.env.SHELL || '/bin/bash'
 
   return new Promise((resolve) => {
-    // Use -i (interactive) instead of -li (login) to avoid running
-    // expensive rc file operations (update checks, prompts, etc.) while still
-    // capturing PATH modifications from .bashrc/.zshrc
+    // Both flags are needed:
+    //   -i sources .zshrc/.bashrc (user PATH exports, aliases)
+    //   -l sources .zprofile/.zlogin and /etc/zprofile, which on macOS runs
+    //      /usr/libexec/path_helper — required for /opt/homebrew/bin etc.
+    //      to appear in PATH when Canopy is launched from Finder.
     execFile(
       shell,
-      ['-i', '-c', 'env -0'],
+      ['-i', '-l', '-c', 'env -0'],
       { timeout: 10000, maxBuffer: 1024 * 1024 },
       (err, stdout) => {
         if (err) {
-          // Fall back to process.env if login shell fails
+          console.warn(`[loginEnv] failed to source ${shell}: ${err.message}`)
           cachedEnv = { ...process.env } as Record<string, string>
           resolve(cachedEnv)
           return
