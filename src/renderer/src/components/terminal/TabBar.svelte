@@ -26,19 +26,20 @@
   } from '../../lib/terminal/connectionState.svelte'
   onMount(() => {
     async function pollShellBusy(): Promise<void> {
-      const updates: Record<string, boolean> = {}
-      for (const tab of tabs) {
-        for (const p of allPanes(tab.rootSplit)) {
-          if (!agentSessions[p.sessionId] && p.isRunning) {
-            try {
-              updates[p.sessionId] = await window.api.hasChildProcess(p.sessionId)
-            } catch {
-              updates[p.sessionId] = false
-            }
+      const shellPanes = tabs
+        .flatMap((tab) => allPanes(tab.rootSplit))
+        .filter((p) => !agentSessions[p.sessionId] && p.isRunning)
+
+      const results = await Promise.all(
+        shellPanes.map(async (p) => {
+          try {
+            return [p.sessionId, await window.api.hasChildProcess(p.sessionId)] as const
+          } catch {
+            return [p.sessionId, false] as const
           }
-        }
-      }
-      shellBusyState = updates
+        }),
+      )
+      shellBusyState = Object.fromEntries(results)
     }
 
     void pollShellBusy()
@@ -69,10 +70,12 @@
     return 'none'
   }
 
-  function getTabStatusDot(tab: TabInfo): { color: string; pulse: boolean } | null {
+  function getTabStatusDot(tab: TabInfo): { color: string; pulse: boolean; label: string } | null {
     const badge = getTabBadge(tab)
-    if (badge === 'permission') return { color: 'var(--c-warning)', pulse: true }
-    if (badge === 'unread') return { color: 'var(--c-accent)', pulse: true }
+    if (badge === 'permission')
+      return { color: 'var(--c-warning)', pulse: true, label: 'Permission required' }
+    if (badge === 'unread')
+      return { color: 'var(--c-accent)', pulse: true, label: 'Unread activity' }
 
     const panes = allPanes(tab.rootSplit)
     let priority = 0
@@ -81,7 +84,8 @@
       const session = agentSessions[p.sessionId]
       if (session) {
         const t = session.status.type
-        if (t === 'waitingPermission') return { color: 'var(--c-warning)', pulse: true }
+        if (t === 'waitingPermission')
+          return { color: 'var(--c-warning)', pulse: true, label: 'Permission required' }
         if (t === 'error') priority = Math.max(priority, 5)
         else if (t === 'thinking' || t === 'toolCalling' || t === 'compacting' || t === 'starting')
           priority = Math.max(priority, 4)
@@ -91,11 +95,11 @@
       }
     }
 
-    if (priority === 5) return { color: 'var(--c-danger)', pulse: false }
-    if (priority === 4) return { color: 'var(--c-accent)', pulse: true }
-    if (priority === 3) return { color: 'var(--c-success)', pulse: false }
-    if (priority === 2) return { color: 'var(--c-accent)', pulse: true }
-    if (priority === 1) return { color: 'var(--c-success)', pulse: false }
+    if (priority === 5) return { color: 'var(--c-danger)', pulse: false, label: 'Agent error' }
+    if (priority === 4) return { color: 'var(--c-accent)', pulse: true, label: 'Agent working' }
+    if (priority === 3) return { color: 'var(--c-success)', pulse: false, label: 'Agent idle' }
+    if (priority === 2) return { color: 'var(--c-accent)', pulse: true, label: 'Shell running' }
+    if (priority === 1) return { color: 'var(--c-success)', pulse: false, label: 'Shell idle' }
     return null
   }
 
@@ -340,6 +344,9 @@
               class="tab-status-dot"
               class:pulse={dot?.pulse ?? false}
               style:background={dot?.color ?? 'var(--c-text-faint)'}
+              role={dot ? 'status' : undefined}
+              aria-label={dot?.label ?? undefined}
+              title={dot?.label ?? undefined}
             ></span>
           {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>

@@ -335,5 +335,5 @@ body {
   font-family: var(--font-mono);
   font-size: var(--fs-md);
   line-height: 1.4;
-  color: #e0e0e0;
+  color: var(--c-text);
 }
