@@ -336,7 +336,16 @@
             dims.rows >= 3 &&
             (dims.cols !== t.cols || dims.rows !== t.rows)
           ) {
+            const buffer = t.buffer.active
+            const isAtBottom = buffer.viewportY >= buffer.baseY
+            const savedY = buffer.viewportY
             fit.fit()
+            if (!isAtBottom) {
+              const currentY = t.buffer.active.viewportY
+              if (currentY !== savedY) {
+                t.scrollLines(savedY - currentY)
+              }
+            }
           }
         }
         t.refresh(0, t.rows - 1)
