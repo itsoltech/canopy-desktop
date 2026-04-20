@@ -939,14 +939,14 @@ export function registerIpcHandlers(
       throw new Error('Invalid repoRoot: must be an absolute path string')
     }
     // Enforce that the watched path belongs to one of the window's workspaces
-    await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
 
     const senderId = event.sender.id
 
     // Only one watcher per window — dispose any previous one first
     windowManager.disposeFileWatcher(senderId)
 
-    const watcher = new FileTreeWatcher(payload.repoRoot, (events) => {
+    const watcher = new FileTreeWatcher(resolved, (events) => {
       if (!event.sender.isDestroyed()) {
         event.sender.send('files:changed', { repoRoot: payload.repoRoot, events })
       }
@@ -2600,17 +2600,17 @@ export function registerIpcHandlers(
   const runConfigInstances = new Map<string, number>()
 
   ipcMain.handle('runConfig:discover', async (event, payload: { repoRoot: string }) => {
-    await validatePathAccess(event.sender.id, payload.repoRoot)
-    const result = await runConfigManager.discover(payload.repoRoot)
+    const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await runConfigManager.discover(resolved)
     return result.unwrapOr([])
   })
 
   ipcMain.handle(
     'runConfig:save',
     async (event, payload: { configDir: string; config: { configurations: unknown[] } }) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
+      const resolved = await validatePathAccess(event.sender.id, payload.configDir)
       const result = await runConfigManager.saveFile(
-        payload.configDir,
+        resolved,
         payload.config as import('../runConfig/types').RunConfigFile,
       )
       unwrapOrThrow(result, runConfigErrorMessage)
@@ -2623,11 +2623,8 @@ export function registerIpcHandlers(
       event,
       payload: { configDir: string; configuration: import('../runConfig/types').RunConfiguration },
     ) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
-      const result = await runConfigManager.addConfiguration(
-        payload.configDir,
-        payload.configuration,
-      )
+      const resolved = await validatePathAccess(event.sender.id, payload.configDir)
+      const result = await runConfigManager.addConfiguration(resolved, payload.configuration)
       unwrapOrThrow(result, runConfigErrorMessage)
     },
   )
@@ -2642,9 +2639,9 @@ export function registerIpcHandlers(
         configuration: import('../runConfig/types').RunConfiguration
       },
     ) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
+      const resolved = await validatePathAccess(event.sender.id, payload.configDir)
       const result = await runConfigManager.updateConfiguration(
-        payload.configDir,
+        resolved,
         payload.name,
         payload.configuration,
       )
@@ -2655,8 +2652,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'runConfig:deleteConfig',
     async (event, payload: { configDir: string; name: string }) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
-      const result = await runConfigManager.deleteConfiguration(payload.configDir, payload.name)
+      const resolved = await validatePathAccess(event.sender.id, payload.configDir)
+      const result = await runConfigManager.deleteConfiguration(resolved, payload.name)
       unwrapOrThrow(result, runConfigErrorMessage)
     },
   )
@@ -2664,22 +2661,21 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'runConfig:execute',
     async (event, payload: { configDir: string; name: string; cwd?: string }) => {
-      await validatePathAccess(event.sender.id, payload.configDir)
-      const fileResult = await runConfigManager.loadFile(payload.configDir)
+      const resolvedConfigDir = await validatePathAccess(event.sender.id, payload.configDir)
+      const fileResult = await runConfigManager.loadFile(resolvedConfigDir)
       const file = unwrapOrThrow(fileResult, runConfigErrorMessage)
       const config = file.configurations.find((c) => c.name === payload.name)
       if (!config) throw new Error(`Configuration "${payload.name}" not found`)
 
       if (config.max_instances && config.max_instances > 0) {
-        const current = runConfigInstances.get(`${payload.configDir}::${payload.name}`) ?? 0
+        const current = runConfigInstances.get(`${resolvedConfigDir}::${payload.name}`) ?? 0
         if (current >= config.max_instances) {
           throw new Error(`"${payload.name}" is already running (max ${config.max_instances})`)
         }
       }
 
       if (!payload.cwd) throw new Error('No worktree selected')
-      await validatePathAccess(event.sender.id, payload.cwd)
-      const worktreeRoot = path.resolve(payload.cwd)
+      const worktreeRoot = await validatePathAccess(event.sender.id, payload.cwd)
       const cwd = config.cwd ? path.resolve(worktreeRoot, config.cwd) : worktreeRoot
       if (config.cwd && cwd !== worktreeRoot && !cwd.startsWith(worktreeRoot + path.sep)) {
         throw new Error('config.cwd must not escape the worktree directory')
@@ -2726,7 +2722,7 @@ export function registerIpcHandlers(
       const wsUrl = await wsBridge.create(session.id, session.pty)
       const senderId = event.sender.id
       windowManager.trackPtySession(senderId, session.id)
-      const instanceKey = `${payload.configDir}::${payload.name}`
+      const instanceKey = `${resolvedConfigDir}::${payload.name}`
       runConfigInstances.set(instanceKey, (runConfigInstances.get(instanceKey) ?? 0) + 1)
 
       const sender = event.sender
@@ -2735,9 +2731,9 @@ export function registerIpcHandlers(
           sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
         }
         windowManager.untrackPtySession(senderId, session.id)
-        const count = (runConfigInstances.get(`${payload.configDir}::${payload.name}`) ?? 1) - 1
-        if (count <= 0) runConfigInstances.delete(`${payload.configDir}::${payload.name}`)
-        else runConfigInstances.set(`${payload.configDir}::${payload.name}`, count)
+        const count = (runConfigInstances.get(instanceKey) ?? 1) - 1
+        if (count <= 0) runConfigInstances.delete(instanceKey)
+        else runConfigInstances.set(instanceKey, count)
 
         // Post-run hook
         if (config.post_run) {
