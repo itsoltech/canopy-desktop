@@ -454,9 +454,9 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 8px 3px 12px;
+    padding: 3px 10px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     line-height: 1.4;
     position: relative;
   }
@@ -468,7 +468,7 @@
   .file-item.file-visible {
     background: var(--c-border-subtle);
     border-left: 2px solid var(--c-accent);
-    padding-left: 10px;
+    padding-left: 8px;
   }
 
   .status-icon {

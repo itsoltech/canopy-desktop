@@ -1036,11 +1036,6 @@ export function getTabDisplayName(tab: TabInfo): string {
   return focused?.title || tab.name
 }
 
-export function getTabFocusedToolId(tab: TabInfo): string {
-  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  return focused?.toolId ?? tab.toolId
-}
-
 export function getActivePtySessionId(): string | null {
   const path = workspaceState.selectedWorktreePath
   if (!path) return null
