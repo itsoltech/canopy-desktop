@@ -770,7 +770,7 @@
     cursor: pointer;
     font-size: 13px;
     color: var(--c-text);
-    transition: background 0.05s;
+    transition: background var(--dur-fast);
   }
 
   .palette-item.selected {

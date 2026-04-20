@@ -114,8 +114,8 @@
     font-family: inherit;
     border-radius: var(--r-md);
     transition:
-      background 0.15s ease,
-      color 0.15s ease;
+      background var(--dur-base) var(--ease-std),
+      color var(--dur-base) var(--ease-std);
   }
 
   .segment:hover:not(.active) {

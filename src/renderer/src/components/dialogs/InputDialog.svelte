@@ -189,7 +189,7 @@
     font-family: inherit;
     padding: 6px 10px;
     outline: none;
-    transition: border-color 0.1s;
+    transition: border-color var(--dur-fast);
     box-sizing: border-box;
   }
 
@@ -252,7 +252,7 @@
     cursor: pointer;
     border: none;
     outline: none;
-    transition: background 0.1s;
+    transition: background var(--dur-fast);
   }
 
   .btn:focus-visible {

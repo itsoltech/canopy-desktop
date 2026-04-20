@@ -240,8 +240,8 @@
     color: var(--c-text-faint);
     cursor: pointer;
     transition:
-      background 0.1s,
-      color 0.1s;
+      background var(--dur-fast),
+      color var(--dur-fast);
   }
 
   .refresh-btn:hover:not(:disabled) {

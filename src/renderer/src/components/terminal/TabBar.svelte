@@ -78,9 +78,17 @@
       return { color: 'var(--c-accent)', pulse: true, label: 'Unread activity' }
 
     const panes = allPanes(tab.rootSplit)
+
+    // If every pane has exited, surface that instead of falling through to an
+    // "idle" state — keeps the dot in sync with the `.tab.exited` text color.
+    if (panes.length > 0 && panes.every((p) => !p.isRunning)) {
+      return { color: 'var(--c-blazing)', pulse: false, label: 'Exited' }
+    }
+
     let priority = 0
 
     for (const p of panes) {
+      if (!p.isRunning) continue
       const session = agentSessions[p.sessionId]
       if (session) {
         const t = session.status.type
@@ -452,8 +460,8 @@
     cursor: pointer;
     border-right: 1px solid var(--c-border-subtle);
     transition:
-      background 0.1s,
-      color 0.1s;
+      background var(--dur-fast),
+      color var(--dur-fast);
   }
 
   .tab:hover {

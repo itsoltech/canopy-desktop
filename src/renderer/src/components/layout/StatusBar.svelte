@@ -413,8 +413,8 @@
     padding: 2px 4px;
     border-radius: var(--r-sm);
     transition:
-      background 0.1s,
-      color 0.1s;
+      background var(--dur-fast),
+      color var(--dur-fast);
   }
 
   button.status-item:hover {

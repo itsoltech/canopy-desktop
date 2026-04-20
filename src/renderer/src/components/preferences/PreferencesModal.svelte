@@ -214,7 +214,7 @@
     font-family: inherit;
     text-align: left;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background var(--dur-fast);
   }
 
   .prefs-tab:hover {

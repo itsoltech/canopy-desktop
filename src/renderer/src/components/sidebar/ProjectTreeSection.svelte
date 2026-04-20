@@ -539,7 +539,7 @@
     border: none;
     padding: 0;
     cursor: pointer;
-    transition: color 0.1s;
+    transition: color var(--dur-fast);
   }
 
   .section-attach:hover {
@@ -595,7 +595,7 @@
     display: flex;
     align-items: center;
     color: var(--c-text-faint);
-    transition: transform 0.15s ease;
+    transition: transform var(--dur-base) var(--ease-std);
     transform: rotate(0deg);
     width: 12px;
     flex-shrink: 0;
@@ -632,8 +632,8 @@
     border-radius: var(--r-sm);
     cursor: pointer;
     transition:
-      color 0.1s,
-      background 0.1s;
+      color var(--dur-fast),
+      background var(--dur-fast);
   }
 
   .action-btn:hover {
@@ -654,8 +654,8 @@
     cursor: pointer;
     border-radius: 3px;
     transition:
-      color 0.1s,
-      background 0.1s;
+      color var(--dur-fast),
+      background var(--dur-fast);
   }
 
   .detach-btn:hover {
@@ -859,8 +859,8 @@
     flex-shrink: 0;
     margin-left: auto;
     transition:
-      color 0.1s,
-      background 0.1s;
+      color var(--dur-fast),
+      background var(--dur-fast);
   }
 
   .stop-btn:hover {
@@ -883,8 +883,8 @@
     border-radius: 4px;
     margin-right: 4px;
     transition:
-      color 0.1s,
-      background 0.1s;
+      color var(--dur-fast),
+      background var(--dur-fast);
   }
 
   .remove-btn:hover {
@@ -921,7 +921,7 @@
     font-family: inherit;
     cursor: pointer;
     text-align: left;
-    transition: background 0.05s;
+    transition: background var(--dur-fast);
   }
 
   .ctx-item:hover {
