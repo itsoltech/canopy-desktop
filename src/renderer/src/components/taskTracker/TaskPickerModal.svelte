@@ -123,7 +123,10 @@
   // Branch creation state
   let selectedTask: Task | null = $state(null)
 
+  let searchInputEl: HTMLInputElement | null = $state(null)
+
   onMount(async () => {
+    searchInputEl?.focus()
     await loadBoards()
   })
 
@@ -356,6 +359,7 @@
         <Search size={14} />
         <input
           class="search-input"
+          bind:this={searchInputEl}
           bind:value={searchQuery}
           placeholder="Search by key or title..."
           oninput={() => (selectedIndex = 0)}
@@ -415,6 +419,7 @@
                   copyTaskToClipboard(task, e)
                 }}
                 title="Copy to clipboard"
+                aria-label="Copy task to clipboard"
               >
                 <Copy size={12} />
               </button>

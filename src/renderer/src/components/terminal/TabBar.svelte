@@ -34,7 +34,14 @@
     const map: Record<string, string> = {}
     for (const t of tools) map[t.id] = t.icon
     toolIcons = map
+  })
 
+  // Cleanup returned from an async onMount is silently dropped by Svelte,
+  // so register the drag listener teardown via $effect instead. If the
+  // tab bar unmounts mid-drag (window close, workspace switch), this runs
+  // and detaches the window-level pointermove/pointerup handlers that
+  // would otherwise leak with their closures.
+  $effect(() => {
     return () => {
       window.removeEventListener('pointermove', handleDragMove)
       window.removeEventListener('pointerup', handleDragEnd)

@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import { ICE_SERVERS } from '../../../../../renderer-shared/remote/iceConfig'
 import {
   CHANNEL_COMMANDS,
@@ -246,54 +247,52 @@ export class PeerController {
 
   private async handleSignal(msg: HostSignal): Promise<void> {
     if (this.disposed) return
-    switch (msg.type) {
-      case 'paired':
+    await match(msg)
+      .with({ type: 'paired' }, () => {
         // Token was accepted, now we wait for the human to approve on host.
         if (this.phase.kind === 'awaiting-paired') {
           this.setPhase({ kind: 'awaiting-accept' })
         }
-        return
-      case 'rejected':
-        this.setPhase({ kind: 'rejected', reason: msg.reason })
+      })
+      .with({ type: 'rejected' }, (m) => {
+        this.setPhase({ kind: 'rejected', reason: m.reason })
         this.signaling.close(1000, 'rejected')
-        return
-      case 'accepted':
+      })
+      .with({ type: 'accepted' }, async () => {
         if (this.phase.kind === 'awaiting-accept') {
           this.setPhase({ kind: 'negotiating' })
           await this.startOffer()
         }
-        return
-      case 'answer':
+      })
+      .with({ type: 'answer' }, async (m) => {
         if (!this.pc) return
         try {
-          await this.pc.setRemoteDescription(msg.sdp)
+          await this.pc.setRemoteDescription(m.sdp)
         } catch (e) {
           this.setPhase({
             kind: 'error',
             message: `Failed to apply answer: ${(e as Error).message}`,
           })
         }
-        return
-      case 'ice':
+      })
+      .with({ type: 'ice' }, async (m) => {
         if (!this.pc) return
         try {
-          await this.pc.addIceCandidate(msg.candidate)
+          await this.pc.addIceCandidate(m.candidate)
         } catch (e) {
           console.warn('[peer] addIceCandidate failed:', e)
         }
-        return
-      case 'offer':
+      })
+      .with({ type: 'offer' }, () => {
         // We are the offerer — receiving an offer from the host is a
         // protocol error in the current flow. Renegotiation may revisit this.
         console.warn('[peer] unexpected offer from host')
-        return
-      case 'bye':
+      })
+      .with({ type: 'bye' }, () => {
         this.setPhase({ kind: 'disconnected' })
         this.dispose()
-        return
-      default:
-        return
-    }
+      })
+      .exhaustive()
   }
 
   private async startOffer(): Promise<void> {

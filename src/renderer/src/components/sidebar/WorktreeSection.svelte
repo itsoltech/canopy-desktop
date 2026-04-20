@@ -5,7 +5,7 @@
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
-  import { getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
+  import { formatPrBadge, getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
   import { getResolvedConfig } from '../../lib/stores/taskTracker.svelte'
 
   let mergedBranches = new SvelteSet<string>()
@@ -59,20 +59,6 @@
   })
 
   let prMap = $derived(getBranchPRMap())
-
-  function prBadgeClass(pr: (typeof prMap)[string]): string {
-    if (pr.isDraft) return 'pr-badge draft'
-    if (pr.reviewDecision === 'APPROVED') return 'pr-badge approved'
-    if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'pr-badge changes-requested'
-    return 'pr-badge'
-  }
-
-  function prBadgeLabel(pr: (typeof prMap)[string]): string {
-    if (pr.isDraft) return 'Draft'
-    if (pr.reviewDecision === 'APPROVED') return 'Approved'
-    if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'Changes'
-    return `PR #${pr.number}`
-  }
 
   async function removeWorktree(
     e: MouseEvent,
@@ -138,15 +124,16 @@
           {/if}
           {#if prMap[wt.branch]}
             {@const pr = prMap[wt.branch]}
+            {@const badge = formatPrBadge(pr)}
             <button
-              class={prBadgeClass(pr)}
+              class={badge.className}
               title={`${pr.title} — click to open`}
               onclick={(e) => {
                 e.stopPropagation()
                 window.api.openExternal(pr.url)
               }}
             >
-              {prBadgeLabel(pr)}
+              {badge.label}
             </button>
           {/if}
         </button>

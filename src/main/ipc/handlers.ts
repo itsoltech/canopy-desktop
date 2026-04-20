@@ -762,8 +762,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('app:homedir', () => os.homedir())
 
-  ipcMain.handle('app:showInFolder', (_event, payload: { path: string }) => {
-    shell.showItemInFolder(payload.path)
+  ipcMain.handle('app:showInFolder', async (event, payload: { path: string }) => {
+    const resolved = await validatePathAccess(event.sender.id, payload.path)
+    shell.showItemInFolder(resolved)
   })
 
   // --- App: Multi-window ---
@@ -1540,11 +1541,26 @@ export function registerIpcHandlers(
     return false
   }
 
-  async function validatePathAccess(wcId: number, targetPath: string): Promise<void> {
+  // Realpath-normalize workspace roots too: otherwise a macOS workspace at
+  // `/var/...` (which resolves to `/private/var/...`) would never match a
+  // target's realpath and all reads get rejected; conversely a symlinked
+  // workspace root could fail to block a sibling path under the same
+  // unnormalized prefix. Returns the resolved target path so callers can
+  // open/stat/readdir it directly, closing the TOCTOU window between
+  // validation and the filesystem call.
+  async function validatePathAccess(wcId: number, targetPath: string): Promise<string> {
     const resolved = path.normalize(await fs.promises.realpath(targetPath))
     const allowed = windowManager.getWorkspacePaths(wcId)
-    const ok = allowed.some((wp) => {
-      const normalWp = path.normalize(wp)
+    const resolvedAllowed = await Promise.all(
+      allowed.map(async (wp) => {
+        try {
+          return path.normalize(await fs.promises.realpath(wp))
+        } catch {
+          return path.normalize(wp)
+        }
+      }),
+    )
+    const ok = resolvedAllowed.some((normalWp) => {
       // Windows paths are case-insensitive
       if (process.platform === 'win32') {
         const r = resolved.toLowerCase()
@@ -1554,11 +1570,12 @@ export function registerIpcHandlers(
       return resolved === normalWp || resolved.startsWith(normalWp + path.sep)
     })
     if (!ok) throw new Error('Access denied: path outside workspace')
+    return resolved
   }
 
   ipcMain.handle('fs:readDir', async (event, payload: { dirPath: string }) => {
-    await validatePathAccess(event.sender.id, payload.dirPath)
-    const entries = await fs.promises.readdir(payload.dirPath, { withFileTypes: true })
+    const resolved = await validatePathAccess(event.sender.id, payload.dirPath)
+    const entries = await fs.promises.readdir(resolved, { withFileTypes: true })
     const ignorePatterns = getIgnorePatterns()
     const filtered = entries.filter((e) => !isIgnoredEntry(e.name, ignorePatterns))
     const results = await Promise.all(
@@ -1567,7 +1584,7 @@ export function registerIpcHandlers(
         let size = 0
         if (!isDir) {
           try {
-            const s = await fs.promises.stat(path.join(payload.dirPath, entry.name))
+            const s = await fs.promises.stat(path.join(resolved, entry.name))
             size = s.size
           } catch {
             return null
@@ -1585,18 +1602,20 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
-    await validatePathAccess(event.sender.id, payload.filePath)
+    const resolved = await validatePathAccess(event.sender.id, payload.filePath)
     const maxBytes = Math.min(payload.maxBytes ?? 1_048_576, 10_485_760)
     // Sync stat too: closes the TOCTOU gap with the openSync below and removes
-    // the last await between validatePathAccess and the fd trio.
-    const size = fs.statSync(payload.filePath).size
+    // the last await between validatePathAccess and the fd trio. Operating on
+    // the realpath'd target prevents a symlink swap between validation and
+    // open from redirecting the read outside the workspace.
+    const size = fs.statSync(resolved).size
     const readSize = Math.min(size, maxBytes)
 
     // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
     // across multiple `await` points, which is the only call site in this
     // codebase that exposes us to FileHandle::CloseReq::Resolve races (#150).
     // A bounded read (≤10 MB) from local disk is fast enough to run inline.
-    const fd = fs.openSync(payload.filePath, 'r')
+    const fd = fs.openSync(resolved, 'r')
     try {
       const buf = Buffer.alloc(readSize)
       let offset = 0
@@ -1657,14 +1676,16 @@ export function registerIpcHandlers(
 
   // --- Repo Config ---
 
-  ipcMain.handle('repoConfig:load', async (_event, payload: { repoRoot: string }) => {
+  ipcMain.handle('repoConfig:load', async (event, payload: { repoRoot: string }) => {
+    await validatePathAccess(event.sender.id, payload.repoRoot)
     const result = await repoConfigManager.load(payload.repoRoot)
     return result.unwrapOr(null)
   })
 
   ipcMain.handle(
     'repoConfig:save',
-    async (_event, payload: { repoRoot: string; config: unknown }) => {
+    async (event, payload: { repoRoot: string; config: unknown }) => {
+      await validatePathAccess(event.sender.id, payload.repoRoot)
       if (!isValidRepoConfig(payload.config)) {
         throw new Error('Invalid config: check version, trackers, filters, and template fields')
       }
@@ -1673,11 +1694,13 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('repoConfig:exists', async (_event, payload: { repoRoot: string }) => {
+  ipcMain.handle('repoConfig:exists', async (event, payload: { repoRoot: string }) => {
+    await validatePathAccess(event.sender.id, payload.repoRoot)
     return repoConfigManager.exists(payload.repoRoot)
   })
 
-  ipcMain.handle('repoConfig:init', async (_event, payload: { repoRoot: string }) => {
+  ipcMain.handle('repoConfig:init', async (event, payload: { repoRoot: string }) => {
+    await validatePathAccess(event.sender.id, payload.repoRoot)
     const result = await repoConfigManager.init(payload.repoRoot)
     return unwrapOrThrow(result, taskTrackerErrorMessage)
   })
@@ -2334,12 +2357,15 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:findPR',
-    async (_event, payload: { repoRoot: string; branch: string }) => {
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      // Reject leading-`-` branch names so they can't be consumed as gh flags.
+      if (typeof payload.branch !== 'string' || payload.branch.startsWith('-')) return null
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       try {
         const { stdout } = await execFileAsync(
           'gh',
           ['pr', 'view', payload.branch, '--json', 'url', '--jq', '.url'],
-          { cwd: payload.repoRoot },
+          { cwd: resolvedRepo },
         )
         return stdout.trim() || null
       } catch {

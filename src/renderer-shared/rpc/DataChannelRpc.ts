@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import type { RpcMessage } from './types'
 
 /**
@@ -177,19 +178,17 @@ export class DataChannelRpc {
       console.warn(`[${this.label}] bad JSON frame`)
       return
     }
-    switch (parsed.kind) {
-      case 'request':
-        void this.handleRequest(parsed.id, parsed.method, parsed.params)
-        return
-      case 'response':
-        this.handleResponse(parsed)
-        return
-      case 'event':
-        this.handleEvent(parsed.topic, parsed.data)
-        return
-      default:
-        console.warn(`[${this.label}] unknown frame kind`, parsed)
-    }
+    match(parsed)
+      .with({ kind: 'request' }, (req) => {
+        void this.handleRequest(req.id, req.method, req.params)
+      })
+      .with({ kind: 'response' }, (resp) => {
+        this.handleResponse(resp)
+      })
+      .with({ kind: 'event' }, (evt) => {
+        this.handleEvent(evt.topic, evt.data)
+      })
+      .exhaustive()
   }
 
   private handleClose = (): void => {
