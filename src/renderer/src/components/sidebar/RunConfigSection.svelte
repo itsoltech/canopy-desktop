@@ -97,6 +97,9 @@
               <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
                 <button
                   class="config-action stop"
+                  aria-label={runningCount > 1
+                    ? `Stop all ${runningCount} sessions for ${config.name}`
+                    : `Stop ${config.name}`}
                   onclick={() => handleStop(group.configDir, config.name)}
                 >
                   <Square size={12} />
@@ -109,6 +112,7 @@
               <Tooltip text="Run">
                 <button
                   class="config-action play"
+                  aria-label={`Run ${config.name}`}
                   onclick={() => handlePlay(group.configDir, config.name)}
                 >
                   <Play size={14} />
@@ -118,6 +122,7 @@
             <Tooltip text="Delete">
               <button
                 class="config-action danger"
+                aria-label={`Delete ${config.name}`}
                 onclick={() => handleDelete(group.configDir, config.name)}
               >
                 <X size={14} />

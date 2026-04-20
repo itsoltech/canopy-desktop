@@ -43,8 +43,15 @@
     }
 
     void pollShellBusy()
-    const shellPollTimer = setInterval(() => void pollShellBusy(), 2000)
+    shellPollTimer = setInterval(() => void pollShellBusy(), 2000)
+  })
 
+  // Cleanup returned from an async onMount is silently dropped by Svelte,
+  // so register the drag listener teardown via $effect instead. If the
+  // tab bar unmounts mid-drag (window close, workspace switch), this runs
+  // and detaches the window-level pointermove/pointerup handlers that
+  // would otherwise leak with their closures.
+  $effect(() => {
     return () => {
       clearInterval(shellPollTimer)
       window.removeEventListener('pointermove', handleDragMove)
@@ -126,6 +133,7 @@
   let tabs = $derived(tabsByWorktree[worktreePath] ?? [])
 
   let shellBusyState: Record<string, boolean> = $state({})
+  let shellPollTimer: ReturnType<typeof setInterval> | undefined
   let currentActiveId = $derived(activeTabId[worktreePath])
 
   let showOverflow = $state(false)

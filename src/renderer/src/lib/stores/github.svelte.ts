@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import { addToast } from './toast.svelte'
 
 let branchPRs: GitHubBranchPRMap = $state({})
@@ -59,4 +60,18 @@ export function resetGitHubState(): void {
   branchPRs = {}
   repoInfo = null
   for (const key of Object.keys(lastFetchByRepo)) delete lastFetchByRepo[key]
+}
+
+export function formatPrBadge(pr: GitHubPRInfo): { className: string; label: string } {
+  return match(pr)
+    .with({ isDraft: true }, () => ({ className: 'pr-badge draft', label: 'Draft' }))
+    .with({ reviewDecision: 'APPROVED' }, () => ({
+      className: 'pr-badge approved',
+      label: 'Approved',
+    }))
+    .with({ reviewDecision: 'CHANGES_REQUESTED' }, () => ({
+      className: 'pr-badge changes-requested',
+      label: 'Changes',
+    }))
+    .otherwise(() => ({ className: 'pr-badge', label: `PR #${pr.number}` }))
 }

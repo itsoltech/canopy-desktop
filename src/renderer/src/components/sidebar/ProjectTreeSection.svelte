@@ -16,7 +16,7 @@
   import { allPanes } from '../../lib/stores/splitTree'
   import { worktreeBadges } from '../../lib/agents/agentState.svelte'
   import { getWorktreeAgentStatus } from '../../lib/agents/worktreeStatus.svelte'
-  import { getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
+  import { formatPrBadge, getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
   import { getResolvedConfig } from '../../lib/stores/taskTracker.svelte'
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
@@ -133,20 +133,6 @@
       if (p.isGitRepo && p.repoRoot) loadBranchPRs(p.repoRoot, force)
     }
   })
-
-  function prBadgeClass(pr: (typeof prMap)[string]): string {
-    if (pr.isDraft) return 'pr-badge draft'
-    if (pr.reviewDecision === 'APPROVED') return 'pr-badge approved'
-    if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'pr-badge changes-requested'
-    return 'pr-badge'
-  }
-
-  function prBadgeLabel(pr: (typeof prMap)[string]): string {
-    if (pr.isDraft) return 'Draft'
-    if (pr.reviewDecision === 'APPROVED') return 'Approved'
-    if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'Changes'
-    return `PR #${pr.number}`
-  }
 
   const removingPaths = new SvelteSet<string>()
 
@@ -473,15 +459,16 @@
                 {/if}
                 {#if prMap[wt.branch]}
                   {@const pr = prMap[wt.branch]}
+                  {@const badge = formatPrBadge(pr)}
                   <button
-                    class={prBadgeClass(pr)}
+                    class={badge.className}
                     title={`${pr.title} — click to open`}
                     onclick={(e) => {
                       e.stopPropagation()
                       window.api.openExternal(pr.url)
                     }}
                   >
-                    {prBadgeLabel(pr)}
+                    {badge.label}
                   </button>
                 {/if}
                 {#if wtActive}
