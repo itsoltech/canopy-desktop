@@ -1,3 +1,9 @@
+## [0.12.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.8...v0.12.0-next.9) (2026-04-20)
+
+### Features
+
+* **ui:** apply Canopy design system across renderer components ([#178](https://github.com/itsoltech/canopy-desktop/issues/178)) ([e834323](https://github.com/itsoltech/canopy-desktop/commit/e834323e807e4a86e8257623ed71c4c4df0cb386))
+
 ## [0.12.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.7...v0.12.0-next.8) (2026-04-20)
 
 ### Features
