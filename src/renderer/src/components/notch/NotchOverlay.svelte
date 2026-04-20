@@ -44,7 +44,6 @@
 
       if (s.peekSessionIds && s.peekSessionIds.length > 0 && !isHovered) {
         for (const id of s.peekSessionIds) peekSessionIds.add(id)
-        window.notchApi.setMouseIgnore(false)
 
         if (peekTimer) clearTimeout(peekTimer)
         peekTimer = setTimeout(() => {
@@ -118,7 +117,7 @@
         peekLocked = false
         peekSessionIds.clear()
       }
-      if (!isPeeking) window.notchApi.setMouseIgnore(true)
+      window.notchApi.setMouseIgnore(true)
       collapseTimer = null
     }, 300)
   }

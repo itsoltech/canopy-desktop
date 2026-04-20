@@ -159,12 +159,12 @@
     background: var(--c-bg-overlay);
     border: 1px solid var(--c-border);
     border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-modal);
     overflow: hidden;
   }
 
   .prefs-sidebar {
-    width: 160px;
+    width: 150px;
     flex-shrink: 0;
     border-right: 1px solid var(--c-active);
     padding: 16px 0;
@@ -184,12 +184,12 @@
 
   .prefs-group-label {
     display: block;
-    padding: 8px 16px 4px;
-    font-size: 11px;
+    padding: 8px 14px 4px;
+    font-size: var(--fs-2xs);
     font-weight: 600;
     color: var(--c-text-secondary);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
     user-select: none;
   }
 
@@ -206,7 +206,7 @@
   .prefs-tab {
     display: block;
     width: 100%;
-    padding: 6px 16px 6px 28px;
+    padding: 6px 14px 6px 26px;
     border: none;
     background: transparent;
     color: var(--c-text);
@@ -214,7 +214,7 @@
     font-family: inherit;
     text-align: left;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background var(--dur-fast);
   }
 
   .prefs-tab:hover {

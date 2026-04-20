@@ -1,3 +1,19 @@
+## [0.12.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.7...v0.12.0-next.8) (2026-04-20)
+
+### Features
+
+* **mobile:** add paste button to terminal ([#174](https://github.com/itsoltech/canopy-desktop/issues/174)) ([81b66ea](https://github.com/itsoltech/canopy-desktop/commit/81b66ea4f41f644c91730e07604918be88a936ff))
+
+### Bug Fixes
+
+* **mobile:** add safe area handling to instances empty state ([#172](https://github.com/itsoltech/canopy-desktop/issues/172)) ([c881087](https://github.com/itsoltech/canopy-desktop/commit/c881087f8d8a7478684545328bbf4be25442c088))
+* **notch:** restore mouse passthrough during peek notification ([#177](https://github.com/itsoltech/canopy-desktop/issues/177)) ([8381647](https://github.com/itsoltech/canopy-desktop/commit/8381647d1ef29ea9efbd94d062e2cdda3ef083ed))
+* **terminal:** prevent buffer corruption on tab switch ([#176](https://github.com/itsoltech/canopy-desktop/issues/176)) ([b9557b6](https://github.com/itsoltech/canopy-desktop/commit/b9557b6b346d2c637ba4783f89c87272ec0e61ab))
+
+### Performance
+
+* speed up app startup with async cleanup and deferred migration ([6c08778](https://github.com/itsoltech/canopy-desktop/commit/6c087781947fc5179ffc0688759a45d6623f9e95))
+
 ## [0.12.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.6...v0.12.0-next.7) (2026-04-17)
 
 ### Features

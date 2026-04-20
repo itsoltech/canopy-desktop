@@ -339,6 +339,14 @@
 <section class="sidebar-section">
   <div class="section-header">
     <h3 class="section-title">PROJECTS</h3>
+    <button
+      class="section-attach"
+      onclick={handleAttachProject}
+      title="Attach a project folder"
+      aria-label="Attach a project folder"
+    >
+      + attach
+    </button>
   </div>
 
   {#each projects as project (project.workspace.path)}
@@ -495,8 +503,6 @@
       {/if}
     </div>
   {/each}
-
-  <button class="attach-btn" onclick={handleAttachProject}>+ attach</button>
 </section>
 
 <style>
@@ -507,7 +513,24 @@
   .section-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 0 12px 8px;
+  }
+
+  .section-attach {
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--c-text-secondary);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: color var(--dur-fast);
+  }
+
+  .section-attach:hover {
+    color: var(--c-accent-text);
   }
 
   .section-title {
@@ -559,7 +582,7 @@
     display: flex;
     align-items: center;
     color: var(--c-text-faint);
-    transition: transform 0.15s ease;
+    transition: transform var(--dur-base) var(--ease-std);
     transform: rotate(0deg);
     width: 12px;
     flex-shrink: 0;
@@ -586,23 +609,23 @@
   }
 
   .action-btn {
-    font-size: 10px;
-    font-weight: 500;
-    font-family: inherit;
-    color: var(--c-text-muted);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 400;
+    color: var(--c-accent-text);
     background: none;
     border: none;
-    padding: 1px 5px;
-    border-radius: 4px;
+    padding: 2px 6px;
+    border-radius: var(--r-sm);
     cursor: pointer;
     transition:
-      color 0.1s,
-      background 0.1s;
+      color var(--dur-fast),
+      background var(--dur-fast);
   }
 
   .action-btn:hover {
-    color: var(--c-text);
-    background: var(--c-active);
+    color: var(--c-accent);
+    background: var(--c-accent-bg);
   }
 
   .detach-btn {
@@ -618,8 +641,8 @@
     cursor: pointer;
     border-radius: 3px;
     transition:
-      color 0.1s,
-      background 0.1s;
+      color var(--dur-fast),
+      background var(--dur-fast);
   }
 
   .detach-btn:hover {
@@ -646,17 +669,19 @@
   .worktree-item {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     flex: 1;
     min-width: 0;
-    padding: 4px 8px 4px 28px;
+    padding: 4px 8px 4px 24px;
     border: none;
     background: none;
-    color: var(--c-text);
+    color: var(--c-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
     text-align: left;
+    border-radius: var(--r-sm);
+    margin: 0 4px;
   }
 
   .worktree-item:hover {
@@ -665,7 +690,7 @@
   }
 
   .worktree-item.active {
-    background: var(--c-hover-strong);
+    background: var(--c-active);
     color: var(--c-text);
   }
 
@@ -821,8 +846,8 @@
     flex-shrink: 0;
     margin-left: auto;
     transition:
-      color 0.1s,
-      background 0.1s;
+      color var(--dur-fast),
+      background var(--dur-fast);
   }
 
   .stop-btn:hover {
@@ -845,32 +870,13 @@
     border-radius: 4px;
     margin-right: 4px;
     transition:
-      color 0.1s,
-      background 0.1s;
+      color var(--dur-fast),
+      background var(--dur-fast);
   }
 
   .remove-btn:hover {
     color: var(--c-danger);
     background: var(--c-danger-bg);
-  }
-
-  .attach-btn {
-    font-size: 10px;
-    font-weight: 500;
-    font-family: inherit;
-    color: var(--c-text-faint);
-    background: none;
-    border: none;
-    padding: 4px 12px;
-    margin-top: 4px;
-    cursor: pointer;
-    transition:
-      color 0.1s,
-      background 0.1s;
-  }
-
-  .attach-btn:hover {
-    color: var(--c-text-secondary);
   }
 
   .ctx-overlay {
@@ -885,7 +891,7 @@
     background: var(--c-bg-overlay);
     border: 1px solid var(--c-border);
     border-radius: 8px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-ctx);
     padding: 4px;
     z-index: 1003;
   }
@@ -893,7 +899,7 @@
   .ctx-item {
     display: block;
     width: 100%;
-    padding: 6px 12px;
+    padding: 6px 10px;
     border: none;
     border-radius: 4px;
     background: none;
@@ -902,7 +908,7 @@
     font-family: inherit;
     cursor: pointer;
     text-align: left;
-    transition: background 0.05s;
+    transition: background var(--dur-fast);
   }
 
   .ctx-item:hover {
@@ -915,7 +921,7 @@
 
   .ctx-divider {
     height: 1px;
-    background: var(--c-active);
+    background: var(--c-border-subtle);
     margin: 4px 8px;
   }
 </style>
