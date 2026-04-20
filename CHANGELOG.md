@@ -1,3 +1,9 @@
+## [0.12.0-next.10](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.9...v0.12.0-next.10) (2026-04-20)
+
+### Bug Fixes
+
+* **shell:** source login profiles when resolving PATH ([5437f33](https://github.com/itsoltech/canopy-desktop/commit/5437f330664c643831a31311d7fcd52104e4757e))
+
 ## [0.12.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.8...v0.12.0-next.9) (2026-04-20)
 
 ### Features
