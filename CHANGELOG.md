@@ -1,3 +1,32 @@
+## [0.12.0](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0...v0.12.0) (2026-04-20)
+
+### Features
+
+* add pane tab strip for split terminal management ([#170](https://github.com/itsoltech/canopy-desktop/issues/170)) ([e08dee8](https://github.com/itsoltech/canopy-desktop/commit/e08dee8243b35586c59557073f481270a93bc40b))
+* add shape tools to drawing and editable notes preview ([#160](https://github.com/itsoltech/canopy-desktop/issues/160)) ([9213b6c](https://github.com/itsoltech/canopy-desktop/commit/9213b6cb4b16c9cf14961ff02c87eb0ea7ad626e))
+* **mobile:** add paste button to terminal ([#174](https://github.com/itsoltech/canopy-desktop/issues/174)) ([81b66ea](https://github.com/itsoltech/canopy-desktop/commit/81b66ea4f41f644c91730e07604918be88a936ff))
+* **mobile:** remote control companion app for iOS ([#165](https://github.com/itsoltech/canopy-desktop/issues/165)) ([d56e233](https://github.com/itsoltech/canopy-desktop/commit/d56e233909144994c3f6687f989626b0e411ec0b))
+* **mobile:** switch to EAS Workflows for build and submit ([db208b8](https://github.com/itsoltech/canopy-desktop/commit/db208b8a6d28ee9237191c7cf09fb3c200db5d35))
+* **panes:** add in-memory notes and drawing panes ([#149](https://github.com/itsoltech/canopy-desktop/issues/149)) ([9ff9149](https://github.com/itsoltech/canopy-desktop/commit/9ff9149c0e364a3200f0227581f7cbbdc98364ea))
+* **skills:** add skill installation CLI for agents ([#135](https://github.com/itsoltech/canopy-desktop/issues/135)) ([5bf2e5b](https://github.com/itsoltech/canopy-desktop/commit/5bf2e5b66346a2725470ca9e5fe2a159779abd0d))
+* **ui:** apply Canopy design system across renderer components ([#178](https://github.com/itsoltech/canopy-desktop/issues/178)) ([e834323](https://github.com/itsoltech/canopy-desktop/commit/e834323e807e4a86e8257623ed71c4c4df0cb386))
+
+### Bug Fixes
+
+* **browser:** open target="_blank" links in new tab ([#158](https://github.com/itsoltech/canopy-desktop/issues/158)) ([ef38eb2](https://github.com/itsoltech/canopy-desktop/commit/ef38eb284ccb65da382f5aa06826c7dd66fd167d)), closes [#155](https://github.com/itsoltech/canopy-desktop/issues/155)
+* **credentials:** cache auth and decrypted credentials per session ([#159](https://github.com/itsoltech/canopy-desktop/issues/159)) ([8c00c65](https://github.com/itsoltech/canopy-desktop/commit/8c00c65ac6c59d27419f8156a2107c06a0239ee7))
+* fetch full task description before sending to agent ([#166](https://github.com/itsoltech/canopy-desktop/issues/166)) ([#167](https://github.com/itsoltech/canopy-desktop/issues/167)) ([7735c6e](https://github.com/itsoltech/canopy-desktop/commit/7735c6ed5a4d9ed884d97ee6b10d441cf44f22b9))
+* **mobile:** add safe area handling to instances empty state ([#172](https://github.com/itsoltech/canopy-desktop/issues/172)) ([c881087](https://github.com/itsoltech/canopy-desktop/commit/c881087f8d8a7478684545328bbf4be25442c088))
+* **notch:** restore mouse passthrough during peek notification ([#177](https://github.com/itsoltech/canopy-desktop/issues/177)) ([8381647](https://github.com/itsoltech/canopy-desktop/commit/8381647d1ef29ea9efbd94d062e2cdda3ef083ed))
+* **shell:** source login profiles when resolving PATH ([5437f33](https://github.com/itsoltech/canopy-desktop/commit/5437f330664c643831a31311d7fcd52104e4757e))
+* **terminal:** prevent buffer corruption on tab switch ([#176](https://github.com/itsoltech/canopy-desktop/issues/176)) ([b9557b6](https://github.com/itsoltech/canopy-desktop/commit/b9557b6b346d2c637ba4783f89c87272ec0e61ab))
+* **ui:** settings button in status bar + section spacing fix ([#162](https://github.com/itsoltech/canopy-desktop/issues/162)) ([0b49849](https://github.com/itsoltech/canopy-desktop/commit/0b49849f2b2a94347d5da8638dc777d09e63fbf7))
+* wrap task-paste in bracketed-paste markers to prevent fragmentation ([0ee7bd9](https://github.com/itsoltech/canopy-desktop/commit/0ee7bd9424865f99adf4d48d47f0c8bbe853f299)), closes [#166](https://github.com/itsoltech/canopy-desktop/issues/166)
+
+### Performance
+
+* speed up app startup with async cleanup and deferred migration ([6c08778](https://github.com/itsoltech/canopy-desktop/commit/6c087781947fc5179ffc0688759a45d6623f9e95))
+
 ## [0.12.0-next.10](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0-next.9...v0.12.0-next.10) (2026-04-20)
 
 ### Bug Fixes
