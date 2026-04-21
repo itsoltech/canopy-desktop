@@ -805,6 +805,15 @@ interface CanopyAPI {
       requestId: string
       decision: SdkPlanDecision
     }) => Promise<void>
+    uploadAttachment: (args: {
+      conversationId: string
+      filename: string
+      mimeType: string
+      kind: 'image' | 'text'
+      dataBase64: string
+    }) => Promise<
+      SdkAttachment | { error: { _tag: string; limitBytes?: number; message?: string } }
+    >
     subscribe: (conversationId: string, handler: (event: SdkAgentEvent) => void) => () => void
   }
 }

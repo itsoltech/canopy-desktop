@@ -3,6 +3,7 @@ import type { SdkAgentManager } from './SdkAgentManager'
 import type {
   AskUserQuestionAnswer,
   Attachment,
+  AttachmentKind,
   ConversationId,
   PermissionMode,
   PlanDecision,
@@ -10,6 +11,7 @@ import type {
   ToolDecision,
 } from './types'
 import { asConversationId } from './types'
+import { uploadAttachment, type UploadAttachmentError } from './attachmentPipeline'
 
 function eventChannel(id: ConversationId): string {
   return `sdkAgent:event:${id}`
@@ -138,6 +140,30 @@ export function registerSdkAgentIpcHandlers(manager: SdkAgentManager): void {
     'sdkAgent:respondPlan',
     (_e, args: { conversationId: string; requestId: string; decision: PlanDecision }) => {
       manager.respondPlan(asConversationId(args.conversationId), args.requestId, args.decision)
+    },
+  )
+
+  ipcMain.handle(
+    'sdkAgent:uploadAttachment',
+    (
+      _e,
+      args: {
+        conversationId: string
+        filename: string
+        mimeType: string
+        kind: AttachmentKind
+        dataBase64: string
+      },
+    ): Attachment | { error: UploadAttachmentError } => {
+      const result = uploadAttachment({
+        conversationId: asConversationId(args.conversationId),
+        filename: args.filename,
+        mimeType: args.mimeType,
+        kind: args.kind,
+        dataBase64: args.dataBase64,
+      })
+      if ('_tag' in result) return { error: result }
+      return result
     },
   )
 }

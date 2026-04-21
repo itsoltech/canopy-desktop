@@ -1048,6 +1048,16 @@ const api = {
     }) => ipcRenderer.invoke('sdkAgent:respondQuestion', args) as Promise<void>,
     respondPlan: (args: { conversationId: string; requestId: string; decision: PlanDecision }) =>
       ipcRenderer.invoke('sdkAgent:respondPlan', args) as Promise<void>,
+    uploadAttachment: (args: {
+      conversationId: string
+      filename: string
+      mimeType: string
+      kind: 'image' | 'text'
+      dataBase64: string
+    }) =>
+      ipcRenderer.invoke('sdkAgent:uploadAttachment', args) as Promise<
+        Attachment | { error: { _tag: string; limitBytes?: number; message?: string } }
+      >,
     /**
      * Attach a listener for a specific conversation's event stream.
      * Returns an unsubscribe function.
