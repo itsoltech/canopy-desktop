@@ -224,6 +224,19 @@ export async function openTool(
   worktreePath: string,
   options?: { initialUrl?: string; profileId?: string },
 ): Promise<TabInfo> {
+  // SDK-backed agents don't go through PTY spawn — route to the in-process
+  // manager via openSdkChatTab. Requires a profileId and a resolved workspace.
+  if (toolId === 'claude-sdk') {
+    const project = getProjectForWorktree(worktreePath)
+    if (!project) throw new Error(`No workspace found for ${worktreePath}`)
+    if (!options?.profileId) {
+      throw new Error('openTool(claude-sdk) requires a profileId')
+    }
+    const tab = await openSdkChatTab(worktreePath, project.workspace.id, options.profileId)
+    if (!tab) throw new Error('Failed to create SDK chat session')
+    return tab
+  }
+
   let pane: PaneSession
   const paneId = nextPaneId()
   let toolName: string
@@ -624,13 +637,13 @@ export async function openSdkChatTab(
   workspaceId: string,
   profileId: string,
   existingConversationId?: string,
-): Promise<void> {
+): Promise<TabInfo | null> {
   let conversationId = existingConversationId
   if (!conversationId) {
     const result = await window.api.sdkAgent.create({ workspaceId, worktreePath, profileId })
     if ('error' in result) {
       console.warn('[openSdkChatTab] create failed:', result.error)
-      return
+      return null
     }
     conversationId = result.conversationId
   }
@@ -640,8 +653,8 @@ export async function openSdkChatTab(
     id: paneId,
     sessionId: conversationId,
     wsUrl: '',
-    toolId: 'sdkChat',
-    toolName: 'Agent chat',
+    toolId: 'claude-sdk',
+    toolName: 'Claude (SDK)',
     isRunning: true,
     exitCode: null,
     title: null,
@@ -654,9 +667,9 @@ export async function openSdkChatTab(
   const id = nextTabId()
   const tab: TabInfo = {
     id,
-    toolId: 'sdkChat',
-    toolName: 'Agent chat',
-    name: 'Agent chat',
+    toolId: 'claude-sdk',
+    toolName: 'Claude (SDK)',
+    name: 'Claude (SDK)',
     worktreePath,
     rootSplit: createLeaf(pane),
     focusedPaneId: paneId,
@@ -668,6 +681,7 @@ export async function openSdkChatTab(
   tabsByWorktree[worktreePath].push(tab)
   activeTabId[worktreePath] = id
   scheduleSave(worktreePath)
+  return tab
 }
 
 export function openFile(filePath: string, worktreePath: string): void {

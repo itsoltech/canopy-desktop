@@ -4,6 +4,7 @@
   import { getRunningCountByTool } from '../../lib/stores/tabs.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
   import { getProfilesByAgent } from '../../lib/stores/profiles.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
   import type { AgentType } from '../../../../main/agents/types'
   import ToolIcon from '../shared/ToolIcon.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
@@ -14,9 +15,18 @@
     onLaunchTool: (toolId: string, opts?: { profileId?: string }) => void
   } = $props()
 
-  const AI_TOOL_IDS = new Set<string>(['claude', 'gemini', 'opencode', 'codex'])
+  const AI_TOOL_IDS = new Set<string>(['claude', 'claude-sdk', 'gemini', 'opencode', 'codex'])
 
-  let availableTools = $derived(getTools().filter((t) => getToolAvailability()[t.id] !== false))
+  let sdkAgentsEnabled = $derived(prefs['experimental.sdkAgents'] === 'true')
+
+  let availableTools = $derived(
+    getTools().filter((t) => {
+      if (getToolAvailability()[t.id] === false) return false
+      // Hide claude-sdk entry until the experimental flag is on.
+      if (t.id === 'claude-sdk' && !sdkAgentsEnabled) return false
+      return true
+    }),
+  )
   let aiTools = $derived(availableTools.filter((t) => AI_TOOL_IDS.has(t.id)))
   let otherTools = $derived(availableTools.filter((t) => !AI_TOOL_IDS.has(t.id)))
 

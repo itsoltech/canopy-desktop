@@ -234,6 +234,12 @@ export class ToolRegistry {
             resolve()
             return
           }
+          // SDK-backed agents run in-process — no binary to locate.
+          if (tool.id === 'claude-sdk') {
+            result[tool.id] = true
+            resolve()
+            return
+          }
           const binary = this.resolveCommand(tool)
           execFile(cmd, [binary], { env }, (err) => {
             result[tool.id] = !err
