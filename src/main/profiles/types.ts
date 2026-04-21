@@ -19,6 +19,7 @@ export interface ProfilePrefs {
   appendSystemPrompt?: string
   baseUrl?: string
   provider?: string // 'bedrock' | 'vertex' | 'foundry'
+  mcpServers?: string // raw JSON — SDK McpServer map, validated at write time
 
   // Gemini
   approvalMode?: string
@@ -92,6 +93,7 @@ export const LEGACY_PREF_FIELDS: Record<AgentType, readonly (keyof ProfilePrefs)
     'provider',
     'customEnv',
     'settingsJson',
+    'mcpServers',
   ],
   gemini: ['model', 'approvalMode', 'customEnv', 'settingsJson'],
   opencode: ['model', 'customEnv', 'settingsJson'],

@@ -237,6 +237,7 @@ export class SdkAgentManager {
         model,
         permissionMode,
         appendSystemPrompt: profile.prefs.appendSystemPrompt,
+        mcpServers: parseMcpServers(profile.prefs.mcpServers),
         cwd: session.worktreePath,
         apiKey: profile.apiKey,
         context: {
@@ -434,5 +435,23 @@ function restoreEnv(saved: SavedEnv): void {
   for (const [k, v] of Object.entries(saved.before)) {
     if (v !== undefined) process.env[k] = v
     else delete process.env[k]
+  }
+}
+
+/**
+ * Parse the raw `mcpServers` JSON from a profile. Silent on invalid input —
+ * the Phase 8 preferences UI owns validation at write-time, and malformed
+ * persisted data should not prevent a session from starting.
+ */
+function parseMcpServers(raw: string | undefined): Record<string, unknown> | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+    return undefined
+  } catch {
+    return undefined
   }
 }
