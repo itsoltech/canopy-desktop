@@ -1,0 +1,214 @@
+<script lang="ts">
+  import { match } from 'ts-pattern'
+  import MessageBubble from '../molecules/MessageBubble.svelte'
+  import MessageHeader from '../molecules/MessageHeader.svelte'
+  import ToolCallBlock from '../molecules/ToolCallBlock.svelte'
+  import QuestionnaireBlock from '../molecules/QuestionnaireBlock.svelte'
+  import PlanApprovalBlock from '../molecules/PlanApprovalBlock.svelte'
+  import ToolPermissionBlock from '../molecules/ToolPermissionBlock.svelte'
+  import type {
+    AttentionBlock,
+    SdkMessageView,
+    SdkToolEventView,
+  } from '../../../lib/stores/sdkAgentSessions.svelte'
+
+  interface Props {
+    messages: SdkMessageView[]
+    toolEvents: Record<string, SdkToolEventView>
+    pendingAttention: AttentionBlock[]
+    isStreaming?: boolean
+    onRespondPermission?: (requestId: string, decision: SdkToolDecision) => void
+    onRespondQuestion?: (
+      requestId: string,
+      answers: Record<string, SdkAskUserQuestionAnswer>,
+    ) => void
+    onRespondPlan?: (requestId: string, decision: SdkPlanDecision) => void
+  }
+
+  let {
+    messages,
+    toolEvents,
+    pendingAttention,
+    isStreaming = false,
+    onRespondPermission,
+    onRespondQuestion,
+    onRespondPlan,
+  }: Props = $props()
+
+  let containerEl: HTMLDivElement | undefined = $state()
+  let autoScroll = $state(true)
+
+  // Track scroll position — pause auto-scroll when user scrolls away from bottom
+  function onScroll(): void {
+    if (!containerEl) return
+    const { scrollTop, scrollHeight, clientHeight } = containerEl
+    const distance = scrollHeight - scrollTop - clientHeight
+    autoScroll = distance < 80
+  }
+
+  $effect(() => {
+    // Trigger on messages / attention changes; scroll when appropriate.
+    // Referenced in `scrollTarget` so Svelte tracks both dependencies.
+    void messages.length
+    void pendingAttention.length
+    if (!containerEl || !autoScroll) return
+    queueMicrotask(() => {
+      if (!containerEl) return
+      containerEl.scrollTop = containerEl.scrollHeight
+    })
+  })
+
+  function toolEventsForMessage(messageId: string): SdkToolEventView[] {
+    return Object.values(toolEvents).filter((t) => t.messageId === messageId)
+  }
+
+  function toolStatus(ev: SdkToolEventView): 'idle' | 'running' | 'success' | 'error' {
+    return match(ev.status)
+      .with('running', () => 'running' as const)
+      .with('error', () => 'error' as const)
+      .with('done', () => 'success' as const)
+      .exhaustive()
+  }
+
+  function resolvedAnswers(
+    block: AttentionBlock,
+  ): Record<string, SdkAskUserQuestionAnswer> | undefined {
+    return match(block)
+      .with(
+        { kind: 'question', status: 'resolved' },
+        () => ({}) as Record<string, SdkAskUserQuestionAnswer>,
+      )
+      .otherwise(() => undefined)
+  }
+</script>
+
+<div class="message-stream" bind:this={containerEl} onscroll={onScroll}>
+  {#if messages.length === 0 && pendingAttention.length === 0}
+    <div class="empty-state">
+      <p>Start a conversation. The assistant is ready to help with this worktree.</p>
+    </div>
+  {/if}
+
+  {#each messages as message (message.id)}
+    <MessageBubble role={message.role === 'tool' ? 'tool' : message.role}>
+      {#snippet header()}
+        <MessageHeader
+          role={message.role === 'user' ? 'user' : 'assistant'}
+          timestamp={message.createdAt}
+        />
+      {/snippet}
+
+      {#snippet body()}
+        <div class="message-body">
+          {#if message.content}
+            <p class="message-text">{message.content}</p>
+          {/if}
+          {#each toolEventsForMessage(message.id) as ev (ev.id)}
+            <ToolCallBlock
+              name={ev.toolName}
+              status={toolStatus(ev)}
+              input={ev.input}
+              result={ev.result ?? undefined}
+            />
+          {/each}
+        </div>
+      {/snippet}
+    </MessageBubble>
+  {/each}
+
+  {#each pendingAttention as block (block.requestId)}
+    <div class="attention-slot">
+      {#if block.kind === 'question'}
+        <QuestionnaireBlock
+          questions={block.questions}
+          status={block.status === 'waiting' ? 'waiting' : 'resolved'}
+          answers={resolvedAnswers(block)}
+          onsubmit={(answers) => onRespondQuestion?.(block.requestId, answers)}
+        />
+      {:else if block.kind === 'plan'}
+        <PlanApprovalBlock
+          plan={block.plan}
+          status={block.status === 'waiting'
+            ? 'waiting'
+            : block.status === 'approved'
+              ? 'resolved'
+              : 'rejected'}
+          initialFeedback={block.feedback}
+          onapprove={() => onRespondPlan?.(block.requestId, { action: 'approve' })}
+          onreject={(feedback) => onRespondPlan?.(block.requestId, { action: 'reject', feedback })}
+        />
+      {:else if block.kind === 'permission'}
+        <ToolPermissionBlock
+          tool={block.toolName}
+          input={block.input}
+          status={block.status === 'waiting'
+            ? 'waiting'
+            : block.status === 'granted'
+              ? 'granted'
+              : 'denied'}
+          onrespond={(decision) => onRespondPermission?.(block.requestId, decision)}
+        />
+      {/if}
+    </div>
+  {/each}
+
+  {#if isStreaming}
+    <div class="streaming-hint">Assistant is working…</div>
+  {/if}
+</div>
+
+<style>
+  .message-stream {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    scroll-behavior: smooth;
+  }
+
+  .message-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .message-text {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    color: var(--c-text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .empty-state p {
+    margin: 0;
+    max-width: 360px;
+  }
+
+  .attention-slot {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .streaming-hint {
+    align-self: flex-start;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    color: var(--c-text-muted);
+    font-style: italic;
+  }
+</style>
