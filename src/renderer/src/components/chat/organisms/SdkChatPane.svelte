@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
+  import { untrack } from 'svelte'
   import MessageStream from './MessageStream.svelte'
   import ChatInput from '../molecules/ChatInput.svelte'
+  import AttachmentTray from '../molecules/AttachmentTray.svelte'
+  import AttachmentChip from '../molecules/AttachmentChip.svelte'
   import AssistantErrorBlock from '../molecules/AssistantErrorBlock.svelte'
   import {
     cancel,
@@ -14,7 +16,10 @@
     sendMessage,
   } from '../../../lib/stores/sdkAgentSessions.svelte'
   import { parseSlashCommand } from '../../../lib/chat/slashCommands'
-  import type { PermissionMode as SdkPermissionMode } from '../../../../../main/sdkAgents/types'
+  import type {
+    Attachment as SdkAttachment,
+    PermissionMode as SdkPermissionMode,
+  } from '../../../../../main/sdkAgents/types'
 
   interface Props {
     conversationId: string
@@ -30,6 +35,7 @@
   let pendingModeOverride = $state<SdkPermissionMode | null>(null)
   let transientNotice = $state<string | null>(null)
   let clearedBefore = $state<string | null>(null)
+  let pendingAttachments = $state<SdkAttachment[]>([])
 
   let state = $derived(sdkSessions[conversationId])
   let isStreaming = $derived(state?.status === 'streaming')
@@ -42,8 +48,12 @@
 
   $effect(() => {
     const id = conversationId
-    void openConversation(id)
-    return () => closeConversation(id)
+    untrack(() => {
+      void openConversation(id)
+    })
+    return () => {
+      untrack(() => closeConversation(id))
+    }
   })
 
   function flashNotice(msg: string): void {
@@ -84,9 +94,23 @@
     lastRetryable = body
     const modelOverride = pendingModelOverride ?? undefined
     const permissionModeOverride = pendingModeOverride ?? undefined
+    const attachments = pendingAttachments.length > 0 ? pendingAttachments : undefined
     pendingModelOverride = null
     pendingModeOverride = null
-    void sendMessage(conversationId, body, { modelOverride, permissionModeOverride })
+    pendingAttachments = []
+    void sendMessage(conversationId, body, {
+      modelOverride,
+      permissionModeOverride,
+      attachments,
+    })
+  }
+
+  function removeAttachment(id: string): void {
+    pendingAttachments = pendingAttachments.filter((a) => a.id !== id)
+  }
+
+  function attachmentChipKind(kind: SdkAttachment['kind']): 'image' | 'text' | 'file' {
+    return kind === 'image' ? 'image' : 'text'
   }
 
   async function handlePaste(e: ClipboardEvent): Promise<void> {
@@ -130,9 +154,7 @@
         flashNotice(`Attachment failed: ${result.error._tag}`)
         return
       }
-      flashNotice(`Attached ${file.name}`)
-      // MVP: hand the user a visible token they can reference in the message.
-      inputValue = (inputValue ? inputValue + '\n' : '') + `[attachment: ${file.name}]`
+      pendingAttachments = [...pendingAttachments, result as SdkAttachment]
     } catch (err) {
       flashNotice(`Attachment failed: ${err instanceof Error ? err.message : 'unknown'}`)
     }
@@ -161,10 +183,6 @@
       handleCancel()
     }
   }
-
-  onDestroy(() => {
-    closeConversation(conversationId)
-  })
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -181,6 +199,7 @@
   {/if}
   <MessageStream
     messages={visibleMessages}
+    conversationModel={state?.conversation?.model ?? null}
     toolEvents={state?.toolEvents ?? {}}
     pendingAttention={state?.pendingAttention ?? []}
     {isStreaming}
@@ -203,17 +222,39 @@
   {/if}
 
   <div class="input-row">
-    <ChatInput
-      bind:value={inputValue}
-      placeholder="Message the agent… (⌘↵ to send)"
-      disabled={isStreaming}
-      onsubmit={handleSubmit}
-    />
-    {#if isStreaming}
-      <button type="button" class="cancel-btn" onclick={handleCancel} title="Stop generation (⌘.)">
-        Stop
-      </button>
-    {/if}
+    <div class="input-column">
+      <ChatInput
+        bind:value={inputValue}
+        placeholder="Message the agent… (⌘↵ to send)"
+        disabled={isStreaming}
+        onsubmit={handleSubmit}
+      >
+        {#snippet attachments()}
+          {#if pendingAttachments.length > 0}
+            <AttachmentTray>
+              {#each pendingAttachments as att (att.id)}
+                <AttachmentChip
+                  name={att.filename}
+                  sizeBytes={att.sizeBytes}
+                  kind={attachmentChipKind(att.kind)}
+                  onremove={() => removeAttachment(att.id)}
+                />
+              {/each}
+            </AttachmentTray>
+          {/if}
+        {/snippet}
+      </ChatInput>
+      {#if isStreaming}
+        <button
+          type="button"
+          class="cancel-btn"
+          onclick={handleCancel}
+          title="Stop generation (⌘.)"
+        >
+          Stop
+        </button>
+      {/if}
+    </div>
   </div>
 </section>
 
@@ -239,10 +280,17 @@
 
   .input-row {
     display: flex;
-    align-items: flex-end;
-    gap: 10px;
+    justify-content: center;
     padding: 10px 14px 14px;
     border-top: 1px solid var(--c-border-subtle);
+  }
+
+  .input-column {
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
   }
 
   .cancel-btn {

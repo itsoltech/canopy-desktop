@@ -122,6 +122,8 @@
 
 <style>
   .chat-input {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     border: 1px solid var(--c-border);

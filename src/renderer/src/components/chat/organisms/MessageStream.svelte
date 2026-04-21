@@ -3,6 +3,7 @@
   import { ArrowDown } from '@lucide/svelte'
   import MessageBubble from '../molecules/MessageBubble.svelte'
   import MessageHeader from '../molecules/MessageHeader.svelte'
+  import MessageMeta from '../molecules/MessageMeta.svelte'
   import ToolCallBlock from '../molecules/ToolCallBlock.svelte'
   import QuestionnaireBlock from '../molecules/QuestionnaireBlock.svelte'
   import PlanApprovalBlock from '../molecules/PlanApprovalBlock.svelte'
@@ -20,6 +21,7 @@
 
   interface Props {
     messages: SdkMessageView[]
+    conversationModel?: string | null
     toolEvents: Record<string, SdkToolEventView>
     pendingAttention: AttentionBlock[]
     isStreaming?: boolean
@@ -33,6 +35,7 @@
 
   let {
     messages,
+    conversationModel = null,
     toolEvents,
     pendingAttention,
     isStreaming = false,
@@ -40,6 +43,17 @@
     onRespondQuestion,
     onRespondPlan,
   }: Props = $props()
+
+  type Brand = 'ClaudeAI' | 'OpenAI' | 'Gemini'
+
+  function resolveBrand(model: string | null | undefined): Brand | undefined {
+    if (!model) return undefined
+    const m = model.toLowerCase()
+    if (m.startsWith('claude')) return 'ClaudeAI'
+    if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3')) return 'OpenAI'
+    if (m.startsWith('gemini')) return 'Gemini'
+    return undefined
+  }
 
   let containerEl: HTMLDivElement | undefined = $state()
   let autoScroll = $state(true)
@@ -117,79 +131,96 @@
 
 <div class="stream-wrapper">
   <div class="message-stream" bind:this={containerEl} onscroll={onScroll}>
-    {#if messages.length === 0 && pendingAttention.length === 0}
-      <div class="empty-state">
-        <p>Start a conversation. The assistant is ready to help with this worktree.</p>
-      </div>
-    {/if}
+    <div class="stream-column">
+      {#if messages.length === 0 && pendingAttention.length === 0}
+        <div class="empty-state">
+          <p>Start a conversation. The assistant is ready to help with this worktree.</p>
+        </div>
+      {/if}
 
-    {#each messages as message (message.id)}
-      <MessageBubble role={message.role === 'tool' ? 'tool' : message.role}>
-        {#snippet header()}
-          <MessageHeader
-            role={message.role === 'user' ? 'user' : 'assistant'}
-            timestamp={message.createdAt}
-          />
-        {/snippet}
+      {#each messages as message (message.id)}
+        {@const isAssistant = message.role === 'assistant'}
+        {@const hasUsage = message.tokensIn !== null || message.tokensOut !== null}
+        <MessageBubble role={message.role === 'tool' ? 'tool' : message.role}>
+          {#snippet header()}
+            <MessageHeader
+              role={message.role === 'user' ? 'user' : 'assistant'}
+              brand={isAssistant ? resolveBrand(conversationModel) : undefined}
+              model={isAssistant ? (conversationModel ?? undefined) : undefined}
+              userInitial={message.role === 'user' ? 'Y' : undefined}
+              timestamp={message.createdAt}
+            />
+          {/snippet}
 
-        {#snippet body()}
-          <div class="message-body">
-            {#if message.content}
-              <p class="message-text">{message.content}</p>
-            {/if}
-            {#each toolEventsForMessage(message.id) as ev (ev.id)}
-              <ToolCallBlock
-                name={ev.toolName}
-                status={toolStatus(ev)}
-                input={ev.input}
-                result={ev.result ?? undefined}
+          {#snippet body()}
+            <div class="message-body">
+              {#if message.content}
+                <p class="message-text">{message.content}</p>
+              {/if}
+              {#each toolEventsForMessage(message.id) as ev (ev.id)}
+                <ToolCallBlock
+                  name={ev.toolName}
+                  status={toolStatus(ev)}
+                  input={ev.input}
+                  result={ev.result ?? undefined}
+                />
+              {/each}
+            </div>
+          {/snippet}
+
+          {#if isAssistant && hasUsage}
+            <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
+            {#snippet footer()}
+              <MessageMeta
+                model={conversationModel ?? undefined}
+                tokens={(message.tokensIn ?? 0) + (message.tokensOut ?? 0)}
               />
-            {/each}
-          </div>
-        {/snippet}
-      </MessageBubble>
-    {/each}
+            {/snippet}
+          {/if}
+        </MessageBubble>
+      {/each}
 
-    {#each pendingAttention as block (block.requestId)}
-      <div class="attention-slot">
-        {#if block.kind === 'question'}
-          <QuestionnaireBlock
-            questions={block.questions}
-            status={block.status === 'waiting' ? 'waiting' : 'resolved'}
-            answers={resolvedAnswers(block)}
-            onsubmit={(answers) => onRespondQuestion?.(block.requestId, answers)}
-          />
-        {:else if block.kind === 'plan'}
-          <PlanApprovalBlock
-            plan={block.plan}
-            status={block.status === 'waiting'
-              ? 'waiting'
-              : block.status === 'approved'
-                ? 'resolved'
-                : 'rejected'}
-            initialFeedback={block.feedback}
-            onapprove={() => onRespondPlan?.(block.requestId, { action: 'approve' })}
-            onreject={(feedback) =>
-              onRespondPlan?.(block.requestId, { action: 'reject', feedback })}
-          />
-        {:else if block.kind === 'permission'}
-          <ToolPermissionBlock
-            tool={block.toolName}
-            input={block.input}
-            status={block.status === 'waiting'
-              ? 'waiting'
-              : block.status === 'granted'
-                ? 'granted'
-                : 'denied'}
-            onrespond={(decision) => onRespondPermission?.(block.requestId, decision)}
-          />
-        {/if}
-      </div>
-    {/each}
+      {#each pendingAttention as block (block.requestId)}
+        <div class="attention-slot">
+          {#if block.kind === 'question'}
+            <QuestionnaireBlock
+              questions={block.questions}
+              status={block.status === 'waiting' ? 'waiting' : 'resolved'}
+              answers={resolvedAnswers(block)}
+              onsubmit={(answers) => onRespondQuestion?.(block.requestId, answers)}
+            />
+          {:else if block.kind === 'plan'}
+            <PlanApprovalBlock
+              plan={block.plan}
+              status={block.status === 'waiting'
+                ? 'waiting'
+                : block.status === 'approved'
+                  ? 'resolved'
+                  : 'rejected'}
+              initialFeedback={block.feedback}
+              onapprove={() => onRespondPlan?.(block.requestId, { action: 'approve' })}
+              onreject={(feedback) =>
+                onRespondPlan?.(block.requestId, { action: 'reject', feedback })}
+            />
+          {:else if block.kind === 'permission'}
+            <ToolPermissionBlock
+              tool={block.toolName}
+              input={block.input}
+              status={block.status === 'waiting'
+                ? 'waiting'
+                : block.status === 'granted'
+                  ? 'granted'
+                  : 'denied'}
+              onrespond={(decision) => onRespondPermission?.(block.requestId, decision)}
+            />
+          {/if}
+        </div>
+      {/each}
 
-    {#if isStreaming}
-      <div class="streaming-hint">Assistant is working…</div>
-    {/if}
+      {#if isStreaming}
+        <div class="streaming-hint">Assistant is working…</div>
+      {/if}
+    </div>
   </div>
 
   {#if !autoScroll && (messages.length > 0 || pendingAttention.length > 0)}
@@ -218,12 +249,20 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 10px;
     padding: 14px;
     overflow-y: auto;
     overflow-x: hidden;
     min-height: 0;
     scroll-behavior: smooth;
+  }
+
+  .stream-column {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .message-body {
