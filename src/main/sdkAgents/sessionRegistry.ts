@@ -13,7 +13,11 @@ export type SessionEventListener = (event: SdkAgentEvent) => void
 
 export type PendingResolver =
   | { kind: 'permission'; resolve: (decision: ToolDecision) => void }
-  | { kind: 'question'; resolve: (answers: Record<string, AskUserQuestionAnswer>) => void }
+  | {
+      kind: 'question'
+      resolve: (answers: Record<string, AskUserQuestionAnswer>) => void
+      toolUseId?: string
+    }
   | { kind: 'plan'; resolve: (decision: PlanDecision) => void }
 
 export interface ActiveSession {
@@ -143,10 +147,11 @@ export function registerPendingPermission(
 
 export function registerPendingQuestion(
   session: ActiveSession,
+  toolUseId?: string,
 ): PendingRegistration<Record<string, AskUserQuestionAnswer>> {
   const requestId = randomUUID()
   const promise = new Promise<Record<string, AskUserQuestionAnswer>>((resolve) => {
-    session.pending.set(requestId, { kind: 'question', resolve })
+    session.pending.set(requestId, { kind: 'question', resolve, toolUseId })
   })
   return { requestId, promise }
 }

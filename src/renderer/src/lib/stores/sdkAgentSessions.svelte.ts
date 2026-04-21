@@ -14,6 +14,7 @@ export type AttentionBlock =
       messageId: string | null
       questions: SdkAgentEvent extends { _tag: 'ask_user_question'; questions: infer Q } ? Q : never
       status: 'waiting' | 'resolved' | 'cancelled'
+      answers?: Record<string, SdkAskUserQuestionAnswer>
     }
   | {
       kind: 'plan'
@@ -31,6 +32,9 @@ export type AttentionBlock =
       input: Record<string, unknown>
       status: 'waiting' | 'granted' | 'denied'
     }
+
+type QuestionAttentionBlock = Extract<AttentionBlock, { kind: 'question' }>
+type QuestionSpec = QuestionAttentionBlock['questions'][number]
 
 export interface SdkMessageView {
   id: string
@@ -52,6 +56,17 @@ export interface SdkToolEventView {
   isError: boolean
   durationMs: number | null
   status: 'running' | 'done' | 'error'
+}
+
+interface RestoredToolEvent {
+  id: string
+  messageId: string
+  toolName: string
+  input: Record<string, unknown>
+  resultText: string | null
+  isError: boolean
+  durationMs: number | null
+  answers?: Record<string, SdkAskUserQuestionAnswer>
 }
 
 export type SdkSessionStatus = 'idle' | 'streaming' | 'ended' | 'error' | 'cancelled' | 'starting'
@@ -121,8 +136,18 @@ export async function openConversation(id: string): Promise<SdkSessionState> {
   }
 
   const transcript = await window.api.sdkAgent.getTranscript(id)
+  const toolEventRecords = transcript.toolEvents ?? []
+  const messages = transcript.messages.map(messageFromRecord)
+  const restoredToolEvents = restoredToolEventsFromTranscript(messages, toolEventRecords)
   state.conversation = transcript.conversation ?? null
-  state.messages = transcript.messages.map(messageFromRecord)
+  state.messages = attachToolEventsToMessages(messages, restoredToolEvents)
+  state.toolEvents = Object.fromEntries(
+    restoredToolEvents.map((event) => [event.id, toolEventFromRecord(event)]),
+  )
+  state.pendingAttention = mergeAttentionBlocks(
+    restoredQuestionBlocksFromToolEvents(restoredToolEvents),
+    state.pendingAttention,
+  )
   state.sdkSessionId = transcript.conversation?.sdkSessionId ?? null
   return state
 }
@@ -212,7 +237,7 @@ export async function respondQuestion(
       requestId,
       answers: plainAnswers,
     })
-    if (state) markAttentionResolved(state, requestId, 'resolved')
+    if (state) markAttentionResolved(state, requestId, 'resolved', undefined, plainAnswers)
   } catch (e) {
     console.error('[sdk-agent][question] failed to submit answers', {
       id,
@@ -286,7 +311,7 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
     .with({ _tag: 'tool.start' }, (e) => {
       state.toolEvents[e.toolEventId] = {
         id: e.toolEventId,
-        messageId: lastAssistantId(state),
+        messageId: e.messageId as string,
         toolName: e.name,
         input: e.input,
         result: null,
@@ -294,9 +319,13 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
         durationMs: null,
         status: 'running',
       }
-      const last = state.messages[state.messages.length - 1]
-      if (last && last.role === 'assistant' && !last.toolEventIds.includes(e.toolEventId)) {
-        last.toolEventIds = [...last.toolEventIds, e.toolEventId]
+      const message = state.messages.find((m) => m.id === (e.messageId as string))
+      if (
+        message &&
+        message.role === 'assistant' &&
+        !message.toolEventIds.includes(e.toolEventId)
+      ) {
+        message.toolEventIds = [...message.toolEventIds, e.toolEventId]
       }
     })
     .with({ _tag: 'tool.result' }, (e) => {
@@ -382,6 +411,239 @@ function messageFromRecord(record: SdkMessageRecord): SdkMessageView {
   }
 }
 
+function toolEventFromRecord(record: RestoredToolEvent): SdkToolEventView {
+  return {
+    id: record.id,
+    messageId: record.messageId,
+    toolName: record.toolName,
+    input: record.input,
+    result: record.resultText,
+    isError: record.isError,
+    durationMs: record.durationMs,
+    status: toolEventStatus(record),
+  }
+}
+
+function toolEventStatus(record: RestoredToolEvent): SdkToolEventView['status'] {
+  if (record.isError) return 'error'
+  if (record.resultText !== null || record.durationMs !== null) return 'done'
+  if (record.toolName === 'AskUserQuestion') return 'done'
+  return 'running'
+}
+
+function restoredToolEventsFromTranscript(
+  messages: SdkMessageView[],
+  records: SdkToolEventRecord[],
+): RestoredToolEvent[] {
+  const byId: Record<string, RestoredToolEvent> = {}
+  const seenInContent: Record<string, true> = {}
+  for (const record of records) {
+    byId[record.id] = {
+      id: record.id,
+      messageId: record.messageId as string,
+      toolName: record.toolName,
+      input: record.input,
+      resultText: record.resultText,
+      isError: record.isError,
+      durationMs: record.durationMs,
+      ...(record.answers ? { answers: record.answers } : {}),
+    }
+  }
+
+  const ordered: RestoredToolEvent[] = []
+  for (const message of messages) {
+    for (const block of message.contentBlocks) {
+      if (!isToolUseContentBlock(block)) continue
+      const existing = byId[block.id]
+      const restored: RestoredToolEvent = existing
+        ? {
+            ...existing,
+            messageId: message.id,
+            toolName: block.name,
+          }
+        : {
+            id: block.id,
+            messageId: message.id,
+            toolName: block.name,
+            input: block.input,
+            resultText: null,
+            isError: false,
+            durationMs: 0,
+          }
+      byId[block.id] = restored
+      seenInContent[block.id] = true
+      ordered.push(restored)
+    }
+  }
+
+  for (const event of Object.values(byId)) {
+    if (seenInContent[event.id]) continue
+    ordered.push(event)
+  }
+  return ordered
+}
+
+function isToolUseContentBlock(
+  block: Record<string, unknown>,
+): block is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } {
+  return (
+    block.type === 'tool_use' &&
+    typeof block.id === 'string' &&
+    typeof block.name === 'string' &&
+    !!block.input &&
+    typeof block.input === 'object' &&
+    !Array.isArray(block.input)
+  )
+}
+
+function attachToolEventsToMessages(
+  messages: SdkMessageView[],
+  records: RestoredToolEvent[],
+): SdkMessageView[] {
+  const byMessage: Record<string, string[]> = {}
+  for (const record of records) {
+    byMessage[record.messageId] = [...(byMessage[record.messageId] ?? []), record.id]
+  }
+  return messages.map((message) => ({
+    ...message,
+    toolEventIds: byMessage[message.id] ?? [],
+  }))
+}
+
+function restoredQuestionBlocksFromToolEvents(records: RestoredToolEvent[]): AttentionBlock[] {
+  return records.flatMap((record) => {
+    if (record.toolName !== 'AskUserQuestion') return []
+    const questions = questionsFromToolInput(record.input)
+    if (!questions) return []
+    const answers = record.answers ?? questionAnswersFromToolInput(record.input, questions)
+    return [
+      {
+        kind: 'question' as const,
+        requestId: `restored-question-${record.id}`,
+        messageId: record.messageId,
+        questions,
+        status: 'resolved' as const,
+        answers,
+      },
+    ]
+  })
+}
+
+function mergeAttentionBlocks(
+  restored: AttentionBlock[],
+  existing: AttentionBlock[],
+): AttentionBlock[] {
+  const merged = [...restored]
+  for (const block of existing) {
+    const duplicateIndex = merged.findIndex((candidate) => sameAttentionBlock(candidate, block))
+    if (duplicateIndex >= 0) {
+      merged[duplicateIndex] = block
+      continue
+    }
+    merged.push(block)
+  }
+  return merged
+}
+
+function sameAttentionBlock(a: AttentionBlock, b: AttentionBlock): boolean {
+  if (a.kind !== b.kind || a.messageId !== b.messageId) return false
+  if (a.kind === 'question' && b.kind === 'question') {
+    return JSON.stringify(a.questions) === JSON.stringify(b.questions)
+  }
+  if (a.kind === 'plan' && b.kind === 'plan') return a.plan === b.plan
+  if (a.kind === 'permission' && b.kind === 'permission') {
+    return a.toolName === b.toolName && JSON.stringify(a.input) === JSON.stringify(b.input)
+  }
+  return false
+}
+
+function questionsFromToolInput(
+  input: Record<string, unknown>,
+): QuestionAttentionBlock['questions'] | null {
+  const questions = input.questions
+  if (!Array.isArray(questions) || !questions.every(isQuestionLike)) return null
+  return questions as QuestionAttentionBlock['questions']
+}
+
+function isQuestionLike(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const question = value as Record<string, unknown>
+  return (
+    typeof question.header === 'string' &&
+    typeof question.question === 'string' &&
+    Array.isArray(question.options) &&
+    question.options.every(isQuestionOptionLike)
+  )
+}
+
+function isQuestionOptionLike(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const option = value as Record<string, unknown>
+  return typeof option.label === 'string'
+}
+
+function questionAnswersFromToolInput(
+  input: Record<string, unknown>,
+  questions: QuestionAttentionBlock['questions'],
+): Record<string, SdkAskUserQuestionAnswer> | undefined {
+  const rawAnswers = input.answers
+  if (!rawAnswers || typeof rawAnswers !== 'object') return undefined
+  const rawAnnotations =
+    input.annotations && typeof input.annotations === 'object'
+      ? (input.annotations as Record<string, unknown>)
+      : {}
+  const answers: Record<string, SdkAskUserQuestionAnswer> = {}
+  for (const question of questions) {
+    const value = (rawAnswers as Record<string, unknown>)[question.question]
+    const answer = answerFromToolValue(question, value)
+    if (!answer) continue
+    const annotation = rawAnnotations[question.question]
+    if (annotation && typeof annotation === 'object') {
+      const notes = (annotation as Record<string, unknown>).notes
+      if (typeof notes === 'string' && notes.trim().length > 0) answer.notes = notes
+    }
+    answers[question.question] = answer
+  }
+  return Object.keys(answers).length > 0 ? answers : undefined
+}
+
+function answerFromToolValue(
+  question: QuestionSpec,
+  value: unknown,
+): SdkAskUserQuestionAnswer | null {
+  if (
+    value &&
+    typeof value === 'object' &&
+    Array.isArray((value as { selected?: unknown }).selected)
+  ) {
+    const answer = value as { selected: unknown[]; other?: unknown; notes?: unknown }
+    return {
+      selected: answer.selected.filter((label): label is string => typeof label === 'string'),
+      ...(typeof answer.other === 'string' && answer.other.length > 0
+        ? { other: answer.other }
+        : {}),
+      ...(typeof answer.notes === 'string' && answer.notes.length > 0
+        ? { notes: answer.notes }
+        : {}),
+    }
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) return null
+  const optionLabels = new Set(question.options.map((option) => option.label))
+  const selected: string[] = []
+  const other: string[] = []
+  for (const part of value
+    .split(',')
+    .map((label) => label.trim())
+    .filter(Boolean)) {
+    if (optionLabels.has(part)) selected.push(part)
+    else other.push(part)
+  }
+  return {
+    selected: other.length > 0 ? [...selected, 'Other'] : selected,
+    ...(other.length > 0 ? { other: other.join(', ') } : {}),
+  }
+}
+
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -406,11 +668,12 @@ function markAttentionResolved(
   requestId: string,
   status: 'resolved' | 'granted' | 'denied' | 'approved' | 'rejected',
   feedback?: string,
+  answers?: Record<string, SdkAskUserQuestionAnswer>,
 ): void {
   state.pendingAttention = state.pendingAttention.map((b) => {
     if (b.requestId !== requestId) return b
     return match(b)
-      .with({ kind: 'question' }, (q) => ({ ...q, status: 'resolved' as const }))
+      .with({ kind: 'question' }, (q) => ({ ...q, status: 'resolved' as const, answers }))
       .with({ kind: 'plan' }, (p) => ({
         ...p,
         status: (status === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected',

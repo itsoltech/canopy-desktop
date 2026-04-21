@@ -784,6 +784,7 @@ interface CanopyAPI {
     getTranscript: (conversationId: string) => Promise<{
       conversation: SdkConversation | undefined
       messages: SdkMessageRecord[]
+      toolEvents: SdkToolEventRecord[]
     }>
     search: (args: {
       workspaceId: string
@@ -826,6 +827,7 @@ type SdkPlanDecision = import('../main/sdkAgents/types').PlanDecision
 type SdkAskUserQuestionAnswer = import('../main/sdkAgents/types').AskUserQuestionAnswer
 type SdkConversation = import('../main/db/sdkAgentRows').Conversation
 type SdkMessageRecord = import('../main/db/sdkAgentRows').SdkMessageRecord
+type SdkToolEventRecord = import('../main/db/sdkAgentRows').SdkToolEventRecord
 type SdkConversationSearchHit = import('../main/db/ConversationStore').ConversationSearchHit
 
 interface RunConfiguration {

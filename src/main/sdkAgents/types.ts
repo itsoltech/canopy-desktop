@@ -108,6 +108,7 @@ export type SdkAgentEvent =
   | {
       _tag: 'tool.start'
       sessionId: ConversationId
+      messageId: MessageId
       toolEventId: string
       name: string
       input: Record<string, unknown>

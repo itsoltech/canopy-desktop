@@ -55,6 +55,7 @@ function wrapCanUseTool(inner: CanUseToolCallback, conversationId: string) {
     const result = await inner(toolName, input, {
       signal: options.signal,
       suggestions: options.suggestions,
+      toolUseId: options.toolUseID,
     })
     log('canUseTool:result', {
       conversationId,

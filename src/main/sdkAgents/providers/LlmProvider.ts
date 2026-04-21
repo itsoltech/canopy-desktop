@@ -29,7 +29,7 @@ export interface ProviderToolContext {
 export type CanUseToolCallback = (
   toolName: string,
   input: Record<string, unknown>,
-  ctx: { signal: AbortSignal; suggestions?: ReadonlyArray<unknown> },
+  ctx: { signal: AbortSignal; suggestions?: ReadonlyArray<unknown>; toolUseId?: string },
 ) => Promise<
   | { behavior: 'allow'; updatedInput: Record<string, unknown> }
   | { behavior: 'deny'; message?: string }

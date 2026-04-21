@@ -30,7 +30,7 @@ import {
 } from './sessionRegistry'
 import type { CanUseToolCallback, LlmProvider } from './providers/LlmProvider'
 import { AnthropicProvider, shapeQuestionAllowPayload } from './providers/AnthropicProvider'
-import type { Conversation, SdkMessageRecord } from '../db/sdkAgentRows'
+import type { Conversation, SdkMessageRecord, SdkToolEventRecord } from '../db/sdkAgentRows'
 import type { ConversationSearchHit } from '../db/ConversationStore'
 
 export interface SdkAgentManagerDeps {
@@ -183,6 +183,9 @@ export class SdkAgentManager {
       requestId,
       answerKeys: Object.keys(answers),
     })
+    if (pending.toolUseId) {
+      this.deps.toolEventStore.saveQuestionAnswers(pending.toolUseId, answers)
+    }
     pending.resolve(answers)
     session.pending.delete(requestId)
     console.info('[sdk-agent][question] response resolved', {
@@ -212,10 +215,12 @@ export class SdkAgentManager {
   getTranscript(id: ConversationId): {
     conversation: Conversation | undefined
     messages: SdkMessageRecord[]
+    toolEvents: SdkToolEventRecord[]
   } {
     return {
       conversation: this.deps.conversationStore.get(id),
       messages: this.deps.messageStore.listByConversation(id),
+      toolEvents: this.deps.toolEventStore.listByConversation(id),
     }
   }
 
@@ -364,11 +369,9 @@ export class SdkAgentManager {
         this.deps.conversationStore.touch(id)
       })
       .with({ _tag: 'tool.start' }, (e) => {
-        const latest = this.deps.messageStore.getLatest(id)
-        if (!latest) return
         this.deps.toolEventStore.start({
           id: e.toolEventId,
-          messageId: latest.id,
+          messageId: e.messageId,
           conversationId: id,
           toolName: e.name,
           input: e.input,
@@ -412,7 +415,7 @@ export class SdkAgentManager {
       if (!session) return { behavior: 'deny', message: 'Session gone.' }
 
       if (toolName === 'AskUserQuestion') {
-        const { requestId, promise } = registerPendingQuestion(session)
+        const { requestId, promise } = registerPendingQuestion(session, ctx.toolUseId)
         const questions = (input.questions as Question[]) ?? []
         console.info('[sdk-agent][question] request waiting', {
           id,
@@ -428,6 +431,7 @@ export class SdkAgentManager {
         })
         const answers = await promise
         const result = shapeQuestionAllowPayload(input, answers)
+        if (ctx.toolUseId) this.deps.toolEventStore.updateInput(ctx.toolUseId, result.updatedInput)
         console.info('[sdk-agent][question] request continuing', {
           id,
           requestId,

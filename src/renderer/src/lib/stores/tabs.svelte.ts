@@ -885,14 +885,22 @@ export async function restartPane(
       const project = getProjectForWorktree(worktreePath)
       const workspaceId = p.workspaceId ?? project?.workspace.id
       const profileId = p.profileId ?? getProfilesByAgent('claude-sdk')[0]?.id
-      let conversationId = p.conversationId
+      const existing = !p.conversationId
+        ? await findLatestSdkConversation(workspaceId, worktreePath, profileId)
+        : null
+      let conversationId = p.conversationId ?? existing?.id
+      const resolvedProfileId = p.profileId ?? existing?.agentProfileId ?? profileId
 
-      if (!conversationId && workspaceId && profileId) {
-        const result = await window.api.sdkAgent.create({ workspaceId, worktreePath, profileId })
+      if (!conversationId && workspaceId && resolvedProfileId) {
+        const result = await window.api.sdkAgent.create({
+          workspaceId,
+          worktreePath,
+          profileId: resolvedProfileId,
+        })
         if ('error' in result) return
         conversationId = result.conversationId
       }
-      if (!conversationId || !workspaceId || !profileId) return
+      if (!conversationId || !workspaceId || !resolvedProfileId) return
 
       tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
         ...prev,
@@ -906,7 +914,7 @@ export async function restartPane(
         paneType: 'sdkChat',
         conversationId,
         workspaceId,
-        profileId,
+        profileId: resolvedProfileId,
       }))
     })
     .when(
@@ -1089,7 +1097,13 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
   }
   await Promise.allSettled(
     allSessions
-      .filter((p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing')
+      .filter(
+        (p) =>
+          p.paneType !== 'editor' &&
+          p.paneType !== 'notes' &&
+          p.paneType !== 'drawing' &&
+          p.paneType !== 'sdkChat',
+      )
       .map((p) => {
         if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
         return window.api.killPty(p.sessionId, true)
@@ -1736,6 +1750,26 @@ export function saveAllLayouts(): void {
   }
 }
 
+async function findLatestSdkConversation(
+  workspaceId: string | undefined,
+  worktreePath: string,
+  profileId?: string,
+): Promise<{ id: string; agentProfileId: string } | null> {
+  if (!workspaceId) return null
+  try {
+    const conversations = await window.api.sdkAgent.list(workspaceId)
+    const match = conversations.find(
+      (conversation) =>
+        conversation.worktreePath === worktreePath &&
+        (!profileId || conversation.agentProfileId === profileId),
+    )
+    return match ? { id: match.id, agentProfileId: match.agentProfileId } : null
+  } catch (e) {
+    console.warn('[tabs] failed to resolve SDK conversation for restore', e)
+    return null
+  }
+}
+
 async function restoreSplitNode(
   node: SerializedSplitNode,
   worktreePath: string,
@@ -1775,10 +1809,18 @@ async function restoreSplitNode(
       const project = getProjectForWorktree(worktreePath)
       const workspaceId = node.workspaceId ?? project?.workspace.id
       const profileId = node.profileId ?? getProfilesByAgent('claude-sdk')[0]?.id
-      let conversationId = node.conversationId
+      const existing = !node.conversationId
+        ? await findLatestSdkConversation(workspaceId, worktreePath, profileId)
+        : null
+      let conversationId = node.conversationId ?? existing?.id
+      const resolvedProfileId = node.profileId ?? existing?.agentProfileId ?? profileId
 
-      if (!conversationId && workspaceId && profileId) {
-        const result = await window.api.sdkAgent.create({ workspaceId, worktreePath, profileId })
+      if (!conversationId && workspaceId && resolvedProfileId) {
+        const result = await window.api.sdkAgent.create({
+          workspaceId,
+          worktreePath,
+          profileId: resolvedProfileId,
+        })
         if (!('error' in result)) conversationId = result.conversationId
       }
 
@@ -1794,7 +1836,7 @@ async function restoreSplitNode(
         paneType: 'sdkChat',
         conversationId,
         workspaceId,
-        profileId,
+        profileId: resolvedProfileId,
       }
     } else if (
       node.tmuxSessionName &&

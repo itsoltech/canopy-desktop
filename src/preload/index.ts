@@ -12,7 +12,7 @@ import type {
   SdkAgentEvent,
   ToolDecision,
 } from '../main/sdkAgents/types'
-import type { Conversation, SdkMessageRecord } from '../main/db/sdkAgentRows'
+import type { Conversation, SdkMessageRecord, SdkToolEventRecord } from '../main/db/sdkAgentRows'
 import type { ConversationSearchHit } from '../main/db/ConversationStore'
 
 const api = {
@@ -1033,6 +1033,7 @@ const api = {
       ipcRenderer.invoke('sdkAgent:getTranscript', conversationId) as Promise<{
         conversation: Conversation | undefined
         messages: SdkMessageRecord[]
+        toolEvents: SdkToolEventRecord[]
       }>,
     search: (args: { workspaceId: string; query: string; limit?: number }) =>
       ipcRenderer.invoke('sdkAgent:search', args) as Promise<ConversationSearchHit[]>,

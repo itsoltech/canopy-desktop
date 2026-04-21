@@ -1,4 +1,5 @@
 import type {
+  AskUserQuestionAnswer,
   ConversationId,
   ContentBlock,
   MessageId,
@@ -57,6 +58,7 @@ export interface SdkToolEventRow {
   decision: string | null
   duration_ms: number | null
   created_at: string
+  answers_json: string | null
 }
 
 export interface SdkAttachmentRow {
@@ -113,6 +115,7 @@ export interface SdkToolEventRecord {
   decision: ToolDecision | 'auto' | null
   durationMs: number | null
   createdAt: string
+  answers?: Record<string, AskUserQuestionAnswer>
 }
 
 export type SdkAttachmentKind = 'image' | 'text'
@@ -173,6 +176,9 @@ export function sdkToolEventFromRow(row: SdkToolEventRow): SdkToolEventRecord {
     decision: row.decision as ToolDecision | 'auto' | null,
     durationMs: row.duration_ms,
     createdAt: toIsoUtc(row.created_at),
+    ...(row.answers_json
+      ? { answers: JSON.parse(row.answers_json) as Record<string, AskUserQuestionAnswer> }
+      : {}),
   }
 }
 

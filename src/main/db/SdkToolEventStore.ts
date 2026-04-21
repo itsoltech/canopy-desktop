@@ -3,7 +3,12 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
 import type { SdkToolEventRecord, SdkToolEventRow } from './sdkAgentRows'
 import { sdkToolEventFromRow } from './sdkAgentRows'
-import type { ConversationId, MessageId, ToolDecision } from '../sdkAgents/types'
+import type {
+  AskUserQuestionAnswer,
+  ConversationId,
+  MessageId,
+  ToolDecision,
+} from '../sdkAgents/types'
 
 export interface StartToolEventInput {
   messageId: MessageId
@@ -32,8 +37,8 @@ export class SdkToolEventStore {
   start(input: StartToolEventInput): SdkToolEventRecord {
     const id = input.id ?? randomUUID()
     // UPSERT: tool_use ids can re-appear when the SDK replays assistant
-    // messages on resume. Idempotent write — don't overwrite a completed
-    // result with a fresh start row.
+    // messages on resume. Keep the stored input because AskUserQuestion rows
+    // may be enriched with answers after the user responds.
     this.db
       .prepare(
         `INSERT INTO sdk_tool_events (
@@ -43,7 +48,7 @@ export class SdkToolEventStore {
          ON CONFLICT(id) DO UPDATE SET
            message_id = excluded.message_id,
            tool_name = excluded.tool_name,
-           input_json = excluded.input_json,
+           input_json = sdk_tool_events.input_json,
            decision = COALESCE(excluded.decision, sdk_tool_events.decision)`,
       )
       .run(
@@ -65,6 +70,31 @@ export class SdkToolEventStore {
          WHERE id = ?`,
       )
       .run(input.resultText, input.isError ? 1 : 0, input.durationMs, input.id)
+  }
+
+  updateInput(id: string, input: Record<string, unknown>): void {
+    this.db
+      .prepare(
+        `UPDATE sdk_tool_events
+         SET input_json = ?
+         WHERE id = ?`,
+      )
+      .run(JSON.stringify(input), id)
+  }
+
+  /**
+   * Persist structured AskUserQuestion answers. Decoupled from input_json
+   * enrichment so restore can rehydrate UI state regardless of SDK event
+   * ordering between `tool.start` and the `can_use_tool` control callback.
+   */
+  saveQuestionAnswers(id: string, answers: Record<string, AskUserQuestionAnswer>): void {
+    this.db
+      .prepare(
+        `UPDATE sdk_tool_events
+         SET answers_json = ?
+         WHERE id = ?`,
+      )
+      .run(JSON.stringify(answers), id)
   }
 
   getById(id: string): SdkToolEventRecord | undefined {

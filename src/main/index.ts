@@ -143,12 +143,6 @@ const sdkAgentManager = new SdkAgentManager({
   profileStore,
 })
 windowManager.setTmuxManager(tmuxManager)
-windowManager.setOnWindowDispose((paths) => {
-  for (const path of paths) {
-    const ws = workspaceStore.getByPath(path)
-    if (ws) layoutStore.deleteAll(ws.id)
-  }
-})
 let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false

@@ -84,10 +84,11 @@ function mapInit(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] {
 function mapAssistant(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] {
   const content = msg.message?.content ?? []
   const messageId = msg.message?.id ?? msg.uuid ?? randomUUID()
+  const typedMessageId = asMessageId(messageId)
   ctx.currentMessageId = messageId
 
   const contentBlocks: ContentBlock[] = []
-  const events: SdkAgentEvent[] = []
+  const toolEvents: SdkAgentEvent[] = []
 
   for (const block of content) {
     const b = block as { type?: string; [k: string]: unknown }
@@ -102,9 +103,10 @@ function mapAssistant(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] 
           name: t.name,
           input: (t.input ?? {}) as Record<string, unknown>,
         })
-        events.push({
+        toolEvents.push({
           _tag: 'tool.start',
           sessionId: ctx.conversationId,
+          messageId: typedMessageId,
           toolEventId: t.id,
           name: t.name,
           input: (t.input ?? {}) as Record<string, unknown>,
@@ -119,15 +121,17 @@ function mapAssistant(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] 
       })
   }
 
-  events.push({
-    _tag: 'assistant.message',
-    sessionId: ctx.conversationId,
-    messageId: asMessageId(messageId),
-    content: contentBlocks,
-    tokensIn: msg.message?.usage?.input_tokens,
-    tokensOut: msg.message?.usage?.output_tokens,
-  })
-  return events
+  return [
+    {
+      _tag: 'assistant.message',
+      sessionId: ctx.conversationId,
+      messageId: typedMessageId,
+      content: contentBlocks,
+      tokensIn: msg.message?.usage?.input_tokens,
+      tokensOut: msg.message?.usage?.output_tokens,
+    },
+    ...toolEvents,
+  ]
 }
 
 function mapUserToolResults(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] {

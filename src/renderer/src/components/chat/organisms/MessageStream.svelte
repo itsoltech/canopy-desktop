@@ -4,6 +4,7 @@
   import MessageBubble from '../molecules/MessageBubble.svelte'
   import MessageHeader from '../molecules/MessageHeader.svelte'
   import MessageMeta from '../molecules/MessageMeta.svelte'
+  import MarkdownContent from '../molecules/MarkdownContent.svelte'
   import ToolCallBlock from '../molecules/ToolCallBlock.svelte'
   import QuestionnaireBlock from '../molecules/QuestionnaireBlock.svelte'
   import PlanApprovalBlock from '../molecules/PlanApprovalBlock.svelte'
@@ -140,7 +141,7 @@
     return match(block)
       .with(
         { kind: 'question', status: 'resolved' },
-        () => ({}) as Record<string, SdkAskUserQuestionAnswer>,
+        (question) => question.answers ?? ({} as Record<string, SdkAskUserQuestionAnswer>),
       )
       .otherwise(() => undefined)
   }
@@ -244,7 +245,11 @@
               {#each group.messages as message (message.id)}
                 <div class="message-segment">
                   {#if message.content}
-                    <p class="message-text">{message.content}</p>
+                    {#if message.role === 'assistant'}
+                      <MarkdownContent content={message.content} />
+                    {:else}
+                      <p class="message-text">{message.content}</p>
+                    {/if}
                   {/if}
                   {#each imageBlocks(message) as block, index (`${message.id}-image-${index}`)}
                     <figure class="image-attachment">

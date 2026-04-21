@@ -264,6 +264,12 @@ const migrations: Migration[] = [
       VALUES ('claude-sdk', 'Claude (SDK)', 'sdkchat:internal', '[]', 'ClaudeAI', 'ai', 0);
     `,
   },
+  {
+    id: 14,
+    up: `
+      ALTER TABLE sdk_tool_events ADD COLUMN answers_json TEXT;
+    `,
+  },
 ]
 
 export class Database {

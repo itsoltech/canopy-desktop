@@ -121,7 +121,7 @@ export function registerSdkAgentIpcHandlers(manager: SdkAgentManager): void {
       installBridge(id)
       return manager.getTranscript(id)
     } catch (e) {
-      if (isDbClosedError(e)) return { conversation: undefined, messages: [] }
+      if (isDbClosedError(e)) return { conversation: undefined, messages: [], toolEvents: [] }
       throw e
     }
   })
