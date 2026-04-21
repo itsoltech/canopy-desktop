@@ -132,4 +132,13 @@ export class PreferencesStore {
   delete(key: string): void {
     this.db.prepare('DELETE FROM preferences WHERE key = ?').run(key)
   }
+
+  /**
+   * Experimental SDK-agent backend gate. Default OFF — flip via the
+   * Experimental pane (added in Phase 10) or directly through `set()`.
+   * Every code path that reads this treats a missing row as disabled.
+   */
+  isSdkAgentsEnabled(): boolean {
+    return this.get('experimental.sdkAgents') === 'true'
+  }
 }
