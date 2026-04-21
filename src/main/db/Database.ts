@@ -257,6 +257,13 @@ const migrations: Migration[] = [
       END;
     `,
   },
+  {
+    id: 13,
+    up: `
+      INSERT OR IGNORE INTO tool_definitions (id, name, command, args_json, icon, category, is_custom)
+      VALUES ('claude-sdk', 'Claude (SDK)', 'sdkchat:internal', '[]', 'ClaudeAI', 'ai', 0);
+    `,
+  },
 ]
 
 export class Database {
