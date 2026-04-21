@@ -18,6 +18,17 @@ function eventChannel(id: ConversationId): string {
 }
 
 /**
+ * During app `before-quit`, the main-process database is closed before all
+ * renderer panes have unmounted. Any in-flight IPC call that hits the DB
+ * then throws `TypeError: The database connection is not open`. We swallow
+ * exactly that TypeError and return a safe default — everything else still
+ * propagates.
+ */
+function isDbClosedError(e: unknown): boolean {
+  return e instanceof TypeError && /database connection is not open/i.test(e.message)
+}
+
+/**
  * Broadcast every SDK-agent event to every live window. Individual panes
  * attach listeners on their own channel (`sdkAgent:event:<id>`), so windows
  * that don't care about a given conversation never see its events.
@@ -95,20 +106,36 @@ export function registerSdkAgentIpcHandlers(manager: SdkAgentManager): void {
     manager.deleteConversation(asConversationId(conversationId))
   })
 
-  ipcMain.handle('sdkAgent:list', (_e, workspaceId: string) =>
-    manager.listConversations(workspaceId),
-  )
+  ipcMain.handle('sdkAgent:list', (_e, workspaceId: string) => {
+    try {
+      return manager.listConversations(workspaceId)
+    } catch (e) {
+      if (isDbClosedError(e)) return []
+      throw e
+    }
+  })
 
   ipcMain.handle('sdkAgent:getTranscript', (_e, conversationId: string) => {
-    const id = asConversationId(conversationId)
-    installBridge(id)
-    return manager.getTranscript(id)
+    try {
+      const id = asConversationId(conversationId)
+      installBridge(id)
+      return manager.getTranscript(id)
+    } catch (e) {
+      if (isDbClosedError(e)) return { conversation: undefined, messages: [] }
+      throw e
+    }
   })
 
   ipcMain.handle(
     'sdkAgent:search',
-    (_e, args: { workspaceId: string; query: string; limit?: number }) =>
-      manager.searchConversations(args.workspaceId, args.query, args.limit ?? 50),
+    (_e, args: { workspaceId: string; query: string; limit?: number }) => {
+      try {
+        return manager.searchConversations(args.workspaceId, args.query, args.limit ?? 50)
+      } catch (e) {
+        if (isDbClosedError(e)) return []
+        throw e
+      }
+    },
   )
 
   ipcMain.handle(
