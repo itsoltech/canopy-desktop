@@ -27,6 +27,8 @@
     onNewChat?: () => void
   }
 
+  type PendingAttachment = SdkAttachment & { previewDataUrl?: string }
+
   let { conversationId, onNewChat }: Props = $props()
 
   let inputValue = $state('')
@@ -35,7 +37,7 @@
   let pendingModeOverride = $state<SdkPermissionMode | null>(null)
   let transientNotice = $state<string | null>(null)
   let clearedBefore = $state<string | null>(null)
-  let pendingAttachments = $state<SdkAttachment[]>([])
+  let pendingAttachments = $state<PendingAttachment[]>([])
 
   let state = $derived(sdkSessions[conversationId])
   let isStreaming = $derived(state?.status === 'streaming')
@@ -143,10 +145,11 @@
     try {
       const buffer = await file.arrayBuffer()
       const base64 = bufferToBase64(buffer)
+      const mimeType = file.type || (kind === 'image' ? 'image/png' : 'text/plain')
       const result = await window.api.sdkAgent.uploadAttachment({
         conversationId,
         filename: file.name,
-        mimeType: file.type || (kind === 'image' ? 'image/png' : 'text/plain'),
+        mimeType,
         kind,
         dataBase64: base64,
       })
@@ -154,7 +157,13 @@
         flashNotice(`Attachment failed: ${result.error._tag}`)
         return
       }
-      pendingAttachments = [...pendingAttachments, result as SdkAttachment]
+      pendingAttachments = [
+        ...pendingAttachments,
+        {
+          ...(result as SdkAttachment),
+          ...(kind === 'image' ? { previewDataUrl: `data:${mimeType};base64,${base64}` } : {}),
+        },
+      ]
     } catch (err) {
       flashNotice(`Attachment failed: ${err instanceof Error ? err.message : 'unknown'}`)
     }

@@ -2,7 +2,7 @@ import { execFile } from 'child_process'
 import os from 'os'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { ResultAsync } from 'neverthrow'
-import type { AskUserQuestionAnswer, Question, SdkAgentEvent } from '../types'
+import type { AskUserQuestionAnswer, ContentBlock, Question, SdkAgentEvent } from '../types'
 import type { SdkAgentError } from '../errors'
 import { toSdkAgentError } from '../errors'
 import type {
@@ -90,7 +90,8 @@ export class AnthropicProvider implements LlmProvider {
             ? (options.mcpServers as Record<string, never>)
             : undefined
 
-        const prompt = typeof options.prompt === 'string' ? options.prompt : ''
+        const promptText =
+          typeof options.prompt === 'string' ? options.prompt : contentBlocksToText(options.prompt)
         log('query:start', {
           conversationId: options.conversationId,
           model: options.model,
@@ -99,12 +100,12 @@ export class AnthropicProvider implements LlmProvider {
           resume: options.resume ?? null,
           mcpServerCount: mcp ? Object.keys(mcp).length : 0,
           attachmentCount: options.attachments?.length ?? 0,
-          promptLength: prompt.length,
+          promptLength: promptText.length,
           claudePath: claudePath ?? null,
         })
 
         const q = query({
-          prompt,
+          prompt: toSdkPrompt(options.prompt),
           options: {
             model: options.model,
             cwd: options.cwd,
@@ -162,6 +163,56 @@ function toLegacyAbortController(signal: AbortSignal): AbortController {
   if (signal.aborted) controller.abort()
   else signal.addEventListener('abort', () => controller.abort(), { once: true })
   return controller
+}
+
+function toSdkPrompt(prompt: string | ContentBlock[]): Parameters<typeof query>[0]['prompt'] {
+  if (typeof prompt === 'string') return prompt
+  const blocks: SdkPromptContentBlock[] = []
+  for (const block of prompt) {
+    if (block.type === 'text') {
+      blocks.push({ type: 'text', text: block.text })
+      continue
+    }
+    if (block.type === 'image') {
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: block.source.media_type,
+          data: block.source.data,
+        },
+      })
+    }
+  }
+
+  return (async function* () {
+    yield {
+      type: 'user',
+      message: {
+        role: 'user',
+        content: blocks.length > 0 ? blocks : [{ type: 'text', text: '' }],
+      },
+      parent_tool_use_id: null,
+    }
+  })() as Parameters<typeof query>[0]['prompt']
+}
+
+type SdkPromptContentBlock =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image'
+      source: { type: 'base64'; media_type: string; data: string }
+    }
+
+function contentBlocksToText(blocks: ContentBlock[]): string {
+  return blocks
+    .map((block) => {
+      if (block.type === 'text') return block.text
+      if (block.type === 'image') return `[image:${block.filename ?? 'attachment'}]`
+      return ''
+    })
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 /**

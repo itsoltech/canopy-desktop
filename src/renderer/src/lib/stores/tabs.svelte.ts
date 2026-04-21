@@ -27,7 +27,7 @@ import { getPref } from './preferences.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
 import { sdkSessions, destroySession as destroySdkSession } from './sdkAgentSessions.svelte'
 import { notesUiScope } from './notes.svelte'
-import { getProfileById } from './profiles.svelte'
+import { getProfileById, getProfilesByAgent } from './profiles.svelte'
 import { drawingsState } from './drawings.svelte'
 
 function hasRemainingDrawingPanes(excludeId: string): boolean {
@@ -143,6 +143,9 @@ type SerializedSplitNode =
       filePath?: string
       tmuxSessionName?: string
       profileId?: string
+      paneType?: PaneSession['paneType']
+      conversationId?: string
+      workspaceId?: string
     }
   | { type: 'hsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
   | { type: 'vsplit'; first: SerializedSplitNode; second: SerializedSplitNode; ratio: number }
@@ -876,6 +879,34 @@ export async function restartPane(
         isRunning: true,
         exitCode: null,
         title: null,
+      }))
+    })
+    .with({ toolId: 'claude-sdk' }, async (p) => {
+      const project = getProjectForWorktree(worktreePath)
+      const workspaceId = p.workspaceId ?? project?.workspace.id
+      const profileId = p.profileId ?? getProfilesByAgent('claude-sdk')[0]?.id
+      let conversationId = p.conversationId
+
+      if (!conversationId && workspaceId && profileId) {
+        const result = await window.api.sdkAgent.create({ workspaceId, worktreePath, profileId })
+        if ('error' in result) return
+        conversationId = result.conversationId
+      }
+      if (!conversationId || !workspaceId || !profileId) return
+
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
+        ...prev,
+        sessionId: conversationId,
+        wsUrl: '',
+        toolId: 'claude-sdk',
+        toolName: 'Claude (SDK)',
+        isRunning: true,
+        exitCode: null,
+        title: null,
+        paneType: 'sdkChat',
+        conversationId,
+        workspaceId,
+        profileId,
       }))
     })
     .when(
@@ -1625,6 +1656,11 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
       const bs = browserSessions[node.pane.sessionId]
       if (bs) leaf.browserDevToolsMode = bs.devToolsMode
     }
+    if (node.pane.paneType === 'sdkChat') {
+      leaf.paneType = 'sdkChat'
+      leaf.conversationId = node.pane.conversationId
+      leaf.workspaceId = node.pane.workspaceId
+    }
     if (node.pane.paneType === 'editor') {
       leaf.filePath = node.pane.filePath
     }
@@ -1734,6 +1770,31 @@ async function restoreSplitNode(
         title: null,
         paneType: 'browser',
         url: node.browserUrl,
+      }
+    } else if (node.toolId === 'claude-sdk') {
+      const project = getProjectForWorktree(worktreePath)
+      const workspaceId = node.workspaceId ?? project?.workspace.id
+      const profileId = node.profileId ?? getProfilesByAgent('claude-sdk')[0]?.id
+      let conversationId = node.conversationId
+
+      if (!conversationId && workspaceId && profileId) {
+        const result = await window.api.sdkAgent.create({ workspaceId, worktreePath, profileId })
+        if (!('error' in result)) conversationId = result.conversationId
+      }
+
+      pane = {
+        id: paneId,
+        sessionId: conversationId ?? crypto.randomUUID(),
+        wsUrl: '',
+        toolId: 'claude-sdk',
+        toolName: 'Claude (SDK)',
+        isRunning: !!conversationId,
+        exitCode: conversationId ? null : 1,
+        title: null,
+        paneType: 'sdkChat',
+        conversationId,
+        workspaceId,
+        profileId,
       }
     } else if (
       node.tmuxSessionName &&

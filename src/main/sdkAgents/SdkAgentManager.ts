@@ -1,3 +1,4 @@
+import fs from 'fs'
 import { match, P } from 'ts-pattern'
 import type { Database } from '../db/Database'
 import type { ConversationStore } from '../db/ConversationStore'
@@ -9,6 +10,7 @@ import type { ProfileStore } from '../profiles/ProfileStore'
 import type {
   AskUserQuestionAnswer,
   Attachment,
+  ContentBlock,
   ConversationId,
   PermissionMode,
   PlanDecision,
@@ -23,6 +25,7 @@ import {
   registerPendingPermission,
   registerPendingPlan,
   registerPendingQuestion,
+  type ActiveSession,
   type SessionEventListener,
 } from './sessionRegistry'
 import type { CanUseToolCallback, LlmProvider } from './providers/LlmProvider'
@@ -75,6 +78,7 @@ export class SdkAgentManager {
   // --- Registry passthrough ---
 
   subscribe(id: ConversationId, listener: SessionEventListener): () => void {
+    this.ensureActiveSession(id)
     return this.registry.addListener(id, listener)
   }
 
@@ -227,8 +231,9 @@ export class SdkAgentManager {
   // --- The write path ---
 
   async sendMessage(params: SendMessageParams): Promise<void | { error: SdkAgentError }> {
-    const session = this.registry.get(params.conversationId)
+    const session = this.ensureActiveSession(params.conversationId)
     if (!session) return { error: { _tag: 'profile_not_found' } }
+    if (session.abortController.signal.aborted) session.abortController = new AbortController()
 
     const profileResult = await this.deps.profileStore.getInternal(session.agentProfileId)
     if (profileResult.isErr()) {
@@ -240,14 +245,34 @@ export class SdkAgentManager {
     // stored session. Only set ANTHROPIC_API_KEY when the profile explicitly
     // provides one to override that fallback.
 
-    // Persist the user message.
-    this.deps.messageStore.append({
+    let userContent: ContentBlock[]
+    try {
+      userContent = buildUserContent(params.text, params.attachments)
+    } catch (e) {
+      const error = toSdkAgentError(e)
+      this.emitAndPersistError(params.conversationId, error)
+      return { error }
+    }
+    const userMessage = this.deps.messageStore.append({
       conversationId: params.conversationId,
       role: 'user',
-      content: params.text,
-      contentBlocks: [{ type: 'text', text: params.text }],
+      content: contentToPlain(userContent),
+      contentBlocks: userContent,
     })
+    for (const attachment of params.attachments ?? []) {
+      this.deps.attachmentStore.insert({
+        id: attachment.id,
+        messageId: userMessage.id,
+        conversationId: params.conversationId,
+        kind: attachment.kind,
+        filename: attachment.filename,
+        path: attachment.path,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      })
+    }
     session.lastUserPrompt = params.text
+    this.deps.conversationStore.updateStatus(params.conversationId, 'active')
 
     const model = params.modelOverride ?? session.model
     const permissionMode = params.permissionModeOverride ?? session.permissionMode
@@ -265,7 +290,7 @@ export class SdkAgentManager {
       const canUseTool = this.buildCanUseTool(params.conversationId)
       const iterResult = await provider.query({
         conversationId: params.conversationId,
-        prompt: params.text,
+        prompt: userContent,
         attachments: params.attachments,
         model,
         permissionMode,
@@ -299,6 +324,25 @@ export class SdkAgentManager {
   }
 
   // --- Private helpers ---
+
+  private ensureActiveSession(id: ConversationId): ActiveSession | undefined {
+    const existing = this.registry.get(id)
+    if (existing) return existing
+
+    const conversation = this.deps.conversationStore.get(id)
+    if (!conversation) return undefined
+
+    const session = this.registry.create({
+      conversationId: conversation.id,
+      workspaceId: conversation.workspaceId,
+      worktreePath: conversation.worktreePath,
+      agentProfileId: conversation.agentProfileId,
+      model: conversation.model,
+      permissionMode: conversation.permissionMode,
+    })
+    session.sdkSessionId = conversation.sdkSessionId
+    return session
+  }
 
   private handleEvent(id: ConversationId, ev: SdkAgentEvent): void {
     match(ev)
@@ -447,11 +491,56 @@ function contentToPlain(blocks: readonly { type: string; [k: string]: unknown }[
   for (const b of blocks) {
     match(b)
       .with({ type: 'text', text: P.string }, (t) => parts.push(t.text))
+      .with({ type: 'image' }, () => {})
       .with({ type: 'tool_use', name: P.string }, (t) => parts.push(`[tool:${t.name}]`))
       .with({ type: 'tool_result' }, () => {})
       .otherwise(() => {})
   }
   return parts.join('\n\n')
+}
+
+function buildUserContent(text: string, attachments: Attachment[] | undefined): ContentBlock[] {
+  const blocks: ContentBlock[] = []
+  if (text.length > 0) blocks.push({ type: 'text', text })
+  for (const attachment of attachments ?? []) {
+    blocks.push(attachmentToContentBlock(attachment))
+  }
+  return blocks.length > 0 ? blocks : [{ type: 'text', text: '' }]
+}
+
+function attachmentToContentBlock(attachment: Attachment): ContentBlock {
+  if (attachment.kind === 'image') {
+    return {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: normalizeImageMime(attachment.mimeType),
+        data: fs.readFileSync(attachment.path).toString('base64'),
+      },
+      filename: attachment.filename,
+    }
+  }
+
+  return {
+    type: 'text',
+    text: `<attachment filename="${attachment.filename}">\n${fs.readFileSync(
+      attachment.path,
+      'utf8',
+    )}\n</attachment>`,
+  }
+}
+
+function normalizeImageMime(mimeType: string): string {
+  if (mimeType === 'image/jpg') return 'image/jpeg'
+  if (
+    mimeType === 'image/png' ||
+    mimeType === 'image/jpeg' ||
+    mimeType === 'image/gif' ||
+    mimeType === 'image/webp'
+  ) {
+    return mimeType
+  }
+  return 'image/png'
 }
 
 // --- Env scoping (mirrors commitMessageGenerator) ---

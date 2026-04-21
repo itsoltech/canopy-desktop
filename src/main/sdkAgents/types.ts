@@ -27,7 +27,11 @@ export const asSdkSessionId = (id: string): SdkSessionId => id as SdkSessionId
  */
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+  | {
+      type: 'image'
+      source: { type: 'base64'; media_type: string; data: string }
+      filename?: string
+    }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | {
       type: 'tool_result'

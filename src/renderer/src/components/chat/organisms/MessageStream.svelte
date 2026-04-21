@@ -53,6 +53,16 @@
     messages: SdkMessageView[]
   }
 
+  interface ImageContentBlock {
+    type: 'image'
+    source: {
+      type: 'base64'
+      media_type: string
+      data: string
+    }
+    filename?: string
+  }
+
   function resolveBrand(model: string | null | undefined): Brand | undefined {
     if (!model) return undefined
     const m = model.toLowerCase()
@@ -150,6 +160,24 @@
     )
   }
 
+  function imageBlocks(message: SdkMessageView): ImageContentBlock[] {
+    return message.contentBlocks.filter(isImageContentBlock)
+  }
+
+  function isImageContentBlock(block: Record<string, unknown>): block is ImageContentBlock {
+    const source = block.source as Record<string, unknown> | undefined
+    return (
+      block.type === 'image' &&
+      source?.type === 'base64' &&
+      typeof source.media_type === 'string' &&
+      typeof source.data === 'string'
+    )
+  }
+
+  function imageSrc(block: ImageContentBlock): string {
+    return `data:${block.source.media_type};base64,${block.source.data}`
+  }
+
   let timelineAttention = $derived.by(() => {
     const byMessage: Record<string, AttentionBlock[]> = {}
     const orphan: AttentionBlock[] = []
@@ -218,6 +246,14 @@
                   {#if message.content}
                     <p class="message-text">{message.content}</p>
                   {/if}
+                  {#each imageBlocks(message) as block, index (`${message.id}-image-${index}`)}
+                    <figure class="image-attachment">
+                      <img src={imageSrc(block)} alt={block.filename ?? 'Attached image'} />
+                      {#if block.filename}
+                        <figcaption>{block.filename}</figcaption>
+                      {/if}
+                    </figure>
+                  {/each}
                   {#each toolEventsForMessage(message.id) as ev (ev.id)}
                     <ToolCallBlock
                       name={ev.toolName}
@@ -354,6 +390,33 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  .image-attachment {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: min(100%, 420px);
+  }
+
+  .image-attachment img {
+    display: block;
+    max-width: 100%;
+    max-height: 320px;
+    object-fit: contain;
+    border-radius: 6px;
+    border: 1px solid var(--c-border-subtle);
+    background: var(--c-bg);
+  }
+
+  .image-attachment figcaption {
+    color: var(--c-text-muted);
+    font-size: 11px;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .empty-state {

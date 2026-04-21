@@ -159,20 +159,25 @@ export async function sendMessage(
       id: `local-${Date.now()}`,
       role: 'user',
       content: text,
-      contentBlocks: [{ type: 'text', text }],
+      contentBlocks: buildOptimisticUserContent(text, options.attachments),
       tokensIn: null,
       tokensOut: null,
       createdAt: nowIso(),
       toolEventIds: [],
     },
   ]
-  const result = await window.api.sdkAgent.send({
-    conversationId: id,
-    text,
-    attachments: options.attachments,
-    modelOverride: options.modelOverride,
-    permissionModeOverride: options.permissionModeOverride,
-  })
+  let result: { ok: true } | { error: string }
+  try {
+    result = await window.api.sdkAgent.send({
+      conversationId: id,
+      text,
+      attachments: options.attachments?.map(serializeAttachment),
+      modelOverride: options.modelOverride,
+      permissionModeOverride: options.permissionModeOverride,
+    })
+  } catch (e) {
+    result = { error: e instanceof Error ? e.message : String(e) }
+  }
   if ('error' in result) {
     state.status = 'error'
     state.lastError = result.error
@@ -435,4 +440,52 @@ function serializeQuestionAnswers(
     }
   }
   return plain
+}
+
+function buildOptimisticUserContent(
+  text: string,
+  attachments: SdkAttachment[] | undefined,
+): Array<Record<string, unknown>> {
+  const blocks: Array<Record<string, unknown>> = []
+  if (text.length > 0) blocks.push({ type: 'text', text })
+  for (const attachment of attachments ?? []) {
+    const preview = (attachment as SdkAttachment & { previewDataUrl?: string }).previewDataUrl
+    if (attachment.kind === 'image' && preview) {
+      const image = imageBlockFromDataUrl(preview, attachment.filename)
+      if (image) {
+        blocks.push(image)
+        continue
+      }
+    }
+    blocks.push({
+      type: 'text',
+      text: `[attachment:${attachment.filename}]`,
+    })
+  }
+  return blocks.length > 0 ? blocks : [{ type: 'text', text: '' }]
+}
+
+function imageBlockFromDataUrl(dataUrl: string, filename: string): Record<string, unknown> | null {
+  const match = /^data:([^;,]+);base64,(.*)$/.exec(dataUrl)
+  if (!match) return null
+  return {
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: match[1],
+      data: match[2],
+    },
+    filename,
+  }
+}
+
+function serializeAttachment(attachment: SdkAttachment): SdkAttachment {
+  return {
+    id: attachment.id,
+    kind: attachment.kind,
+    filename: attachment.filename,
+    path: attachment.path,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+  }
 }
