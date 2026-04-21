@@ -1,5 +1,6 @@
 import { match } from 'ts-pattern'
 import { SvelteDate } from 'svelte/reactivity'
+import { sdkSessions } from '../stores/sdkAgentSessions.svelte'
 
 export type AgentType = 'claude' | 'gemini' | 'opencode' | 'codex'
 
@@ -420,4 +421,43 @@ export function setWorktreeBadge(worktreePath: string, badge: BadgeType): void {
 
 export function clearWorktreeBadge(worktreePath: string): void {
   worktreeBadges[worktreePath] = 'none'
+}
+
+// --- SDK-agent integration ---
+//
+// The inspector panel renders both PTY and SDK-backed sessions. PTY sessions
+// are keyed by their agentSessions map above; SDK sessions live in
+// sdkAgentSessions and are summarized here so consumers have a single entry
+// point. Callers that need reactivity should wrap the getter in a $derived.
+
+export interface SdkAgentSummary {
+  conversationId: string
+  title: string | null
+  model: string
+  status: string
+  tokensIn: number
+  tokensOut: number
+  costUsd: number
+  workspaceId: string | null
+  worktreePath: string | null
+  pendingAttentionCount: number
+}
+
+export function sdkAgentSummaries(): SdkAgentSummary[] {
+  return Object.values(sdkSessions).map((s) => ({
+    conversationId: s.conversationId,
+    title: s.conversation?.title ?? null,
+    model: s.conversation?.model ?? 'unknown',
+    status: s.status,
+    tokensIn: s.tokensIn,
+    tokensOut: s.tokensOut,
+    costUsd: s.costUsd,
+    workspaceId: s.conversation?.workspaceId ?? null,
+    worktreePath: s.conversation?.worktreePath ?? null,
+    pendingAttentionCount: s.pendingAttention.filter((a) => a.status === 'waiting').length,
+  }))
+}
+
+export function sdkAgentSummariesForWorkspace(workspaceId: string): SdkAgentSummary[] {
+  return sdkAgentSummaries().filter((s) => s.workspaceId === workspaceId)
 }
