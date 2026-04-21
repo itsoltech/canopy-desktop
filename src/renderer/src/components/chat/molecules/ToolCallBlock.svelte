@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronRight } from '@lucide/svelte'
   import StatusDot from '../atoms/StatusDot.svelte'
+  import TypingDots from '../atoms/TypingDots.svelte'
   import EditToolView from './EditToolView.svelte'
   import ReadToolView from './ReadToolView.svelte'
   import BashToolView from './BashToolView.svelte'
@@ -145,7 +146,11 @@
         <span class="tool-summary" title={headerSummary}>{headerSummary}</span>
       {/if}
     </span>
-    <span class="tool-status">{status}</span>
+    {#if status === 'running'}
+      <span class="tool-spinner" aria-label="running"><TypingDots label="Running" /></span>
+    {:else}
+      <span class="tool-status">{status}</span>
+    {/if}
   </button>
 
   {#if open}
@@ -253,6 +258,15 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--c-text-muted);
+    flex-shrink: 0;
+  }
+
+  .tool-spinner {
+    display: inline-flex;
+    align-items: center;
+    color: var(--c-accent);
+    font-size: 13px;
+    flex-shrink: 0;
   }
 
   .tool-body {
