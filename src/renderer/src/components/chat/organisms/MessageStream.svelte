@@ -11,6 +11,11 @@
     SdkMessageView,
     SdkToolEventView,
   } from '../../../lib/stores/sdkAgentSessions.svelte'
+  import type {
+    AskUserQuestionAnswer as SdkAskUserQuestionAnswer,
+    PlanDecision as SdkPlanDecision,
+    ToolDecision as SdkToolDecision,
+  } from '../../../../../main/sdkAgents/types'
 
   interface Props {
     messages: SdkMessageView[]
