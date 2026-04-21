@@ -975,9 +975,10 @@ export function registerIpcHandlers(
     return [...DEFAULT_IGNORE_PATTERNS]
   })
 
-  ipcMain.handle('git:init', async (_event, payload: { path: string }) => {
-    await execFileAsync('git', ['init'], { cwd: payload.path })
-    return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
+  ipcMain.handle('git:init', async (event, payload: { path: string }) => {
+    const resolved = await validatePathAccess(event.sender.id, payload.path)
+    await execFileAsync('git', ['init'], { cwd: resolved })
+    return GitRepository.detect(resolved).unwrapOr(defaultGitInfo)
   })
 
   // --- Workspace Git Status Refresh ---
