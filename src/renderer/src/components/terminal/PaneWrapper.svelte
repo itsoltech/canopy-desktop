@@ -21,6 +21,7 @@
   import DiffPane from '../diff/DiffPane.svelte'
   import NotesPane from '../notes/NotesPane.svelte'
   import DrawingPane from '../drawing/DrawingPane.svelte'
+  import SdkChatPane from '../chat/organisms/SdkChatPane.svelte'
   import ExitBanner from './ExitBanner.svelte'
   import DetachedOverlay from './DetachedOverlay.svelte'
   import WpmIndicator from './WpmIndicator.svelte'
@@ -199,6 +200,8 @@
     <NotesPane paneSessionId={pane.sessionId} />
   {:else if pane.paneType === 'drawing'}
     <DrawingPane />
+  {:else if pane.paneType === 'sdkChat' && pane.conversationId}
+    <SdkChatPane conversationId={pane.conversationId} />
   {:else}
     <div class="pane-content">
       {#key pane.sessionId}

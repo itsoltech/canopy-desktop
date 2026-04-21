@@ -560,6 +560,63 @@ export async function reopenClosedTab(worktreePath: string): Promise<void> {
   await openTool(entry.toolId, worktreePath)
 }
 
+/**
+ * Open an SDK-backed chat pane in a new tab. Creates the conversation via
+ * window.api.sdkAgent.create first, then mounts a pane that drives it.
+ * Gated on the experimental.sdkAgents preference — callers must check
+ * the flag before invoking this.
+ */
+export async function openSdkChatTab(
+  worktreePath: string,
+  workspaceId: string,
+  profileId: string,
+  existingConversationId?: string,
+): Promise<void> {
+  let conversationId = existingConversationId
+  if (!conversationId) {
+    const result = await window.api.sdkAgent.create({ workspaceId, worktreePath, profileId })
+    if ('error' in result) {
+      console.warn('[openSdkChatTab] create failed:', result.error)
+      return
+    }
+    conversationId = result.conversationId
+  }
+
+  const paneId = nextPaneId()
+  const pane: PaneSession = {
+    id: paneId,
+    sessionId: conversationId,
+    wsUrl: '',
+    toolId: 'sdkChat',
+    toolName: 'Agent chat',
+    isRunning: true,
+    exitCode: null,
+    title: null,
+    paneType: 'sdkChat',
+    conversationId,
+    workspaceId,
+    profileId,
+  }
+
+  const id = nextTabId()
+  const tab: TabInfo = {
+    id,
+    toolId: 'sdkChat',
+    toolName: 'Agent chat',
+    name: 'Agent chat',
+    worktreePath,
+    rootSplit: createLeaf(pane),
+    focusedPaneId: paneId,
+  }
+
+  if (!tabsByWorktree[worktreePath]) {
+    tabsByWorktree[worktreePath] = []
+  }
+  tabsByWorktree[worktreePath].push(tab)
+  activeTabId[worktreePath] = id
+  scheduleSave(worktreePath)
+}
+
 export function openFile(filePath: string, worktreePath: string): void {
   // Check if already open in a live (non-suspended) tab - focus it
   const tabs = (tabsByWorktree[worktreePath] ?? []).filter((t) => !t.suspended)

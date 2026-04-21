@@ -9,7 +9,7 @@ export interface PaneSession {
   isRunning: boolean
   exitCode: number | null
   title: string | null
-  paneType?: 'terminal' | 'browser' | 'editor' | 'diff' | 'notes' | 'drawing'
+  paneType?: 'terminal' | 'browser' | 'editor' | 'diff' | 'notes' | 'drawing' | 'sdkChat'
   filePath?: string
   url?: string
   isLoading?: boolean
@@ -18,6 +18,10 @@ export interface PaneSession {
   detached?: boolean
   profileId?: string
   profileName?: string
+  /** Set when paneType is 'sdkChat' — the SDK conversation this pane drives. */
+  conversationId?: string
+  /** Set when paneType is 'sdkChat' — the workspace id the conversation belongs to. */
+  workspaceId?: string
 }
 
 export type SplitNode =
