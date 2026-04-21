@@ -65,12 +65,15 @@ export interface SdkSessionState {
   tokensOut: number
   costUsd: number
   lastError: string | null
-  unsubscribe: (() => void) | null
 }
 
 const EMPTY_USAGE = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
 
 export const sdkSessions: Record<string, SdkSessionState> = $state({})
+// This is lifecycle bookkeeping, not UI state. Keeping it non-reactive prevents
+// pane effects from depending on the same value they mutate.
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const subscriptions = new Map<string, () => void>()
 
 function ensure(id: string): SdkSessionState {
   const existing = sdkSessions[id]
@@ -85,7 +88,6 @@ function ensure(id: string): SdkSessionState {
     status: 'idle',
     ...EMPTY_USAGE,
     lastError: null,
-    unsubscribe: null,
   }
   return sdkSessions[id]
 }
@@ -101,22 +103,30 @@ export function getSession(id: string): SdkSessionState | undefined {
  */
 export async function openConversation(id: string): Promise<SdkSessionState> {
   const state = ensure(id)
-  if (state.unsubscribe) return state
+
+  // Attach the IPC listener synchronously BEFORE awaiting the transcript.
+  // Without this, two rapid openConversation(id) calls both pass the guard
+  // during the await window, each call ends with its own subscribe(), and
+  // the second overwrites the unsubscribe handle — leaking the first listener.
+  // Symptom: MaxListenersExceededWarning after a few pane toggles, then
+  // every event fires N reducers → the renderer gets buried.
+  if (!subscriptions.has(id)) {
+    subscriptions.set(
+      id,
+      window.api.sdkAgent.subscribe(id, (event) => reduce(state, event)),
+    )
+  }
 
   const transcript = await window.api.sdkAgent.getTranscript(id)
   state.conversation = transcript.conversation ?? null
   state.messages = transcript.messages.map(messageFromRecord)
   state.sdkSessionId = transcript.conversation?.sdkSessionId ?? null
-
-  state.unsubscribe = window.api.sdkAgent.subscribe(id, (event) => reduce(state, event))
   return state
 }
 
 export function closeConversation(id: string): void {
-  const state = sdkSessions[id]
-  if (!state) return
-  state.unsubscribe?.()
-  state.unsubscribe = null
+  subscriptions.get(id)?.()
+  subscriptions.delete(id)
 }
 
 export function destroySession(id: string): void {
