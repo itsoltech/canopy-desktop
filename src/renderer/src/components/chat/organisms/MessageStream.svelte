@@ -1,5 +1,6 @@
 <script lang="ts">
   import { match } from 'ts-pattern'
+  import { ArrowDown } from '@lucide/svelte'
   import MessageBubble from '../molecules/MessageBubble.svelte'
   import MessageHeader from '../molecules/MessageHeader.svelte'
   import ToolCallBlock from '../molecules/ToolCallBlock.svelte'
@@ -42,6 +43,7 @@
 
   let containerEl: HTMLDivElement | undefined = $state()
   let autoScroll = $state(true)
+  let scrollFrame: number | null = null
 
   // Track scroll position — pause auto-scroll when user scrolls away from bottom
   function onScroll(): void {
@@ -51,16 +53,42 @@
     autoScroll = distance < 80
   }
 
-  $effect(() => {
-    // Trigger on messages / attention changes; scroll when appropriate.
-    // Referenced in `scrollTarget` so Svelte tracks both dependencies.
-    void messages.length
-    void pendingAttention.length
+  function scheduleScrollToBottom(): void {
     if (!containerEl || !autoScroll) return
-    queueMicrotask(() => {
+    if (scrollFrame !== null) return
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = null
       if (!containerEl) return
       containerEl.scrollTop = containerEl.scrollHeight
     })
+  }
+
+  function scrollToLatest(): void {
+    autoScroll = true
+    if (!containerEl) return
+    containerEl.scrollTop = containerEl.scrollHeight
+  }
+
+  $effect(() => {
+    // Trigger on messages / attention changes; rAF-batched so a burst of
+    // assistant.delta events coalesces into one scroll per animation frame.
+    void messages.length
+    void pendingAttention.length
+    scheduleScrollToBottom()
+  })
+
+  // Also re-schedule on streaming-text growth (without mutating the message
+  // array count). Reactive on the last message content length.
+  let lastContentLength = $derived(messages[messages.length - 1]?.content.length ?? 0)
+  $effect(() => {
+    void lastContentLength
+    scheduleScrollToBottom()
+  })
+
+  $effect(() => {
+    return () => {
+      if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+    }
   })
 
   function toolEventsForMessage(messageId: string): SdkToolEventView[] {
@@ -87,82 +115,105 @@
   }
 </script>
 
-<div class="message-stream" bind:this={containerEl} onscroll={onScroll}>
-  {#if messages.length === 0 && pendingAttention.length === 0}
-    <div class="empty-state">
-      <p>Start a conversation. The assistant is ready to help with this worktree.</p>
-    </div>
-  {/if}
+<div class="stream-wrapper">
+  <div class="message-stream" bind:this={containerEl} onscroll={onScroll}>
+    {#if messages.length === 0 && pendingAttention.length === 0}
+      <div class="empty-state">
+        <p>Start a conversation. The assistant is ready to help with this worktree.</p>
+      </div>
+    {/if}
 
-  {#each messages as message (message.id)}
-    <MessageBubble role={message.role === 'tool' ? 'tool' : message.role}>
-      {#snippet header()}
-        <MessageHeader
-          role={message.role === 'user' ? 'user' : 'assistant'}
-          timestamp={message.createdAt}
-        />
-      {/snippet}
+    {#each messages as message (message.id)}
+      <MessageBubble role={message.role === 'tool' ? 'tool' : message.role}>
+        {#snippet header()}
+          <MessageHeader
+            role={message.role === 'user' ? 'user' : 'assistant'}
+            timestamp={message.createdAt}
+          />
+        {/snippet}
 
-      {#snippet body()}
-        <div class="message-body">
-          {#if message.content}
-            <p class="message-text">{message.content}</p>
-          {/if}
-          {#each toolEventsForMessage(message.id) as ev (ev.id)}
-            <ToolCallBlock
-              name={ev.toolName}
-              status={toolStatus(ev)}
-              input={ev.input}
-              result={ev.result ?? undefined}
-            />
-          {/each}
-        </div>
-      {/snippet}
-    </MessageBubble>
-  {/each}
+        {#snippet body()}
+          <div class="message-body">
+            {#if message.content}
+              <p class="message-text">{message.content}</p>
+            {/if}
+            {#each toolEventsForMessage(message.id) as ev (ev.id)}
+              <ToolCallBlock
+                name={ev.toolName}
+                status={toolStatus(ev)}
+                input={ev.input}
+                result={ev.result ?? undefined}
+              />
+            {/each}
+          </div>
+        {/snippet}
+      </MessageBubble>
+    {/each}
 
-  {#each pendingAttention as block (block.requestId)}
-    <div class="attention-slot">
-      {#if block.kind === 'question'}
-        <QuestionnaireBlock
-          questions={block.questions}
-          status={block.status === 'waiting' ? 'waiting' : 'resolved'}
-          answers={resolvedAnswers(block)}
-          onsubmit={(answers) => onRespondQuestion?.(block.requestId, answers)}
-        />
-      {:else if block.kind === 'plan'}
-        <PlanApprovalBlock
-          plan={block.plan}
-          status={block.status === 'waiting'
-            ? 'waiting'
-            : block.status === 'approved'
-              ? 'resolved'
-              : 'rejected'}
-          initialFeedback={block.feedback}
-          onapprove={() => onRespondPlan?.(block.requestId, { action: 'approve' })}
-          onreject={(feedback) => onRespondPlan?.(block.requestId, { action: 'reject', feedback })}
-        />
-      {:else if block.kind === 'permission'}
-        <ToolPermissionBlock
-          tool={block.toolName}
-          input={block.input}
-          status={block.status === 'waiting'
-            ? 'waiting'
-            : block.status === 'granted'
-              ? 'granted'
-              : 'denied'}
-          onrespond={(decision) => onRespondPermission?.(block.requestId, decision)}
-        />
-      {/if}
-    </div>
-  {/each}
+    {#each pendingAttention as block (block.requestId)}
+      <div class="attention-slot">
+        {#if block.kind === 'question'}
+          <QuestionnaireBlock
+            questions={block.questions}
+            status={block.status === 'waiting' ? 'waiting' : 'resolved'}
+            answers={resolvedAnswers(block)}
+            onsubmit={(answers) => onRespondQuestion?.(block.requestId, answers)}
+          />
+        {:else if block.kind === 'plan'}
+          <PlanApprovalBlock
+            plan={block.plan}
+            status={block.status === 'waiting'
+              ? 'waiting'
+              : block.status === 'approved'
+                ? 'resolved'
+                : 'rejected'}
+            initialFeedback={block.feedback}
+            onapprove={() => onRespondPlan?.(block.requestId, { action: 'approve' })}
+            onreject={(feedback) =>
+              onRespondPlan?.(block.requestId, { action: 'reject', feedback })}
+          />
+        {:else if block.kind === 'permission'}
+          <ToolPermissionBlock
+            tool={block.toolName}
+            input={block.input}
+            status={block.status === 'waiting'
+              ? 'waiting'
+              : block.status === 'granted'
+                ? 'granted'
+                : 'denied'}
+            onrespond={(decision) => onRespondPermission?.(block.requestId, decision)}
+          />
+        {/if}
+      </div>
+    {/each}
 
-  {#if isStreaming}
-    <div class="streaming-hint">Assistant is working…</div>
+    {#if isStreaming}
+      <div class="streaming-hint">Assistant is working…</div>
+    {/if}
+  </div>
+
+  {#if !autoScroll && (messages.length > 0 || pendingAttention.length > 0)}
+    <button
+      type="button"
+      class="scroll-to-latest"
+      onclick={scrollToLatest}
+      title="Scroll to latest"
+    >
+      <ArrowDown size={14} />
+      <span>Latest</span>
+    </button>
   {/if}
 </div>
 
 <style>
+  .stream-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
   .message-stream {
     flex: 1;
     display: flex;
@@ -215,5 +266,27 @@
     font-size: 11.5px;
     color: var(--c-text-muted);
     font-style: italic;
+  }
+
+  .scroll-to-latest {
+    position: absolute;
+    bottom: 12px;
+    right: 18px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--c-border);
+    background: var(--c-bg-elevated);
+    color: var(--c-text);
+    font-size: 11.5px;
+    font-family: inherit;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  }
+
+  .scroll-to-latest:hover {
+    background: var(--c-hover);
   }
 </style>
