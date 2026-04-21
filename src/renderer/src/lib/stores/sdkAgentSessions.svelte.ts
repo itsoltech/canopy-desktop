@@ -137,6 +137,7 @@ export async function sendMessage(
 ): Promise<{ ok: true } | { error: string }> {
   const state = ensure(id)
   state.status = 'streaming'
+  state.lastError = null
   // Optimistic: push the user message; the backend event will not emit a user
   // echo, so this is authoritative.
   state.messages = [
@@ -319,6 +320,9 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
         .with('aborted', () => 'cancelled' as const)
         .with('error', () => 'error' as const)
         .exhaustive()
+      // Only a fresh error event should repopulate lastError; a clean
+      // completion / cancel clears the previous session's error marker.
+      if (e.reason !== 'error') state.lastError = null
     })
     .with({ _tag: 'subagent.start' }, () => {})
     .with({ _tag: 'subagent.event' }, () => {})
