@@ -37,6 +37,12 @@ import { TelemetryManager } from './telemetry/TelemetryManager'
 import { RemoteSessionService } from './remote/RemoteSessionService'
 import { PerfHudService } from './perf/PerfHudService'
 import { CrashReporter } from './crash/CrashReporter'
+import { ConversationStore } from './db/ConversationStore'
+import { SdkMessageStore } from './db/SdkMessageStore'
+import { SdkToolEventStore } from './db/SdkToolEventStore'
+import { SdkAttachmentStore } from './db/SdkAttachmentStore'
+import { SdkAgentManager } from './sdkAgents/SdkAgentManager'
+import { sweepOldSessionLogs } from './sdkAgents/sessionLog'
 import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
 
@@ -123,6 +129,19 @@ const settingsExportService = new SettingsExportService(
 const tmuxManager = new TmuxManager(app.getPath('userData'))
 const remoteSessionService = new RemoteSessionService(preferencesStore)
 const perfHudService = new PerfHudService()
+const conversationStore = new ConversationStore(database)
+const sdkMessageStore = new SdkMessageStore(database)
+const sdkToolEventStore = new SdkToolEventStore(database)
+const sdkAttachmentStore = new SdkAttachmentStore(database)
+const sdkAgentManager = new SdkAgentManager({
+  database,
+  conversationStore,
+  messageStore: sdkMessageStore,
+  toolEventStore: sdkToolEventStore,
+  attachmentStore: sdkAttachmentStore,
+  preferencesStore,
+  profileStore,
+})
 windowManager.setTmuxManager(tmuxManager)
 windowManager.setOnWindowDispose((paths) => {
   for (const path of paths) {
@@ -394,6 +413,9 @@ app.whenReady().then(async () => {
 
   electronApp.setAppUserModelId('tech.itsol.canopy')
 
+  // Best-effort cleanup of stale per-session SDK logs.
+  sweepOldSessionLogs()
+
   crashReporter = new CrashReporter()
 
   if (app.isPackaged) {
@@ -660,6 +682,7 @@ app.whenReady().then(async () => {
     skillStore,
     profileStore,
     settingsExportService,
+    sdkAgentManager,
   )
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')

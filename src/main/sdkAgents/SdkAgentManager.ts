@@ -23,6 +23,7 @@ import { SessionRegistry, type SessionEventListener } from './sessionRegistry'
 import type { CanUseToolCallback, LlmProvider } from './providers/LlmProvider'
 import { AnthropicProvider } from './providers/AnthropicProvider'
 import type { Conversation, SdkMessageRecord } from '../db/sdkAgentRows'
+import type { ConversationSearchHit } from '../db/ConversationStore'
 
 export interface SdkAgentManagerDeps {
   database: Database
@@ -182,6 +183,10 @@ export class SdkAgentManager {
   deleteConversation(id: ConversationId): void {
     this.closeSession(id)
     this.deps.conversationStore.hardDelete(id)
+  }
+
+  searchConversations(workspaceId: string, query: string, limit = 50): ConversationSearchHit[] {
+    return this.deps.conversationStore.search(workspaceId, query, limit)
   }
 
   // --- The write path ---

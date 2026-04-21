@@ -86,6 +86,8 @@ import { profileToReader } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
 import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
 import type { SettingsExportService } from '../settings/SettingsExport'
+import type { SdkAgentManager } from '../sdkAgents/SdkAgentManager'
+import { registerSdkAgentIpcHandlers } from '../sdkAgents/ipcHandlers'
 import { settingsExportErrorMessage } from '../settings/errors'
 import type { AgentType, PreferencesReader } from '../agents/types'
 import { resolveShell } from '../pty/PtyManager'
@@ -188,7 +190,9 @@ export function registerIpcHandlers(
   skillStore: SkillStore,
   profileStore: ProfileStore,
   settingsExportService: SettingsExportService,
+  sdkAgentManager: SdkAgentManager,
 ): void {
+  registerSdkAgentIpcHandlers(sdkAgentManager)
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
     for (const win of BrowserWindow.getAllWindows()) {
