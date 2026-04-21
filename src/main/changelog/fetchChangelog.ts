@@ -55,10 +55,14 @@ export function resolveUpdateChannel(
       }
     }
 
-    if (latestStable && (!latestPrerelease || semver.gte(latestStable, latestPrerelease))) {
-      return 'latest'
+    // Default to 'latest' when nothing is newer. Returning 'next' here would flip
+    // autoUpdater.channel, which silently enables allowDowngrade (see electron-updater
+    // AppUpdater.js — set channel() sets this.allowDowngrade = true) and would bounce
+    // the user between the latest stable and the preceding pre-release.
+    if (latestPrerelease && (!latestStable || semver.gt(latestPrerelease, latestStable))) {
+      return 'next'
     }
-    return 'next'
+    return 'latest'
   })
 }
 

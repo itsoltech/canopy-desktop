@@ -160,13 +160,16 @@ const checkWithChannelResolution = async (): Promise<void> => {
   try {
     const ch = preferencesStore.get('update.channel') ?? 'stable'
     if (ch === 'next') {
-      const effective = await resolveUpdateChannel(app.getVersion()).unwrapOr('next' as const)
+      const effective = await resolveUpdateChannel(app.getVersion()).unwrapOr('latest' as const)
       autoUpdater.channel = effective
       autoUpdater.allowPrerelease = effective === 'next'
     } else {
       autoUpdater.channel = 'latest'
       autoUpdater.allowPrerelease = false
     }
+    // electron-updater's channel setter implicitly sets allowDowngrade = true, which
+    // would downgrade us to a pre-release of the currently installed stable. Reset it.
+    autoUpdater.allowDowngrade = false
     await autoUpdater.checkForUpdates()
   } finally {
     updateCheckInFlight = false
@@ -459,6 +462,7 @@ app.whenReady().then(async () => {
     autoUpdater.logger = console
     autoUpdater.autoDownload = autoUpdate
     autoUpdater.allowPrerelease = updateChannel === 'next'
+    autoUpdater.allowDowngrade = false
 
     const broadcast = (channel: string, data: unknown): void => {
       for (const win of BrowserWindow.getAllWindows()) {
