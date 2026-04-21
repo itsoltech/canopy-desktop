@@ -98,6 +98,23 @@ export function registerSdkAgentIpcHandlers(manager: SdkAgentManager): void {
     manager.cancel(asConversationId(conversationId))
   })
 
+  ipcMain.handle(
+    'sdkAgent:updateConversation',
+    (
+      _e,
+      args: {
+        conversationId: string
+        model?: string
+        permissionMode?: PermissionMode
+      },
+    ) => {
+      manager.updateConversation(asConversationId(args.conversationId), {
+        model: args.model,
+        permissionMode: args.permissionMode,
+      })
+    },
+  )
+
   ipcMain.handle('sdkAgent:close', (_e, conversationId: string) => {
     manager.closeSession(asConversationId(conversationId))
   })
@@ -114,6 +131,30 @@ export function registerSdkAgentIpcHandlers(manager: SdkAgentManager): void {
       throw e
     }
   })
+
+  ipcMain.handle(
+    'sdkAgent:listByWorktree',
+    (_e, args: { workspaceId: string; worktreePath: string }) => {
+      try {
+        return manager.listConversationsByWorktree(args.workspaceId, args.worktreePath)
+      } catch (e) {
+        if (isDbClosedError(e)) return []
+        throw e
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'sdkAgent:deleteByWorktree',
+    (_e, args: { workspaceId: string; worktreePath: string }) => {
+      try {
+        return manager.deleteConversationsByWorktree(args.workspaceId, args.worktreePath)
+      } catch (e) {
+        if (isDbClosedError(e)) return 0
+        throw e
+      }
+    },
+  )
 
   ipcMain.handle('sdkAgent:getTranscript', (_e, conversationId: string) => {
     try {

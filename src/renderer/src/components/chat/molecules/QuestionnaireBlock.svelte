@@ -75,7 +75,14 @@
   }
 </script>
 
-<AttentionBanner title={displayTitle} icon={HelpCircle} {status} tone="warning">
+<AttentionBanner
+  title={displayTitle}
+  icon={HelpCircle}
+  {status}
+  tone="warning"
+  collapsible={status === 'resolved' || status === 'rejected'}
+  defaultOpen={status !== 'resolved' && status !== 'rejected'}
+>
   {#snippet description()}
     {#if status === 'resolved'}
       Your response has been submitted.

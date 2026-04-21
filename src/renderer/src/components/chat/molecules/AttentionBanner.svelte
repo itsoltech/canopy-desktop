@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { Component, Snippet } from 'svelte'
+  import { slide } from 'svelte/transition'
+  import { cubicOut } from 'svelte/easing'
+  import { ChevronRight } from '@lucide/svelte'
 
   type Tone = 'warning' | 'accent' | 'danger'
   type Status = 'waiting' | 'submitting' | 'resolved' | 'rejected'
@@ -12,6 +15,8 @@
     status?: Status
     /** Base accent for rail + icon. `resolved`/`rejected` override to success/danger. */
     tone?: Tone
+    collapsible?: boolean
+    defaultOpen?: boolean
     description?: Snippet
     body?: Snippet
     actions?: Snippet
@@ -22,10 +27,22 @@
     icon: Icon,
     status = 'waiting',
     tone = 'warning',
+    collapsible = false,
+    defaultOpen = true,
     description,
     body,
     actions,
   }: Props = $props()
+
+  let open = $state(defaultOpen)
+  let collapseKey = $state(`${collapsible}:${defaultOpen}`)
+
+  $effect(() => {
+    const next = `${collapsible}:${defaultOpen}`
+    if (next === collapseKey) return
+    collapseKey = next
+    open = defaultOpen
+  })
 
   let effectiveTone = $derived.by<Tone | 'success'>(() => {
     if (status === 'resolved') return 'success'
@@ -35,25 +52,47 @@
 </script>
 
 <section class="banner" data-tone={effectiveTone} data-status={status}>
-  <header class="head">
-    {#if Icon}
-      <span class="icon" aria-hidden="true">
-        <Icon size={15} strokeWidth={2} />
-      </span>
-    {/if}
-    <span class="title">{title}</span>
-  </header>
-
-  {#if description}
-    <div class="description">{@render description()}</div>
+  {#if collapsible}
+    <button
+      class="head toggle"
+      class:open
+      type="button"
+      aria-expanded={open}
+      onclick={() => (open = !open)}
+    >
+      <ChevronRight class="chevron" size={14} />
+      {#if Icon}
+        <span class="icon" aria-hidden="true">
+          <Icon size={15} strokeWidth={2} />
+        </span>
+      {/if}
+      <span class="title">{title}</span>
+    </button>
+  {:else}
+    <header class="head">
+      {#if Icon}
+        <span class="icon" aria-hidden="true">
+          <Icon size={15} strokeWidth={2} />
+        </span>
+      {/if}
+      <span class="title">{title}</span>
+    </header>
   {/if}
 
-  {#if body}
-    <div class="body">{@render body()}</div>
-  {/if}
+  {#if !collapsible || open}
+    <div class="collapsible-content" transition:slide={{ duration: 170, easing: cubicOut }}>
+      {#if description}
+        <div class="description">{@render description()}</div>
+      {/if}
 
-  {#if actions}
-    <div class="actions">{@render actions()}</div>
+      {#if body}
+        <div class="body">{@render body()}</div>
+      {/if}
+
+      {#if actions}
+        <div class="actions">{@render actions()}</div>
+      {/if}
+    </div>
   {/if}
 </section>
 
@@ -131,6 +170,35 @@
     letter-spacing: 0.01em;
   }
 
+  .head.toggle {
+    width: 100%;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .head.toggle:hover {
+    color: var(--c-text-secondary);
+  }
+
+  .head.toggle:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--c-focus-ring);
+  }
+
+  .head :global(.chevron) {
+    color: var(--tone-color);
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .head.open :global(.chevron) {
+    transform: rotate(90deg);
+  }
+
   .icon {
     display: inline-flex;
     align-items: center;
@@ -151,6 +219,12 @@
     font-size: 12.5px;
     color: var(--c-text-secondary);
     line-height: 1.5;
+  }
+
+  .collapsible-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .body {

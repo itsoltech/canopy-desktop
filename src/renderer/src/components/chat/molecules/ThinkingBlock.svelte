@@ -1,14 +1,23 @@
 <script lang="ts">
   import { ChevronRight, Brain } from '@lucide/svelte'
+  import TypingDots from '../atoms/TypingDots.svelte'
+  import MarkdownContent from './MarkdownContent.svelte'
 
   interface Props {
     content: string
     label?: string
     defaultOpen?: boolean
+    active?: boolean
     durationMs?: number
   }
 
-  let { content, label = 'Thinking', defaultOpen = false, durationMs }: Props = $props()
+  let {
+    content,
+    label = 'Thinking',
+    defaultOpen = false,
+    active = false,
+    durationMs,
+  }: Props = $props()
 
   let open = $state(defaultOpen)
 
@@ -23,14 +32,22 @@
   <button class="thinking-head" type="button" aria-expanded={open} onclick={() => (open = !open)}>
     <ChevronRight class="chevron" size={14} />
     <Brain size={12} />
-    <span class="thinking-label">{label}</span>
+    <span class="thinking-label">
+      {#if active}
+        <TypingDots {label} />
+      {:else}
+        {label}
+      {/if}
+    </span>
     {#if durationText}
       <span class="thinking-duration">{durationText}</span>
     {/if}
   </button>
 
   {#if open}
-    <div class="thinking-body">{content}</div>
+    <div class="thinking-body">
+      <MarkdownContent {content} />
+    </div>
   {/if}
 </section>
 
@@ -39,29 +56,43 @@
     display: flex;
     flex-direction: column;
     margin: 6px 0;
-    border: 1px dashed var(--c-border-subtle);
-    border-radius: 6px;
+    border: 1px solid transparent;
+    border-left: 2px solid transparent;
+    border-radius: 0;
     background: transparent;
     color: var(--c-text-secondary);
+    font-family: inherit;
+    font-size: 0.95em;
+    transition:
+      border-color 0.14s ease,
+      background-color 0.14s ease;
+  }
+
+  .thinking:hover,
+  .thinking:focus-within {
+    border-color: var(--c-border-subtle);
+    border-left-color: var(--c-warning);
+    background: color-mix(in srgb, var(--c-warning) 3%, transparent);
   }
 
   .thinking-head {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 5px 8px;
     background: transparent;
     border: none;
     color: var(--c-text-muted);
-    font-size: 12px;
-    font-style: italic;
+    font-size: 1em;
+    font-style: normal;
     cursor: pointer;
     text-align: left;
     width: 100%;
+    transition: color 0.14s ease;
   }
 
   .thinking-head:hover {
-    background: var(--c-hover);
+    background: color-mix(in srgb, var(--c-hover) 70%, transparent);
     color: var(--c-text-secondary);
   }
 
@@ -85,19 +116,19 @@
   }
 
   .thinking-duration {
-    font-size: 10.5px;
+    font-size: 0.8em;
     font-style: normal;
     color: var(--c-text-faint);
     font-variant-numeric: tabular-nums;
   }
 
   .thinking-body {
-    padding: 0 12px 10px 30px;
-    font-size: 12.5px;
-    line-height: 1.55;
+    padding: 0 10px 8px 30px;
+    font-size: 0.92em;
+    line-height: 1.45;
     color: var(--c-text-secondary);
     white-space: pre-wrap;
-    font-style: italic;
+    font-style: normal;
     -webkit-user-select: text;
     user-select: text;
   }

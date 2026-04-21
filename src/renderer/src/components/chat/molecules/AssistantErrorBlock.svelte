@@ -1,6 +1,6 @@
 <script lang="ts">
   import { match } from 'ts-pattern'
-  import { AlertTriangle, RotateCcw } from '@lucide/svelte'
+  import { AlertTriangle, OctagonAlert, RotateCcw } from '@lucide/svelte'
   import AttentionBanner from './AttentionBanner.svelte'
 
   /**
@@ -39,15 +39,22 @@
       .with('profile_not_found', () => 'Profile unavailable')
       .otherwise(() => 'Assistant error'),
   )
+
+  let isAbort = $derived(errorTag === 'aborted')
 </script>
 
-<AttentionBanner {title} icon={AlertTriangle} tone="danger" status="rejected">
+<AttentionBanner
+  {title}
+  icon={isAbort ? AlertTriangle : OctagonAlert}
+  tone={isAbort ? 'warning' : 'danger'}
+  status={isAbort ? 'resolved' : 'rejected'}
+>
   {#snippet description()}
     {friendlyMessage}
   {/snippet}
 
   {#snippet actions()}
-    {#if canRetry && onretry}
+    {#if canRetry && onretry && !isAbort}
       <button type="button" class="btn danger-outline" onclick={onretry} disabled={retrying}>
         <RotateCcw size={14} />
         <span>{retrying ? 'Retrying…' : 'Retry'}</span>

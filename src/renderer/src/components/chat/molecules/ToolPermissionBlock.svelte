@@ -1,3 +1,22 @@
+<script module lang="ts">
+  let cachedHomeDir: string | null = null
+  let homeDirPromise: Promise<string> | null = null
+
+  function loadHomeDir(): Promise<string> {
+    if (cachedHomeDir !== null) return Promise.resolve(cachedHomeDir)
+    if (!homeDirPromise) {
+      homeDirPromise = window.api
+        .getHomedir()
+        .then((home) => {
+          cachedHomeDir = home
+          return home
+        })
+        .catch(() => '')
+    }
+    return homeDirPromise
+  }
+</script>
+
 <script lang="ts">
   import { Shield } from '@lucide/svelte'
   import AttentionBanner from './AttentionBanner.svelte'
@@ -23,6 +42,17 @@
   }
 
   let { tool, input, args, reason, status = 'waiting', priorDecision, onrespond }: Props = $props()
+  let homeDir = $state(cachedHomeDir ?? '')
+
+  $effect(() => {
+    let cancelled = false
+    loadHomeDir().then((home) => {
+      if (!cancelled) homeDir = home
+    })
+    return () => {
+      cancelled = true
+    }
+  })
 
   // Lightweight inline registry — mirrors ToolCallBlock but kept local to avoid
   // a shared dependency for this first presentational pass.
@@ -53,6 +83,37 @@
     return undefined
   }
 
+  function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+
+  function redactHome(value: string): string {
+    if (!homeDir) return value
+    const normalizedHome = homeDir.replace(/\\/g, '/').replace(/\/+$/, '')
+    const variants = new Set([homeDir.replace(/[/\\]+$/, ''), normalizedHome])
+    let redacted = value
+    for (const variant of variants) {
+      if (!variant) continue
+      redacted = redacted.replace(new RegExp(`${escapeRegExp(variant)}(?=$|[/\\\\])`, 'g'), '~')
+    }
+    return redacted
+  }
+
+  function redactUnknown(value: unknown): unknown {
+    if (typeof value === 'string') return redactHome(value)
+    if (Array.isArray(value)) return value.map(redactUnknown)
+    if (!value || typeof value !== 'object') return value
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        redactUnknown(child),
+      ]),
+    )
+  }
+
+  let displayInput = $derived(input ? (redactUnknown(input) as Record<string, unknown>) : undefined)
+  let displayArgs = $derived(args !== undefined ? redactHome(args) : undefined)
+
   let kind = $derived.by<Kind>(() => {
     if (EDIT_TOOLS.has(tool)) return 'edit'
     if (READ_TOOLS.has(tool)) return 'read'
@@ -64,31 +125,31 @@
   })
 
   let summary = $derived.by((): string | null => {
-    if (!input) return null
+    if (!displayInput) return null
     if (kind === 'edit' || kind === 'read')
-      return str(input, 'file_path', 'filePath', 'path') ?? null
-    if (kind === 'bash') return str(input, 'command', 'cmd', 'script') ?? null
+      return str(displayInput, 'file_path', 'filePath', 'path') ?? null
+    if (kind === 'bash') return str(displayInput, 'command', 'cmd', 'script') ?? null
     if (kind === 'grep') {
-      const pattern = str(input, 'pattern', 'query', 'q', 'search')
-      const path = str(input, 'path', 'dir', 'directory')
+      const pattern = str(displayInput, 'pattern', 'query', 'q', 'search')
+      const path = str(displayInput, 'path', 'dir', 'directory')
       if (!pattern) return null
       return path ? `"${pattern}" · ${path}` : `"${pattern}"`
     }
-    if (kind === 'glob') return str(input, 'pattern', 'query') ?? null
+    if (kind === 'glob') return str(displayInput, 'pattern', 'query') ?? null
     if (kind === 'web_search') {
-      const q = str(input, 'query', 'q', 'search')
+      const q = str(displayInput, 'query', 'q', 'search')
       return q ? `"${q}"` : null
     }
     return null
   })
 
   let fallbackArgs = $derived.by<string | null>(() => {
-    if (args !== undefined) return args
-    if (input !== undefined) {
+    if (displayArgs !== undefined) return displayArgs
+    if (displayInput !== undefined) {
       try {
-        return JSON.stringify(input, null, 2)
+        return JSON.stringify(displayInput, null, 2)
       } catch {
-        return String(input)
+        return String(displayInput)
       }
     }
     return null

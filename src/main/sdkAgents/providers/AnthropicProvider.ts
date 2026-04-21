@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import os from 'os'
+import util from 'util'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { ResultAsync } from 'neverthrow'
 import type { AskUserQuestionAnswer, ContentBlock, Question, SdkAgentEvent } from '../types'
@@ -12,12 +13,22 @@ import type {
   ProviderQueryOptions,
 } from './LlmProvider'
 import type { SdkLikeMessage } from '../eventMapper'
-import { createMapperContext, mapSdkMessage } from '../eventMapper'
+import { SubagentAggregator } from '../SubagentAggregator'
 
 let cachedClaudePath: string | undefined
 
+const INSPECT_OPTIONS: util.InspectOptions = {
+  depth: 10,
+  breakLength: 120,
+  maxStringLength: 2000,
+  maxArrayLength: 200,
+  compact: 4,
+  colors: false,
+  getters: true,
+}
+
 function log(message: string, details: Record<string, unknown> = {}): void {
-  console.info('[sdk-agent][anthropic]', message, details)
+  console.info('[sdk-agent][anthropic]', message, util.inspect(details, INSPECT_OPTIONS))
 }
 
 async function resolveClaudeExecutable(): Promise<string | undefined> {
@@ -84,7 +95,7 @@ export class AnthropicProvider implements LlmProvider {
     return ResultAsync.fromPromise(
       (async (): Promise<AsyncIterable<SdkAgentEvent>> => {
         const claudePath = await resolveClaudeExecutable()
-        const ctx = createMapperContext(options.conversationId)
+        const aggregator = new SubagentAggregator(options.conversationId)
 
         const mcp =
           options.mcpServers && Object.keys(options.mcpServers).length > 0
@@ -115,6 +126,7 @@ export class AnthropicProvider implements LlmProvider {
             mcpServers: mcp,
             pathToClaudeCodeExecutable: claudePath,
             canUseTool: wrapCanUseTool(options.context.canUseTool, options.conversationId),
+            includePartialMessages: true,
             resume: options.resume,
             abortController: toLegacyAbortController(options.context.signal),
           } as Parameters<typeof query>[0]['options'],
@@ -127,13 +139,13 @@ export class AnthropicProvider implements LlmProvider {
               const raw = message as unknown as SdkLikeMessage
               log('query:stream:message', {
                 conversationId: options.conversationId,
-                message: summarizeSdkMessage(raw),
+                message: redactForLog(raw),
               })
-              const events = mapSdkMessage(ctx, raw)
+              const events = aggregator.observe(raw)
               for (const ev of events) {
                 log('query:stream:event', {
                   conversationId: options.conversationId,
-                  event: summarizeEvent(ev),
+                  event: redactForLog(ev),
                 })
                 yield ev
               }
@@ -293,32 +305,34 @@ function summarizeToolInput(toolName: string, input: Record<string, unknown> | u
   }
 }
 
-function summarizeSdkMessage(message: SdkLikeMessage): Record<string, unknown> {
-  const blocks = message.message?.content?.map((block) => {
-    const type = typeof block.type === 'string' ? block.type : 'unknown'
-    return {
-      type,
-      name: typeof block.name === 'string' ? block.name : undefined,
-      id: typeof block.id === 'string' ? block.id : undefined,
-      textLength: typeof block.text === 'string' ? block.text.length : undefined,
-    }
-  })
-  return {
-    type: message.type,
-    subtype: message.subtype,
-    sessionId: message.session_id,
-    uuid: message.uuid,
-    blockCount: blocks?.length ?? 0,
-    blocks,
-    isError: message.is_error,
-  }
-}
+/**
+ * Deep-clone a value for logging, replacing base64 image payloads with a
+ * marker so multi-megabyte strings don't drown the log. Everything else is
+ * preserved verbatim so `util.inspect` can render it.
+ */
+function redactForLog(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (seen.has(value as object)) return '[Circular]'
+  seen.add(value as object)
 
-function summarizeEvent(event: SdkAgentEvent): Record<string, unknown> {
-  return {
-    tag: event._tag,
-    toolName: 'name' in event ? event.name : 'toolName' in event ? event.toolName : undefined,
-    requestId: 'requestId' in event ? event.requestId : undefined,
-    reason: 'reason' in event ? event.reason : undefined,
+  if (Array.isArray(value)) return value.map((item) => redactForLog(item, seen))
+
+  const out: Record<string, unknown> = {}
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record)) {
+    const child = record[key]
+    if (
+      key === 'data' &&
+      typeof child === 'string' &&
+      child.length > 256 &&
+      // base64: likely attached to { type: 'base64', media_type, data } image source
+      typeof record.type === 'string' &&
+      record.type === 'base64'
+    ) {
+      out[key] = `[base64 ${child.length} chars omitted]`
+      continue
+    }
+    out[key] = redactForLog(child, seen)
   }
+  return out
 }

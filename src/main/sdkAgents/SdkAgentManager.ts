@@ -13,6 +13,7 @@ import type {
   ContentBlock,
   ConversationId,
   PermissionMode,
+  PlanAllowedPrompt,
   PlanDecision,
   Question,
   SdkAgentEvent,
@@ -129,6 +130,21 @@ export class SdkAgentManager {
     this.registry.remove(id)
   }
 
+  updateConversation(
+    id: ConversationId,
+    patch: { model?: string; permissionMode?: PermissionMode },
+  ): void {
+    const session = this.registry.get(id)
+    if (patch.model !== undefined) {
+      this.deps.conversationStore.setModel(id, patch.model)
+      if (session) session.model = patch.model
+    }
+    if (patch.permissionMode !== undefined) {
+      this.deps.conversationStore.setPermissionMode(id, patch.permissionMode)
+      if (session) session.permissionMode = patch.permissionMode
+    }
+  }
+
   cancel(id: ConversationId): void {
     const session = this.registry.get(id)
     if (!session) return
@@ -210,6 +226,28 @@ export class SdkAgentManager {
 
   listConversations(workspaceId: string): Conversation[] {
     return this.deps.conversationStore.listByWorkspace(workspaceId)
+  }
+
+  listConversationsByWorktree(workspaceId: string, worktreePath: string): Conversation[] {
+    return this.deps.conversationStore.listByWorktree(workspaceId, worktreePath)
+  }
+
+  /** Close active sessions + hard-delete every conversation for a worktree. */
+  deleteConversationsByWorktree(workspaceId: string, worktreePath: string): number {
+    const ids = this.deps.conversationStore.listIdsByWorktree(workspaceId, worktreePath)
+    for (const id of ids) this.deleteConversation(id)
+    return ids.length
+  }
+
+  /**
+   * Cascade-delete every conversation rooted at this worktree path, across all
+   * workspaces. Used on `git worktree remove` where the caller does not carry
+   * a workspaceId.
+   */
+  deleteConversationsByWorktreePath(worktreePath: string): number {
+    const ids = this.deps.conversationStore.listIdsByWorktreePath(worktreePath)
+    for (const id of ids) this.deleteConversation(id)
+    return ids.length
   }
 
   getTranscript(id: ConversationId): {
@@ -311,6 +349,10 @@ export class SdkAgentManager {
       })
 
       if (iterResult.isErr()) {
+        if (iterResult.error._tag === 'aborted') {
+          this.emitAndPersistCancellation(params.conversationId)
+          return
+        }
         this.emitAndPersistError(params.conversationId, iterResult.error)
         return { error: iterResult.error }
       }
@@ -320,6 +362,10 @@ export class SdkAgentManager {
       }
     } catch (e) {
       const error = toSdkAgentError(e)
+      if (error._tag === 'aborted') {
+        this.emitAndPersistCancellation(params.conversationId)
+        return
+      }
       this.emitAndPersistError(params.conversationId, error)
       return { error }
     } finally {
@@ -365,6 +411,7 @@ export class SdkAgentManager {
           contentBlocks: e.content,
           tokensIn: e.tokensIn ?? null,
           tokensOut: e.tokensOut ?? null,
+          model: e.model ?? null,
         })
         this.deps.conversationStore.touch(id)
       })
@@ -386,7 +433,8 @@ export class SdkAgentManager {
         })
       })
       .with({ _tag: 'session.end' }, (e) => {
-        const finalStatus = e.reason === 'completed' ? 'ended' : 'error'
+        const finalStatus =
+          e.reason === 'completed' ? 'ended' : e.reason === 'aborted' ? 'cancelled' : 'error'
         this.deps.conversationStore.updateStatus(id, finalStatus)
       })
       .otherwise(() => {})
@@ -403,6 +451,17 @@ export class SdkAgentManager {
       contentBlocks: [{ type: 'text', text: sdkAgentErrorMessage(error) }],
     })
     this.deps.conversationStore.updateStatus(id, 'error')
+  }
+
+  private emitAndPersistCancellation(id: ConversationId): void {
+    this.registry.emit(id, { _tag: 'session.end', sessionId: id, reason: 'aborted' })
+    this.deps.messageStore.append({
+      conversationId: id,
+      role: 'system',
+      content: 'Request interrupted by user.',
+      contentBlocks: [{ type: 'text', text: 'Request interrupted by user.' }],
+    })
+    this.deps.conversationStore.updateStatus(id, 'cancelled')
   }
 
   private buildCanUseTool(id: ConversationId): CanUseToolCallback {
@@ -444,11 +503,14 @@ export class SdkAgentManager {
       if (toolName === 'ExitPlanMode') {
         const { requestId, promise } = registerPendingPlan(session)
         const plan = typeof input.plan === 'string' ? input.plan : ''
+        const allowedPrompts = extractPlanAllowedPrompts(input)
         this.registry.emit(id, {
           _tag: 'plan_mode_exit',
           sessionId: id,
           requestId,
+          toolEventId: ctx.toolUseId,
           plan,
+          allowedPrompts,
         })
         const decision = await promise
         return match(decision)
@@ -488,6 +550,18 @@ export class SdkAgentManager {
   }
 }
 
+function extractPlanAllowedPrompts(input: Record<string, unknown>): PlanAllowedPrompt[] {
+  const raw = input.allowedPrompts ?? input.allowed_prompts
+  if (!Array.isArray(raw)) return []
+
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    if (typeof record.tool !== 'string' || typeof record.prompt !== 'string') return []
+    return [{ tool: record.tool, prompt: record.prompt }]
+  })
+}
+
 // --- Plain-text rendering for FTS5 indexing ---
 
 function contentToPlain(blocks: readonly { type: string; [k: string]: unknown }[]): string {
@@ -495,9 +569,6 @@ function contentToPlain(blocks: readonly { type: string; [k: string]: unknown }[
   for (const b of blocks) {
     match(b)
       .with({ type: 'text', text: P.string }, (t) => parts.push(t.text))
-      .with({ type: 'image' }, () => {})
-      .with({ type: 'tool_use', name: P.string }, (t) => parts.push(`[tool:${t.name}]`))
-      .with({ type: 'tool_result' }, () => {})
       .otherwise(() => {})
   }
   return parts.join('\n\n')

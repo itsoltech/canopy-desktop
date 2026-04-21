@@ -29,6 +29,7 @@
   let top = $state(0)
   let left = $state(0)
   let width = $state(0)
+  let maxHeightPx = $state(200)
 
   interface FlatItem {
     type: 'option' | 'group'
@@ -66,7 +67,18 @@
   function openDropdown(): void {
     if (!triggerEl) return
     const rect = triggerEl.getBoundingClientRect()
-    top = rect.bottom + 4
+    const DROPDOWN_MAX_HEIGHT = 200
+    const GUTTER = 4
+    const spaceBelow = window.innerHeight - rect.bottom
+    const spaceAbove = rect.top
+    // Flip above the trigger when there isn't room below for the menu.
+    if (spaceBelow < DROPDOWN_MAX_HEIGHT + GUTTER && spaceAbove > spaceBelow) {
+      maxHeightPx = Math.min(DROPDOWN_MAX_HEIGHT, Math.max(80, spaceAbove - GUTTER))
+      top = rect.top - maxHeightPx - GUTTER
+    } else {
+      maxHeightPx = Math.min(DROPDOWN_MAX_HEIGHT, Math.max(80, spaceBelow - GUTTER))
+      top = rect.bottom + GUTTER
+    }
     left = rect.left
     width = rect.width
     focusedIndex = flatItems.findIndex((i) => i.type === 'option' && i.value === value)
@@ -172,7 +184,7 @@
     <div
       bind:this={listEl}
       class="custom-select-dropdown"
-      style="top: {top}px; left: {left}px; min-width: {width}px;"
+      style="top: {top}px; left: {left}px; min-width: {width}px; max-height: {maxHeightPx}px;"
       role="listbox"
       tabindex="0"
       onclick={(e) => e.stopPropagation()}
@@ -248,7 +260,6 @@
     border: 1px solid var(--c-border);
     border-radius: 6px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-    max-height: 200px;
     overflow-y: auto;
     outline: none;
     z-index: 10001;

@@ -1,4 +1,25 @@
+<script module lang="ts">
+  let cachedHomeDir: string | null = null
+  let homeDirPromise: Promise<string> | null = null
+
+  function loadHomeDir(): Promise<string> {
+    if (cachedHomeDir !== null) return Promise.resolve(cachedHomeDir)
+    if (!homeDirPromise) {
+      homeDirPromise = window.api
+        .getHomedir()
+        .then((home) => {
+          cachedHomeDir = home
+          return home
+        })
+        .catch(() => '')
+    }
+    return homeDirPromise
+  }
+</script>
+
 <script lang="ts">
+  import { slide } from 'svelte/transition'
+  import { cubicOut } from 'svelte/easing'
   import { ChevronRight } from '@lucide/svelte'
   import StatusDot from '../atoms/StatusDot.svelte'
   import TypingDots from '../atoms/TypingDots.svelte'
@@ -23,6 +44,17 @@
   let { name, status = 'success', input, args, result, defaultOpen = false }: Props = $props()
 
   let open = $state(defaultOpen)
+  let homeDir = $state(cachedHomeDir ?? '')
+
+  $effect(() => {
+    let cancelled = false
+    loadHomeDir().then((home) => {
+      if (!cancelled) homeDir = home
+    })
+    return () => {
+      cancelled = true
+    }
+  })
 
   let dotStatus = $derived.by(() => {
     if (status === 'running') return 'thinking' as const
@@ -59,13 +91,46 @@
     return null
   })
 
+  function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+
+  function redactHome(value: string): string {
+    if (!homeDir) return value
+    const normalizedHome = homeDir.replace(/\\/g, '/').replace(/\/+$/, '')
+    const variants = new Set([homeDir.replace(/[/\\]+$/, ''), normalizedHome])
+    let redacted = value
+    for (const variant of variants) {
+      if (!variant) continue
+      const pattern = new RegExp(`${escapeRegExp(variant)}(?=$|[/\\\\])`, 'g')
+      redacted = redacted.replace(pattern, '~')
+    }
+    return redacted
+  }
+
+  function redactUnknown(value: unknown): unknown {
+    if (typeof value === 'string') return redactHome(value)
+    if (Array.isArray(value)) return value.map(redactUnknown)
+    if (!value || typeof value !== 'object') return value
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        redactUnknown(child),
+      ]),
+    )
+  }
+
+  let displayInput = $derived(input ? (redactUnknown(input) as Record<string, unknown>) : undefined)
+  let displayArgs = $derived(args !== undefined ? redactHome(args) : undefined)
+  let displayResult = $derived(result !== undefined ? redactHome(result) : undefined)
+
   let fallbackArgs = $derived.by(() => {
-    if (args !== undefined) return args
-    if (input !== undefined) {
+    if (displayArgs !== undefined) return displayArgs
+    if (displayInput !== undefined) {
       try {
-        return JSON.stringify(input, null, 2)
+        return JSON.stringify(displayInput, null, 2)
       } catch {
-        return String(input)
+        return String(displayInput)
       }
     }
     return undefined
@@ -92,43 +157,43 @@
   // Short inline summary shown next to the tool name in the header — lets the
   // user know what this call is about without opening the accordion.
   let headerSummary = $derived.by((): string | null => {
-    if (!kind || !input) return null
+    if (!kind || !displayInput) return null
 
     if (kind === 'edit') {
-      return str(input, 'file_path', 'filePath', 'path') ?? null
+      return str(displayInput, 'file_path', 'filePath', 'path') ?? null
     }
 
     if (kind === 'read') {
-      const path = str(input, 'file_path', 'filePath', 'path')
+      const path = str(displayInput, 'file_path', 'filePath', 'path')
       if (!path) return null
-      const start = num(input, 'offset', 'startLine', 'start_line')
-      const limit = num(input, 'limit', 'numLines', 'num_lines')
+      const start = num(displayInput, 'offset', 'startLine', 'start_line')
+      const limit = num(displayInput, 'limit', 'numLines', 'num_lines')
       const end =
         start !== undefined && limit !== undefined
           ? start + limit - 1
-          : num(input, 'endLine', 'end_line')
+          : num(displayInput, 'endLine', 'end_line')
       if (start === undefined) return path
       if (end === undefined || end === start) return `${path}:${start}`
       return `${path}:${start}-${end}`
     }
 
     if (kind === 'bash') {
-      return str(input, 'command', 'cmd', 'script') ?? null
+      return str(displayInput, 'command', 'cmd', 'script') ?? null
     }
 
     if (kind === 'grep') {
-      const pattern = str(input, 'pattern', 'query', 'q', 'search')
-      const path = str(input, 'path', 'dir', 'directory')
+      const pattern = str(displayInput, 'pattern', 'query', 'q', 'search')
+      const path = str(displayInput, 'path', 'dir', 'directory')
       if (!pattern) return null
       return path ? `"${pattern}" · ${path}` : `"${pattern}"`
     }
 
     if (kind === 'glob') {
-      return str(input, 'pattern', 'query') ?? null
+      return str(displayInput, 'pattern', 'query') ?? null
     }
 
     if (kind === 'web_search') {
-      const q = str(input, 'query', 'q', 'search')
+      const q = str(displayInput, 'query', 'q', 'search')
       return q ? `"${q}"` : null
     }
 
@@ -154,15 +219,15 @@
   </button>
 
   {#if open}
-    <div class="tool-body">
+    <div class="tool-body" transition:slide={{ duration: 160, easing: cubicOut }}>
       {#if kind === 'edit'}
-        <EditToolView {input} {result} />
+        <EditToolView input={displayInput} result={displayResult} />
       {:else if kind === 'read'}
-        <ReadToolView {input} {result} />
+        <ReadToolView input={displayInput} result={displayResult} />
       {:else if kind === 'bash'}
-        <BashToolView {input} {result} />
+        <BashToolView input={displayInput} result={displayResult} />
       {:else if kind === 'grep' || kind === 'glob' || kind === 'web_search'}
-        <SearchToolView {kind} {input} {result} />
+        <SearchToolView {kind} input={displayInput} result={displayResult} />
       {:else}
         {#if fallbackArgs}
           <div class="section">
@@ -170,10 +235,10 @@
             <pre class="section-code">{fallbackArgs}</pre>
           </div>
         {/if}
-        {#if result}
+        {#if displayResult}
           <div class="section">
             <div class="section-label">Result</div>
-            <pre class="section-code">{result}</pre>
+            <pre class="section-code">{displayResult}</pre>
           </div>
         {/if}
       {/if}
@@ -185,29 +250,48 @@
   .tool-call {
     display: flex;
     flex-direction: column;
-    margin: 6px 0;
-    border: 1px solid var(--c-border-subtle);
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--c-generate) 6%, transparent);
+    margin: 1px 0;
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
     overflow: hidden;
+    font-family: inherit;
+    font-size: 0.95em;
+    transition:
+      border-color 0.14s ease,
+      background-color 0.14s ease;
+  }
+
+  .tool-call:hover,
+  .tool-call:focus-within {
+    border-left-color: var(--c-generate);
+    background: color-mix(in srgb, var(--c-generate) 4%, transparent);
   }
 
   .tool-head {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 5px 8px;
     background: transparent;
     border: none;
     color: var(--c-text);
-    font-size: 12.5px;
+    font-size: 1em;
     cursor: pointer;
     text-align: left;
     width: 100%;
+    color: color-mix(in srgb, var(--c-text) 70%, transparent);
+    transition: color 0.14s ease;
+  }
+
+  .tool-call:hover .tool-head,
+  .tool-call:focus-within .tool-head {
+    color: var(--c-text);
   }
 
   .tool-head:hover {
-    background: var(--c-hover);
+    background: color-mix(in srgb, var(--c-hover) 70%, transparent);
   }
 
   .tool-head:focus-visible {
@@ -235,7 +319,7 @@
   }
 
   .tool-name {
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+    font-family: inherit;
     font-weight: 500;
     color: var(--c-text);
     flex-shrink: 0;
@@ -245,8 +329,8 @@
   .tool-summary {
     flex: 1;
     min-width: 0;
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
-    font-size: 11.5px;
+    font-family: inherit;
+    font-size: 0.92em;
     color: var(--c-text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -254,7 +338,7 @@
   }
 
   .tool-status {
-    font-size: 10.5px;
+    font-size: 0.8em;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--c-text-muted);
@@ -273,7 +357,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 8px 10px 10px;
+    padding: 7px 8px 8px;
     border-top: 1px solid var(--c-border-subtle);
   }
 
@@ -284,7 +368,7 @@
   }
 
   .section-label {
-    font-size: 10.5px;
+    font-size: 0.8em;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--c-text-muted);
@@ -293,13 +377,13 @@
   .section-code {
     margin: 0;
     padding: 8px 10px;
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
-    font-size: 11.5px;
+    font-family: inherit;
+    font-size: 0.92em;
     line-height: 1.5;
     color: var(--c-text);
     background: var(--c-bg);
     border: 1px solid var(--c-border-subtle);
-    border-radius: 4px;
+    border-radius: 0;
     overflow-x: auto;
     white-space: pre;
     -webkit-user-select: text;

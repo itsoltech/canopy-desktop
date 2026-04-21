@@ -1,10 +1,15 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import { History, X } from '@lucide/svelte'
   import MessageStream from './MessageStream.svelte'
+  import ConversationListSidebar from './ConversationListSidebar.svelte'
   import ChatInput from '../molecules/ChatInput.svelte'
   import AttachmentTray from '../molecules/AttachmentTray.svelte'
   import AttachmentChip from '../molecules/AttachmentChip.svelte'
   import AssistantErrorBlock from '../molecules/AssistantErrorBlock.svelte'
+  import ModelPickerInline from '../molecules/ModelPickerInline.svelte'
+  import PermissionModePicker from '../molecules/PermissionModePicker.svelte'
+  import SlashCommandHint from '../molecules/SlashCommandHint.svelte'
   import {
     cancel,
     closeConversation,
@@ -14,12 +19,39 @@
     respondQuestion,
     sdkSessions,
     sendMessage,
+    setModel,
+    setPermissionMode,
   } from '../../../lib/stores/sdkAgentSessions.svelte'
-  import { parseSlashCommand } from '../../../lib/chat/slashCommands'
+  import {
+    parseSlashCommand,
+    SLASH_COMMAND_HINTS,
+    type SlashCommandHintSpec,
+  } from '../../../lib/chat/slashCommands'
+  import { prefs } from '../../../lib/stores/preferences.svelte'
   import type {
     Attachment as SdkAttachment,
     PermissionMode as SdkPermissionMode,
   } from '../../../../../main/sdkAgents/types'
+
+  const DEFAULT_TERMINAL_FONT_FAMILY =
+    'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
+  const DEFAULT_TERMINAL_FONT_SIZE = 13
+
+  const MODEL_OPTIONS = [
+    { value: 'claude-opus-4-7', label: 'Opus 4.7' },
+    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+    { value: 'opus', label: 'opus' },
+    { value: 'sonnet', label: 'sonnet' },
+    { value: 'haiku', label: 'haiku' },
+  ]
+
+  const MODE_OPTIONS: { value: SdkPermissionMode; label: string }[] = [
+    { value: 'default', label: 'Default' },
+    { value: 'plan', label: 'Plan' },
+    { value: 'acceptEdits', label: 'Auto-accept edits' },
+    { value: 'bypassPermissions', label: 'Bypass permissions' },
+  ]
 
   interface Props {
     conversationId: string
@@ -31,25 +63,90 @@
 
   let { conversationId, onNewChat }: Props = $props()
 
+  // Sidebar can swap the viewed conversation in place. `overrideId` holds
+  // the user's choice; when null, we fall back to the outer prop. Clearing it
+  // (or an outer prop change) snaps back to the pane's original conversation.
+  let overrideId = $state<string | null>(null)
+  let currentConversationId = $derived(overrideId ?? conversationId)
+
   let inputValue = $state('')
   let lastRetryable = $state<string | null>(null)
-  let pendingModelOverride = $state<string | null>(null)
-  let pendingModeOverride = $state<SdkPermissionMode | null>(null)
   let transientNotice = $state<string | null>(null)
   let clearedBefore = $state<string | null>(null)
+  let clearedAttentionIds = $state<Set<string>>(new Set())
   let pendingAttachments = $state<PendingAttachment[]>([])
+  let historyOpen = $state(false)
+  let lastViewedConversationId = $state(currentConversationId)
 
-  let state = $derived(sdkSessions[conversationId])
+  let state = $derived(sdkSessions[currentConversationId])
   let isStreaming = $derived(state?.status === 'streaming')
   let lastError = $derived(state?.lastError ?? null)
+  let currentModel = $derived(state?.conversation?.model ?? 'sonnet')
+  let currentMode: SdkPermissionMode = $derived(state?.conversation?.permissionMode ?? 'default')
+  let terminalFontFamily = $derived(prefs.fontFamily || DEFAULT_TERMINAL_FONT_FAMILY)
+  let terminalFontSize = $derived(
+    Number.parseInt(prefs.fontSize || '', 10) || DEFAULT_TERMINAL_FONT_SIZE,
+  )
+  // If the conversation carries a model name that's not in the preset list,
+  // surface it as a disabled-looking option so the dropdown still shows the label.
+  let modelOptions = $derived.by(() => {
+    if (MODEL_OPTIONS.some((o) => o.value === currentModel)) return MODEL_OPTIONS
+    return [{ value: currentModel, label: currentModel }, ...MODEL_OPTIONS]
+  })
   let visibleMessages = $derived.by(() => {
     const all = state?.messages ?? []
     if (!clearedBefore) return all
     return all.filter((m) => m.createdAt > clearedBefore!)
   })
+  let visibleMessageIds = $derived(new Set(visibleMessages.map((message) => message.id)))
+  let visiblePendingAttention = $derived.by(() => {
+    const blocks = state?.pendingAttention ?? []
+    return blocks.filter((block) => {
+      if (clearedAttentionIds.has(block.requestId)) return false
+      if (!clearedBefore) return true
+      return block.messageId ? visibleMessageIds.has(block.messageId) : true
+    })
+  })
+
+  // Slash-command autocomplete — visible when inputValue starts with '/' and
+  // has no whitespace yet. Parent intercepts Enter/Arrow/Tab/Esc while open.
+  let slashFocus = $state(0)
+  let slashDismissed = $state(false)
+
+  let slashQuery = $derived.by<string | null>(() => {
+    const v = inputValue
+    if (!v.startsWith('/')) return null
+    const rest = v.slice(1)
+    if (/\s/.test(rest)) return null
+    return rest
+  })
+
+  let slashMatches = $derived.by<SlashCommandHintSpec[]>(() => {
+    if (slashQuery === null || slashDismissed) return []
+    const q = slashQuery.toLowerCase()
+    return SLASH_COMMAND_HINTS.filter((h) => h.command.slice(1).toLowerCase().startsWith(q))
+  })
+
+  // Keep focus index in range as matches change.
+  $effect(() => {
+    void slashMatches.length
+    if (slashFocus >= slashMatches.length) slashFocus = 0
+  })
 
   $effect(() => {
-    const id = conversationId
+    if (currentConversationId !== lastViewedConversationId) {
+      lastViewedConversationId = currentConversationId
+      clearedBefore = null
+      clearedAttentionIds = new Set()
+      inputValue = ''
+      pendingAttachments = []
+      slashFocus = 0
+      slashDismissed = false
+    }
+  })
+
+  $effect(() => {
+    const id = currentConversationId
     untrack(() => {
       void openConversation(id)
     })
@@ -67,6 +164,7 @@
 
   function handleSubmit(text: string): void {
     if (!text.trim()) return
+    slashDismissed = false
     const parsed = parseSlashCommand(text)
     switch (parsed.kind) {
       case 'new':
@@ -74,19 +172,22 @@
         return
       case 'clear':
         clearedBefore = new Date().toISOString()
+        clearedAttentionIds = new Set(
+          (state?.pendingAttention ?? []).map((block) => block.requestId),
+        )
         flashNotice('Transcript hidden (DB untouched)')
         return
       case 'retry':
-        if (lastRetryable) void sendMessage(conversationId, lastRetryable)
+        if (lastRetryable) void sendMessage(currentConversationId, lastRetryable)
         else flashNotice('Nothing to retry yet.')
         return
       case 'model':
-        pendingModelOverride = parsed.model
-        flashNotice(`Model override: ${parsed.model} (applies to next message)`)
+        void setModel(currentConversationId, parsed.model)
+        flashNotice(`Model set to ${parsed.model}`)
         return
       case 'mode':
-        pendingModeOverride = parsed.mode
-        flashNotice(`Permission mode: ${parsed.mode} (applies to next message)`)
+        void setPermissionMode(currentConversationId, parsed.mode)
+        flashNotice(`Permission mode: ${parsed.mode}`)
         return
       case 'invalid':
         flashNotice(parsed.reason)
@@ -94,17 +195,56 @@
     }
     const body = parsed.text
     lastRetryable = body
-    const modelOverride = pendingModelOverride ?? undefined
-    const permissionModeOverride = pendingModeOverride ?? undefined
     const attachments = pendingAttachments.length > 0 ? pendingAttachments : undefined
-    pendingModelOverride = null
-    pendingModeOverride = null
     pendingAttachments = []
-    void sendMessage(conversationId, body, {
-      modelOverride,
-      permissionModeOverride,
-      attachments,
+    void sendMessage(currentConversationId, body, { attachments })
+  }
+
+  function acceptHint(hint: SlashCommandHintSpec): void {
+    // "/model <name>" → "/model "; "/new" → "/new "
+    const head = hint.command.split(' ')[0]
+    inputValue = head + ' '
+    slashFocus = 0
+    slashDismissed = false
+    // The Enter/Tab that triggered this came from the textarea, so it's still
+    // the active element — move caret to end after Svelte flushes the value.
+    queueMicrotask(() => {
+      const el = document.activeElement
+      if (el instanceof HTMLTextAreaElement) {
+        el.setSelectionRange(inputValue.length, inputValue.length)
+      }
     })
+  }
+
+  function handleKeydownIntercept(e: KeyboardEvent): boolean {
+    if (slashMatches.length === 0) return false
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      slashFocus = (slashFocus + 1) % slashMatches.length
+      return true
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      slashFocus = (slashFocus - 1 + slashMatches.length) % slashMatches.length
+      return true
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      const hint = slashMatches[slashFocus]
+      if (hint) acceptHint(hint)
+      return true
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      slashDismissed = true
+      return true
+    }
+    return false
+  }
+
+  function handleInputChange(): void {
+    // Any input change un-dismisses the menu so it can re-appear on retype.
+    slashDismissed = false
   }
 
   function removeAttachment(id: string): void {
@@ -147,7 +287,7 @@
       const base64 = bufferToBase64(buffer)
       const mimeType = file.type || (kind === 'image' ? 'image/png' : 'text/plain')
       const result = await window.api.sdkAgent.uploadAttachment({
-        conversationId,
+        conversationId: currentConversationId,
         filename: file.name,
         mimeType,
         kind,
@@ -178,11 +318,11 @@
 
   function handleRetry(): void {
     if (!lastRetryable) return
-    void sendMessage(conversationId, lastRetryable)
+    void sendMessage(currentConversationId, lastRetryable)
   }
 
   function handleCancel(): void {
-    void cancel(conversationId)
+    void cancel(currentConversationId)
   }
 
   function onKeydown(e: KeyboardEvent): void {
@@ -196,87 +336,199 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<section
-  class="sdk-chat-pane"
-  aria-label="Agent chat"
-  onpaste={handlePaste}
-  ondrop={handleDrop}
-  ondragover={handleDragOver}
->
-  {#if transientNotice}
-    <div class="transient-notice" role="status">{transientNotice}</div>
+<div class="sdk-chat-layout">
+  {#if historyOpen && state?.conversation}
+    <ConversationListSidebar
+      workspaceId={state.conversation.workspaceId}
+      worktreePath={state.conversation.worktreePath}
+      activeConversationId={currentConversationId}
+      onOpen={(id) => {
+        overrideId = id === conversationId ? null : id
+        historyOpen = false
+      }}
+      onNew={() => {
+        historyOpen = false
+        onNewChat?.()
+      }}
+      onDeleted={(id) => {
+        // If the user just purged the conversation we're viewing, snap back to
+        // the pane's original prop so the UI doesn't keep staring at a dead id.
+        if (id === currentConversationId) overrideId = null
+      }}
+    />
   {/if}
-  <MessageStream
-    messages={visibleMessages}
-    conversationModel={state?.conversation?.model ?? null}
-    toolEvents={state?.toolEvents ?? {}}
-    pendingAttention={state?.pendingAttention ?? []}
-    {isStreaming}
-    onRespondPermission={(requestId, decision) =>
-      void respondPermission(conversationId, requestId, decision)}
-    onRespondQuestion={(requestId, answers) =>
-      void respondQuestion(conversationId, requestId, answers)}
-    onRespondPlan={(requestId, decision) => void respondPlan(conversationId, requestId, decision)}
-  />
-
-  {#if lastError}
-    <div class="error-row">
-      <AssistantErrorBlock
-        errorTag={lastError}
-        canRetry={!!lastRetryable}
-        retrying={isStreaming}
-        onretry={handleRetry}
-      />
-    </div>
-  {/if}
-
-  <div class="input-row">
-    <div class="input-column">
-      <ChatInput
-        bind:value={inputValue}
-        placeholder="Message the agent… (⌘↵ to send)"
-        disabled={isStreaming}
-        onsubmit={handleSubmit}
+  <section
+    class="sdk-chat-pane"
+    aria-label="Agent chat"
+    style:font-family={terminalFontFamily}
+    style:font-size={`${terminalFontSize}px`}
+    style:--font-mono={terminalFontFamily}
+    onpaste={handlePaste}
+    ondrop={handleDrop}
+    ondragover={handleDragOver}
+  >
+    <header class="pane-toolbar">
+      <button
+        type="button"
+        class="toolbar-btn"
+        aria-pressed={historyOpen}
+        title={historyOpen ? 'Hide history' : 'Show history'}
+        onclick={() => (historyOpen = !historyOpen)}
       >
-        {#snippet attachments()}
-          {#if pendingAttachments.length > 0}
-            <AttachmentTray>
-              {#each pendingAttachments as att (att.id)}
-                <AttachmentChip
-                  name={att.filename}
-                  sizeBytes={att.sizeBytes}
-                  kind={attachmentChipKind(att.kind)}
-                  onremove={() => removeAttachment(att.id)}
+        {#if historyOpen}
+          <X size={14} />
+        {:else}
+          <History size={14} />
+        {/if}
+        <span>History</span>
+      </button>
+    </header>
+    {#if transientNotice}
+      <div class="transient-notice" role="status">{transientNotice}</div>
+    {/if}
+    <MessageStream
+      messages={visibleMessages}
+      conversationModel={state?.conversation?.model ?? null}
+      toolEvents={state?.toolEvents ?? {}}
+      subagents={state?.subagents ?? {}}
+      pendingAttention={visiblePendingAttention}
+      {isStreaming}
+      composerKey={`${inputValue.length}:${pendingAttachments.length}:${isStreaming ? 'streaming' : 'idle'}:${slashMatches.length}`}
+      onRespondPermission={(requestId, decision) =>
+        void respondPermission(currentConversationId, requestId, decision)}
+      onRespondQuestion={(requestId, answers) =>
+        void respondQuestion(currentConversationId, requestId, answers)}
+      onRespondPlan={(requestId, decision) =>
+        void respondPlan(currentConversationId, requestId, decision)}
+    >
+      {#snippet composer()}
+        {#if lastError}
+          <div class="error-row">
+            <AssistantErrorBlock
+              errorTag={lastError}
+              canRetry={!!lastRetryable}
+              retrying={isStreaming}
+              onretry={handleRetry}
+            />
+          </div>
+        {/if}
+
+        <div class="input-row">
+          <div class="input-column">
+            <ChatInput
+              bind:value={inputValue}
+              placeholder="Message the agent… (⌘↵ to send)"
+              disabled={isStreaming}
+              onsubmit={handleSubmit}
+              onchange={handleInputChange}
+              onstop={handleCancel}
+              onKeydownIntercept={handleKeydownIntercept}
+            >
+              {#snippet attachments()}
+                {#if pendingAttachments.length > 0}
+                  <AttachmentTray>
+                    {#each pendingAttachments as att (att.id)}
+                      <AttachmentChip
+                        name={att.filename}
+                        sizeBytes={att.sizeBytes}
+                        kind={attachmentChipKind(att.kind)}
+                        onremove={() => removeAttachment(att.id)}
+                      />
+                    {/each}
+                  </AttachmentTray>
+                {/if}
+              {/snippet}
+              {#snippet modelPicker()}
+                <ModelPickerInline
+                  value={currentModel}
+                  options={modelOptions}
+                  onchange={(v) => void setModel(currentConversationId, v)}
                 />
-              {/each}
-            </AttachmentTray>
-          {/if}
-        {/snippet}
-      </ChatInput>
-      {#if isStreaming}
-        <button
-          type="button"
-          class="cancel-btn"
-          onclick={handleCancel}
-          title="Stop generation (⌘.)"
-        >
-          Stop
-        </button>
-      {/if}
-    </div>
-  </div>
-</section>
+              {/snippet}
+              {#snippet permissionMode()}
+                <PermissionModePicker
+                  value={currentMode}
+                  options={MODE_OPTIONS}
+                  onchange={(v) =>
+                    void setPermissionMode(currentConversationId, v as SdkPermissionMode)}
+                />
+              {/snippet}
+              {#snippet commandHints()}
+                {#if slashMatches.length > 0}
+                  <div class="slash-hints">
+                    {#each slashMatches as hint, i (hint.command)}
+                      <SlashCommandHint
+                        command={hint.command}
+                        description={hint.description}
+                        focused={i === slashFocus}
+                        onselect={() => acceptHint(hint)}
+                      />
+                    {/each}
+                  </div>
+                {/if}
+              {/snippet}
+            </ChatInput>
+          </div>
+        </div>
+      {/snippet}
+    </MessageStream>
+  </section>
+</div>
 
 <style>
-  .sdk-chat-pane {
+  .sdk-chat-layout {
     display: flex;
-    flex-direction: column;
     height: 100%;
+    min-height: 0;
     background: var(--c-bg);
   }
 
+  .sdk-chat-pane {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    background: var(--c-bg);
+    line-height: 1.45;
+  }
+
+  .pane-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--c-border-subtle);
+    background: color-mix(in srgb, var(--c-bg) 92%, black);
+  }
+
+  .toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 7px;
+    background: transparent;
+    color: var(--c-text-muted);
+    border: 1px solid var(--c-border-subtle);
+    border-radius: 0;
+    font-size: 0.88em;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .toolbar-btn:hover {
+    background: var(--c-hover);
+    color: var(--c-text);
+  }
+
+  .toolbar-btn[aria-pressed='true'] {
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+    border-color: color-mix(in srgb, var(--c-accent) 40%, transparent);
+  }
+
   .error-row {
-    padding: 6px 14px 0;
+    padding: 0 0 6px;
   }
 
   .transient-notice {
@@ -289,34 +541,20 @@
 
   .input-row {
     display: flex;
-    justify-content: center;
-    padding: 10px 14px 14px;
-    border-top: 1px solid var(--c-border-subtle);
+    padding: 0;
   }
 
   .input-column {
     width: 100%;
-    max-width: 600px;
     display: flex;
     align-items: flex-end;
     gap: 10px;
   }
 
-  .cancel-btn {
-    flex-shrink: 0;
-    padding: 8px 14px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
-    border: 1px solid color-mix(in srgb, var(--c-danger) 40%, transparent);
-    border-radius: 6px;
-    font-size: 12.5px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .cancel-btn:hover {
-    background: var(--c-danger);
-    color: var(--c-bg);
-    border-color: var(--c-danger);
+  .slash-hints {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 2px 0;
   }
 </style>

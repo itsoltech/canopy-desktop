@@ -19,8 +19,24 @@ export interface SdkLikeMessage {
   session_id?: string
   uuid?: string
   subtype?: string
+  event?: {
+    type?: string
+    message?: {
+      id?: string
+    }
+    content_block?: {
+      type?: string
+      text?: string
+    }
+    delta?: {
+      type?: string
+      text?: string
+      thinking?: string
+    }
+  }
   message?: {
     id?: string
+    model?: string
     content?: Array<Record<string, unknown>>
     usage?: { input_tokens?: number; output_tokens?: number }
     stop_reason?: string
@@ -61,6 +77,7 @@ export function createMapperContext(conversationId: ConversationId): MapperConte
 export function mapSdkMessage(ctx: MapperContext, raw: SdkLikeMessage): SdkAgentEvent[] {
   return match(raw)
     .with({ type: 'system', subtype: 'init' }, (msg) => mapInit(ctx, msg))
+    .with({ type: 'stream_event' }, (msg) => mapStreamEvent(ctx, msg))
     .with({ type: 'assistant' }, (msg) => mapAssistant(ctx, msg))
     .with({ type: 'user' }, (msg) => mapUserToolResults(ctx, msg))
     .with({ type: 'result' }, (msg) => mapResult(ctx, msg))
@@ -81,9 +98,57 @@ function mapInit(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] {
   ]
 }
 
+function mapStreamEvent(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] {
+  const event = msg.event
+  if (!event?.type) return []
+
+  if (event.type === 'message_start' && event.message?.id) {
+    ctx.currentMessageId = event.message.id
+    return []
+  }
+
+  if (!ctx.currentMessageId) ctx.currentMessageId = msg.uuid ?? randomUUID()
+  const messageId = ctx.currentMessageId
+  if (!messageId) return []
+
+  if (event.type === 'content_block_start') {
+    const text = event.content_block?.type === 'text' ? event.content_block.text : undefined
+    if (!text) return []
+    return [
+      {
+        _tag: 'assistant.delta',
+        sessionId: ctx.conversationId,
+        messageId: asMessageId(messageId),
+        text,
+      },
+    ]
+  }
+
+  if (event.type !== 'content_block_delta') return []
+  if (event.delta?.type === 'thinking_delta' && event.delta.thinking) {
+    return [
+      {
+        _tag: 'assistant.thinking',
+        sessionId: ctx.conversationId,
+        messageId: asMessageId(messageId),
+        text: event.delta.thinking,
+      },
+    ]
+  }
+  if (event.delta?.type !== 'text_delta' || !event.delta.text) return []
+  return [
+    {
+      _tag: 'assistant.delta',
+      sessionId: ctx.conversationId,
+      messageId: asMessageId(messageId),
+      text: event.delta.text,
+    },
+  ]
+}
+
 function mapAssistant(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] {
   const content = msg.message?.content ?? []
-  const messageId = msg.message?.id ?? msg.uuid ?? randomUUID()
+  const messageId = ctx.currentMessageId ?? msg.message?.id ?? msg.uuid ?? randomUUID()
   const typedMessageId = asMessageId(messageId)
   ctx.currentMessageId = messageId
 
@@ -129,6 +194,10 @@ function mapAssistant(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] 
       content: contentBlocks,
       tokensIn: msg.message?.usage?.input_tokens,
       tokensOut: msg.message?.usage?.output_tokens,
+      costUsd: msg.total_cost_usd,
+      // Prefer the model on the inner Anthropic message; fall back to the
+      // top-level SDK field when present. Undefined if neither is set.
+      model: msg.message?.model ?? msg.model,
     },
     ...toolEvents,
   ]
@@ -151,12 +220,35 @@ function mapUserToolResults(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEv
       _tag: 'tool.result',
       sessionId: ctx.conversationId,
       toolEventId: b.tool_use_id,
-      result: typeof b.content === 'string' ? b.content : JSON.stringify(b.content),
+      result: extractToolResultText(b.content),
       isError: b.is_error === true,
       durationMs: 0,
     })
   }
   return events
+}
+
+/**
+ * Tool results can be a plain string OR an Anthropic-style array of content
+ * blocks (`[{type:'text', text:'…'}, …]`). Subagent-produced results always
+ * take the array form. Flatten text blocks into a single string so the
+ * renderer shows plain prose, not JSON. Fall back to a JSON dump for shapes
+ * we don't recognise so nothing is silently dropped.
+ */
+function extractToolResultText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return JSON.stringify(content)
+  const parts: string[] = []
+  let sawTextBlock = false
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const b = block as { type?: string; text?: string }
+    if (b.type === 'text' && typeof b.text === 'string') {
+      sawTextBlock = true
+      parts.push(b.text)
+    }
+  }
+  return sawTextBlock ? parts.join('\n\n') : JSON.stringify(content)
 }
 
 function mapResult(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] {

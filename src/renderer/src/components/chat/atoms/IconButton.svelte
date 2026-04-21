@@ -106,11 +106,14 @@
   }
 
   .icon-button.danger {
+    background: var(--c-danger-bg);
     color: var(--c-danger-text);
+    border-color: color-mix(in srgb, var(--c-danger) 40%, transparent);
   }
 
   .icon-button.danger:hover:not(:disabled) {
-    background: var(--c-danger-bg);
-    color: var(--c-danger);
+    background: var(--c-danger);
+    color: var(--c-bg);
+    border-color: var(--c-danger);
   }
 </style>

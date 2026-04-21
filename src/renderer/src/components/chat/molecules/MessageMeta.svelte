@@ -5,10 +5,17 @@
   interface Props {
     model?: string
     tokens?: number
+    tokensIn?: number
+    tokensOut?: number
+    costUsd?: number
     elapsedMs?: number
   }
 
-  let { model, tokens, elapsedMs }: Props = $props()
+  let { model, tokens, tokensIn, tokensOut, costUsd, elapsedMs }: Props = $props()
+
+  let hasSplit = $derived(tokensIn !== undefined || tokensOut !== undefined)
+  let splitTotal = $derived((tokensIn ?? 0) + (tokensOut ?? 0))
+  let hasAnyTokens = $derived(hasSplit || tokens !== undefined)
 
   let elapsedText = $derived.by(() => {
     if (elapsedMs === undefined) return null
@@ -19,18 +26,41 @@
     const rem = Math.floor(s % 60)
     return `${m}m ${rem}s`
   })
+
+  let costText = $derived.by(() => {
+    if (costUsd === undefined) return null
+    if (costUsd < 0.01) return `$${costUsd.toFixed(4)}`
+    return `$${costUsd.toFixed(2)}`
+  })
 </script>
 
 <footer class="message-meta">
   {#if model}
     <ModelBadge {model} />
   {/if}
-  {#if tokens !== undefined}
+  {#if hasSplit}
+    {#if model}<span class="sep">·</span>{/if}
+    <span class="split" aria-label="Input tokens">
+      <span class="arrow">↓</span>
+      <TokenCount tokens={tokensIn ?? 0} label="in" />
+    </span>
+    <span class="sep">·</span>
+    <span class="split" aria-label="Output tokens">
+      <span class="arrow">↑</span>
+      <TokenCount tokens={tokensOut ?? 0} label="out" />
+    </span>
+    <span class="sep">·</span>
+    <TokenCount tokens={splitTotal} label="total" />
+  {:else if tokens !== undefined}
     {#if model}<span class="sep">·</span>{/if}
     <TokenCount {tokens} />
   {/if}
+  {#if costText}
+    {#if model || hasAnyTokens || elapsedText}<span class="sep">·</span>{/if}
+    <span class="cost">{costText}</span>
+  {/if}
   {#if elapsedText}
-    {#if model || tokens !== undefined}<span class="sep">·</span>{/if}
+    {#if model || hasAnyTokens || costText}<span class="sep">·</span>{/if}
     <span class="elapsed">{elapsedText}</span>
   {/if}
 </footer>
@@ -49,7 +79,23 @@
     color: var(--c-text-faint);
   }
 
+  .split {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+  }
+
+  .arrow {
+    color: var(--c-text-faint);
+    font-size: 10.5px;
+    line-height: 1;
+  }
+
   .elapsed {
+    color: var(--c-text-muted);
+  }
+
+  .cost {
     color: var(--c-text-muted);
   }
 </style>

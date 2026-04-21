@@ -75,6 +75,11 @@ export type ToolDecision = 'allow-once' | 'allow-session' | 'deny'
 
 export type PlanDecision = { action: 'approve' } | { action: 'reject'; feedback?: string }
 
+export interface PlanAllowedPrompt {
+  tool: string
+  prompt: string
+}
+
 /** Permission-mode aliases mirror SDK options. */
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 
@@ -98,12 +103,21 @@ export type SdkAgentEvent =
       text: string
     }
   | {
+      _tag: 'assistant.thinking'
+      sessionId: ConversationId
+      messageId: MessageId
+      text: string
+    }
+  | {
       _tag: 'assistant.message'
       sessionId: ConversationId
       messageId: MessageId
       content: ContentBlock[]
       tokensIn?: number
       tokensOut?: number
+      costUsd?: number
+      /** The model that actually produced this message, when the SDK reports it. */
+      model?: string
     }
   | {
       _tag: 'tool.start'
@@ -138,7 +152,9 @@ export type SdkAgentEvent =
       _tag: 'plan_mode_exit'
       sessionId: ConversationId
       requestId: string
+      toolEventId?: string
       plan: string
+      allowedPrompts?: PlanAllowedPrompt[]
     }
   | {
       _tag: 'subagent.start'

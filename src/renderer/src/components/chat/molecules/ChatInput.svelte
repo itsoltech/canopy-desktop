@@ -12,8 +12,12 @@
     onsubmit?: (value: string) => void
     onchange?: (value: string) => void
     onattach?: () => void
+    onstop?: () => void
+    /** Optional parent pre-handler. Returning true halts default key behavior. */
+    onKeydownIntercept?: (event: KeyboardEvent) => boolean
     attachments?: Snippet
     modelPicker?: Snippet
+    permissionMode?: Snippet
     commandHints?: Snippet
   }
 
@@ -25,8 +29,11 @@
     onsubmit,
     onchange,
     onattach,
+    onstop,
+    onKeydownIntercept,
     attachments,
     modelPicker,
+    permissionMode,
     commandHints,
   }: Props = $props()
 
@@ -51,6 +58,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    if (onKeydownIntercept?.(e)) return
     if (e.key === 'Enter') {
       const shouldSubmit = e.metaKey || e.ctrlKey || !e.shiftKey
       if (shouldSubmit) {
@@ -113,9 +121,12 @@
       {#if modelPicker}
         {@render modelPicker()}
       {/if}
+      {#if permissionMode}
+        {@render permissionMode()}
+      {/if}
     </div>
     <div class="right">
-      <SendControl onsend={submit} disabled={!canSend} />
+      <SendControl onsend={submit} {onstop} disabled={!canSend} stopping={disabled} />
     </div>
   </div>
 </div>
@@ -127,14 +138,16 @@
     display: flex;
     flex-direction: column;
     border: 1px solid var(--c-border);
-    border-radius: 10px;
-    background: var(--c-bg-input);
+    border-radius: 0;
+    background: color-mix(in srgb, var(--c-bg) 88%, black);
     transition: border-color 0.12s ease;
+    font-family: inherit;
+    font-size: inherit;
   }
 
   .chat-input:focus-within {
     border-color: var(--c-focus-ring);
-    box-shadow: 0 0 0 2px var(--c-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--c-focus-ring);
   }
 
   .chat-input.disabled {
@@ -148,7 +161,16 @@
 
   .input-row {
     display: flex;
-    padding: 10px 12px 6px;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px 5px;
+  }
+
+  .input-row::before {
+    content: '>';
+    color: var(--c-accent-text);
+    line-height: 20px;
+    flex-shrink: 0;
   }
 
   .textarea {
@@ -162,7 +184,7 @@
     background: transparent;
     color: var(--c-text);
     font-family: inherit;
-    font-size: 13.5px;
+    font-size: inherit;
     line-height: 20px;
     resize: none;
     overflow-y: auto;
@@ -177,7 +199,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 4px 8px 6px;
+    padding: 4px 8px 6px 26px;
+    border-top: 1px solid var(--c-border-subtle);
   }
 
   .left,

@@ -1,17 +1,27 @@
 <script lang="ts">
-  import { MessageSquarePlus, MessageSquare, Search, X } from '@lucide/svelte'
+  import { MessageSquarePlus, MessageSquare, Search, Trash2, X } from '@lucide/svelte'
   import type { Conversation as SdkConversation } from '../../../../../main/db/sdkAgentRows'
   import type { ConversationSearchHit } from '../../../../../main/db/ConversationStore'
 
   interface Props {
     workspaceId: string
+    /** If set, list is scoped to this worktree; otherwise all workspace conversations. */
+    worktreePath?: string | null
     /** Currently focused conversation — rendered in an active state. */
     activeConversationId?: string | null
     onOpen?: (conversationId: string) => void
     onNew?: () => void
+    onDeleted?: (conversationId: string) => void
   }
 
-  let { workspaceId, activeConversationId = null, onOpen, onNew }: Props = $props()
+  let {
+    workspaceId,
+    worktreePath = null,
+    activeConversationId = null,
+    onOpen,
+    onNew,
+    onDeleted,
+  }: Props = $props()
 
   let conversations: SdkConversation[] = $state([])
   let loading = $state(true)
@@ -23,7 +33,9 @@
   async function refresh(): Promise<void> {
     loading = true
     try {
-      conversations = await window.api.sdkAgent.list(workspaceId)
+      conversations = worktreePath
+        ? await window.api.sdkAgent.listByWorktree({ workspaceId, worktreePath })
+        : await window.api.sdkAgent.list(workspaceId)
     } catch (e) {
       console.warn('[ConversationListSidebar] list failed', e)
       conversations = []
@@ -33,10 +45,24 @@
   }
 
   $effect(() => {
-    // Re-fetch when workspace changes.
+    // Re-fetch when workspace / worktree changes.
     void workspaceId
+    void worktreePath
     void refresh()
   })
+
+  async function deleteConversation(e: MouseEvent, conv: SdkConversation): Promise<void> {
+    e.stopPropagation()
+    const label = conv.title?.trim() || 'this untitled chat'
+    if (!confirm(`Delete ${label}? This removes all messages and cannot be undone.`)) return
+    try {
+      await window.api.sdkAgent.delete(conv.id)
+      conversations = conversations.filter((c) => c.id !== conv.id)
+      onDeleted?.(conv.id)
+    } catch (err) {
+      console.warn('[ConversationListSidebar] delete failed', err)
+    }
+  }
 
   function prettyTitle(conv: SdkConversation): string {
     if (conv.title && conv.title.trim().length > 0) return conv.title
@@ -169,7 +195,7 @@
         <li class="placeholder">No conversations yet.</li>
       {:else}
         {#each conversations as conv (conv.id)}
-          <li>
+          <li class="conv-item">
             <button
               type="button"
               class="conv-row"
@@ -181,6 +207,15 @@
                 <div class="conv-title">{prettyTitle(conv)}</div>
                 <div class="conv-meta">{conv.model} · {relativeTime(conv.updatedAt)}</div>
               </div>
+            </button>
+            <button
+              type="button"
+              class="conv-delete"
+              title="Delete conversation"
+              aria-label="Delete conversation"
+              onclick={(e) => void deleteConversation(e, conv)}
+            >
+              <Trash2 size={12} />
             </button>
           </li>
         {/each}
@@ -307,12 +342,16 @@
     font-style: italic;
   }
 
+  .conv-item {
+    position: relative;
+  }
+
   .conv-row {
     width: 100%;
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 8px 32px 8px 12px;
     background: transparent;
     color: var(--c-text);
     border: 0;
@@ -328,6 +367,34 @@
 
   .conv-row.active {
     background: var(--c-active);
+  }
+
+  .conv-delete {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    background: transparent;
+    color: var(--c-text-muted);
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  .conv-item:hover .conv-delete,
+  .conv-delete:focus-visible {
+    opacity: 1;
+  }
+
+  .conv-delete:hover {
+    background: color-mix(in srgb, var(--c-danger) 15%, transparent);
+    color: var(--c-danger);
   }
 
   .conv-body {

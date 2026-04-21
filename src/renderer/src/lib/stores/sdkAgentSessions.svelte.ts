@@ -20,7 +20,11 @@ export type AttentionBlock =
       kind: 'plan'
       requestId: string
       messageId: string | null
+      toolEventId?: string
       plan: string
+      allowedPrompts?: SdkAgentEvent extends { _tag: 'plan_mode_exit'; allowedPrompts?: infer P }
+        ? P
+        : never
       status: 'waiting' | 'approved' | 'rejected'
       feedback?: string
     }
@@ -40,9 +44,15 @@ export interface SdkMessageView {
   id: string
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
+  thinking: string
   contentBlocks: Array<Record<string, unknown>>
   tokensIn: number | null
   tokensOut: number | null
+  costUsd: number | null
+  /** Wall-clock ms between the last user send and this assistant message. Null for user/tool/system, or if we weren't watching. */
+  elapsedMs: number | null
+  /** Model that generated this message. Null for user/tool/system, or if the SDK didn't report it. */
+  model: string | null
   createdAt: string
   toolEventIds: string[]
 }
@@ -71,11 +81,23 @@ interface RestoredToolEvent {
 
 export type SdkSessionStatus = 'idle' | 'streaming' | 'ended' | 'error' | 'cancelled' | 'starting'
 
+export interface SdkSubagentView {
+  /** Subagent id — equals the parent Task/Agent tool_use_id. */
+  id: string
+  task: string
+  agentType: string
+  status: 'running' | 'success' | 'error'
+  messages: SdkMessageView[]
+  toolEvents: Record<string, SdkToolEventView>
+}
+
 export interface SdkSessionState {
   conversationId: string
   conversation: SdkConversation | null
   messages: SdkMessageView[]
   toolEvents: Record<string, SdkToolEventView>
+  /** Keyed by the parent Task/Agent tool_use_id. */
+  subagents: Record<string, SdkSubagentView>
   pendingAttention: AttentionBlock[]
   sdkSessionId: string | null
   status: SdkSessionStatus
@@ -83,6 +105,8 @@ export interface SdkSessionState {
   tokensOut: number
   costUsd: number
   lastError: string | null
+  /** Epoch ms captured when the user sent the most recent message; null once the first assistant.message of that turn consumes it. */
+  lastUserSendAt: number | null
 }
 
 const EMPTY_USAGE = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
@@ -101,11 +125,13 @@ function ensure(id: string): SdkSessionState {
     conversation: null,
     messages: [],
     toolEvents: {},
+    subagents: {},
     pendingAttention: [],
     sdkSessionId: null,
     status: 'idle',
     ...EMPTY_USAGE,
     lastError: null,
+    lastUserSendAt: null,
   }
   return sdkSessions[id]
 }
@@ -176,6 +202,7 @@ export async function sendMessage(
   const state = ensure(id)
   state.status = 'streaming'
   state.lastError = null
+  state.lastUserSendAt = Date.now()
   // Optimistic: push the user message; the backend event will not emit a user
   // echo, so this is authoritative.
   state.messages = [
@@ -184,9 +211,13 @@ export async function sendMessage(
       id: `local-${Date.now()}`,
       role: 'user',
       content: text,
+      thinking: '',
       contentBlocks: buildOptimisticUserContent(text, options.attachments),
       tokensIn: null,
       tokensOut: null,
+      costUsd: null,
+      elapsedMs: null,
+      model: null,
       createdAt: nowIso(),
       toolEventIds: [],
     },
@@ -212,6 +243,18 @@ export async function sendMessage(
 
 export async function cancel(id: string): Promise<void> {
   await window.api.sdkAgent.cancel(id)
+}
+
+export async function setModel(id: string, model: string): Promise<void> {
+  const state = sdkSessions[id]
+  if (state?.conversation) state.conversation = { ...state.conversation, model }
+  await window.api.sdkAgent.updateConversation({ conversationId: id, model })
+}
+
+export async function setPermissionMode(id: string, mode: SdkPermissionMode): Promise<void> {
+  const state = sdkSessions[id]
+  if (state?.conversation) state.conversation = { ...state.conversation, permissionMode: mode }
+  await window.api.sdkAgent.updateConversation({ conversationId: id, permissionMode: mode })
 }
 
 export async function respondPermission(
@@ -273,35 +316,47 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
     })
     .with({ _tag: 'assistant.delta' }, (e) => {
       // Append to current streaming assistant message; create if missing.
-      let last = state.messages[state.messages.length - 1]
-      if (!last || last.role !== 'assistant' || last.id !== e.messageId) {
-        last = {
-          id: e.messageId as string,
-          role: 'assistant',
-          content: '',
-          contentBlocks: [{ type: 'text', text: '' }],
-          tokensIn: null,
-          tokensOut: null,
-          createdAt: nowIso(),
-          toolEventIds: [],
-        }
-        state.messages = [...state.messages, last]
-      }
+      const { message: last, changed } = ensureStreamingAssistantMessage(
+        state.messages,
+        e.messageId as string,
+      )
+      if (changed) state.messages = [...state.messages]
       last.content = last.content + e.text
       const first = last.contentBlocks[0] as { type: string; text?: string }
       if (first && first.type === 'text') first.text = last.content
+    })
+    .with({ _tag: 'assistant.thinking' }, (e) => {
+      const { message: last, changed } = ensureStreamingAssistantMessage(
+        state.messages,
+        e.messageId as string,
+      )
+      if (changed) state.messages = [...state.messages]
+      last.thinking = last.thinking + e.text
     })
     .with({ _tag: 'assistant.message' }, (e) => {
       const idx = state.messages.findIndex(
         (m) => m.role === 'assistant' && m.id === (e.messageId as string),
       )
+      // Consume lastUserSendAt on the first assistant message of the turn.
+      const priorElapsed = idx >= 0 ? state.messages[idx].elapsedMs : null
+      let elapsedMs: number | null = priorElapsed
+      if (elapsedMs === null && state.lastUserSendAt !== null) {
+        elapsedMs = Date.now() - state.lastUserSendAt
+        state.lastUserSendAt = null
+      }
+      const priorModel = idx >= 0 ? state.messages[idx].model : null
+      const priorThinking = idx >= 0 ? state.messages[idx].thinking : ''
       const finalized: SdkMessageView = {
         id: e.messageId as string,
         role: 'assistant',
         content: blocksToText(e.content),
+        thinking: priorThinking,
         contentBlocks: e.content as Array<Record<string, unknown>>,
         tokensIn: e.tokensIn ?? null,
         tokensOut: e.tokensOut ?? null,
+        costUsd: e.costUsd ?? (idx >= 0 ? state.messages[idx].costUsd : null),
+        elapsedMs,
+        model: e.model ?? priorModel,
         createdAt: nowIso(),
         toolEventIds: idx >= 0 ? state.messages[idx].toolEventIds : [],
       }
@@ -368,7 +423,9 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
           kind: 'plan',
           requestId: e.requestId,
           messageId: lastAssistantId(state),
+          toolEventId: e.toolEventId,
           plan: e.plan,
+          allowedPrompts: e.allowedPrompts ?? [],
           status: 'waiting',
         },
       ]
@@ -392,20 +449,157 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
       // completion / cancel clears the previous session's error marker.
       if (e.reason !== 'error') state.lastError = null
     })
-    .with({ _tag: 'subagent.start' }, () => {})
-    .with({ _tag: 'subagent.event' }, () => {})
-    .with({ _tag: 'subagent.end' }, () => {})
+    .with({ _tag: 'subagent.start' }, (e) => {
+      if (state.subagents[e.subagentId]) return
+      state.subagents[e.subagentId] = {
+        id: e.subagentId,
+        task: e.task,
+        agentType: e.agentType,
+        status: 'running',
+        messages: [],
+        toolEvents: {},
+      }
+    })
+    .with({ _tag: 'subagent.event' }, (e) => {
+      const subagent = state.subagents[e.subagentId]
+      if (!subagent) return
+      reduceSubagent(subagent, e.event)
+    })
+    .with({ _tag: 'subagent.end' }, (e) => {
+      const subagent = state.subagents[e.subagentId]
+      if (!subagent) return
+      subagent.status = e.status === 'success' ? 'success' : 'error'
+    })
     .exhaustive()
 }
 
+/**
+ * Apply a nested event against a single subagent's scoped message/tool state.
+ * Mirrors the subset of `reduce` that is meaningful inside a Task-tool run.
+ */
+function reduceSubagent(subagent: SdkSubagentView, event: SdkAgentEvent): void {
+  match(event)
+    .with({ _tag: 'assistant.delta' }, (e) => {
+      const { message: last, changed } = ensureStreamingAssistantMessage(
+        subagent.messages,
+        e.messageId as string,
+      )
+      if (changed) subagent.messages = [...subagent.messages]
+      last.content = last.content + e.text
+      const first = last.contentBlocks[0] as { type: string; text?: string }
+      if (first && first.type === 'text') first.text = last.content
+    })
+    .with({ _tag: 'assistant.thinking' }, (e) => {
+      const { message: last, changed } = ensureStreamingAssistantMessage(
+        subagent.messages,
+        e.messageId as string,
+      )
+      if (changed) subagent.messages = [...subagent.messages]
+      last.thinking = last.thinking + e.text
+    })
+    .with({ _tag: 'assistant.message' }, (e) => {
+      const idx = subagent.messages.findIndex(
+        (m) => m.role === 'assistant' && m.id === (e.messageId as string),
+      )
+      const priorModel = idx >= 0 ? subagent.messages[idx].model : null
+      const priorThinking = idx >= 0 ? subagent.messages[idx].thinking : ''
+      const finalized: SdkMessageView = {
+        id: e.messageId as string,
+        role: 'assistant',
+        content: blocksToText(e.content),
+        thinking: priorThinking,
+        contentBlocks: e.content as Array<Record<string, unknown>>,
+        tokensIn: e.tokensIn ?? null,
+        tokensOut: e.tokensOut ?? null,
+        costUsd: e.costUsd ?? (idx >= 0 ? subagent.messages[idx].costUsd : null),
+        elapsedMs: null,
+        model: e.model ?? priorModel,
+        createdAt: nowIso(),
+        toolEventIds: idx >= 0 ? subagent.messages[idx].toolEventIds : [],
+      }
+      if (idx >= 0) subagent.messages[idx] = finalized
+      else subagent.messages = [...subagent.messages, finalized]
+    })
+    .with({ _tag: 'tool.start' }, (e) => {
+      subagent.toolEvents[e.toolEventId] = {
+        id: e.toolEventId,
+        messageId: e.messageId as string,
+        toolName: e.name,
+        input: e.input,
+        result: null,
+        isError: false,
+        durationMs: null,
+        status: 'running',
+      }
+      const message = subagent.messages.find((m) => m.id === (e.messageId as string))
+      if (
+        message &&
+        message.role === 'assistant' &&
+        !message.toolEventIds.includes(e.toolEventId)
+      ) {
+        message.toolEventIds = [...message.toolEventIds, e.toolEventId]
+      }
+    })
+    .with({ _tag: 'tool.result' }, (e) => {
+      const ev = subagent.toolEvents[e.toolEventId]
+      if (!ev) return
+      ev.result = e.result
+      ev.isError = e.isError
+      ev.durationMs = e.durationMs
+      ev.status = e.isError ? 'error' : 'done'
+    })
+    .otherwise(() => {
+      // Subagents can emit other events (permission_request, usage, etc.)
+      // we don't render yet. Silently ignore — they already went through the
+      // provider's aggregator, and not forwarding them here avoids them
+      // leaking into the parent conversation state.
+    })
+}
+
+function ensureStreamingAssistantMessage(
+  messages: SdkMessageView[],
+  messageId: string,
+): { message: SdkMessageView; changed: boolean } {
+  let last = messages[messages.length - 1]
+  if (last?.role === 'assistant' && last.id === messageId) {
+    return { message: last, changed: false }
+  }
+
+  last = {
+    id: messageId,
+    role: 'assistant',
+    content: '',
+    thinking: '',
+    contentBlocks: [{ type: 'text', text: '' }],
+    tokensIn: null,
+    tokensOut: null,
+    costUsd: null,
+    elapsedMs: null,
+    model: null,
+    createdAt: nowIso(),
+    toolEventIds: [],
+  }
+  messages.push(last)
+  return { message: last, changed: true }
+}
+
 function messageFromRecord(record: SdkMessageRecord): SdkMessageView {
+  const contentBlocks = record.contentBlocks as Array<Record<string, unknown>>
   return {
     id: record.id as string,
     role: record.role,
-    content: record.content,
-    contentBlocks: record.contentBlocks as Array<Record<string, unknown>>,
+    // Regenerate display text from content blocks (text-only). The persisted
+    // `record.content` is FTS-indexed plain text that historically included
+    // tool-call placeholders like `[tool:Bash]`; deriving from blocks here
+    // keeps old rows from leaking those into the bubble.
+    content: blocksToText(contentBlocks as ReadonlyArray<{ type: string; [k: string]: unknown }>),
+    thinking: '',
+    contentBlocks,
     tokensIn: record.tokensIn,
     tokensOut: record.tokensOut,
+    costUsd: null,
+    elapsedMs: null,
+    model: record.model,
     createdAt: record.createdAt,
     toolEventIds: [],
   }

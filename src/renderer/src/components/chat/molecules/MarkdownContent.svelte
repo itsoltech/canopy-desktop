@@ -4,9 +4,10 @@
 
   interface Props {
     content: string
+    animateLastToken?: boolean
   }
 
-  let { content }: Props = $props()
+  let { content, animateLastToken = false }: Props = $props()
 
   let html = $derived.by(() => {
     if (!content.trim()) return ''
@@ -26,7 +27,38 @@
         link.setAttribute('target', '_blank')
         link.setAttribute('rel', 'noreferrer')
       }
+      if (animateLastToken) animateLastTextToken(node)
     })
+  }
+
+  function animateLastTextToken(root: HTMLElement): void {
+    const textNode = lastVisibleTextNode(root)
+    if (!textNode?.nodeValue) return
+
+    const value = textNode.nodeValue
+    const match = value.match(/(\S+\s*)$/)
+    if (!match?.[0]) return
+
+    const token = match[0]
+    const tokenStart = value.length - token.length
+    const before = document.createTextNode(value.slice(0, tokenStart))
+    const tokenNode = document.createElement('span')
+    tokenNode.className = 'streaming-token'
+    tokenNode.textContent = token
+
+    textNode.replaceWith(before, tokenNode)
+  }
+
+  function lastVisibleTextNode(root: HTMLElement): Text | null {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let latest: Text | null = null
+
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text
+      if (node.nodeValue && node.nodeValue.length > 0) latest = node
+    }
+
+    return latest
   }
 </script>
 
@@ -37,6 +69,8 @@
     white-space: normal;
     color: inherit;
     min-width: 0;
+    font-family: inherit;
+    font-size: inherit;
   }
 
   .markdown-content :global(*) {
@@ -44,7 +78,7 @@
   }
 
   .markdown-content :global(p) {
-    margin: 0 0 9px;
+    margin: 0 0 7px;
   }
 
   .markdown-content :global(p:last-child),
@@ -59,7 +93,7 @@
   .markdown-content :global(ul),
   .markdown-content :global(ol) {
     margin: 0 0 9px;
-    padding-left: 20px;
+    padding-left: 18px;
   }
 
   .markdown-content :global(li) {
@@ -76,7 +110,7 @@
   .markdown-content :global(h4) {
     margin: 12px 0 6px;
     color: var(--c-text);
-    font-weight: 650;
+    font-weight: 600;
     line-height: 1.25;
   }
 
@@ -88,16 +122,16 @@
   }
 
   .markdown-content :global(h1) {
-    font-size: 17px;
+    font-size: 1.12em;
   }
 
   .markdown-content :global(h2) {
-    font-size: 15.5px;
+    font-size: 1.05em;
   }
 
   .markdown-content :global(h3),
   .markdown-content :global(h4) {
-    font-size: 14px;
+    font-size: 1em;
   }
 
   .markdown-content :global(a) {
@@ -110,20 +144,22 @@
   }
 
   .markdown-content :global(code) {
-    padding: 1px 4px;
-    border-radius: 4px;
-    background: var(--c-bg-input);
-    border: 1px solid var(--c-border-subtle);
+    padding: 0 2px;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
     font-family: var(--font-mono, monospace);
-    font-size: 0.92em;
+    font-size: 1em;
+    color: var(--c-accent-text);
   }
 
   .markdown-content :global(pre) {
-    margin: 0 0 10px;
-    padding: 10px 12px;
-    border-radius: 6px;
+    margin: 0 0 8px;
+    padding: 8px 10px;
+    border-radius: 0;
     border: 1px solid var(--c-border-subtle);
-    background: var(--c-bg-input);
+    border-left: 2px solid var(--c-accent-muted);
+    background: color-mix(in srgb, var(--c-bg) 86%, black);
     overflow-x: auto;
     white-space: pre;
   }
@@ -136,9 +172,9 @@
   }
 
   .markdown-content :global(blockquote) {
-    margin: 0 0 10px;
+    margin: 0 0 8px;
     padding: 2px 0 2px 10px;
-    border-left: 3px solid var(--c-border);
+    border-left: 2px solid var(--c-border);
     color: var(--c-text-muted);
   }
 
@@ -151,14 +187,14 @@
   .markdown-content :global(table) {
     display: block;
     width: 100%;
-    margin: 0 0 10px;
+    margin: 0 0 8px;
     border-collapse: collapse;
     overflow-x: auto;
   }
 
   .markdown-content :global(th),
   .markdown-content :global(td) {
-    padding: 5px 7px;
+    padding: 4px 6px;
     border: 1px solid var(--c-border-subtle);
     text-align: left;
     vertical-align: top;
@@ -167,5 +203,21 @@
   .markdown-content :global(th) {
     background: var(--c-bg-input);
     font-weight: 650;
+  }
+
+  .markdown-content :global(.streaming-token) {
+    display: inline-block;
+    animation: streaming-token-fade 50ms ease-out both;
+    will-change: opacity;
+  }
+
+  @keyframes streaming-token-fade {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
   }
 </style>

@@ -1023,12 +1023,21 @@ const api = {
     }) => ipcRenderer.invoke('sdkAgent:send', args) as Promise<{ ok: true } | { error: string }>,
     cancel: (conversationId: string) =>
       ipcRenderer.invoke('sdkAgent:cancel', conversationId) as Promise<void>,
+    updateConversation: (args: {
+      conversationId: string
+      model?: string
+      permissionMode?: PermissionMode
+    }) => ipcRenderer.invoke('sdkAgent:updateConversation', args) as Promise<void>,
     close: (conversationId: string) =>
       ipcRenderer.invoke('sdkAgent:close', conversationId) as Promise<void>,
     delete: (conversationId: string) =>
       ipcRenderer.invoke('sdkAgent:delete', conversationId) as Promise<void>,
     list: (workspaceId: string) =>
       ipcRenderer.invoke('sdkAgent:list', workspaceId) as Promise<Conversation[]>,
+    listByWorktree: (args: { workspaceId: string; worktreePath: string }) =>
+      ipcRenderer.invoke('sdkAgent:listByWorktree', args) as Promise<Conversation[]>,
+    deleteByWorktree: (args: { workspaceId: string; worktreePath: string }) =>
+      ipcRenderer.invoke('sdkAgent:deleteByWorktree', args) as Promise<number>,
     getTranscript: (conversationId: string) =>
       ipcRenderer.invoke('sdkAgent:getTranscript', conversationId) as Promise<{
         conversation: Conversation | undefined

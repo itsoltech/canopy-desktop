@@ -34,8 +34,14 @@
   .message-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-height: 26px;
+    gap: 6px;
+    min-height: 18px;
+    font-family: inherit;
+    font-size: 0.86em;
+  }
+
+  .message-header :global(.avatar) {
+    display: none;
   }
 
   .spacer {

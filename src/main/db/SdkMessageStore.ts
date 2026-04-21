@@ -14,6 +14,7 @@ export interface AppendMessageInput {
   toolCalls?: unknown
   tokensIn?: number | null
   tokensOut?: number | null
+  model?: string | null
   /** Optional caller-provided id. Generated otherwise. */
   id?: MessageId
 }
@@ -35,14 +36,15 @@ export class SdkMessageStore {
       .prepare(
         `INSERT INTO sdk_messages (
            id, conversation_id, role, content, content_json,
-           tool_calls_json, tokens_in, tokens_out
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           tool_calls_json, tokens_in, tokens_out, model
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            content = excluded.content,
            content_json = excluded.content_json,
            tool_calls_json = excluded.tool_calls_json,
            tokens_in = COALESCE(excluded.tokens_in, sdk_messages.tokens_in),
-           tokens_out = COALESCE(excluded.tokens_out, sdk_messages.tokens_out)`,
+           tokens_out = COALESCE(excluded.tokens_out, sdk_messages.tokens_out),
+           model = COALESCE(excluded.model, sdk_messages.model)`,
       )
       .run(
         id,
@@ -53,6 +55,7 @@ export class SdkMessageStore {
         input.toolCalls !== undefined ? JSON.stringify(input.toolCalls) : null,
         input.tokensIn ?? null,
         input.tokensOut ?? null,
+        input.model ?? null,
       )
     return this.getById(id)!
   }

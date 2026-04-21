@@ -37,37 +37,27 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--c-border-subtle);
-    background: var(--c-bg-elevated);
+    gap: 4px;
+    align-self: stretch;
+    padding: 2px 0;
+    border-radius: 0;
+    border: 0;
+    background: transparent;
     color: var(--c-text);
-    font-size: 13.5px;
-    line-height: 1.55;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: 1.45;
     max-width: 100%;
   }
 
   .message-bubble.user {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
-    align-self: flex-end;
-  }
-
-  .message-bubble.assistant {
-    background: var(--c-bg-elevated);
-    border-color: var(--c-border-subtle);
-  }
-
-  .message-bubble.tool {
-    background: transparent;
-    border-color: var(--c-border-subtle);
-    border-style: dashed;
+    padding: 7px 10px 7px 12px;
+    background: color-mix(in srgb, var(--c-accent) 6%, transparent);
+    border-left: 2px solid var(--c-accent);
   }
 
   .message-bubble.system {
-    background: color-mix(in srgb, var(--c-warning) 8%, transparent);
-    border-color: color-mix(in srgb, var(--c-warning) 30%, transparent);
+    color: var(--c-text-secondary);
   }
 
   .bubble-body {

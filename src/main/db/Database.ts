@@ -270,6 +270,12 @@ const migrations: Migration[] = [
       ALTER TABLE sdk_tool_events ADD COLUMN answers_json TEXT;
     `,
   },
+  {
+    id: 15,
+    up: `
+      ALTER TABLE sdk_messages ADD COLUMN model TEXT;
+    `,
+  },
 ]
 
 export class Database {

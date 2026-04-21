@@ -1144,7 +1144,24 @@ export function registerIpcHandlers(
         payload.path,
         payload.force,
       )
-      return unwrapOrThrow(result, gitErrorMessage)
+      const unwrapped = unwrapOrThrow(result, gitErrorMessage)
+      // Cascade: SDK conversations are pinned to their worktree. Purge them
+      // when the worktree is removed so no orphans linger in history.
+      try {
+        const purged = sdkAgentManager.deleteConversationsByWorktreePath(payload.path)
+        if (purged > 0) {
+          console.info('[git:worktreeRemove] purged sdk conversations', {
+            worktreePath: payload.path,
+            count: purged,
+          })
+        }
+      } catch (e) {
+        console.warn('[git:worktreeRemove] sdk purge failed', {
+          worktreePath: payload.path,
+          error: e instanceof Error ? e.message : String(e),
+        })
+      }
+      return unwrapped
     },
   )
 

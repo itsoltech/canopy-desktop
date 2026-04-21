@@ -44,6 +44,7 @@ export interface SdkMessageRow {
   tool_calls_json: string | null
   tokens_in: number | null
   tokens_out: number | null
+  model: string | null
   created_at: string
 }
 
@@ -101,6 +102,8 @@ export interface SdkMessageRecord {
   toolCalls?: unknown
   tokensIn: number | null
   tokensOut: number | null
+  /** The model that actually produced this message, when known. */
+  model: string | null
   createdAt: string
 }
 
@@ -160,6 +163,7 @@ export function sdkMessageFromRow(row: SdkMessageRow): SdkMessageRecord {
     toolCalls: row.tool_calls_json ? (JSON.parse(row.tool_calls_json) as unknown) : undefined,
     tokensIn: row.tokens_in,
     tokensOut: row.tokens_out,
+    model: row.model,
     createdAt: toIsoUtc(row.created_at),
   }
 }

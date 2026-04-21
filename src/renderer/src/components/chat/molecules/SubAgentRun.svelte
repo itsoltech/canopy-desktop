@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { slide } from 'svelte/transition'
+  import { cubicOut } from 'svelte/easing'
   import { ChevronRight } from '@lucide/svelte'
   import StatusDot from '../atoms/StatusDot.svelte'
   import SubAgentBadge from '../atoms/SubAgentBadge.svelte'
@@ -16,6 +18,8 @@
     elapsedMs?: number
     defaultOpen?: boolean
     maxBodyHeight?: number
+    activityKey?: string
+    hasSummary?: boolean
     body: Snippet
     summary?: Snippet
   }
@@ -29,12 +33,17 @@
     elapsedMs,
     defaultOpen = false,
     maxBodyHeight = 320,
+    activityKey = '',
+    hasSummary = false,
     body,
     summary,
   }: Props = $props()
 
   // Default-open when running so users see live progress; callers can override.
-  let open = $state(defaultOpen || status === 'running')
+  let open = $state(defaultOpen)
+  let bodyEl: HTMLDivElement | undefined = $state()
+  let autoScrollBody = $state(true)
+  let scrollFrame: number | null = null
 
   let dotStatus = $derived.by(() => {
     if (status === 'running') return 'thinking' as const
@@ -50,6 +59,37 @@
     const m = Math.floor(s / 60)
     const rem = Math.floor(s % 60)
     return `${m}m ${rem}s`
+  })
+
+  function onBodyScroll(): void {
+    if (!bodyEl) return
+    const distance = bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight
+    autoScrollBody = distance < 48
+  }
+
+  function scheduleBodyScroll(): void {
+    if (!open || !bodyEl || !autoScrollBody) return
+    if (scrollFrame !== null) return
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = null
+      if (!bodyEl) return
+      bodyEl.scrollTop = bodyEl.scrollHeight
+    })
+  }
+
+  $effect(() => {
+    void activityKey
+    scheduleBodyScroll()
+  })
+
+  $effect(() => {
+    if (open) scheduleBodyScroll()
+  })
+
+  $effect(() => {
+    return () => {
+      if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+    }
   })
 </script>
 
@@ -77,27 +117,48 @@
   </button>
 
   {#if open}
-    <div class="body" style="max-height: {maxBodyHeight}px;" aria-label="Sub-agent activity">
-      {@render body()}
-    </div>
-
-    {#if summary}
-      <div class="summary-section">
-        <div class="summary-label">Result</div>
-        <div class="summary-content">{@render summary()}</div>
+    <div class="accordion-panel" transition:slide={{ duration: 180, easing: cubicOut }}>
+      <div
+        class="body"
+        style="max-height: {maxBodyHeight}px;"
+        aria-label="Sub-agent activity"
+        bind:this={bodyEl}
+        onscroll={onBodyScroll}
+      >
+        {@render body()}
       </div>
-    {/if}
+
+      {#if summary && hasSummary}
+        <div class="summary-section">
+          <div class="summary-label">Result</div>
+          <div class="summary-content">{@render summary()}</div>
+        </div>
+      {/if}
+    </div>
   {/if}
 </section>
 
 <style>
   .sub-agent {
     position: relative;
-    margin: 8px 0;
-    border-radius: 8px;
-    border: 1px solid color-mix(in srgb, var(--c-generate) 28%, transparent);
-    background: color-mix(in srgb, var(--c-generate) 5%, transparent);
+    margin: 5px 0;
+    border-radius: 0;
+    border: 1px solid transparent;
+    border-left: 2px solid transparent;
+    background: transparent;
     overflow: hidden;
+    font-family: inherit;
+    font-size: 0.95em;
+    transition:
+      border-color 0.14s ease,
+      background-color 0.14s ease;
+  }
+
+  .sub-agent:hover,
+  .sub-agent:focus-within {
+    border-color: color-mix(in srgb, var(--c-generate) 28%, transparent);
+    border-left-color: var(--c-generate);
+    background: color-mix(in srgb, var(--c-bg) 88%, black);
   }
 
   /* Left rail makes the nested context unmistakable. */
@@ -107,17 +168,28 @@
     top: 0;
     bottom: 0;
     left: 0;
-    width: 3px;
+    width: 0;
     background: var(--c-generate);
-    opacity: 0.55;
+    opacity: 0;
+    transition: opacity 0.14s ease;
   }
 
   .sub-agent[data-status='error']::before {
     background: var(--c-danger);
+  }
+
+  .sub-agent:hover::before,
+  .sub-agent:focus-within::before {
+    opacity: 0.55;
+  }
+
+  .sub-agent[data-status='error']:hover::before,
+  .sub-agent[data-status='error']:focus-within::before {
     opacity: 0.7;
   }
 
-  .sub-agent[data-status='running']::before {
+  .sub-agent[data-status='running']:hover::before,
+  .sub-agent[data-status='running']:focus-within::before {
     animation: rail-pulse 1.4s ease-in-out infinite;
   }
 
@@ -136,18 +208,25 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 8px 12px 8px 14px;
+    padding: 6px 9px;
     background: transparent;
     border: none;
     color: var(--c-text);
     text-align: left;
     cursor: pointer;
-    font-size: 12.5px;
+    font-size: 1em;
     line-height: 1.4;
+    color: color-mix(in srgb, var(--c-text) 72%, transparent);
+    transition: color 0.14s ease;
+  }
+
+  .sub-agent:hover .head,
+  .sub-agent:focus-within .head {
+    color: var(--c-text);
   }
 
   .head:hover {
-    background: var(--c-hover);
+    background: color-mix(in srgb, var(--c-hover) 70%, transparent);
   }
 
   .head:focus-visible {
@@ -172,7 +251,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 0.95em;
   }
 
   .task-empty {
@@ -186,12 +265,12 @@
     gap: 8px;
     flex-shrink: 0;
     color: var(--c-text-muted);
-    font-size: 11px;
+    font-size: 0.84em;
   }
 
   .model {
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
-    font-size: 10.5px;
+    font-family: inherit;
+    font-size: 1em;
     color: var(--c-text-muted);
   }
 
@@ -201,23 +280,23 @@
   }
 
   .body {
-    padding: 8px 12px 10px 14px;
+    padding: 7px 9px 8px;
     border-top: 1px solid color-mix(in srgb, var(--c-generate) 20%, transparent);
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     background: transparent;
   }
 
   .summary-section {
-    padding: 8px 12px 10px 14px;
+    padding: 7px 9px 8px;
     border-top: 1px solid color-mix(in srgb, var(--c-generate) 20%, transparent);
-    background: color-mix(in srgb, var(--c-bg-elevated) 50%, transparent);
+    background: color-mix(in srgb, var(--c-bg) 82%, black);
   }
 
   .summary-label {
-    font-size: 10.5px;
+    font-size: 0.8em;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -226,7 +305,7 @@
   }
 
   .summary-content {
-    font-size: 12.5px;
+    font-size: 0.95em;
     color: var(--c-text);
     line-height: 1.55;
   }

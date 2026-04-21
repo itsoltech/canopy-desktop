@@ -69,6 +69,35 @@ export class ConversationStore {
     return rows.map(conversationFromRow)
   }
 
+  listByWorktree(workspaceId: string, worktreePath: string, limit = 100): Conversation[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM conversations
+         WHERE workspace_id = ? AND worktree_path = ?
+         ORDER BY updated_at DESC
+         LIMIT ?`,
+      )
+      .all(workspaceId, worktreePath, limit) as ConversationRow[]
+    return rows.map(conversationFromRow)
+  }
+
+  listIdsByWorktree(workspaceId: string, worktreePath: string): ConversationId[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM conversations
+         WHERE workspace_id = ? AND worktree_path = ?`,
+      )
+      .all(workspaceId, worktreePath) as { id: string }[]
+    return rows.map((r) => asConversationId(r.id))
+  }
+
+  listIdsByWorktreePath(worktreePath: string): ConversationId[] {
+    const rows = this.db
+      .prepare(`SELECT id FROM conversations WHERE worktree_path = ?`)
+      .all(worktreePath) as { id: string }[]
+    return rows.map((r) => asConversationId(r.id))
+  }
+
   rename(id: ConversationId, title: string | null): void {
     this.db
       .prepare(
@@ -97,6 +126,26 @@ export class ConversationStore {
          WHERE id = ?`,
       )
       .run(sdkSessionId, id)
+  }
+
+  setModel(id: ConversationId, model: string): void {
+    this.db
+      .prepare(
+        `UPDATE conversations
+         SET model = ?, updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+      .run(model, id)
+  }
+
+  setPermissionMode(id: ConversationId, mode: PermissionMode): void {
+    this.db
+      .prepare(
+        `UPDATE conversations
+         SET permission_mode = ?, updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+      .run(mode, id)
   }
 
   touch(id: ConversationId): void {

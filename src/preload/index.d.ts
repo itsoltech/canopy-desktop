@@ -778,9 +778,19 @@ interface CanopyAPI {
       permissionModeOverride?: SdkPermissionMode
     }) => Promise<{ ok: true } | { error: string }>
     cancel: (conversationId: string) => Promise<void>
+    updateConversation: (args: {
+      conversationId: string
+      model?: string
+      permissionMode?: SdkPermissionMode
+    }) => Promise<void>
     close: (conversationId: string) => Promise<void>
     delete: (conversationId: string) => Promise<void>
     list: (workspaceId: string) => Promise<SdkConversation[]>
+    listByWorktree: (args: {
+      workspaceId: string
+      worktreePath: string
+    }) => Promise<SdkConversation[]>
+    deleteByWorktree: (args: { workspaceId: string; worktreePath: string }) => Promise<number>
     getTranscript: (conversationId: string) => Promise<{
       conversation: SdkConversation | undefined
       messages: SdkMessageRecord[]

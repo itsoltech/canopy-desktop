@@ -24,33 +24,43 @@
   .role-badge {
     display: inline-flex;
     align-items: center;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: var(--c-bg-elevated);
+    font-size: inherit;
+    font-weight: 500;
+    letter-spacing: 0;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
     color: var(--c-text-secondary);
-    line-height: 1.4;
+    line-height: 1.25;
+  }
+
+  .role-badge::before {
+    content: '[';
+    color: var(--c-text-faint);
+  }
+
+  .role-badge::after {
+    content: ']';
+    color: var(--c-text-faint);
   }
 
   .role-badge.user {
-    background: var(--c-accent-bg);
+    background: transparent;
     color: var(--c-accent-text);
   }
 
   .role-badge.assistant {
-    background: var(--c-bg-elevated);
-    color: var(--c-text);
+    background: transparent;
+    color: var(--c-success);
   }
 
   .role-badge.tool {
-    background: color-mix(in srgb, var(--c-generate) 15%, transparent);
+    background: transparent;
     color: var(--c-generate);
   }
 
   .role-badge.system {
-    background: color-mix(in srgb, var(--c-warning) 15%, transparent);
+    background: transparent;
     color: var(--c-warning);
   }
 </style>
