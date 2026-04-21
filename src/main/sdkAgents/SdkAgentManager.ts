@@ -26,7 +26,7 @@ import {
   type SessionEventListener,
 } from './sessionRegistry'
 import type { CanUseToolCallback, LlmProvider } from './providers/LlmProvider'
-import { AnthropicProvider } from './providers/AnthropicProvider'
+import { AnthropicProvider, shapeQuestionAllowPayload } from './providers/AnthropicProvider'
 import type { Conversation, SdkMessageRecord } from '../db/sdkAgentRows'
 import type { ConversationSearchHit } from '../db/ConversationStore'
 
@@ -152,10 +152,40 @@ export class SdkAgentManager {
     requestId: string,
     answers: Record<string, AskUserQuestionAnswer>,
   ): void {
-    const pending = this.registry.get(id)?.pending.get(requestId)
-    if (!pending || pending.kind !== 'question') return
+    const session = this.registry.get(id)
+    const pending = session?.pending.get(requestId)
+    if (!session) {
+      console.warn('[sdk-agent][question] response dropped: session missing', { id, requestId })
+      return
+    }
+    if (!pending) {
+      console.warn('[sdk-agent][question] response dropped: pending request missing', {
+        id,
+        requestId,
+        pendingRequestIds: [...session.pending.keys()],
+      })
+      return
+    }
+    if (pending.kind !== 'question') {
+      console.warn('[sdk-agent][question] response dropped: pending kind mismatch', {
+        id,
+        requestId,
+        pendingKind: pending.kind,
+      })
+      return
+    }
+    console.info('[sdk-agent][question] response received', {
+      id,
+      requestId,
+      answerKeys: Object.keys(answers),
+    })
     pending.resolve(answers)
-    this.registry.get(id)?.pending.delete(requestId)
+    session.pending.delete(requestId)
+    console.info('[sdk-agent][question] response resolved', {
+      id,
+      requestId,
+      pendingCount: session.pending.size,
+    })
   }
 
   respondPlan(id: ConversationId, requestId: string, decision: PlanDecision): void {
@@ -339,17 +369,28 @@ export class SdkAgentManager {
 
       if (toolName === 'AskUserQuestion') {
         const { requestId, promise } = registerPendingQuestion(session)
+        const questions = (input.questions as Question[]) ?? []
+        console.info('[sdk-agent][question] request waiting', {
+          id,
+          requestId,
+          questionCount: questions.length,
+          questions: questions.map((q) => q.question),
+        })
         this.registry.emit(id, {
           _tag: 'ask_user_question',
           sessionId: id,
           requestId,
-          questions: (input.questions as Question[]) ?? [],
+          questions,
         })
         const answers = await promise
-        return {
-          behavior: 'allow',
-          updatedInput: { ...input, answers },
-        }
+        const result = shapeQuestionAllowPayload(input, answers)
+        console.info('[sdk-agent][question] request continuing', {
+          id,
+          requestId,
+          answerKeys: Object.keys(answers),
+          formattedAnswers: result.updatedInput.answers,
+        })
+        return result
       }
 
       if (toolName === 'ExitPlanMode') {

@@ -11,12 +11,14 @@ export type AttentionBlock =
   | {
       kind: 'question'
       requestId: string
+      messageId: string | null
       questions: SdkAgentEvent extends { _tag: 'ask_user_question'; questions: infer Q } ? Q : never
       status: 'waiting' | 'resolved' | 'cancelled'
     }
   | {
       kind: 'plan'
       requestId: string
+      messageId: string | null
       plan: string
       status: 'waiting' | 'approved' | 'rejected'
       feedback?: string
@@ -24,6 +26,7 @@ export type AttentionBlock =
   | {
       kind: 'permission'
       requestId: string
+      messageId: string | null
       toolName: string
       input: Record<string, unknown>
       status: 'waiting' | 'granted' | 'denied'
@@ -197,8 +200,21 @@ export async function respondQuestion(
   answers: Record<string, SdkAskUserQuestionAnswer>,
 ): Promise<void> {
   const state = sdkSessions[id]
-  if (state) markAttentionResolved(state, requestId, 'resolved')
-  await window.api.sdkAgent.respondQuestion({ conversationId: id, requestId, answers })
+  const plainAnswers = serializeQuestionAnswers(answers)
+  try {
+    await window.api.sdkAgent.respondQuestion({
+      conversationId: id,
+      requestId,
+      answers: plainAnswers,
+    })
+    if (state) markAttentionResolved(state, requestId, 'resolved')
+  } catch (e) {
+    console.error('[sdk-agent][question] failed to submit answers', {
+      id,
+      requestId,
+      error: e instanceof Error ? e.message : String(e),
+    })
+  }
 }
 
 export async function respondPlan(
@@ -292,6 +308,7 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
         {
           kind: 'permission',
           requestId: e.requestId,
+          messageId: lastAssistantId(state),
           toolName: e.toolName,
           input: e.input,
           status: 'waiting',
@@ -304,6 +321,7 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
         {
           kind: 'question',
           requestId: e.requestId,
+          messageId: lastAssistantId(state),
           questions: e.questions as never,
           status: 'waiting',
         },
@@ -312,7 +330,13 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
     .with({ _tag: 'plan_mode_exit' }, (e) => {
       state.pendingAttention = [
         ...state.pendingAttention,
-        { kind: 'plan', requestId: e.requestId, plan: e.plan, status: 'waiting' },
+        {
+          kind: 'plan',
+          requestId: e.requestId,
+          messageId: lastAssistantId(state),
+          plan: e.plan,
+          status: 'waiting',
+        },
       ]
     })
     .with({ _tag: 'usage' }, (e) => {
@@ -393,4 +417,22 @@ function markAttentionResolved(
       }))
       .exhaustive()
   })
+}
+
+function serializeQuestionAnswers(
+  answers: Record<string, SdkAskUserQuestionAnswer>,
+): Record<string, SdkAskUserQuestionAnswer> {
+  const plain: Record<string, SdkAskUserQuestionAnswer> = {}
+  for (const [question, answer] of Object.entries(answers)) {
+    plain[question] = {
+      selected: Array.isArray(answer.selected) ? [...answer.selected] : [],
+      ...(typeof answer.other === 'string' && answer.other.length > 0
+        ? { other: answer.other }
+        : {}),
+      ...(typeof answer.notes === 'string' && answer.notes.length > 0
+        ? { notes: answer.notes }
+        : {}),
+    }
+  }
+  return plain
 }

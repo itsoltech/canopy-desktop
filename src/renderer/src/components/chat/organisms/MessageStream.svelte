@@ -45,6 +45,13 @@
   }: Props = $props()
 
   type Brand = 'ClaudeAI' | 'OpenAI' | 'Gemini'
+  type BubbleRole = 'user' | 'assistant' | 'tool' | 'system'
+
+  interface MessageGroup {
+    id: string
+    role: BubbleRole
+    messages: SdkMessageView[]
+  }
 
   function resolveBrand(model: string | null | undefined): Brand | undefined {
     if (!model) return undefined
@@ -127,6 +134,58 @@
       )
       .otherwise(() => undefined)
   }
+
+  function bubbleRole(message: SdkMessageView): BubbleRole {
+    return message.role === 'tool' ? 'tool' : message.role
+  }
+
+  function groupHasUsage(group: MessageGroup): boolean {
+    return group.messages.some((message) => message.tokensIn !== null || message.tokensOut !== null)
+  }
+
+  function groupTokenTotal(group: MessageGroup): number {
+    return group.messages.reduce(
+      (sum, message) => sum + (message.tokensIn ?? 0) + (message.tokensOut ?? 0),
+      0,
+    )
+  }
+
+  let timelineAttention = $derived.by(() => {
+    const byMessage: Record<string, AttentionBlock[]> = {}
+    const orphan: AttentionBlock[] = []
+
+    for (const block of pendingAttention) {
+      const messageId = block.messageId
+      const hasMessage = messageId ? messages.some((message) => message.id === messageId) : false
+      if (!messageId || !hasMessage) {
+        orphan.push(block)
+        continue
+      }
+      byMessage[messageId] = [...(byMessage[messageId] ?? []), block]
+    }
+
+    return { byMessage, orphan }
+  })
+
+  let messageGroups = $derived.by<MessageGroup[]>(() => {
+    const groups: MessageGroup[] = []
+
+    for (const message of messages) {
+      const role = bubbleRole(message)
+      const previous = groups[groups.length - 1]
+      if (role === 'assistant' && previous?.role === 'assistant') {
+        previous.messages = [...previous.messages, message]
+        continue
+      }
+      groups.push({
+        id: message.id,
+        role,
+        messages: [message],
+      })
+    }
+
+    return groups
+  })
 </script>
 
 <div class="stream-wrapper">
@@ -138,49 +197,53 @@
         </div>
       {/if}
 
-      {#each messages as message (message.id)}
-        {@const isAssistant = message.role === 'assistant'}
-        {@const hasUsage = message.tokensIn !== null || message.tokensOut !== null}
-        <MessageBubble role={message.role === 'tool' ? 'tool' : message.role}>
+      {#each messageGroups as group (group.id)}
+        {@const firstMessage = group.messages[0]}
+        {@const isAssistant = group.role === 'assistant'}
+        <MessageBubble role={group.role}>
           {#snippet header()}
             <MessageHeader
-              role={message.role === 'user' ? 'user' : 'assistant'}
+              role={group.role === 'user' ? 'user' : 'assistant'}
               brand={isAssistant ? resolveBrand(conversationModel) : undefined}
               model={isAssistant ? (conversationModel ?? undefined) : undefined}
-              userInitial={message.role === 'user' ? 'Y' : undefined}
-              timestamp={message.createdAt}
+              userInitial={group.role === 'user' ? 'Y' : undefined}
+              timestamp={firstMessage.createdAt}
             />
           {/snippet}
 
           {#snippet body()}
             <div class="message-body">
-              {#if message.content}
-                <p class="message-text">{message.content}</p>
-              {/if}
-              {#each toolEventsForMessage(message.id) as ev (ev.id)}
-                <ToolCallBlock
-                  name={ev.toolName}
-                  status={toolStatus(ev)}
-                  input={ev.input}
-                  result={ev.result ?? undefined}
-                />
+              {#each group.messages as message (message.id)}
+                <div class="message-segment">
+                  {#if message.content}
+                    <p class="message-text">{message.content}</p>
+                  {/if}
+                  {#each toolEventsForMessage(message.id) as ev (ev.id)}
+                    <ToolCallBlock
+                      name={ev.toolName}
+                      status={toolStatus(ev)}
+                      input={ev.input}
+                      result={ev.result ?? undefined}
+                    />
+                  {/each}
+                  {#each timelineAttention.byMessage[message.id] ?? [] as block (block.requestId)}
+                    {@render attentionBlock(block)}
+                  {/each}
+                </div>
               {/each}
             </div>
           {/snippet}
 
-          {#if isAssistant && hasUsage}
+          {#if isAssistant && groupHasUsage(group)}
             <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
             {#snippet footer()}
-              <MessageMeta
-                model={conversationModel ?? undefined}
-                tokens={(message.tokensIn ?? 0) + (message.tokensOut ?? 0)}
-              />
+              <MessageMeta model={conversationModel ?? undefined} tokens={groupTokenTotal(group)} />
             {/snippet}
           {/if}
         </MessageBubble>
       {/each}
 
-      {#each pendingAttention as block (block.requestId)}
+      {#snippet attentionBlock(block: AttentionBlock)}
         <div class="attention-slot">
           {#if block.kind === 'question'}
             <QuestionnaireBlock
@@ -215,6 +278,10 @@
             />
           {/if}
         </div>
+      {/snippet}
+
+      {#each timelineAttention.orphan as block (block.requestId)}
+        {@render attentionBlock(block)}
       {/each}
 
       {#if isStreaming}
@@ -268,7 +335,19 @@
   .message-body {
     display: flex;
     flex-direction: column;
+    gap: 10px;
+  }
+
+  .message-segment {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
+    min-width: 0;
+  }
+
+  .message-segment + .message-segment {
+    padding-top: 10px;
+    border-top: 1px solid var(--c-border-subtle);
   }
 
   .message-text {
