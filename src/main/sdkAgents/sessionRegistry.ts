@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import type {
   AskUserQuestionAnswer,
   ConversationId,
@@ -117,4 +118,43 @@ export class SessionRegistry {
     }
     session.pending.clear()
   }
+}
+
+// --- waitPending helpers ---
+//
+// Small typed constructors for the three canUseTool flows. Each returns a
+// fresh requestId (used as the wire correlation id) and a promise the caller
+// awaits. The corresponding manager.respond* handler resolves the promise.
+
+export interface PendingRegistration<T> {
+  requestId: string
+  promise: Promise<T>
+}
+
+export function registerPendingPermission(
+  session: ActiveSession,
+): PendingRegistration<ToolDecision> {
+  const requestId = randomUUID()
+  const promise = new Promise<ToolDecision>((resolve) => {
+    session.pending.set(requestId, { kind: 'permission', resolve })
+  })
+  return { requestId, promise }
+}
+
+export function registerPendingQuestion(
+  session: ActiveSession,
+): PendingRegistration<Record<string, AskUserQuestionAnswer>> {
+  const requestId = randomUUID()
+  const promise = new Promise<Record<string, AskUserQuestionAnswer>>((resolve) => {
+    session.pending.set(requestId, { kind: 'question', resolve })
+  })
+  return { requestId, promise }
+}
+
+export function registerPendingPlan(session: ActiveSession): PendingRegistration<PlanDecision> {
+  const requestId = randomUUID()
+  const promise = new Promise<PlanDecision>((resolve) => {
+    session.pending.set(requestId, { kind: 'plan', resolve })
+  })
+  return { requestId, promise }
 }

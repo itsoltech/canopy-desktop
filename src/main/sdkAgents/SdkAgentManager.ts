@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import { match, P } from 'ts-pattern'
 import type { Database } from '../db/Database'
 import type { ConversationStore } from '../db/ConversationStore'
@@ -19,7 +18,13 @@ import type {
 } from './types'
 import type { SdkAgentError } from './errors'
 import { sdkAgentErrorMessage, toSdkAgentError } from './errors'
-import { SessionRegistry, type SessionEventListener } from './sessionRegistry'
+import {
+  SessionRegistry,
+  registerPendingPermission,
+  registerPendingPlan,
+  registerPendingQuestion,
+  type SessionEventListener,
+} from './sessionRegistry'
 import type { CanUseToolCallback, LlmProvider } from './providers/LlmProvider'
 import { AnthropicProvider } from './providers/AnthropicProvider'
 import type { Conversation, SdkMessageRecord } from '../db/sdkAgentRows'
@@ -329,17 +334,14 @@ export class SdkAgentManager {
       if (!session) return { behavior: 'deny', message: 'Session gone.' }
 
       if (toolName === 'AskUserQuestion') {
-        const requestId = randomUUID()
-        const questions = (input.questions as Question[]) ?? []
-        const answers = await new Promise<Record<string, AskUserQuestionAnswer>>((resolve) => {
-          session.pending.set(requestId, { kind: 'question', resolve })
-          this.registry.emit(id, {
-            _tag: 'ask_user_question',
-            sessionId: id,
-            requestId,
-            questions,
-          })
+        const { requestId, promise } = registerPendingQuestion(session)
+        this.registry.emit(id, {
+          _tag: 'ask_user_question',
+          sessionId: id,
+          requestId,
+          questions: (input.questions as Question[]) ?? [],
         })
+        const answers = await promise
         return {
           behavior: 'allow',
           updatedInput: { ...input, answers },
@@ -347,17 +349,15 @@ export class SdkAgentManager {
       }
 
       if (toolName === 'ExitPlanMode') {
-        const requestId = randomUUID()
+        const { requestId, promise } = registerPendingPlan(session)
         const plan = typeof input.plan === 'string' ? input.plan : ''
-        const decision = await new Promise<PlanDecision>((resolve) => {
-          session.pending.set(requestId, { kind: 'plan', resolve })
-          this.registry.emit(id, {
-            _tag: 'plan_mode_exit',
-            sessionId: id,
-            requestId,
-            plan,
-          })
+        this.registry.emit(id, {
+          _tag: 'plan_mode_exit',
+          sessionId: id,
+          requestId,
+          plan,
         })
+        const decision = await promise
         return match(decision)
           .with({ action: 'approve' }, () => ({
             behavior: 'allow' as const,
@@ -374,17 +374,15 @@ export class SdkAgentManager {
         return { behavior: 'allow', updatedInput: input }
       }
 
-      const requestId = randomUUID()
-      const decision = await new Promise<ToolDecision>((resolve) => {
-        session.pending.set(requestId, { kind: 'permission', resolve })
-        this.registry.emit(id, {
-          _tag: 'tool.permission_request',
-          sessionId: id,
-          requestId,
-          toolName,
-          input,
-        })
+      const { requestId, promise } = registerPendingPermission(session)
+      this.registry.emit(id, {
+        _tag: 'tool.permission_request',
+        sessionId: id,
+        requestId,
+        toolName,
+        input,
       })
+      const decision = await promise
       return match(decision)
         .with('allow-once', () => ({ behavior: 'allow' as const, updatedInput: input }))
         .with('allow-session', () => {
