@@ -31,12 +31,20 @@ export class SdkToolEventStore {
 
   start(input: StartToolEventInput): SdkToolEventRecord {
     const id = input.id ?? randomUUID()
+    // UPSERT: tool_use ids can re-appear when the SDK replays assistant
+    // messages on resume. Idempotent write — don't overwrite a completed
+    // result with a fresh start row.
     this.db
       .prepare(
         `INSERT INTO sdk_tool_events (
            id, message_id, conversation_id, tool_name,
            input_json, decision
-         ) VALUES (?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           message_id = excluded.message_id,
+           tool_name = excluded.tool_name,
+           input_json = excluded.input_json,
+           decision = COALESCE(excluded.decision, sdk_tool_events.decision)`,
       )
       .run(
         id,

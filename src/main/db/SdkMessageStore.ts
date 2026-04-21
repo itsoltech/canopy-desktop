@@ -27,12 +27,22 @@ export class SdkMessageStore {
 
   append(input: AppendMessageInput): SdkMessageRecord {
     const id = input.id ?? asMessageId(randomUUID())
+    // UPSERT: the Claude Agent SDK can yield multiple `type: 'assistant'`
+    // messages with the same `message.id` (streaming updates, session resume
+    // replays). Idempotent write — last payload wins, matching the SDK's
+    // "message as current cumulative state" semantics.
     this.db
       .prepare(
         `INSERT INTO sdk_messages (
            id, conversation_id, role, content, content_json,
            tool_calls_json, tokens_in, tokens_out
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           content = excluded.content,
+           content_json = excluded.content_json,
+           tool_calls_json = excluded.tool_calls_json,
+           tokens_in = COALESCE(excluded.tokens_in, sdk_messages.tokens_in),
+           tokens_out = COALESCE(excluded.tokens_out, sdk_messages.tokens_out)`,
       )
       .run(
         id,
