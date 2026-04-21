@@ -8,6 +8,16 @@ import type {
 } from '../sdkAgents/types'
 import { asConversationId, asMessageId, asSdkSessionId } from '../sdkAgents/types'
 
+// SQLite's datetime('now') emits "YYYY-MM-DD HH:MM:SS" (UTC, no T, no Z),
+// which JS parses as local time. Normalize to strict ISO-8601 UTC so
+// the renderer's Timestamp atom computes correct relative times.
+function toIsoUtc(s: string): string {
+  if (!s) return s
+  if (s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s)) return s
+  const iso = s.includes('T') ? s : s.replace(' ', 'T')
+  return iso + 'Z'
+}
+
 // --- Raw row shapes (1:1 with SQLite columns) ---
 
 export interface ConversationRow {
@@ -132,8 +142,8 @@ export function conversationFromRow(row: ConversationRow): Conversation {
     model: row.model,
     permissionMode: row.permission_mode as PermissionMode,
     status: row.status as ConversationStatus,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: toIsoUtc(row.created_at),
+    updatedAt: toIsoUtc(row.updated_at),
   }
 }
 
@@ -147,7 +157,7 @@ export function sdkMessageFromRow(row: SdkMessageRow): SdkMessageRecord {
     toolCalls: row.tool_calls_json ? (JSON.parse(row.tool_calls_json) as unknown) : undefined,
     tokensIn: row.tokens_in,
     tokensOut: row.tokens_out,
-    createdAt: row.created_at,
+    createdAt: toIsoUtc(row.created_at),
   }
 }
 
@@ -162,7 +172,7 @@ export function sdkToolEventFromRow(row: SdkToolEventRow): SdkToolEventRecord {
     isError: row.is_error === 1,
     decision: row.decision as ToolDecision | 'auto' | null,
     durationMs: row.duration_ms,
-    createdAt: row.created_at,
+    createdAt: toIsoUtc(row.created_at),
   }
 }
 
@@ -176,6 +186,6 @@ export function sdkAttachmentFromRow(row: SdkAttachmentRow): SdkAttachmentRecord
     path: row.path,
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
-    createdAt: row.created_at,
+    createdAt: toIsoUtc(row.created_at),
   }
 }
