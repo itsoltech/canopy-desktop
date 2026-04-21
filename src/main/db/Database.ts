@@ -158,6 +158,76 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 11,
+    up: `
+      CREATE TABLE IF NOT EXISTS conversations (
+        id                TEXT PRIMARY KEY,
+        workspace_id      TEXT NOT NULL,
+        worktree_path     TEXT NOT NULL,
+        agent_profile_id  TEXT NOT NULL,
+        sdk_session_id    TEXT,
+        title             TEXT,
+        model             TEXT NOT NULL,
+        permission_mode   TEXT NOT NULL,
+        status            TEXT NOT NULL DEFAULT 'active',
+        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+        FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id) ON DELETE RESTRICT
+      );
+      CREATE INDEX IF NOT EXISTS idx_conversations_workspace
+        ON conversations(workspace_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS sdk_messages (
+        id              TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role            TEXT NOT NULL,
+        content         TEXT NOT NULL,
+        content_json    TEXT NOT NULL,
+        tool_calls_json TEXT,
+        tokens_in       INTEGER,
+        tokens_out      INTEGER,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_sdk_messages_conversation
+        ON sdk_messages(conversation_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS sdk_tool_events (
+        id              TEXT PRIMARY KEY,
+        message_id      TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        tool_name       TEXT NOT NULL,
+        input_json      TEXT NOT NULL,
+        result_text     TEXT,
+        is_error        INTEGER NOT NULL DEFAULT 0,
+        decision        TEXT,
+        duration_ms     INTEGER,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (message_id) REFERENCES sdk_messages(id) ON DELETE CASCADE,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_sdk_tool_events_message
+        ON sdk_tool_events(message_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS sdk_attachments (
+        id              TEXT PRIMARY KEY,
+        message_id      TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        kind            TEXT NOT NULL,
+        filename        TEXT NOT NULL,
+        path            TEXT NOT NULL,
+        mime_type       TEXT NOT NULL,
+        size_bytes      INTEGER NOT NULL,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (message_id) REFERENCES sdk_messages(id) ON DELETE CASCADE,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_sdk_attachments_conversation
+        ON sdk_attachments(conversation_id);
+    `,
+  },
 ]
 
 export class Database {
