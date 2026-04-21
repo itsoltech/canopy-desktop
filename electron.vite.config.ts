@@ -28,6 +28,7 @@ export default defineConfig({
           main: resolve(__dirname, 'src/renderer/index.html'),
           notch: resolve(__dirname, 'src/renderer/notch.html'),
           remote: resolve(__dirname, 'src/renderer/remote.html'),
+          showcase: resolve(__dirname, 'src/renderer/showcase/index.html'),
         },
       },
     },
