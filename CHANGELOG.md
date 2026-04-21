@@ -1,3 +1,9 @@
+## [0.12.1-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0...v0.12.1-next.1) (2026-04-21)
+
+### Bug Fixes
+
+* **updater:** stop downgrade loop between stable and next channels ([438fde0](https://github.com/itsoltech/canopy-desktop/commit/438fde02c2ee3adf6afb7a92d58d5ffe2f0e84e2))
+
 ## [0.12.0](https://github.com/itsoltech/canopy-desktop/compare/v0.11.0...v0.12.0) (2026-04-20)
 
 ### Features
