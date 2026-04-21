@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { MessageSquarePlus, MessageSquare } from '@lucide/svelte'
+  import { MessageSquarePlus, MessageSquare, Search, X } from '@lucide/svelte'
   import type { Conversation as SdkConversation } from '../../../../../main/db/sdkAgentRows'
+  import type { ConversationSearchHit } from '../../../../../main/db/ConversationStore'
 
   interface Props {
     workspaceId: string
@@ -14,6 +15,10 @@
 
   let conversations: SdkConversation[] = $state([])
   let loading = $state(true)
+  let query = $state('')
+  let searchHits: ConversationSearchHit[] = $state([])
+  let searching = $state(false)
+  let searchDebounce: ReturnType<typeof setTimeout> | null = null
 
   async function refresh(): Promise<void> {
     loading = true
@@ -56,6 +61,52 @@
     // sidebar picks up the new row without forcing an explicit prop flow.
     setTimeout(() => void refresh(), 200)
   }
+
+  function onQueryInput(e: Event): void {
+    query = (e.currentTarget as HTMLInputElement).value
+    if (searchDebounce !== null) clearTimeout(searchDebounce)
+    const trimmed = query.trim()
+    if (trimmed.length === 0) {
+      searchHits = []
+      searching = false
+      return
+    }
+    searching = true
+    searchDebounce = setTimeout(() => void runSearch(trimmed), 200)
+  }
+
+  async function runSearch(q: string): Promise<void> {
+    try {
+      searchHits = await window.api.sdkAgent.search({ workspaceId, query: q, limit: 25 })
+    } catch (err) {
+      console.warn('[ConversationListSidebar] search failed', err)
+      searchHits = []
+    } finally {
+      searching = false
+    }
+  }
+
+  function clearQuery(): void {
+    query = ''
+    searchHits = []
+    searching = false
+    if (searchDebounce !== null) clearTimeout(searchDebounce)
+  }
+
+  /**
+   * Dangerously render an FTS5 snippet. The snippet string is wrapped in
+   * <mark></mark> by SQLite — we trust that output because it originates
+   * from our own rows and is not user-controlled HTML. All other
+   * characters are escaped.
+   */
+  function renderSnippet(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/&lt;mark&gt;/g, '<mark>')
+      .replace(/&lt;\/mark&gt;/g, '</mark>')
+  }
 </script>
 
 <aside class="conversation-sidebar" aria-label="Conversations">
@@ -67,30 +118,75 @@
     </button>
   </header>
 
-  <ul class="conversation-list">
-    {#if loading}
-      <li class="placeholder">Loading…</li>
-    {:else if conversations.length === 0}
-      <li class="placeholder">No conversations yet.</li>
-    {:else}
-      {#each conversations as conv (conv.id)}
-        <li>
-          <button
-            type="button"
-            class="conv-row"
-            class:active={conv.id === activeConversationId}
-            onclick={() => onOpen?.(conv.id)}
-          >
-            <MessageSquare size={13} />
-            <div class="conv-body">
-              <div class="conv-title">{prettyTitle(conv)}</div>
-              <div class="conv-meta">{conv.model} · {relativeTime(conv.updatedAt)}</div>
-            </div>
-          </button>
-        </li>
-      {/each}
+  <div class="search-row">
+    <Search size={12} />
+    <input
+      class="search-input"
+      type="search"
+      placeholder="Search messages…"
+      value={query}
+      oninput={onQueryInput}
+      aria-label="Search conversations"
+    />
+    {#if query}
+      <button type="button" class="clear-btn" onclick={clearQuery} title="Clear">
+        <X size={12} />
+      </button>
     {/if}
-  </ul>
+  </div>
+
+  {#if query.trim().length > 0}
+    <ul class="conversation-list">
+      {#if searching}
+        <li class="placeholder">Searching…</li>
+      {:else if searchHits.length === 0}
+        <li class="placeholder">No matches.</li>
+      {:else}
+        {#each searchHits as hit (hit.conversationId + hit.createdAt)}
+          <li>
+            <button
+              type="button"
+              class="conv-row hit"
+              class:active={hit.conversationId === activeConversationId}
+              onclick={() => onOpen?.(hit.conversationId)}
+            >
+              <MessageSquare size={13} />
+              <div class="conv-body">
+                <div class="conv-title">{hit.title ?? 'Untitled chat'}</div>
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -- renderSnippet escapes all HTML before reintroducing only <mark> tags produced by FTS5. -->
+                <div class="conv-snippet">{@html renderSnippet(hit.snippet)}</div>
+              </div>
+            </button>
+          </li>
+        {/each}
+      {/if}
+    </ul>
+  {:else}
+    <ul class="conversation-list">
+      {#if loading}
+        <li class="placeholder">Loading…</li>
+      {:else if conversations.length === 0}
+        <li class="placeholder">No conversations yet.</li>
+      {:else}
+        {#each conversations as conv (conv.id)}
+          <li>
+            <button
+              type="button"
+              class="conv-row"
+              class:active={conv.id === activeConversationId}
+              onclick={() => onOpen?.(conv.id)}
+            >
+              <MessageSquare size={13} />
+              <div class="conv-body">
+                <div class="conv-title">{prettyTitle(conv)}</div>
+                <div class="conv-meta">{conv.model} · {relativeTime(conv.updatedAt)}</div>
+              </div>
+            </button>
+          </li>
+        {/each}
+      {/if}
+    </ul>
+  {/if}
 </aside>
 
 <style>
@@ -138,6 +234,63 @@
 
   .new-chat:hover {
     background: var(--c-accent-bg);
+  }
+
+  .search-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--c-border-subtle);
+    color: var(--c-text-muted);
+  }
+
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: none;
+    color: var(--c-text);
+    font-size: 12px;
+    font-family: inherit;
+  }
+
+  .clear-btn {
+    display: inline-flex;
+    background: transparent;
+    color: var(--c-text-muted);
+    border: 0;
+    padding: 2px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .clear-btn:hover {
+    background: var(--c-hover);
+    color: var(--c-text);
+  }
+
+  .conv-row.hit .conv-body {
+    gap: 4px;
+  }
+
+  .conv-snippet {
+    font-size: 11px;
+    color: var(--c-text-muted);
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .conv-snippet :global(mark) {
+    background: var(--c-accent-bg);
+    color: var(--c-accent-text);
+    border-radius: 2px;
+    padding: 0 2px;
   }
 
   .conversation-list {
