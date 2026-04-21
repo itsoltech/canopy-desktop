@@ -204,7 +204,7 @@ export const claudeAdapter: AgentAdapter = {
           if (
             typeof v === 'string' &&
             !BLOCKED_ENV_VARS.has(k.toUpperCase()) &&
-            !INTERNAL_BLOCKED.has(k)
+            !INTERNAL_BLOCKED.has(k.toUpperCase())
           ) {
             env[k] = v
           }
