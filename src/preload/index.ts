@@ -4,6 +4,16 @@ import type { GitInfo } from '../main/git/GitRepository'
 import type { RemoteSessionStatus } from '../main/remote/types'
 import type { AgentProfileMasked, ProfileInput } from '../main/profiles/types'
 import type { AgentType } from '../main/agents/types'
+import type {
+  AskUserQuestionAnswer,
+  Attachment,
+  PermissionMode,
+  PlanDecision,
+  SdkAgentEvent,
+  ToolDecision,
+} from '../main/sdkAgents/types'
+import type { Conversation, SdkMessageRecord } from '../main/db/sdkAgentRows'
+import type { ConversationSearchHit } from '../main/db/ConversationStore'
 
 const api = {
   // PTY
@@ -996,6 +1006,58 @@ const api = {
       callback(data)
     ipcRenderer.on('runConfig:postRunResult', handler)
     return () => ipcRenderer.removeListener('runConfig:postRunResult', handler)
+  },
+
+  // SDK-agent backend (experimental, gated by prefs.experimental.sdkAgents).
+  sdkAgent: {
+    create: (args: { workspaceId: string; worktreePath: string; profileId: string }) =>
+      ipcRenderer.invoke('sdkAgent:create', args) as Promise<
+        { conversationId: string } | { error: string }
+      >,
+    send: (args: {
+      conversationId: string
+      text: string
+      attachments?: Attachment[]
+      modelOverride?: string
+      permissionModeOverride?: PermissionMode
+    }) => ipcRenderer.invoke('sdkAgent:send', args) as Promise<{ ok: true } | { error: string }>,
+    cancel: (conversationId: string) =>
+      ipcRenderer.invoke('sdkAgent:cancel', conversationId) as Promise<void>,
+    close: (conversationId: string) =>
+      ipcRenderer.invoke('sdkAgent:close', conversationId) as Promise<void>,
+    delete: (conversationId: string) =>
+      ipcRenderer.invoke('sdkAgent:delete', conversationId) as Promise<void>,
+    list: (workspaceId: string) =>
+      ipcRenderer.invoke('sdkAgent:list', workspaceId) as Promise<Conversation[]>,
+    getTranscript: (conversationId: string) =>
+      ipcRenderer.invoke('sdkAgent:getTranscript', conversationId) as Promise<{
+        conversation: Conversation | undefined
+        messages: SdkMessageRecord[]
+      }>,
+    search: (args: { workspaceId: string; query: string; limit?: number }) =>
+      ipcRenderer.invoke('sdkAgent:search', args) as Promise<ConversationSearchHit[]>,
+    respondPermission: (args: {
+      conversationId: string
+      requestId: string
+      decision: ToolDecision
+    }) => ipcRenderer.invoke('sdkAgent:respondPermission', args) as Promise<void>,
+    respondQuestion: (args: {
+      conversationId: string
+      requestId: string
+      answers: Record<string, AskUserQuestionAnswer>
+    }) => ipcRenderer.invoke('sdkAgent:respondQuestion', args) as Promise<void>,
+    respondPlan: (args: { conversationId: string; requestId: string; decision: PlanDecision }) =>
+      ipcRenderer.invoke('sdkAgent:respondPlan', args) as Promise<void>,
+    /**
+     * Attach a listener for a specific conversation's event stream.
+     * Returns an unsubscribe function.
+     */
+    subscribe: (conversationId: string, handler: (event: SdkAgentEvent) => void) => {
+      const channel = `sdkAgent:event:${conversationId}`
+      const listener = (_e: IpcRendererEvent, event: SdkAgentEvent): void => handler(event)
+      ipcRenderer.on(channel, listener)
+      return () => ipcRenderer.removeListener(channel, listener)
+    },
   },
 }
 

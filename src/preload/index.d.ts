@@ -763,7 +763,61 @@ interface CanopyAPI {
   onRunConfigPostRunResult: (
     callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
   ) => () => void
+
+  sdkAgent: {
+    create: (args: {
+      workspaceId: string
+      worktreePath: string
+      profileId: string
+    }) => Promise<{ conversationId: string } | { error: string }>
+    send: (args: {
+      conversationId: string
+      text: string
+      attachments?: SdkAttachment[]
+      modelOverride?: string
+      permissionModeOverride?: SdkPermissionMode
+    }) => Promise<{ ok: true } | { error: string }>
+    cancel: (conversationId: string) => Promise<void>
+    close: (conversationId: string) => Promise<void>
+    delete: (conversationId: string) => Promise<void>
+    list: (workspaceId: string) => Promise<SdkConversation[]>
+    getTranscript: (conversationId: string) => Promise<{
+      conversation: SdkConversation | undefined
+      messages: SdkMessageRecord[]
+    }>
+    search: (args: {
+      workspaceId: string
+      query: string
+      limit?: number
+    }) => Promise<SdkConversationSearchHit[]>
+    respondPermission: (args: {
+      conversationId: string
+      requestId: string
+      decision: SdkToolDecision
+    }) => Promise<void>
+    respondQuestion: (args: {
+      conversationId: string
+      requestId: string
+      answers: Record<string, SdkAskUserQuestionAnswer>
+    }) => Promise<void>
+    respondPlan: (args: {
+      conversationId: string
+      requestId: string
+      decision: SdkPlanDecision
+    }) => Promise<void>
+    subscribe: (conversationId: string, handler: (event: SdkAgentEvent) => void) => () => void
+  }
 }
+
+type SdkAgentEvent = import('../main/sdkAgents/types').SdkAgentEvent
+type SdkAttachment = import('../main/sdkAgents/types').Attachment
+type SdkPermissionMode = import('../main/sdkAgents/types').PermissionMode
+type SdkToolDecision = import('../main/sdkAgents/types').ToolDecision
+type SdkPlanDecision = import('../main/sdkAgents/types').PlanDecision
+type SdkAskUserQuestionAnswer = import('../main/sdkAgents/types').AskUserQuestionAnswer
+type SdkConversation = import('../main/db/sdkAgentRows').Conversation
+type SdkMessageRecord = import('../main/db/sdkAgentRows').SdkMessageRecord
+type SdkConversationSearchHit = import('../main/db/ConversationStore').ConversationSearchHit
 
 interface RunConfiguration {
   name: string
