@@ -34,6 +34,12 @@
   import ModelPickerInline from './components/chat/molecules/ModelPickerInline.svelte'
   import ChatInput from './components/chat/molecules/ChatInput.svelte'
   import SubAgentRun from './components/chat/molecules/SubAgentRun.svelte'
+  import AttentionBanner from './components/chat/molecules/AttentionBanner.svelte'
+  import QuestionOption from './components/chat/molecules/QuestionOption.svelte'
+  import QuestionBlock from './components/chat/molecules/QuestionBlock.svelte'
+  import QuestionnaireBlock from './components/chat/molecules/QuestionnaireBlock.svelte'
+  import PlanApprovalBlock from './components/chat/molecules/PlanApprovalBlock.svelte'
+  import ToolPermissionBlock from './components/chat/molecules/ToolPermissionBlock.svelte'
 
   const now = Date.now()
 
@@ -133,6 +139,76 @@ A deep dive into $state and $derived — joyofcode.xyz/svelte-5-runes`
   const bashErrorResult = 'rm: /protected: Permission denied\nexit code: 1'
 
   const fileIndices = Array.from({ length: 12 }, (_v, i) => i)
+
+  // ── User-attention demo data ──────────────────────────────────────────────
+
+  const libraryQuestion = {
+    question: 'Which library should we use for date formatting?',
+    header: 'Library',
+    options: [
+      {
+        label: 'date-fns (Recommended)',
+        description: 'Tree-shakeable, modular, already used elsewhere in the codebase.',
+      },
+      {
+        label: 'dayjs',
+        description: 'Smaller bundle, Moment-compatible API.',
+      },
+      {
+        label: 'luxon',
+        description: 'Strong timezone support but larger footprint.',
+      },
+    ],
+  }
+
+  const featuresQuestion = {
+    question: 'Which features do you want to enable?',
+    header: 'Features',
+    multiSelect: true,
+    options: [
+      { label: 'Keyboard shortcuts', description: '⌘K palette, navigation hotkeys.' },
+      { label: 'Notifications', description: 'Desktop notifications for completed tasks.' },
+      { label: 'Telemetry', description: 'Anonymous usage statistics.' },
+      { label: 'Beta features', description: 'Experimental functionality (may be unstable).' },
+    ],
+  }
+
+  const approachQuestion = {
+    question: 'Which implementation approach?',
+    header: 'Approach',
+    options: [
+      {
+        label: 'Inline component (Recommended)',
+        description: 'Single file, minimal API surface.',
+        preview: `let count = $state(0)\n\nfunction increment() {\n  count++\n}\n\n// render <button>{count}</button>`,
+      },
+      {
+        label: 'Extracted hook',
+        description: 'Reusable across components, more boilerplate.',
+        preview: `function useCounter() {\n  let count = $state(0)\n  return {\n    get value() { return count },\n    inc: () => count++,\n  }\n}`,
+      },
+      {
+        label: 'Context store',
+        description: 'Shared state across tree; requires wiring at root.',
+        preview: `const ctx = setContext('counter', {\n  count: $state(0),\n})\n\n// in children:\nconst { count } = getContext('counter')`,
+      },
+    ],
+  }
+
+  const samplePlan = `## Summary\n\nSwap out the 3-dot bouncer for a Braille cli-spinners style animation. Rewrite the TypingDots atom to tick through 10 Braille frames at 80ms each, respecting prefers-reduced-motion.\n\n## Files\n- src/renderer/src/components/chat/atoms/TypingDots.svelte\n\n## Verification\n- npm run svelte-check\n- Manual eyeball at /showcase`
+
+  const planPermissions = [
+    { tool: 'Edit', prompt: 'modify TypingDots.svelte' },
+    { tool: 'Bash', prompt: 'run svelte-check' },
+    { tool: 'Bash', prompt: 'run lint' },
+  ]
+
+  let submittedAnswers = $state<Record<string, unknown> | null>(null)
+  let permissionLog = $state<string[]>([])
+
+  function logPermission(tool: string, decision: string): void {
+    permissionLog = [`${tool} → ${decision}`, ...permissionLog].slice(0, 5)
+  }
 </script>
 
 <div class="showcase">
@@ -880,9 +956,226 @@ A deep dive into $state and $derived — joyofcode.xyz/svelte-5-runes`
     </article>
   </section>
 
+  <!-- ────────────────────── USER ATTENTION ───────────────────── -->
+  <section class="section">
+    <h2>User Attention</h2>
+
+    <article class="demo">
+      <h3>AttentionBanner (shell)</h3>
+      <AttentionBanner title="Waiting for input" tone="warning">
+        {#snippet description()}
+          Generic attention shell — used by the blocks below.
+        {/snippet}
+        {#snippet body()}
+          <p class="paragraph">Any content can sit inside the body snippet.</p>
+        {/snippet}
+        {#snippet actions()}
+          <button type="button" class="demo-btn">Act</button>
+        {/snippet}
+      </AttentionBanner>
+      <AttentionBanner title="Approved" tone="accent" status="resolved">
+        {#snippet description()}
+          Green rail + tone override when status is resolved.
+        {/snippet}
+      </AttentionBanner>
+      <AttentionBanner title="Rejected" tone="warning" status="rejected">
+        {#snippet description()}
+          Red rail + tone override when status is rejected.
+        {/snippet}
+      </AttentionBanner>
+    </article>
+
+    <article class="demo">
+      <h3>QuestionOption</h3>
+      <div class="col">
+        <QuestionOption label="Basic option" description="Single-select, unchecked." />
+        <QuestionOption label="Selected option" description="Single-select, checked." selected />
+        <QuestionOption
+          label="Recommended option (Recommended)"
+          description="Badge is auto-parsed from the label suffix."
+          selected
+        />
+        <QuestionOption
+          label="Multi-select"
+          description="Uses CustomCheckbox instead of CustomRadio."
+          multiSelect
+          selected
+        />
+        <QuestionOption label="Disabled" description="Read-only state." disabled />
+      </div>
+    </article>
+
+    <article class="demo">
+      <h3>QuestionBlock — single-select</h3>
+      <QuestionBlock
+        header={libraryQuestion.header}
+        question={libraryQuestion.question}
+        options={libraryQuestion.options}
+      />
+    </article>
+
+    <article class="demo">
+      <h3>QuestionBlock — multi-select</h3>
+      <QuestionBlock
+        header={featuresQuestion.header}
+        question={featuresQuestion.question}
+        options={featuresQuestion.options}
+        multiSelect
+      />
+    </article>
+
+    <article class="demo">
+      <h3>QuestionBlock — side-by-side preview</h3>
+      <QuestionBlock
+        header={approachQuestion.header}
+        question={approachQuestion.question}
+        options={approachQuestion.options}
+      />
+    </article>
+
+    <article class="demo">
+      <h3>QuestionnaireBlock — waiting</h3>
+      <QuestionnaireBlock
+        questions={[libraryQuestion, featuresQuestion]}
+        onsubmit={(answers) => (submittedAnswers = answers)}
+      />
+      {#if submittedAnswers}
+        <div class="submissions">
+          <Divider label="Submitted" />
+          <pre class="submission">{JSON.stringify(submittedAnswers, null, 2)}</pre>
+        </div>
+      {/if}
+    </article>
+
+    <article class="demo">
+      <h3>QuestionnaireBlock — resolved (read-only)</h3>
+      <QuestionnaireBlock
+        questions={[libraryQuestion]}
+        status="resolved"
+        answers={{
+          [libraryQuestion.question]: {
+            selected: ['date-fns (Recommended)'],
+          },
+        }}
+      />
+    </article>
+
+    <article class="demo">
+      <h3>QuestionnaireBlock — submitting / rejected</h3>
+      <QuestionnaireBlock questions={[libraryQuestion]} status="submitting" />
+      <QuestionnaireBlock questions={[libraryQuestion]} status="rejected" />
+    </article>
+
+    <article class="demo">
+      <h3>PlanApprovalBlock — waiting</h3>
+      <PlanApprovalBlock allowedPrompts={planPermissions}>
+        {#snippet plan()}
+          <p>
+            <strong>Summary.</strong> Swap out the 3-dot bouncer for a Braille cli-spinners style animation.
+          </p>
+          <p>
+            Rewrite the TypingDots atom to tick through 10 Braille frames at 80 ms each, respecting
+            <code>prefers-reduced-motion</code>.
+          </p>
+          <ul>
+            <li>
+              Files: <code>src/renderer/src/components/chat/atoms/TypingDots.svelte</code>
+            </li>
+            <li>
+              Verify: <code>npm run svelte-check</code> + manual eyeball at <code>/showcase</code>
+            </li>
+          </ul>
+        {/snippet}
+      </PlanApprovalBlock>
+    </article>
+
+    <article class="demo">
+      <h3>PlanApprovalBlock — approved</h3>
+      <PlanApprovalBlock allowedPrompts={planPermissions} status="approved">
+        {#snippet plan()}
+          <p>{samplePlan}</p>
+        {/snippet}
+      </PlanApprovalBlock>
+    </article>
+
+    <article class="demo">
+      <h3>PlanApprovalBlock — rejected with feedback</h3>
+      <PlanApprovalBlock
+        allowedPrompts={planPermissions}
+        status="rejected"
+        feedback="Please also add a test case covering the prefers-reduced-motion branch."
+      >
+        {#snippet plan()}
+          <p>{samplePlan}</p>
+        {/snippet}
+      </PlanApprovalBlock>
+    </article>
+
+    <article class="demo">
+      <h3>ToolPermissionBlock — Edit (file-path summary)</h3>
+      <ToolPermissionBlock
+        tool="Edit"
+        input={{ file_path: 'src/renderer/src/components/chat/atoms/TypingDots.svelte' }}
+        reason="Rewriting the spinner as documented in the plan."
+        onrespond={(d) => logPermission('Edit', d)}
+      />
+    </article>
+
+    <article class="demo">
+      <h3>ToolPermissionBlock — Bash (command summary)</h3>
+      <ToolPermissionBlock
+        tool="Bash"
+        input={{ command: 'npm run svelte-check' }}
+        reason="Verify no new type errors before declaring done."
+        onrespond={(d) => logPermission('Bash', d)}
+      />
+    </article>
+
+    <article class="demo">
+      <h3>ToolPermissionBlock — unknown tool fallback</h3>
+      <ToolPermissionBlock
+        tool="CustomTool"
+        input={{ param1: 'value', param2: 42, nested: { flag: true } }}
+        onrespond={(d) => logPermission('CustomTool', d)}
+      />
+    </article>
+
+    <article class="demo">
+      <h3>ToolPermissionBlock — resolved states</h3>
+      <ToolPermissionBlock
+        tool="Edit"
+        input={{ file_path: 'src/App.svelte' }}
+        status="granted"
+        priorDecision="allow-session"
+      />
+      <ToolPermissionBlock
+        tool="Bash"
+        input={{ command: 'rm -rf node_modules' }}
+        status="denied"
+        priorDecision="deny"
+      />
+      <ToolPermissionBlock
+        tool="WebSearch"
+        input={{ query: 'Svelte 5 runes' }}
+        status="submitting"
+      />
+    </article>
+
+    {#if permissionLog.length > 0}
+      <article class="demo">
+        <h3>Permission log</h3>
+        <div class="submissions">
+          {#each permissionLog as entry, i (i + '-' + entry)}
+            <div class="submission">{entry}</div>
+          {/each}
+        </div>
+      </article>
+    {/if}
+  </section>
+
   <footer class="page-footer">
     <span>
-      <TypingDots /> 27 components: 14 atoms + 13 molecules
+      <TypingDots /> 35 components: 16 atoms + 19 molecules
     </span>
   </footer>
 </div>
