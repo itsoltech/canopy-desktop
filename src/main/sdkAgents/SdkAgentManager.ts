@@ -219,7 +219,6 @@ export class SdkAgentManager {
     // Configure the env just like commitMessageGenerator does, scoped to this call.
     const savedEnv = applyEnv(profile.apiKey, profile.prefs)
     try {
-      const startedAt = Date.now()
       const canUseTool = this.buildCanUseTool(params.conversationId)
       const iterResult = await provider.query({
         conversationId: params.conversationId,
@@ -243,7 +242,7 @@ export class SdkAgentManager {
       }
 
       for await (const ev of iterResult.value) {
-        this.handleEvent(params.conversationId, ev, startedAt)
+        this.handleEvent(params.conversationId, ev)
       }
     } catch (e) {
       const error = toSdkAgentError(e)
@@ -257,7 +256,7 @@ export class SdkAgentManager {
 
   // --- Private helpers ---
 
-  private handleEvent(id: ConversationId, ev: SdkAgentEvent, _startedAt: number): void {
+  private handleEvent(id: ConversationId, ev: SdkAgentEvent): void {
     match(ev)
       .with({ _tag: 'session.init' }, (e) => {
         const session = this.registry.get(id)
