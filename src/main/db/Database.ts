@@ -228,6 +228,35 @@ const migrations: Migration[] = [
         ON sdk_attachments(conversation_id);
     `,
   },
+  {
+    id: 12,
+    up: `
+      CREATE VIRTUAL TABLE IF NOT EXISTS sdk_messages_fts USING fts5(
+        content,
+        conversation_id UNINDEXED,
+        created_at UNINDEXED,
+        content='sdk_messages',
+        content_rowid='rowid'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS sdk_messages_ai AFTER INSERT ON sdk_messages BEGIN
+        INSERT INTO sdk_messages_fts(rowid, content, conversation_id, created_at)
+        VALUES (new.rowid, new.content, new.conversation_id, new.created_at);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS sdk_messages_ad AFTER DELETE ON sdk_messages BEGIN
+        INSERT INTO sdk_messages_fts(sdk_messages_fts, rowid, content)
+        VALUES ('delete', old.rowid, old.content);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS sdk_messages_au AFTER UPDATE ON sdk_messages BEGIN
+        INSERT INTO sdk_messages_fts(sdk_messages_fts, rowid, content)
+        VALUES ('delete', old.rowid, old.content);
+        INSERT INTO sdk_messages_fts(rowid, content, conversation_id, created_at)
+        VALUES (new.rowid, new.content, new.conversation_id, new.created_at);
+      END;
+    `,
+  },
 ]
 
 export class Database {
