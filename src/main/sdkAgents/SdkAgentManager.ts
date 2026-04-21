@@ -205,9 +205,10 @@ export class SdkAgentManager {
       return { error: { _tag: 'profile_not_found', profileId: session.agentProfileId } }
     }
     const profile = profileResult.value
-    if (!profile.apiKey) {
-      return { error: { _tag: 'auth_missing' } }
-    }
+    // apiKey is optional: when omitted, the SDK delegates auth to the bundled
+    // Claude CLI binary (pathToClaudeCodeExecutable), which uses its own
+    // stored session. Only set ANTHROPIC_API_KEY when the profile explicitly
+    // provides one to override that fallback.
 
     // Persist the user message.
     this.deps.messageStore.append({
@@ -226,7 +227,9 @@ export class SdkAgentManager {
       return { error: { _tag: 'sdk_internal', message: 'no provider registered' } }
     }
 
-    // Configure the env just like commitMessageGenerator does, scoped to this call.
+    // Configure the env just like commitMessageGenerator does, scoped to this
+    // call. apiKey may be null; applyEnv handles that by only setting base URL
+    // and provider env vars.
     const savedEnv = applyEnv(profile.apiKey, profile.prefs)
     try {
       const canUseTool = this.buildCanUseTool(params.conversationId)
@@ -239,7 +242,7 @@ export class SdkAgentManager {
         appendSystemPrompt: profile.prefs.appendSystemPrompt,
         mcpServers: parseMcpServers(profile.prefs.mcpServers),
         cwd: session.worktreePath,
-        apiKey: profile.apiKey,
+        apiKey: profile.apiKey ?? undefined,
         context: {
           canUseTool,
           signal: session.abortController.signal,
@@ -416,8 +419,11 @@ interface SavedEnv {
   before: Record<string, string | undefined>
 }
 
-function applyEnv(apiKey: string, prefs: { baseUrl?: string; provider?: string }): SavedEnv {
-  const overrides: Record<string, string> = { ANTHROPIC_API_KEY: apiKey }
+function applyEnv(apiKey: string | null, prefs: { baseUrl?: string; provider?: string }): SavedEnv {
+  const overrides: Record<string, string> = {}
+  // Only force-override ANTHROPIC_API_KEY when the profile has one; otherwise
+  // the bundled Claude CLI binary falls back to its own stored session.
+  if (apiKey) overrides.ANTHROPIC_API_KEY = apiKey
   if (prefs.baseUrl) overrides.ANTHROPIC_BASE_URL = prefs.baseUrl
   if (prefs.provider === 'bedrock') overrides.CLAUDE_CODE_USE_BEDROCK = '1'
   if (prefs.provider === 'vertex') overrides.CLAUDE_CODE_USE_VERTEX = '1'

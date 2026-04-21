@@ -5,8 +5,11 @@
 
 <!--
   The SDK-backed Claude pane reuses the same profile shape as the CLI-backed
-  Claude profile (apiKey + permissionMode + model + baseUrl + provider +
-  customEnv). The only SDK-only field — `mcpServers` — isn't in the form yet;
-  configure it directly via the DB until the form grows a dedicated input.
+  Claude profile. API key is optional: when empty, the bundled Claude CLI
+  binary that ships with @anthropic-ai/claude-agent-sdk handles auth from its
+  own stored session (same as running `claude` in a terminal). Set an API key
+  only when you need to override that with a specific account or use a
+  non-default baseUrl / provider. The SDK-only `mcpServers` field isn't in
+  the form yet — configure via DB until the form grows a dedicated input.
 -->
 <AgentProfilesPanel agentType="claude-sdk" title="Claude (SDK)" form={ClaudeProfileForm} />
