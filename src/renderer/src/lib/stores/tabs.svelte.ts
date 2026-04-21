@@ -25,6 +25,7 @@ import {
 import { confirm } from './dialogs.svelte'
 import { getPref } from './preferences.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
+import { sdkSessions, destroySession as destroySdkSession } from './sdkAgentSessions.svelte'
 import { notesUiScope } from './notes.svelte'
 import { getProfileById } from './profiles.svelte'
 import { drawingsState } from './drawings.svelte'
@@ -65,9 +66,19 @@ const ACTIVE_CLAUDE_STATUSES = new Set([
 async function getActiveProcessDescription(panes: PaneSession[]): Promise<string | null> {
   let busyClaude = 0
   let activeShell = 0
+  let pendingAttentionCount = 0
+  let streamingSdkCount = 0
 
   await Promise.all(
     panes.map(async (p) => {
+      if (p.paneType === 'sdkChat' && p.conversationId) {
+        const session = sdkSessions[p.conversationId]
+        if (!session) return
+        if (session.status === 'streaming') streamingSdkCount++
+        const waiting = session.pendingAttention.filter((a) => a.status === 'waiting').length
+        if (waiting > 0) pendingAttentionCount += waiting
+        return
+      }
       if (!p.isRunning) return
       if (AI_TOOL_IDS.has(p.toolId)) {
         const s = agentSessions[p.sessionId]
@@ -82,7 +93,13 @@ async function getActiveProcessDescription(panes: PaneSession[]): Promise<string
     }),
   )
 
-  if (busyClaude === 0 && activeShell === 0) return null
+  if (
+    busyClaude === 0 &&
+    activeShell === 0 &&
+    pendingAttentionCount === 0 &&
+    streamingSdkCount === 0
+  )
+    return null
 
   const parts: string[] = []
   if (busyClaude > 0) {
@@ -90,6 +107,13 @@ async function getActiveProcessDescription(panes: PaneSession[]): Promise<string
   }
   if (activeShell > 0) {
     parts.push(`${activeShell} running process${activeShell > 1 ? 'es' : ''}`)
+  }
+  if (pendingAttentionCount > 0) {
+    parts.push(
+      `${pendingAttentionCount} pending agent prompt${pendingAttentionCount > 1 ? 's' : ''}`,
+    )
+  } else if (streamingSdkCount > 0) {
+    parts.push(`${streamingSdkCount} streaming agent reply`)
   }
   return parts.join(' and ')
 }
@@ -458,11 +482,40 @@ export async function closeTab(tabId: string): Promise<void> {
     await Promise.all(
       panes
         .filter(
-          (p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing',
+          (p) =>
+            p.paneType !== 'editor' &&
+            p.paneType !== 'notes' &&
+            p.paneType !== 'drawing' &&
+            p.paneType !== 'sdkChat',
         )
         .map((p) => {
           if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
           return window.api.killPty(p.sessionId, !!p.tmuxSessionName)
+        }),
+    )
+
+    // SDK chat panes: cancel any in-flight work, close the main-side session,
+    // and drop the renderer subscription. The earlier confirm() already
+    // captured user intent for pending attention.
+    await Promise.all(
+      panes
+        .filter((p) => p.paneType === 'sdkChat' && p.conversationId)
+        .map(async (p) => {
+          const id = p.conversationId!
+          const session = sdkSessions[id]
+          try {
+            if (
+              session?.status === 'streaming' ||
+              session?.pendingAttention.some((a) => a.status === 'waiting')
+            ) {
+              await window.api.sdkAgent.cancel(id)
+            }
+            await window.api.sdkAgent.close(id)
+          } catch (e) {
+            console.warn('[closeTab] sdk cleanup failed', e)
+          } finally {
+            destroySdkSession(id)
+          }
         }),
     )
 
