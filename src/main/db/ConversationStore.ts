@@ -3,7 +3,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
 import type { Conversation, ConversationRow, ConversationStatus } from './sdkAgentRows'
 import { conversationFromRow } from './sdkAgentRows'
-import type { ConversationId, PermissionMode, SdkSessionId } from '../sdkAgents/types'
+import type { ConversationId, EffortLevel, PermissionMode, SdkSessionId } from '../sdkAgents/types'
 import { asConversationId } from '../sdkAgents/types'
 
 export interface CreateConversationInput {
@@ -146,6 +146,16 @@ export class ConversationStore {
          WHERE id = ?`,
       )
       .run(mode, id)
+  }
+
+  setEffortLevel(id: ConversationId, effort: EffortLevel | null): void {
+    this.db
+      .prepare(
+        `UPDATE conversations
+         SET effort_level = ?, updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+      .run(effort, id)
   }
 
   touch(id: ConversationId): void {

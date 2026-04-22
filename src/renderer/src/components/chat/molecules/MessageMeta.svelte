@@ -7,15 +7,30 @@
     tokens?: number
     tokensIn?: number
     tokensOut?: number
+    cacheReadInputTokens?: number
+    cacheCreationInputTokens?: number
     costUsd?: number
     elapsedMs?: number
   }
 
-  let { model, tokens, tokensIn, tokensOut, costUsd, elapsedMs }: Props = $props()
+  let {
+    model,
+    tokens,
+    tokensIn,
+    tokensOut,
+    cacheReadInputTokens,
+    cacheCreationInputTokens,
+    costUsd,
+    elapsedMs,
+  }: Props = $props()
 
   let hasSplit = $derived(tokensIn !== undefined || tokensOut !== undefined)
   let splitTotal = $derived((tokensIn ?? 0) + (tokensOut ?? 0))
   let hasAnyTokens = $derived(hasSplit || tokens !== undefined)
+  let hasCache = $derived(
+    (cacheReadInputTokens !== undefined && cacheReadInputTokens > 0) ||
+      (cacheCreationInputTokens !== undefined && cacheCreationInputTokens > 0),
+  )
 
   let elapsedText = $derived.by(() => {
     if (elapsedMs === undefined) return null
@@ -55,6 +70,24 @@
     {#if model}<span class="sep">·</span>{/if}
     <TokenCount {tokens} />
   {/if}
+  {#if hasCache}
+    {#if hasAnyTokens}<span class="sep">·</span>{/if}
+    {#if cacheReadInputTokens !== undefined && cacheReadInputTokens > 0}
+      <span class="cache" title="Cache-read input tokens">
+        <span class="arrow">⚡</span>
+        <TokenCount tokens={cacheReadInputTokens} label="cache" />
+      </span>
+    {/if}
+    {#if cacheCreationInputTokens !== undefined && cacheCreationInputTokens > 0}
+      {#if cacheReadInputTokens !== undefined && cacheReadInputTokens > 0}
+        <span class="sep">·</span>
+      {/if}
+      <span class="cache" title="Cache-creation input tokens">
+        <span class="arrow">✚</span>
+        <TokenCount tokens={cacheCreationInputTokens} label="cache+" />
+      </span>
+    {/if}
+  {/if}
   {#if costText}
     {#if model || hasAnyTokens || elapsedText}<span class="sep">·</span>{/if}
     <span class="cost">{costText}</span>
@@ -79,7 +112,8 @@
     color: var(--c-text-faint);
   }
 
-  .split {
+  .split,
+  .cache {
     display: inline-flex;
     align-items: baseline;
     gap: 3px;

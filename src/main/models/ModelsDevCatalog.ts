@@ -11,6 +11,8 @@ interface ParsedModel {
   family: string | null
   releaseDate: string | null
   lastUpdated: string | null
+  reasoning: boolean
+  contextWindow: number | null
 }
 
 export interface ModelOption {
@@ -19,6 +21,13 @@ export interface ModelOption {
   family?: string | null
   releaseDate?: string | null
   lastUpdated?: string | null
+  /**
+   * Whether this model supports reasoning effort controls (from models.dev
+   * `reasoning` flag). Gates the effort picker in the renderer.
+   */
+  reasoning?: boolean
+  /** Total context window in tokens, from models.dev `limit.context`. */
+  contextWindow?: number | null
 }
 
 interface CachedCatalogFile {
@@ -71,6 +80,14 @@ function parseCatalog(payload: unknown): ParsedModel[] {
       const modelRecord = modelValue as Record<string, unknown>
       const id = typeof modelRecord.id === 'string' ? modelRecord.id : modelKey
       const name = typeof modelRecord.name === 'string' ? modelRecord.name : id
+      const limit =
+        modelRecord.limit &&
+        typeof modelRecord.limit === 'object' &&
+        !Array.isArray(modelRecord.limit)
+          ? (modelRecord.limit as Record<string, unknown>)
+          : null
+      const contextWindow =
+        limit && typeof limit.context === 'number' && limit.context > 0 ? limit.context : null
       models.push({
         id,
         name,
@@ -79,6 +96,8 @@ function parseCatalog(payload: unknown): ParsedModel[] {
         family: typeof modelRecord.family === 'string' ? normalize(modelRecord.family) : null,
         releaseDate: typeof modelRecord.release_date === 'string' ? modelRecord.release_date : null,
         lastUpdated: typeof modelRecord.last_updated === 'string' ? modelRecord.last_updated : null,
+        reasoning: modelRecord.reasoning === true,
+        contextWindow,
       })
     }
   }
@@ -157,6 +176,8 @@ export class ModelsDevCatalog {
       family: model.family,
       releaseDate: model.releaseDate,
       lastUpdated: model.lastUpdated,
+      reasoning: model.reasoning,
+      contextWindow: model.contextWindow,
     }))
   }
 

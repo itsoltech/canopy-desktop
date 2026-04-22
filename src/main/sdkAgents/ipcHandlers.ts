@@ -5,6 +5,7 @@ import type {
   Attachment,
   AttachmentKind,
   ConversationId,
+  EffortLevel,
   PermissionMode,
   PlanDecision,
   SdkAgentEvent,
@@ -78,6 +79,7 @@ export function registerSdkAgentIpcHandlers(manager: SdkAgentManager): void {
         attachments?: Attachment[]
         modelOverride?: string
         permissionModeOverride?: PermissionMode
+        effortLevelOverride?: EffortLevel | null
       },
     ): Promise<{ ok: true } | { error: string }> => {
       const id = asConversationId(args.conversationId)
@@ -88,6 +90,7 @@ export function registerSdkAgentIpcHandlers(manager: SdkAgentManager): void {
         attachments: args.attachments,
         modelOverride: args.modelOverride,
         permissionModeOverride: args.permissionModeOverride,
+        effortLevelOverride: args.effortLevelOverride,
       })
       if (result && 'error' in result) return { error: result.error._tag }
       return { ok: true }
@@ -106,11 +109,13 @@ export function registerSdkAgentIpcHandlers(manager: SdkAgentManager): void {
         conversationId: string
         model?: string
         permissionMode?: PermissionMode
+        effortLevel?: EffortLevel | null
       },
     ) => {
       manager.updateConversation(asConversationId(args.conversationId), {
         model: args.model,
         permissionMode: args.permissionMode,
+        effortLevel: args.effortLevel,
       })
     },
   )

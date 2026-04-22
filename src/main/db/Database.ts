@@ -289,6 +289,12 @@ const migrations: Migration[] = [
       ALTER TABLE sdk_tool_events ADD COLUMN parent_subagent_id TEXT;
     `,
   },
+  {
+    id: 18,
+    up: `
+      ALTER TABLE conversations ADD COLUMN effort_level TEXT;
+    `,
+  },
 ]
 
 export class Database {

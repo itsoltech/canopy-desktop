@@ -74,6 +74,50 @@
     return 'Extra env vars passed to Claude Code sessions in this profile'
   })
 
+  // Fetch the provider catalog so the effort field can flag models that
+  // explicitly don't support reasoning (per models.dev `reasoning` flag).
+  type CatalogModel = { value: string; label: string; family?: string | null; reasoning?: boolean }
+  let providerModels = $state<CatalogModel[]>([])
+  $effect(() => {
+    const presetId = selectedPreset.id
+    let cancelled = false
+    window.api
+      .getClaudeProviderModels(presetId)
+      .then((options) => {
+        if (!cancelled) providerModels = options
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  })
+
+  function catalogReasoningFor(value: string | undefined): boolean | null {
+    const trimmed = (value ?? '').trim()
+    if (trimmed === '') return null
+    const direct = providerModels.find((m) => m.value === trimmed)
+    if (direct) return direct.reasoning === true
+    const alias = trimmed.toLowerCase()
+    if (alias === 'haiku' || alias === 'sonnet' || alias === 'opus') {
+      const resolved = providerModels.find(
+        (m) =>
+          m.family === alias ||
+          m.family === `claude-${alias}` ||
+          m.label.toLowerCase().includes(alias),
+      )
+      if (resolved) return resolved.reasoning === true
+    }
+    return null
+  }
+
+  let effortReasoningState = $derived(catalogReasoningFor(prefs.model))
+  let effortGatedHint = $derived.by(() => {
+    if (effortReasoningState === false) {
+      return 'The selected model does not support reasoning effort; this value will be ignored.'
+    }
+    return null
+  })
+
   function clearProviderModelFields(next: ProfilePrefs): void {
     next.providerModel = ''
     next.providerOpusModel = ''
@@ -169,7 +213,7 @@
       value={prefs.model ?? ''}
       oninput={onTextInput('model')}
       placeholder={selectedPreset.id === 'minimax'
-        ? selectedPreset.defaultProviderModel ?? 'MiniMax-M2.7'
+        ? (selectedPreset.defaultProviderModel ?? 'MiniMax-M2.7')
         : 'sonnet, opus, haiku, or model ID'}
       spellcheck="false"
     />
@@ -209,6 +253,9 @@
       ]}
       onchange={(v) => set('effortLevel', v)}
     />
+    {#if effortGatedHint}
+      <span class="field-warning">{effortGatedHint}</span>
+    {/if}
   </div>
 </div>
 
@@ -372,6 +419,12 @@
   .field-hint {
     font-size: 11px;
     color: var(--c-text-faint);
+  }
+
+  .field-warning {
+    font-size: 11px;
+    color: var(--c-warning-text, var(--c-accent-text));
+    font-style: italic;
   }
 
   .text-input {

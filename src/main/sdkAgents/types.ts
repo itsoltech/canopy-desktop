@@ -81,6 +81,17 @@ export interface PlanAllowedPrompt {
 /** Permission-mode aliases mirror SDK options. */
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 
+/**
+ * Reasoning effort level, mirrors `EffortLevel` from @anthropic-ai/claude-agent-sdk.
+ * Only meaningful for models that expose `reasoning: true` in the models.dev catalog.
+ */
+export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
+
+export function normalizeEffortLevel(value: string | null | undefined): EffortLevel | null {
+  if (value === 'low' || value === 'medium' || value === 'high' || value === 'max') return value
+  return null
+}
+
 export type PlanDecision =
   | { action: 'approve'; permissionMode: Exclude<PermissionMode, 'plan'> }
   | { action: 'reject'; feedback?: string }
@@ -130,6 +141,13 @@ export type SdkAgentEvent =
       content: ContentBlock[]
       tokensIn?: number
       tokensOut?: number
+      /**
+       * Per-step cache snapshots from the inner Anthropic message's `usage`.
+       * Used for live context-window occupancy — a per-step snapshot is
+       * accurate where the cumulative `result.usage` is not.
+       */
+      cacheReadInputTokens?: number
+      cacheCreationInputTokens?: number
       costUsd?: number
       /** The model that actually produced this message, when the SDK reports it. */
       model?: string
@@ -196,7 +214,15 @@ export type SdkAgentEvent =
       sessionId: ConversationId
       inputTokens: number
       outputTokens: number
+      /**
+       * Cache read/creation inputs from the SDK `result` usage breakdown.
+       * Useful for showing effective context reuse in message meta.
+       */
+      cacheReadInputTokens?: number
+      cacheCreationInputTokens?: number
       costUsd?: number
+      /** Total wall-clock duration for the turn, from the SDK's `duration_ms`. */
+      durationMs?: number
     }
   | {
       _tag: 'error'

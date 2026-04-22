@@ -3,6 +3,7 @@ import type {
   Attachment,
   ContentBlock,
   ConversationId,
+  EffortLevel,
   PermissionMode,
   SdkAgentEvent,
 } from '../types'
@@ -41,6 +42,12 @@ export interface ProviderQueryOptions {
   attachments?: Attachment[]
   model: string
   permissionMode: PermissionMode
+  /**
+   * Optional reasoning-effort control. Only forwarded when the selected
+   * model advertises reasoning support. `null`/`undefined` leaves the
+   * SDK default in place.
+   */
+  effort?: EffortLevel | null
   appendSystemPrompt?: string
   cwd: string
   mcpServers?: Record<string, unknown>

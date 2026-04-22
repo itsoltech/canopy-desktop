@@ -18,6 +18,7 @@
     attachments?: Snippet
     modelPicker?: Snippet
     permissionMode?: Snippet
+    effortPicker?: Snippet
     commandHints?: Snippet
   }
 
@@ -34,6 +35,7 @@
     attachments,
     modelPicker,
     permissionMode,
+    effortPicker,
   }: Props = $props()
 
   let textareaEl: HTMLTextAreaElement | undefined = $state()
@@ -116,6 +118,9 @@
       {/if}
       {#if permissionMode}
         {@render permissionMode()}
+      {/if}
+      {#if effortPicker}
+        {@render effortPicker()}
       {/if}
     </div>
     <div class="right">

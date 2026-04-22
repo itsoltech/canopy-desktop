@@ -8,6 +8,7 @@ import type { ClaudeProviderPresetId } from '../shared/claudeProviderPresets'
 import type {
   AskUserQuestionAnswer,
   Attachment,
+  EffortLevel,
   PermissionMode,
   PlanDecision,
   SdkAgentEvent,
@@ -984,6 +985,8 @@ const api = {
         family?: string | null
         releaseDate?: string | null
         lastUpdated?: string | null
+        reasoning?: boolean
+        contextWindow?: number | null
       }>
     >,
   saveProfile: (input: ProfileInput) =>
@@ -1031,6 +1034,7 @@ const api = {
       attachments?: Attachment[]
       modelOverride?: string
       permissionModeOverride?: PermissionMode
+      effortLevelOverride?: EffortLevel | null
     }) => ipcRenderer.invoke('sdkAgent:send', args) as Promise<{ ok: true } | { error: string }>,
     cancel: (conversationId: string) =>
       ipcRenderer.invoke('sdkAgent:cancel', conversationId) as Promise<void>,
@@ -1038,6 +1042,7 @@ const api = {
       conversationId: string
       model?: string
       permissionMode?: PermissionMode
+      effortLevel?: EffortLevel | null
     }) => ipcRenderer.invoke('sdkAgent:updateConversation', args) as Promise<void>,
     close: (conversationId: string) =>
       ipcRenderer.invoke('sdkAgent:close', conversationId) as Promise<void>,

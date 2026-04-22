@@ -535,6 +535,22 @@
     return undefined
   }
 
+  function groupCacheRead(group: MessageGroup): number | undefined {
+    for (let i = group.messages.length - 1; i >= 0; i--) {
+      const value = group.messages[i].cacheReadInputTokens
+      if (value !== null && value !== undefined) return value
+    }
+    return undefined
+  }
+
+  function groupCacheCreation(group: MessageGroup): number | undefined {
+    for (let i = group.messages.length - 1; i >= 0; i--) {
+      const value = group.messages[i].cacheCreationInputTokens
+      if (value !== null && value !== undefined) return value
+    }
+    return undefined
+  }
+
   function groupModel(group: MessageGroup): string | null {
     for (const message of group.messages) {
       if (message.model !== null) return message.model
@@ -693,12 +709,6 @@
     onkeyup={onSelectionKeyUp}
   >
     <div class="stream-column">
-      {#if messages.length === 0 && pendingAttention.length === 0}
-        <div class="empty-state">
-          <p>Start a conversation. The assistant is ready to help with this worktree.</p>
-        </div>
-      {/if}
-
       {#each messageTurns as turn (turn.id)}
         <section
           class="message-turn"
@@ -721,6 +731,12 @@
 
       {#if messageTurns.length === 0}
         <section class="message-turn latest-turn" style={`--turn-min-height: ${turnMinHeight}px`}>
+          {#if messages.length === 0 && pendingAttention.length === 0}
+            <div class="empty-state">
+              <p>Start a conversation. The assistant is ready to help with this worktree.</p>
+            </div>
+          {/if}
+
           {#each timelineAttention.orphan as block (block.requestId)}
             {@render attentionBlock(block)}
           {/each}
@@ -804,18 +820,20 @@
             </div>
           {/snippet}
 
-          {#if isAssistant && groupHasFooter(group)}
-            <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
-            {#snippet footer()}
+          <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
+          {#snippet footer()}
+            {#if isAssistant && groupHasFooter(group)}
               <MessageMeta
                 model={groupModelName}
                 tokensIn={groupTokensIn(group)}
                 tokensOut={groupTokensOut(group)}
+                cacheReadInputTokens={groupCacheRead(group)}
+                cacheCreationInputTokens={groupCacheCreation(group)}
                 costUsd={groupCostUsd(group)}
                 elapsedMs={groupElapsedMs(group) ?? undefined}
               />
-            {/snippet}
-          {/if}
+            {/if}
+          {/snippet}
         </MessageBubble>
       {/snippet}
 
@@ -934,14 +952,16 @@
           </div>
         {/if}
       {/snippet}
-
-      {#if composer}
-        <div class="composer-slot" bind:this={composerSlotEl}>
-          {@render composer()}
-        </div>
-      {/if}
     </div>
   </div>
+
+  {#if composer}
+    <div class="composer-dock">
+      <div class="composer-slot" bind:this={composerSlotEl}>
+        {@render composer()}
+      </div>
+    </div>
+  {/if}
 
   {#if !autoScroll && (messages.length > 0 || pendingAttention.length > 0)}
     <button
@@ -962,7 +982,12 @@
       style={`left:${selectionLeft}px;top:${selectionTop}px;`}
     >
       <div class="selection-actions">
-        <button type="button" class="selection-btn" onmousedown={(e) => e.preventDefault()} onclick={copySelection}>
+        <button
+          type="button"
+          class="selection-btn"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={copySelection}
+        >
           Copy
         </button>
         <button
@@ -1042,9 +1067,19 @@
     gap: 6px;
   }
 
+  /* Composer is pinned below the scrolling stream so the user can scroll up
+     and read earlier messages while still typing a reply. */
+  .composer-dock {
+    flex: 0 0 auto;
+    padding: 8px 18px 12px;
+    background: color-mix(in srgb, var(--c-bg) 96%, black);
+    border-top: 1px solid var(--c-border-subtle);
+  }
+
   .composer-slot {
-    margin-top: auto;
-    padding: 8px 0 12px;
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
   }
 
   .message-turn {

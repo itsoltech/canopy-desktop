@@ -39,7 +39,9 @@
     flex-direction: column;
     gap: 4px;
     align-self: stretch;
-    padding: 2px 0;
+    /* Match the user bubble's content indent (12px padding + 2px border)
+       so user and assistant text align on the same left column. */
+    padding: 2px 10px 2px 14px;
     border-radius: 0;
     border: 0;
     background: transparent;

@@ -52,6 +52,9 @@ export interface SdkMessageView {
   costUsd: number | null
   /** Wall-clock ms between the last user send and this assistant message. Null for user/tool/system, or if we weren't watching. */
   elapsedMs: number | null
+  /** Cache usage totals copied from the SDK's result event onto the final assistant bubble. */
+  cacheReadInputTokens?: number | null
+  cacheCreationInputTokens?: number | null
   /** Model that generated this message. Null for user/tool/system, or if the SDK didn't report it. */
   model: string | null
   createdAt: string
@@ -106,6 +109,16 @@ export interface SdkSessionState {
   tokensIn: number
   tokensOut: number
   costUsd: number
+  /**
+   * Per-turn snapshot from the most recent `usage` event. `input_tokens +
+   * cache_read + cache_creation` equals what the model reasoned over for
+   * that turn, which approximates the live context-window occupancy.
+   */
+  lastInputTokens: number | null
+  lastCacheReadTokens: number | null
+  lastCacheCreationTokens: number | null
+  /** Model's total context window in tokens (from models.dev `limit.context`). */
+  contextWindow: number | null
   lastError: string | null
   /** Epoch ms captured when the user sent the most recent message; null once the first assistant.message of that turn consumes it. */
   lastUserSendAt: number | null
@@ -132,6 +145,10 @@ function ensure(id: string): SdkSessionState {
     sdkSessionId: null,
     status: 'idle',
     ...EMPTY_USAGE,
+    lastInputTokens: null,
+    lastCacheReadTokens: null,
+    lastCacheCreationTokens: null,
+    contextWindow: null,
     lastError: null,
     lastUserSendAt: null,
   }
@@ -209,12 +226,18 @@ export async function sendMessage(
     attachments?: SdkAttachment[]
     modelOverride?: string
     permissionModeOverride?: SdkPermissionMode
+    effortLevelOverride?: SdkEffortLevel | null
   } = {},
 ): Promise<{ ok: true } | { error: string }> {
   const state = ensure(id)
   state.status = 'streaming'
   state.lastError = null
   state.lastUserSendAt = Date.now()
+  // Clear the previous turn's per-step snapshot so the fallback in the
+  // `usage` reducer (for short turns that skip assistant.message) kicks in.
+  state.lastInputTokens = null
+  state.lastCacheReadTokens = null
+  state.lastCacheCreationTokens = null
   // Optimistic: push the user message; the backend event will not emit a user
   // echo, so this is authoritative.
   state.messages = [
@@ -242,6 +265,7 @@ export async function sendMessage(
       attachments: options.attachments?.map(serializeAttachment),
       modelOverride: options.modelOverride,
       permissionModeOverride: options.permissionModeOverride,
+      effortLevelOverride: options.effortLevelOverride,
     })
   } catch (e) {
     result = { error: e instanceof Error ? e.message : String(e) }
@@ -267,6 +291,45 @@ export async function setPermissionMode(id: string, mode: SdkPermissionMode): Pr
   const state = sdkSessions[id]
   if (state?.conversation) state.conversation = { ...state.conversation, permissionMode: mode }
   await window.api.sdkAgent.updateConversation({ conversationId: id, permissionMode: mode })
+}
+
+export function setContextWindow(id: string, contextWindow: number | null): void {
+  const state = sdkSessions[id]
+  if (!state) return
+  state.contextWindow = contextWindow
+}
+
+/**
+ * Approximate percentage of the model's context window consumed by the most
+ * recent turn. Returns `null` when either the window size or the turn's token
+ * counts are unknown — e.g. before the first `usage` event lands or when the
+ * model isn't in models.dev's catalog.
+ */
+export function contextPercentFor(state: SdkSessionState | undefined): number | null {
+  if (!state || !state.contextWindow) return null
+  const used =
+    (state.lastInputTokens ?? 0) +
+    (state.lastCacheReadTokens ?? 0) +
+    (state.lastCacheCreationTokens ?? 0)
+  if (used <= 0) return null
+  return Math.round((used / state.contextWindow) * 100)
+}
+
+export function contextTokensUsedFor(state: SdkSessionState | undefined): number {
+  if (!state) return 0
+  return (
+    (state.lastInputTokens ?? 0) +
+    (state.lastCacheReadTokens ?? 0) +
+    (state.lastCacheCreationTokens ?? 0)
+  )
+}
+
+export async function setEffortLevel(id: string, effort: SdkEffortLevel | null): Promise<void> {
+  const state = sdkSessions[id]
+  if (state?.conversation) {
+    state.conversation = { ...state.conversation, effortLevel: effort }
+  }
+  await window.api.sdkAgent.updateConversation({ conversationId: id, effortLevel: effort })
 }
 
 export async function respondPermission(
@@ -341,7 +404,18 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
         state.messages,
         e.messageId as string,
       )
-      if (changed) state.messages = [...state.messages]
+      if (changed) {
+        // Stamp wall-clock elapsed the moment the streaming bubble appears,
+        // not only when the SDK emits a final `assistant.message`. Short
+        // turns skip that event and only fire `stream_event` + `result`, so
+        // without this the footer's `groupHasFooter` gate would be false
+        // until the `usage` event lands — and sometimes not at all.
+        if (last.elapsedMs === null && state.lastUserSendAt !== null) {
+          last.elapsedMs = Date.now() - state.lastUserSendAt
+          state.lastUserSendAt = null
+        }
+        state.messages = [...state.messages]
+      }
       last.content = last.content + e.text
       const first = last.contentBlocks[0] as { type: string; text?: string }
       if (first && first.type === 'text') first.text = last.content
@@ -351,10 +425,24 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
         state.messages,
         e.messageId as string,
       )
-      if (changed) state.messages = [...state.messages]
+      if (changed) {
+        if (last.elapsedMs === null && state.lastUserSendAt !== null) {
+          last.elapsedMs = Date.now() - state.lastUserSendAt
+          state.lastUserSendAt = null
+        }
+        state.messages = [...state.messages]
+      }
       last.thinking = last.thinking + e.text
     })
     .with({ _tag: 'assistant.message' }, (e) => {
+      // Per-step usage snapshot is the correct source for "live" context-
+      // window occupancy. The `result` event's totals are cumulative across
+      // every step of the multi-step query and routinely exceed the window.
+      if (typeof e.tokensIn === 'number') {
+        state.lastInputTokens = e.tokensIn
+        state.lastCacheReadTokens = e.cacheReadInputTokens ?? null
+        state.lastCacheCreationTokens = e.cacheCreationInputTokens ?? null
+      }
       const idx = state.messages.findIndex(
         (m) => m.role === 'assistant' && m.id === (e.messageId as string),
       )
@@ -460,6 +548,64 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
       state.tokensIn += e.inputTokens
       state.tokensOut += e.outputTokens
       if (typeof e.costUsd === 'number') state.costUsd += e.costUsd
+      // Only fall back to the cumulative `result.usage` for context-window
+      // estimation when no per-step snapshot has been recorded yet (i.e. a
+      // short turn that skipped the `type: 'assistant'` event entirely).
+      // Multi-step queries already set these from each per-step
+      // `assistant.message`, which is the authoritative per-turn snapshot.
+      if (state.lastInputTokens === null) {
+        state.lastInputTokens = e.inputTokens
+        state.lastCacheReadTokens = e.cacheReadInputTokens ?? null
+        state.lastCacheCreationTokens = e.cacheCreationInputTokens ?? null
+      }
+      // Attach the turn's totals to the final assistant message so the
+      // renderer's MessageMeta footer can surface duration/cost/tokens
+      // from the SDK's result summary instead of just per-chunk deltas.
+      let target = -1
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        if (state.messages[i].role === 'assistant') {
+          target = i
+          break
+        }
+      }
+      if (target < 0) {
+        // No assistant message to attach to — synthesize a minimal one so
+        // the footer still renders with the server totals.
+        state.messages = [
+          ...state.messages,
+          {
+            id: `usage-${Date.now()}`,
+            role: 'assistant',
+            content: '',
+            thinking: '',
+            contentBlocks: [{ type: 'text', text: '' }],
+            tokensIn: e.inputTokens,
+            tokensOut: e.outputTokens,
+            costUsd: e.costUsd ?? null,
+            elapsedMs: e.durationMs ?? null,
+            cacheReadInputTokens: e.cacheReadInputTokens ?? null,
+            cacheCreationInputTokens: e.cacheCreationInputTokens ?? null,
+            model: null,
+            createdAt: nowIso(),
+            toolEventIds: [],
+          },
+        ]
+        return
+      }
+      const m = state.messages[target]
+      const next: SdkMessageView = {
+        ...m,
+        tokensIn: e.inputTokens,
+        tokensOut: e.outputTokens,
+        costUsd: typeof e.costUsd === 'number' ? e.costUsd : m.costUsd,
+        elapsedMs: typeof e.durationMs === 'number' ? e.durationMs : m.elapsedMs,
+        cacheReadInputTokens: e.cacheReadInputTokens ?? m.cacheReadInputTokens ?? null,
+        cacheCreationInputTokens: e.cacheCreationInputTokens ?? m.cacheCreationInputTokens ?? null,
+      }
+      // Replace the whole array in one shot — the safer signal to Svelte's
+      // $state proxy than mutating an index in-place, which in some
+      // reactive flows doesn't propagate to derived readers.
+      state.messages = state.messages.map((msg, idx) => (idx === target ? next : msg))
     })
     .with({ _tag: 'error' }, (e) => {
       state.status = 'error'

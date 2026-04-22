@@ -2,6 +2,7 @@ import type {
   AskUserQuestionAnswer,
   ConversationId,
   ContentBlock,
+  EffortLevel,
   MessageId,
   PermissionMode,
   SdkSessionId,
@@ -11,6 +12,7 @@ import {
   asConversationId,
   asMessageId,
   asSdkSessionId,
+  normalizeEffortLevel,
   normalizePermissionMode,
 } from '../sdkAgents/types'
 
@@ -35,6 +37,7 @@ export interface ConversationRow {
   title: string | null
   model: string
   permission_mode: string
+  effort_level: string | null
   status: string
   created_at: string
   updated_at: string
@@ -96,6 +99,7 @@ export interface Conversation {
   title: string | null
   model: string
   permissionMode: PermissionMode
+  effortLevel: EffortLevel | null
   status: ConversationStatus
   createdAt: string
   updatedAt: string
@@ -158,6 +162,7 @@ export function conversationFromRow(row: ConversationRow): Conversation {
     title: row.title,
     model: row.model,
     permissionMode: normalizePermissionMode(row.permission_mode),
+    effortLevel: normalizeEffortLevel(row.effort_level),
     status: row.status as ConversationStatus,
     createdAt: toIsoUtc(row.created_at),
     updatedAt: toIsoUtc(row.updated_at),

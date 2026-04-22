@@ -2,6 +2,11 @@
   import { match } from 'ts-pattern'
   import { workspaceState, projects, toggleRightPanel } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
+  import {
+    sdkSessions,
+    contextPercentFor,
+    contextTokensUsedFor,
+  } from '../../lib/stores/sdkAgentSessions.svelte'
   import { getAllTabs, activeTabId, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
   import { updateState, installUpdate } from '../../lib/stores/updateState.svelte'
@@ -63,10 +68,19 @@
 
   // --- Derived: focused pane type ---
 
-  type PaneKind = 'agent' | 'shell' | 'browser' | 'editor' | 'notes' | 'drawing' | 'none'
+  type PaneKind =
+    | 'agent'
+    | 'sdkChat'
+    | 'shell'
+    | 'browser'
+    | 'editor'
+    | 'notes'
+    | 'drawing'
+    | 'none'
 
   let focusedPaneKind: PaneKind = $derived.by(() => {
     if (!focusedPane) return 'none'
+    if (focusedPane.paneType === 'sdkChat') return 'sdkChat'
     if (focusedPane.paneType === 'browser') return 'browser'
     if (focusedPane.paneType === 'editor') return 'editor'
     if (focusedPane.paneType === 'notes') return 'notes'
@@ -74,6 +88,16 @@
     if (AI_TOOL_IDS.has(focusedPane.toolId)) return 'agent'
     return 'shell'
   })
+
+  // SDK chat panes track a separate session store (sdkSessions). Read from it
+  // when the focused pane is an SDK chat — the hook-based `agentSessions`
+  // store doesn't cover these conversations.
+  let activeSdkSession = $derived(
+    focusedPane?.paneType === 'sdkChat' && focusedPane.conversationId
+      ? sdkSessions[focusedPane.conversationId]
+      : null,
+  )
+  let sdkContextPercent = $derived(contextPercentFor(activeSdkSession ?? undefined))
 
   // --- Derived: worktree display ---
 
@@ -280,6 +304,34 @@
         {#if taskProgress}
           <span class="status-item dim" title="Task progress">
             {taskProgress.done}/{taskProgress.total} tasks
+          </span>
+        {/if}
+      {:else if focusedPaneKind === 'sdkChat' && activeSdkSession}
+        {#if activeSdkSession.status === 'streaming'}
+          <span class="status-item agent-status working">Thinking</span>
+        {:else if activeSdkSession.status === 'error'}
+          <span class="status-item agent-status error">Error</span>
+        {/if}
+
+        {#if activeSdkSession.conversation?.model}
+          <span class="status-item dim">{activeSdkSession.conversation.model}</span>
+        {/if}
+
+        {#if sdkContextPercent != null}
+          <span
+            class="status-item context"
+            style="color: {contextColor(sdkContextPercent)}"
+            title="Context: {contextTokensUsedFor(
+              activeSdkSession,
+            ).toLocaleString()} / {activeSdkSession.contextWindow?.toLocaleString() ?? '?'} tokens"
+          >
+            ctx {sdkContextPercent}%
+          </span>
+        {/if}
+
+        {#if activeSdkSession.costUsd > 0}
+          <span class="status-item dim" title="Session cost (estimate)">
+            {formatCost(activeSdkSession.costUsd)}
           </span>
         {/if}
       {:else if focusedPaneKind === 'shell'}

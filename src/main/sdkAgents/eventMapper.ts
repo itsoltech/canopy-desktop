@@ -38,7 +38,12 @@ export interface SdkLikeMessage {
     id?: string
     model?: string
     content?: Array<Record<string, unknown>>
-    usage?: { input_tokens?: number; output_tokens?: number }
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_read_input_tokens?: number
+      cache_creation_input_tokens?: number
+    }
     stop_reason?: string
   }
   tools?: unknown
@@ -50,7 +55,14 @@ export interface SdkLikeMessage {
   result?: string
   is_error?: boolean
   total_cost_usd?: number
-  usage?: { input_tokens?: number; output_tokens?: number }
+  duration_ms?: number
+  duration_api_ms?: number
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+  }
 }
 
 /** Small piece of mutable state the mapper uses across a single query() run. */
@@ -194,6 +206,8 @@ function mapAssistant(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] 
       content: contentBlocks,
       tokensIn: msg.message?.usage?.input_tokens,
       tokensOut: msg.message?.usage?.output_tokens,
+      cacheReadInputTokens: msg.message?.usage?.cache_read_input_tokens,
+      cacheCreationInputTokens: msg.message?.usage?.cache_creation_input_tokens,
       costUsd: msg.total_cost_usd,
       // Prefer the model on the inner Anthropic message; fall back to the
       // top-level SDK field when present. Undefined if neither is set.
@@ -259,7 +273,10 @@ function mapResult(ctx: MapperContext, msg: SdkLikeMessage): SdkAgentEvent[] {
       sessionId: ctx.conversationId,
       inputTokens: msg.usage.input_tokens ?? 0,
       outputTokens: msg.usage.output_tokens ?? 0,
+      cacheReadInputTokens: msg.usage.cache_read_input_tokens,
+      cacheCreationInputTokens: msg.usage.cache_creation_input_tokens,
       costUsd: msg.total_cost_usd,
+      durationMs: typeof msg.duration_ms === 'number' ? msg.duration_ms : undefined,
     })
   }
   const isError = msg.subtype === 'error' || msg.is_error === true

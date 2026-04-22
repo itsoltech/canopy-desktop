@@ -1,6 +1,11 @@
 <script lang="ts">
   import { Square } from '@lucide/svelte'
-  import { cancel, sdkSessions } from '../../lib/stores/sdkAgentSessions.svelte'
+  import {
+    cancel,
+    sdkSessions,
+    contextPercentFor,
+    contextTokensUsedFor,
+  } from '../../lib/stores/sdkAgentSessions.svelte'
 
   interface Props {
     conversationId: string
@@ -13,6 +18,9 @@
   let tokensIn = $derived(state?.tokensIn ?? 0)
   let tokensOut = $derived(state?.tokensOut ?? 0)
   let costUsd = $derived(state?.costUsd ?? 0)
+  let contextPercent = $derived(contextPercentFor(state))
+  let contextUsed = $derived(contextTokensUsedFor(state))
+  let contextWindow = $derived(state?.contextWindow ?? null)
   let pendingCount = $derived(
     state?.pendingAttention.filter((a) => a.status === 'waiting').length ?? 0,
   )
@@ -40,6 +48,16 @@
       <div class="stat">
         <dt>Model</dt>
         <dd class="tabular">{state.conversation?.model ?? 'unknown'}</dd>
+      </div>
+      <div class="stat">
+        <dt>Context</dt>
+        <dd class="tabular">
+          {#if contextPercent != null && contextWindow}
+            {formatTokens(contextUsed)} / {formatTokens(contextWindow)} ({contextPercent}%)
+          {:else}
+            —
+          {/if}
+        </dd>
       </div>
       <div class="stat">
         <dt>Tokens in</dt>

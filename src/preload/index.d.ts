@@ -741,15 +741,15 @@ interface CanopyAPI {
   // Agent Profiles
   listProfiles: (agentType?: AgentType) => Promise<AgentProfileMasked[]>
   getProfile: (id: string) => Promise<AgentProfileMasked | null>
-  getClaudeProviderModels: (
-    preset: ClaudeProviderPresetId,
-  ) => Promise<
+  getClaudeProviderModels: (preset: ClaudeProviderPresetId) => Promise<
     Array<{
       value: string
       label: string
       family?: string | null
       releaseDate?: string | null
       lastUpdated?: string | null
+      reasoning?: boolean
+      contextWindow?: number | null
     }>
   >
   saveProfile: (input: ProfileInput) => Promise<AgentProfileMasked>
@@ -787,12 +787,14 @@ interface CanopyAPI {
       attachments?: SdkAttachment[]
       modelOverride?: string
       permissionModeOverride?: SdkPermissionMode
+      effortLevelOverride?: SdkEffortLevel | null
     }) => Promise<{ ok: true } | { error: string }>
     cancel: (conversationId: string) => Promise<void>
     updateConversation: (args: {
       conversationId: string
       model?: string
       permissionMode?: SdkPermissionMode
+      effortLevel?: SdkEffortLevel | null
     }) => Promise<void>
     close: (conversationId: string) => Promise<void>
     delete: (conversationId: string) => Promise<void>
@@ -843,6 +845,7 @@ interface CanopyAPI {
 type SdkAgentEvent = import('../main/sdkAgents/types').SdkAgentEvent
 type SdkAttachment = import('../main/sdkAgents/types').Attachment
 type SdkPermissionMode = import('../main/sdkAgents/types').PermissionMode
+type SdkEffortLevel = import('../main/sdkAgents/types').EffortLevel
 type SdkToolDecision = import('../main/sdkAgents/types').ToolDecision
 type SdkPlanDecision = import('../main/sdkAgents/types').PlanDecision
 type SdkAskUserQuestionAnswer = import('../main/sdkAgents/types').AskUserQuestionAnswer

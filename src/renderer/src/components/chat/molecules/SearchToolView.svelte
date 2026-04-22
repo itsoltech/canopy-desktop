@@ -136,6 +136,7 @@
     background: var(--c-accent-bg);
     color: var(--c-accent-text);
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   .match-count.empty {

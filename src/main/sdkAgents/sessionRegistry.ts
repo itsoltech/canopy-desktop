@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import type {
   AskUserQuestionAnswer,
   ConversationId,
+  EffortLevel,
   PermissionMode,
   PlanDecision,
   SdkAgentEvent,
@@ -27,6 +28,8 @@ export interface ActiveSession {
   agentProfileId: string
   model: string
   permissionMode: PermissionMode
+  /** Reasoning-effort override. `null` means "use SDK default". */
+  effortLevel: EffortLevel | null
   sdkSessionId: SdkSessionId | null
   abortController: AbortController
   listeners: Set<SessionEventListener>
@@ -48,6 +51,7 @@ export interface ActiveSessionSeed {
   agentProfileId: string
   model: string
   permissionMode: PermissionMode
+  effortLevel?: EffortLevel | null
 }
 
 /**
@@ -66,6 +70,7 @@ export class SessionRegistry {
       agentProfileId: seed.agentProfileId,
       model: seed.model,
       permissionMode: seed.permissionMode,
+      effortLevel: seed.effortLevel ?? null,
       sdkSessionId: null,
       abortController: new AbortController(),
       listeners: new Set(),

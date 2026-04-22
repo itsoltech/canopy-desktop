@@ -12,6 +12,7 @@ import type {
   Attachment,
   ContentBlock,
   ConversationId,
+  EffortLevel,
   PermissionMode,
   PlanAllowedPrompt,
   PlanDecision,
@@ -19,7 +20,7 @@ import type {
   SdkAgentEvent,
   ToolDecision,
 } from './types'
-import { normalizePermissionMode } from './types'
+import { normalizeEffortLevel, normalizePermissionMode } from './types'
 import type { SdkAgentError } from './errors'
 import { sdkAgentErrorMessage, toSdkAgentError } from './errors'
 import {
@@ -60,6 +61,11 @@ export interface SendMessageParams {
   modelOverride?: string
   /** Optional per-message permission-mode override (slash command /mode). */
   permissionModeOverride?: PermissionMode
+  /**
+   * Optional per-message reasoning-effort override. Ignored for models that
+   * do not advertise `reasoning: true` in the catalog.
+   */
+  effortLevelOverride?: EffortLevel | null
 }
 
 /**
@@ -103,6 +109,7 @@ export class SdkAgentManager {
     const profile = profileResult.value
     const model = profile.prefs.model ?? 'sonnet'
     const permissionMode = normalizePermissionMode(profile.prefs.permissionMode)
+    const effortLevel = normalizeEffortLevel(profile.prefs.effortLevel)
 
     const conversation = this.deps.conversationStore.create({
       workspaceId: params.workspaceId,
@@ -111,6 +118,9 @@ export class SdkAgentManager {
       model,
       permissionMode,
     })
+    if (effortLevel) {
+      this.deps.conversationStore.setEffortLevel(conversation.id, effortLevel)
+    }
 
     this.registry.create({
       conversationId: conversation.id,
@@ -119,6 +129,7 @@ export class SdkAgentManager {
       agentProfileId: conversation.agentProfileId,
       model: conversation.model,
       permissionMode: conversation.permissionMode,
+      effortLevel,
     })
 
     return { conversationId: conversation.id }
@@ -134,7 +145,11 @@ export class SdkAgentManager {
 
   updateConversation(
     id: ConversationId,
-    patch: { model?: string; permissionMode?: PermissionMode },
+    patch: {
+      model?: string
+      permissionMode?: PermissionMode
+      effortLevel?: EffortLevel | null
+    },
   ): void {
     const session = this.registry.get(id)
     if (patch.model !== undefined) {
@@ -145,6 +160,12 @@ export class SdkAgentManager {
       const permissionMode = normalizePermissionMode(patch.permissionMode)
       this.deps.conversationStore.setPermissionMode(id, permissionMode)
       if (session) session.permissionMode = permissionMode
+    }
+    if (patch.effortLevel !== undefined) {
+      const effortLevel =
+        patch.effortLevel === null ? null : normalizeEffortLevel(patch.effortLevel)
+      this.deps.conversationStore.setEffortLevel(id, effortLevel)
+      if (session) session.effortLevel = effortLevel
     }
   }
 
@@ -328,6 +349,8 @@ export class SdkAgentManager {
 
     const model = params.modelOverride ?? session.model
     const permissionMode = params.permissionModeOverride ?? session.permissionMode
+    const effortLevel =
+      params.effortLevelOverride !== undefined ? params.effortLevelOverride : session.effortLevel
 
     const provider = this.providers.get('anthropic')
     if (!provider) {
@@ -346,6 +369,7 @@ export class SdkAgentManager {
         attachments: params.attachments,
         model,
         permissionMode,
+        effort: effortLevel,
         appendSystemPrompt: profile.prefs.appendSystemPrompt,
         mcpServers: parseMcpServers(profile.prefs.mcpServers),
         cwd: session.worktreePath,
@@ -399,6 +423,7 @@ export class SdkAgentManager {
       agentProfileId: conversation.agentProfileId,
       model: conversation.model,
       permissionMode: conversation.permissionMode,
+      effortLevel: conversation.effortLevel,
     })
     session.sdkSessionId = conversation.sdkSessionId
     return session

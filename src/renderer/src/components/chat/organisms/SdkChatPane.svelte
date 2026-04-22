@@ -9,6 +9,7 @@
   import AssistantErrorBlock from '../molecules/AssistantErrorBlock.svelte'
   import ModelPickerInline from '../molecules/ModelPickerInline.svelte'
   import PermissionModePicker from '../molecules/PermissionModePicker.svelte'
+  import EffortPickerInline from '../molecules/EffortPickerInline.svelte'
   import SlashCommandHint from '../molecules/SlashCommandHint.svelte'
   import {
     cancel,
@@ -21,6 +22,8 @@
     sendMessage,
     setModel,
     setPermissionMode,
+    setEffortLevel,
+    setContextWindow,
   } from '../../../lib/stores/sdkAgentSessions.svelte'
   import { parseSlashCommand, SLASH_COMMAND_HINTS } from '../../../lib/chat/slashCommands'
   import { prefs } from '../../../lib/stores/preferences.svelte'
@@ -30,6 +33,7 @@
   } from '../../../../../shared/claudeProviderPresets'
   import type {
     Attachment as SdkAttachment,
+    EffortLevel as SdkEffortLevel,
     PermissionMode as SdkPermissionMode,
   } from '../../../../../main/sdkAgents/types'
 
@@ -57,6 +61,8 @@
     family?: string | null
     releaseDate?: string | null
     lastUpdated?: string | null
+    reasoning?: boolean
+    contextWindow?: number | null
   }
   interface SelectGroup {
     label: string
@@ -110,6 +116,34 @@
   let lastError = $derived(state?.lastError ?? null)
   let currentModel = $derived(state?.conversation?.model ?? 'sonnet')
   let currentMode: SdkPermissionMode = $derived(state?.conversation?.permissionMode ?? 'default')
+  let currentEffort: SdkEffortLevel | null = $derived(state?.conversation?.effortLevel ?? null)
+  // Reasoning gating: only show the effort picker when the resolved model
+  // advertises reasoning in the catalog. Aliases ("sonnet") resolve through
+  // the same matchesFamily lookup the groups use so inline picks stay honest.
+  let resolvedModelOption = $derived.by<SelectOption | null>(() => {
+    const direct = providerModelOptions.find((o) => o.value === currentModel)
+    if (direct) return direct
+    if (activeProviderPreset === 'anthropic') {
+      const alias =
+        currentModel === 'haiku' || currentModel === 'sonnet' || currentModel === 'opus'
+          ? currentModel
+          : null
+      if (alias) {
+        const resolved = providerModelOptions.find((o) => matchesFamily(o, alias))
+        if (resolved) return resolved
+      }
+    }
+    return null
+  })
+  let currentModelReasoning = $derived(resolvedModelOption?.reasoning === true)
+
+  // Push the active model's context window into the session so the statusbar
+  // and extras panel can render `ctx NN%` without round-tripping to main.
+  $effect(() => {
+    const id = currentConversationId
+    const window = resolvedModelOption?.contextWindow ?? null
+    setContextWindow(id, window)
+  })
   let terminalFontFamily = $derived(prefs.fontFamily || DEFAULT_TERMINAL_FONT_FAMILY)
   let terminalFontSize = $derived(
     Number.parseInt(prefs.fontSize || '', 10) || DEFAULT_TERMINAL_FONT_SIZE,
@@ -649,6 +683,15 @@
                   onchange={(v) =>
                     void setPermissionMode(currentConversationId, v as SdkPermissionMode)}
                 />
+              {/snippet}
+              {#snippet effortPicker()}
+                {#if currentModelReasoning}
+                  <EffortPickerInline
+                    value={currentEffort}
+                    onchange={(v) =>
+                      void setEffortLevel(currentConversationId, v as SdkEffortLevel | null)}
+                  />
+                {/if}
               {/snippet}
             </ChatInput>
           </div>

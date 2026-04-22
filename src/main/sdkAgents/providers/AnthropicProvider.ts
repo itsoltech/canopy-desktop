@@ -122,6 +122,7 @@ export class AnthropicProvider implements LlmProvider {
             model: options.model,
             cwd: options.cwd,
             permissionMode: options.permissionMode,
+            ...(options.effort ? { effort: options.effort } : {}),
             appendSystemPrompt: options.appendSystemPrompt,
             mcpServers: mcp,
             pathToClaudeCodeExecutable: claudePath,
