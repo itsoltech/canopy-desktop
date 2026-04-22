@@ -428,7 +428,14 @@ const api = {
   deleteCredential: (id: string) => ipcRenderer.invoke('credentials:delete', { id }),
   listCredentials: () =>
     ipcRenderer.invoke('credentials:getAll') as Promise<
-      Array<{ id: string; domain: string; username: string }>
+      Array<{
+        id: string
+        domain: string
+        username: string
+        title: string
+        createdAt: string
+        updatedAt: string
+      }>
     >,
 
   // Browser push events (main → renderer, still needed for favicon + focus)

@@ -495,6 +495,7 @@ interface CanopyAPI {
     }) => void,
   ) => () => void
   onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
+  onSkillsChanged: (callback: (skills: unknown[]) => void) => () => void
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
   onPtyResized: (callback: (sessionId: string, cols: number, rows: number) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void

@@ -26,6 +26,19 @@ import type {
 
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
 
+/**
+ * Returns true when `url` targets the same origin as `baseUrl`. Uses `URL.origin`
+ * rather than a string-prefix check so that a baseUrl of `https://jira.example.com`
+ * does not also match `https://jira.example.com.evil.com/...`.
+ */
+function isSameOriginAs(url: string, baseUrl: string): boolean {
+  try {
+    return new URL(url).origin === new URL(baseUrl).origin
+  } catch {
+    return false
+  }
+}
+
 export class TaskTrackerManager {
   constructor(
     private preferencesStore: PreferencesStore,
@@ -259,8 +272,7 @@ export class TaskTrackerManager {
 
     return this.resolveConfigConnectionAsync(config, trackerId, repoRoot)
       .andThen(({ conn, token }) => {
-        const connBase = conn.baseUrl.replace(/\/$/, '')
-        if (!url.startsWith(connBase)) {
+        if (!isSameOriginAs(url, conn.baseUrl)) {
           return err(dlErr('URL does not match connection base URL'))
         }
         return ok({ conn, token })
@@ -591,8 +603,7 @@ export class TaskTrackerManager {
     return this.getConnection(connectionId)
       .andThen((conn) => this.getToken(conn).map((token) => ({ conn, token })))
       .andThen(({ conn, token }) => {
-        const connBase = conn.baseUrl.replace(/\/$/, '')
-        if (!url.startsWith(connBase)) {
+        if (!isSameOriginAs(url, conn.baseUrl)) {
           return err(dlErr('URL does not match connection base URL'))
         }
         return ok({ conn, token })
