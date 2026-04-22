@@ -1,6 +1,7 @@
 <script lang="ts">
   import { detectPathsInText, type PathMatch } from '../../lib/pathDetection/linkify'
   import { openFile } from '../../lib/stores/tabs.svelte'
+  import { ensureLoaded, getFiles } from '../../lib/stores/quickOpenStore.svelte'
 
   type Props = {
     text: string
@@ -13,9 +14,15 @@
     | { type: 'text'; content: string }
     | { type: 'link'; content: string; absolutePath: string; line?: number }
 
-  function tokenize(raw: string, basePath: string): Token[] {
+  $effect(() => {
+    if (cwd) void ensureLoaded(cwd)
+  })
+
+  const knownFiles = $derived(new Set(getFiles(cwd)))
+
+  function tokenize(raw: string, basePath: string, files: ReadonlySet<string>): Token[] {
     if (!raw) return []
-    const matches: PathMatch[] = detectPathsInText(raw, basePath)
+    const matches: PathMatch[] = detectPathsInText(raw, basePath, files)
     if (matches.length === 0) return [{ type: 'text', content: raw }]
     const tokens: Token[] = []
     let cursor = 0
@@ -37,7 +44,7 @@
     return tokens
   }
 
-  const tokens = $derived(tokenize(text, cwd))
+  const tokens = $derived(tokenize(text, cwd, knownFiles))
 </script>
 
 {#each tokens as tok, i (i)}

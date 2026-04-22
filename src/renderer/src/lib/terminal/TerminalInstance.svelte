@@ -12,6 +12,7 @@
   import { showUrlToast } from '../stores/toast.svelte'
   import { openTool, openFile } from '../stores/tabs.svelte'
   import { detectPathsInText } from '../pathDetection/linkify'
+  import { ensureLoaded, getFiles } from '../stores/quickOpenStore.svelte'
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
   import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
@@ -405,7 +406,24 @@
         }),
       )
 
-      // File path detection — click opens file in editor
+      // File path detection — click opens file in editor. Only paths that
+      // resolve to files tracked in the workspace are linkified, so arbitrary
+      // strings with slashes in shell/agent output stay non-interactive.
+      let knownFilesIdentity: string[] | null = null
+      let knownFilesCache: Set<string> = new Set()
+      function knownFilesFor(worktreePath: string): Set<string> {
+        const list = getFiles(worktreePath)
+        if (list.length === 0) {
+          void ensureLoaded(worktreePath)
+          return knownFilesCache
+        }
+        if (list !== knownFilesIdentity) {
+          knownFilesIdentity = list
+          knownFilesCache = new Set(list)
+        }
+        return knownFilesCache
+      }
+
       term.registerLinkProvider({
         provideLinks: (bufferLineNumber, callback) => {
           const worktreePath = workspaceState.selectedWorktreePath
@@ -424,7 +442,8 @@
             callback(undefined)
             return
           }
-          const matches = detectPathsInText(lineText, worktreePath)
+          const known = knownFilesFor(worktreePath)
+          const matches = detectPathsInText(lineText, worktreePath, known)
           if (matches.length === 0) {
             callback(undefined)
             return
