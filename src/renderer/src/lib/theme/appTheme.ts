@@ -41,6 +41,7 @@ export function deriveAppTheme(theme: ITheme): Record<string, string> {
   const green = hexToRgb(theme.green as string)
   const yellow = hexToRgb(theme.yellow as string)
   const magenta = hexToRgb(theme.magenta as string)
+  const cyan = hexToRgb((theme.cyan as string) ?? (theme.brightBlue as string) ?? '#00bcd4')
 
   const elevated = light ? blend(bg, [0, 0, 0], 0.05) : blend(bg, [255, 255, 255], 0.05)
 
@@ -87,6 +88,24 @@ export function deriveAppTheme(theme: ITheme): Record<string, string> {
     '--c-scrollbar-active': rgba(contrastBase, 0.4),
 
     '--c-scrim': 'rgba(0, 0, 0, 0.5)',
+
+    // Syntax highlighting (derived from xterm ANSI palette so it tracks any theme)
+    '--c-syntax-keyword': rgb(magenta),
+    '--c-syntax-string': rgb(green),
+    '--c-syntax-comment': rgba(fg, 0.45),
+    '--c-syntax-number': rgb(yellow),
+    '--c-syntax-operator': rgba(fg, 0.75),
+    '--c-syntax-function': rgb(yellow),
+    '--c-syntax-variable': rgb(accent),
+    '--c-syntax-property': rgb(accent),
+    '--c-syntax-type': rgb(cyan),
+    '--c-syntax-tag': rgb(accent),
+    '--c-syntax-attribute': rgb(cyan),
+    '--c-syntax-heading': rgb(accent),
+    '--c-syntax-invalid': rgb(red),
+
+    '--c-indent-guide': rgba(contrastBase, 0.1),
+    '--c-indent-guide-active': rgba(contrastBase, 0.25),
   }
 }
 

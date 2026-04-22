@@ -50,6 +50,8 @@ import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
+import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
+import { fromExternalCall, errorMessage } from '../errors'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -296,6 +298,21 @@ export function registerIpcHandlers(
   ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
     return ptyManager.hasChildProcess(payload.sessionId)
   })
+
+  ipcMain.handle(
+    'pty:hasChildProcesses',
+    (_event, payload: { sessionIds: string[] }): Record<string, boolean> => {
+      const result: Record<string, boolean> = {}
+      for (const sid of payload.sessionIds) {
+        try {
+          result[sid] = ptyManager.hasChildProcess(sid)
+        } catch {
+          result[sid] = false
+        }
+      }
+      return result
+    },
+  )
 
   ipcMain.handle('pty:getDimensions', (_event, payload: { sessionId: string }) => {
     return ptyManager.getDimensions(payload.sessionId)
@@ -799,6 +816,8 @@ export function registerIpcHandlers(
     // Delete layouts so this workspace won't restore on next launch
     const ws = workspaceStore.getByPath(payload.path)
     if (ws) layoutStore.deleteAll(ws.id)
+    // Release the Quick Open file list cached for this workspace.
+    workspaceFileCache.delete(payload.path)
     persistWindowConfigs()
   })
 
@@ -1642,6 +1661,179 @@ export function registerIpcHandlers(
       fs.closeSync(fd)
     }
   })
+
+  // Quick Open — LRU-bounded workspace file listing. Uses `git ls-files` when
+  // the worktree is a git repo (respects `.gitignore` automatically); falls
+  // back to a recursive readdir filtered by the same ignore patterns as
+  // `fs:readDir` so secrets (.env, *.pem, credentials) never land in the
+  // picker for non-git workspaces.
+  const WORKSPACE_FILE_CACHE_MAX_AGE_MS = 60_000
+  const WORKSPACE_FILE_CACHE_MAX_ENTRIES = 16
+  // Map iteration order is insertion order, so re-inserting on read turns it
+  // into a plain LRU without pulling in a dedicated library.
+  const workspaceFileCache = new Map<string, { files: string[]; fetchedAt: number }>()
+
+  function rememberWorkspaceFiles(key: string, files: string[]): void {
+    workspaceFileCache.delete(key)
+    workspaceFileCache.set(key, { files, fetchedAt: Date.now() })
+    while (workspaceFileCache.size > WORKSPACE_FILE_CACHE_MAX_ENTRIES) {
+      const oldest = workspaceFileCache.keys().next().value
+      if (oldest === undefined) break
+      workspaceFileCache.delete(oldest)
+    }
+  }
+
+  function touchWorkspaceFiles(key: string): string[] | null {
+    const entry = workspaceFileCache.get(key)
+    if (!entry) return null
+    // Refresh LRU position on read.
+    workspaceFileCache.delete(key)
+    workspaceFileCache.set(key, entry)
+    return entry.files
+  }
+
+  async function listWorkspaceFilesViaGit(repoRoot: string): Promise<string[] | null> {
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        ['-C', repoRoot, 'ls-files', '--cached', '--others', '--exclude-standard'],
+        { maxBuffer: 64 * 1024 * 1024 },
+      )
+      return stdout.split('\n').filter((l) => l.length > 0)
+    } catch {
+      return null
+    }
+  }
+
+  async function listWorkspaceFilesViaReaddir(root: string): Promise<string[]> {
+    const ignorePatterns = getIgnorePatterns()
+    const files: string[] = []
+    async function walk(dir: string, relPrefix: string): Promise<void> {
+      let entries: fs.Dirent[]
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (isIgnoredEntry(entry.name, ignorePatterns)) continue
+        const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
+        if (entry.isDirectory()) {
+          await walk(path.join(dir, entry.name), rel)
+        } else if (entry.isFile()) {
+          files.push(rel)
+        }
+      }
+    }
+    await walk(root, '')
+    return files
+  }
+
+  ipcMain.handle(
+    'quickOpen:listFiles',
+    async (event, payload: { worktreePath: string; force?: boolean }): Promise<string[]> => {
+      const resolved = await validatePathAccess(event.sender.id, payload.worktreePath)
+      if (!payload.force) {
+        const cached = touchWorkspaceFiles(resolved)
+        const entry = workspaceFileCache.get(resolved)
+        if (cached && entry && Date.now() - entry.fetchedAt < WORKSPACE_FILE_CACHE_MAX_AGE_MS) {
+          return cached
+        }
+      }
+      const viaGit = await listWorkspaceFilesViaGit(resolved)
+      const files = viaGit ?? (await listWorkspaceFilesViaReaddir(resolved))
+      rememberWorkspaceFiles(resolved, files)
+      return files
+    },
+  )
+
+  ipcMain.handle(
+    'quickOpen:invalidateCache',
+    async (event, payload: { worktreePath: string }): Promise<void> => {
+      const resolved = await validatePathAccess(event.sender.id, payload.worktreePath)
+      workspaceFileCache.delete(resolved)
+    },
+  )
+
+  ipcMain.handle(
+    'fs:writeFile',
+    async (
+      event,
+      payload: { filePath: string; content: string; expectedMtimeMs?: number },
+    ): Promise<FsWriteFileResponse> => {
+      const resolved = await validatePathAccess(event.sender.id, payload.filePath)
+      // Structured response instead of a thrown Error — keeps the typed
+      // `_tag` discriminant intact across IPC so the renderer branches on
+      // `result.tag` instead of string-matching a flattened message.
+      if (payload.expectedMtimeMs !== undefined) {
+        const statResult = await fromExternalCall(fs.promises.stat(resolved), errorMessage)
+        if (statResult.isErr()) return { ok: false, tag: 'StatFailed', message: statResult.error }
+        const actualMtimeMs = statResult.value.mtimeMs
+        if (Math.abs(actualMtimeMs - payload.expectedMtimeMs) > 1) {
+          return { ok: false, tag: 'StaleWrite', actualMtimeMs }
+        }
+      }
+      const writeResult = await fromExternalCall(
+        fs.promises.writeFile(resolved, payload.content, 'utf-8'),
+        errorMessage,
+      )
+      if (writeResult.isErr()) {
+        return { ok: false, tag: 'WriteFailed', message: writeResult.error }
+      }
+      const finalStat = await fromExternalCall(fs.promises.stat(resolved), errorMessage)
+      if (finalStat.isErr()) return { ok: false, tag: 'StatFailed', message: finalStat.error }
+      return { ok: true, mtimeMs: finalStat.value.mtimeMs, size: finalStat.value.size }
+    },
+  )
+
+  ipcMain.handle(
+    'dialog:confirmUnsavedChanges',
+    async (event, payload: { filePaths: string[] }): Promise<'save' | 'discard' | 'cancel'> => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+      if (!win) return 'cancel'
+      const fileList =
+        payload.filePaths.length === 1
+          ? payload.filePaths[0].split('/').pop()
+          : `${payload.filePaths.length} files`
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        buttons: ['Save', "Don't Save", 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+        title: 'Unsaved changes',
+        message: `You have unsaved changes in ${fileList}`,
+        detail: 'Do you want to save them before closing?',
+      })
+      return match(response)
+        .with(0, () => 'save' as const)
+        .with(1, () => 'discard' as const)
+        .otherwise(() => 'cancel' as const)
+    },
+  )
+
+  ipcMain.handle(
+    'fs:stat',
+    async (
+      event,
+      payload: { filePath: string },
+    ): Promise<{ mtimeMs: number; size: number; canWrite: boolean }> => {
+      const resolved = await validatePathAccess(event.sender.id, payload.filePath)
+      // Async fs — sync calls here stalled the main process on every editor
+      // load (stat) and every write-permission check (access).
+      const statResult = await fromExternalCall(
+        fs.promises.stat(resolved),
+        (e): FileSystemError => ({ _tag: 'StatFailed', message: errorMessage(e) }),
+      )
+      if (statResult.isErr()) {
+        throw new Error(fileSystemErrorMessage(statResult.error))
+      }
+      const canWrite = await fs.promises
+        .access(resolved, fs.constants.W_OK)
+        .then(() => true)
+        .catch(() => false)
+      return { mtimeMs: statResult.value.mtimeMs, size: statResult.value.size, canWrite }
+    },
+  )
 
   // --- Shared config validation (used by both repo and global config handlers) ---
 
