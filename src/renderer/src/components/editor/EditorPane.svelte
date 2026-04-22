@@ -56,6 +56,10 @@
         goToLine: (n: number) => void
         setContent: (v: string) => void
         setIndentUnit: (u: string) => void
+        setLanguage: (filePath: string) => Promise<void>
+        openBuffer: (filePath: string, doc: string, unit?: string) => void
+        reloadBuffer: (doc: string, unit?: string) => void
+        closeBuffer: (filePath: string) => void
       }
     | undefined = $state()
   let lastLoadedPath: string | null = null
@@ -127,8 +131,12 @@
         fileSize = readResult.size
         fileLineEnding = readResult.content.includes('\r\n') ? 'CRLF' : 'LF'
         indentInfo = detectIndent(readResult.content)
-        editorRef?.setContent(readResult.content)
-        editorRef?.setIndentUnit(indentUnitString(indentInfo))
+        // Fresh disk content → drop any stale buffer for this file so we
+        // never restore an out-of-date state, then open a new one.
+        if (editorRef) {
+          editorRef.closeBuffer(path)
+          editorRef.openBuffer(path, readResult.content, indentUnitString(indentInfo))
+        }
       }
 
       let statResult: { mtimeMs: number; size: number; canWrite: boolean } | null = null
@@ -172,8 +180,10 @@
     loading = false
     error = null
     indentInfo = detectIndent(cur)
-    editorRef?.setContent(cur)
-    editorRef?.setIndentUnit(indentUnitString(indentInfo))
+    // Restore: switch CM to the buffer keyed by this file path. If CM already
+    // has a live state for it, its undo history comes back too. Otherwise a
+    // fresh buffer is created with `cur` as the starting doc.
+    editorRef?.openBuffer(activeFilePath, cur, indentUnitString(indentInfo))
   }
 
   function formatSize(bytes: number): string {
@@ -276,6 +286,7 @@
         }
       }
     }
+    editorRef?.closeBuffer(path)
     closeEditorFile(paneId, path)
   }
 
