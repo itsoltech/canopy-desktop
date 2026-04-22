@@ -50,7 +50,8 @@ import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
-import { fileSystemErrorMessage, type FileSystemError } from './fsErrors'
+import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
+import { fromExternalCall, errorMessage } from '../errors'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -815,6 +816,8 @@ export function registerIpcHandlers(
     // Delete layouts so this workspace won't restore on next launch
     const ws = workspaceStore.getByPath(payload.path)
     if (ws) layoutStore.deleteAll(ws.id)
+    // Release the Quick Open file list cached for this workspace.
+    workspaceFileCache.delete(payload.path)
     persistWindowConfigs()
   })
 
@@ -1694,7 +1697,7 @@ export function registerIpcHandlers(
       const { stdout } = await execFileAsync(
         'git',
         ['-C', repoRoot, 'ls-files', '--cached', '--others', '--exclude-standard'],
-        { maxBuffer: 512 * 1024 * 1024 },
+        { maxBuffer: 64 * 1024 * 1024 },
       )
       return stdout.split('\n').filter((l) => l.length > 0)
     } catch {
@@ -1757,44 +1760,29 @@ export function registerIpcHandlers(
     async (
       event,
       payload: { filePath: string; content: string; expectedMtimeMs?: number },
-    ): Promise<{ mtimeMs: number; size: number }> => {
+    ): Promise<FsWriteFileResponse> => {
       const resolved = await validatePathAccess(event.sender.id, payload.filePath)
-      // Async fs operations only — sync I/O here would stall the main
-      // process (all windows, tray, menu bar) for the duration of the
-      // write; noticeable on network drives or large files on spinning
-      // disks. See CLAUDE.md (Performance).
-      const result = await (async (): Promise<
-        Result<{ mtimeMs: number; size: number }, FileSystemError>
-      > => {
-        if (payload.expectedMtimeMs !== undefined) {
-          let actualMtimeMs: number
-          try {
-            actualMtimeMs = (await fs.promises.stat(resolved)).mtimeMs
-          } catch (e) {
-            return err({
-              _tag: 'StatFailed',
-              message: e instanceof Error ? e.message : String(e),
-            })
-          }
-          if (Math.abs(actualMtimeMs - payload.expectedMtimeMs) > 1) {
-            return err({
-              _tag: 'StaleWrite',
-              actualMtimeMs,
-            })
-          }
+      // Structured response instead of a thrown Error — keeps the typed
+      // `_tag` discriminant intact across IPC so the renderer branches on
+      // `result.tag` instead of string-matching a flattened message.
+      if (payload.expectedMtimeMs !== undefined) {
+        const statResult = await fromExternalCall(fs.promises.stat(resolved), errorMessage)
+        if (statResult.isErr()) return { ok: false, tag: 'StatFailed', message: statResult.error }
+        const actualMtimeMs = statResult.value.mtimeMs
+        if (Math.abs(actualMtimeMs - payload.expectedMtimeMs) > 1) {
+          return { ok: false, tag: 'StaleWrite', actualMtimeMs }
         }
-        try {
-          await fs.promises.writeFile(resolved, payload.content, 'utf-8')
-          const stat = await fs.promises.stat(resolved)
-          return ok({ mtimeMs: stat.mtimeMs, size: stat.size })
-        } catch (e) {
-          return err({
-            _tag: 'WriteFailed',
-            message: e instanceof Error ? e.message : String(e),
-          })
-        }
-      })()
-      return unwrapOrThrow(result, fileSystemErrorMessage)
+      }
+      const writeResult = await fromExternalCall(
+        fs.promises.writeFile(resolved, payload.content, 'utf-8'),
+        errorMessage,
+      )
+      if (writeResult.isErr()) {
+        return { ok: false, tag: 'WriteFailed', message: writeResult.error }
+      }
+      const finalStat = await fromExternalCall(fs.promises.stat(resolved), errorMessage)
+      if (finalStat.isErr()) return { ok: false, tag: 'StatFailed', message: finalStat.error }
+      return { ok: true, mtimeMs: finalStat.value.mtimeMs, size: finalStat.value.size }
     },
   )
 
@@ -1830,24 +1818,20 @@ export function registerIpcHandlers(
       payload: { filePath: string },
     ): Promise<{ mtimeMs: number; size: number; canWrite: boolean }> => {
       const resolved = await validatePathAccess(event.sender.id, payload.filePath)
-      const result: Result<{ mtimeMs: number; size: number; canWrite: boolean }, FileSystemError> =
-        (() => {
-          let stat: fs.Stats
-          try {
-            stat = fs.statSync(resolved)
-          } catch (e) {
-            return err({ _tag: 'StatFailed', message: e instanceof Error ? e.message : String(e) })
-          }
-          let canWrite = false
-          try {
-            fs.accessSync(resolved, fs.constants.W_OK)
-            canWrite = true
-          } catch {
-            canWrite = false
-          }
-          return ok({ mtimeMs: stat.mtimeMs, size: stat.size, canWrite })
-        })()
-      return unwrapOrThrow(result, fileSystemErrorMessage)
+      // Async fs — sync calls here stalled the main process on every editor
+      // load (stat) and every write-permission check (access).
+      const statResult = await fromExternalCall(
+        fs.promises.stat(resolved),
+        (e): FileSystemError => ({ _tag: 'StatFailed', message: errorMessage(e) }),
+      )
+      if (statResult.isErr()) {
+        throw new Error(fileSystemErrorMessage(statResult.error))
+      }
+      const canWrite = await fs.promises
+        .access(resolved, fs.constants.W_OK)
+        .then(() => true)
+        .catch(() => false)
+      return { mtimeMs: statResult.value.mtimeMs, size: statResult.value.size, canWrite }
     },
   )
 

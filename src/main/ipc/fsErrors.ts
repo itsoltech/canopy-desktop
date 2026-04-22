@@ -20,6 +20,11 @@ export function fileSystemErrorMessage(error: FileSystemError): string {
     .exhaustive()
 }
 
-export function isStaleWriteMessage(message: string): boolean {
-  return message.startsWith('File changed on disk')
-}
+// Structured response for `fs:writeFile` — keeps the typed discriminant
+// across the IPC boundary so the renderer branches on `result.tag` instead
+// of pattern-matching a flattened error message string.
+export type FsWriteFileResponse =
+  | { ok: true; mtimeMs: number; size: number }
+  | { ok: false; tag: 'StaleWrite'; actualMtimeMs: number }
+  | { ok: false; tag: 'WriteFailed'; message: string }
+  | { ok: false; tag: 'StatFailed'; message: string }

@@ -445,8 +445,13 @@ export async function closeTab(tabId: string): Promise<void> {
               const content = file.currentContent ?? ''
               const normalized =
                 file.fileLineEnding === 'CRLF' ? content.replace(/\r?\n/g, '\r\n') : content
-              await window.api.writeFile(file.filePath, normalized, file.fileMtimeMs)
-              return { ok: true as const }
+              const result = await window.api.writeFile(file.filePath, normalized, file.fileMtimeMs)
+              if (result.ok) return { ok: true as const }
+              const message =
+                result.tag === 'StaleWrite'
+                  ? 'File changed on disk — reload before saving'
+                  : result.message
+              return { ok: false as const, filePath: file.filePath, message }
             } catch (e) {
               return {
                 ok: false as const,

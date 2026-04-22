@@ -16,7 +16,6 @@
   import { dragState, clearDrag, setDropTarget } from '../../lib/stores/dragState.svelte'
   import { detectIndent, indentUnitString, type IndentInfo } from './cm/detectIndent'
   import { detectLanguageName } from './cm/language'
-  import { isStaleWriteError } from '../../lib/editor/fsErrors'
 
   let {
     paneId,
@@ -210,8 +209,18 @@
     const contentToWrite =
       fileLineEnding === 'CRLF' ? editedContent.replace(/\r?\n/g, '\r\n') : editedContent
     skipNextWatcherEvent = true
+    let result: Awaited<ReturnType<typeof window.api.writeFile>>
     try {
-      const result = await window.api.writeFile(path, contentToWrite, fileMtimeMs)
+      result = await window.api.writeFile(path, contentToWrite, fileMtimeMs)
+    } catch (e) {
+      // Only reached on true IPC failures (e.g. access denied from
+      // validatePathAccess). Expected outcomes (stale writes, write errors)
+      // come back as a structured response, not a thrown Error.
+      skipNextWatcherEvent = false
+      saveError = `Failed to save: ${e instanceof Error ? e.message : String(e)}`
+      return
+    }
+    if (result.ok) {
       originalContent = editedContent
       fileMtimeMs = result.mtimeMs
       fileSize = result.size
@@ -226,16 +235,15 @@
       setTimeout(() => {
         skipNextWatcherEvent = false
       }, 1500)
-    } catch (e) {
-      skipNextWatcherEvent = false
-      const message = e instanceof Error ? e.message : String(e)
-      if (isStaleWriteError(e)) {
-        externalChangeDetected = true
-        updateEditorFileState(paneId, path, { externalChangeDetected: true })
-        saveError = 'File changed on disk — reload before saving.'
-      } else {
-        saveError = `Failed to save: ${message}`
-      }
+      return
+    }
+    skipNextWatcherEvent = false
+    if (result.tag === 'StaleWrite') {
+      externalChangeDetected = true
+      updateEditorFileState(paneId, path, { externalChangeDetected: true })
+      saveError = 'File changed on disk — reload before saving.'
+    } else {
+      saveError = `Failed to save: ${result.message}`
     }
   }
 
@@ -270,21 +278,30 @@
       const choice = await window.api.confirmUnsavedChanges([path])
       if (choice === 'cancel') return
       if (choice === 'save') {
+        const contentToWrite =
+          state.fileLineEnding === 'CRLF'
+            ? (state.currentContent ?? '').replace(/\r?\n/g, '\r\n')
+            : (state.currentContent ?? '')
+        skipNextWatcherEvent = true
+        let writeResult: Awaited<ReturnType<typeof window.api.writeFile>>
         try {
-          const contentToWrite =
-            state.fileLineEnding === 'CRLF'
-              ? (state.currentContent ?? '').replace(/\r?\n/g, '\r\n')
-              : (state.currentContent ?? '')
-          skipNextWatcherEvent = true
-          await window.api.writeFile(path, contentToWrite, state.fileMtimeMs)
-          setTimeout(() => {
-            skipNextWatcherEvent = false
-          }, 1500)
+          writeResult = await window.api.writeFile(path, contentToWrite, state.fileMtimeMs)
         } catch (e) {
           skipNextWatcherEvent = false
           saveError = `Failed to save: ${e instanceof Error ? e.message : String(e)}`
           return
         }
+        if (!writeResult.ok) {
+          skipNextWatcherEvent = false
+          saveError =
+            writeResult.tag === 'StaleWrite'
+              ? 'File changed on disk — reload before saving.'
+              : `Failed to save: ${writeResult.message}`
+          return
+        }
+        setTimeout(() => {
+          skipNextWatcherEvent = false
+        }, 1500)
       }
     }
     editorRef?.closeBuffer(path)

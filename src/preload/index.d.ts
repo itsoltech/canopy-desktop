@@ -197,10 +197,7 @@ type FileReadResult =
   | { content: string; truncated: boolean; size: number; binary: false }
   | { binary: true; size: number }
 
-interface FileWriteResult {
-  mtimeMs: number
-  size: number
-}
+type FileWriteResult = import('../main/ipc/fsErrors').FsWriteFileResponse
 
 interface FileStatResult {
   mtimeMs: number
