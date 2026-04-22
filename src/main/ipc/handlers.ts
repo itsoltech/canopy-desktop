@@ -1659,25 +1659,35 @@ export function registerIpcHandlers(
     }
   })
 
-  // Quick Open — cached workspace file listing (respects .gitignore for git repos,
-  // falls back to a bounded recursive readdir with safety ignores otherwise).
-  const workspaceFileCache = new Map<string, { files: string[]; fetchedAt: number }>()
+  // Quick Open — LRU-bounded workspace file listing. Uses `git ls-files` when
+  // the worktree is a git repo (respects `.gitignore` automatically); falls
+  // back to a recursive readdir filtered by the same ignore patterns as
+  // `fs:readDir` so secrets (.env, *.pem, credentials) never land in the
+  // picker for non-git workspaces.
   const WORKSPACE_FILE_CACHE_MAX_AGE_MS = 60_000
-  const QUICK_OPEN_IGNORE = new Set([
-    '.git',
-    'node_modules',
-    '.next',
-    '.svelte-kit',
-    'dist',
-    'build',
-    'out',
-    '.turbo',
-    '.cache',
-    'target',
-    '.venv',
-    'venv',
-    '__pycache__',
-  ])
+  const WORKSPACE_FILE_CACHE_MAX_ENTRIES = 16
+  // Map iteration order is insertion order, so re-inserting on read turns it
+  // into a plain LRU without pulling in a dedicated library.
+  const workspaceFileCache = new Map<string, { files: string[]; fetchedAt: number }>()
+
+  function rememberWorkspaceFiles(key: string, files: string[]): void {
+    workspaceFileCache.delete(key)
+    workspaceFileCache.set(key, { files, fetchedAt: Date.now() })
+    while (workspaceFileCache.size > WORKSPACE_FILE_CACHE_MAX_ENTRIES) {
+      const oldest = workspaceFileCache.keys().next().value
+      if (oldest === undefined) break
+      workspaceFileCache.delete(oldest)
+    }
+  }
+
+  function touchWorkspaceFiles(key: string): string[] | null {
+    const entry = workspaceFileCache.get(key)
+    if (!entry) return null
+    // Refresh LRU position on read.
+    workspaceFileCache.delete(key)
+    workspaceFileCache.set(key, entry)
+    return entry.files
+  }
 
   async function listWorkspaceFilesViaGit(repoRoot: string): Promise<string[] | null> {
     try {
@@ -1693,6 +1703,7 @@ export function registerIpcHandlers(
   }
 
   async function listWorkspaceFilesViaReaddir(root: string): Promise<string[]> {
+    const ignorePatterns = getIgnorePatterns()
     const files: string[] = []
     async function walk(dir: string, relPrefix: string): Promise<void> {
       let entries: fs.Dirent[]
@@ -1702,7 +1713,7 @@ export function registerIpcHandlers(
         return
       }
       for (const entry of entries) {
-        if (QUICK_OPEN_IGNORE.has(entry.name)) continue
+        if (isIgnoredEntry(entry.name, ignorePatterns)) continue
         const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
         if (entry.isDirectory()) {
           await walk(path.join(dir, entry.name), rel)
@@ -1719,17 +1730,16 @@ export function registerIpcHandlers(
     'quickOpen:listFiles',
     async (event, payload: { worktreePath: string; force?: boolean }): Promise<string[]> => {
       const resolved = await validatePathAccess(event.sender.id, payload.worktreePath)
-      const cached = workspaceFileCache.get(resolved)
-      if (
-        !payload.force &&
-        cached &&
-        Date.now() - cached.fetchedAt < WORKSPACE_FILE_CACHE_MAX_AGE_MS
-      ) {
-        return cached.files
+      if (!payload.force) {
+        const cached = touchWorkspaceFiles(resolved)
+        const entry = workspaceFileCache.get(resolved)
+        if (cached && entry && Date.now() - entry.fetchedAt < WORKSPACE_FILE_CACHE_MAX_AGE_MS) {
+          return cached
+        }
       }
       const viaGit = await listWorkspaceFilesViaGit(resolved)
       const files = viaGit ?? (await listWorkspaceFilesViaReaddir(resolved))
-      workspaceFileCache.set(resolved, { files, fetchedAt: Date.now() })
+      rememberWorkspaceFiles(resolved, files)
       return files
     },
   )
@@ -1749,30 +1759,36 @@ export function registerIpcHandlers(
       payload: { filePath: string; content: string; expectedMtimeMs?: number },
     ): Promise<{ mtimeMs: number; size: number }> => {
       const resolved = await validatePathAccess(event.sender.id, payload.filePath)
-      const result: Result<{ mtimeMs: number; size: number }, FileSystemError> = (() => {
+      // Async fs operations only — sync I/O here would stall the main
+      // process (all windows, tray, menu bar) for the duration of the
+      // write; noticeable on network drives or large files on spinning
+      // disks. See CLAUDE.md (Performance).
+      const result = await (async (): Promise<
+        Result<{ mtimeMs: number; size: number }, FileSystemError>
+      > => {
         if (payload.expectedMtimeMs !== undefined) {
           let actualMtimeMs: number
           try {
-            actualMtimeMs = fs.statSync(resolved).mtimeMs
+            actualMtimeMs = (await fs.promises.stat(resolved)).mtimeMs
           } catch (e) {
-            return err<{ mtimeMs: number; size: number }, FileSystemError>({
+            return err({
               _tag: 'StatFailed',
               message: e instanceof Error ? e.message : String(e),
             })
           }
           if (Math.abs(actualMtimeMs - payload.expectedMtimeMs) > 1) {
-            return err<{ mtimeMs: number; size: number }, FileSystemError>({
+            return err({
               _tag: 'StaleWrite',
               actualMtimeMs,
             })
           }
         }
         try {
-          fs.writeFileSync(resolved, payload.content, 'utf-8')
-          const stat = fs.statSync(resolved)
+          await fs.promises.writeFile(resolved, payload.content, 'utf-8')
+          const stat = await fs.promises.stat(resolved)
           return ok({ mtimeMs: stat.mtimeMs, size: stat.size })
         } catch (e) {
-          return err<{ mtimeMs: number; size: number }, FileSystemError>({
+          return err({
             _tag: 'WriteFailed',
             message: e instanceof Error ? e.message : String(e),
           })

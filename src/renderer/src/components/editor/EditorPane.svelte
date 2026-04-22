@@ -16,6 +16,7 @@
   import { dragState, clearDrag, setDropTarget } from '../../lib/stores/dragState.svelte'
   import { detectIndent, indentUnitString, type IndentInfo } from './cm/detectIndent'
   import { detectLanguageName } from './cm/language'
+  import { isStaleWriteError } from '../../lib/editor/fsErrors'
 
   let {
     paneId,
@@ -228,12 +229,12 @@
     } catch (e) {
       skipNextWatcherEvent = false
       const message = e instanceof Error ? e.message : String(e)
-      if (message.startsWith('File changed on disk')) {
+      if (isStaleWriteError(e)) {
         externalChangeDetected = true
         updateEditorFileState(paneId, path, { externalChangeDetected: true })
-        saveError = 'Plik został zmieniony na dysku. Przeładuj przed zapisem.'
+        saveError = 'File changed on disk — reload before saving.'
       } else {
-        saveError = `Nie udało się zapisać: ${message}`
+        saveError = `Failed to save: ${message}`
       }
     }
   }
@@ -281,7 +282,7 @@
           }, 1500)
         } catch (e) {
           skipNextWatcherEvent = false
-          saveError = `Nie udało się zapisać: ${e instanceof Error ? e.message : String(e)}`
+          saveError = `Failed to save: ${e instanceof Error ? e.message : String(e)}`
           return
         }
       }
@@ -577,7 +578,7 @@
           class:disabled={!dirty}
           onclick={handleSave}
           disabled={!dirty}
-          title={dirty ? 'Zapisz (Cmd/Ctrl+S)' : 'Brak zmian'}
+          title={dirty ? 'Save (Cmd/Ctrl+S)' : 'No changes'}
           aria-label="Save file"
         >
           <Save size={13} />
@@ -594,8 +595,8 @@
       <button
         class="toolbar-btn"
         onclick={() => window.api.showInFolder(activeFilePath)}
-        title="Reveal in File Manager"
-        aria-label="Reveal in File Manager"
+        title="Show in Folder"
+        aria-label="Show in Folder"
       >
         <FolderOpen size={13} />
       </button>
@@ -604,10 +605,10 @@
 
   {#if externalChangeDetected}
     <div class="conflict-banner">
-      <span>Plik został zmieniony na dysku</span>
+      <span>File modified on disk</span>
       <div class="conflict-actions">
-        <button class="conflict-btn" onclick={reloadAndDiscard}>Przeładuj (utracisz zmiany)</button>
-        <button class="conflict-btn primary" onclick={keepMyChanges}>Zachowaj moje</button>
+        <button class="conflict-btn" onclick={reloadAndDiscard}>Reload (discard changes)</button>
+        <button class="conflict-btn primary" onclick={keepMyChanges}>Keep mine</button>
       </div>
     </div>
   {/if}
@@ -644,9 +645,9 @@
   {#if readOnlyReason && !loading && !binary}
     <div class="readonly-banner">
       {#if readOnlyReason === 'too-large'}
-        Plik zbyt duży do edycji (> 2 MB) — tryb tylko do odczytu
+        File too large to edit (> 2 MB) — read-only
       {:else if readOnlyReason === 'no-write'}
-        Brak uprawnień do zapisu — tryb tylko do odczytu
+        No write permission — read-only
       {/if}
     </div>
   {/if}
@@ -678,7 +679,7 @@
       />
       {#if truncated}
         <div class="truncation-notice">
-          Plik obcięty do 2 MB (pełny rozmiar: {formatSize(fileSize)})
+          File truncated at 2 MB (full size: {formatSize(fileSize)})
         </div>
       {/if}
     {/if}
