@@ -4,12 +4,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openFile } from '../../lib/stores/tabs.svelte'
   import { getMru } from '../../lib/stores/quickOpenMru.svelte'
-  import {
-    ensureLoaded,
-    forceReload,
-    getFiles,
-    isLoading,
-  } from '../../lib/stores/quickOpenStore.svelte'
+  import { forceReload, getFiles, isLoading } from '../../lib/stores/quickOpenStore.svelte'
   import { FolderOpen } from '@lucide/svelte'
   import { getFileIcon } from '../../lib/fileIcons'
   import FileIconDisplay from '../shared/FileIconDisplay.svelte'
@@ -39,7 +34,11 @@
 
   onMount(() => {
     inputEl?.focus()
-    void ensureLoaded(worktreePath)
+    // Kick off a refresh every time the picker opens so newly created files
+    // (via shell, an agent, or an external editor) show up without the user
+    // having to remember to hit ⇧⌘R. We render cached results immediately —
+    // the list updates reactively when the refresh completes.
+    void forceReload(worktreePath)
   })
 
   // Synchronous matching on every keystroke (fuzzysort is ~5-10ms on 50k files)
