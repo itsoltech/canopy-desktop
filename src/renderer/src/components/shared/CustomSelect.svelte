@@ -18,9 +18,20 @@
     onchange?: (value: string) => void
     id?: string
     maxWidth?: string
+    compact?: boolean
+    maxHeight?: number
   }
 
-  let { value, options, groups, onchange, id, maxWidth = 'none' }: Props = $props()
+  let {
+    value,
+    options,
+    groups,
+    onchange,
+    id,
+    maxWidth = 'none',
+    compact = false,
+    maxHeight = 200,
+  }: Props = $props()
 
   let open = $state(false)
   let focusedIndex = $state(-1)
@@ -30,6 +41,7 @@
   let left = $state(0)
   let width = $state(0)
   let maxHeightPx = $state(200)
+  let suppressInitialScroll = $state(false)
 
   interface FlatItem {
     type: 'option' | 'group'
@@ -67,22 +79,33 @@
   function openDropdown(): void {
     if (!triggerEl) return
     const rect = triggerEl.getBoundingClientRect()
-    const DROPDOWN_MAX_HEIGHT = 200
+    const DROPDOWN_MAX_HEIGHT = maxHeight
+    const OPTION_HEIGHT = compact ? 26 : 30
+    const GROUP_HEIGHT = compact ? 22 : 24
     const GUTTER = 4
     const spaceBelow = window.innerHeight - rect.bottom
     const spaceAbove = rect.top
+    const estimatedHeight = Math.min(
+      DROPDOWN_MAX_HEIGHT,
+      8 +
+        flatItems.reduce(
+          (total, item) => total + (item.type === 'group' ? GROUP_HEIGHT : OPTION_HEIGHT),
+          0,
+        ),
+    )
     // Flip above the trigger when there isn't room below for the menu.
-    if (spaceBelow < DROPDOWN_MAX_HEIGHT + GUTTER && spaceAbove > spaceBelow) {
-      maxHeightPx = Math.min(DROPDOWN_MAX_HEIGHT, Math.max(80, spaceAbove - GUTTER))
-      top = rect.top - maxHeightPx - GUTTER
+    if (spaceBelow < estimatedHeight + GUTTER && spaceAbove > spaceBelow) {
+      maxHeightPx = Math.min(estimatedHeight, Math.max(80, spaceAbove - GUTTER))
+      top = Math.max(GUTTER, rect.top - Math.min(estimatedHeight, maxHeightPx) - GUTTER)
     } else {
-      maxHeightPx = Math.min(DROPDOWN_MAX_HEIGHT, Math.max(80, spaceBelow - GUTTER))
+      maxHeightPx = Math.min(estimatedHeight, Math.max(80, spaceBelow - GUTTER))
       top = rect.bottom + GUTTER
     }
     left = rect.left
     width = rect.width
     focusedIndex = flatItems.findIndex((i) => i.type === 'option' && i.value === value)
     if (focusedIndex < 0 && selectableIndices.length > 0) focusedIndex = selectableIndices[0]
+    suppressInitialScroll = true
     open = true
   }
 
@@ -148,6 +171,10 @@
 
   $effect(() => {
     if (open && listEl && focusedIndex >= 0) {
+      if (suppressInitialScroll) {
+        suppressInitialScroll = false
+        return
+      }
       const item = listEl.children[focusedIndex] as HTMLElement | undefined
       item?.scrollIntoView({ block: 'nearest' })
     }
@@ -184,6 +211,7 @@
     <div
       bind:this={listEl}
       class="custom-select-dropdown"
+      class:compact
       style="top: {top}px; left: {left}px; min-width: {width}px; max-height: {maxHeightPx}px;"
       role="listbox"
       tabindex="0"
@@ -290,5 +318,23 @@
 
   .option.selected {
     color: var(--c-accent);
+  }
+
+  :global(.custom-select-dropdown.compact) {
+    padding: 2px;
+    border-radius: 4px;
+  }
+
+  :global(.custom-select-dropdown.compact) .group-label {
+    padding: 4px 8px 1px;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+  }
+
+  :global(.custom-select-dropdown.compact) .option {
+    padding: 3px 8px;
+    font-size: 11.5px;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+    border-radius: 3px;
   }
 </style>

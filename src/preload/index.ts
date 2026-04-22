@@ -4,6 +4,7 @@ import type { GitInfo } from '../main/git/GitRepository'
 import type { RemoteSessionStatus } from '../main/remote/types'
 import type { AgentProfileMasked, ProfileInput } from '../main/profiles/types'
 import type { AgentType } from '../main/agents/types'
+import type { ClaudeProviderPresetId } from '../shared/claudeProviderPresets'
 import type {
   AskUserQuestionAnswer,
   Attachment,
@@ -975,6 +976,16 @@ const api = {
     ipcRenderer.invoke('profile:list', { agentType }) as Promise<AgentProfileMasked[]>,
   getProfile: (id: string) =>
     ipcRenderer.invoke('profile:get', { id }) as Promise<AgentProfileMasked | null>,
+  getClaudeProviderModels: (preset: ClaudeProviderPresetId) =>
+    ipcRenderer.invoke('models:getClaudeProviderOptions', { preset }) as Promise<
+      Array<{
+        value: string
+        label: string
+        family?: string | null
+        releaseDate?: string | null
+        lastUpdated?: string | null
+      }>
+    >,
   saveProfile: (input: ProfileInput) =>
     ipcRenderer.invoke('profile:save', input) as Promise<AgentProfileMasked>,
   deleteProfile: (id: string) => ipcRenderer.invoke('profile:delete', { id }) as Promise<void>,

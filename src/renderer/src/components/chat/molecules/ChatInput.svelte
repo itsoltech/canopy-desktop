@@ -34,7 +34,6 @@
     attachments,
     modelPicker,
     permissionMode,
-    commandHints,
   }: Props = $props()
 
   let textareaEl: HTMLTextAreaElement | undefined = $state()
@@ -83,12 +82,6 @@
 </script>
 
 <div class="chat-input" class:disabled>
-  {#if commandHints}
-    <div class="hints-slot">
-      {@render commandHints()}
-    </div>
-  {/if}
-
   {#if attachments}
     {@render attachments()}
   {/if}
@@ -152,11 +145,6 @@
 
   .chat-input.disabled {
     opacity: 0.6;
-  }
-
-  .hints-slot {
-    border-bottom: 1px solid var(--c-border-subtle);
-    padding: 4px;
   }
 
   .input-row {

@@ -741,6 +741,17 @@ interface CanopyAPI {
   // Agent Profiles
   listProfiles: (agentType?: AgentType) => Promise<AgentProfileMasked[]>
   getProfile: (id: string) => Promise<AgentProfileMasked | null>
+  getClaudeProviderModels: (
+    preset: ClaudeProviderPresetId,
+  ) => Promise<
+    Array<{
+      value: string
+      label: string
+      family?: string | null
+      releaseDate?: string | null
+      lastUpdated?: string | null
+    }>
+  >
   saveProfile: (input: ProfileInput) => Promise<AgentProfileMasked>
   deleteProfile: (id: string) => Promise<void>
   onProfilesChanged: (callback: (profiles: AgentProfileMasked[]) => void) => () => void
@@ -865,6 +876,7 @@ type AgentType = import('../main/agents/types').AgentType
 type AgentProfileMasked = import('../main/profiles/types').AgentProfileMasked
 type ProfileInput = import('../main/profiles/types').ProfileInput
 type ProfilePrefs = import('../main/profiles/types').ProfilePrefs
+type ClaudeProviderPresetId = import('../shared/claudeProviderPresets').ClaudeProviderPresetId
 
 type RemoteSessionStatus = import('../main/remote/types').RemoteSessionStatus
 

@@ -8,9 +8,11 @@ import { asMessageId } from '../sdkAgents/types'
 
 export interface AppendMessageInput {
   conversationId: ConversationId
+  parentSubagentId?: string | null
   role: MessageRole
   content: string
   contentBlocks: ContentBlock[]
+  thinking?: string | null
   toolCalls?: unknown
   tokensIn?: number | null
   tokensOut?: number | null
@@ -35,11 +37,16 @@ export class SdkMessageStore {
     this.db
       .prepare(
         `INSERT INTO sdk_messages (
-           id, conversation_id, role, content, content_json,
+           id, conversation_id, parent_subagent_id, role, content, thinking, content_json,
            tool_calls_json, tokens_in, tokens_out, model
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+           parent_subagent_id = COALESCE(excluded.parent_subagent_id, sdk_messages.parent_subagent_id),
            content = excluded.content,
+           thinking = CASE
+             WHEN excluded.thinking <> '' OR sdk_messages.thinking = '' THEN excluded.thinking
+             ELSE sdk_messages.thinking
+           END,
            content_json = excluded.content_json,
            tool_calls_json = excluded.tool_calls_json,
            tokens_in = COALESCE(excluded.tokens_in, sdk_messages.tokens_in),
@@ -49,8 +56,10 @@ export class SdkMessageStore {
       .run(
         id,
         input.conversationId,
+        input.parentSubagentId ?? null,
         input.role,
         input.content,
+        input.thinking ?? '',
         JSON.stringify(input.contentBlocks),
         input.toolCalls !== undefined ? JSON.stringify(input.toolCalls) : null,
         input.tokensIn ?? null,
@@ -112,5 +121,15 @@ export class SdkMessageStore {
          WHERE id = ?`,
       )
       .run(content.content, JSON.stringify(content.contentBlocks), id)
+  }
+
+  appendThinking(id: MessageId, delta: string): void {
+    this.db
+      .prepare(
+        `UPDATE sdk_messages
+         SET thinking = thinking || ?
+         WHERE id = ?`,
+      )
+      .run(delta, id)
   }
 }

@@ -78,6 +78,7 @@ import type { SkillStore } from '../skills/SkillStore'
 import type { SkillInstallOptions, SkillListOptions } from '../skills/types'
 import { skillErrorMessage } from '../skills/errors'
 import type { SkillError } from '../skills/errors'
+import type { ModelsDevCatalog } from '../models/ModelsDevCatalog'
 import { getTransformer } from '../skills/SkillTransformer'
 import { scanSkills } from '../skills/SkillScanner'
 import type { SkillAgentTarget } from '../skills/types'
@@ -191,6 +192,7 @@ export function registerIpcHandlers(
   profileStore: ProfileStore,
   settingsExportService: SettingsExportService,
   sdkAgentManager: SdkAgentManager,
+  modelsDevCatalog: ModelsDevCatalog,
 ): void {
   registerSdkAgentIpcHandlers(sdkAgentManager)
   function broadcastToolsChanged(): void {
@@ -700,6 +702,16 @@ export function registerIpcHandlers(
     }
     return (await profileStore.get(payload.id)).unwrapOr(null)
   })
+
+  ipcMain.handle(
+    'models:getClaudeProviderOptions',
+    async (_event, payload: { preset: 'anthropic' | 'kimi' | 'minimax' | 'zai' }) => {
+      if (!payload || typeof payload.preset !== 'string') {
+        throw new Error('models:getClaudeProviderOptions requires a preset')
+      }
+      return modelsDevCatalog.getOptionsForPreset(payload.preset)
+    },
+  )
 
   ipcMain.handle('profile:save', async (_event, input: ProfileInput) => {
     if (!input || typeof input !== 'object') {

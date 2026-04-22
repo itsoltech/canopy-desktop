@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { cubicOut } from 'svelte/easing'
+  import { slide } from 'svelte/transition'
   import { ChevronRight, Brain } from '@lucide/svelte'
   import TypingDots from '../atoms/TypingDots.svelte'
   import MarkdownContent from './MarkdownContent.svelte'
@@ -45,7 +47,7 @@
   </button>
 
   {#if open}
-    <div class="thinking-body">
+    <div class="thinking-body" transition:slide={{ duration: 180, easing: cubicOut }}>
       <MarkdownContent {content} />
     </div>
   {/if}
@@ -55,7 +57,7 @@
   .thinking {
     display: flex;
     flex-direction: column;
-    margin: 6px 0;
+    margin: 0;
     border: 1px solid transparent;
     border-left: 2px solid transparent;
     border-radius: 0;
@@ -123,7 +125,7 @@
   }
 
   .thinking-body {
-    padding: 0 10px 8px 30px;
+    padding: 6px 10px 8px 30px;
     font-size: 0.92em;
     line-height: 1.45;
     color: var(--c-text-secondary);

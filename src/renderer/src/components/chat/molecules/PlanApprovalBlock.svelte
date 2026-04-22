@@ -4,12 +4,14 @@
   import AttentionBanner from './AttentionBanner.svelte'
   import Chip from '../atoms/Chip.svelte'
   import TypingDots from '../atoms/TypingDots.svelte'
+  import type { PermissionMode } from '../../../../../main/sdkAgents/types'
 
   export interface AllowedPrompt {
     tool: string
     prompt: string
   }
 
+  type ApprovalMode = Exclude<PermissionMode, 'plan'>
   type Status = 'waiting' | 'submitting' | 'approved' | 'rejected'
 
   interface Props {
@@ -20,7 +22,8 @@
     allowedPrompts?: AllowedPrompt[]
     /** Previous rejection feedback to render in the resolved view. */
     feedback?: string
-    onapprove?: () => void
+    approvalMode?: ApprovalMode
+    onapprove?: (mode: ApprovalMode) => void
     onreject?: (feedback?: string) => void
   }
 
@@ -30,6 +33,7 @@
     plan,
     allowedPrompts = [],
     feedback: initialFeedback = '',
+    approvalMode,
     onapprove,
     onreject,
   }: Props = $props()
@@ -52,6 +56,11 @@
   )
 
   let readonly = $derived(status !== 'waiting')
+  const APPROVAL_ACTIONS: { mode: ApprovalMode; label: string; variant: 'primary' | 'ghost' }[] = [
+    { mode: 'bypassPermissions', label: 'Bypass permissions', variant: 'primary' },
+    { mode: 'acceptEdits', label: 'Auto-accept edits', variant: 'ghost' },
+    { mode: 'default', label: 'Default approvals', variant: 'ghost' },
+  ]
 
   let displayTitle = $derived.by(() => {
     if (status === 'approved') return 'Plan approved'
@@ -66,9 +75,16 @@
     return status
   })
 
-  function approve(): void {
+  function labelForMode(mode: ApprovalMode | undefined): string {
+    if (!mode) return 'the selected mode'
+    if (mode === 'bypassPermissions') return 'bypass permissions'
+    if (mode === 'acceptEdits') return 'auto-accept edits'
+    return 'default approvals'
+  }
+
+  function approveWithMode(mode: ApprovalMode): void {
     if (readonly) return
-    onapprove?.()
+    onapprove?.(mode)
   }
 
   function startReject(): void {
@@ -90,7 +106,7 @@
 <AttentionBanner title={displayTitle} icon={ClipboardCheck} status={bannerStatus} tone="accent">
   {#snippet description()}
     {#if status === 'approved'}
-      The assistant will proceed with this plan.
+      The assistant will proceed with this plan using {labelForMode(approvalMode)}.
     {:else if status === 'rejected'}
       The assistant will revise the plan.
     {:else if status === 'submitting'}
@@ -155,7 +171,17 @@
 
   {#snippet actions()}
     {#if status === 'waiting' && !showFeedback}
-      <button type="button" class="btn primary" onclick={approve}>Approve plan</button>
+      <div class="approval-actions">
+        {#each APPROVAL_ACTIONS as action (action.mode)}
+          <button
+            type="button"
+            class={`btn ${action.variant}`}
+            onclick={() => approveWithMode(action.mode)}
+          >
+            {action.label}
+          </button>
+        {/each}
+      </div>
       <button type="button" class="btn ghost" onclick={startReject}>Request changes</button>
     {:else if status === 'submitting'}
       <span class="status-inline">
@@ -322,6 +348,12 @@
 
   .feedback-actions {
     display: flex;
+    gap: 8px;
+  }
+
+  .approval-actions {
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
 

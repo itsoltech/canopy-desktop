@@ -141,7 +141,7 @@
 <style>
   .sub-agent {
     position: relative;
-    margin: 5px 0;
+    margin: 0;
     border-radius: 0;
     border: 1px solid transparent;
     border-left: 2px solid transparent;
@@ -204,7 +204,7 @@
   }
 
   .head {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
     width: 100%;
@@ -283,8 +283,9 @@
     padding: 7px 9px 8px;
     border-top: 1px solid color-mix(in srgb, var(--c-generate) 20%, transparent);
     overflow-y: auto;
-    display: flex;
+    display: inline-flex;
     flex-direction: column;
+    width: 100%;
     gap: 6px;
     background: transparent;
   }

@@ -19,6 +19,7 @@ import type {
   SdkAgentEvent,
   ToolDecision,
 } from './types'
+import { normalizePermissionMode } from './types'
 import type { SdkAgentError } from './errors'
 import { sdkAgentErrorMessage, toSdkAgentError } from './errors'
 import {
@@ -33,6 +34,7 @@ import type { CanUseToolCallback, LlmProvider } from './providers/LlmProvider'
 import { AnthropicProvider, shapeQuestionAllowPayload } from './providers/AnthropicProvider'
 import type { Conversation, SdkMessageRecord, SdkToolEventRecord } from '../db/sdkAgentRows'
 import type { ConversationSearchHit } from '../db/ConversationStore'
+import { buildClaudeProviderEnv } from '../agents/claudeProviderEnv'
 
 export interface SdkAgentManagerDeps {
   database: Database
@@ -100,7 +102,7 @@ export class SdkAgentManager {
     }
     const profile = profileResult.value
     const model = profile.prefs.model ?? 'sonnet'
-    const permissionMode = (profile.prefs.permissionMode ?? 'default') as PermissionMode
+    const permissionMode = normalizePermissionMode(profile.prefs.permissionMode)
 
     const conversation = this.deps.conversationStore.create({
       workspaceId: params.workspaceId,
@@ -140,8 +142,9 @@ export class SdkAgentManager {
       if (session) session.model = patch.model
     }
     if (patch.permissionMode !== undefined) {
-      this.deps.conversationStore.setPermissionMode(id, patch.permissionMode)
-      if (session) session.permissionMode = patch.permissionMode
+      const permissionMode = normalizePermissionMode(patch.permissionMode)
+      this.deps.conversationStore.setPermissionMode(id, permissionMode)
+      if (session) session.permissionMode = permissionMode
     }
   }
 
@@ -212,10 +215,16 @@ export class SdkAgentManager {
   }
 
   respondPlan(id: ConversationId, requestId: string, decision: PlanDecision): void {
-    const pending = this.registry.get(id)?.pending.get(requestId)
+    const session = this.registry.get(id)
+    const pending = session?.pending.get(requestId)
     if (!pending || pending.kind !== 'plan') return
+    if (decision.action === 'approve') {
+      const permissionMode = normalizePermissionMode(decision.permissionMode)
+      this.deps.conversationStore.setPermissionMode(id, permissionMode)
+      if (session) session.permissionMode = permissionMode
+    }
     pending.resolve(decision)
-    this.registry.get(id)?.pending.delete(requestId)
+    session?.pending.delete(requestId)
   }
 
   // --- Reads ---
@@ -402,24 +411,70 @@ export class SdkAgentManager {
         if (session) session.sdkSessionId = e.sdkSessionId
         this.deps.conversationStore.setSdkSessionId(id, e.sdkSessionId)
       })
+      .with({ _tag: 'assistant.message' }, (e) => this.persistEvent(id, e))
+      .with({ _tag: 'assistant.thinking' }, (e) => this.persistEvent(id, e))
+      .with({ _tag: 'tool.start' }, (e) => this.persistEvent(id, e))
+      .with({ _tag: 'tool.result' }, (e) => this.persistEvent(id, e))
+      .with({ _tag: 'subagent.event' }, (e) => this.persistEvent(id, e.event, e.subagentId))
+      .with({ _tag: 'session.end' }, (e) => {
+        const finalStatus =
+          e.reason === 'completed' ? 'ended' : e.reason === 'aborted' ? 'cancelled' : 'error'
+        this.deps.conversationStore.updateStatus(id, finalStatus)
+      })
+      .otherwise(() => {})
+
+    this.registry.emit(id, ev)
+  }
+
+  private persistEvent(
+    conversationId: ConversationId,
+    ev: SdkAgentEvent,
+    parentSubagentId: string | null = null,
+  ): void {
+    match(ev)
       .with({ _tag: 'assistant.message' }, (e) => {
+        const existing = this.deps.messageStore.getById(e.messageId)
+        const mergedContent = mergeAssistantContentBlocks(
+          existing?.contentBlocks as ContentBlock[] | undefined,
+          e.content,
+        )
         this.deps.messageStore.append({
           id: e.messageId,
-          conversationId: id,
+          conversationId,
+          parentSubagentId,
           role: 'assistant',
-          content: contentToPlain(e.content),
-          contentBlocks: e.content,
+          content: contentToPlain(mergedContent),
+          contentBlocks: mergedContent,
+          thinking: existing?.thinking ?? null,
           tokensIn: e.tokensIn ?? null,
           tokensOut: e.tokensOut ?? null,
           model: e.model ?? null,
         })
-        this.deps.conversationStore.touch(id)
+        this.deps.conversationStore.touch(conversationId)
+      })
+      .with({ _tag: 'assistant.thinking' }, (e) => {
+        const existing = this.deps.messageStore.getById(e.messageId)
+        if (existing) {
+          this.deps.messageStore.appendThinking(e.messageId, e.text)
+        } else {
+          this.deps.messageStore.append({
+            id: e.messageId,
+            conversationId,
+            parentSubagentId,
+            role: 'assistant',
+            content: '',
+            contentBlocks: [{ type: 'text', text: '' }],
+            thinking: e.text,
+          })
+        }
+        this.deps.conversationStore.touch(conversationId)
       })
       .with({ _tag: 'tool.start' }, (e) => {
         this.deps.toolEventStore.start({
           id: e.toolEventId,
           messageId: e.messageId,
-          conversationId: id,
+          conversationId,
+          parentSubagentId,
           toolName: e.name,
           input: e.input,
         })
@@ -432,14 +487,7 @@ export class SdkAgentManager {
           durationMs: e.durationMs,
         })
       })
-      .with({ _tag: 'session.end' }, (e) => {
-        const finalStatus =
-          e.reason === 'completed' ? 'ended' : e.reason === 'aborted' ? 'cancelled' : 'error'
-        this.deps.conversationStore.updateStatus(id, finalStatus)
-      })
       .otherwise(() => {})
-
-    this.registry.emit(id, ev)
   }
 
   private emitAndPersistError(id: ConversationId, error: SdkAgentError): void {
@@ -574,6 +622,22 @@ function contentToPlain(blocks: readonly { type: string; [k: string]: unknown }[
   return parts.join('\n\n')
 }
 
+function mergeAssistantContentBlocks(
+  previous: readonly ContentBlock[] | undefined,
+  next: readonly ContentBlock[],
+): ContentBlock[] {
+  const nextHasText = next.some((block) => block.type === 'text' && block.text.length > 0)
+  if (nextHasText || !previous?.length) return [...next]
+
+  const previousTextBlocks = previous.filter(
+    (block): block is Extract<ContentBlock, { type: 'text' }> =>
+      block.type === 'text' && block.text.length > 0,
+  )
+  if (previousTextBlocks.length === 0) return [...next]
+
+  return [...previousTextBlocks, ...next]
+}
+
 function buildUserContent(text: string, attachments: Attachment[] | undefined): ContentBlock[] {
   const blocks: ContentBlock[] = []
   if (text.length > 0) blocks.push({ type: 'text', text })
@@ -624,16 +688,21 @@ interface SavedEnv {
   before: Record<string, string | undefined>
 }
 
-function applyEnv(apiKey: string | null, prefs: { baseUrl?: string; provider?: string }): SavedEnv {
-  const overrides: Record<string, string> = {}
-  // Only force-override ANTHROPIC_API_KEY when the profile has one; otherwise
-  // the bundled Claude CLI binary falls back to its own stored session.
-  if (apiKey) overrides.ANTHROPIC_API_KEY = apiKey
-  if (prefs.baseUrl) overrides.ANTHROPIC_BASE_URL = prefs.baseUrl
-  if (prefs.provider === 'bedrock') overrides.CLAUDE_CODE_USE_BEDROCK = '1'
-  if (prefs.provider === 'vertex') overrides.CLAUDE_CODE_USE_VERTEX = '1'
-  if (prefs.provider === 'foundry') overrides.CLAUDE_CODE_USE_FOUNDRY = '1'
-
+function applyEnv(
+  apiKey: string | null,
+  prefs: {
+    model?: string
+    baseUrl?: string
+    provider?: string
+    claudeProviderPreset?: string
+    providerModel?: string
+    providerOpusModel?: string
+    providerSonnetModel?: string
+    providerHaikuModel?: string
+    customEnv?: string
+  },
+): SavedEnv {
+  const overrides = buildClaudeProviderEnv(apiKey, prefs)
   const before: Record<string, string | undefined> = {}
   for (const [k, v] of Object.entries(overrides)) {
     before[k] = process.env[k]

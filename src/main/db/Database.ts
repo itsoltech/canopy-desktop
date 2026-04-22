@@ -276,6 +276,19 @@ const migrations: Migration[] = [
       ALTER TABLE sdk_messages ADD COLUMN model TEXT;
     `,
   },
+  {
+    id: 16,
+    up: `
+      ALTER TABLE sdk_messages ADD COLUMN thinking TEXT NOT NULL DEFAULT '';
+    `,
+  },
+  {
+    id: 17,
+    up: `
+      ALTER TABLE sdk_messages ADD COLUMN parent_subagent_id TEXT;
+      ALTER TABLE sdk_tool_events ADD COLUMN parent_subagent_id TEXT;
+    `,
+  },
 ]
 
 export class Database {

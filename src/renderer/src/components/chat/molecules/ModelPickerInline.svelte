@@ -22,7 +22,7 @@
 </script>
 
 <div class="model-picker-inline">
-  <CustomSelect {value} {options} {groups} {onchange} maxWidth="220px" />
+  <CustomSelect {value} {options} {groups} {onchange} maxWidth="220px" compact maxHeight={420} />
 </div>
 
 <style>

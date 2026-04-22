@@ -39,7 +39,6 @@
         options={[
           { value: '', label: 'Default' },
           { value: 'plan', label: 'Plan' },
-          { value: 'auto', label: 'Auto' },
           { value: 'acceptEdits', label: 'Accept edits' },
           { value: 'bypassPermissions', label: 'Bypass permissions' },
         ]}

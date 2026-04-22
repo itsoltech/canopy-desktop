@@ -43,6 +43,7 @@ import { SdkToolEventStore } from './db/SdkToolEventStore'
 import { SdkAttachmentStore } from './db/SdkAttachmentStore'
 import { SdkAgentManager } from './sdkAgents/SdkAgentManager'
 import { sweepOldSessionLogs } from './sdkAgents/sessionLog'
+import { ModelsDevCatalog } from './models/ModelsDevCatalog'
 import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
 
@@ -133,6 +134,7 @@ const conversationStore = new ConversationStore(database)
 const sdkMessageStore = new SdkMessageStore(database)
 const sdkToolEventStore = new SdkToolEventStore(database)
 const sdkAttachmentStore = new SdkAttachmentStore(database)
+const modelsDevCatalog = new ModelsDevCatalog()
 const sdkAgentManager = new SdkAgentManager({
   database,
   conversationStore,
@@ -677,6 +679,7 @@ app.whenReady().then(async () => {
     profileStore,
     settingsExportService,
     sdkAgentManager,
+    modelsDevCatalog,
   )
 
   if (PERF) performance.mark('app:ipcHandlersRegistered')

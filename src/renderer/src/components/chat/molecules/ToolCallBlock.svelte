@@ -27,6 +27,7 @@
   import ReadToolView from './ReadToolView.svelte'
   import BashToolView from './BashToolView.svelte'
   import SearchToolView from './SearchToolView.svelte'
+  import SkillToolView from './SkillToolView.svelte'
 
   type ToolStatus = 'running' | 'success' | 'error'
 
@@ -78,8 +79,9 @@
   const GREP_TOOLS = new Set(['grep', 'Grep'])
   const GLOB_TOOLS = new Set(['glob', 'Glob'])
   const WEB_SEARCH_TOOLS = new Set(['web_search', 'WebSearch', 'websearch'])
+  const SKILL_TOOLS = new Set(['skill', 'Skill'])
 
-  type Kind = 'edit' | 'read' | 'bash' | 'grep' | 'glob' | 'web_search' | null
+  type Kind = 'edit' | 'read' | 'bash' | 'grep' | 'glob' | 'web_search' | 'skill' | null
 
   let kind = $derived.by((): Kind => {
     if (EDIT_TOOLS.has(name)) return 'edit'
@@ -88,6 +90,7 @@
     if (GREP_TOOLS.has(name)) return 'grep'
     if (GLOB_TOOLS.has(name)) return 'glob'
     if (WEB_SEARCH_TOOLS.has(name)) return 'web_search'
+    if (SKILL_TOOLS.has(name)) return 'skill'
     return null
   })
 
@@ -178,7 +181,7 @@
     }
 
     if (kind === 'bash') {
-      return str(displayInput, 'command', 'cmd', 'script') ?? null
+      return str(displayInput, 'description', 'summary', 'command', 'cmd', 'script') ?? null
     }
 
     if (kind === 'grep') {
@@ -195,6 +198,10 @@
     if (kind === 'web_search') {
       const q = str(displayInput, 'query', 'q', 'search')
       return q ? `"${q}"` : null
+    }
+
+    if (kind === 'skill') {
+      return str(displayInput, 'skill', 'name') ?? null
     }
 
     return null
@@ -228,6 +235,8 @@
         <BashToolView input={displayInput} result={displayResult} />
       {:else if kind === 'grep' || kind === 'glob' || kind === 'web_search'}
         <SearchToolView {kind} input={displayInput} result={displayResult} />
+      {:else if kind === 'skill'}
+        <SkillToolView input={displayInput} result={displayResult} />
       {:else}
         {#if fallbackArgs}
           <div class="section">

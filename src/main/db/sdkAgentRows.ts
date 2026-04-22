@@ -7,7 +7,12 @@ import type {
   SdkSessionId,
   ToolDecision,
 } from '../sdkAgents/types'
-import { asConversationId, asMessageId, asSdkSessionId } from '../sdkAgents/types'
+import {
+  asConversationId,
+  asMessageId,
+  asSdkSessionId,
+  normalizePermissionMode,
+} from '../sdkAgents/types'
 
 // SQLite's datetime('now') emits "YYYY-MM-DD HH:MM:SS" (UTC, no T, no Z),
 // which JS parses as local time. Normalize to strict ISO-8601 UTC so
@@ -38,8 +43,10 @@ export interface ConversationRow {
 export interface SdkMessageRow {
   id: string
   conversation_id: string
+  parent_subagent_id: string | null
   role: string
   content: string
+  thinking: string
   content_json: string
   tool_calls_json: string | null
   tokens_in: number | null
@@ -52,6 +59,7 @@ export interface SdkToolEventRow {
   id: string
   message_id: string
   conversation_id: string
+  parent_subagent_id: string | null
   tool_name: string
   input_json: string
   result_text: string | null
@@ -96,8 +104,10 @@ export interface Conversation {
 export interface SdkMessageRecord {
   id: MessageId
   conversationId: ConversationId
+  parentSubagentId: string | null
   role: MessageRole
   content: string
+  thinking: string
   contentBlocks: ContentBlock[]
   toolCalls?: unknown
   tokensIn: number | null
@@ -111,6 +121,7 @@ export interface SdkToolEventRecord {
   id: string
   messageId: MessageId
   conversationId: ConversationId
+  parentSubagentId: string | null
   toolName: string
   input: Record<string, unknown>
   resultText: string | null
@@ -146,7 +157,7 @@ export function conversationFromRow(row: ConversationRow): Conversation {
     sdkSessionId: row.sdk_session_id ? asSdkSessionId(row.sdk_session_id) : null,
     title: row.title,
     model: row.model,
-    permissionMode: row.permission_mode as PermissionMode,
+    permissionMode: normalizePermissionMode(row.permission_mode),
     status: row.status as ConversationStatus,
     createdAt: toIsoUtc(row.created_at),
     updatedAt: toIsoUtc(row.updated_at),
@@ -157,8 +168,10 @@ export function sdkMessageFromRow(row: SdkMessageRow): SdkMessageRecord {
   return {
     id: asMessageId(row.id),
     conversationId: asConversationId(row.conversation_id),
+    parentSubagentId: row.parent_subagent_id,
     role: row.role as MessageRole,
     content: row.content,
+    thinking: row.thinking,
     contentBlocks: JSON.parse(row.content_json) as ContentBlock[],
     toolCalls: row.tool_calls_json ? (JSON.parse(row.tool_calls_json) as unknown) : undefined,
     tokensIn: row.tokens_in,
@@ -173,6 +186,7 @@ export function sdkToolEventFromRow(row: SdkToolEventRow): SdkToolEventRecord {
     id: row.id,
     messageId: asMessageId(row.message_id),
     conversationId: asConversationId(row.conversation_id),
+    parentSubagentId: row.parent_subagent_id,
     toolName: row.tool_name,
     input: JSON.parse(row.input_json) as Record<string, unknown>,
     resultText: row.result_text,

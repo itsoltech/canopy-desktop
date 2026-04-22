@@ -73,8 +73,6 @@ export interface AskUserQuestionAnswer {
 
 export type ToolDecision = 'allow-once' | 'allow-session' | 'deny'
 
-export type PlanDecision = { action: 'approve' } | { action: 'reject'; feedback?: string }
-
 export interface PlanAllowedPrompt {
   tool: string
   prompt: string
@@ -82,6 +80,23 @@ export interface PlanAllowedPrompt {
 
 /** Permission-mode aliases mirror SDK options. */
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
+
+export type PlanDecision =
+  | { action: 'approve'; permissionMode: Exclude<PermissionMode, 'plan'> }
+  | { action: 'reject'; feedback?: string }
+
+export function normalizePermissionMode(value: string | null | undefined): PermissionMode {
+  if (value === 'auto') return 'acceptEdits'
+  if (
+    value === 'default' ||
+    value === 'plan' ||
+    value === 'acceptEdits' ||
+    value === 'bypassPermissions'
+  ) {
+    return value
+  }
+  return 'default'
+}
 
 /**
  * Discriminated union of everything a session can emit. Consumers (persistence,

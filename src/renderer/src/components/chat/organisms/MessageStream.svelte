@@ -42,6 +42,8 @@
       answers: Record<string, SdkAskUserQuestionAnswer>,
     ) => void
     onRespondPlan?: (requestId: string, decision: SdkPlanDecision) => void
+    onQuoteSelection?: (selection: { text: string; comment?: string }) => void
+    onCopySelection?: (ok: boolean) => void
   }
 
   let {
@@ -56,6 +58,8 @@
     onRespondPermission,
     onRespondQuestion,
     onRespondPlan,
+    onQuoteSelection,
+    onCopySelection,
   }: Props = $props()
 
   type Brand = 'ClaudeAI' | 'OpenAI' | 'Gemini'
@@ -94,8 +98,75 @@
     return undefined
   }
 
+  function resolveAssistantLabel(model: string | null | undefined): string {
+    if (!model) return 'Assistant'
+    const m = model.toLowerCase()
+    if (
+      m.startsWith('claude') ||
+      m === 'opus' ||
+      m.startsWith('opus-') ||
+      m === 'sonnet' ||
+      m.startsWith('sonnet-') ||
+      m === 'haiku' ||
+      m.startsWith('haiku-')
+    ) {
+      return 'Claude Code'
+    }
+    if (
+      m.startsWith('gpt') ||
+      m.startsWith('o1') ||
+      m.startsWith('o3') ||
+      m.startsWith('o4') ||
+      m.startsWith('codex') ||
+      m === 'openai'
+    ) {
+      return 'Codex'
+    }
+    if (m.startsWith('gemini')) return 'Gemini'
+    if (m.startsWith('minimax')) return 'MiniMax'
+    if (m.startsWith('deepseek')) return 'DeepSeek'
+    if (m.startsWith('mistral')) return 'Mistral'
+    if (m.startsWith('grok') || m.startsWith('xai')) return 'Grok'
+    if (m.startsWith('llama') || m.startsWith('meta-llama')) return 'Llama'
+    return 'Assistant'
+  }
+
+  function resolveAssistantIcon(model: string | null | undefined): string | undefined {
+    if (!model) return undefined
+    const m = model.toLowerCase()
+    if (
+      m.startsWith('claude') ||
+      m === 'opus' ||
+      m.startsWith('opus-') ||
+      m === 'sonnet' ||
+      m.startsWith('sonnet-') ||
+      m === 'haiku' ||
+      m.startsWith('haiku-')
+    ) {
+      return 'ClaudeAI'
+    }
+    if (
+      m.startsWith('gpt') ||
+      m.startsWith('o1') ||
+      m.startsWith('o3') ||
+      m.startsWith('o4') ||
+      m.startsWith('codex') ||
+      m === 'openai'
+    ) {
+      return 'OpenAI'
+    }
+    if (m.startsWith('gemini')) return 'Gemini'
+    if (m.startsWith('minimax')) return 'MiniMax'
+    if (m.startsWith('deepseek')) return 'DeepSeek'
+    if (m.startsWith('mistral')) return 'Mistral'
+    if (m.startsWith('grok') || m.startsWith('xai')) return 'Grok'
+    if (m.startsWith('llama') || m.startsWith('meta-llama')) return 'Llama'
+    return undefined
+  }
+
   let containerEl: HTMLDivElement | undefined = $state()
   let composerSlotEl: HTMLDivElement | undefined = $state()
+  let streamWrapperEl: HTMLDivElement | undefined = $state()
   let autoScroll = $state(true)
   let scrollFrame: number | null = null
   let turnMinHeight = $state(360)
@@ -104,6 +175,14 @@
   let thinkingUpdatedAt = new SvelteMap<string, number>()
   let thinkingClock = $state(Date.now())
   let thinkingClockTimer: ReturnType<typeof setInterval> | null = null
+  let selectionText = $state('')
+  let selectionTop = $state(0)
+  let selectionLeft = $state(0)
+  let selectionVisible = $state(false)
+  let quoteMode = $state(false)
+  let quoteComment = $state('')
+
+  const MAX_SELECTION_CHARS = 4000
 
   $effect(() => {
     let cancelled = false
@@ -140,6 +219,85 @@
     autoScroll = true
     if (!containerEl) return
     containerEl.scrollTop = containerEl.scrollHeight
+  }
+
+  function hideSelectionInspector(clearSelection = false): void {
+    selectionVisible = false
+    quoteMode = false
+    quoteComment = ''
+    if (clearSelection) window.getSelection()?.removeAllRanges()
+  }
+
+  function closestElement(node: Node | null): Element | null {
+    if (!node) return null
+    return node instanceof Element ? node : node.parentElement
+  }
+
+  function selectionWithinMessageText(selection: Selection): boolean {
+    const anchor = closestElement(selection.anchorNode)
+    const focus = closestElement(selection.focusNode)
+    if (!anchor || !focus) return false
+    return (
+      !!anchor.closest('[data-message-selectable="true"]') &&
+      !!focus.closest('[data-message-selectable="true"]')
+    )
+  }
+
+  function updateSelectionInspector(): void {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      hideSelectionInspector()
+      return
+    }
+    if (!selectionWithinMessageText(selection)) {
+      hideSelectionInspector()
+      return
+    }
+
+    const text = selection.toString().trim()
+    if (!text) {
+      hideSelectionInspector()
+      return
+    }
+
+    const range = selection.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
+    if (rect.width === 0 && rect.height === 0) {
+      hideSelectionInspector()
+      return
+    }
+
+    selectionText = text.length > MAX_SELECTION_CHARS ? text.slice(0, MAX_SELECTION_CHARS) : text
+    selectionLeft = rect.left + rect.width / 2
+    selectionTop = Math.max(12, rect.top - 12)
+    selectionVisible = true
+  }
+
+  async function copySelection(): Promise<void> {
+    if (!selectionText) return
+    try {
+      await navigator.clipboard.writeText(selectionText)
+      onCopySelection?.(true)
+    } catch {
+      onCopySelection?.(false)
+    }
+  }
+
+  function submitQuote(): void {
+    if (!selectionText) return
+    onQuoteSelection?.({
+      text: selectionText,
+      ...(quoteComment.trim() ? { comment: quoteComment.trim() } : {}),
+    })
+    hideSelectionInspector(true)
+  }
+
+  function onSelectionMouseUp(): void {
+    queueMicrotask(updateSelectionInspector)
+  }
+
+  function onSelectionKeyUp(): void {
+    queueMicrotask(updateSelectionInspector)
   }
 
   $effect(() => {
@@ -190,6 +348,23 @@
     return () => {
       if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
       if (thinkingClockTimer !== null) clearInterval(thinkingClockTimer)
+    }
+  })
+
+  $effect(() => {
+    if (!selectionVisible) return
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (target.closest('.selection-inspector')) return
+      queueMicrotask(updateSelectionInspector)
+    }
+    const handleScroll = (): void => hideSelectionInspector()
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    window.addEventListener('scroll', handleScroll, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      window.removeEventListener('scroll', handleScroll, true)
     }
   })
 
@@ -385,6 +560,10 @@
     return `data:${block.source.media_type};base64,${block.source.data}`
   }
 
+  function imageLabel(block: ImageContentBlock): string {
+    return block.filename?.trim() || 'Attached image'
+  }
+
   function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   }
@@ -505,8 +684,14 @@
   let latestTurnId = $derived(messageTurns[messageTurns.length - 1]?.id ?? null)
 </script>
 
-<div class="stream-wrapper">
-  <div class="message-stream" bind:this={containerEl} onscroll={onScroll}>
+<div class="stream-wrapper" bind:this={streamWrapperEl}>
+  <div
+    class="message-stream"
+    bind:this={containerEl}
+    onscroll={onScroll}
+    onmouseup={onSelectionMouseUp}
+    onkeyup={onSelectionKeyUp}
+  >
     <div class="stream-column">
       {#if messages.length === 0 && pendingAttention.length === 0}
         <div class="empty-state">
@@ -554,8 +739,9 @@
           {#snippet header()}
             <MessageHeader
               role={headerRole(group)}
-              label={headerLabel(group)}
+              label={isAssistant ? resolveAssistantLabel(groupModelName) : headerLabel(group)}
               brand={isAssistant ? resolveBrand(groupModelName) : undefined}
+              assistantIcon={isAssistant ? resolveAssistantIcon(groupModelName) : undefined}
               model={groupModelName}
               userInitial={group.role === 'user' ? 'Y' : undefined}
               timestamp={firstMessage.createdAt}
@@ -581,17 +767,21 @@
                         onreveal={scheduleScrollToBottom}
                       />
                     {:else}
-                      <p class="message-text">{message.content}</p>
+                      <MarkdownContent content={message.content} />
                     {/if}
                   {/if}
-                  {#each imageBlocks(message) as block, index (`${message.id}-image-${index}`)}
-                    <figure class="image-attachment">
-                      <img src={imageSrc(block)} alt={block.filename ?? 'Attached image'} />
-                      {#if block.filename}
-                        <figcaption>{block.filename}</figcaption>
-                      {/if}
-                    </figure>
-                  {/each}
+                  {#if imageBlocks(message).length > 0}
+                    <div class="image-attachments" data-count={imageBlocks(message).length}>
+                      {#each imageBlocks(message) as block, index (`${message.id}-image-${index}`)}
+                        <figure class="image-attachment">
+                          <div class="image-frame">
+                            <img src={imageSrc(block)} alt={imageLabel(block)} loading="lazy" />
+                          </div>
+                          <figcaption title={imageLabel(block)}>{imageLabel(block)}</figcaption>
+                        </figure>
+                      {/each}
+                    </div>
+                  {/if}
                   {#each toolEventsForMessage(message.id) as ev (ev.id)}
                     {#if subagents[ev.id]}
                       {@render subagentRun(subagents[ev.id], ev)}
@@ -707,8 +897,10 @@
             <PlanApprovalBlock
               status={block.status}
               feedback={block.feedback}
+              approvalMode={block.permissionMode}
               allowedPrompts={block.allowedPrompts ?? []}
-              onapprove={() => onRespondPlan?.(block.requestId, { action: 'approve' })}
+              onapprove={(permissionMode) =>
+                onRespondPlan?.(block.requestId, { action: 'approve', permissionMode })}
               onreject={(feedback) =>
                 onRespondPlan?.(block.requestId, { action: 'reject', feedback })}
             >
@@ -762,6 +954,59 @@
       <span>Latest</span>
     </button>
   {/if}
+
+  {#if selectionVisible}
+    <div
+      class="selection-inspector"
+      class:quote-mode={quoteMode}
+      style={`left:${selectionLeft}px;top:${selectionTop}px;`}
+    >
+      <div class="selection-actions">
+        <button type="button" class="selection-btn" onmousedown={(e) => e.preventDefault()} onclick={copySelection}>
+          Copy
+        </button>
+        <button
+          type="button"
+          class="selection-btn"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={() => (quoteMode = !quoteMode)}
+        >
+          Quote
+        </button>
+      </div>
+      {#if quoteMode}
+        <div class="quote-form">
+          <textarea
+            class="quote-comment"
+            rows="3"
+            bind:value={quoteComment}
+            placeholder="Add a comment to this quote"
+          ></textarea>
+          <div class="quote-actions">
+            <button
+              type="button"
+              class="selection-btn primary"
+              onmousedown={(e) => e.preventDefault()}
+              onclick={submitQuote}
+            >
+              Insert quote
+            </button>
+            <button
+              type="button"
+              class="selection-btn"
+              onmousedown={(e) => e.preventDefault()}
+              onclick={() => {
+                quoteMode = false
+                quoteComment = ''
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -799,7 +1044,7 @@
 
   .composer-slot {
     margin-top: auto;
-    padding-top: 8px;
+    padding: 8px 0 12px;
   }
 
   .message-turn {
@@ -818,51 +1063,87 @@
   .message-body {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 0;
   }
 
   .message-segment {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 0;
     min-width: 0;
   }
 
   .message-segment + .message-segment {
+    padding-top: 0;
+  }
+
+  .message-segment > :global(.markdown-content) {
+    padding-block: 0;
+  }
+
+  .message-segment > :global(.thinking) + :global(.markdown-content),
+  .message-segment > :global(.tool-call) + :global(.markdown-content),
+  .message-segment > :global(.sub-agent) + :global(.markdown-content),
+  .message-segment > :global(.banner) + :global(.markdown-content),
+  .message-segment > .image-attachments + :global(.markdown-content) {
     padding-top: 6px;
   }
 
-  .message-text {
+  .message-segment > :global(.markdown-content):has(+ :global(.thinking)),
+  .message-segment > :global(.markdown-content):has(+ :global(.tool-call)),
+  .message-segment > :global(.markdown-content):has(+ :global(.sub-agent)),
+  .message-segment > :global(.markdown-content):has(+ :global(.banner)),
+  .message-segment > :global(.markdown-content):has(+ .image-attachments) {
+    padding-bottom: 6px;
+  }
+
+  .image-attachments {
     margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+    gap: 6px;
+    width: min(100%, 680px);
   }
 
   .image-attachment {
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 5px;
-    width: min(100%, 420px);
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .image-frame {
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: 4 / 3;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--c-border-subtle) 88%, white 8%);
+    background: color-mix(in srgb, var(--c-bg) 92%, black);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-bg) 40%, transparent);
   }
 
   .image-attachment img {
     display: block;
-    max-width: 100%;
-    max-height: 320px;
-    object-fit: contain;
-    border-radius: 6px;
-    border: 1px solid var(--c-border-subtle);
-    background: var(--c-bg);
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: color-mix(in srgb, white 92%, var(--c-bg));
   }
 
   .image-attachment figcaption {
-    color: var(--c-text-muted);
-    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    min-width: 0;
+    padding: 1px 0;
+    color: var(--c-text-faint);
+    font-size: 10.5px;
     line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
 
   .empty-state {
@@ -929,5 +1210,77 @@
 
   .scroll-to-latest:hover {
     background: var(--c-hover);
+  }
+
+  .selection-inspector {
+    position: fixed;
+    transform: translate(-50%, -100%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px;
+    min-width: 160px;
+    border: 1px solid var(--c-border);
+    background: var(--c-bg-elevated);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    z-index: 30;
+  }
+
+  .selection-actions,
+  .quote-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .selection-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 8px;
+    border: 1px solid var(--c-border-subtle);
+    background: transparent;
+    color: var(--c-text-secondary);
+    font-size: 11.5px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .selection-btn:hover {
+    background: var(--c-hover);
+    color: var(--c-text);
+  }
+
+  .selection-btn.primary {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+    color: var(--c-bg);
+  }
+
+  .selection-btn.primary:hover {
+    background: var(--c-accent-text);
+  }
+
+  .quote-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .quote-comment {
+    min-width: 240px;
+    padding: 6px 8px;
+    border: 1px solid var(--c-border);
+    background: var(--c-bg);
+    color: var(--c-text);
+    font-family: inherit;
+    font-size: 12px;
+    resize: vertical;
+    outline: none;
+  }
+
+  .quote-comment:focus {
+    border-color: var(--c-focus-ring);
+    box-shadow: inset 0 0 0 1px var(--c-focus-ring);
   }
 </style>

@@ -13,6 +13,7 @@ import type {
 export interface StartToolEventInput {
   messageId: MessageId
   conversationId: ConversationId
+  parentSubagentId?: string | null
   toolName: string
   input: Record<string, unknown>
   decision?: ToolDecision | 'auto' | null
@@ -42,11 +43,12 @@ export class SdkToolEventStore {
     this.db
       .prepare(
         `INSERT INTO sdk_tool_events (
-           id, message_id, conversation_id, tool_name,
+           id, message_id, conversation_id, parent_subagent_id, tool_name,
            input_json, decision
-         ) VALUES (?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            message_id = excluded.message_id,
+           parent_subagent_id = COALESCE(excluded.parent_subagent_id, sdk_tool_events.parent_subagent_id),
            tool_name = excluded.tool_name,
            input_json = sdk_tool_events.input_json,
            decision = COALESCE(excluded.decision, sdk_tool_events.decision)`,
@@ -55,6 +57,7 @@ export class SdkToolEventStore {
         id,
         input.messageId,
         input.conversationId,
+        input.parentSubagentId ?? null,
         input.toolName,
         JSON.stringify(input.input),
         input.decision ?? null,

@@ -51,23 +51,25 @@
 
 <div class="search-view">
   <div class="query-row">
-    <span class="kind">
-      {#if kind === 'web_search'}
-        <Globe size={11} />
-      {:else if kind === 'glob'}
-        <Folder size={11} />
-      {:else}
-        <Search size={11} />
+    <div class="query-meta">
+      <span class="kind">
+        {#if kind === 'web_search'}
+          <Globe size={11} />
+        {:else if kind === 'glob'}
+          <Folder size={11} />
+        {:else}
+          <Search size={11} />
+        {/if}
+        {kindLabel}
+      </span>
+      <InlineCode>{query}</InlineCode>
+      {#if path}
+        <FilePath {path} showIcon={false} />
       {/if}
-      {kindLabel}
-    </span>
-    <InlineCode>{query}</InlineCode>
-    {#if path}
-      <FilePath {path} showIcon={false} />
-    {/if}
-    {#if globFilter}
-      <span class="filter">{globFilter}</span>
-    {/if}
+      {#if globFilter}
+        <span class="filter">{globFilter}</span>
+      {/if}
+    </div>
     {#if matchCount !== null}
       <span class="match-count" class:empty={matchCount === 0}>
         {matchCount}
@@ -89,6 +91,15 @@
   }
 
   .query-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .query-meta {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -116,6 +127,7 @@
   }
 
   .match-count {
+    flex-shrink: 0;
     margin-left: auto;
     font-size: 10.5px;
     font-weight: 600;

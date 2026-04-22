@@ -22,12 +22,12 @@
     setModel,
     setPermissionMode,
   } from '../../../lib/stores/sdkAgentSessions.svelte'
-  import {
-    parseSlashCommand,
-    SLASH_COMMAND_HINTS,
-    type SlashCommandHintSpec,
-  } from '../../../lib/chat/slashCommands'
+  import { parseSlashCommand, SLASH_COMMAND_HINTS } from '../../../lib/chat/slashCommands'
   import { prefs } from '../../../lib/stores/preferences.svelte'
+  import {
+    normalizeClaudeProviderPreset,
+    type ClaudeProviderPresetId,
+  } from '../../../../../shared/claudeProviderPresets'
   import type {
     Attachment as SdkAttachment,
     PermissionMode as SdkPermissionMode,
@@ -36,15 +36,6 @@
   const DEFAULT_TERMINAL_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
   const DEFAULT_TERMINAL_FONT_SIZE = 13
-
-  const MODEL_OPTIONS = [
-    { value: 'claude-opus-4-7', label: 'Opus 4.7' },
-    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-    { value: 'opus', label: 'opus' },
-    { value: 'sonnet', label: 'sonnet' },
-    { value: 'haiku', label: 'haiku' },
-  ]
 
   const MODE_OPTIONS: { value: SdkPermissionMode; label: string }[] = [
     { value: 'default', label: 'Default' },
@@ -60,6 +51,39 @@
   }
 
   type PendingAttachment = SdkAttachment & { previewDataUrl?: string }
+  interface SelectOption {
+    value: string
+    label: string
+    family?: string | null
+    releaseDate?: string | null
+    lastUpdated?: string | null
+  }
+  interface SelectGroup {
+    label: string
+    options: SelectOption[]
+  }
+  interface SlashMatch {
+    command: string
+    description: string
+    insertText: string
+  }
+
+  function matchesFamily(option: SelectOption, family: string): boolean {
+    const normalized = family.toLowerCase()
+    return (
+      option.family === normalized ||
+      option.family === `claude-${normalized}` ||
+      option.label.toLowerCase().includes(normalized)
+    )
+  }
+
+  function inferPresetFromModel(model: string): ClaudeProviderPresetId {
+    const value = model.toLowerCase()
+    if (value.includes('minimax')) return 'minimax'
+    if (value.includes('kimi')) return 'kimi'
+    if (value.includes('glm') || value.includes('zai') || value.includes('zhipu')) return 'zai'
+    return 'anthropic'
+  }
 
   let { conversationId, onNewChat }: Props = $props()
 
@@ -77,6 +101,9 @@
   let pendingAttachments = $state<PendingAttachment[]>([])
   let historyOpen = $state(false)
   let lastViewedConversationId = $state(currentConversationId)
+  let paneEl: HTMLElement | undefined = $state()
+  let activeProviderPreset = $state<ClaudeProviderPresetId>('anthropic')
+  let providerModelOptions = $state<SelectOption[]>([])
 
   let state = $derived(sdkSessions[currentConversationId])
   let isStreaming = $derived(state?.status === 'streaming')
@@ -90,8 +117,59 @@
   // If the conversation carries a model name that's not in the preset list,
   // surface it as a disabled-looking option so the dropdown still shows the label.
   let modelOptions = $derived.by(() => {
-    if (MODEL_OPTIONS.some((o) => o.value === currentModel)) return MODEL_OPTIONS
-    return [{ value: currentModel, label: currentModel }, ...MODEL_OPTIONS]
+    if (providerModelOptions.some((o) => o.value === currentModel)) return providerModelOptions
+
+    if (activeProviderPreset === 'anthropic') {
+      const aliasFamily =
+        currentModel === 'haiku' || currentModel === 'sonnet' || currentModel === 'opus'
+          ? currentModel
+          : null
+      if (aliasFamily) {
+        const resolved = providerModelOptions.find((option) => matchesFamily(option, aliasFamily))
+        if (resolved) {
+          return [{ ...resolved, value: currentModel }, ...providerModelOptions]
+        }
+      }
+    }
+
+    return [{ value: currentModel, label: currentModel }, ...providerModelOptions]
+  })
+  let modelGroups = $derived.by<SelectGroup[] | undefined>(() => {
+    if (modelOptions.length === 0) return undefined
+
+    // Only surface a "Custom" group when the current model isn't in the
+    // provider's catalog — otherwise the catalog entry is highlighted in
+    // place and we don't duplicate it under a synthetic "Selected" header.
+    const hasCustomSelection =
+      currentModel !== '' && !providerModelOptions.some((option) => option.value === currentModel)
+    const custom = hasCustomSelection
+      ? modelOptions.find((option) => option.value === currentModel)
+      : undefined
+    const catalog = hasCustomSelection
+      ? modelOptions.filter((option) => option.value !== currentModel)
+      : modelOptions
+    const groups: SelectGroup[] = []
+
+    if (custom) groups.push({ label: 'Custom', options: [custom] })
+
+    if (activeProviderPreset === 'anthropic') {
+      for (const family of ['Haiku', 'Opus', 'Sonnet']) {
+        const options = catalog.filter((option) => matchesFamily(option, family))
+        if (options.length > 0) groups.push({ label: family, options })
+      }
+
+      const other = catalog.filter(
+        (option) =>
+          !matchesFamily(option, 'Haiku') &&
+          !matchesFamily(option, 'Opus') &&
+          !matchesFamily(option, 'Sonnet'),
+      )
+      if (other.length > 0) groups.push({ label: 'Other', options: other })
+      return groups
+    }
+
+    if (catalog.length > 0) groups.push({ label: 'Models', options: catalog })
+    return groups
   })
   let visibleMessages = $derived.by(() => {
     const all = state?.messages ?? []
@@ -108,23 +186,64 @@
     })
   })
 
-  // Slash-command autocomplete — visible when inputValue starts with '/' and
-  // has no whitespace yet. Parent intercepts Enter/Arrow/Tab/Esc while open.
+  // Slash-command autocomplete, including argument suggestions for commands
+  // with known parameter sets like /model and /mode.
   let slashFocus = $state(0)
   let slashDismissed = $state(false)
 
-  let slashQuery = $derived.by<string | null>(() => {
+  let slashMatches = $derived.by<SlashMatch[]>(() => {
+    if (slashDismissed) return []
     const v = inputValue
-    if (!v.startsWith('/')) return null
-    const rest = v.slice(1)
-    if (/\s/.test(rest)) return null
-    return rest
-  })
+    if (!v.startsWith('/')) return []
+    if (/\n/.test(v)) return []
 
-  let slashMatches = $derived.by<SlashCommandHintSpec[]>(() => {
-    if (slashQuery === null || slashDismissed) return []
-    const q = slashQuery.toLowerCase()
-    return SLASH_COMMAND_HINTS.filter((h) => h.command.slice(1).toLowerCase().startsWith(q))
+    const raw = v.slice(1)
+    const hasTrailingSpace = /\s$/.test(v)
+    const tokens = raw.split(/\s+/).filter(Boolean)
+
+    if (tokens.length <= 1 && !hasTrailingSpace) {
+      const q = raw.toLowerCase()
+      return SLASH_COMMAND_HINTS.filter((hint) =>
+        hint.command.slice(1).toLowerCase().startsWith(q),
+      ).map((hint) => ({
+        command: hint.command,
+        description: hint.description,
+        insertText: `${hint.command.split(' ')[0]} `,
+      }))
+    }
+
+    const head = tokens[0]?.toLowerCase()
+    const argQuery = (hasTrailingSpace ? '' : tokens.slice(1).join(' ')).toLowerCase()
+
+    if (head === 'model') {
+      return modelOptions
+        .filter(
+          (option) =>
+            argQuery.length === 0 ||
+            option.value.toLowerCase().includes(argQuery) ||
+            option.label.toLowerCase().includes(argQuery),
+        )
+        .map((option) => ({
+          command: `/model ${option.value}`,
+          description: `Use ${option.label} for the next message.`,
+          insertText: `/model ${option.value}`,
+        }))
+    }
+
+    if (head === 'mode') {
+      return MODE_OPTIONS.filter(
+        (option) =>
+          argQuery.length === 0 ||
+          option.value.toLowerCase().includes(argQuery) ||
+          option.label.toLowerCase().includes(argQuery),
+      ).map((option) => ({
+        command: `/mode ${option.value}`,
+        description: `${option.label} for the next message.`,
+        insertText: `/mode ${option.value}`,
+      }))
+    }
+
+    return []
   })
 
   // Keep focus index in range as matches change.
@@ -142,6 +261,45 @@
       pendingAttachments = []
       slashFocus = 0
       slashDismissed = false
+    }
+  })
+
+  $effect(() => {
+    const profileId = state?.conversation?.agentProfileId
+    if (!profileId) {
+      activeProviderPreset = inferPresetFromModel(currentModel)
+      providerModelOptions = []
+      return
+    }
+
+    let cancelled = false
+    window.api.getProfile(profileId).then((profile) => {
+      if (cancelled) return
+      activeProviderPreset = normalizeClaudeProviderPreset(profile?.prefs.claudeProviderPreset)
+    })
+    return () => {
+      cancelled = true
+    }
+  })
+
+  $effect(() => {
+    const preset = activeProviderPreset
+    let cancelled = false
+    providerModelOptions = []
+    window.api
+      .getClaudeProviderModels(preset)
+      .then((options) => {
+        if (cancelled) return
+        if (options.length === 0) {
+          const inferredPreset = inferPresetFromModel(currentModel)
+          if (inferredPreset !== preset) activeProviderPreset = inferredPreset
+          return
+        }
+        providerModelOptions = options
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
   })
 
@@ -200,10 +358,8 @@
     void sendMessage(currentConversationId, body, { attachments })
   }
 
-  function acceptHint(hint: SlashCommandHintSpec): void {
-    // "/model <name>" → "/model "; "/new" → "/new "
-    const head = hint.command.split(' ')[0]
-    inputValue = head + ' '
+  function acceptHint(hint: SlashMatch): void {
+    inputValue = hint.insertText
     slashFocus = 0
     slashDismissed = false
     // The Enter/Tab that triggered this came from the textarea, so it's still
@@ -321,6 +477,28 @@
     void sendMessage(currentConversationId, lastRetryable)
   }
 
+  function appendToComposer(text: string): void {
+    const prefix = inputValue.trim().length > 0 ? `${inputValue.trimEnd()}\n\n` : ''
+    inputValue = `${prefix}${text}`
+    queueMicrotask(() => {
+      const textarea = paneEl?.querySelector('.chat-input .textarea')
+      if (textarea instanceof HTMLTextAreaElement) {
+        textarea.focus()
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+      }
+    })
+  }
+
+  function formatQuoteForComposer(text: string, comment?: string): string {
+    const quote = text
+      .trim()
+      .split('\n')
+      .map((line) => `> ${line}`)
+      .join('\n')
+    if (!comment?.trim()) return quote
+    return `${quote}\n\nComment: ${comment.trim()}`
+  }
+
   function handleCancel(): void {
     void cancel(currentConversationId)
   }
@@ -358,6 +536,7 @@
     />
   {/if}
   <section
+    bind:this={paneEl}
     class="sdk-chat-pane"
     aria-label="Agent chat"
     style:font-family={terminalFontFamily}
@@ -400,6 +579,9 @@
         void respondQuestion(currentConversationId, requestId, answers)}
       onRespondPlan={(requestId, decision) =>
         void respondPlan(currentConversationId, requestId, decision)}
+      onCopySelection={(ok) => flashNotice(ok ? 'Copied to clipboard' : 'Failed to copy')}
+      onQuoteSelection={(selection) =>
+        appendToComposer(formatQuoteForComposer(selection.text, selection.comment))}
     >
       {#snippet composer()}
         {#if lastError}
@@ -415,6 +597,20 @@
 
         <div class="input-row">
           <div class="input-column">
+            {#if slashMatches.length > 0}
+              <div class="slash-hints-panel" role="listbox" aria-label="Slash commands">
+                <div class="slash-hints">
+                  {#each slashMatches as hint, i (hint.command)}
+                    <SlashCommandHint
+                      command={hint.command}
+                      description={hint.description}
+                      focused={i === slashFocus}
+                      onselect={() => acceptHint(hint)}
+                    />
+                  {/each}
+                </div>
+              </div>
+            {/if}
             <ChatInput
               bind:value={inputValue}
               placeholder="Message the agent… (⌘↵ to send)"
@@ -442,6 +638,7 @@
                 <ModelPickerInline
                   value={currentModel}
                   options={modelOptions}
+                  groups={modelGroups}
                   onchange={(v) => void setModel(currentConversationId, v)}
                 />
               {/snippet}
@@ -452,20 +649,6 @@
                   onchange={(v) =>
                     void setPermissionMode(currentConversationId, v as SdkPermissionMode)}
                 />
-              {/snippet}
-              {#snippet commandHints()}
-                {#if slashMatches.length > 0}
-                  <div class="slash-hints">
-                    {#each slashMatches as hint, i (hint.command)}
-                      <SlashCommandHint
-                        command={hint.command}
-                        description={hint.description}
-                        focused={i === slashFocus}
-                        onselect={() => acceptHint(hint)}
-                      />
-                    {/each}
-                  </div>
-                {/if}
               {/snippet}
             </ChatInput>
           </div>
@@ -545,16 +728,28 @@
   }
 
   .input-column {
+    position: relative;
     width: 100%;
     display: flex;
     align-items: flex-end;
     gap: 10px;
   }
 
+  .slash-hints-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 8px);
+    z-index: 20;
+    border: 1px solid var(--c-border);
+    background: color-mix(in srgb, var(--c-bg) 94%, black);
+    box-shadow: 0 10px 24px color-mix(in srgb, black 30%, transparent);
+  }
+
   .slash-hints {
     display: flex;
     flex-direction: column;
     gap: 1px;
-    padding: 2px 0;
+    padding: 4px;
   }
 </style>

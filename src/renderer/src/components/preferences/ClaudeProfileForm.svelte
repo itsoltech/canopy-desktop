@@ -2,6 +2,12 @@
   import type { ProfilePrefs } from '../../../../main/profiles/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import ProfileEnvVarsSection from './ProfileEnvVarsSection.svelte'
+  import {
+    CLAUDE_PROVIDER_PRESETS,
+    getClaudeProviderPreset,
+    normalizeClaudeProviderPreset,
+    type ClaudeProviderPresetId,
+  } from '../../../../shared/claudeProviderPresets'
 
   let {
     prefs,
@@ -27,21 +33,144 @@
       set(key, target.value as ProfilePrefs[K])
     }
   }
+
+  const cloudProviderOptions = [
+    { value: '', label: 'Default (Anthropic)' },
+    { value: 'bedrock', label: 'AWS Bedrock' },
+    { value: 'vertex', label: 'Google Vertex AI' },
+    { value: 'foundry', label: 'Microsoft Foundry' },
+  ]
+
+  const presetOptions = CLAUDE_PROVIDER_PRESETS.map((preset) => ({
+    value: preset.id,
+    label: preset.label,
+  }))
+
+  let selectedPreset = $derived(getClaudeProviderPreset(prefs.claudeProviderPreset))
+  let authLabel = $derived(
+    selectedPreset.authEnv === 'ANTHROPIC_AUTH_TOKEN' ? 'Auth token' : 'API key',
+  )
+  let authHint = $derived.by(() => {
+    if (selectedPreset.id === 'minimax') {
+      return 'MiniMax token. Stored securely and injected as ANTHROPIC_AUTH_TOKEN.'
+    }
+    if (selectedPreset.id === 'zai') {
+      return 'Z.AI API key. Stored securely and injected as ANTHROPIC_AUTH_TOKEN.'
+    }
+    if (selectedPreset.id === 'kimi') {
+      return 'Kimi API key. Stored securely and injected as ANTHROPIC_API_KEY.'
+    }
+    return 'Anthropic API key. Falls back to ANTHROPIC_API_KEY env variable.'
+  })
+  let authPlaceholder = $derived.by(() => {
+    if (hasApiKey) return '•••• (saved — leave empty to keep)'
+    if (selectedPreset.id === 'kimi') return 'sk-kimi-...'
+    return selectedPreset.authEnv === 'ANTHROPIC_AUTH_TOKEN' ? 'token-...' : 'sk-ant-...'
+  })
+  let customEnvHint = $derived.by(() => {
+    if (selectedPreset.id === 'kimi') {
+      return 'Extra env vars passed to Claude Code sessions. Optional workaround: ENABLE_TOOL_SEARCH=false.'
+    }
+    return 'Extra env vars passed to Claude Code sessions in this profile'
+  })
+
+  function clearProviderModelFields(next: ProfilePrefs): void {
+    next.providerModel = ''
+    next.providerOpusModel = ''
+    next.providerSonnetModel = ''
+    next.providerHaikuModel = ''
+  }
+
+  function onPresetChange(value: string): void {
+    const presetId = normalizeClaudeProviderPreset(value) as ClaudeProviderPresetId
+    const preset = getClaudeProviderPreset(presetId)
+    const next: ProfilePrefs = { ...prefs, claudeProviderPreset: presetId }
+
+    next.baseUrl = preset.defaultBaseUrl ?? ''
+    if (presetId !== 'anthropic') next.provider = ''
+    clearProviderModelFields(next)
+
+    if (presetId === 'minimax') {
+      next.model = preset.defaultProviderModel ?? next.model ?? ''
+    } else if (presetId === 'zai') {
+      next.providerOpusModel = preset.defaultOpusModel ?? ''
+      next.providerSonnetModel = preset.defaultSonnetModel ?? ''
+      next.providerHaikuModel = preset.defaultHaikuModel ?? ''
+    }
+
+    onPrefsChange(next)
+  }
 </script>
+
+<div class="subsection">
+  <h4 class="subsection-title">Provider</h4>
+
+  <div class="field">
+    <label class="field-label" for="claude-provider-preset">Provider preset</label>
+    <span class="field-hint"
+      >Known Anthropic-compatible providers configured in the current profile.</span
+    >
+    <CustomSelect
+      id="claude-provider-preset"
+      value={selectedPreset.id}
+      options={presetOptions}
+      onchange={onPresetChange}
+    />
+  </div>
+
+  {#if selectedPreset.id === 'anthropic'}
+    <div class="field">
+      <label class="field-label" for="claude-provider">Cloud provider</label>
+      <span class="field-hint">Cloud provider for the Claude API backend</span>
+      <CustomSelect
+        id="claude-provider"
+        value={prefs.provider ?? ''}
+        options={cloudProviderOptions}
+        onchange={(v) => set('provider', v)}
+        maxWidth="260px"
+      />
+    </div>
+  {/if}
+
+  <div class="preset-card">
+    <div class="preset-title-row">
+      <div class="preset-title">{selectedPreset.label}</div>
+      {#if selectedPreset.docsUrl}
+        <a class="preset-link" href={selectedPreset.docsUrl} target="_blank" rel="noreferrer">
+          Docs
+        </a>
+      {/if}
+    </div>
+    <div class="preset-description">{selectedPreset.description}</div>
+    {#if selectedPreset.notes && selectedPreset.notes.length > 0}
+      <div class="preset-notes">
+        {#each selectedPreset.notes as note (note)}
+          <div class="preset-note">{note}</div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+</div>
 
 <div class="subsection">
   <h4 class="subsection-title">Model & behavior</h4>
 
   <div class="field">
     <label class="field-label" for="claude-model">Model</label>
-    <span class="field-hint">Short name (sonnet, opus, haiku) or full model ID</span>
+    <span class="field-hint"
+      >{selectedPreset.id === 'minimax'
+        ? 'MiniMax model ID used for Claude aliases and direct model override.'
+        : 'Short name (sonnet, opus, haiku) or full model ID'}</span
+    >
     <input
       id="claude-model"
       class="text-input"
       type="text"
       value={prefs.model ?? ''}
       oninput={onTextInput('model')}
-      placeholder="sonnet, opus, haiku, or model ID"
+      placeholder={selectedPreset.id === 'minimax'
+        ? selectedPreset.defaultProviderModel ?? 'MiniMax-M2.7'
+        : 'sonnet, opus, haiku, or model ID'}
       spellcheck="false"
     />
   </div>
@@ -57,7 +186,6 @@
       options={[
         { value: '', label: 'Default' },
         { value: 'plan', label: 'Plan' },
-        { value: 'auto', label: 'Auto' },
         { value: 'acceptEdits', label: 'Accept edits' },
         { value: 'bypassPermissions', label: 'Bypass permissions' },
       ]}
@@ -85,18 +213,18 @@
 </div>
 
 <div class="subsection">
-  <h4 class="subsection-title">API / Provider</h4>
+  <h4 class="subsection-title">API</h4>
 
   <div class="field">
-    <label class="field-label" for="claude-apikey">API key</label>
-    <span class="field-hint">Anthropic API key. Falls back to ANTHROPIC_API_KEY env variable</span>
+    <label class="field-label" for="claude-apikey">{authLabel}</label>
+    <span class="field-hint">{authHint}</span>
     <input
       id="claude-apikey"
       class="text-input"
       type="password"
       value={apiKey}
       oninput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
-      placeholder={hasApiKey ? '•••• (saved — leave empty to keep)' : 'sk-ant-...'}
+      placeholder={authPlaceholder}
       spellcheck="false"
       autocomplete="off"
     />
@@ -118,21 +246,46 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label" for="claude-provider">Provider</label>
-    <span class="field-hint">Cloud provider for the Claude API backend</span>
-    <CustomSelect
-      id="claude-provider"
-      value={prefs.provider ?? ''}
-      options={[
-        { value: '', label: 'Default (Anthropic)' },
-        { value: 'bedrock', label: 'AWS Bedrock' },
-        { value: 'vertex', label: 'Google Vertex AI' },
-        { value: 'foundry', label: 'Microsoft Foundry' },
-      ]}
-      onchange={(v) => set('provider', v)}
-    />
-  </div>
+  {#if selectedPreset.id === 'zai'}
+    <div class="field-grid">
+      <div class="field">
+        <label class="field-label" for="claude-provider-opus">Opus mapping</label>
+        <input
+          id="claude-provider-opus"
+          class="text-input"
+          type="text"
+          value={prefs.providerOpusModel ?? ''}
+          oninput={onTextInput('providerOpusModel')}
+          placeholder={selectedPreset.defaultOpusModel ?? 'GLM-4.7'}
+          spellcheck="false"
+        />
+      </div>
+      <div class="field">
+        <label class="field-label" for="claude-provider-sonnet">Sonnet mapping</label>
+        <input
+          id="claude-provider-sonnet"
+          class="text-input"
+          type="text"
+          value={prefs.providerSonnetModel ?? ''}
+          oninput={onTextInput('providerSonnetModel')}
+          placeholder={selectedPreset.defaultSonnetModel ?? 'GLM-4.7'}
+          spellcheck="false"
+        />
+      </div>
+      <div class="field">
+        <label class="field-label" for="claude-provider-haiku">Haiku mapping</label>
+        <input
+          id="claude-provider-haiku"
+          class="text-input"
+          type="text"
+          value={prefs.providerHaikuModel ?? ''}
+          oninput={onTextInput('providerHaikuModel')}
+          placeholder={selectedPreset.defaultHaikuModel ?? 'GLM-4.5-Air'}
+          spellcheck="false"
+        />
+      </div>
+    </div>
+  {/if}
 </div>
 
 <div class="subsection">
@@ -157,7 +310,7 @@
 
 <ProfileEnvVarsSection
   customEnv={prefs.customEnv}
-  hint="Extra env vars passed to Claude Code sessions in this profile"
+  hint={customEnvHint}
   onChange={(v) => set('customEnv', v)}
 />
 
@@ -204,6 +357,12 @@
     gap: 4px;
   }
 
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
   .field-label {
     font-size: 12px;
     font-weight: 500;
@@ -238,5 +397,51 @@
   .mono {
     font-family: monospace;
     font-size: 12px;
+  }
+
+  .preset-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--c-border-subtle);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--c-bg) 90%, black);
+  }
+
+  .preset-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .preset-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--c-text);
+  }
+
+  .preset-link {
+    color: var(--c-accent-text);
+    font-size: 11.5px;
+    text-decoration: none;
+  }
+
+  .preset-link:hover {
+    text-decoration: underline;
+  }
+
+  .preset-description,
+  .preset-note {
+    font-size: 11.5px;
+    color: var(--c-text-secondary);
+    line-height: 1.45;
+  }
+
+  .preset-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
 </style>

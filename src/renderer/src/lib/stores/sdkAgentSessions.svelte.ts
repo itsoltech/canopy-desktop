@@ -22,6 +22,7 @@ export type AttentionBlock =
       messageId: string | null
       toolEventId?: string
       plan: string
+      permissionMode?: Exclude<SdkPermissionMode, 'plan'>
       allowedPrompts?: SdkAgentEvent extends { _tag: 'plan_mode_exit'; allowedPrompts?: infer P }
         ? P
         : never
@@ -71,6 +72,7 @@ export interface SdkToolEventView {
 interface RestoredToolEvent {
   id: string
   messageId: string
+  parentSubagentId: string | null
   toolName: string
   input: Record<string, unknown>
   resultText: string | null
@@ -162,13 +164,23 @@ export async function openConversation(id: string): Promise<SdkSessionState> {
   }
 
   const transcript = await window.api.sdkAgent.getTranscript(id)
+  const messageRecords = transcript.messages ?? []
   const toolEventRecords = transcript.toolEvents ?? []
-  const messages = transcript.messages.map(messageFromRecord)
-  const restoredToolEvents = restoredToolEventsFromTranscript(messages, toolEventRecords)
+  const rootMessageRecords = messageRecords.filter((message) => !message.parentSubagentId)
+  const nestedMessageRecords = messageRecords.filter((message) => !!message.parentSubagentId)
+  const rootToolEventRecords = toolEventRecords.filter((event) => !event.parentSubagentId)
+  const nestedToolEventRecords = toolEventRecords.filter((event) => !!event.parentSubagentId)
+  const messages = rootMessageRecords.map(messageFromRecord)
+  const restoredToolEvents = restoredToolEventsFromTranscript(messages, rootToolEventRecords)
   state.conversation = transcript.conversation ?? null
   state.messages = attachToolEventsToMessages(messages, restoredToolEvents)
   state.toolEvents = Object.fromEntries(
     restoredToolEvents.map((event) => [event.id, toolEventFromRecord(event)]),
+  )
+  state.subagents = restoredSubagentsFromTranscript(
+    nestedMessageRecords,
+    nestedToolEventRecords,
+    restoredToolEvents,
   )
   state.pendingAttention = mergeAttentionBlocks(
     restoredQuestionBlocksFromToolEvents(restoredToolEvents),
@@ -296,13 +308,22 @@ export async function respondPlan(
   decision: SdkPlanDecision,
 ): Promise<void> {
   const state = sdkSessions[id]
-  if (state)
+  if (state) {
+    if (decision.action === 'approve' && state.conversation) {
+      state.conversation = {
+        ...state.conversation,
+        permissionMode: decision.permissionMode,
+      }
+    }
     markAttentionResolved(
       state,
       requestId,
       decision.action === 'approve' ? 'approved' : 'rejected',
       decision.action === 'reject' ? decision.feedback : undefined,
+      undefined,
+      decision.action === 'approve' ? decision.permissionMode : undefined,
     )
+  }
   await window.api.sdkAgent.respondPlan({ conversationId: id, requestId, decision })
 }
 
@@ -346,12 +367,17 @@ function reduce(state: SdkSessionState, event: SdkAgentEvent): void {
       }
       const priorModel = idx >= 0 ? state.messages[idx].model : null
       const priorThinking = idx >= 0 ? state.messages[idx].thinking : ''
+      const priorContentBlocks = idx >= 0 ? state.messages[idx].contentBlocks : undefined
+      const mergedContentBlocks = mergeAssistantContentBlocks(
+        priorContentBlocks,
+        e.content as Array<Record<string, unknown>>,
+      )
       const finalized: SdkMessageView = {
         id: e.messageId as string,
         role: 'assistant',
-        content: blocksToText(e.content),
+        content: blocksToText(mergedContentBlocks),
         thinking: priorThinking,
-        contentBlocks: e.content as Array<Record<string, unknown>>,
+        contentBlocks: mergedContentBlocks,
         tokensIn: e.tokensIn ?? null,
         tokensOut: e.tokensOut ?? null,
         costUsd: e.costUsd ?? (idx >= 0 ? state.messages[idx].costUsd : null),
@@ -503,12 +529,17 @@ function reduceSubagent(subagent: SdkSubagentView, event: SdkAgentEvent): void {
       )
       const priorModel = idx >= 0 ? subagent.messages[idx].model : null
       const priorThinking = idx >= 0 ? subagent.messages[idx].thinking : ''
+      const priorContentBlocks = idx >= 0 ? subagent.messages[idx].contentBlocks : undefined
+      const mergedContentBlocks = mergeAssistantContentBlocks(
+        priorContentBlocks,
+        e.content as Array<Record<string, unknown>>,
+      )
       const finalized: SdkMessageView = {
         id: e.messageId as string,
         role: 'assistant',
-        content: blocksToText(e.content),
+        content: blocksToText(mergedContentBlocks),
         thinking: priorThinking,
-        contentBlocks: e.content as Array<Record<string, unknown>>,
+        contentBlocks: mergedContentBlocks,
         tokensIn: e.tokensIn ?? null,
         tokensOut: e.tokensOut ?? null,
         costUsd: e.costUsd ?? (idx >= 0 ? subagent.messages[idx].costUsd : null),
@@ -593,7 +624,7 @@ function messageFromRecord(record: SdkMessageRecord): SdkMessageView {
     // tool-call placeholders like `[tool:Bash]`; deriving from blocks here
     // keeps old rows from leaking those into the bubble.
     content: blocksToText(contentBlocks as ReadonlyArray<{ type: string; [k: string]: unknown }>),
-    thinking: '',
+    thinking: record.thinking,
     contentBlocks,
     tokensIn: record.tokensIn,
     tokensOut: record.tokensOut,
@@ -618,6 +649,85 @@ function toolEventFromRecord(record: RestoredToolEvent): SdkToolEventView {
   }
 }
 
+function restoredSubagentsFromTranscript(
+  messageRecords: SdkMessageRecord[],
+  toolEventRecords: SdkToolEventRecord[],
+  rootToolEvents: RestoredToolEvent[],
+): Record<string, SdkSubagentView> {
+  const metaById: Record<string, Pick<SdkSubagentView, 'task' | 'agentType' | 'status'>> = {}
+  for (const event of rootToolEvents) {
+    if (!isSubagentRootTool(event.toolName)) continue
+    metaById[event.id] = {
+      task: extractSubagentTask(event.input),
+      agentType: extractSubagentType(event.input),
+      status: event.isError ? 'error' : event.resultText !== null ? 'success' : 'running',
+    }
+  }
+
+  const messagesByParent: Record<string, SdkMessageView[]> = {}
+  for (const record of messageRecords) {
+    if (!record.parentSubagentId) continue
+    messagesByParent[record.parentSubagentId] = [
+      ...(messagesByParent[record.parentSubagentId] ?? []),
+      messageFromRecord(record),
+    ]
+  }
+
+  const toolEventsByParent: Record<string, SdkToolEventRecord[]> = {}
+  for (const record of toolEventRecords) {
+    if (!record.parentSubagentId) continue
+    toolEventsByParent[record.parentSubagentId] = [
+      ...(toolEventsByParent[record.parentSubagentId] ?? []),
+      record,
+    ]
+  }
+
+  const ids = new Set([
+    ...Object.keys(metaById),
+    ...Object.keys(messagesByParent),
+    ...Object.keys(toolEventsByParent),
+  ])
+
+  const subagents: Record<string, SdkSubagentView> = {}
+  for (const id of ids) {
+    const messages = messagesByParent[id] ?? []
+    const restoredToolEvents = restoredToolEventsFromTranscript(
+      messages,
+      toolEventsByParent[id] ?? [],
+    )
+    subagents[id] = {
+      id,
+      task: metaById[id]?.task ?? 'Sub-agent task',
+      agentType: metaById[id]?.agentType ?? 'general',
+      status: metaById[id]?.status ?? 'running',
+      messages: attachToolEventsToMessages(messages, restoredToolEvents),
+      toolEvents: Object.fromEntries(
+        restoredToolEvents.map((event) => [event.id, toolEventFromRecord(event)]),
+      ),
+    }
+  }
+  return subagents
+}
+
+function isSubagentRootTool(toolName: string): boolean {
+  return toolName === 'Task' || toolName === 'Agent'
+}
+
+function extractSubagentTask(input: Record<string, unknown>): string {
+  if (typeof input.description === 'string' && input.description.trim()) return input.description
+  if (typeof input.prompt === 'string' && input.prompt.trim()) {
+    return input.prompt.length > 120 ? input.prompt.slice(0, 120) + '…' : input.prompt
+  }
+  return 'Sub-agent task'
+}
+
+function extractSubagentType(input: Record<string, unknown>): string {
+  if (typeof input.subagent_type === 'string' && input.subagent_type.trim()) {
+    return input.subagent_type
+  }
+  return 'general'
+}
+
 function toolEventStatus(record: RestoredToolEvent): SdkToolEventView['status'] {
   if (record.isError) return 'error'
   if (record.resultText !== null || record.durationMs !== null) return 'done'
@@ -635,6 +745,7 @@ function restoredToolEventsFromTranscript(
     byId[record.id] = {
       id: record.id,
       messageId: record.messageId as string,
+      parentSubagentId: record.parentSubagentId,
       toolName: record.toolName,
       input: record.input,
       resultText: record.resultText,
@@ -658,6 +769,7 @@ function restoredToolEventsFromTranscript(
         : {
             id: block.id,
             messageId: message.id,
+            parentSubagentId: null,
             toolName: block.name,
             input: block.input,
             resultText: null,
@@ -850,6 +962,23 @@ function blocksToText(blocks: readonly { type: string; [k: string]: unknown }[])
   return out.join('\n\n')
 }
 
+function mergeAssistantContentBlocks(
+  previous: readonly Record<string, unknown>[] | undefined,
+  next: readonly Record<string, unknown>[],
+): Array<Record<string, unknown>> {
+  const nextHasText = next.some(
+    (block) => block.type === 'text' && typeof block.text === 'string' && block.text.length > 0,
+  )
+  if (nextHasText || !previous?.length) return [...next]
+
+  const previousTextBlocks = previous.filter(
+    (block) => block.type === 'text' && typeof block.text === 'string' && block.text.length > 0,
+  )
+  if (previousTextBlocks.length === 0) return [...next]
+
+  return [...previousTextBlocks, ...next]
+}
+
 function lastAssistantId(state: SdkSessionState): string | null {
   for (let i = state.messages.length - 1; i >= 0; i--) {
     if (state.messages[i].role === 'assistant') return state.messages[i].id
@@ -863,6 +992,7 @@ function markAttentionResolved(
   status: 'resolved' | 'granted' | 'denied' | 'approved' | 'rejected',
   feedback?: string,
   answers?: Record<string, SdkAskUserQuestionAnswer>,
+  permissionMode?: Exclude<SdkPermissionMode, 'plan'>,
 ): void {
   state.pendingAttention = state.pendingAttention.map((b) => {
     if (b.requestId !== requestId) return b
@@ -872,6 +1002,7 @@ function markAttentionResolved(
         ...p,
         status: (status === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected',
         feedback,
+        permissionMode,
       }))
       .with({ kind: 'permission' }, (p) => ({
         ...p,

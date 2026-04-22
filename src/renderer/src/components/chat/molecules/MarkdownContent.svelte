@@ -9,6 +9,8 @@
 
   let { content, animateLastToken = false }: Props = $props()
 
+  let rootEl = $state<HTMLElement | null>(null)
+
   let html = $derived.by(() => {
     if (!content.trim()) return ''
     return DOMPurify.sanitize(
@@ -20,16 +22,18 @@
     )
   })
 
-  function htmlContent(node: HTMLElement, value: () => string): void {
-    $effect(() => {
-      node.innerHTML = value()
-      for (const link of node.querySelectorAll('a[href]')) {
-        link.setAttribute('target', '_blank')
-        link.setAttribute('rel', 'noreferrer')
-      }
-      if (animateLastToken) animateLastTextToken(node)
-    })
-  }
+  $effect(() => {
+    if (!rootEl) return
+
+    void html
+
+    for (const link of rootEl.querySelectorAll('a[href]')) {
+      link.setAttribute('target', '_blank')
+      link.setAttribute('rel', 'noreferrer')
+    }
+
+    if (animateLastToken) animateLastTextToken(rootEl)
+  })
 
   function animateLastTextToken(root: HTMLElement): void {
     const textNode = lastVisibleTextNode(root)
@@ -62,7 +66,10 @@
   }
 </script>
 
-<div class="markdown-content" use:htmlContent={() => html}></div>
+<div bind:this={rootEl} class="markdown-content" data-message-selectable="true">
+  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+  {@html html}
+</div>
 
 <style>
   .markdown-content {
@@ -71,10 +78,15 @@
     min-width: 0;
     font-family: inherit;
     font-size: inherit;
+    -webkit-user-select: text;
+    user-select: text;
+    cursor: text;
   }
 
   .markdown-content :global(*) {
     box-sizing: border-box;
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   .markdown-content :global(p) {

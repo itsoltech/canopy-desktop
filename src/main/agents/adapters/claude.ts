@@ -10,8 +10,8 @@ import type {
   SettingsSetup,
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
-import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
 import { summarizeToolInput } from '../utils'
+import { buildClaudeProviderEnv } from '../claudeProviderEnv'
 
 const CLAUDE_HOOK_EVENTS = [
   'SessionStart',
@@ -50,8 +50,6 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
   TeammateIdle: 'TeammateIdle',
   SessionEnd: 'SessionEnd',
 }
-
-const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
 
 export const claudeAdapter: AgentAdapter = {
   agentType: 'claude' as AgentType,
@@ -184,37 +182,17 @@ export const claudeAdapter: AgentAdapter = {
   },
 
   buildEnvVars(prefs: PreferencesReader): Record<string, string> {
-    const env: Record<string, string> = {}
-
-    const apiKey = prefs.get('claude.apiKey')
-    const baseUrl = prefs.get('claude.baseUrl')
-    const provider = prefs.get('claude.provider')
-    const customEnv = prefs.get('claude.customEnv')
-
-    if (apiKey) env.ANTHROPIC_API_KEY = apiKey
-    if (baseUrl) env.ANTHROPIC_BASE_URL = baseUrl
-    if (provider === 'bedrock') env.CLAUDE_CODE_USE_BEDROCK = '1'
-    if (provider === 'vertex') env.CLAUDE_CODE_USE_VERTEX = '1'
-    if (provider === 'foundry') env.CLAUDE_CODE_USE_FOUNDRY = '1'
-
-    if (customEnv) {
-      try {
-        const parsed = JSON.parse(customEnv)
-        for (const [k, v] of Object.entries(parsed)) {
-          if (
-            typeof v === 'string' &&
-            !BLOCKED_ENV_VARS.has(k.toUpperCase()) &&
-            !INTERNAL_BLOCKED.has(k)
-          ) {
-            env[k] = v
-          }
-        }
-      } catch {
-        // Invalid JSON
-      }
-    }
-
-    return env
+    return buildClaudeProviderEnv(prefs.get('claude.apiKey'), {
+      model: prefs.get('claude.model') ?? undefined,
+      baseUrl: prefs.get('claude.baseUrl') ?? undefined,
+      provider: prefs.get('claude.provider') ?? undefined,
+      claudeProviderPreset: prefs.get('claude.claudeProviderPreset') ?? undefined,
+      providerModel: prefs.get('claude.providerModel') ?? undefined,
+      providerOpusModel: prefs.get('claude.providerOpusModel') ?? undefined,
+      providerSonnetModel: prefs.get('claude.providerSonnetModel') ?? undefined,
+      providerHaikuModel: prefs.get('claude.providerHaikuModel') ?? undefined,
+      customEnv: prefs.get('claude.customEnv') ?? undefined,
+    })
   },
 
   buildResumeArgs(resumeSessionId: string): string[] {

@@ -19,6 +19,11 @@ export interface ProfilePrefs {
   appendSystemPrompt?: string
   baseUrl?: string
   provider?: string // 'bedrock' | 'vertex' | 'foundry'
+  claudeProviderPreset?: string // 'anthropic' | 'kimi' | 'minimax' | 'zai'
+  providerModel?: string
+  providerOpusModel?: string
+  providerSonnetModel?: string
+  providerHaikuModel?: string
   mcpServers?: string // raw JSON — SDK McpServer map, validated at write time
 
   // Gemini
@@ -92,6 +97,11 @@ export const LEGACY_PREF_FIELDS: Record<AgentType, readonly (keyof ProfilePrefs)
     'appendSystemPrompt',
     'baseUrl',
     'provider',
+    'claudeProviderPreset',
+    'providerModel',
+    'providerOpusModel',
+    'providerSonnetModel',
+    'providerHaikuModel',
     'customEnv',
     'settingsJson',
     'mcpServers',
@@ -102,6 +112,11 @@ export const LEGACY_PREF_FIELDS: Record<AgentType, readonly (keyof ProfilePrefs)
     'appendSystemPrompt',
     'baseUrl',
     'provider',
+    'claudeProviderPreset',
+    'providerModel',
+    'providerOpusModel',
+    'providerSonnetModel',
+    'providerHaikuModel',
     'customEnv',
     'mcpServers',
   ],

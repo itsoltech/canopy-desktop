@@ -16,7 +16,7 @@
 </script>
 
 <div class="permission-mode-picker">
-  <CustomSelect {value} {options} {onchange} maxWidth="220px" />
+  <CustomSelect {value} {options} {onchange} maxWidth="220px" compact maxHeight={420} />
 </div>
 
 <style>
