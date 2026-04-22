@@ -1,3 +1,9 @@
+## [0.13.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.12.1-next.1...v0.13.0-next.1) (2026-04-22)
+
+### Features
+
+* **editor:** CodeMirror editor with sub-tabs + Cmd+P quick open ([#183](https://github.com/itsoltech/canopy-desktop/issues/183)) ([7e2eeb4](https://github.com/itsoltech/canopy-desktop/commit/7e2eeb4e50b9784e7ec328c755524d8c0af2eca3))
+
 ## [0.12.1-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.12.0...v0.12.1-next.1) (2026-04-21)
 
 ### Bug Fixes
