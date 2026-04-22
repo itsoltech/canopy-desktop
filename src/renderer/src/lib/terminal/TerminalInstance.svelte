@@ -10,7 +10,8 @@
   import { prefs, getPref } from '../stores/preferences.svelte'
   import { getTheme } from './themes'
   import { showUrlToast } from '../stores/toast.svelte'
-  import { openTool } from '../stores/tabs.svelte'
+  import { openTool, openFile } from '../stores/tabs.svelte'
+  import { detectPathsInText } from '../pathDetection/linkify'
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
   import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
@@ -403,6 +404,44 @@
           }
         }),
       )
+
+      // File path detection — click opens file in editor
+      term.registerLinkProvider({
+        provideLinks: (bufferLineNumber, callback) => {
+          const worktreePath = workspaceState.selectedWorktreePath
+          if (!worktreePath) {
+            callback(undefined)
+            return
+          }
+          const buffer = term.buffer.active
+          const lineEntry = buffer.getLine(bufferLineNumber - 1)
+          if (!lineEntry) {
+            callback(undefined)
+            return
+          }
+          const lineText = lineEntry.translateToString(true)
+          if (!lineText) {
+            callback(undefined)
+            return
+          }
+          const matches = detectPathsInText(lineText, worktreePath)
+          if (matches.length === 0) {
+            callback(undefined)
+            return
+          }
+          const links = matches.map((m) => ({
+            range: {
+              start: { x: m.start + 1, y: bufferLineNumber },
+              end: { x: m.end, y: bufferLineNumber },
+            },
+            text: m.raw,
+            activate: () => {
+              openFile(m.absolutePath, worktreePath, { line: m.line })
+            },
+          }))
+          callback(links)
+        },
+      })
 
       progressAddon.onChange(({ state, value }: IProgressState) => {
         progressState = state

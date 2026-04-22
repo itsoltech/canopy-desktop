@@ -8,6 +8,7 @@
     moveTab,
     moveTabToSplit,
     getTabDisplayName,
+    isTabDirty,
     type TabInfo,
   } from '../../lib/stores/tabs.svelte'
   import { allPanes, findLeaf } from '../../lib/stores/splitTree'
@@ -26,20 +27,21 @@
   } from '../../lib/terminal/connectionState.svelte'
   onMount(() => {
     async function pollShellBusy(): Promise<void> {
-      const shellPanes = tabs
+      const sessionIds = tabs
         .flatMap((tab) => allPanes(tab.rootSplit))
         .filter((p) => !agentSessions[p.sessionId] && p.isRunning)
+        .map((p) => p.sessionId)
 
-      const results = await Promise.all(
-        shellPanes.map(async (p) => {
-          try {
-            return [p.sessionId, await window.api.hasChildProcess(p.sessionId)] as const
-          } catch {
-            return [p.sessionId, false] as const
-          }
-        }),
-      )
-      shellBusyState = Object.fromEntries(results)
+      if (sessionIds.length === 0) {
+        shellBusyState = {}
+        return
+      }
+
+      try {
+        shellBusyState = await window.api.hasChildProcesses(sessionIds)
+      } catch {
+        shellBusyState = {}
+      }
     }
 
     void pollShellBusy()
@@ -365,6 +367,9 @@
               title={dot?.label ?? undefined}
             ></span>
           {/if}
+          {#if isTabDirty(tab)}
+            <span class="tab-dirty-dot" aria-label="Unsaved changes" title="Unsaved changes"></span>
+          {/if}
           <span class="tab-name">{getTabDisplayName(tab)}</span>
           {#if connState}
             <span
@@ -510,6 +515,14 @@
     white-space: nowrap;
     flex: 1;
     text-align: left;
+  }
+
+  .tab-dirty-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--c-text-muted, #888);
+    flex-shrink: 0;
   }
 
   .tab-badge {

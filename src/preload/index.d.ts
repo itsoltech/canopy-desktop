@@ -197,6 +197,17 @@ type FileReadResult =
   | { content: string; truncated: boolean; size: number; binary: false }
   | { binary: true; size: number }
 
+interface FileWriteResult {
+  mtimeMs: number
+  size: number
+}
+
+interface FileStatResult {
+  mtimeMs: number
+  size: number
+  canWrite: boolean
+}
+
 interface CanopyAPI {
   // About
   getAboutInfo: () => Promise<AboutInfo>
@@ -254,6 +265,7 @@ interface CanopyAPI {
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   hasChildProcess: (sessionId: string) => Promise<boolean>
+  hasChildProcesses: (sessionIds: string[]) => Promise<Record<string, boolean>>
   getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
 
   // Tmux
@@ -516,6 +528,15 @@ interface CanopyAPI {
   // Filesystem
   readDir: (dirPath: string) => Promise<DirEntry[]>
   readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
+  writeFile: (
+    filePath: string,
+    content: string,
+    expectedMtimeMs?: number,
+  ) => Promise<FileWriteResult>
+  statFile: (filePath: string) => Promise<FileStatResult>
+  quickOpenListFiles: (worktreePath: string, force?: boolean) => Promise<string[]>
+  quickOpenInvalidateCache: (worktreePath: string) => Promise<void>
+  confirmUnsavedChanges: (filePaths: string[]) => Promise<'save' | 'discard' | 'cancel'>
 
   // Repo Config
   repoConfigLoad: (repoRoot: string) => Promise<RepoConfig | null>

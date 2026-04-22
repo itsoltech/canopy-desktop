@@ -50,6 +50,7 @@ import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
+import { fileSystemErrorMessage, type FileSystemError } from './fsErrors'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -296,6 +297,21 @@ export function registerIpcHandlers(
   ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
     return ptyManager.hasChildProcess(payload.sessionId)
   })
+
+  ipcMain.handle(
+    'pty:hasChildProcesses',
+    (_event, payload: { sessionIds: string[] }): Record<string, boolean> => {
+      const result: Record<string, boolean> = {}
+      for (const sid of payload.sessionIds) {
+        try {
+          result[sid] = ptyManager.hasChildProcess(sid)
+        } catch {
+          result[sid] = false
+        }
+      }
+      return result
+    },
+  )
 
   ipcMain.handle('pty:getDimensions', (_event, payload: { sessionId: string }) => {
     return ptyManager.getDimensions(payload.sessionId)
@@ -1642,6 +1658,182 @@ export function registerIpcHandlers(
       fs.closeSync(fd)
     }
   })
+
+  // Quick Open — cached workspace file listing (respects .gitignore for git repos,
+  // falls back to a bounded recursive readdir with safety ignores otherwise).
+  const workspaceFileCache = new Map<string, { files: string[]; fetchedAt: number }>()
+  const WORKSPACE_FILE_CACHE_MAX_AGE_MS = 60_000
+  const QUICK_OPEN_IGNORE = new Set([
+    '.git',
+    'node_modules',
+    '.next',
+    '.svelte-kit',
+    'dist',
+    'build',
+    'out',
+    '.turbo',
+    '.cache',
+    'target',
+    '.venv',
+    'venv',
+    '__pycache__',
+  ])
+
+  async function listWorkspaceFilesViaGit(repoRoot: string): Promise<string[] | null> {
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        ['-C', repoRoot, 'ls-files', '--cached', '--others', '--exclude-standard'],
+        { maxBuffer: 512 * 1024 * 1024 },
+      )
+      return stdout.split('\n').filter((l) => l.length > 0)
+    } catch {
+      return null
+    }
+  }
+
+  async function listWorkspaceFilesViaReaddir(root: string): Promise<string[]> {
+    const files: string[] = []
+    async function walk(dir: string, relPrefix: string): Promise<void> {
+      let entries: fs.Dirent[]
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (QUICK_OPEN_IGNORE.has(entry.name)) continue
+        const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
+        if (entry.isDirectory()) {
+          await walk(path.join(dir, entry.name), rel)
+        } else if (entry.isFile()) {
+          files.push(rel)
+        }
+      }
+    }
+    await walk(root, '')
+    return files
+  }
+
+  ipcMain.handle(
+    'quickOpen:listFiles',
+    async (event, payload: { worktreePath: string; force?: boolean }): Promise<string[]> => {
+      const resolved = await validatePathAccess(event.sender.id, payload.worktreePath)
+      const cached = workspaceFileCache.get(resolved)
+      if (
+        !payload.force &&
+        cached &&
+        Date.now() - cached.fetchedAt < WORKSPACE_FILE_CACHE_MAX_AGE_MS
+      ) {
+        return cached.files
+      }
+      const viaGit = await listWorkspaceFilesViaGit(resolved)
+      const files = viaGit ?? (await listWorkspaceFilesViaReaddir(resolved))
+      workspaceFileCache.set(resolved, { files, fetchedAt: Date.now() })
+      return files
+    },
+  )
+
+  ipcMain.handle(
+    'quickOpen:invalidateCache',
+    async (event, payload: { worktreePath: string }): Promise<void> => {
+      const resolved = await validatePathAccess(event.sender.id, payload.worktreePath)
+      workspaceFileCache.delete(resolved)
+    },
+  )
+
+  ipcMain.handle(
+    'fs:writeFile',
+    async (
+      event,
+      payload: { filePath: string; content: string; expectedMtimeMs?: number },
+    ): Promise<{ mtimeMs: number; size: number }> => {
+      const resolved = await validatePathAccess(event.sender.id, payload.filePath)
+      const result: Result<{ mtimeMs: number; size: number }, FileSystemError> = (() => {
+        if (payload.expectedMtimeMs !== undefined) {
+          let actualMtimeMs: number
+          try {
+            actualMtimeMs = fs.statSync(resolved).mtimeMs
+          } catch (e) {
+            return err<{ mtimeMs: number; size: number }, FileSystemError>({
+              _tag: 'StatFailed',
+              message: e instanceof Error ? e.message : String(e),
+            })
+          }
+          if (Math.abs(actualMtimeMs - payload.expectedMtimeMs) > 1) {
+            return err<{ mtimeMs: number; size: number }, FileSystemError>({
+              _tag: 'StaleWrite',
+              actualMtimeMs,
+            })
+          }
+        }
+        try {
+          fs.writeFileSync(resolved, payload.content, 'utf-8')
+          const stat = fs.statSync(resolved)
+          return ok({ mtimeMs: stat.mtimeMs, size: stat.size })
+        } catch (e) {
+          return err<{ mtimeMs: number; size: number }, FileSystemError>({
+            _tag: 'WriteFailed',
+            message: e instanceof Error ? e.message : String(e),
+          })
+        }
+      })()
+      return unwrapOrThrow(result, fileSystemErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'dialog:confirmUnsavedChanges',
+    async (event, payload: { filePaths: string[] }): Promise<'save' | 'discard' | 'cancel'> => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+      if (!win) return 'cancel'
+      const fileList =
+        payload.filePaths.length === 1
+          ? payload.filePaths[0].split('/').pop()
+          : `${payload.filePaths.length} files`
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        buttons: ['Save', "Don't Save", 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+        title: 'Unsaved changes',
+        message: `You have unsaved changes in ${fileList}`,
+        detail: 'Do you want to save them before closing?',
+      })
+      return match(response)
+        .with(0, () => 'save' as const)
+        .with(1, () => 'discard' as const)
+        .otherwise(() => 'cancel' as const)
+    },
+  )
+
+  ipcMain.handle(
+    'fs:stat',
+    async (
+      event,
+      payload: { filePath: string },
+    ): Promise<{ mtimeMs: number; size: number; canWrite: boolean }> => {
+      const resolved = await validatePathAccess(event.sender.id, payload.filePath)
+      const result: Result<{ mtimeMs: number; size: number; canWrite: boolean }, FileSystemError> =
+        (() => {
+          let stat: fs.Stats
+          try {
+            stat = fs.statSync(resolved)
+          } catch (e) {
+            return err({ _tag: 'StatFailed', message: e instanceof Error ? e.message : String(e) })
+          }
+          let canWrite = false
+          try {
+            fs.accessSync(resolved, fs.constants.W_OK)
+            canWrite = true
+          } catch {
+            canWrite = false
+          }
+          return ok({ mtimeMs: stat.mtimeMs, size: stat.size, canWrite })
+        })()
+      return unwrapOrThrow(result, fileSystemErrorMessage)
+    },
+  )
 
   // --- Shared config validation (used by both repo and global config handlers) ---
 
