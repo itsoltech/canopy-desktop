@@ -10,7 +10,9 @@
   import { prefs, getPref } from '../stores/preferences.svelte'
   import { getTheme } from './themes'
   import { showUrlToast } from '../stores/toast.svelte'
-  import { openTool } from '../stores/tabs.svelte'
+  import { openTool, openFile } from '../stores/tabs.svelte'
+  import { detectPathsInText } from '../pathDetection/linkify'
+  import { ensureLoaded, getFiles } from '../stores/quickOpenStore.svelte'
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
   import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
@@ -23,6 +25,7 @@
     sessionId,
     wsUrl,
     active = true,
+    focused = true,
     visible = true,
     isAiTool = false,
     onTitleChange,
@@ -30,6 +33,7 @@
     sessionId: string
     wsUrl: string
     active?: boolean
+    focused?: boolean
     visible?: boolean
     isAiTool?: boolean
     onTitleChange?: (title: string) => void
@@ -37,6 +41,7 @@
 
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
+  let fitAddonRef: FitAddon | null = null
   let wsRef: WebSocket | null = null
   let webglAddonRef: WebglAddon | null = null
   let webglAttached = $state(false)
@@ -57,7 +62,6 @@
 
   const MAX_RECONNECT_ATTEMPTS = 30
   const MAX_RECONNECT_DELAY = 8000
-  const MAX_PENDING_CHARS = 2 * 1024 * 1024 // ~2 MB for ASCII
 
   function attachWebgl(term: Terminal): void {
     if (webglAddonRef) return
@@ -80,7 +84,7 @@
   // Focus terminal when tab becomes active (deferred to next frame so the
   // container has left display:none and the browser has finished layout)
   $effect(() => {
-    if (active && termRef) {
+    if (focused && termRef) {
       const term = termRef
       requestAnimationFrame(() => term.focus())
     }
@@ -246,11 +250,11 @@
       const chunk = typeof e.data === 'string' ? e.data : String(e.data)
       receivedChars += chunk.length
       pendingData += chunk
-      if (pendingData.length > MAX_PENDING_CHARS) {
-        pendingData = pendingData.slice(-MAX_PENDING_CHARS)
-      }
-      // Only schedule writes when the pane is visible
-      if (visible && !writeScheduled) {
+      // Always write through to xterm regardless of visibility. Gating on
+      // `visible` let pendingData accumulate while hidden and replay after
+      // show; with a bounded cap the head got truncated and deltas were
+      // applied to a stale buffer (overlapping / row-shifted TUI output).
+      if (!writeScheduled) {
         writeScheduled = true
         writeRafId = requestAnimationFrame(() => {
           writeRafId = null
@@ -313,13 +317,44 @@
     if (!termRef) return
     const term = termRef
     if (visible) {
-      // Becoming visible: ensure WS is connected and flush buffered output
+      // Becoming visible: ensure WS is connected and flush any in-flight batch.
       connectWs(term)
       flushPendingData(term)
-    } else {
-      // Becoming hidden: cancel pending RAF writes but keep WS connected
-      // so background output is still buffered via receivedChars/pendingData
-      cancelPendingWrite()
+      // The container was `display:none` while hidden, so the xterm renderer
+      // and ResizeObserver saw no meaningful dimensions. Now that layout is
+      // back, refit if needed, force a full repaint to drop any stale canvas
+      // state, and re-assert PTY size in case the window was resized while
+      // this tab was hidden. Deferred a frame so the browser has finished
+      // laying out the now-visible container.
+      requestAnimationFrame(() => {
+        if (disposed || !containerEl || !termRef) return
+        const t = termRef
+        const fit = fitAddonRef
+        if (fit && containerEl.clientWidth && containerEl.clientHeight) {
+          const dims = fit.proposeDimensions()
+          if (
+            dims &&
+            dims.cols >= 10 &&
+            dims.rows >= 3 &&
+            (dims.cols !== t.cols || dims.rows !== t.rows)
+          ) {
+            const buffer = t.buffer.active
+            const isAtBottom = buffer.viewportY >= buffer.baseY
+            const savedY = buffer.viewportY
+            fit.fit()
+            if (!isAtBottom) {
+              const currentY = t.buffer.active.viewportY
+              if (currentY !== savedY) {
+                t.scrollLines(savedY - currentY)
+              }
+            }
+          }
+        }
+        t.refresh(0, t.rows - 1)
+        if (t.cols > 0 && t.rows > 0) {
+          window.api.resizePty(sessionId, t.cols, t.rows)
+        }
+      })
     }
   })
 
@@ -348,6 +383,7 @@
       })
 
       const fitAddon = new FitAddon()
+      fitAddonRef = fitAddon
       const ligaturesAddon = new LigaturesAddon()
       const progressAddon = new ProgressAddon()
       term.open(containerEl)
@@ -369,6 +405,62 @@
           }
         }),
       )
+
+      // File path detection — click opens file in editor. Only paths that
+      // resolve to files tracked in the workspace are linkified, so arbitrary
+      // strings with slashes in shell/agent output stay non-interactive.
+      let knownFilesIdentity: string[] | null = null
+      let knownFilesCache: Set<string> = new Set()
+      function knownFilesFor(worktreePath: string): Set<string> {
+        const list = getFiles(worktreePath)
+        if (list.length === 0) {
+          void ensureLoaded(worktreePath)
+          return knownFilesCache
+        }
+        if (list !== knownFilesIdentity) {
+          knownFilesIdentity = list
+          knownFilesCache = new Set(list)
+        }
+        return knownFilesCache
+      }
+
+      term.registerLinkProvider({
+        provideLinks: (bufferLineNumber, callback) => {
+          const worktreePath = workspaceState.selectedWorktreePath
+          if (!worktreePath) {
+            callback(undefined)
+            return
+          }
+          const buffer = term.buffer.active
+          const lineEntry = buffer.getLine(bufferLineNumber - 1)
+          if (!lineEntry) {
+            callback(undefined)
+            return
+          }
+          const lineText = lineEntry.translateToString(true)
+          if (!lineText) {
+            callback(undefined)
+            return
+          }
+          const known = knownFilesFor(worktreePath)
+          const matches = detectPathsInText(lineText, worktreePath, known)
+          if (matches.length === 0) {
+            callback(undefined)
+            return
+          }
+          const links = matches.map((m) => ({
+            range: {
+              start: { x: m.start + 1, y: bufferLineNumber },
+              end: { x: m.end, y: bufferLineNumber },
+            },
+            text: m.raw,
+            activate: () => {
+              openFile(m.absolutePath, worktreePath, { line: m.line })
+            },
+          }))
+          callback(links)
+        },
+      })
 
       progressAddon.onChange(({ state, value }: IProgressState) => {
         progressState = state
@@ -537,6 +629,7 @@
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
       termRef = null
+      fitAddonRef = null
       if (resizeDebounceTimer !== null) clearTimeout(resizeDebounceTimer)
       if (resizeObserver) resizeObserver.disconnect()
       if (webglAddonRef) {

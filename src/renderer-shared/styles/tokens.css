@@ -1,3 +1,46 @@
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/JetBrainsMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/JetBrainsMono-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/JetBrainsMono-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/JetBrainsMono-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/JetBrainsMono-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./fonts/JetBrainsMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --c-bg: #1e1e1e;
   --c-bg-elevated: #2b2b2b;
@@ -67,6 +110,67 @@
   --diff-hunk-header-bg: color-mix(in srgb, var(--c-accent) 10%, transparent);
 
   color-scheme: dark;
+
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI',
+    Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --fs-micro: 9px;
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 14px;
+  --fs-xl: 16px;
+  --fs-2xl: 20px;
+  --fs-3xl: 28px;
+
+  --fw-light: 300;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --lh-tight: 1.15;
+  --lh-snug: 1.35;
+  --lh-body: 1.6;
+
+  --ls-caps: 0.1em;
+  --ls-caps-tight: 0.05em;
+  --ls-caps-looser: 0.04em;
+
+  --sp-0: 0;
+  --sp-px: 1px;
+  --sp-0_5: 2px;
+  --sp-1: 4px;
+  --sp-1_5: 6px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  --h-status-bar: 24px;
+  --h-tab-bar: 32px;
+  --h-row: 28px;
+
+  --r-xs: 2px;
+  --r-sm: 3px;
+  --r-md: 4px;
+  --r-lg: 6px;
+  --r-xl: 8px;
+
+  --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-ctx: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.6);
+
+  --dur-fast: 100ms;
+  --dur-base: 150ms;
+  --dur-slow: 300ms;
+  --ease-std: ease;
+  --ease-pulse: ease-in-out;
 }
 
 *,
@@ -93,17 +197,9 @@ body {
   min-height: 100vh;
   color: var(--c-text);
   background: var(--c-bg);
-  line-height: 1.6;
-  font-family:
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'SF Pro Display',
-    'Segoe UI',
-    Roboto,
-    'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
   text-rendering: optimizeLegibility;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -159,4 +255,85 @@ body {
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+.type-hero {
+  font-family: var(--font-sans);
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  color: var(--c-text);
+}
+
+.type-h1 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--c-text);
+}
+
+.type-h2 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text);
+}
+
+.type-body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--c-text);
+}
+
+.type-body-secondary {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--c-text-secondary);
+}
+
+.type-meta {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+}
+
+.type-section-label {
+  font-family: var(--font-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.type-inspector-label {
+  font-family: var(--font-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--c-text-faint);
+}
+
+.type-badge {
+  font-family: var(--font-sans);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  line-height: 16px;
+}
+
+.type-code,
+.type-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-ligatures: contextual;
+}
+
+.type-terminal {
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  line-height: 1.4;
+  color: var(--c-text);
 }

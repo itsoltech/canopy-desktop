@@ -1,5 +1,15 @@
 import { match } from 'ts-pattern'
 
+export interface EditorFileState {
+  filePath: string
+  dirty?: boolean
+  originalContent?: string
+  currentContent?: string
+  fileMtimeMs?: number
+  fileLineEnding?: 'LF' | 'CRLF'
+  externalChangeDetected?: boolean
+}
+
 export interface PaneSession {
   id: string
   sessionId: string
@@ -22,6 +32,9 @@ export interface PaneSession {
   conversationId?: string
   /** Set when paneType is 'sdkChat' — the workspace id the conversation belongs to. */
   workspaceId?: string
+  // Editor pane state (paneType === 'editor' only)
+  editorFiles?: EditorFileState[]
+  editorActiveFile?: string
 }
 
 export type SplitNode =

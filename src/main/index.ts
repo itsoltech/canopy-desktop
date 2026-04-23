@@ -175,13 +175,16 @@ const checkWithChannelResolution = async (): Promise<void> => {
   try {
     const ch = preferencesStore.get('update.channel') ?? 'stable'
     if (ch === 'next') {
-      const effective = await resolveUpdateChannel(app.getVersion()).unwrapOr('next' as const)
+      const effective = await resolveUpdateChannel(app.getVersion()).unwrapOr('latest' as const)
       autoUpdater.channel = effective
       autoUpdater.allowPrerelease = effective === 'next'
     } else {
       autoUpdater.channel = 'latest'
       autoUpdater.allowPrerelease = false
     }
+    // electron-updater's channel setter implicitly sets allowDowngrade = true, which
+    // would downgrade us to a pre-release of the currently installed stable. Reset it.
+    autoUpdater.allowDowngrade = false
     await autoUpdater.checkForUpdates()
   } finally {
     updateCheckInFlight = false
@@ -477,6 +480,7 @@ app.whenReady().then(async () => {
     autoUpdater.logger = console
     autoUpdater.autoDownload = autoUpdate
     autoUpdater.allowPrerelease = updateChannel === 'next'
+    autoUpdater.allowDowngrade = false
 
     const broadcast = (channel: string, data: unknown): void => {
       for (const win of BrowserWindow.getAllWindows()) {
@@ -635,13 +639,14 @@ app.whenReady().then(async () => {
   browserManager.ensurePartition()
 
   agentSessionManager = new AgentSessionManager()
-  agentSessionManager.cleanupOrphans()
+  await agentSessionManager.cleanupOrphans()
   windowManager.setAgentSessionManager(agentSessionManager)
   windowManager.setBrowserManager(browserManager)
 
   // Migrate legacy global agent prefs into Default profiles. safeStorage is
   // guaranteed to be initialized inside app.whenReady().
-  profileStore.ensureDefaults()
+  // Defer to allow window creation to proceed without blocking
+  setImmediate(() => profileStore.ensureDefaults())
 
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()

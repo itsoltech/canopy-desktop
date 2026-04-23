@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import type {
   HostSignal,
   PeerSignal,
@@ -115,26 +116,27 @@ function narrowHostSignal(raw: unknown): HostSignal | null {
     sdp?: unknown
     candidate?: unknown
   }
-  switch (v.type) {
-    case 'paired':
-      if (typeof v.sessionId !== 'string') return null
-      return { type: 'paired', sessionId: v.sessionId }
-    case 'rejected':
-      return { type: 'rejected', reason: typeof v.reason === 'string' ? v.reason : 'rejected' }
-    case 'accepted':
-      return { type: 'accepted' }
-    case 'offer':
-      if (!v.sdp) return null
-      return { type: 'offer', sdp: v.sdp as RTCSessionDescriptionInit }
-    case 'answer':
-      if (!v.sdp) return null
-      return { type: 'answer', sdp: v.sdp as RTCSessionDescriptionInit }
-    case 'ice':
-      if (!v.candidate) return null
-      return { type: 'ice', candidate: v.candidate as RTCIceCandidateInit }
-    case 'bye':
-      return { type: 'bye', reason: typeof v.reason === 'string' ? v.reason : undefined }
-    default:
-      return null
-  }
+  return match(v.type)
+    .with('paired', () =>
+      typeof v.sessionId === 'string' ? { type: 'paired' as const, sessionId: v.sessionId } : null,
+    )
+    .with('rejected', () => ({
+      type: 'rejected' as const,
+      reason: typeof v.reason === 'string' ? v.reason : 'rejected',
+    }))
+    .with('accepted', () => ({ type: 'accepted' as const }))
+    .with('offer', () =>
+      v.sdp ? { type: 'offer' as const, sdp: v.sdp as RTCSessionDescriptionInit } : null,
+    )
+    .with('answer', () =>
+      v.sdp ? { type: 'answer' as const, sdp: v.sdp as RTCSessionDescriptionInit } : null,
+    )
+    .with('ice', () =>
+      v.candidate ? { type: 'ice' as const, candidate: v.candidate as RTCIceCandidateInit } : null,
+    )
+    .with('bye', () => ({
+      type: 'bye' as const,
+      reason: typeof v.reason === 'string' ? v.reason : undefined,
+    }))
+    .otherwise(() => null)
 }

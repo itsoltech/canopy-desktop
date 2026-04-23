@@ -211,8 +211,53 @@
 
 {#if projects.length > 0}
   <footer class="status-bar">
-    <!-- LEFT: git & worktree -->
-    <div class="section left">
+    <!-- Focused pane context flows from the left -->
+    {#if focusedPaneKind === 'agent' && activeAgent}
+      <span
+        class="status-item agent-status"
+        class:permission={activeAgent.status.type === 'waitingPermission'}
+        class:error={activeAgent.status.type === 'error'}
+        class:working={activeAgent.status.type === 'thinking' ||
+          activeAgent.status.type === 'toolCalling' ||
+          activeAgent.status.type === 'compacting'}
+      >
+        {agentStatusLabel(activeAgent)}
+      </span>
+
+      {#if activeAgent.model}
+        <span class="status-item dim">{activeAgent.model}</span>
+      {/if}
+
+      {#if activeAgent.contextPercent != null}
+        <span
+          class="status-item context mono"
+          style="color: {contextColor(activeAgent.contextPercent)}"
+          title="Context window usage"
+        >
+          ctx {activeAgent.contextPercent}%
+        </span>
+      {/if}
+
+      {#if activeAgent.costUsd != null}
+        <span class="status-item mono" title="Session cost">
+          {formatCost(activeAgent.costUsd)}
+        </span>
+      {/if}
+
+      {#if taskProgress}
+        <span class="status-item dim" title="Task progress">
+          {taskProgress.done}/{taskProgress.total} tasks
+        </span>
+      {/if}
+    {:else if focusedPaneKind === 'shell'}
+      <span class="status-item dim">Shell</span>
+    {:else if focusedPaneKind === 'notes'}
+      <span class="status-item dim">Notes</span>
+    {:else if focusedPaneKind === 'drawing'}
+      <span class="status-item dim">Drawing</span>
+    {/if}
+
+    <div class="push">
       {#if workspaceState.isGitRepo && workspaceState.branch}
         <button
           class="status-item branch"
@@ -226,7 +271,7 @@
               d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 2.122a2.25 2.25 0 1 0-1 0v1.836A2.252 2.252 0 0 0 2 9.5a2.25 2.25 0 1 0 3.163.132l2.382-2.382A1.75 1.75 0 0 1 8.783 6.75h1.467a2.25 2.25 0 1 0 0-1.5H8.783a3.25 3.25 0 0 0-2.299.952L4.5 8.186V5.372ZM4.25 12a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Zm8.25-6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"
             />
           </svg>
-          <span class="label">{workspaceState.branch}</span>
+          <span class="label mono">{workspaceState.branch}</span>
           {#if workspaceState.isDirty}
             <span class="dirty-dot" title="Uncommitted changes" aria-hidden="true"></span>
           {/if}
@@ -236,7 +281,7 @@
           {@const ahead = workspaceState.aheadBehind.ahead}
           {@const behind = workspaceState.aheadBehind.behind}
           <button
-            class="status-item sync"
+            class="status-item sync mono"
             aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
               ? ', '
               : ''}{behind > 0 ? `${behind} behind` : ''}"
@@ -245,12 +290,8 @@
               ? `${behind} behind`
               : ''}"
           >
-            {#if ahead > 0}
-              <span class="sync-label" aria-hidden="true">&#8593;{ahead}</span>
-            {/if}
-            {#if behind > 0}
-              <span class="sync-label" aria-hidden="true">&#8595;{behind}</span>
-            {/if}
+            {#if ahead > 0}<span aria-hidden="true">&#8593;{ahead}</span>{/if}
+            {#if behind > 0}<span aria-hidden="true">&#8595;{behind}</span>{/if}
           </button>
         {/if}
       {/if}
@@ -265,169 +306,170 @@
           <span class="label">{worktreeName}</span>
         </span>
       {/if}
-    </div>
 
-    <!-- CENTER: focused pane context -->
-    <div class="section center">
-      {#if focusedPaneKind === 'agent' && activeAgent}
-        <span
-          class="status-item agent-status"
-          class:permission={activeAgent.status.type === 'waitingPermission'}
-          class:error={activeAgent.status.type === 'error'}
-          class:working={activeAgent.status.type === 'thinking' ||
-            activeAgent.status.type === 'toolCalling' ||
-            activeAgent.status.type === 'compacting'}
-        >
-          {agentStatusLabel(activeAgent)}
-        </span>
-
-        {#if activeAgent.model}
-          <span class="status-item dim">{activeAgent.model}</span>
-        {/if}
-
-        {#if activeAgent.contextPercent != null}
+      <!-- CENTER: focused pane context -->
+      <div class="section center">
+        {#if focusedPaneKind === 'agent' && activeAgent}
           <span
-            class="status-item context"
-            style="color: {contextColor(activeAgent.contextPercent)}"
-            title="Context window usage"
+            class="status-item agent-status"
+            class:permission={activeAgent.status.type === 'waitingPermission'}
+            class:error={activeAgent.status.type === 'error'}
+            class:working={activeAgent.status.type === 'thinking' ||
+              activeAgent.status.type === 'toolCalling' ||
+              activeAgent.status.type === 'compacting'}
           >
-            ctx {activeAgent.contextPercent}%
+            {agentStatusLabel(activeAgent)}
           </span>
-        {/if}
 
-        {#if activeAgent.costUsd != null}
-          <span class="status-item dim" title="Session cost">
-            {formatCost(activeAgent.costUsd)}
-          </span>
-        {/if}
+          {#if activeAgent.model}
+            <span class="status-item dim">{activeAgent.model}</span>
+          {/if}
 
-        {#if taskProgress}
-          <span class="status-item dim" title="Task progress">
-            {taskProgress.done}/{taskProgress.total} tasks
-          </span>
-        {/if}
-      {:else if focusedPaneKind === 'sdkChat' && activeSdkSession}
-        {#if activeSdkSession.status === 'streaming'}
-          <span class="status-item agent-status working">Thinking</span>
-        {:else if activeSdkSession.status === 'error'}
-          <span class="status-item agent-status error">Error</span>
-        {/if}
+          {#if activeAgent.contextPercent != null}
+            <span
+              class="status-item context"
+              style="color: {contextColor(activeAgent.contextPercent)}"
+              title="Context window usage"
+            >
+              ctx {activeAgent.contextPercent}%
+            </span>
+          {/if}
 
-        {#if activeSdkSession.conversation?.model}
-          <span class="status-item dim">{activeSdkSession.conversation.model}</span>
-        {/if}
+          {#if activeAgent.costUsd != null}
+            <span class="status-item dim" title="Session cost">
+              {formatCost(activeAgent.costUsd)}
+            </span>
+          {/if}
 
-        {#if sdkContextPercent != null}
-          <span
-            class="status-item context"
-            style="color: {contextColor(sdkContextPercent)}"
-            title="Context: {contextTokensUsedFor(
-              activeSdkSession,
-            ).toLocaleString()} / {activeSdkSession.contextWindow?.toLocaleString() ?? '?'} tokens"
+          {#if taskProgress}
+            <span class="status-item dim" title="Task progress">
+              {taskProgress.done}/{taskProgress.total} tasks
+            </span>
+          {/if}
+        {:else if focusedPaneKind === 'sdkChat' && activeSdkSession}
+          {#if activeSdkSession.status === 'streaming'}
+            <span class="status-item agent-status working">Thinking</span>
+          {:else if activeSdkSession.status === 'error'}
+            <span class="status-item agent-status error">Error</span>
+          {/if}
+
+          {#if activeSdkSession.conversation?.model}
+            <span class="status-item dim">{activeSdkSession.conversation.model}</span>
+          {/if}
+
+          {#if sdkContextPercent != null}
+            <span
+              class="status-item context"
+              style="color: {contextColor(sdkContextPercent)}"
+              title="Context: {contextTokensUsedFor(
+                activeSdkSession,
+              ).toLocaleString()} / {activeSdkSession.contextWindow?.toLocaleString() ??
+                '?'} tokens"
+            >
+              ctx {sdkContextPercent}%
+            </span>
+          {/if}
+
+          {#if activeSdkSession.costUsd > 0}
+            <span class="status-item dim" title="Session cost (estimate)">
+              {formatCost(activeSdkSession.costUsd)}
+            </span>
+          {/if}
+        {:else if focusedPaneKind === 'shell'}
+          <span class="status-item dim">Shell</span>
+        {:else if focusedPaneKind === 'notes'}
+          <span class="status-item dim">Notes</span>
+        {:else if focusedPaneKind === 'drawing'}
+          <span class="status-item dim">Drawing</span>
+        {/if}
+      </div>
+
+      <!-- RIGHT: global indicators -->
+      <div class="section right">
+        {#if perfHudEnabled && perfHudState.metrics}
+          <button
+            class="status-item dim perf-hud"
+            aria-label="App CPU {perfHudState.metrics.cpu}%, RAM {perfHudState.metrics.memMb} MB"
+            title="App CPU / RAM — click to open settings"
+            onclick={openPerfHudSettings}
           >
-            ctx {sdkContextPercent}%
-          </span>
+            {perfHudState.metrics.cpu}% · {perfHudState.metrics.memMb} MB
+          </button>
         {/if}
 
-        {#if activeSdkSession.costUsd > 0}
-          <span class="status-item dim" title="Session cost (estimate)">
-            {formatCost(activeSdkSession.costUsd)}
-          </span>
+        {#if agentCount > 0}
+          <button
+            class="status-item agents"
+            aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+              ? `, ${globalStatusLabel(globalWorstStatus)}`
+              : ''}"
+            title="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+              ? ` — ${globalStatusLabel(globalWorstStatus)}`
+              : ''}"
+            onclick={focusWorstAgent}
+          >
+            <span
+              class="agent-dot"
+              class:pulse={globalWorstStatus === 'waitingPermission' ||
+                globalWorstStatus === 'working'}
+              style="background: {statusDotColor(globalWorstStatus)}"
+            ></span>
+            <span class="label">{agentCount}</span>
+          </button>
         {/if}
-      {:else if focusedPaneKind === 'shell'}
-        <span class="status-item dim">Shell</span>
-      {:else if focusedPaneKind === 'notes'}
-        <span class="status-item dim">Notes</span>
-      {:else if focusedPaneKind === 'drawing'}
-        <span class="status-item dim">Drawing</span>
-      {/if}
-    </div>
 
-    <!-- RIGHT: global indicators -->
-    <div class="section right">
-      {#if perfHudEnabled && perfHudState.metrics}
-        <button
-          class="status-item dim perf-hud"
-          aria-label="App CPU {perfHudState.metrics.cpu}%, RAM {perfHudState.metrics.memMb} MB"
-          title="App CPU / RAM — click to open settings"
-          onclick={openPerfHudSettings}
-        >
-          {perfHudState.metrics.cpu}% · {perfHudState.metrics.memMb} MB
-        </button>
-      {/if}
+        {#if permissionSessionId}
+          <button
+            class="status-item permission-bell"
+            aria-label="Agent waiting for permission"
+            title="Agent waiting for permission"
+            onclick={focusPermissionAgent}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2ZM8 1.918l-.797.161A4.002 4.002 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 0 0-3.203-3.92L8 1.917ZM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 6.88 3 6c0-2.42 1.72-4.44 4.005-4.901a1 1 0 1 1 1.99 0A5.002 5.002 0 0 1 13 6c0 .88.32 4.2 1.22 6Z"
+              />
+            </svg>
+          </button>
+        {/if}
 
-      {#if agentCount > 0}
-        <button
-          class="status-item agents"
-          aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
-            ? `, ${globalStatusLabel(globalWorstStatus)}`
-            : ''}"
-          title="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
-            ? ` — ${globalStatusLabel(globalWorstStatus)}`
-            : ''}"
-          onclick={focusWorstAgent}
-        >
-          <span
-            class="agent-dot"
-            class:pulse={globalWorstStatus === 'waitingPermission' ||
-              globalWorstStatus === 'working'}
-            style="background: {statusDotColor(globalWorstStatus)}"
-          ></span>
-          <span class="label">{agentCount}</span>
-        </button>
-      {/if}
+        {#if hasUpdate}
+          <button
+            class="status-item update"
+            aria-label="Install update v{updateState.version}"
+            title="Update v{updateState.version} ready to install"
+            onclick={installUpdate}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 1.371 1.37V3.5a.25.25 0 0 1 .25-.25h.006a.25.25 0 0 1 .25.25v3.097l1.371-1.37a.25.25 0 0 1 .354.353l-1.793 1.793a.252.252 0 0 1-.166.073h-.027a.252.252 0 0 1-.166-.073L6.025 5.58a.25.25 0 0 1 .354-.353ZM5 10.75a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z"
+              />
+            </svg>
+          </button>
+        {/if}
 
-      {#if permissionSessionId}
         <button
-          class="status-item permission-bell"
-          aria-label="Agent waiting for permission"
-          title="Agent waiting for permission"
-          onclick={focusPermissionAgent}
+          class="status-item inspector-toggle"
+          aria-label="Toggle Inspector"
+          title="Toggle Inspector"
+          onclick={() => toggleRightPanel()}
         >
           <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
             <path
-              d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2ZM8 1.918l-.797.161A4.002 4.002 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 0 0-3.203-3.92L8 1.917ZM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 6.88 3 6c0-2.42 1.72-4.44 4.005-4.901a1 1 0 1 1 1.99 0A5.002 5.002 0 0 1 13 6c0 .88.32 4.2 1.22 6Z"
+              d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.824.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"
             />
           </svg>
         </button>
-      {/if}
 
-      {#if hasUpdate}
         <button
-          class="status-item update"
-          aria-label="Install update v{updateState.version}"
-          title="Update v{updateState.version} ready to install"
-          onclick={installUpdate}
+          class="status-item settings-btn"
+          aria-label="Open Settings"
+          title="Open Settings"
+          onclick={() => showPreferences()}
         >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path
-              d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 1.371 1.37V3.5a.25.25 0 0 1 .25-.25h.006a.25.25 0 0 1 .25.25v3.097l1.371-1.37a.25.25 0 0 1 .354.353l-1.793 1.793a.252.252 0 0 1-.166.073h-.027a.252.252 0 0 1-.166-.073L6.025 5.58a.25.25 0 0 1 .354-.353ZM5 10.75a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z"
-            />
-          </svg>
+          <Settings size={13} />
         </button>
-      {/if}
-
-      <button
-        class="status-item inspector-toggle"
-        aria-label="Toggle Inspector"
-        title="Toggle Inspector"
-        onclick={() => toggleRightPanel()}
-      >
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-          <path
-            d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.824.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"
-          />
-        </svg>
-      </button>
-
-      <button
-        class="status-item settings-btn"
-        aria-label="Open Settings"
-        title="Open Settings"
-        onclick={() => showPreferences()}
-      >
-        <Settings size={13} />
-      </button>
+      </div>
     </div>
   </footer>
 {/if}
@@ -436,58 +478,47 @@
   .status-bar {
     display: flex;
     align-items: center;
-    height: 24px;
+    gap: 12px;
+    height: var(--h-status-bar);
     padding: 0 8px;
-    background: var(--c-bg-glass-heavy);
+    background: var(--c-bg-glass);
     border-top: 1px solid var(--c-border-subtle);
-    font-size: 11px;
+    font-family: var(--font-sans);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
     color: var(--c-text-secondary);
     user-select: none;
     -webkit-app-region: no-drag;
     flex-shrink: 0;
   }
 
-  .section {
+  .push {
+    margin-left: auto;
     display: flex;
     align-items: center;
-    gap: 2px;
-  }
-
-  .section.left {
-    flex: 1;
-    justify-content: flex-start;
-  }
-
-  .section.center {
-    flex: 0 1 auto;
-    justify-content: center;
-    gap: 6px;
-    overflow: hidden;
-  }
-
-  .section.right {
-    flex: 1;
-    justify-content: flex-end;
+    gap: 12px;
   }
 
   .status-item {
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 0 5px;
-    height: 20px;
-    border-radius: 3px;
+    line-height: 1;
     white-space: nowrap;
     border: none;
     background: none;
     color: inherit;
     font: inherit;
-    cursor: default;
-    line-height: 1;
+    padding: 0;
   }
 
   button.status-item {
     cursor: pointer;
+    padding: 2px 4px;
+    border-radius: var(--r-sm);
+    transition:
+      background var(--dur-fast),
+      color var(--dur-fast);
   }
 
   button.status-item:hover {
@@ -495,10 +526,22 @@
     color: var(--c-text);
   }
 
+  .status-item svg {
+    width: 12px;
+    height: 12px;
+    color: var(--c-text-muted);
+    flex-shrink: 0;
+  }
+
   .label {
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 140px;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
   }
 
   .branch .label {
@@ -595,9 +638,5 @@
     .permission-bell {
       animation: none;
     }
-  }
-
-  svg {
-    flex-shrink: 0;
   }
 </style>

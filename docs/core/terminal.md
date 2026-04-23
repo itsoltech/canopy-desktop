@@ -48,6 +48,22 @@ The WsBridge maintains a circular buffer of up to 1 MB of PTY output per session
 4. The resize callback calls `window.api.resizePty(sessionId, cols, rows)` which forwards to `PtyManager.resize()`.
 5. When the user clicks back into a terminal after a remote peer resized the PTY, the component always sends `resizePty` on `pointerdown`/`focus` to reclaim the desktop dimensions.
 
+### Pane tab strip controls
+
+In split layouts, each pane shows a strip above the pane body with the pane title and actions:
+
+- **Detach pane to tab**: removes that pane from the current split and opens it as a new top-level tab.
+- **Close pane**: closes only that pane. If it is running processes, the same termination confirmation flow is shown before closing.
+
+Clicking the strip also focuses the pane.
+
+### Pane dragging via strip
+
+1. The user drags a pane by pressing and moving on its strip (left mouse button; action buttons are excluded).
+2. If dropped over another pane's edge zone, the pane is inserted on the corresponding side (left/right/top/bottom).
+3. While dragging over the main tab bar, hovering a tab for 300ms switches to that tab so the pane can be dropped there.
+4. Dropping over empty space in the tab bar detaches the pane into a new tab (same result as the detach button).
+
 ### File drag and drop
 
 1. User drags files onto the terminal.

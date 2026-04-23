@@ -125,7 +125,12 @@
     <span class="branch-status">
       <span class="branch-label">{workspaceState.branch ?? ''}</span>
       {#if workspaceState.isDirty}
-        <span class="dirty-dot" title="Uncommitted changes"></span>
+        <span
+          class="dirty-dot"
+          role="img"
+          aria-label="Uncommitted changes"
+          title="Uncommitted changes"
+        ></span>
       {/if}
     </span>
   {/snippet}

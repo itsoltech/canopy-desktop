@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
   import { openWorkspace } from '../../lib/stores/workspace.svelte'
-  import { prompt } from '../../lib/stores/dialogs.svelte'
+  import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
   import { fileManagerLabel } from '../../lib/platform'
 
   interface WorkspaceRow {
@@ -126,10 +126,18 @@
 
   async function ctxRemove(): Promise<void> {
     if (!contextMenu) return
-    const id = contextMenu.workspace.id
-    await window.api.removeWorkspace(id)
-    workspaces = workspaces.filter((w) => w.id !== id)
+    const ws = contextMenu.workspace
     closeContextMenu()
+    const ok = await confirm({
+      title: 'Remove from Recent?',
+      message: `Remove "${ws.name}" from your recent workspaces?`,
+      details: ws.path,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
+    await window.api.removeWorkspace(ws.id)
+    workspaces = workspaces.filter((w) => w.id !== ws.id)
   }
 
   function handleKeydown(e: KeyboardEvent): void {

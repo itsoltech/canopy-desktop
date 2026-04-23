@@ -2,6 +2,7 @@ import { match } from 'ts-pattern'
 import {
   type PaneSession,
   type SplitNode,
+  type EditorFileState,
   createLeaf,
   nextPaneId,
   allPanes,
@@ -15,6 +16,7 @@ import {
   graftSubtree,
 } from './splitTree'
 import type { DropZone } from './dragState.svelte'
+import { recordFileOpen } from './quickOpenMru.svelte'
 import { workspaceState, getProjectForWorktree, selectWorktree } from './workspace.svelte'
 import {
   initAgentSession,
@@ -141,6 +143,8 @@ type SerializedSplitNode =
       browserUrl?: string
       browserDevToolsMode?: 'bottom' | 'right'
       filePath?: string
+      editorFiles?: string[]
+      editorActiveFile?: string
       tmuxSessionName?: string
       profileId?: string
       paneType?: PaneSession['paneType']
@@ -462,6 +466,53 @@ export async function closeTab(tabId: string): Promise<void> {
 
     // Check for active processes before closing
     const panes = allPanes(tab.rootSplit)
+
+    // Check for unsaved editor changes first
+    const dirtyFiles: Array<{ pane: PaneSession; file: EditorFileState }> = []
+    for (const p of panes) {
+      if (p.paneType !== 'editor') continue
+      for (const f of p.editorFiles ?? []) {
+        if (f.dirty === true) dirtyFiles.push({ pane: p, file: f })
+      }
+    }
+    if (dirtyFiles.length > 0) {
+      const choice = await window.api.confirmUnsavedChanges(dirtyFiles.map((d) => d.file.filePath))
+      if (choice === 'cancel') return
+      if (choice === 'save') {
+        const saveResults = await Promise.all(
+          dirtyFiles.map(async ({ file }) => {
+            try {
+              const content = file.currentContent ?? ''
+              const normalized =
+                file.fileLineEnding === 'CRLF' ? content.replace(/\r?\n/g, '\r\n') : content
+              const result = await window.api.writeFile(file.filePath, normalized, file.fileMtimeMs)
+              if (result.ok) return { ok: true as const }
+              const message =
+                result.tag === 'StaleWrite'
+                  ? 'File changed on disk — reload before saving'
+                  : result.message
+              return { ok: false as const, filePath: file.filePath, message }
+            } catch (e) {
+              return {
+                ok: false as const,
+                filePath: file.filePath,
+                message: e instanceof Error ? e.message : String(e),
+              }
+            }
+          }),
+        )
+        const failed = saveResults.filter((r) => !r.ok)
+        if (failed.length > 0) {
+          await confirm({
+            title: 'Save failed',
+            message: `Could not save ${failed.length} file(s). Tab close cancelled.`,
+            confirmLabel: 'OK',
+          })
+          return
+        }
+      }
+    }
+
     const description = await getActiveProcessDescription(panes)
     if (description) {
       const confirmed = await confirm({
@@ -629,12 +680,6 @@ export async function reopenClosedTab(worktreePath: string): Promise<void> {
   await openTool(entry.toolId, worktreePath)
 }
 
-/**
- * Open an SDK-backed chat pane in a new tab. Creates the conversation via
- * window.api.sdkAgent.create first, then mounts a pane that drives it.
- * Gated on the experimental.sdkAgents preference — callers must check
- * the flag before invoking this.
- */
 export async function openSdkChatTab(
   worktreePath: string,
   workspaceId: string,
@@ -687,42 +732,85 @@ export async function openSdkChatTab(
   return tab
 }
 
-export function openFile(filePath: string, worktreePath: string): void {
-  // Check if already open in a live (non-suspended) tab - focus it
+export const pendingEditorJumps = $state<Record<string, number>>({})
+
+export function openFile(filePath: string, worktreePath: string, opts?: { line?: number }): void {
+  // Record MRU entry as a relative path (matches what Quick Open shows)
+  const relPath = filePath.startsWith(worktreePath + '/')
+    ? filePath.slice(worktreePath.length + 1)
+    : filePath
+  recordFileOpen(worktreePath, relPath)
   const tabs = (tabsByWorktree[worktreePath] ?? []).filter((t) => !t.suspended)
+
+  // 1. File already open somewhere in a live tab — focus it
   for (const tab of tabs) {
     const panes = allPanes(tab.rootSplit)
-    const existing = panes.find((p) => p.paneType === 'editor' && p.filePath === filePath)
+    const existing = panes.find(
+      (p) =>
+        p.paneType === 'editor' &&
+        (p.filePath === filePath || p.editorFiles?.some((f) => f.filePath === filePath)),
+    )
     if (existing) {
       activeTabId[worktreePath] = tab.id
       tab.focusedPaneId = existing.id
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, existing.id, (p) => ({
+        ...p,
+        editorActiveFile: filePath,
+        editorFiles: ensureFileInList(p.editorFiles, filePath, p.filePath),
+        filePath,
+      }))
+      if (opts?.line) pendingEditorJumps[existing.id] = opts.line
       return
     }
   }
 
-  // Create new editor tab
+  // 2. Active tab in this worktree has an editor pane — add as sub-tab
+  const activeId = activeTabId[worktreePath]
+  const activeTab = tabs.find((t) => t.id === activeId)
+  if (activeTab) {
+    const panes = allPanes(activeTab.rootSplit)
+    const focusedEditor =
+      panes.find((p) => p.id === activeTab.focusedPaneId && p.paneType === 'editor') ??
+      panes.find((p) => p.paneType === 'editor')
+    if (focusedEditor) {
+      activeTab.rootSplit = treeUpdatePane(activeTab.rootSplit, focusedEditor.id, (p) => ({
+        ...p,
+        editorActiveFile: filePath,
+        editorFiles: ensureFileInList(p.editorFiles, filePath, p.filePath),
+        filePath,
+      }))
+      activeTab.focusedPaneId = focusedEditor.id
+      if (opts?.line) pendingEditorJumps[focusedEditor.id] = opts.line
+      scheduleSave(worktreePath)
+      return
+    }
+  }
+
+  // 3. Otherwise — create a new editor tab
   const paneId = nextPaneId()
-  const fileName = filePath.split('/').pop() ?? 'File'
+  const EDITOR_LABEL = 'Editor'
   const pane: PaneSession = {
     id: paneId,
     sessionId: '',
     wsUrl: '',
     toolId: 'editor',
-    toolName: fileName,
+    toolName: EDITOR_LABEL,
     isRunning: true,
     exitCode: null,
     title: null,
     paneType: 'editor',
     filePath,
+    editorFiles: [{ filePath }],
+    editorActiveFile: filePath,
   }
 
   const id = nextTabId()
-  const name = computeDisplayName(fileName, worktreePath, 'editor')
+  const name = computeDisplayName(EDITOR_LABEL, worktreePath, 'editor')
 
   const tab: TabInfo = {
     id,
     toolId: 'editor',
-    toolName: fileName,
+    toolName: EDITOR_LABEL,
     name,
     worktreePath,
     rootSplit: createLeaf(pane),
@@ -734,7 +822,303 @@ export function openFile(filePath: string, worktreePath: string): void {
   }
   tabsByWorktree[worktreePath].push(tab)
   activeTabId[worktreePath] = id
+  if (opts?.line) pendingEditorJumps[paneId] = opts.line
   scheduleSave(worktreePath)
+}
+
+function ensureFileInList(
+  list: EditorFileState[] | undefined,
+  filePath: string,
+  legacySingle: string | undefined,
+): EditorFileState[] {
+  const base = list ?? (legacySingle ? [{ filePath: legacySingle }] : [])
+  if (base.some((f) => f.filePath === filePath)) return base
+  return [...base, { filePath }]
+}
+
+export function moveEditorFileBetweenPanes(
+  sourcePaneId: string,
+  targetPaneId: string,
+  filePath: string,
+  toIndex: number,
+): void {
+  if (sourcePaneId === targetPaneId) {
+    moveEditorFile(targetPaneId, filePath, toIndex)
+    return
+  }
+  // Locate both panes and capture the file state from the source
+  let sourceTab: TabInfo | null = null
+  let sourcePane: PaneSession | null = null
+  let sourceWorktree: string | null = null
+  let targetTab: TabInfo | null = null
+  let targetWorktree: string | null = null
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const pane = findLeaf(tab.rootSplit, sourcePaneId)
+      if (pane) {
+        sourceTab = tab
+        sourcePane = pane
+        sourceWorktree = worktreePath
+      }
+      if (findLeaf(tab.rootSplit, targetPaneId)) {
+        targetTab = tab
+        targetWorktree = worktreePath
+      }
+    }
+  }
+  if (!sourcePane || !sourceTab || !targetTab || !sourceWorktree || !targetWorktree) return
+  const movingFile = (sourcePane.editorFiles ?? []).find((f) => f.filePath === filePath)
+  if (!movingFile) return
+
+  // Remove file from source pane; if empty, collapse the pane (or close the tab)
+  const remaining = (sourcePane.editorFiles ?? []).filter((f) => f.filePath !== filePath)
+  if (remaining.length === 0) {
+    const removed = treeRemovePane(sourceTab.rootSplit, sourcePaneId)
+    if (removed) {
+      if (removed.tree === null) {
+        void closeTab(sourceTab.id)
+      } else {
+        sourceTab.rootSplit = removed.tree
+        if (sourceTab.focusedPaneId === sourcePaneId) {
+          sourceTab.focusedPaneId = firstLeaf(removed.tree).id
+        }
+        scheduleSave(sourceWorktree)
+      }
+    }
+  } else {
+    const newActive =
+      sourcePane.editorActiveFile === filePath
+        ? remaining[Math.max(0, remaining.length - 1)].filePath
+        : sourcePane.editorActiveFile
+    sourceTab.rootSplit = treeUpdatePane(sourceTab.rootSplit, sourcePaneId, (p) => ({
+      ...p,
+      editorFiles: remaining,
+      editorActiveFile: newActive,
+      filePath: newActive,
+    }))
+    scheduleSave(sourceWorktree)
+  }
+
+  // Add file to target pane at toIndex
+  const targetPane = findLeaf(targetTab.rootSplit, targetPaneId)
+  if (!targetPane) return
+  const targetFiles = targetPane.editorFiles ?? []
+  const clamped = Math.max(0, Math.min(toIndex, targetFiles.length))
+  const next = [...targetFiles]
+  // Deduplicate — if file already exists in target, just focus it
+  const existingIdx = next.findIndex((f) => f.filePath === filePath)
+  if (existingIdx >= 0) {
+    targetTab.rootSplit = treeUpdatePane(targetTab.rootSplit, targetPaneId, (p) => ({
+      ...p,
+      editorActiveFile: filePath,
+      filePath,
+    }))
+  } else {
+    next.splice(clamped, 0, movingFile)
+    targetTab.rootSplit = treeUpdatePane(targetTab.rootSplit, targetPaneId, (p) => ({
+      ...p,
+      editorFiles: next,
+      editorActiveFile: filePath,
+      filePath,
+    }))
+  }
+  targetTab.focusedPaneId = targetPaneId
+  activeTabId[targetWorktree] = targetTab.id
+  scheduleSave(targetWorktree)
+}
+
+export function mergeTabIntoEditorPane(
+  sourceTabId: string,
+  targetPaneId: string,
+  toIndex: number,
+): void {
+  let sourceTab: TabInfo | null = null
+  for (const tabs of Object.values(tabsByWorktree)) {
+    const tab = tabs.find((t) => t.id === sourceTabId)
+    if (tab) {
+      sourceTab = tab
+      break
+    }
+  }
+  if (!sourceTab) return
+
+  const editorPanes = allPanes(sourceTab.rootSplit).filter((p) => p.paneType === 'editor')
+  if (editorPanes.length === 0) return
+
+  const moves: Array<{ sourcePaneId: string; filePath: string }> = []
+  for (const p of editorPanes) {
+    if (p.id === targetPaneId) continue
+    const files = p.editorFiles ?? (p.filePath ? [{ filePath: p.filePath }] : [])
+    for (const f of files) {
+      moves.push({ sourcePaneId: p.id, filePath: f.filePath })
+    }
+  }
+
+  let index = toIndex
+  for (const m of moves) {
+    moveEditorFileBetweenPanes(m.sourcePaneId, targetPaneId, m.filePath, index)
+    index++
+  }
+}
+
+export function moveEditorFile(paneId: string, filePath: string, toIndex: number): void {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      const files = existing.editorFiles ?? []
+      const fromIndex = files.findIndex((f) => f.filePath === filePath)
+      if (fromIndex === -1) continue
+      const clamped = Math.max(0, Math.min(toIndex, files.length))
+      if (clamped === fromIndex || clamped === fromIndex + 1) return
+      const next = [...files]
+      const [moved] = next.splice(fromIndex, 1)
+      const insertAt = clamped > fromIndex ? clamped - 1 : clamped
+      next.splice(insertAt, 0, moved)
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+        ...p,
+        editorFiles: next,
+      }))
+      scheduleSave(worktreePath)
+      return
+    }
+  }
+}
+
+export function setActiveEditorFile(paneId: string, filePath: string): void {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+        ...p,
+        editorActiveFile: filePath,
+        filePath,
+      }))
+      return
+    }
+  }
+}
+
+export function updateEditorFileState(
+  paneId: string,
+  filePath: string,
+  patch: Partial<EditorFileState>,
+): void {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+        ...p,
+        editorFiles: (p.editorFiles ?? []).map((f) =>
+          f.filePath === filePath ? { ...f, ...patch } : f,
+        ),
+      }))
+      return
+    }
+  }
+}
+
+export function closeEditorFile(paneId: string, filePath: string): void {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
+      const remaining = (existing.editorFiles ?? []).filter((f) => f.filePath !== filePath)
+      if (remaining.length === 0) {
+        // No files left — close the pane (or the tab if this was the only pane)
+        const removed = treeRemovePane(tab.rootSplit, paneId)
+        if (removed) {
+          if (removed.tree === null) {
+            // Tab now empty — close it
+            void closeTab(tab.id)
+          } else {
+            tab.rootSplit = removed.tree
+            if (tab.focusedPaneId === paneId) {
+              tab.focusedPaneId = firstLeaf(removed.tree).id
+            }
+            scheduleSave(worktreePath)
+          }
+        }
+        return
+      }
+      const newActive =
+        existing.editorActiveFile === filePath
+          ? remaining[Math.max(0, remaining.length - 1)].filePath
+          : existing.editorActiveFile
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+        ...p,
+        editorFiles: remaining,
+        editorActiveFile: newActive,
+        filePath: newActive,
+      }))
+      scheduleSave(worktreePath)
+      return
+    }
+  }
+}
+
+export function detachEditorFile(paneId: string, filePath: string): void {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
+      // Remove from this pane first
+      const remaining = (existing.editorFiles ?? []).filter((f) => f.filePath !== filePath)
+      if (remaining.length === 0) {
+        // Only file — no-op (already in its own pane/tab)
+        return
+      }
+      const newActive =
+        existing.editorActiveFile === filePath
+          ? remaining[Math.max(0, remaining.length - 1)].filePath
+          : existing.editorActiveFile
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
+        ...p,
+        editorFiles: remaining,
+        editorActiveFile: newActive,
+        filePath: newActive,
+      }))
+
+      // Create new editor tab for the detached file
+      const newPaneId = nextPaneId()
+      const EDITOR_LABEL = 'Editor'
+      const newPane: PaneSession = {
+        id: newPaneId,
+        sessionId: '',
+        wsUrl: '',
+        toolId: 'editor',
+        toolName: EDITOR_LABEL,
+        isRunning: true,
+        exitCode: null,
+        title: null,
+        paneType: 'editor',
+        filePath,
+        editorFiles: [{ filePath }],
+        editorActiveFile: filePath,
+      }
+      const newTabId = nextTabId()
+      const name = computeDisplayName(EDITOR_LABEL, worktreePath, 'editor')
+      const newTab: TabInfo = {
+        id: newTabId,
+        toolId: 'editor',
+        toolName: EDITOR_LABEL,
+        name,
+        worktreePath,
+        rootSplit: createLeaf(newPane),
+        focusedPaneId: newPaneId,
+      }
+      tabsByWorktree[worktreePath].push(newTab)
+      activeTabId[worktreePath] = newTabId
+      scheduleSave(worktreePath)
+      return
+    }
+  }
 }
 
 export function openDiffTab(worktreePath: string, scrollToFile?: string): void {
@@ -1205,9 +1589,10 @@ export function getTabDisplayName(tab: TabInfo): string {
   return focused?.title || tab.name
 }
 
-export function getTabFocusedToolId(tab: TabInfo): string {
-  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  return focused?.toolId ?? tab.toolId
+export function isTabDirty(tab: TabInfo): boolean {
+  return allPanes(tab.rootSplit).some(
+    (p) => p.paneType === 'editor' && (p.editorFiles ?? []).some((f) => f.dirty === true),
+  )
 }
 
 export function getActivePtySessionId(): string | null {
@@ -1290,6 +1675,27 @@ export function updateBrowserPaneUrl(sessionId: string, url: string): void {
   }
 }
 
+export function updateEditorPaneState(paneId: string, patch: Partial<PaneSession>): void {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({ ...p, ...patch }))
+      return
+    }
+  }
+}
+
+export function findEditorPane(paneId: string): PaneSession | null {
+  for (const tabs of Object.values(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const pane = findLeaf(tab.rootSplit, paneId)
+      if (pane) return pane
+    }
+  }
+  return null
+}
+
 // --- Tab identity reconciliation ---
 
 function reconcileTabIdentity(tab: TabInfo): void {
@@ -1347,18 +1753,23 @@ export async function splitFocusedPane(
   scheduleSave(worktreePath)
 }
 
-export async function closeFocusedPane(worktreePath: string): Promise<void> {
+export async function closePane(
+  worktreePath: string,
+  tabId: string,
+  paneId: string,
+): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return
 
-  const tabId = activeTabId[worktreePath]
   const tab = tabs.find((t) => t.id === tabId)
   if (!tab) return
 
-  // Check if focused pane has active process before closing
-  const focusedPane = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (focusedPane && focusedPane.isRunning) {
-    const description = await getActiveProcessDescription([focusedPane])
+  const pane = findLeaf(tab.rootSplit, paneId)
+  if (!pane) return
+
+  // Check if this pane has active process before closing
+  if (pane.isRunning) {
+    const description = await getActiveProcessDescription([pane])
     if (description) {
       const confirmed = await confirm({
         title: 'Close pane?',
@@ -1370,7 +1781,7 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     }
   }
 
-  const result = treeRemovePane(tab.rootSplit, tab.focusedPaneId)
+  const result = treeRemovePane(tab.rootSplit, paneId)
   if (!result) return
   disposeEphemeralPaneState(result.removed)
 
@@ -1390,8 +1801,6 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
 
   if (!result.tree) {
     // Last pane — close the tab entirely
-    // Remove from closed tabs push since closeTab will handle it
-    // But we already cleaned up the session, so we handle it manually
     if (!closedTabs[worktreePath]) closedTabs[worktreePath] = []
     closedTabs[worktreePath].push({
       toolId: tab.toolId,
@@ -1421,6 +1830,17 @@ export async function closeFocusedPane(worktreePath: string): Promise<void> {
     reconcileTabIdentity(tab)
   }
   scheduleSave(worktreePath)
+}
+
+export async function closeFocusedPane(worktreePath: string): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs) return
+
+  const tabId = activeTabId[worktreePath]
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  await closePane(worktreePath, tab.id, tab.focusedPaneId)
 }
 
 export function navigatePaneFocus(
@@ -1677,6 +2097,14 @@ function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
     }
     if (node.pane.paneType === 'editor') {
       leaf.filePath = node.pane.filePath
+      const files = node.pane.editorFiles ?? []
+      if (files.length > 0) {
+        leaf.editorFiles = files.map((f) => f.filePath)
+        leaf.editorActiveFile = node.pane.editorActiveFile ?? files[0].filePath
+      } else if (node.pane.filePath) {
+        leaf.editorFiles = [node.pane.filePath]
+        leaf.editorActiveFile = node.pane.filePath
+      }
     }
     if (node.pane.tmuxSessionName) {
       leaf.tmuxSessionName = node.pane.tmuxSessionName
@@ -1778,7 +2206,9 @@ async function restoreSplitNode(
     const paneId = nextPaneId()
     let pane: PaneSession
 
-    if (node.toolId === 'editor' && node.filePath) {
+    if (node.toolId === 'editor' && (node.filePath || (node.editorFiles?.length ?? 0) > 0)) {
+      const files = node.editorFiles ?? (node.filePath ? [node.filePath] : [])
+      const activeFile = node.editorActiveFile ?? files[0] ?? node.filePath ?? ''
       pane = {
         id: paneId,
         sessionId: '',
@@ -1789,7 +2219,9 @@ async function restoreSplitNode(
         exitCode: null,
         title: null,
         paneType: 'editor',
-        filePath: node.filePath,
+        filePath: activeFile,
+        editorFiles: files.map((filePath) => ({ filePath })),
+        editorActiveFile: activeFile,
       }
     } else if (node.toolId === 'browser') {
       const browserId = crypto.randomUUID()

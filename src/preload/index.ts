@@ -29,6 +29,8 @@ const api = {
     ipcRenderer.invoke('pty:write', { sessionId, data }),
   hasChildProcess: (sessionId: string) =>
     ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
+  hasChildProcesses: (sessionIds: string[]) =>
+    ipcRenderer.invoke('pty:hasChildProcesses', { sessionIds }) as Promise<Record<string, boolean>>,
   getPtyDimensions: (sessionId: string) =>
     ipcRenderer.invoke('pty:getDimensions', { sessionId }) as Promise<{
       cols: number
@@ -695,6 +697,15 @@ const api = {
   readDir: (dirPath: string) => ipcRenderer.invoke('fs:readDir', { dirPath }),
   readFile: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
+  writeFile: (filePath: string, content: string, expectedMtimeMs?: number) =>
+    ipcRenderer.invoke('fs:writeFile', { filePath, content, expectedMtimeMs }),
+  statFile: (filePath: string) => ipcRenderer.invoke('fs:stat', { filePath }),
+  quickOpenListFiles: (worktreePath: string, force?: boolean) =>
+    ipcRenderer.invoke('quickOpen:listFiles', { worktreePath, force }) as Promise<string[]>,
+  quickOpenInvalidateCache: (worktreePath: string) =>
+    ipcRenderer.invoke('quickOpen:invalidateCache', { worktreePath }) as Promise<void>,
+  confirmUnsavedChanges: (filePaths: string[]) =>
+    ipcRenderer.invoke('dialog:confirmUnsavedChanges', { filePaths }),
 
   // Repo Config
   repoConfigLoad: (repoRoot: string) => ipcRenderer.invoke('repoConfig:load', { repoRoot }),
