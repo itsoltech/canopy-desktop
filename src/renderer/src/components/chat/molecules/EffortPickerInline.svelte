@@ -1,13 +1,14 @@
 <script lang="ts">
-  import CustomSelect from '../../shared/CustomSelect.svelte'
+  import CustomSelect, { type CustomSelectApi } from '../../shared/CustomSelect.svelte'
 
   interface Props {
     /** Null represents "use SDK default / inherit from profile". */
     value: string | null
     onchange?: (value: string | null) => void
+    onready?: (api: CustomSelectApi) => void
   }
 
-  let { value, onchange }: Props = $props()
+  let { value, onchange, onready }: Props = $props()
 
   const options = [
     { value: '', label: 'Default effort' },
@@ -27,6 +28,7 @@
     value={value ?? ''}
     {options}
     onchange={handleChange}
+    {onready}
     maxWidth="180px"
     compact
     maxHeight={260}

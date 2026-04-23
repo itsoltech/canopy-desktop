@@ -1,5 +1,5 @@
 <script lang="ts">
-  import CustomSelect from '../../shared/CustomSelect.svelte'
+  import CustomSelect, { type CustomSelectApi } from '../../shared/CustomSelect.svelte'
 
   interface Option {
     value: string
@@ -16,13 +16,23 @@
     options?: Option[]
     groups?: OptionGroup[]
     onchange?: (value: string) => void
+    onready?: (api: CustomSelectApi) => void
   }
 
-  let { value, options, groups, onchange }: Props = $props()
+  let { value, options, groups, onchange, onready }: Props = $props()
 </script>
 
 <div class="model-picker-inline">
-  <CustomSelect {value} {options} {groups} {onchange} maxWidth="220px" compact maxHeight={420} />
+  <CustomSelect
+    {value}
+    {options}
+    {groups}
+    {onchange}
+    {onready}
+    maxWidth="220px"
+    compact
+    maxHeight={420}
+  />
 </div>
 
 <style>

@@ -9,6 +9,8 @@
     content: string
     label?: string
     defaultOpen?: boolean
+    /** When true, force-opens the block regardless of internal toggle state. */
+    forceOpen?: boolean
     active?: boolean
     durationMs?: number
   }
@@ -17,11 +19,13 @@
     content,
     label = 'Thinking',
     defaultOpen = false,
+    forceOpen = false,
     active = false,
     durationMs,
   }: Props = $props()
 
-  let open = $state(defaultOpen)
+  let internalOpen = $state(defaultOpen)
+  let open = $derived(forceOpen || internalOpen)
 
   let durationText = $derived.by(() => {
     if (durationMs === undefined) return null
@@ -31,7 +35,12 @@
 </script>
 
 <section class="thinking" class:open>
-  <button class="thinking-head" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+  <button
+    class="thinking-head"
+    type="button"
+    aria-expanded={open}
+    onclick={() => (internalOpen = !open)}
+  >
     <ChevronRight class="chevron" size={14} />
     <Brain size={12} />
     <span class="thinking-label">

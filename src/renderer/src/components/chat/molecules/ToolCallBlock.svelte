@@ -40,11 +40,22 @@
     args?: string
     result?: string
     defaultOpen?: boolean
+    /** When true, force-opens the block regardless of internal toggle state. */
+    forceOpen?: boolean
   }
 
-  let { name, status = 'success', input, args, result, defaultOpen = false }: Props = $props()
+  let {
+    name,
+    status = 'success',
+    input,
+    args,
+    result,
+    defaultOpen = false,
+    forceOpen = false,
+  }: Props = $props()
 
-  let open = $state(defaultOpen)
+  let internalOpen = $state(defaultOpen)
+  let open = $derived(forceOpen || internalOpen)
   let homeDir = $state(cachedHomeDir ?? '')
 
   $effect(() => {
@@ -209,7 +220,12 @@
 </script>
 
 <section class="tool-call" class:open>
-  <button class="tool-head" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+  <button
+    class="tool-head"
+    type="button"
+    aria-expanded={open}
+    onclick={() => (internalOpen = !open)}
+  >
     <ChevronRight class="chevron" size={14} />
     <StatusDot status={dotStatus} pulse={status === 'running'} size={7} />
     <span class="tool-main">

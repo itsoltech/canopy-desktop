@@ -65,6 +65,8 @@ const api = {
     ipcRenderer.invoke('db:workspace:upsert', workspace),
   removeWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:remove', { id }),
   touchWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:touch', { id }),
+  listWorkspaceFiles: (opts: { workspacePath: string; query?: string; limit?: number }) =>
+    ipcRenderer.invoke('workspace:listFiles', opts) as Promise<string[]>,
 
   // Preferences
   getPref: (key: string) => ipcRenderer.invoke('db:prefs:get', { key }),

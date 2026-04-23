@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { KEYBINDING_DOCS } from '../../lib/chat/chatKeybindings'
+
   const isMac = navigator.userAgent.includes('Mac')
 
   const shortcuts = [
@@ -38,6 +40,23 @@
           {/each}
         </span>
         <span class="shortcut-action">{shortcut.action}</span>
+      </div>
+    {/each}
+  </div>
+
+  <h4 class="subsection-title">Chat pane</h4>
+  <div class="shortcut-list">
+    {#each KEYBINDING_DOCS as row (row.keys)}
+      <div class="shortcut-row">
+        <span class="shortcut-keys">
+          <kbd class="key combo">{row.keys}</kbd>
+        </span>
+        <span class="shortcut-action">
+          {row.description}
+          {#if row.context}
+            <span class="context">— {row.context}</span>
+          {/if}
+        </span>
       </div>
     {/each}
   </div>
@@ -101,5 +120,24 @@
     font-size: 13px;
     color: var(--c-text);
     margin-left: 12px;
+  }
+
+  .subsection-title {
+    margin: 20px 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--c-text);
+  }
+
+  .key.combo {
+    padding: 0 8px;
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+
+  .context {
+    margin-left: 4px;
+    color: var(--c-text-muted);
+    font-size: 12px;
   }
 </style>

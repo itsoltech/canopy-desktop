@@ -990,6 +990,71 @@ export function registerIpcHandlers(
     return [...DEFAULT_IGNORE_PATTERNS]
   })
 
+  ipcMain.handle(
+    'workspace:listFiles',
+    async (
+      event,
+      payload: { workspacePath: string; query?: string; limit?: number },
+    ): Promise<string[]> => {
+      await validatePathAccess(event.sender.id, payload.workspacePath)
+      const query = (payload.query ?? '').toLowerCase()
+      const limit = Math.min(payload.limit ?? 50, 200)
+      const ignorePatterns = [
+        ...getIgnorePatterns(),
+        'package-lock.json',
+        'yarn.lock',
+        'pnpm-lock.yaml',
+      ]
+      const results: string[] = []
+      const root = payload.workspacePath
+      const MAX_DEPTH = 8
+      const MAX_ENTRIES = 5000
+      let entryCount = 0
+
+      async function walk(dir: string, depth: number): Promise<void> {
+        if (results.length >= limit * 4) return
+        if (depth > MAX_DEPTH) return
+        if (entryCount > MAX_ENTRIES) return
+        let entries: fs.Dirent[]
+        try {
+          entries = await fs.promises.readdir(dir, { withFileTypes: true })
+        } catch {
+          return
+        }
+        for (const entry of entries) {
+          if (results.length >= limit * 4) return
+          entryCount += 1
+          if (entryCount > MAX_ENTRIES) return
+          if (isIgnoredEntry(entry.name, ignorePatterns)) continue
+          const absPath = path.join(dir, entry.name)
+          const rel = path.relative(root, absPath).split(path.sep).join('/')
+          if (entry.isDirectory()) {
+            await walk(absPath, depth + 1)
+          } else if (entry.isFile()) {
+            if (!query || rel.toLowerCase().includes(query)) {
+              results.push(rel)
+            }
+          }
+        }
+      }
+      await walk(root, 0)
+
+      if (query) {
+        results.sort((a, b) => {
+          const aName = a.substring(a.lastIndexOf('/') + 1).toLowerCase()
+          const bName = b.substring(b.lastIndexOf('/') + 1).toLowerCase()
+          const aRank = aName.startsWith(query) ? 0 : aName.includes(query) ? 1 : 2
+          const bRank = bName.startsWith(query) ? 0 : bName.includes(query) ? 1 : 2
+          if (aRank !== bRank) return aRank - bRank
+          return a.length - b.length
+        })
+      } else {
+        results.sort((a, b) => a.localeCompare(b))
+      }
+      return results.slice(0, limit)
+    },
+  )
+
   ipcMain.handle('git:init', async (_event, payload: { path: string }) => {
     await execFileAsync('git', ['init'], { cwd: payload.path })
     return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)

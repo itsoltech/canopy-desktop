@@ -15,6 +15,8 @@
     onstop?: () => void
     /** Optional parent pre-handler. Returning true halts default key behavior. */
     onKeydownIntercept?: (event: KeyboardEvent) => boolean
+    /** Emits the textarea element once mounted for imperative caret/focus access. */
+    onTextareaReady?: (el: HTMLTextAreaElement) => void
     attachments?: Snippet
     modelPicker?: Snippet
     permissionMode?: Snippet
@@ -32,6 +34,7 @@
     onattach,
     onstop,
     onKeydownIntercept,
+    onTextareaReady,
     attachments,
     modelPicker,
     permissionMode,
@@ -39,6 +42,10 @@
   }: Props = $props()
 
   let textareaEl: HTMLTextAreaElement | undefined = $state()
+
+  $effect(() => {
+    if (textareaEl) onTextareaReady?.(textareaEl)
+  })
 
   let canSend = $derived(!disabled && value.trim().length > 0)
 
@@ -58,6 +65,34 @@
     queueMicrotask(autoResize)
   }
 
+  function insertAtCaret(text: string): void {
+    if (!textareaEl) {
+      value = `${value}${text}`
+      return
+    }
+    const start = textareaEl.selectionStart ?? value.length
+    const end = textareaEl.selectionEnd ?? value.length
+    const next = value.slice(0, start) + text + value.slice(end)
+    value = next
+    onchange?.(value)
+    queueMicrotask(() => {
+      if (!textareaEl) return
+      const caret = start + text.length
+      textareaEl.focus()
+      textareaEl.setSelectionRange(caret, caret)
+      autoResize()
+    })
+  }
+
+  function clearValue(): void {
+    value = ''
+    onchange?.(value)
+    queueMicrotask(() => {
+      textareaEl?.focus()
+      autoResize()
+    })
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
     if (onKeydownIntercept?.(e)) return
     if (e.key === 'Enter') {
@@ -66,6 +101,18 @@
         e.preventDefault()
         submit()
       }
+      return
+    }
+    // Ctrl+J → insert newline (readline-style, works in any terminal).
+    if (e.key === 'j' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+      e.preventDefault()
+      insertAtCaret('\n')
+      return
+    }
+    // Cmd/Ctrl+L → clear input (conversation kept).
+    if (e.key === 'l' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      e.preventDefault()
+      clearValue()
     }
   }
 

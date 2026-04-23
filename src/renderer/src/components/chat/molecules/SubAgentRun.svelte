@@ -17,6 +17,8 @@
     tokens?: number
     elapsedMs?: number
     defaultOpen?: boolean
+    /** When true, force-opens the block regardless of internal toggle state. */
+    forceOpen?: boolean
     maxBodyHeight?: number
     activityKey?: string
     hasSummary?: boolean
@@ -32,6 +34,7 @@
     tokens,
     elapsedMs,
     defaultOpen = false,
+    forceOpen = false,
     maxBodyHeight = 320,
     activityKey = '',
     hasSummary = false,
@@ -40,7 +43,8 @@
   }: Props = $props()
 
   // Default-open when running so users see live progress; callers can override.
-  let open = $state(defaultOpen)
+  let internalOpen = $state(defaultOpen)
+  let open = $derived(forceOpen || internalOpen)
   let bodyEl: HTMLDivElement | undefined = $state()
   let autoScrollBody = $state(true)
   let scrollFrame: number | null = null
@@ -94,7 +98,7 @@
 </script>
 
 <section class="sub-agent" class:open data-status={status}>
-  <button class="head" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+  <button class="head" type="button" aria-expanded={open} onclick={() => (internalOpen = !open)}>
     <ChevronRight class="chevron" size={14} />
     <SubAgentBadge type={agentType} />
     <StatusDot status={dotStatus} pulse={status === 'running'} size={7} />

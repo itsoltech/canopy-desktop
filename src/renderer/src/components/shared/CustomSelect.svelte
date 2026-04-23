@@ -1,3 +1,9 @@
+<script module lang="ts">
+  export interface CustomSelectApi {
+    open: () => void
+  }
+</script>
+
 <script lang="ts">
   import { match } from 'ts-pattern'
 
@@ -20,6 +26,8 @@
     maxWidth?: string
     compact?: boolean
     maxHeight?: number
+    /** Invoked once with an imperative open handle so parents can trigger opening. */
+    onready?: (api: CustomSelectApi) => void
   }
 
   let {
@@ -31,6 +39,7 @@
     maxWidth = 'none',
     compact = false,
     maxHeight = 200,
+    onready,
   }: Props = $props()
 
   let open = $state(false)
@@ -184,6 +193,10 @@
     if (open && listEl) {
       listEl.focus()
     }
+  })
+
+  $effect(() => {
+    onready?.({ open: openDropdown })
   })
 </script>
 

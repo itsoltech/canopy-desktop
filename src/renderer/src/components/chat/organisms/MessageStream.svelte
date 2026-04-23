@@ -34,6 +34,8 @@
     subagents?: Record<string, SdkSubagentView>
     pendingAttention: AttentionBlock[]
     isStreaming?: boolean
+    /** When true, forces every tool-call / thinking / sub-agent accordion open. */
+    forceExpand?: boolean
     composer?: Snippet
     composerKey?: string
     onRespondPermission?: (requestId: string, decision: SdkToolDecision) => void
@@ -53,6 +55,7 @@
     subagents = {},
     pendingAttention,
     isStreaming = false,
+    forceExpand = false,
     composer,
     composerKey = '',
     onRespondPermission,
@@ -773,6 +776,7 @@
                       content={message.thinking}
                       active={thinkingActive(message.id)}
                       defaultOpen={false}
+                      forceOpen={forceExpand}
                     />
                   {/if}
                   {#if message.content}
@@ -809,6 +813,7 @@
                         status={toolStatus(ev)}
                         input={ev.input}
                         result={ev.result ?? undefined}
+                        forceOpen={forceExpand}
                       />
                     {/if}
                   {/each}
@@ -843,6 +848,7 @@
           task={redactHome(subagent.task)}
           status={subagent.status}
           defaultOpen={false}
+          forceOpen={forceExpand}
           activityKey={subagentActivityKey(subagent)}
           hasSummary={Boolean(parentEv.result)}
         >
@@ -854,6 +860,7 @@
                     content={message.thinking}
                     active={thinkingActive(subagentMessageKey(subagent.id, message.id))}
                     defaultOpen={false}
+                    forceOpen={forceExpand}
                   />
                 {/if}
                 {#if message.content}
@@ -870,6 +877,7 @@
                     status={toolStatus(nestedEv)}
                     input={nestedEv.input}
                     result={nestedEv.result ?? undefined}
+                    forceOpen={forceExpand}
                   />
                 {/each}
               {/each}

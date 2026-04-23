@@ -280,6 +280,11 @@ interface CanopyAPI {
   }) => Promise<WorkspaceRow>
   removeWorkspace: (id: string) => Promise<void>
   touchWorkspace: (id: string) => Promise<void>
+  listWorkspaceFiles: (opts: {
+    workspacePath: string
+    query?: string
+    limit?: number
+  }) => Promise<string[]>
 
   // Preferences
   getPref: (key: string) => Promise<string | null>

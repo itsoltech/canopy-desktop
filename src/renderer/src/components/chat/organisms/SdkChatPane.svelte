@@ -11,6 +11,10 @@
   import PermissionModePicker from '../molecules/PermissionModePicker.svelte'
   import EffortPickerInline from '../molecules/EffortPickerInline.svelte'
   import SlashCommandHint from '../molecules/SlashCommandHint.svelte'
+  import FilePathHint from '../molecules/FilePathHint.svelte'
+  import ShortcutsOverlay from './ShortcutsOverlay.svelte'
+  import HistorySearchOverlay from './HistorySearchOverlay.svelte'
+  import type { CustomSelectApi } from '../../shared/CustomSelect.svelte'
   import {
     cancel,
     closeConversation,
@@ -26,6 +30,12 @@
     setContextWindow,
   } from '../../../lib/stores/sdkAgentSessions.svelte'
   import { parseSlashCommand, SLASH_COMMAND_HINTS } from '../../../lib/chat/slashCommands'
+  import {
+    MODE_OPTIONS,
+    cyclePermissionMode,
+    makeHistoryNavigator,
+    type HistoryNavigator,
+  } from '../../../lib/chat/chatKeybindings'
   import { prefs } from '../../../lib/stores/preferences.svelte'
   import {
     normalizeClaudeProviderPreset,
@@ -40,13 +50,6 @@
   const DEFAULT_TERMINAL_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
   const DEFAULT_TERMINAL_FONT_SIZE = 13
-
-  const MODE_OPTIONS: { value: SdkPermissionMode; label: string }[] = [
-    { value: 'default', label: 'Default' },
-    { value: 'plan', label: 'Plan' },
-    { value: 'acceptEdits', label: 'Auto-accept edits' },
-    { value: 'bypassPermissions', label: 'Bypass permissions' },
-  ]
 
   interface Props {
     conversationId: string
@@ -110,6 +113,13 @@
   let paneEl: HTMLElement | undefined = $state()
   let activeProviderPreset = $state<ClaudeProviderPresetId>('anthropic')
   let providerModelOptions = $state<SelectOption[]>([])
+  let forceExpand = $state(false)
+  let shortcutsOverlay = $state(false)
+  let historySearchOverlay = $state(false)
+  let composerTextarea = $state<HTMLTextAreaElement | undefined>(undefined)
+  let modelPickerApi = $state<CustomSelectApi | null>(null)
+  let effortPickerApi = $state<CustomSelectApi | null>(null)
+  let historyNavigator: HistoryNavigator | null = null
 
   let state = $derived(sdkSessions[currentConversationId])
   let isStreaming = $derived(state?.status === 'streaming')
@@ -225,6 +235,56 @@
   let slashFocus = $state(0)
   let slashDismissed = $state(false)
 
+  // `@`-mention file autocomplete. Tracks the `@` position so we can compute
+  // the query and replace it on accept without a second parse pass.
+  let fileMentionStart = $state<number | null>(null)
+  let fileMentionQuery = $state('')
+  let fileMentionDismissed = $state(false)
+  let fileMatches = $state<string[]>([])
+  let fileFocus = $state(0)
+
+  // Detect an in-progress `@token` at the end of the input (preceded by BOL or
+  // whitespace). Any further whitespace breaks the mention and closes the menu.
+  $effect(() => {
+    if (fileMentionDismissed) {
+      fileMentionStart = null
+      fileMentionQuery = ''
+      return
+    }
+    const v = inputValue
+    const m = v.match(/(?:^|\s)@([^\s@]*)$/)
+    if (m) {
+      fileMentionStart = v.length - (m[1]?.length ?? 0) - 1
+      fileMentionQuery = m[1] ?? ''
+    } else {
+      fileMentionStart = null
+      fileMentionQuery = ''
+    }
+  })
+
+  $effect(() => {
+    const query = fileMentionQuery
+    const workspacePath = state?.conversation?.worktreePath
+    if (fileMentionStart === null || !workspacePath) {
+      fileMatches = []
+      return
+    }
+    let cancelled = false
+    window.api
+      .listWorkspaceFiles({ workspacePath, query, limit: 20 })
+      .then((files) => {
+        if (cancelled) return
+        fileMatches = files
+        if (fileFocus >= files.length) fileFocus = 0
+      })
+      .catch(() => {
+        if (!cancelled) fileMatches = []
+      })
+    return () => {
+      cancelled = true
+    }
+  })
+
   let slashMatches = $derived.by<SlashMatch[]>(() => {
     if (slashDismissed) return []
     const v = inputValue
@@ -286,6 +346,17 @@
     if (slashFocus >= slashMatches.length) slashFocus = 0
   })
 
+  // User-submitted prompts for Up-arrow recall and Cmd+R search. Newest first.
+  let userPrompts = $derived.by<string[]>(() => {
+    const all = state?.messages ?? []
+    const out: string[] = []
+    for (let i = all.length - 1; i >= 0; i--) {
+      const m = all[i]
+      if (m && m.role === 'user' && m.content.trim().length > 0) out.push(m.content)
+    }
+    return out
+  })
+
   $effect(() => {
     if (currentConversationId !== lastViewedConversationId) {
       lastViewedConversationId = currentConversationId
@@ -295,6 +366,14 @@
       pendingAttachments = []
       slashFocus = 0
       slashDismissed = false
+      fileMentionDismissed = false
+      fileMentionStart = null
+      fileMatches = []
+      fileFocus = 0
+      historyNavigator = null
+      forceExpand = false
+      shortcutsOverlay = false
+      historySearchOverlay = false
     }
   })
 
@@ -389,7 +468,51 @@
     lastRetryable = body
     const attachments = pendingAttachments.length > 0 ? pendingAttachments : undefined
     pendingAttachments = []
+    historyNavigator = null
     void sendMessage(currentConversationId, body, { attachments })
+  }
+
+  function acceptFileHint(path: string): void {
+    if (fileMentionStart === null) return
+    const before = inputValue.slice(0, fileMentionStart)
+    const after = inputValue.slice(fileMentionStart + 1 + fileMentionQuery.length)
+    const suffix = after.length === 0 || after.startsWith(' ') ? '' : ' '
+    inputValue = `${before}@${path}${suffix}${after}`
+    fileMentionDismissed = true
+    queueMicrotask(() => {
+      if (!composerTextarea) return
+      const caret = before.length + 1 + path.length + (suffix ? 1 : 0)
+      composerTextarea.focus()
+      composerTextarea.setSelectionRange(caret, caret)
+    })
+  }
+
+  function navigateHistory(direction: 'up' | 'down'): boolean {
+    if (userPrompts.length === 0) return false
+    if (!historyNavigator) historyNavigator = makeHistoryNavigator(userPrompts)
+    const next = direction === 'up' ? historyNavigator.up(inputValue) : historyNavigator.down()
+    if (next === null) return false
+    inputValue = next
+    slashDismissed = true
+    fileMentionDismissed = true
+    queueMicrotask(() => {
+      if (!composerTextarea) return
+      const len = composerTextarea.value.length
+      composerTextarea.setSelectionRange(len, len)
+    })
+    return true
+  }
+
+  function caretOnFirstLine(): boolean {
+    if (!composerTextarea) return true
+    const caret = composerTextarea.selectionStart ?? 0
+    return !composerTextarea.value.slice(0, caret).includes('\n')
+  }
+
+  function caretOnLastLine(): boolean {
+    if (!composerTextarea) return true
+    const caret = composerTextarea.selectionEnd ?? 0
+    return !composerTextarea.value.slice(caret).includes('\n')
   }
 
   function acceptHint(hint: SlashMatch): void {
@@ -407,34 +530,85 @@
   }
 
   function handleKeydownIntercept(e: KeyboardEvent): boolean {
-    if (slashMatches.length === 0) return false
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      slashFocus = (slashFocus + 1) % slashMatches.length
-      return true
+    // Slash-command menu has priority when open.
+    if (slashMatches.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        slashFocus = (slashFocus + 1) % slashMatches.length
+        return true
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        slashFocus = (slashFocus - 1 + slashMatches.length) % slashMatches.length
+        return true
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        const hint = slashMatches[slashFocus]
+        if (hint) acceptHint(hint)
+        return true
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        slashDismissed = true
+        return true
+      }
     }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      slashFocus = (slashFocus - 1 + slashMatches.length) % slashMatches.length
-      return true
+
+    // File-mention menu next.
+    if (fileMentionStart !== null && fileMatches.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        fileFocus = (fileFocus + 1) % fileMatches.length
+        return true
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        fileFocus = (fileFocus - 1 + fileMatches.length) % fileMatches.length
+        return true
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        const pick = fileMatches[fileFocus]
+        if (pick) acceptFileHint(pick)
+        return true
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        fileMentionDismissed = true
+        return true
+      }
     }
-    if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault()
-      const hint = slashMatches[slashFocus]
-      if (hint) acceptHint(hint)
-      return true
+
+    // Up/Down history navigation when composer is on its edge.
+    if (e.key === 'ArrowUp' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (inputValue.length === 0 || caretOnFirstLine()) {
+        if (navigateHistory('up')) {
+          e.preventDefault()
+          return true
+        }
+      }
     }
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      slashDismissed = true
-      return true
+    if (e.key === 'ArrowDown' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (historyNavigator?.active && caretOnLastLine()) {
+        if (navigateHistory('down')) {
+          e.preventDefault()
+          return true
+        }
+      }
     }
+
     return false
   }
 
   function handleInputChange(): void {
-    // Any input change un-dismisses the menu so it can re-appear on retype.
+    // Any input change un-dismisses the menus so they can re-appear on retype.
     slashDismissed = false
+    fileMentionDismissed = false
+    // Leaving history mode when the user edits the recalled prompt.
+    if (historyNavigator?.active) {
+      historyNavigator = null
+    }
   }
 
   function removeAttachment(id: string): void {
@@ -537,12 +711,101 @@
     void cancel(currentConversationId)
   }
 
+  function isEventInPane(e: KeyboardEvent): boolean {
+    const target = e.target
+    if (!paneEl) return false
+    if (target instanceof Node) return paneEl.contains(target)
+    return false
+  }
+
   function onKeydown(e: KeyboardEvent): void {
-    // ⌘. (macOS) or Ctrl+. (others) cancels the in-flight request.
+    // Don't intercept keystrokes that belong to a different pane / modal.
+    if (!isEventInPane(e)) return
+
+    // Overlays handle their own keys (Esc, ?). Skip global handling entirely.
+    if (shortcutsOverlay || historySearchOverlay) return
+
+    // ⌘. / Ctrl+. cancels the in-flight request.
     if (e.key === '.' && (e.metaKey || e.ctrlKey) && isStreaming) {
       e.preventDefault()
       handleCancel()
+      return
     }
+
+    // Esc cancels streaming when no pop-up owns it.
+    if (e.key === 'Escape' && isStreaming) {
+      // Slash / file menus consume Esc first (via onKeydownIntercept inside textarea).
+      if (slashMatches.length > 0 && !slashDismissed) return
+      if (fileMentionStart !== null && !fileMentionDismissed && fileMatches.length > 0) return
+      e.preventDefault()
+      handleCancel()
+      return
+    }
+
+    // Shift+Tab cycles the permission mode.
+    if (e.key === 'Tab' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault()
+      const next = cyclePermissionMode(currentMode)
+      void setPermissionMode(currentConversationId, next)
+      flashNotice(`Permission mode: ${MODE_OPTIONS.find((m) => m.value === next)?.label ?? next}`)
+      return
+    }
+
+    // Cmd/Ctrl+R opens the prompt history search.
+    if (e.key === 'r' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      e.preventDefault()
+      historySearchOverlay = true
+      return
+    }
+
+    // Ctrl+O toggles expand-all for tool / thinking / subagent blocks.
+    if (e.key === 'o' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+      e.preventDefault()
+      forceExpand = !forceExpand
+      flashNotice(forceExpand ? 'Expanded all blocks' : 'Collapsed all blocks')
+      return
+    }
+
+    // Alt+P / Option+P opens the model picker. `e.code` guards against
+    // macOS Option producing a diacritic as `e.key`.
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyP') {
+      e.preventDefault()
+      modelPickerApi?.open()
+      return
+    }
+
+    // Alt+T / Option+T opens the effort picker for reasoning models.
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyT') {
+      if (!currentModelReasoning) return
+      e.preventDefault()
+      effortPickerApi?.open()
+      return
+    }
+
+    // `?` opens the shortcuts cheat sheet when no text is being typed.
+    if (
+      e.key === '?' &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      inputValue.length === 0 &&
+      slashMatches.length === 0 &&
+      fileMentionStart === null
+    ) {
+      e.preventDefault()
+      shortcutsOverlay = true
+    }
+  }
+
+  function handleHistoryAccept(prompt: string, andSend: boolean): void {
+    historySearchOverlay = false
+    inputValue = prompt
+    queueMicrotask(() => {
+      composerTextarea?.focus()
+      const len = composerTextarea?.value.length ?? 0
+      composerTextarea?.setSelectionRange(len, len)
+      if (andSend) handleSubmit(prompt)
+    })
   }
 </script>
 
@@ -606,7 +869,8 @@
       subagents={state?.subagents ?? {}}
       pendingAttention={visiblePendingAttention}
       {isStreaming}
-      composerKey={`${inputValue.length}:${pendingAttachments.length}:${isStreaming ? 'streaming' : 'idle'}:${slashMatches.length}`}
+      {forceExpand}
+      composerKey={`${inputValue.length}:${pendingAttachments.length}:${isStreaming ? 'streaming' : 'idle'}:${slashMatches.length}:${fileMatches.length}`}
       onRespondPermission={(requestId, decision) =>
         void respondPermission(currentConversationId, requestId, decision)}
       onRespondQuestion={(requestId, answers) =>
@@ -644,15 +908,28 @@
                   {/each}
                 </div>
               </div>
+            {:else if fileMentionStart !== null && fileMatches.length > 0}
+              <div class="slash-hints-panel" role="listbox" aria-label="File paths">
+                <div class="slash-hints">
+                  {#each fileMatches as match, i (match)}
+                    <FilePathHint
+                      path={match}
+                      focused={i === fileFocus}
+                      onselect={() => acceptFileHint(match)}
+                    />
+                  {/each}
+                </div>
+              </div>
             {/if}
             <ChatInput
               bind:value={inputValue}
-              placeholder="Message the agent… (⌘↵ to send)"
+              placeholder="Message the agent… (⌘↵ to send, ? for shortcuts)"
               disabled={isStreaming}
               onsubmit={handleSubmit}
               onchange={handleInputChange}
               onstop={handleCancel}
               onKeydownIntercept={handleKeydownIntercept}
+              onTextareaReady={(el) => (composerTextarea = el)}
             >
               {#snippet attachments()}
                 {#if pendingAttachments.length > 0}
@@ -674,6 +951,7 @@
                   options={modelOptions}
                   groups={modelGroups}
                   onchange={(v) => void setModel(currentConversationId, v)}
+                  onready={(api) => (modelPickerApi = api)}
                 />
               {/snippet}
               {#snippet permissionMode()}
@@ -690,6 +968,7 @@
                     value={currentEffort}
                     onchange={(v) =>
                       void setEffortLevel(currentConversationId, v as SdkEffortLevel | null)}
+                    onready={(api) => (effortPickerApi = api)}
                   />
                 {/if}
               {/snippet}
@@ -698,6 +977,16 @@
         </div>
       {/snippet}
     </MessageStream>
+    {#if shortcutsOverlay}
+      <ShortcutsOverlay onclose={() => (shortcutsOverlay = false)} />
+    {/if}
+    {#if historySearchOverlay}
+      <HistorySearchOverlay
+        prompts={userPrompts}
+        onaccept={handleHistoryAccept}
+        onclose={() => (historySearchOverlay = false)}
+      />
+    {/if}
   </section>
 </div>
 
