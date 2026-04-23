@@ -67,7 +67,12 @@
     font-size: 0.95em;
     transition:
       border-color 0.14s ease,
-      background-color 0.14s ease;
+      background-color 0.14s ease,
+      opacity 0.14s ease;
+  }
+
+  .thinking:not(.open) {
+    opacity: 0.55;
   }
 
   .thinking:hover,
@@ -75,13 +80,14 @@
     border-color: var(--c-border-subtle);
     border-left-color: var(--c-warning);
     background: color-mix(in srgb, var(--c-warning) 3%, transparent);
+    opacity: 1;
   }
 
   .thinking-head {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 8px;
+    padding: 5px 8px 5px 0;
     background: transparent;
     border: none;
     color: var(--c-text-muted);
@@ -90,12 +96,20 @@
     cursor: pointer;
     text-align: left;
     width: 100%;
-    transition: color 0.14s ease;
+    transition:
+      color 0.14s ease,
+      padding-left 0.14s ease;
   }
 
   .thinking-head:hover {
     background: color-mix(in srgb, var(--c-hover) 70%, transparent);
     color: var(--c-text-secondary);
+  }
+
+  .thinking:hover .thinking-head,
+  .thinking:focus-within .thinking-head,
+  .thinking.open .thinking-head {
+    padding-left: 8px;
   }
 
   .thinking-head:focus-visible {

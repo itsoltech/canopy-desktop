@@ -151,7 +151,12 @@
     font-size: 0.95em;
     transition:
       border-color 0.14s ease,
-      background-color 0.14s ease;
+      background-color 0.14s ease,
+      opacity 0.14s ease;
+  }
+
+  .sub-agent:not(.open) {
+    opacity: 0.55;
   }
 
   .sub-agent:hover,
@@ -159,6 +164,7 @@
     border-color: color-mix(in srgb, var(--c-generate) 28%, transparent);
     border-left-color: var(--c-generate);
     background: color-mix(in srgb, var(--c-bg) 88%, black);
+    opacity: 1;
   }
 
   /* Left rail makes the nested context unmistakable. */
@@ -208,7 +214,7 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 6px 9px;
+    padding: 6px 9px 6px 0;
     background: transparent;
     border: none;
     color: var(--c-text);
@@ -217,12 +223,16 @@
     font-size: 1em;
     line-height: 1.4;
     color: color-mix(in srgb, var(--c-text) 72%, transparent);
-    transition: color 0.14s ease;
+    transition:
+      color 0.14s ease,
+      padding-left 0.14s ease;
   }
 
   .sub-agent:hover .head,
-  .sub-agent:focus-within .head {
+  .sub-agent:focus-within .head,
+  .sub-agent.open .head {
     color: var(--c-text);
+    padding-left: 9px;
   }
 
   .head:hover {

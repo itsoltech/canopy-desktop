@@ -1116,12 +1116,35 @@
     padding-block: 0;
   }
 
+  .message-segment:has(> :global(.tool-call):last-child)
+    + .message-segment:has(> :global(.markdown-content):first-child),
+  .message-segment:has(> :global(.thinking):last-child)
+    + .message-segment:has(> :global(.markdown-content):first-child),
+  .message-segment:has(> :global(.sub-agent):last-child)
+    + .message-segment:has(> :global(.markdown-content):first-child),
+  .message-segment:has(> :global(.banner):last-child)
+    + .message-segment:has(> :global(.markdown-content):first-child),
+  .message-segment:has(> .image-attachments:last-child)
+    + .message-segment:has(> :global(.markdown-content):first-child),
+  .message-segment:has(> :global(.markdown-content):last-child)
+    + .message-segment:has(> :global(.tool-call):first-child),
+  .message-segment:has(> :global(.markdown-content):last-child)
+    + .message-segment:has(> :global(.thinking):first-child),
+  .message-segment:has(> :global(.markdown-content):last-child)
+    + .message-segment:has(> :global(.sub-agent):first-child),
+  .message-segment:has(> :global(.markdown-content):last-child)
+    + .message-segment:has(> :global(.banner):first-child),
+  .message-segment:has(> :global(.markdown-content):last-child)
+    + .message-segment:has(> .image-attachments:first-child) {
+    padding-top: 12px;
+  }
+
   .message-segment > :global(.thinking) + :global(.markdown-content),
   .message-segment > :global(.tool-call) + :global(.markdown-content),
   .message-segment > :global(.sub-agent) + :global(.markdown-content),
   .message-segment > :global(.banner) + :global(.markdown-content),
   .message-segment > .image-attachments + :global(.markdown-content) {
-    padding-top: 6px;
+    padding-top: 12px;
   }
 
   .message-segment > :global(.markdown-content):has(+ :global(.thinking)),
@@ -1129,7 +1152,7 @@
   .message-segment > :global(.markdown-content):has(+ :global(.sub-agent)),
   .message-segment > :global(.markdown-content):has(+ :global(.banner)),
   .message-segment > :global(.markdown-content):has(+ .image-attachments) {
-    padding-bottom: 6px;
+    padding-bottom: 12px;
   }
 
   .image-attachments {

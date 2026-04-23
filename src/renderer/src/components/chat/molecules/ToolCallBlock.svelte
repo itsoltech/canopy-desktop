@@ -269,20 +269,26 @@
     font-size: 0.95em;
     transition:
       border-color 0.14s ease,
-      background-color 0.14s ease;
+      background-color 0.14s ease,
+      opacity 0.14s ease;
+  }
+
+  .tool-call:not(.open) {
+    opacity: 0.55;
   }
 
   .tool-call:hover,
   .tool-call:focus-within {
     border-left-color: var(--c-generate);
     background: color-mix(in srgb, var(--c-generate) 4%, transparent);
+    opacity: 1;
   }
 
   .tool-head {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 8px;
+    padding: 5px 8px 5px 0;
     background: transparent;
     border: none;
     color: var(--c-text);
@@ -291,12 +297,16 @@
     text-align: left;
     width: 100%;
     color: color-mix(in srgb, var(--c-text) 70%, transparent);
-    transition: color 0.14s ease;
+    transition:
+      color 0.14s ease,
+      padding-left 0.14s ease;
   }
 
   .tool-call:hover .tool-head,
-  .tool-call:focus-within .tool-head {
+  .tool-call:focus-within .tool-head,
+  .tool-call.open .tool-head {
     color: var(--c-text);
+    padding-left: 8px;
   }
 
   .tool-head:hover {
