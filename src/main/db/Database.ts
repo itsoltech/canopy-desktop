@@ -261,7 +261,7 @@ const migrations: Migration[] = [
     id: 13,
     up: `
       INSERT OR IGNORE INTO tool_definitions (id, name, command, args_json, icon, category, is_custom)
-      VALUES ('claude-sdk', 'Claude (SDK)', 'sdkchat:internal', '[]', 'ClaudeAI', 'ai', 0);
+      VALUES ('claude-sdk', 'Claude Agent', 'sdkchat:internal', '[]', 'ClaudeAI', 'ai', 0);
     `,
   },
   {
@@ -293,6 +293,13 @@ const migrations: Migration[] = [
     id: 18,
     up: `
       ALTER TABLE conversations ADD COLUMN effort_level TEXT;
+    `,
+  },
+  {
+    id: 19,
+    up: `
+      UPDATE tool_definitions SET name = 'Claude Agent'
+      WHERE id = 'claude-sdk' AND name = 'Claude (SDK)';
     `,
   },
 ]

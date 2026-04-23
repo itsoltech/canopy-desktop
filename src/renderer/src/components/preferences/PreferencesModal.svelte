@@ -34,7 +34,7 @@
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
     {
       label: 'AI Agents',
-      sections: ['Claude', 'Claude (SDK)', 'Gemini', 'OpenCode', 'Codex', 'Skills'],
+      sections: ['Claude', 'Claude Agent', 'Gemini', 'OpenCode', 'Codex', 'Skills'],
     },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
@@ -113,7 +113,7 @@
         <ToolPrefs />
       {:else if activeSection === 'Claude'}
         <ClaudePrefs />
-      {:else if activeSection === 'Claude (SDK)'}
+      {:else if activeSection === 'Claude Agent'}
         <ClaudeSdkPrefs />
       {:else if activeSection === 'Gemini'}
         <GeminiPrefs />

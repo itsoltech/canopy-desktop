@@ -110,7 +110,7 @@
       m === 'haiku' ||
       m.startsWith('haiku-')
     ) {
-      return 'Claude Code'
+      return 'Claude Agent'
     }
     if (
       m.startsWith('gpt') ||

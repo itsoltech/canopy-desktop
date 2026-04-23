@@ -12,4 +12,4 @@
   non-default baseUrl / provider. The SDK-only `mcpServers` field isn't in
   the form yet — configure via DB until the form grows a dedicated input.
 -->
-<AgentProfilesPanel agentType="claude-sdk" title="Claude (SDK)" form={ClaudeProfileForm} />
+<AgentProfilesPanel agentType="claude-sdk" title="Claude Agent" form={ClaudeProfileForm} />
