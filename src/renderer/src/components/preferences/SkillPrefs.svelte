@@ -161,7 +161,12 @@
             role="button"
             tabindex="0"
             onclick={() => toggleExpand(skill.id)}
-            onkeydown={(e) => e.key === 'Enter' && toggleExpand(skill.id)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                toggleExpand(skill.id)
+              }
+            }}
           >
             <span class="skill-name">{skill.name}</span>
             <span class="skill-agents">
@@ -241,7 +246,12 @@
               role="button"
               tabindex="0"
               onclick={() => toggleExpand(skill.filePath)}
-              onkeydown={(e) => e.key === 'Enter' && toggleExpand(skill.filePath)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  toggleExpand(skill.filePath)
+                }
+              }}
             >
               <span class="skill-name">{skill.name}</span>
               <span class="skill-agents">{agentLabels[skill.agent] ?? skill.agent}</span>
@@ -287,7 +297,12 @@
               role="button"
               tabindex="0"
               onclick={() => toggleExpand(skill.filePath)}
-              onkeydown={(e) => e.key === 'Enter' && toggleExpand(skill.filePath)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  toggleExpand(skill.filePath)
+                }
+              }}
             >
               <span class="skill-name">{skill.name}</span>
               <span class="skill-agents">{agentLabels[skill.agent] ?? skill.agent}</span>
