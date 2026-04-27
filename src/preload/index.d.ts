@@ -504,6 +504,33 @@ interface CanopyAPI {
     }) => void,
   ) => () => void
   onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
+  onSkillsChanged: (callback: (skills: unknown[]) => void) => () => void
+
+  // Skills
+  listSkills: (opts?: {
+    scope?: string
+    agent?: string
+    workspaceId?: string | null
+  }) => Promise<unknown[]>
+  getSkill: (id: string) => Promise<unknown | null>
+  installSkill: (opts: {
+    source: string
+    agents?: string[]
+    scope?: string
+    method?: string
+    workspaceId?: string | null
+    workspacePath?: string
+  }) => Promise<unknown>
+  removeSkill: (id: string, workspacePath?: string) => Promise<void>
+  updateSkill: (id: string, workspacePath?: string) => Promise<unknown>
+  toggleSkillAgent: (
+    id: string,
+    agent: string,
+    enabled: boolean,
+    workspacePath?: string,
+  ) => Promise<unknown>
+  scanSkills: (workspacePath?: string) => Promise<void>
+  deleteSkillFile: (filePath: string) => Promise<{ success: boolean }>
   onPtyExit: (callback: (data: PtyExitData) => void) => () => void
   onPtyResized: (callback: (sessionId: string, cols: number, rows: number) => void) => () => void
   onWorktreeSetupProgress: (callback: (data: WorktreeSetupProgress) => void) => () => void
