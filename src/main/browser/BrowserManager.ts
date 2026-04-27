@@ -136,13 +136,18 @@ export class BrowserManager {
     // phishing mitigation, so a custom per-site message isn't possible.
     // In this event, `preventDefault()` means "allow the unload"
     // (inverted from the DOM convention).
+    // Default to Stay so an accidental Enter after Cmd+R doesn't discard
+    // the user's work — same as Chrome's beforeunload prompt and the
+    // password-reveal confirmation elsewhere in this repo. The event
+    // fires for reloads and navigations alike (Electron doesn't
+    // distinguish), so title and message stay identical.
     wc.on('will-prevent-unload', (event) => {
       const choice = dialog.showMessageBoxSync(win, {
         type: 'question',
         buttons: ['Leave', 'Stay'],
-        defaultId: 0,
+        defaultId: 1,
         cancelId: 1,
-        title: 'Reload site?',
+        title: 'Leave site?',
         message: 'Leave site?',
         detail: 'Changes you made may not be saved.',
       })
