@@ -1,4 +1,4 @@
-import fs from 'node:fs'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import selfsigned from 'selfsigned'
 
@@ -28,20 +28,11 @@ export class CertificateProvider {
     const keyPath = path.join(this.certDir, 'key.pem')
     const metaPath = path.join(this.certDir, 'cert-meta.json')
 
-    // Reuse cached cert if the LAN IP hasn't changed
-    if (fs.existsSync(certPath) && fs.existsSync(keyPath) && fs.existsSync(metaPath)) {
-      try {
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
-        if (meta.lanIp === lanIp) {
-          return {
-            cert: fs.readFileSync(certPath, 'utf-8'),
-            key: fs.readFileSync(keyPath, 'utf-8'),
-          }
-        }
-      } catch {
-        // Corrupted cache — regenerate
-      }
-    }
+    // Reuse cached cert if the LAN IP hasn't changed.
+    // Use async fs throughout so cert I/O never blocks the main-process event
+    // loop — writing the 2048-bit key is CPU-light but sync writes stall UI.
+    const cached = await this.readCached(certPath, keyPath, metaPath, lanIp)
+    if (cached) return cached
 
     const notAfterDate = new Date()
     notAfterDate.setFullYear(notAfterDate.getFullYear() + 1)
@@ -66,14 +57,35 @@ export class CertificateProvider {
     // world-readable. The cert itself is public so 0o644 is fine, but the
     // key MUST be owner-only (0o600) — without this mode, the default
     // umask makes it world-readable on any multi-user system.
-    fs.mkdirSync(this.certDir, { recursive: true, mode: 0o700 })
-    fs.writeFileSync(certPath, pems.cert, { encoding: 'utf-8', mode: 0o644 })
-    fs.writeFileSync(keyPath, pems.private, { encoding: 'utf-8', mode: 0o600 })
-    fs.writeFileSync(metaPath, JSON.stringify({ lanIp, createdAt: new Date().toISOString() }), {
+    await fs.mkdir(this.certDir, { recursive: true, mode: 0o700 })
+    await fs.writeFile(certPath, pems.cert, { encoding: 'utf-8', mode: 0o644 })
+    await fs.writeFile(keyPath, pems.private, { encoding: 'utf-8', mode: 0o600 })
+    await fs.writeFile(metaPath, JSON.stringify({ lanIp, createdAt: new Date().toISOString() }), {
       encoding: 'utf-8',
       mode: 0o600,
     })
 
     return { cert: pems.cert, key: pems.private }
+  }
+
+  private async readCached(
+    certPath: string,
+    keyPath: string,
+    metaPath: string,
+    lanIp: string,
+  ): Promise<{ cert: string; key: string } | null> {
+    try {
+      const metaRaw = await fs.readFile(metaPath, 'utf-8')
+      const meta = JSON.parse(metaRaw)
+      if (meta.lanIp !== lanIp) return null
+      const [cert, key] = await Promise.all([
+        fs.readFile(certPath, 'utf-8'),
+        fs.readFile(keyPath, 'utf-8'),
+      ])
+      return { cert, key }
+    } catch {
+      // Missing or corrupted cache — caller regenerates.
+      return null
+    }
   }
 }

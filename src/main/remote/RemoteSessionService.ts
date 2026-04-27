@@ -360,7 +360,7 @@ export class RemoteSessionService {
         addedAt: new Date().toISOString(),
         lastSeen: new Date().toISOString(),
       })
-      console.log('[remote] device persisted as trusted:', device.deviceId)
+      console.log('[remote] device persisted as trusted:', device.fingerprint)
     }
     this.setStatus({
       kind: 'paired',
@@ -443,10 +443,13 @@ export class RemoteSessionService {
       typeof msg.deviceId === 'string' && msg.deviceId.length > 0 ? msg.deviceId : null
     const isTrustedDevice =
       incomingDeviceId !== null && this.trustedDevices.isTrusted(incomingDeviceId)
+    // Only log a short fingerprint — the full deviceId is the sole auth factor
+    // for trusted-device auto-accept and must never reach a log sink where a
+    // bystander or log aggregator could capture and replay it.
     console.log(`[remote ${ts}] handlePairAttempt:`, {
       status: this.status.kind,
-      incomingDeviceId,
-      lastPairedDeviceId: this.lastPairedDeviceId,
+      incomingDeviceFp: incomingDeviceId?.slice(0, 8) ?? null,
+      lastPairedDeviceFp: this.lastPairedDeviceId?.slice(0, 8) ?? null,
       isTrusted: isTrustedDevice,
     })
 
