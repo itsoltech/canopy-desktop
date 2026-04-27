@@ -959,8 +959,26 @@
     const onWebviewFocus = (): void => onFocus?.()
 
     const onConsoleMessage = (e: Event): void => {
-      const msg = (e as CustomEvent & { message: string }).message
-      if (typeof msg !== 'string') return
+      // Electron 35+ changed `console-message` so the message can be delivered
+      // either directly on the event (e.message: string), nested in a details
+      // object (e.message: { message: string, level, lineNumber, … }), or in
+      // CustomEvent.detail. Cover all three so `__CANOPY_*` IPC channels keep
+      // working across upgrades.
+      const evt = e as Event & {
+        message?: unknown
+        detail?: { message?: unknown }
+      }
+      let msg: string | undefined
+      if (typeof evt.message === 'string') {
+        msg = evt.message
+      } else if (evt.message && typeof evt.message === 'object') {
+        const nested = (evt.message as { message?: unknown }).message
+        if (typeof nested === 'string') msg = nested
+      }
+      if (msg === undefined && evt.detail && typeof evt.detail.message === 'string') {
+        msg = evt.detail.message
+      }
+      if (msg === undefined) return
       match(msg)
         .with('__CANOPY_CREDS_READY__', () => {
           w.executeJavaScript(
