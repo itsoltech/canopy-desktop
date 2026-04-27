@@ -10,7 +10,9 @@
   import { prefs, getPref } from '../stores/preferences.svelte'
   import { getTheme } from './themes'
   import { showUrlToast } from '../stores/toast.svelte'
-  import { openTool } from '../stores/tabs.svelte'
+  import { openTool, openFile } from '../stores/tabs.svelte'
+  import { detectPathsInText } from '../pathDetection/linkify'
+  import { ensureLoaded, getFiles } from '../stores/quickOpenStore.svelte'
   import { workspaceState } from '../stores/workspace.svelte'
   import { setConnectionStatus, clearConnectionStatus } from './connectionState.svelte'
   import { recordKeystroke, cleanupSession } from '../stores/wpmTracker.svelte'
@@ -403,6 +405,62 @@
           }
         }),
       )
+
+      // File path detection — click opens file in editor. Only paths that
+      // resolve to files tracked in the workspace are linkified, so arbitrary
+      // strings with slashes in shell/agent output stay non-interactive.
+      let knownFilesIdentity: string[] | null = null
+      let knownFilesCache: Set<string> = new Set()
+      function knownFilesFor(worktreePath: string): Set<string> {
+        const list = getFiles(worktreePath)
+        if (list.length === 0) {
+          void ensureLoaded(worktreePath)
+          return knownFilesCache
+        }
+        if (list !== knownFilesIdentity) {
+          knownFilesIdentity = list
+          knownFilesCache = new Set(list)
+        }
+        return knownFilesCache
+      }
+
+      term.registerLinkProvider({
+        provideLinks: (bufferLineNumber, callback) => {
+          const worktreePath = workspaceState.selectedWorktreePath
+          if (!worktreePath) {
+            callback(undefined)
+            return
+          }
+          const buffer = term.buffer.active
+          const lineEntry = buffer.getLine(bufferLineNumber - 1)
+          if (!lineEntry) {
+            callback(undefined)
+            return
+          }
+          const lineText = lineEntry.translateToString(true)
+          if (!lineText) {
+            callback(undefined)
+            return
+          }
+          const known = knownFilesFor(worktreePath)
+          const matches = detectPathsInText(lineText, worktreePath, known)
+          if (matches.length === 0) {
+            callback(undefined)
+            return
+          }
+          const links = matches.map((m) => ({
+            range: {
+              start: { x: m.start + 1, y: bufferLineNumber },
+              end: { x: m.end, y: bufferLineNumber },
+            },
+            text: m.raw,
+            activate: () => {
+              openFile(m.absolutePath, worktreePath, { line: m.line })
+            },
+          }))
+          callback(links)
+        },
+      })
 
       progressAddon.onChange(({ state, value }: IProgressState) => {
         progressState = state

@@ -5,6 +5,8 @@
   import TabBar from '../terminal/TabBar.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
   import CommandPalette from '../palette/CommandPalette.svelte'
+  import QuickOpen from '../palette/QuickOpen.svelte'
+  import { prefetchOnIdle } from '../../lib/stores/quickOpenStore.svelte'
   import ConfirmDialog from '../dialogs/ConfirmDialog.svelte'
   import InputDialog from '../dialogs/InputDialog.svelte'
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
@@ -95,6 +97,7 @@
 
   const isMac = navigator.userAgent.includes('Mac')
   let paletteOpen = $state(false)
+  let quickOpenOpen = $state(false)
 
   // Sidebar resize state
   const SIDEBAR_MIN = 150
@@ -262,7 +265,7 @@
   // Notify browser panes when app-level overlays open/close so they can hide
   // DevTools WebContentsView (native layer that paints above DOM modals)
   $effect(() => {
-    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen
+    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen || quickOpenOpen
     window.dispatchEvent(
       new CustomEvent('canopy:app-overlay', { detail: { open: anyOverlayOpen } }),
     )
@@ -350,6 +353,12 @@
     if (path) clearWorktreeBadge(path)
   })
 
+  // Prefetch Quick Open file list for the active worktree in the background
+  $effect(() => {
+    const path = workspaceState.selectedWorktreePath
+    if (path) prefetchOnIdle(path)
+  })
+
   // Notify main process about focused agent session for notch peek suppression
   $effect(() => {
     window.api.setFocusedAgentSession(activeAgentPtySessionId)
@@ -373,6 +382,13 @@
     if (e.key === 'k') {
       e.preventDefault()
       paletteOpen = !paletteOpen
+      return
+    }
+
+    // Cmd+P: toggle quick open (file picker)
+    if (e.key === 'p' && !e.shiftKey) {
+      e.preventDefault()
+      quickOpenOpen = !quickOpenOpen
       return
     }
 
@@ -479,6 +495,10 @@
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
+
+{#if quickOpenOpen}
+  <QuickOpen onClose={() => (quickOpenOpen = false)} />
+{/if}
 
 {#if paletteOpen}
   <CommandPalette onClose={() => (paletteOpen = false)} />

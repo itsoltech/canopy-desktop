@@ -37,8 +37,12 @@ function findExistingPR(
   repoRoot: string,
   sourceBranch: string,
 ): ResultAsync<string | null, TaskTrackerError> {
+  // Reject branch names starting with `-` so they can't be consumed as a gh
+  // CLI flag. sanitizeBranchName already strips leading `-` from generated
+  // names, but `sourceBranch` here can be any string passed over IPC.
+  if (sourceBranch.startsWith('-')) return okAsync(null)
   return fromExternalCall(
-    execFileAsync('gh', ['pr', 'view', sourceBranch, '--json', 'url', '--jq', '.url'], {
+    execFileAsync('gh', ['pr', 'view', '--json', 'url', '--jq', '.url', '--', sourceBranch], {
       cwd: repoRoot,
     }),
     () => prErr('Failed to check existing PR'),

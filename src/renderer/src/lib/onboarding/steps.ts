@@ -162,6 +162,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.12.0',
     category: 'feature',
   },
+  {
+    id: 'file-editor',
+    title: 'Editable file viewer',
+    description:
+      'Click any file in the sidebar to open it in a built-in CodeMirror editor with syntax highlighting, autocomplete, and find/replace. Multiple files share one tab as sub-tabs — drag them to reorder, drag out to a new tab, or drag a whole tab onto the strip to merge editors. Cmd/Ctrl+S saves; middle-click closes a sub-tab.',
+    introducedIn: '0.12.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

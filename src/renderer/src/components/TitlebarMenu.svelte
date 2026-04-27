@@ -24,6 +24,13 @@
     action()
   }
 
+  function handleWindowKeydown(e: KeyboardEvent): void {
+    if (open && e.key === 'Escape') {
+      e.preventDefault()
+      close()
+    }
+  }
+
   // Move element to document.body to escape titlebar backdrop-filter stacking context
   function portal(node: HTMLElement): { destroy(): void } {
     document.body.appendChild(node)
@@ -46,6 +53,8 @@
     </svg>
   </button>
 </div>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->

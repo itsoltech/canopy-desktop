@@ -59,13 +59,19 @@ function slugify(text: string, maxLength = 50): string {
 }
 
 function sanitizeBranchName(name: string): string {
-  return name
-    .replace(/\.\./g, '.')
-    .replace(/[~^:?*[\]\\@{}#\s]/g, '-')
-    .replace(/\/{2,}/g, '/')
-    .replace(/^\/|\/$/g, '')
-    .replace(/-+/g, '-')
-    .replace(/\.lock$/g, '')
+  return (
+    name
+      .replace(/\.\./g, '.')
+      .replace(/[~^:?*[\]\\@{}#\s]/g, '-')
+      .replace(/\/{2,}/g, '/')
+      .replace(/^\/|\/$/g, '')
+      .replace(/-+/g, '-')
+      .replace(/\.lock$/g, '')
+      // Strip leading "-" so the rendered branch name can't be consumed as a
+      // CLI flag by downstream `git` / `gh` invocations (e.g. `gh pr view -foo`
+      // would treat "-foo" as an option rather than a positional argument).
+      .replace(/^-+/, '')
+  )
 }
 
 export function buildVariables(

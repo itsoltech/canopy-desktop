@@ -182,7 +182,7 @@
         {onFocus}
       />
     {:else if pane.paneType === 'editor'}
-      <EditorPane filePath={pane.filePath!} {active} />
+      <EditorPane paneId={pane.id} {active} />
     {:else if pane.paneType === 'diff'}
       <DiffPane {worktreePath} {active} />
     {:else if pane.paneType === 'notes'}

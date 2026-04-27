@@ -49,6 +49,16 @@ The browser webview intercepts Cmd/Ctrl keyboard shortcuts to prevent them from 
 - **Cmd+R**: Reloads the page within the webview (handled locally, not forwarded).
 - **App shortcuts** (Cmd+W, Cmd+T, Cmd+K, Cmd+B, Cmd+D, Cmd+L, Cmd+O, Cmd+1-9, Cmd+Shift+I, Cmd+Shift+N, Cmd+comma): The webview consumes the event, refocuses the main renderer, and re-dispatches the keystroke so the app handles it.
 
+### Beforeunload prompt
+
+When the page sets a `beforeunload` handler that returns a non-empty value (editors, forms with unsaved input) and the user reloads or navigates away, Electron emits `will-prevent-unload` on the webview's `WebContents`. Without a listener Electron silently cancels the reload, so Cmd+R appears dead. `BrowserManager.setup()` registers a listener that shows a native system modal:
+
+- **Title / message:** `Leave site?`
+- **Detail:** `Changes you made may not be saved.`
+- **Buttons:** `Leave` (allows the unload) / `Stay` (cancels). `Stay` is the default for both Enter and Esc, matching Chrome and matching the password-reveal confirmation elsewhere in the repo.
+
+The page's `event.returnValue` text is intentionally not surfaced — Chrome, Firefox, and Safari have ignored per-site custom messages since ~2017 as a phishing mitigation, and Electron has no built-in browser-style prompt for this event. Note that in `will-prevent-unload`, calling `event.preventDefault()` means **allow the unload** (inverted from the DOM convention) — picking _Leave_ in the modal is what triggers `preventDefault()`.
+
 ### DevTools
 
 1. User opens DevTools via the toolbar button, context menu "Inspect Element", or keyboard shortcut.
@@ -88,6 +98,8 @@ Users can add custom viewport presets stored in the `viewports.custom` preferenc
    - Locates the nearest username field within the same form (by type `email`/`text` or name attributes containing `user`/`email`/`login`, or `autocomplete="username"`).
    - Sets values on both fields and dispatches `input` and `change` events with `bubbles: true` so frameworks detect the change.
 5. The isolated world prevents page scripts from intercepting the injected values.
+
+The autofill click in the picker, the capture-on-submit signal, and the password-field detection all reach the renderer over `console.log` markers (`__CANOPY_FILL__:<id>`, `__CANOPY_CREDS_READY__`, `__CANOPY_PW_FIELD_FOUND__`) consumed by the webview's `console-message` event. The renderer reads the payload defensively because Electron 35+ may deliver the message string directly on the event, nested inside the event (`e.message.message`), or on `e.detail.message`. If a future Electron upgrade reshapes the event again, that handler is the place to update.
 
 ### Screenshot capture
 
@@ -135,6 +147,7 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 | Blocked permission     | Nothing (silently denied)                              | Page requested camera, microphone, geolocation, or other permissions |
 | DevTools view creation | DevTools button has no effect                          | `WebContents` for the webview guest could not be found               |
 | Favicon fetch failure  | Tab shows no favicon                                   | CORS error, network error, or invalid favicon URL                    |
+| Beforeunload prompt    | Native `Leave site? / Stay` modal (Stay default)       | Page set a `beforeunload` handler and the user reloaded or navigated |
 
 ## Security and privacy
 

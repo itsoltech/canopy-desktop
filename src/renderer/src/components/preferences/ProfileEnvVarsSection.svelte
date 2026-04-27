@@ -1,5 +1,6 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
 
   let {
     customEnv,
@@ -56,7 +57,17 @@
     showEnvForm = false
   }
 
-  function removeEnvVar(index: number): void {
+  async function removeEnvVar(index: number): Promise<void> {
+    const entry = envEntries[index]
+    if (!entry) return
+    const ok = await confirm({
+      title: 'Remove Variable',
+      message: `Remove environment variable "${entry.key}"?`,
+      details: 'The value is masked and cannot be recovered after removal.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     persistEnvEntries(envEntries.filter((_, i) => i !== index))
   }
 </script>
