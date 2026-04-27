@@ -3,7 +3,6 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, rmdirSy
 import { join } from 'path'
 import type {
   AgentAdapter,
-  AgentType,
   NormalizedEventName,
   NormalizedHookEvent,
   NormalizedStatusData,
@@ -38,7 +37,7 @@ interface WorktreeRef {
 const worktreeRefs = new Map<string, WorktreeRef>()
 
 export const codexAdapter: AgentAdapter = {
-  agentType: 'codex' as AgentType,
+  agentType: 'codex',
   toolId: 'codex',
 
   busyEvents: new Set(['UserPromptSubmit', 'PreToolUse']),

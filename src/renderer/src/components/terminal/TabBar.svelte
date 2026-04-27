@@ -334,12 +334,10 @@
 
 {#if tabs.length > 0}
   <div class="tab-bar" class:drag-active={dragActive} bind:this={containerEl}>
-    <div class="tabs-row">
+    <div class="tabs-row" role="tablist" aria-label="Terminal tabs">
       {#each visibleTabs as tab (tab.id)}
         {@const connState = getConnectionState(tab)}
         {@const favicon = getTabFavicon(tab)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="tab"
           class:active={tab.id === currentActiveId}
@@ -347,8 +345,17 @@
           class:dragging={dragActive && dragTabId === tab.id}
           class:drop-target={dragActive && dropTargetId === tab.id}
           data-tab-id={tab.id}
+          role="tab"
+          tabindex={tab.id === currentActiveId ? 0 : -1}
+          aria-selected={tab.id === currentActiveId}
           onclick={async () => {
             if (!suppressClick) await switchTab(tab.id)
+          }}
+          onkeydown={async (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              await switchTab(tab.id)
+            }
           }}
           onauxclick={(e) => handleMiddleClick(e, tab.id)}
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
