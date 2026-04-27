@@ -334,7 +334,7 @@
 
 {#if tabs.length > 0}
   <div class="tab-bar" class:drag-active={dragActive} bind:this={containerEl}>
-    <div class="tabs-row">
+    <div class="tabs-row" role="tablist" aria-label="Terminal tabs">
       {#each visibleTabs as tab (tab.id)}
         {@const connState = getConnectionState(tab)}
         {@const favicon = getTabFavicon(tab)}
