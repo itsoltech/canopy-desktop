@@ -1,4 +1,4 @@
-import { webContents, WebContentsView, Menu, session, type BrowserWindow } from 'electron'
+import { webContents, WebContentsView, Menu, dialog, session, type BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
@@ -125,6 +125,33 @@ export class BrowserManager {
         // Invalid URL, ignore
       }
       return { action: 'deny' }
+    })
+
+    // Mirror Chrome's beforeunload behavior. Electron has no built-in
+    // beforeunload prompt: without a listener, the reload is silently
+    // cancelled; with `preventDefault()` it proceeds without any prompt
+    // and the user loses unsaved work. We show the same generic dialog
+    // every modern browser shows — the page's `event.returnValue` text
+    // has been ignored by Chrome / Firefox / Safari since ~2017 as a
+    // phishing mitigation, so a custom per-site message isn't possible.
+    // In this event, `preventDefault()` means "allow the unload"
+    // (inverted from the DOM convention).
+    // Default to Stay so an accidental Enter after Cmd+R doesn't discard
+    // the user's work — same as Chrome's beforeunload prompt and the
+    // password-reveal confirmation elsewhere in this repo. The event
+    // fires for reloads and navigations alike (Electron doesn't
+    // distinguish), so title and message stay identical.
+    wc.on('will-prevent-unload', (event) => {
+      const choice = dialog.showMessageBoxSync(win, {
+        type: 'question',
+        buttons: ['Leave', 'Stay'],
+        defaultId: 1,
+        cancelId: 1,
+        title: 'Leave site?',
+        message: 'Leave site?',
+        detail: 'Changes you made may not be saved.',
+      })
+      if (choice === 0) event.preventDefault()
     })
 
     // Only allow http(s) navigation
