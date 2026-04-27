@@ -14,7 +14,6 @@ import { randomUUID } from 'crypto'
 import { is } from '@electron-toolkit/utils'
 import type {
   AgentAdapter,
-  AgentType,
   NormalizedEventName,
   NormalizedHookEvent,
   NormalizedStatusData,
@@ -83,7 +82,7 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
 const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
 
 export const geminiAdapter: AgentAdapter = {
-  agentType: 'gemini' as AgentType,
+  agentType: 'gemini',
   toolId: 'gemini',
 
   busyEvents: new Set(['BeforeAgent', 'BeforeTool']),

@@ -228,6 +228,7 @@
           onmouseenter={() => (selectedIndex = idx)}
           role="option"
           aria-selected={selected}
+          title={r.path}
         >
           <FileIconDisplay info={iconInfo} size={14} />
           <div class="quick-open-item-text">
