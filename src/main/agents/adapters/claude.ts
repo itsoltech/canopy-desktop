@@ -2,7 +2,6 @@ import { match, P } from 'ts-pattern'
 import { writeFileSync, unlinkSync } from 'fs'
 import type {
   AgentAdapter,
-  AgentType,
   NormalizedEventName,
   NormalizedHookEvent,
   NormalizedStatusData,
@@ -54,7 +53,7 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
 const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
 
 export const claudeAdapter: AgentAdapter = {
-  agentType: 'claude' as AgentType,
+  agentType: 'claude',
   toolId: 'claude',
 
   busyEvents: new Set(['UserPromptSubmit', 'PreToolUse', 'PreCompact', 'PermissionRequest']),

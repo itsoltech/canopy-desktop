@@ -5,7 +5,6 @@ import { randomUUID } from 'crypto'
 import { is } from '@electron-toolkit/utils'
 import type {
   AgentAdapter,
-  AgentType,
   NormalizedEventName,
   NormalizedHookEvent,
   NormalizedStatusData,
@@ -38,7 +37,7 @@ const INTERNAL_BLOCKED = new Set([
 ])
 
 export const opencodeAdapter: AgentAdapter = {
-  agentType: 'opencode' as AgentType,
+  agentType: 'opencode',
   toolId: 'opencode',
 
   busyEvents: new Set(['SessionBusy', 'ToolExecuteBefore', 'PermissionAsked', 'SessionCompacting']),

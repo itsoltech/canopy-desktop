@@ -11,6 +11,14 @@ import type { HostSignal } from '../../renderer-shared/remote/signalingProtocol'
 const MAX_MESSAGE_BYTES = 256 * 1024 // 256 KB — SDP offers can be a few KB; signaling messages are tiny
 
 /**
+ * How long a freshly-opened WebSocket has to send its `pair` message before we
+ * forcibly close it. Because this server binds on 0.0.0.0, any LAN peer can
+ * open a WebSocket; without a handshake deadline those unpaired sockets would
+ * accumulate and exhaust the server's connection slots.
+ */
+const PAIR_HANDSHAKE_TIMEOUT_MS = 15_000
+
+/**
  * Callbacks the SignalingServer fires upward into RemoteSessionService.
  *
  * Kept as a small interface so the server doesn't import the orchestrator
@@ -259,7 +267,28 @@ export class SignalingServer {
     return fromExternalCall(
       new Promise<void>((resolve) => {
         if (wss) wss.close()
-        server.close(() => resolve())
+        let done = false
+        const finish = (): void => {
+          if (done) return
+          done = true
+          resolve()
+        }
+        // Force-close any idle keep-alive connections so server.close() can
+        // finish — otherwise stop() could hang indefinitely on a lingering
+        // HTTP(S) connection, leaving the port bound and the next start()
+        // failing with EADDRINUSE.
+        server.close(finish)
+        server.closeAllConnections?.()
+        setTimeout(() => {
+          if (!done) {
+            try {
+              server.closeAllConnections?.()
+            } catch {
+              /* ignore */
+            }
+            finish()
+          }
+        }, 5_000)
       }),
       (): RemoteServerError => ({ _tag: 'NotRunning' }),
     )
@@ -288,6 +317,12 @@ export class SignalingServer {
 
   private handleWsConnection(ws: WsWebSocket): void {
     let paired = false
+
+    // Boot sockets that never complete the pair handshake — otherwise a LAN
+    // peer could open an arbitrary number of idle WebSockets.
+    const pairTimer = setTimeout(() => {
+      if (!paired) ws.close(1008, 'pair timeout')
+    }, PAIR_HANDSHAKE_TIMEOUT_MS)
 
     ws.on('message', (raw) => {
       const buf = typeof raw === 'string' ? Buffer.from(raw) : (raw as Buffer)
@@ -340,6 +375,7 @@ export class SignalingServer {
         }
         this.activePeer = ws
         paired = true
+        clearTimeout(pairTimer)
         try {
           ws.send(JSON.stringify({ type: 'paired', sessionId: response.sessionId }))
         } catch {
@@ -368,6 +404,7 @@ export class SignalingServer {
     })
 
     const onClose = (): void => {
+      clearTimeout(pairTimer)
       if (this.activePeer === ws) {
         this.activePeer = null
         this.handlers?.onPeerDisconnected()

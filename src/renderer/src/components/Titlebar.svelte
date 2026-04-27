@@ -20,16 +20,17 @@
     return tab ? getTabDisplayName(tab) : null
   })
 
+  let fullTitle = $derived.by(() => {
+    if (!workspaceState.workspace) return 'Canopy'
+    let title = workspaceState.workspace.name
+    if (workspaceState.branch) title += ` — ${workspaceState.branch}`
+    if (activeTabName) title += ` — ${activeTabName}`
+    if (workspaceState.isDirty) title += ' *'
+    return title
+  })
+
   $effect(() => {
-    if (workspaceState.workspace) {
-      let title = workspaceState.workspace.name
-      if (workspaceState.branch) title += ` — ${workspaceState.branch}`
-      if (activeTabName) title += ` — ${activeTabName}`
-      if (workspaceState.isDirty) title += ' *'
-      document.title = title
-    } else {
-      document.title = 'Canopy'
-    }
+    document.title = fullTitle
   })
 </script>
 
@@ -40,7 +41,7 @@
     </div>
   {/if}
   {#if workspaceState.workspace}
-    <span class="title">
+    <span class="title" title={fullTitle}>
       {workspaceState.workspace.name}
       {#if workspaceState.branch}
         <span class="branch">{workspaceState.branch}</span>

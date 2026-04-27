@@ -3070,7 +3070,7 @@ export function registerIpcHandlers(
     return JSON.parse(JSON.stringify(results))
   })
 
-  ipcMain.handle('skills:deleteFile', async (_event, payload: { filePath: string }) => {
+  ipcMain.handle('skills:deleteFile', async (event, payload: { filePath: string }) => {
     const filePath = path.normalize(path.resolve(payload.filePath))
     const ext = path.extname(filePath).toLowerCase()
     if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
@@ -3097,6 +3097,34 @@ export function registerIpcHandlers(
           _tag: 'InvalidSource',
           source: payload.filePath,
           reason: 'Can only delete files within agent skill directories',
+        } as SkillError),
+        skillErrorMessage,
+      )
+    }
+    // Scope the delete to the user's home directory (global skills) or one of
+    // the window's workspace paths (project-scoped skills). The regex check
+    // above alone is too permissive — a path like `/tmp/evil/.claude/skills/x`
+    // also contains the segment and would otherwise pass.
+    const resolvedTarget = await fs.promises.realpath(filePath).catch(() => filePath)
+    const homeReal = await fs.promises.realpath(os.homedir()).catch(() => os.homedir())
+    const withinHome = resolvedTarget === homeReal || resolvedTarget.startsWith(homeReal + path.sep)
+    let withinWorkspace = false
+    if (!withinHome) {
+      const workspacePaths = windowManager.getWorkspacePaths(event.sender.id)
+      for (const wp of workspacePaths) {
+        const resolvedWp = await fs.promises.realpath(wp).catch(() => wp)
+        if (resolvedTarget === resolvedWp || resolvedTarget.startsWith(resolvedWp + path.sep)) {
+          withinWorkspace = true
+          break
+        }
+      }
+    }
+    if (!withinHome && !withinWorkspace) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill files must live under the user home directory or a workspace path',
         } as SkillError),
         skillErrorMessage,
       )
