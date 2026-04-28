@@ -10,86 +10,20 @@
   const isMac = navigator.userAgent.includes('Mac')
 </script>
 
-<div class="step">
-  <div class="icon-wrap">
+<div class="flex flex-col items-center text-center gap-3 py-6">
+  <div class="w-20 h-20 rounded-[20px] bg-accent-bg flex items-center justify-center mb-2">
     <Check size={48} strokeWidth={1.5} color="var(--color-success)" />
   </div>
-  <h2 class="title">You're all set</h2>
-  <p class="description">
+  <h2 class="m-0 text-[22px] font-semibold text-text">You're all set</h2>
+  <p
+    class="m-0 text-lg text-text-secondary leading-normal max-w-[360px] [&>kbd]:inline-block [&>kbd]:px-[5px] [&>kbd]:py-px [&>kbd]:text-sm [&>kbd]:font-inherit [&>kbd]:bg-active [&>kbd]:border [&>kbd]:border-text-faint [&>kbd]:rounded-md [&>kbd]:text-text-secondary"
+  >
     Open a project folder to get started. You can always change your settings with
     <kbd>{isMac ? 'Cmd' : 'Ctrl'}+,</kbd>
   </p>
 
-  <button class="open-btn" onclick={onOpenFolder}> Open folder </button>
+  <button
+    class="mt-2 px-7 py-2.5 border-0 rounded-xl bg-accent-bg text-accent-text text-lg font-medium font-inherit cursor-pointer transition-colors duration-base hover:bg-accent-bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+    onclick={onOpenFolder}>Open folder</button
+  >
 </div>
-
-<style>
-  .step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 12px;
-    padding: 24px 0;
-  }
-
-  .icon-wrap {
-    width: 80px;
-    height: 80px;
-    border-radius: 20px;
-    background: var(--color-accent-bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 8px;
-  }
-
-  .title {
-    margin: 0;
-    font-size: 22px;
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  .description {
-    margin: 0;
-    font-size: 14px;
-    color: var(--color-text-secondary);
-    line-height: 1.5;
-    max-width: 360px;
-  }
-
-  .description kbd {
-    display: inline-block;
-    padding: 1px 5px;
-    font-size: 12px;
-    font-family: inherit;
-    background: var(--color-active);
-    border: 1px solid var(--color-text-faint);
-    border-radius: 4px;
-    color: var(--color-text-secondary);
-  }
-
-  .open-btn {
-    margin-top: 8px;
-    padding: 10px 28px;
-    border: none;
-    border-radius: 8px;
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-    font-size: 14px;
-    font-weight: 500;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-
-  .open-btn:hover {
-    background: var(--color-accent-bg-hover);
-  }
-
-  .open-btn:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
-  }
-</style>

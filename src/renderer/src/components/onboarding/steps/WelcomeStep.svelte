@@ -2,58 +2,15 @@
   import { Layers } from '@lucide/svelte'
 </script>
 
-<div class="step">
-  <div class="icon-wrap">
+<div class="flex flex-col items-center text-center gap-3 py-6">
+  <div class="w-20 h-20 rounded-[20px] bg-accent-bg flex items-center justify-center mb-2">
     <Layers size={48} strokeWidth={1.5} color="var(--color-accent)" />
   </div>
-  <h2 class="title">Welcome to Canopy</h2>
-  <p class="description">
+  <h2 class="m-0 text-[22px] font-semibold text-text">Welcome to Canopy</h2>
+  <p class="m-0 text-lg text-text-secondary leading-normal max-w-[380px]">
     A developer workstation for managing multiple projects, branches, and AI assistants in parallel.
   </p>
-  <p class="hint">
+  <p class="mt-2 mb-0 text-sm text-text-faint">
     This setup takes about a minute. You can change everything later in Preferences.
   </p>
 </div>
-
-<style>
-  .step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 12px;
-    padding: 24px 0;
-  }
-
-  .icon-wrap {
-    width: 80px;
-    height: 80px;
-    border-radius: 20px;
-    background: var(--color-accent-bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 8px;
-  }
-
-  .title {
-    margin: 0;
-    font-size: 22px;
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  .description {
-    margin: 0;
-    font-size: 14px;
-    color: var(--color-text-secondary);
-    line-height: 1.5;
-    max-width: 380px;
-  }
-
-  .hint {
-    margin: 8px 0 0;
-    font-size: 12px;
-    color: var(--color-text-faint);
-  }
-</style>

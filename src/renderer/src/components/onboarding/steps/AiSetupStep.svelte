@@ -10,29 +10,35 @@
   }
 </script>
 
-<div class="step">
-  <h2 class="title">AI assistant</h2>
-  <p class="description">
+<div class="flex flex-col items-center text-center gap-4">
+  <h2 class="m-0 text-lg font-semibold text-text">AI assistant</h2>
+  <p class="m-0 text-md text-text-secondary max-w-[380px] leading-normal">
     Configure Claude Code defaults. You can change these anytime in Preferences.
   </p>
 
-  <div class="form">
-    <div class="field">
-      <label class="field-label" for="onboard-model">Model</label>
+  <div class="flex flex-col gap-3.5 w-full max-w-[360px] text-left">
+    <div class="flex flex-col gap-1">
+      <label
+        class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
+        for="onboard-model">Model</label
+      >
       <input
         id="onboard-model"
-        class="text-input"
+        class="px-2.5 py-2 border border-border rounded-lg bg-hover text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
         type="text"
         placeholder="sonnet, opus, haiku, or model ID"
         value={model}
         onchange={updateModel}
         spellcheck="false"
       />
-      <span class="field-hint">Leave empty to use the default model.</span>
+      <span class="text-xs text-text-faint">Leave empty to use the default model.</span>
     </div>
 
-    <div class="field">
-      <label class="field-label" for="onboard-perm">Permission mode</label>
+    <div class="flex flex-col gap-1">
+      <label
+        class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
+        for="onboard-perm">Permission mode</label
+      >
       <CustomSelect
         id="onboard-perm"
         value={permissionMode}
@@ -48,75 +54,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 16px;
-  }
-
-  .title {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  .description {
-    margin: 0;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    max-width: 380px;
-    line-height: 1.5;
-  }
-
-  .form {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    width: 100%;
-    max-width: 360px;
-    text-align: left;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .field-hint {
-    font-size: 11px;
-    color: var(--color-text-faint);
-  }
-
-  .text-input {
-    padding: 8px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-hover);
-    color: var(--color-text);
-    font-size: 13px;
-    font-family: monospace;
-    outline: none;
-  }
-
-  .text-input:focus {
-    border-color: var(--color-focus-ring);
-  }
-
-  .text-input::placeholder {
-    color: var(--color-text-faint);
-  }
-</style>

@@ -95,16 +95,19 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" onkeydown={handleKeydown}>
+<div
+  class="fixed inset-0 z-[1001] flex justify-center items-center bg-scrim"
+  onkeydown={handleKeydown}
+>
   <div
     bind:this={containerEl}
-    class="wizard"
+    class="outline-none w-[560px] max-w-[90vw] max-h-[85vh] flex flex-col bg-bg-overlay border border-border rounded-xl shadow-modal overflow-hidden"
     role="dialog"
     aria-modal="true"
     aria-label="Setup wizard"
     tabindex="-1"
   >
-    <div class="wizard-content">
+    <div class="flex-1 min-h-0 overflow-y-auto px-8 pt-8 pb-4">
       {#if step?.id === 'welcome'}
         <WelcomeStep />
       {:else if step?.id === 'tool-selection'}
@@ -122,105 +125,34 @@
       {/if}
     </div>
 
-    <div class="wizard-footer">
+    <div class="flex-shrink-0 flex flex-col gap-4 px-8 pt-4 pb-6 border-t border-border-subtle">
       <StepIndicator total={onboardingState.steps.length} current={onboardingState.currentStep} />
 
-      <div class="nav-buttons">
+      <div class="flex justify-between">
         {#if isFirst}
-          <button class="btn btn-ghost" onclick={handleSkip}>Skip setup</button>
+          <button
+            class="px-5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-transparent text-text-secondary transition-colors duration-fast hover:bg-hover hover:text-text focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+            onclick={handleSkip}>Skip setup</button
+          >
         {:else}
-          <button class="btn btn-ghost" onclick={handleBack}>Back</button>
+          <button
+            class="px-5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-transparent text-text-secondary transition-colors duration-fast hover:bg-hover hover:text-text focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+            onclick={handleBack}>Back</button
+          >
         {/if}
 
         {#if isLast}
-          <button class="btn btn-primary" onclick={handleFinish}>Done</button>
+          <button
+            class="px-5 py-1.5 rounded-lg text-md font-medium font-inherit cursor-pointer border-0 outline-none bg-accent-bg text-accent-text transition-colors duration-fast hover:bg-accent-bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+            onclick={handleFinish}>Done</button
+          >
         {:else}
-          <button class="btn btn-primary" onclick={handleNext}>Next</button>
+          <button
+            class="px-5 py-1.5 rounded-lg text-md font-medium font-inherit cursor-pointer border-0 outline-none bg-accent-bg text-accent-text transition-colors duration-fast hover:bg-accent-bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+            onclick={handleNext}>Next</button
+          >
         {/if}
       </div>
     </div>
   </div>
 </div>
-
-<style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1001;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: var(--color-scrim);
-  }
-
-  .wizard {
-    outline: none;
-    width: 560px;
-    max-width: 90vw;
-    max-height: 85vh;
-    display: flex;
-    flex-direction: column;
-    background: var(--color-bg-overlay);
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
-    box-shadow: 0 16px 48px oklch(0 0 0 / 0.6);
-    overflow: hidden;
-  }
-
-  .wizard-content {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 32px 32px 16px;
-  }
-
-  .wizard-footer {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    padding: 16px 32px 24px;
-    border-top: 1px solid var(--color-border-subtle);
-  }
-
-  .nav-buttons {
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .btn {
-    padding: 7px 20px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-    outline: none;
-    transition: background 0.1s;
-  }
-
-  .btn:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 1px;
-  }
-
-  .btn-ghost {
-    background: transparent;
-    color: var(--color-text-secondary);
-  }
-
-  .btn-ghost:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-
-  .btn-primary {
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-    font-weight: 500;
-  }
-
-  .btn-primary:hover {
-    background: var(--color-accent-bg-hover);
-  }
-</style>

@@ -46,153 +46,47 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" onkeydown={handleKeydown} onmousedown={handleDismiss}>
+<div
+  class="fixed inset-0 z-[1001] flex justify-center items-center bg-scrim"
+  onkeydown={handleKeydown}
+  onmousedown={handleDismiss}
+>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
-    class="container"
+    class="outline-none w-[440px] max-w-[90vw] max-h-[70vh] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-modal p-6"
     role="dialog"
     aria-modal="true"
     aria-label="New features"
     tabindex="-1"
     onmousedown={(e) => e.stopPropagation()}
   >
-    <div class="header">
-      <div class="icon-wrap">
+    <div class="flex items-center gap-3 mb-5">
+      <div
+        class="w-10 h-10 rounded-[10px] bg-accent-bg flex items-center justify-center flex-shrink-0"
+      >
         <Sparkles size={20} strokeWidth={1.5} color="var(--color-accent)" />
       </div>
       <div>
-        <h2 class="title">New in this update</h2>
-        <span class="subtitle">Since v{fromVersion}</span>
+        <h2 class="m-0 text-[17px] font-semibold text-text">New in this update</h2>
+        <span class="text-sm text-text-muted">Since v{fromVersion}</span>
       </div>
     </div>
 
-    <div class="features">
+    <div class="flex flex-col gap-2 overflow-y-auto min-h-0 flex-1">
       {#each onboardingState.steps as step (step.id)}
-        <div class="feature-card">
-          <div class="feature-title">{step.title}</div>
-          <div class="feature-desc">{step.description}</div>
+        <div class="px-3.5 py-3 rounded-xl bg-border-subtle border border-border-subtle">
+          <div class="text-md font-medium text-text mb-1">{step.title}</div>
+          <div class="text-sm text-text-muted leading-snug">{step.description}</div>
         </div>
       {/each}
     </div>
 
-    <div class="actions">
-      <button class="btn-dismiss" onclick={handleDismiss}>Got it</button>
+    <div class="flex justify-center mt-5 flex-shrink-0">
+      <button
+        class="px-6 py-1.5 rounded-lg text-md font-medium font-inherit cursor-pointer border-0 outline-none bg-accent-bg text-accent-text transition-colors duration-fast hover:bg-accent-bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+        onclick={handleDismiss}>Got it</button
+      >
     </div>
   </div>
 </div>
-
-<style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1001;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: var(--color-scrim);
-  }
-
-  .container {
-    outline: none;
-    width: 440px;
-    max-width: 90vw;
-    max-height: 70vh;
-    display: flex;
-    flex-direction: column;
-    background: var(--color-bg-overlay);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    box-shadow: 0 16px 48px oklch(0 0 0 / 0.6);
-    padding: 24px;
-  }
-
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 20px;
-  }
-
-  .icon-wrap {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: var(--color-accent-bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .title {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  .subtitle {
-    font-size: 12px;
-    color: var(--color-text-muted);
-  }
-
-  .features {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    overflow-y: auto;
-    min-height: 0;
-    flex: 1;
-  }
-
-  .feature-card {
-    padding: 12px 14px;
-    border-radius: 8px;
-    background: var(--color-border-subtle);
-    border: 1px solid var(--color-border-subtle);
-  }
-
-  .feature-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--color-text);
-    margin-bottom: 4px;
-  }
-
-  .feature-desc {
-    font-size: 12px;
-    color: var(--color-text-muted);
-    line-height: 1.4;
-  }
-
-  .actions {
-    display: flex;
-    justify-content: center;
-    margin-top: 20px;
-    flex-shrink: 0;
-  }
-
-  .btn-dismiss {
-    padding: 7px 24px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-    outline: none;
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-    transition: background 0.1s;
-  }
-
-  .btn-dismiss:hover {
-    background: var(--color-accent-bg-hover);
-  }
-
-  .btn-dismiss:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 1px;
-  }
-</style>

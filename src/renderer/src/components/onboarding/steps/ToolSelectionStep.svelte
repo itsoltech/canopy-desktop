@@ -17,86 +17,26 @@
   }
 </script>
 
-<div class="step">
-  <h2 class="title">Choose your tools</h2>
-  <p class="description">
+<div class="flex flex-col items-center text-center gap-4">
+  <h2 class="m-0 text-lg font-semibold text-text">Choose your tools</h2>
+  <p class="m-0 text-md text-text-secondary">
     Select the AI assistants you plan to use. Canopy will check if they are installed.
   </p>
 
-  <div class="toggles">
+  <div class="flex flex-col gap-0.5 w-full max-w-[400px] text-left">
     {#each tools as tool (tool.id)}
-      <label class="toggle-row">
+      <label
+        class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors duration-fast hover:bg-border-subtle"
+      >
         <CustomCheckbox
           checked={onboardingState.selectedTools.has(tool.id)}
           onchange={() => toggle(tool.id)}
         />
-        <div class="toggle-info">
-          <span class="toggle-label">{tool.name}</span>
-          <span class="toggle-hint">{tool.hint}</span>
+        <div class="flex flex-col gap-0.5">
+          <span class="text-md text-text">{tool.name}</span>
+          <span class="text-xs text-text-muted leading-snug">{tool.hint}</span>
         </div>
       </label>
     {/each}
   </div>
 </div>
-
-<style>
-  .step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 16px;
-  }
-
-  .title {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  .description {
-    margin: 0;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-  }
-
-  .toggles {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    width: 100%;
-    max-width: 400px;
-    text-align: left;
-  }
-
-  .toggle-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    transition: background 0.1s;
-  }
-
-  .toggle-row:hover {
-    background: var(--color-border-subtle);
-  }
-
-  .toggle-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .toggle-label {
-    font-size: 13px;
-    color: var(--color-text);
-  }
-
-  .toggle-hint {
-    font-size: 11px;
-    color: var(--color-text-muted);
-    line-height: 1.4;
-  }
-</style>
