@@ -31,6 +31,7 @@ Error message formatters are co-located with error type definitions. They use `t
 ## Security
 
 Canopy applies a defense-in-depth approach to security:
+
 - **Environment Isolation**: AI agent sessions are spawned with a filtered environment. `src/main/security/envBlocklist.ts` prevents sensitive Electron and system variables from leaking to agents.
 - **Path Validation**: The `validatePathAccess` helper in IPC handlers ensures that file operations (read/write/watch) are restricted to directories explicitly registered as part of the current workspace.
 - **Isolated JS Worlds**: Browser credential autofill executes in an isolated JavaScript world (ID 999) to prevent malicious web pages from intercepting injected credentials.
@@ -70,9 +71,9 @@ Config resolution follows this precedence: **Built-in defaults < Global config <
 
 ## Theming
 
-All UI colors use CSS custom properties from the `--c-*` system defined in `base.css`. The theme engine (`src/renderer/src/lib/theme/appTheme.ts`) derives the full `--c-*` palette from the active terminal theme. When the user changes their terminal color scheme, the entire app UI adapts.
+All UI colors use CSS custom properties from the `--color-*` system defined in `src/renderer-shared/styles/tokens.css` (Tailwind v4 `@theme` block). The theme engine (`src/renderer/src/lib/theme/appTheme.ts`) derives the full `--color-*` palette from the active terminal theme. When the user changes their terminal color scheme, the entire app UI adapts.
 
-Categories: `--c-bg*` (backgrounds), `--c-text*` (foreground), `--c-border*` (borders), `--c-accent*` (interactive elements), `--c-danger*`/`--c-success`/`--c-warning*` (status), `--c-hover`/`--c-active` (interaction states).
+Categories: `--color-bg*` (backgrounds), `--color-text*` (foreground), `--color-border*` (borders), `--color-accent*` (interactive elements), `--color-danger*`/`--color-success`/`--color-warning*` (status), `--color-hover`/`--color-active` (interaction states).
 
 Exception: the notch overlay (`src/renderer/src/components/notch/NotchOverlay.svelte`, `NotchNotificationRow.svelte`) uses fixed colors because it renders on the macOS physical black notch area. Box-shadow `rgba(0,0,0,...)` values are structural and exempt.
 

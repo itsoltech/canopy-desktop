@@ -132,12 +132,12 @@ The codebase uses `neverthrow` for typed error handling. Business logic must not
 
 ### Theming
 
-All UI colors must use CSS custom properties from the `--c-*` system defined in `base.css` and applied dynamically by `src/renderer/src/lib/theme/appTheme.ts`. The app theme syncs with the terminal theme.
+All UI colors must use CSS custom properties from the `--color-*` system defined in `src/renderer-shared/styles/tokens.css` (Tailwind v4 `@theme` block) and applied dynamically by `src/renderer/src/lib/theme/appTheme.ts`. The app theme syncs with the terminal theme.
 
-- Hardcoded `rgba(...)`, `rgb(...)`, or hex color values in component `<style>` blocks or inline styles. Use the appropriate `var(--c-*)` variable instead.
-- Hardcoded white-alpha overlays (`rgba(255, 255, 255, 0.06)`) instead of semantic variables (`var(--c-hover)`, `var(--c-border-subtle)`).
-- Hardcoded accent blue (`#74c0fc`, `rgba(116, 192, 252, ...)`) instead of `var(--c-accent*)`.
-- Status colors (red, green, yellow) as literal values instead of `var(--c-danger*)`, `var(--c-success)`, `var(--c-warning*)`.
+- Hardcoded `rgba(...)`, `rgb(...)`, `oklch(...)`, or hex color values in component `<style>` blocks or inline `bg-[...]` Tailwind utilities. Use the appropriate Tailwind token utility (e.g. `bg-bg`, `text-text`, `border-border-subtle`) or `var(--color-*)` instead.
+- Hardcoded white-alpha overlays (`rgba(255, 255, 255, 0.06)`) instead of semantic variables (`var(--color-hover)`, `var(--color-border-subtle)`).
+- Hardcoded accent blue (`#74c0fc`, `rgba(116, 192, 252, ...)`) instead of `var(--color-accent*)`.
+- Status colors (red, green, yellow) as literal values instead of `var(--color-danger*)`, `var(--color-success)`, `var(--color-warning*)`.
 - Exception: the notch overlay (`NotchOverlay.svelte`, `NotchNotificationRow.svelte`) uses fixed colors because it always renders on the macOS physical black notch. Box-shadow `rgba(0,0,0,...)` values are structural and exempt.
 
 ### Pattern matching

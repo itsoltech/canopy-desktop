@@ -92,11 +92,11 @@ Middle mouse button pans the canvas viewport regardless of the active tool. Stro
 
 Canvas rendering reads CSS custom properties from the container element:
 
-| CSS variable    | Usage                      |
-| --------------- | -------------------------- |
-| `--c-bg`        | Canvas background fill     |
-| `--c-accent`    | Selection highlight stroke |
-| `--c-accent-bg` | Marquee selection fill     |
+| CSS variable        | Usage                      |
+| ------------------- | -------------------------- |
+| `--color-bg`        | Canvas background fill     |
+| `--color-accent`    | Selection highlight stroke |
+| `--color-accent-bg` | Marquee selection fill     |
 
 If the container has not yet received theme styles, `getThemeColor` falls back to `document.documentElement` computed styles before using hardcoded defaults.
 

@@ -123,15 +123,14 @@ preserved.
 - Language mode is selected by filename via `@codemirror/language-data`
   (lazy-loaded per language).
 - A single theme extension maps CodeMirror tokens onto CSS custom
-  properties: `--c-syntax-keyword`, `--c-syntax-string`,
-  `--c-syntax-comment`, `--c-syntax-number`, `--c-syntax-operator`,
-  `--c-syntax-function`, `--c-syntax-variable`, `--c-syntax-property`,
-  `--c-syntax-type`, `--c-syntax-tag`, `--c-syntax-attribute`,
-  `--c-syntax-heading`, `--c-syntax-invalid`.
+  properties: `--color-syntax-keyword`, `--color-syntax-string`,
+  `--color-syntax-comment`, `--color-syntax-number`, `--color-syntax-operator`,
+  `--color-syntax-function`, `--color-syntax-variable`, `--color-syntax-property`,
+  `--color-syntax-type`, `--color-syntax-tag`, `--color-syntax-heading`,
+  `--color-syntax-error`.
 - These vars are derived in `deriveAppTheme()` from the xterm ANSI colors
   (magenta, green, yellow, cyan, blue) so a theme switch reflows editor
   colors without reinitialization.
-- Indentation guides use `--c-indent-guide` and `--c-indent-guide-active`.
 
 ## Clickable paths
 
