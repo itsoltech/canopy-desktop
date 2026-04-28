@@ -75,7 +75,9 @@
   "overrides": {
     "@xmldom/xmldom": "^0.8.13",
     "postcss": "^8.5.10",
-    "uuid": "^14.0.0"
+    "xcode": {
+      "uuid": "^14.0.0"
+    }
   },
   "private": true,
   "volta": {
