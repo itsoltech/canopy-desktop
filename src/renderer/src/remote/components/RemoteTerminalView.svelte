@@ -438,58 +438,20 @@
   })
 </script>
 
-<div class="terminal-scroll" bind:this={scrollEl}>
-  <div class="terminal-wrap" bind:this={containerEl}></div>
+<div
+  class="flex-1 min-h-0 w-full overflow-auto rounded-lg border border-border bg-bg [overscroll-behavior:contain] [touch-action:pan-x_pan-y]"
+  bind:this={scrollEl}
+>
+  <div class="terminal-wrap w-fit min-w-full p-2" bind:this={containerEl}></div>
 </div>
 
+<!-- Global xterm overrides: neutralize xterm's internal layout/scrollbars so our outer scroll wins. -->
 <style>
-  /* The outer scroll container sits inside the preview frame / overlay and
-     lets the user pan horizontally AND vertically when the xterm canvas
-     (sized to host PTY cols × rows) is larger than the viewer's viewport. */
-  .terminal-scroll {
-    flex: 1;
-    min-height: 0;
-    width: 100%;
-    overflow: auto;
-    border-radius: 8px;
-    border: 1px solid var(--color-border);
-    background: var(--color-bg, var(--color-bg));
-    /* Block scroll chaining so a swipe past the edge doesn't trigger the
-       mobile browser's pull-to-refresh (which would tear down the remote
-       session) and doesn't bubble up into the page body. `contain` keeps
-       the scroll inside this element only. */
-    overscroll-behavior: contain;
-    /* Only allow axis-aligned panning — no pinch-zoom on the terminal, no
-       double-tap zoom. That keeps every finger gesture predictable:
-       vertical scroll = scrollback history, horizontal scroll = pan across
-       wide lines. */
-    touch-action: pan-x pan-y;
-  }
-
-  /* The inner wrap is what xterm mounts into. We deliberately give it
-     `width: fit-content` so it keeps its natural column-based width and
-     doesn't get squeezed into the scroll container — that's what makes
-     the outer container actually scroll horizontally. */
-  .terminal-wrap {
-    width: fit-content;
-    min-width: 100%;
-    padding: 8px;
-  }
-
-  /* Neutralize any width/height constraint xterm's wrapper div might
-     pick up from percentage-based layout. The canvas inside is sized by
-     xterm itself based on cols × character width. */
   .terminal-wrap :global(.xterm) {
     width: fit-content;
     height: auto;
   }
 
-  /* Kill xterm's own scrollbars — we handle scrolling at the
-     `.terminal-scroll` level so there's one consistent scroll surface
-     instead of nested competing scrollbars. After importing xterm's CSS
-     the default `.xterm-viewport { overflow-y: scroll }` rule would
-     otherwise give us a second vertical scrollbar inside our outer
-     scroll container; `!important` overrides that specificity. */
   .terminal-wrap :global(.xterm-viewport) {
     overflow: hidden !important;
     width: auto !important;
