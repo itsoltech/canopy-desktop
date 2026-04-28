@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { Check, X, Plus, Trash2 } from '@lucide/svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
+  import { Plus, Trash2 } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import {
     getRepoConfig,
@@ -14,6 +13,7 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
   import PrefsSection from './_partials/PrefsSection.svelte'
+  import TrackerEditForm from './_partials/TrackerEditForm.svelte'
 
   interface Props {
     repoRoot?: string
@@ -196,7 +196,20 @@
 
       {#each config.trackers as tracker (tracker.id)}
         {#if editingId === tracker.id}
-          {@render editForm()}
+          <TrackerEditForm
+            bind:provider={editProvider}
+            bind:baseUrl={editBaseUrl}
+            bind:projectKey={editProjectKey}
+            bind:username={editUsername}
+            bind:token={editToken}
+            isNew={false}
+            hasExistingToken={trackerCreds[tracker.id]?.hasToken ?? false}
+            {testing}
+            {testResult}
+            onCancel={cancelEdit}
+            onTest={testConnection}
+            onSave={saveTracker}
+          />
         {:else}
           <div class="flex items-center gap-1">
             <button
@@ -235,7 +248,20 @@
       {/each}
 
       {#if editingId === '__new__'}
-        {@render editForm()}
+        <TrackerEditForm
+          bind:provider={editProvider}
+          bind:baseUrl={editBaseUrl}
+          bind:projectKey={editProjectKey}
+          bind:username={editUsername}
+          bind:token={editToken}
+          isNew={true}
+          hasExistingToken={false}
+          {testing}
+          {testResult}
+          onCancel={cancelEdit}
+          onTest={testConnection}
+          onSave={saveTracker}
+        />
       {/if}
 
       {#if editingId === null}
@@ -251,156 +277,3 @@
     </div>
   </PrefsSection>
 {/if}
-
-{#snippet editForm()}
-  <div class="flex flex-col gap-2 p-3 border border-border rounded-md bg-bg-input">
-    <div class="flex flex-col gap-1">
-      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-        >Provider</span
-      >
-      <CustomSelect
-        value={editProvider}
-        options={[
-          { value: 'jira', label: 'Jira' },
-          { value: 'youtrack', label: 'YouTrack' },
-          { value: 'github', label: 'GitHub' },
-        ]}
-        onchange={(v) => (editProvider = v as 'jira' | 'youtrack' | 'github')}
-      />
-    </div>
-
-    <div class="flex flex-col gap-1">
-      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-        >Base URL</span
-      >
-      <input
-        class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-        name="baseUrl"
-        aria-label="Base URL"
-        bind:value={editBaseUrl}
-        placeholder={editProvider === 'github'
-          ? 'https://github.com'
-          : 'https://company.atlassian.net'}
-        spellcheck="false"
-      />
-    </div>
-
-    {#if editProvider === 'github'}
-      <div class="flex flex-col gap-1">
-        <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-          >Repository (optional)</span
-        >
-        <input
-          class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="projectKey"
-          aria-label="Repository"
-          bind:value={editProjectKey}
-          placeholder="owner/repo — auto-detected if empty"
-          spellcheck="false"
-        />
-      </div>
-    {/if}
-
-    <div class="flex flex-col gap-2 pt-2 border-t border-border-subtle">
-      <span class="text-2xs text-text-faint">Credentials — stored locally, never committed.</span>
-
-      {#if editProvider === 'jira'}
-        <div class="flex flex-col gap-1">
-          <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-            >Email</span
-          >
-          <input
-            class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-            name="username"
-            aria-label="Email"
-            bind:value={editUsername}
-            placeholder="user@company.com"
-            spellcheck="false"
-          />
-        </div>
-      {/if}
-
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center justify-between gap-2">
-          <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-            >API token</span
-          >
-          {#if editProvider === 'jira'}
-            <button
-              type="button"
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={() =>
-                window.api.openExternal(
-                  'https://id.atlassian.com/manage-profile/security/api-tokens',
-                )}
-            >
-              Generate →
-            </button>
-          {:else if editProvider === 'youtrack'}
-            <button
-              type="button"
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={() => {
-                const url = editBaseUrl
-                  ? `${editBaseUrl.replace(/\/$/, '')}/hub/tokens`
-                  : 'https://youtrack.jetbrains.com/hub/tokens'
-                window.api.openExternal(url)
-              }}
-            >
-              Generate →
-            </button>
-          {:else if editProvider === 'github'}
-            <button
-              type="button"
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={() => window.api.openExternal('https://github.com/settings/tokens')}
-            >
-              Generate →
-            </button>
-          {/if}
-        </div>
-        <input
-          class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-          type="password"
-          name="token"
-          aria-label="API token"
-          bind:value={editToken}
-          placeholder={editingId !== '__new__' && trackerCreds[editingId ?? '']?.hasToken
-            ? '••••••••'
-            : 'Enter token'}
-          autocomplete="off"
-        />
-      </div>
-    </div>
-
-    <div class="min-h-4.5" aria-live="polite">
-      {#if testResult === 'success'}
-        <span class="flex items-center gap-1 text-xs text-success"><Check size={13} /> OK</span>
-      {:else if testResult === 'fail'}
-        <span class="flex items-center gap-1 text-xs text-danger-text"><X size={13} /> Failed</span>
-      {/if}
-    </div>
-
-    <div class="flex gap-1.5 justify-end">
-      <button
-        type="button"
-        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-        onclick={cancelEdit}>Cancel</button
-      >
-      <button
-        type="button"
-        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
-        onclick={testConnection}
-        disabled={testing || !editBaseUrl || !editToken}
-      >
-        {testing ? 'Testing…' : 'Test'}
-      </button>
-      <button
-        type="button"
-        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
-        onclick={saveTracker}
-        disabled={!editBaseUrl}>Save</button
-      >
-    </div>
-  </div>
-{/snippet}

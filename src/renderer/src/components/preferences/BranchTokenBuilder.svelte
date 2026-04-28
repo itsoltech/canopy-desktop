@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SeparatorPopover from './_partials/SeparatorPopover.svelte'
+
   interface TemplateToken {
     type: 'placeholder' | 'separator'
     value: string
@@ -296,50 +298,24 @@
 </div>
 
 {#if sepPopup.visible}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-popover" onclick={closeSepPopup}>
-    <div
-      class="fixed flex items-center gap-1 px-2 py-1 bg-bg-overlay border border-border rounded-md shadow-popover -translate-x-1/2 -translate-y-full -mt-2"
-      style="left:{sepPopup.x}px;top:{sepPopup.y}px"
-      onclick={(e) => e.stopPropagation()}
-    >
-      <span class="text-2xs uppercase tracking-caps-tight text-text-muted mr-0.5">Separator</span>
-      {#each SEPARATORS as sep (sep)}
-        <button
-          type="button"
-          class="px-2 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary text-sm font-mono cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
-          onclick={() => confirmSeparatorAndAdd(sep)}
-        >
-          {sep}
-        </button>
-      {/each}
-    </div>
-  </div>
+  <SeparatorPopover
+    x={sepPopup.x}
+    y={sepPopup.y}
+    label="Separator"
+    separators={SEPARATORS}
+    onPick={confirmSeparatorAndAdd}
+    onClose={closeSepPopup}
+  />
 {/if}
 
 {#if editSepPopup.visible}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-popover" onclick={closeEditSepPopup}>
-    <div
-      class="fixed flex items-center gap-1 px-2 py-1 bg-bg-overlay border border-border rounded-md shadow-popover -translate-x-1/2 -translate-y-full -mt-2"
-      style="left:{editSepPopup.x}px;top:{editSepPopup.y}px"
-      onclick={(e) => e.stopPropagation()}
-    >
-      <span class="text-2xs uppercase tracking-caps-tight text-text-muted mr-0.5">Change to</span>
-      {#each SEPARATORS as sep (sep)}
-        <button
-          type="button"
-          class="px-2 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary text-sm font-mono cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
-          onclick={() => changeSeparator(sep)}
-        >
-          {sep}
-        </button>
-      {/each}
-      <button
-        type="button"
-        class="px-2 py-0.5 border border-border rounded-sm bg-bg-input text-danger-text text-sm font-mono cursor-pointer hover:bg-danger-bg hover:border-danger-text"
-        onclick={removeSeparatorToken}>×</button
-      >
-    </div>
-  </div>
+  <SeparatorPopover
+    x={editSepPopup.x}
+    y={editSepPopup.y}
+    label="Change to"
+    separators={SEPARATORS}
+    onPick={changeSeparator}
+    onClose={closeEditSepPopup}
+    onRemove={removeSeparatorToken}
+  />
 {/if}

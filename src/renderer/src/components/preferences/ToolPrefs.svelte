@@ -3,67 +3,67 @@
   import { getTools } from '../../lib/stores/tools.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
+  import ToolForm from './_partials/ToolForm.svelte'
   import { prefsSearch, matches } from './_partials/prefsSearch.svelte'
 
+  interface ToolDraft {
+    id: string
+    name: string
+    command: string
+    args: string
+    category: string
+  }
+
+  function emptyDraft(): ToolDraft {
+    return { id: '', name: '', command: '', args: '', category: 'system' }
+  }
+
   let showForm = $state(false)
-  let newId = $state('')
-  let newName = $state('')
-  let newCommand = $state('')
-  let newArgs = $state('')
-  let newCategory = $state('system')
+  let newDraft = $state<ToolDraft>(emptyDraft())
   let error = $state('')
 
   let editingId: string | null = $state(null)
-  let editName = $state('')
-  let editCommand = $state('')
-  let editArgs = $state('')
-  let editCategory = $state('')
+  let editDraft = $state<ToolDraft>(emptyDraft())
   let editError = $state('')
 
-  const categoryOptions = [
-    { value: 'ai', label: 'AI' },
-    { value: 'git', label: 'Git' },
-    { value: 'system', label: 'System' },
-    { value: 'shell', label: 'Shell' },
-  ]
-
-  function resetNewForm(): void {
-    newId = ''
-    newName = ''
-    newCommand = ''
-    newArgs = ''
-    newCategory = 'system'
-    error = ''
+  function parseArgs(s: string): string[] {
+    return s
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)
   }
 
   async function addTool(): Promise<void> {
-    if (!newId.trim() || !newName.trim() || !newCommand.trim()) {
+    if (!newDraft.id.trim() || !newDraft.name.trim() || !newDraft.command.trim()) {
       error = 'ID, name, and command are required'
       return
     }
-    if (getTools().some((t) => t.id === newId.trim())) {
+    if (getTools().some((t) => t.id === newDraft.id.trim())) {
       error = 'Tool ID already exists'
       return
     }
 
     try {
       await window.api.addCustomTool({
-        id: newId.trim(),
-        name: newName.trim(),
-        command: newCommand.trim(),
-        args: newArgs
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-        category: newCategory,
+        id: newDraft.id.trim(),
+        name: newDraft.name.trim(),
+        command: newDraft.command.trim(),
+        args: parseArgs(newDraft.args),
+        category: newDraft.category,
       })
-      resetNewForm()
+      newDraft = emptyDraft()
+      error = ''
       showForm = false
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     }
+  }
+
+  function cancelAdd(): void {
+    newDraft = emptyDraft()
+    error = ''
+    showForm = false
   }
 
   async function removeTool(id: string, name: string): Promise<void> {
@@ -85,10 +85,13 @@
     category: string
   }): void {
     editingId = tool.id
-    editName = tool.name
-    editCommand = tool.command
-    editArgs = tool.args.join(', ')
-    editCategory = tool.category
+    editDraft = {
+      id: tool.id,
+      name: tool.name,
+      command: tool.command,
+      args: tool.args.join(', '),
+      category: tool.category,
+    }
     editError = ''
   }
 
@@ -99,20 +102,17 @@
 
   async function saveEdit(): Promise<void> {
     if (!editingId) return
-    if (!editName.trim() || !editCommand.trim()) {
+    if (!editDraft.name.trim() || !editDraft.command.trim()) {
       editError = 'Name and command are required'
       return
     }
 
     try {
       await window.api.updateCustomTool(editingId, {
-        name: editName.trim(),
-        command: editCommand.trim(),
-        args: editArgs
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-        category: editCategory,
+        name: editDraft.name.trim(),
+        command: editDraft.command.trim(),
+        args: parseArgs(editDraft.args),
+        category: editDraft.category,
       })
       editingId = null
       editError = ''
@@ -135,69 +135,13 @@
     <div class="flex flex-col">
       {#each getTools() as tool (tool.id)}
         {#if editingId === tool.id}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="flex flex-col gap-2 p-3 my-1 border border-border rounded-md bg-bg-input"
-            onkeydown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                saveEdit()
-              }
-              if (e.key === 'Escape') cancelEdit()
-            }}
-          >
-            <div
-              class="flex items-center gap-2 text-2xs uppercase tracking-caps-tight text-text-faint"
-            >
-              <span>Editing</span>
-              <code class="font-mono text-text-muted normal-case tracking-normal">{tool.id}</code>
-            </div>
-            <input
-              class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-              name="editName"
-              aria-label="Display name"
-              bind:value={editName}
-              placeholder="Display name"
-              spellcheck="false"
-            />
-            <input
-              class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-              name="editCommand"
-              aria-label="Command"
-              bind:value={editCommand}
-              placeholder="Command (binary name)"
-              spellcheck="false"
-            />
-            <input
-              class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-              name="editArgs"
-              aria-label="Args"
-              bind:value={editArgs}
-              placeholder="Args (comma-separated)"
-              spellcheck="false"
-            />
-            <CustomSelect
-              value={editCategory}
-              options={categoryOptions}
-              maxWidth="100%"
-              onchange={(v) => (editCategory = v)}
-            />
-            {#if editError}
-              <p class="text-sm text-danger-text m-0">{editError}</p>
-            {/if}
-            <div class="flex justify-end gap-2">
-              <button
-                type="button"
-                class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-                onclick={cancelEdit}>Cancel</button
-              >
-              <button
-                type="button"
-                class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
-                onclick={saveEdit}>Save</button
-              >
-            </div>
-          </div>
+          <ToolForm
+            bind:draft={editDraft}
+            mode="edit"
+            error={editError}
+            onCancel={cancelEdit}
+            onSubmit={saveEdit}
+          />
         {:else}
           <div
             class="group/tool flex items-center gap-3 py-2 border-t border-border-subtle first:border-t-0 first:pt-0 transition-opacity duration-fast"
@@ -242,77 +186,7 @@
     </div>
 
     {#if showForm}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="flex flex-col gap-2 p-3 mt-3 border border-border rounded-md bg-bg-input"
-        onkeydown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            addTool()
-          }
-          if (e.key === 'Escape') {
-            showForm = false
-            resetNewForm()
-          }
-        }}
-      >
-        <input
-          class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newId"
-          aria-label="Tool ID"
-          bind:value={newId}
-          placeholder="ID (e.g. my-tool)"
-          spellcheck="false"
-        />
-        <input
-          class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newName"
-          aria-label="Display name"
-          bind:value={newName}
-          placeholder="Display name"
-          spellcheck="false"
-        />
-        <input
-          class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newCommand"
-          aria-label="Command"
-          bind:value={newCommand}
-          placeholder="Command (binary name)"
-          spellcheck="false"
-        />
-        <input
-          class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newArgs"
-          aria-label="Args"
-          bind:value={newArgs}
-          placeholder="Args (comma-separated)"
-          spellcheck="false"
-        />
-        <CustomSelect
-          value={newCategory}
-          options={categoryOptions}
-          maxWidth="100%"
-          onchange={(v) => (newCategory = v)}
-        />
-        {#if error}
-          <p class="text-sm text-danger-text m-0">{error}</p>
-        {/if}
-        <div class="flex justify-end gap-2">
-          <button
-            type="button"
-            class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-            onclick={() => {
-              showForm = false
-              resetNewForm()
-            }}>Cancel</button
-          >
-          <button
-            type="button"
-            class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
-            onclick={addTool}>Add tool</button
-          >
-        </div>
-      </div>
+      <ToolForm bind:draft={newDraft} mode="add" {error} onCancel={cancelAdd} onSubmit={addTool} />
     {:else}
       <button
         type="button"
