@@ -6,6 +6,7 @@ type HookEventHandler = (event: Record<string, unknown>) => Record<string, unkno
 type StatusUpdateHandler = (data: Record<string, unknown>) => void
 
 const MAX_BODY_BYTES = 1_048_576 // 1 MB
+const BODY_READ_TIMEOUT_MS = 30_000
 
 interface SessionEntry {
   authToken: string
@@ -170,17 +171,27 @@ export class AgentHookRouter {
     return new Promise((resolve) => {
       let data = ''
       let bytes = 0
+      // Cap the wait so a slow/idle client cannot pin an HTTP socket and
+      // accumulate one half-open connection per stalled request.
+      const timer = setTimeout(() => {
+        req.destroy()
+        resolve('')
+      }, BODY_READ_TIMEOUT_MS)
+      const finish = (value: string): void => {
+        clearTimeout(timer)
+        resolve(value)
+      }
       req.on('data', (chunk: Buffer) => {
         bytes += chunk.length
         if (bytes > MAX_BODY_BYTES) {
           req.destroy()
-          resolve('')
+          finish('')
           return
         }
         data += chunk
       })
-      req.on('end', () => resolve(data))
-      req.on('error', () => resolve(''))
+      req.on('end', () => finish(data))
+      req.on('error', () => finish(''))
     })
   }
 }
