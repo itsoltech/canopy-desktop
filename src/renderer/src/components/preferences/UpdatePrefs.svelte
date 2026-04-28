@@ -132,11 +132,13 @@
         >
           {checkState === 'checking' ? 'Checking…' : 'Check now'}
         </button>
-        {#if checkState === 'up-to-date'}
-          <span class="text-sm text-success">You're up to date</span>
-        {:else if checkState === 'error'}
-          <span class="text-sm text-danger">Check failed</span>
-        {/if}
+        <span class="text-sm" role="status" aria-live="polite">
+          {#if checkState === 'up-to-date'}
+            <span class="text-success">You're up to date</span>
+          {:else if checkState === 'error'}
+            <span class="text-danger">Check failed</span>
+          {/if}
+        </span>
       </div>
     </PrefsRow>
   </PrefsSection>

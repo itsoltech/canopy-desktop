@@ -26,6 +26,7 @@
   <button
     type="button"
     class="flex items-center gap-2 w-full px-1 py-2 border-0 bg-transparent text-left cursor-pointer hover:bg-row-hover rounded-md"
+    aria-expanded={expanded}
     onclick={onToggle}
   >
     {#if expanded}

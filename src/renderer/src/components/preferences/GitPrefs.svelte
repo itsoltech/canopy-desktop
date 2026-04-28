@@ -155,8 +155,9 @@
           <div class="flex flex-col gap-0.5 min-w-0 flex-1">
             <span class="text-md text-text truncate">{workspace.name}</span>
             {#if workspaceState.repoRoot}
-              <span class="text-2xs text-text-faint font-mono truncate"
-                >{workspaceState.repoRoot}</span
+              <span
+                class="text-2xs text-text-faint font-mono truncate"
+                title={workspaceState.repoRoot}>{workspaceState.repoRoot}</span
               >
             {/if}
           </div>

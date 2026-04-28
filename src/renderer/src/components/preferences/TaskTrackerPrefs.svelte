@@ -147,12 +147,12 @@
   <div class="flex flex-col gap-2">
     <div
       class="inline-flex w-fit p-0.5 bg-bg-input border border-border-subtle rounded-md select-none"
-      role="tablist"
+      role="group"
+      aria-label="Settings scope"
     >
       <button
         type="button"
-        role="tab"
-        aria-selected={scope === 'global'}
+        aria-pressed={scope === 'global'}
         class="px-3 py-1 border-0 rounded-sm text-sm font-inherit cursor-pointer disabled:opacity-40 disabled:cursor-default"
         class:bg-bg={scope === 'global'}
         class:text-text={scope === 'global'}
@@ -165,8 +165,7 @@
       </button>
       <button
         type="button"
-        role="tab"
-        aria-selected={scope === 'project'}
+        aria-pressed={scope === 'project'}
         class="px-3 py-1 border-0 rounded-sm text-sm font-inherit cursor-pointer disabled:opacity-40 disabled:cursor-default"
         class:bg-bg={scope === 'project'}
         class:text-text={scope === 'project'}

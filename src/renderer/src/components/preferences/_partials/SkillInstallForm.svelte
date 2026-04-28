@@ -74,7 +74,7 @@
 <div
   class="flex flex-col gap-2 p-3 border border-border rounded-md bg-bg-input"
   onkeydown={(e) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault()
       install()
     }
