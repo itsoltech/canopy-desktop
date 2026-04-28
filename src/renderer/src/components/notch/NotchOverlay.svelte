@@ -178,3 +178,29 @@
     </div>
   </div>
 {/if}
+
+<!--
+  Body rules for the notch HTML entry (notch.html).
+  Live here instead of globals.css because they are entry-point-specific:
+   - main renderer's body (main.css) keeps its own background/overflow rules,
+   - flex centering on body anchors the notch island to the top-center so
+     width/height transitions grow symmetrically (left + right + down)
+     instead of margin-auto desyncing during a transition-all tween.
+-->
+<style>
+  :global(body) {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none;
+    user-select: none;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    width: 100vw;
+    min-height: 100vh;
+  }
+</style>
