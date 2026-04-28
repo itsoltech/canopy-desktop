@@ -72,17 +72,17 @@
   --color-accent-muted: oklch(0.782 0.115 243.83 / 0.3);
 
   --color-danger: oklch(0.712 0.181 22.84);
-  --color-danger-bg: oklch(0.712 0.181 22.84 / 0.2);
-  --color-danger-text: oklch(0.712 0.181 22.84 / 0.9);
+  --color-danger-bg: color-mix(in srgb, var(--color-danger) 20%, transparent);
+  --color-danger-text: color-mix(in srgb, var(--color-danger) 90%, transparent);
   --color-success: oklch(0.802 0.168 147.32);
-  --color-success-bg: oklch(0.802 0.168 147.32 / 0.2);
-  --color-success-text: oklch(0.802 0.168 147.32 / 0.9);
+  --color-success-bg: color-mix(in srgb, var(--color-success) 20%, transparent);
+  --color-success-text: color-mix(in srgb, var(--color-success) 90%, transparent);
   --color-warning: oklch(0.883 0.165 92.22);
-  --color-warning-bg: oklch(0.883 0.165 92.22 / 0.2);
-  --color-warning-text: oklch(0.883 0.165 92.22 / 0.9);
+  --color-warning-bg: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  --color-warning-text: color-mix(in srgb, var(--color-warning) 90%, transparent);
   --color-generate: oklch(0.725 0.196 319.53);
-  --color-generate-bg: color-mix(in srgb, oklch(0.725 0.196 319.53) 20%, transparent);
-  --color-generate-bg-hover: color-mix(in srgb, oklch(0.725 0.196 319.53) 30%, transparent);
+  --color-generate-bg: color-mix(in srgb, var(--color-generate) 20%, transparent);
+  --color-generate-bg-hover: color-mix(in srgb, var(--color-generate) 30%, transparent);
 
   --color-blazing: oklch(0.752 0.169 53.69);
   --color-blazing-bg: oklch(0.752 0.169 53.69 / 0.2);
@@ -117,6 +117,7 @@
   --color-diff-hunk-header-bg: color-mix(in srgb, var(--color-accent) 10%, transparent);
 
   --color-experimental-bg: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  --color-experimental-border: color-mix(in srgb, var(--color-warning) 40%, transparent);
 
   /* Code editor syntax highlighting (CodeMirror theme defaults). */
   --color-syntax-keyword: oklch(0.702 0.109 329.42);

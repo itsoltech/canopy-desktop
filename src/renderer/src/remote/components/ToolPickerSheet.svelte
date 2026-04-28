@@ -22,7 +22,7 @@
 
 <button
   type="button"
-  class="sheet-backdrop fixed inset-0 z-[2500] cursor-pointer bg-scrim border-0 m-0 p-0 [all:unset]"
+  class="sheet-backdrop fixed inset-0 z-[2500] cursor-pointer bg-scrim border-0 m-0 p-0 appearance-none"
   aria-label="Close tool picker"
   onclick={onClose}
 ></button>
