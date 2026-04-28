@@ -183,7 +183,7 @@
   role="presentation"
 >
   <div
-    class="w-[min(620px,90vw)] max-h-[70vh] flex flex-col bg-bg-elevated border border-border rounded-xl shadow-[0_20px_60px_oklch(0_0_0/0.4)] overflow-hidden"
+    class="w-[min(620px,90vw)] max-h-[70vh] flex flex-col bg-bg-elevated border border-border rounded-xl shadow-modal overflow-hidden"
     onclick={(e) => e.stopPropagation()}
     onkeydown={handleKeydown}
     role="dialog"
