@@ -89,7 +89,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="fixed inset-0 flex items-center justify-center bg-[oklch(0_0_0/0.5)] z-[100]"
+  class="fixed inset-0 flex items-center justify-center bg-scrim z-[100]"
   role="dialog"
   aria-modal="true"
   onkeydown={handleKeydown}
