@@ -48,6 +48,7 @@
   let setupTerm: Terminal | null = null
   let progressState = $state(0)
   let progressValue = $state(0)
+  let finishTimer: ReturnType<typeof setTimeout> | null = null
 
   let repoRoot = $derived(repoRootProp ?? workspaceState.repoRoot!)
   let projectName = $derived(repoRoot.split('/').pop() || 'project')
@@ -101,6 +102,7 @@
   }
 
   onDestroy(() => {
+    if (finishTimer) clearTimeout(finishTimer)
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
@@ -235,8 +237,10 @@
   function finishCreation(): void {
     if (step === 'done') return
     step = 'done'
-    setTimeout(
+    if (finishTimer) clearTimeout(finishTimer)
+    finishTimer = setTimeout(
       async () => {
+        finishTimer = null
         await openTool(getPref('newWorktree.toolId', 'shell'), worktreeDirDisplay).catch((err) => {
           console.error('Failed to launch tool after worktree creation:', err)
         })

@@ -28,6 +28,7 @@ function fetchGitHubReleases(): ResultAsyncType<GitHubRelease[], ChangelogError>
           Accept: 'application/vnd.github.v3+json',
           'User-Agent': 'Canopy-Desktop',
         },
+        signal: AbortSignal.timeout(15_000),
       })
       if (!response.ok) throw new Error(`GitHub API ${response.status}`)
       return (await response.json()) as GitHubRelease[]

@@ -10,6 +10,7 @@
   let qrInstance: QRCodeStyling | null = null
   let errorMsg: string | null = $state(null)
   let copied = $state(false)
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null
   let now = $state(Date.now())
   let tick: ReturnType<typeof setInterval> | null = null
 
@@ -75,6 +76,12 @@
 
   onDestroy(() => {
     if (tick) clearInterval(tick)
+    if (copiedTimer) clearTimeout(copiedTimer)
+    // Note: we deliberately do NOT tear the session down here. The modal can
+    // be unmounted for many reasons (Svelte reactive cascade, parent
+    // re-render, navigation) and tearing the session down on every unmount
+    // led to a race where pairing was killed mid-flight. The user must
+    // explicitly close via the Stop button below to terminate the session.
   })
 
   $effect(() => {
@@ -111,7 +118,11 @@
     try {
       await navigator.clipboard.writeText(pairingUrl)
       copied = true
-      setTimeout(() => (copied = false), 1500)
+      if (copiedTimer) clearTimeout(copiedTimer)
+      copiedTimer = setTimeout(() => {
+        copiedTimer = null
+        copied = false
+      }, 1500)
     } catch {
       copied = false
     }

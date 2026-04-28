@@ -10,6 +10,7 @@
 
   let checkState: 'idle' | 'checking' | 'up-to-date' | 'error' = $state('idle')
   let checkCleanup: (() => void) | null = $state(null)
+  let dismissTimer: ReturnType<typeof setTimeout> | null = null
 
   function toggleAutoUpdate(): void {
     const next = !autoUpdate
@@ -33,7 +34,9 @@
 
     const dismiss = (state: 'up-to-date' | 'error'): void => {
       checkState = state
-      setTimeout(() => {
+      if (dismissTimer) clearTimeout(dismissTimer)
+      dismissTimer = setTimeout(() => {
+        dismissTimer = null
         if (checkState === state) checkState = 'idle'
       }, 4000)
     }
@@ -61,7 +64,10 @@
     window.api.checkForUpdates()
   }
 
-  onDestroy(() => checkCleanup?.())
+  onDestroy(() => {
+    checkCleanup?.()
+    if (dismissTimer) clearTimeout(dismissTimer)
+  })
 </script>
 
 <div class="flex flex-col gap-4">
