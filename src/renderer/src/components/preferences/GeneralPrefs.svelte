@@ -9,6 +9,11 @@
   import PrefsRow from './_partials/PrefsRow.svelte'
 
   const isMac = navigator.userAgent.includes('Mac')
+  const isWin = window.api.platform === 'win32'
+
+  const shellHelp = isWin
+    ? 'Default shell on Windows is set in System Settings — restart Canopy after changing.'
+    : 'Resolved from $SHELL at launch — change with chsh, then restart.'
 
   let reopenLast = $derived(prefs.reopenLastWorkspace !== 'false')
   let perfHudEnabled = $derived(prefs['perf.hud.enabled'] === 'true')
@@ -97,11 +102,7 @@
       />
     </PrefsRow>
 
-    <PrefsRow
-      label="Shell"
-      help="Resolved from $SHELL at launch — change with chsh, then restart"
-      search="shell zsh bash fish $SHELL"
-    >
+    <PrefsRow label="Shell" help={shellHelp} search="shell zsh bash fish $SHELL powershell cmd">
       <span class="text-sm text-text-muted font-mono">auto-detected</span>
     </PrefsRow>
   </PrefsSection>
