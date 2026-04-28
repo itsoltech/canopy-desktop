@@ -15,6 +15,9 @@
 
   let { label, help, search, layout = 'inline', badge, children }: Props = $props()
 
+  const labelId = `prefs-row-label-${crypto.randomUUID()}`
+  const helpId = `prefs-row-help-${crypto.randomUUID()}`
+
   const haystack = $derived(`${label} ${help ?? ''} ${search ?? ''}`)
   const visible = $derived(prefsSearch.query.trim() === '' || matches(haystack))
 
@@ -27,7 +30,7 @@
 </script>
 
 {#snippet labelBlock()}
-  <span class="flex items-center gap-1.5 flex-wrap">
+  <span class="flex items-center gap-1.5 flex-wrap" id={labelId}>
     <span class="text-md text-text leading-snug">{label}</span>
     {#if badge}
       <span
@@ -45,14 +48,20 @@
   <div
     class="flex items-start justify-between gap-6 py-3 border-t border-border-subtle first:border-t-0 first:pt-0 transition-opacity duration-fast"
     class:opacity-30={!visible}
+    inert={!visible}
   >
     <div class="flex flex-col flex-1 min-w-0 gap-0.5">
       {@render labelBlock()}
       {#if help}
-        <span class="text-xs text-text-muted leading-snug max-w-[55ch]">{help}</span>
+        <span class="text-xs text-text-muted leading-snug max-w-[55ch]" id={helpId}>{help}</span>
       {/if}
     </div>
-    <div class="shrink-0 pt-0.5">
+    <div
+      class="shrink-0 pt-0.5"
+      role="group"
+      aria-labelledby={labelId}
+      aria-describedby={help ? helpId : undefined}
+    >
       {@render children()}
     </div>
   </div>
@@ -60,14 +69,15 @@
   <div
     class="flex flex-col gap-2 py-3 border-t border-border-subtle first:border-t-0 first:pt-0 transition-opacity duration-fast"
     class:opacity-30={!visible}
+    inert={!visible}
   >
     <div class="flex flex-col gap-0.5">
       {@render labelBlock()}
       {#if help}
-        <span class="text-xs text-text-muted leading-snug max-w-[55ch]">{help}</span>
+        <span class="text-xs text-text-muted leading-snug max-w-[55ch]" id={helpId}>{help}</span>
       {/if}
     </div>
-    <div>
+    <div role="group" aria-labelledby={labelId} aria-describedby={help ? helpId : undefined}>
       {@render children()}
     </div>
   </div>
