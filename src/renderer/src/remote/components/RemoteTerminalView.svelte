@@ -444,22 +444,3 @@
 >
   <div class="terminal-wrap w-fit min-w-full p-2" bind:this={containerEl}></div>
 </div>
-
-<!-- Global xterm overrides: neutralize xterm's internal layout/scrollbars so our outer scroll wins. -->
-<style>
-  .terminal-wrap :global(.xterm) {
-    width: fit-content;
-    height: auto;
-  }
-
-  .terminal-wrap :global(.xterm-viewport) {
-    overflow: hidden !important;
-    width: auto !important;
-    height: auto !important;
-    position: static !important;
-  }
-
-  .terminal-wrap :global(.xterm-screen) {
-    width: fit-content;
-  }
-</style>

@@ -671,10 +671,3 @@
     </div>
   {/if}
 </div>
-
-<!-- `contain: strict` is a perf hint; not expressible as Tailwind utility. -->
-<style>
-  .terminal-container {
-    contain: strict;
-  }
-</style>

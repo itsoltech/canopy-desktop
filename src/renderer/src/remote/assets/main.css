@@ -1,4 +1,5 @@
 @import '../../../../renderer-shared/styles/tokens.css';
+@import '../../../../renderer-shared/styles/globals.css';
 
 html,
 body {

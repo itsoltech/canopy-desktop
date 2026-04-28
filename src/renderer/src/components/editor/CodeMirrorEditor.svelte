@@ -203,14 +203,3 @@
 
 <!-- :global() rules required to style CodeMirror's internal classes (.cm-editor, .cm-scroller).
      These selectors don't exist in our markup so cannot be expressed as Tailwind utilities. -->
-<style>
-  .cm-root :global(.cm-editor) {
-    height: 100%;
-  }
-  .cm-root :global(.cm-editor.cm-focused) {
-    outline: none;
-  }
-  .cm-root :global(.cm-scroller) {
-    overflow: auto;
-  }
-</style>

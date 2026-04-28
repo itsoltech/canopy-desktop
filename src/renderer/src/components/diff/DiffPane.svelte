@@ -651,26 +651,4 @@
 </div>
 
 <!--
-  <style> retained as a justified exception:
-   - `.diff-line.add .line-prefix` / `.diff-line.add .line-content` cascading overrides
-     (parent class controls children color) — not expressible without per-line class duplication
-   - `.diff-line:hover .comment-trigger { opacity: 1 }` — descendant-on-hover toggle
-   - `:global(.search-highlight)` — applies to <mark> injected via @html
--->
-<style>
-  .diff-line.add .line-prefix,
-  .diff-line.add .line-content {
-    color: var(--color-diff-add-fg);
-  }
-  .diff-line.delete .line-prefix,
-  .diff-line.delete .line-content {
-    color: var(--color-diff-delete-fg);
-  }
-  .diff-line:hover .comment-trigger {
-    opacity: 1;
-  }
-  :global(.search-highlight) {
-    background: color-mix(in srgb, var(--color-warning) 30%, transparent);
-    border-radius: 2px;
-  }
-</style>
+  

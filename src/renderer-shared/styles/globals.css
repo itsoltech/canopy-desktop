@@ -1,0 +1,547 @@
+/* =============================================================================
+ * globals.css — consolidated `:global` rules and `@keyframes` from components.
+ *
+ * Rules here used to live as `<style>` blocks inside individual Svelte
+ * components, where they were either marked `:global(...)` (because they
+ * target DOM created by external libraries — marked/DOMPurify, xterm,
+ * CodeMirror — or because the components render content into DOM that
+ * Svelte's scoping never reaches) or expressed as `@keyframes`
+ * (which are global by name regardless of where they're declared).
+ *
+ * Co-locating them in component files added noise without semantic benefit:
+ * the rules are global at the CSS level either way. This file gathers them
+ * in one place so each Svelte component can stay focused on its own
+ * scoped/utility classes.
+ *
+ * Sections are organized by domain (markdown, xterm, CodeMirror, ...) and
+ * each block names the originating component for traceability.
+ * ============================================================================= */
+
+/* ============ Markdown rendering — AboutModal license, ChangelogModal entries, NotesPane ============ */
+
+.license-content h1,
+.license-content h2,
+.license-content h3 {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.license-content h1 {
+  font-size: 13px;
+  margin-top: 0;
+}
+.license-content p {
+  margin: 0 0 8px;
+}
+.license-content ol,
+.license-content ul {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.license-content li {
+  margin-bottom: 4px;
+}
+.license-content strong {
+  color: var(--color-text-secondary);
+}
+
+.entry-body h1,
+.entry-body h2,
+.entry-body h3 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.entry-body h1 {
+  font-size: 14px;
+}
+.entry-body p {
+  margin: 0 0 6px;
+}
+.entry-body ul,
+.entry-body ol {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
+.entry-body li {
+  margin-bottom: 2px;
+}
+.entry-body strong {
+  color: var(--color-text);
+}
+.entry-body code {
+  padding: 1px 4px;
+  background: var(--color-active);
+  border-radius: 3px;
+  font-size: 12px;
+}
+.entry-body a {
+  color: var(--color-accent-text);
+  text-decoration: none;
+}
+.entry-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: 1em 0 0.4em;
+}
+.markdown-body code {
+  background: var(--color-bg-elevated);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.markdown-body pre {
+  background: var(--color-bg-elevated);
+  padding: 8px 10px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown-body a {
+  color: var(--color-accent);
+}
+
+/* ============ xterm overrides — RemoteTerminalView ============
+ * The remote client mounts xterm into `.terminal-wrap`. xterm's own CSS
+ * gives the viewport its own scrollbars and absolute positioning that
+ * fights our outer scroll container; we neutralize it so the outer
+ * `.terminal-scroll` is the single scroll surface.
+ */
+.terminal-wrap .xterm {
+  width: fit-content;
+  height: auto;
+}
+.terminal-wrap .xterm-viewport {
+  overflow: hidden !important;
+  width: auto !important;
+  height: auto !important;
+  position: static !important;
+}
+.terminal-wrap .xterm-screen {
+  width: fit-content;
+}
+
+/* ============ CodeMirror — CodeMirrorEditor ============ */
+.cm-root .cm-editor {
+  height: 100%;
+}
+.cm-root .cm-editor.cm-focused {
+  outline: none;
+}
+.cm-root .cm-scroller {
+  overflow: auto;
+}
+
+/* ============ Diff highlighting — DiffPane ============ */
+.diff-line.add .line-prefix,
+.diff-line.add .line-content {
+  color: var(--color-diff-add-fg);
+}
+.diff-line.delete .line-prefix,
+.diff-line.delete .line-content {
+  color: var(--color-diff-delete-fg);
+}
+.diff-line:hover .comment-trigger {
+  opacity: 1;
+}
+.search-highlight {
+  background: color-mix(in srgb, var(--color-warning) 30%, transparent);
+  border-radius: 2px;
+}
+
+/* ============ Performance hints ============
+ * `contain` lets the browser skip layout/paint work on subtrees that
+ * don't influence anything outside themselves — measurable on large
+ * lists of split panes / terminal instances.
+ */
+.pane-slot {
+  contain: layout paint;
+}
+.terminal-container {
+  contain: strict;
+}
+.notch-island {
+  contain: layout style;
+  will-change: width, height, box-shadow;
+}
+
+/* ============ Notch concave ears — NotchOverlay ============
+ * 13×13 spans flanking the notch island whose 5px sideways box-shadow
+ * paints the notch-bg color onto an inverted rounded corner, producing
+ * the iOS-style "ear" cutout illusion without an SVG mask.
+ */
+.notch-island::before,
+.notch-island::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 13px;
+  height: 13px;
+  background: transparent;
+  z-index: 1;
+}
+.notch-island::before {
+  left: -13px;
+  border-top-right-radius: 6px;
+  box-shadow: 5px 0 var(--color-notch-bg);
+}
+.notch-island::after {
+  right: -13px;
+  border-top-left-radius: 6px;
+  box-shadow: -5px 0 var(--color-notch-bg);
+}
+
+.notch-content::-webkit-scrollbar {
+  width: 4px;
+}
+.notch-content::-webkit-scrollbar-thumb {
+  background: var(--color-notch-scrollbar);
+  border-radius: 2px;
+}
+.notch-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============ Status-dot animations — RemoteConnectionModal, AgentInspector ============ */
+[data-kind='waiting'] .status-dot,
+[data-kind='starting'] .status-dot {
+  background: var(--color-warning);
+  box-shadow: 0 0 8px var(--color-warning);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+[data-kind='listening'] .status-dot {
+  background: var(--color-success);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+[data-kind='peerArrived'] .status-dot {
+  background: var(--color-accent);
+  box-shadow: 0 0 8px var(--color-accent);
+}
+[data-kind='paired'] .status-dot {
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
+}
+[data-kind='reconnecting'] .status-dot {
+  background: var(--color-warning);
+  animation: pulse 1s ease-in-out infinite;
+}
+[data-kind='error'] .status-dot {
+  background: var(--color-danger);
+}
+
+[data-status='idle'] .status-dot {
+  background: var(--color-success);
+}
+[data-status='active'] .status-dot {
+  background: var(--color-accent-text);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+[data-status='permission'] .status-dot {
+  background: var(--color-warning-text);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+[data-status='error'] .status-dot {
+  background: var(--color-danger-text);
+}
+
+/* ============ Worktree-creation indeterminate progress — CreateWorktreeModal ============ */
+.progress-indeterminate {
+  animation: indeterminate 1.5s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+}
+
+/* ============ Tool picker bottom sheet — ToolPickerSheet ============ */
+.sheet-backdrop {
+  animation: sheet-backdrop-fade 180ms ease-out;
+}
+.tool-sheet {
+  animation: sheet-slide-up 220ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+@supports (padding: env(safe-area-inset-bottom)) {
+  .sheet-body {
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ============ KeystrokeVisualizer ============
+ * Per-key "pop" animations keyed off the four speed tiers
+ * (default → fast → blazing → inferno) that the WPM tracker assigns.
+ */
+.keystroke-overlay {
+  position: absolute;
+  bottom: 6px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  pointer-events: none;
+  z-index: 5;
+  transition: filter 0.3s ease;
+}
+.keystroke-overlay.fast {
+  filter: drop-shadow(0 0 4px var(--color-accent-muted));
+}
+.keystroke-overlay.blazing {
+  filter: drop-shadow(0 0 8px var(--color-blazing-drop));
+  animation: container-pulse 0.4s ease-in-out infinite alternate;
+}
+.keystroke-overlay.inferno {
+  filter: drop-shadow(0 0 12px var(--color-inferno-drop));
+  animation: container-pulse-inferno 0.3s ease-in-out infinite alternate;
+}
+
+.key-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--color-hover-strong);
+  border: 1px solid var(--color-active);
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--color-text);
+  white-space: nowrap;
+  animation: keystroke-pop 2s ease forwards;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.key-badge.fast {
+  background: var(--color-accent-bg);
+  border-color: var(--color-accent-muted);
+  color: var(--color-accent-text);
+  box-shadow: 0 0 6px var(--color-accent-bg);
+  animation: keystroke-pop-fast 2s ease forwards;
+}
+.key-badge.blazing {
+  background: var(--color-blazing-bg);
+  border-color: var(--color-blazing-border);
+  color: var(--color-blazing-text);
+  box-shadow:
+    0 0 8px var(--color-blazing-glow),
+    0 0 16px var(--color-blazing-glow-deep);
+  animation: keystroke-pop-blazing 2s ease forwards;
+}
+.key-badge.inferno {
+  background: var(--color-inferno-bg);
+  border-color: var(--color-inferno-border);
+  color: var(--color-inferno-text);
+  box-shadow:
+    0 0 10px var(--color-inferno-glow),
+    0 0 20px var(--color-inferno-glow-deep);
+  animation: keystroke-pop-inferno 2s ease forwards;
+}
+
+/* ============ @keyframes ============ */
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes sheet-backdrop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-slide-up {
+  from {
+    transform: translate(-50%, 100%);
+  }
+  to {
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes keystroke-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(4px);
+  }
+  10% {
+    opacity: 1;
+    transform: scale(1.05) translateY(0);
+  }
+  15% {
+    transform: scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.95) translateY(-2px);
+  }
+}
+
+@keyframes keystroke-pop-fast {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) translateY(6px);
+  }
+  8% {
+    opacity: 1;
+    transform: scale(1.1) translateY(0);
+  }
+  12% {
+    transform: scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.9) translateY(-3px);
+  }
+}
+
+@keyframes keystroke-pop-blazing {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) translateY(8px) rotate(-2deg);
+  }
+  6% {
+    opacity: 1;
+    transform: scale(1.15) translateY(0) rotate(1deg);
+  }
+  10% {
+    transform: scale(0.98) rotate(-0.5deg);
+  }
+  14% {
+    transform: scale(1) rotate(0);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.85) translateY(-4px);
+  }
+}
+
+@keyframes keystroke-pop-inferno {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) translateY(10px) rotate(-3deg);
+  }
+  5% {
+    opacity: 1;
+    transform: scale(1.2) translateY(0) rotate(1.5deg);
+  }
+  8% {
+    transform: scale(0.95) rotate(-1deg);
+  }
+  12% {
+    transform: scale(1.05) rotate(0.5deg);
+  }
+  16% {
+    transform: scale(1) rotate(0);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8) translateY(-5px);
+  }
+}
+
+@keyframes container-pulse {
+  from {
+    filter: drop-shadow(0 0 6px var(--color-blazing-shadow));
+  }
+  to {
+    filter: drop-shadow(0 0 12px var(--color-blazing-shadow-strong));
+  }
+}
+
+@keyframes container-pulse-inferno {
+  from {
+    filter: drop-shadow(0 0 8px var(--color-inferno-shadow));
+  }
+  to {
+    filter: drop-shadow(0 0 16px var(--color-inferno-shadow-strong));
+  }
+}
+
+/* ============ Reduced motion ============
+ * One block instead of duplicating @media (prefers-reduced-motion) into
+ * every component file. Disables every continuous animation we ship;
+ * one-shot transitions are kept (they finish quickly and can't trigger
+ * vestibular issues).
+ */
+@media (prefers-reduced-motion: reduce) {
+  [data-kind='waiting'] .status-dot,
+  [data-kind='starting'] .status-dot,
+  [data-kind='listening'] .status-dot,
+  [data-kind='reconnecting'] .status-dot,
+  [data-status='active'] .status-dot,
+  [data-status='permission'] .status-dot {
+    animation: none;
+  }
+
+  .progress-indeterminate {
+    animation: none;
+    background: var(--color-accent);
+  }
+
+  .sheet-backdrop,
+  .tool-sheet {
+    animation: none;
+  }
+
+  .key-badge,
+  .key-badge.fast,
+  .key-badge.blazing,
+  .key-badge.inferno {
+    animation: none;
+    opacity: 1;
+  }
+
+  .keystroke-overlay.blazing,
+  .keystroke-overlay.inferno {
+    animation: none;
+  }
+}

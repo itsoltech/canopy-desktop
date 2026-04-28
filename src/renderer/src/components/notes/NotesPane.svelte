@@ -186,34 +186,3 @@
 
 <!-- :global() rules style HTML rendered from markdown (sanitized DOMPurify output) which we
      don't author directly — required for the markdown preview cascade. -->
-<style>
-  .markdown-body :global(h1),
-  .markdown-body :global(h2),
-  .markdown-body :global(h3) {
-    margin: 1em 0 0.4em;
-  }
-
-  .markdown-body :global(code) {
-    background: var(--color-bg-elevated);
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-  }
-
-  .markdown-body :global(pre) {
-    background: var(--color-bg-elevated);
-    padding: 8px 10px;
-    border-radius: 4px;
-    overflow-x: auto;
-  }
-
-  .markdown-body :global(pre code) {
-    background: transparent;
-    padding: 0;
-  }
-
-  .markdown-body :global(a) {
-    color: var(--color-accent);
-  }
-</style>

@@ -476,26 +476,3 @@
     {/if}
   </div>
 </div>
-
-<style>
-  .progress-indeterminate {
-    animation: indeterminate 1.5s ease-in-out infinite;
-    background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
-  }
-
-  @keyframes indeterminate {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(100%);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .progress-indeterminate {
-      animation: none;
-      background: var(--color-accent);
-    }
-  }
-</style>

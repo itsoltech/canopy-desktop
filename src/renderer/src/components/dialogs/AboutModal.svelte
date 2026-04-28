@@ -91,33 +91,3 @@
     </div>
   </div>
 </div>
-
-<!-- :global() rules style HTML rendered from sanitized markdown (license text) — required for cascade. -->
-<style>
-  .license-content :global(h1),
-  .license-content :global(h2),
-  .license-content :global(h3) {
-    margin: 12px 0 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--color-text-secondary);
-  }
-  .license-content :global(h1) {
-    font-size: 13px;
-    margin-top: 0;
-  }
-  .license-content :global(p) {
-    margin: 0 0 8px;
-  }
-  .license-content :global(ol),
-  .license-content :global(ul) {
-    margin: 0 0 8px;
-    padding-left: 20px;
-  }
-  .license-content :global(li) {
-    margin-bottom: 4px;
-  }
-  .license-content :global(strong) {
-    color: var(--color-text-secondary);
-  }
-</style>

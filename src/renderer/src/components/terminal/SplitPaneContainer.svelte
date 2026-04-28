@@ -102,10 +102,3 @@
     </div>
   {/each}
 </div>
-
-<!-- `contain: layout paint` is a perf hint not expressible as Tailwind class; keep scoped. -->
-<style>
-  .pane-slot {
-    contain: layout paint;
-  }
-</style>
