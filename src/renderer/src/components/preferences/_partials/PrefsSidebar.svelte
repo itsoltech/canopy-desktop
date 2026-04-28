@@ -16,6 +16,10 @@
   }
 
   let { groups, activeSection, onselect, footer }: Props = $props()
+
+  function slug(s: string): string {
+    return s.toLowerCase().replace(/\s+/g, '-')
+  }
 </script>
 
 <aside
@@ -23,9 +27,9 @@
 >
   <div class="flex-1 overflow-y-auto py-3 px-2 select-none">
     {#each groups as group, gi (group.label)}
-      <div role="group" aria-labelledby={`prefs-group-${group.label}`} class:mt-3={gi > 0}>
+      <div role="group" aria-labelledby={`prefs-group-${slug(group.label)}`} class:mt-3={gi > 0}>
         <span
-          id={`prefs-group-${group.label}`}
+          id={`prefs-group-${slug(group.label)}`}
           class="block px-2 pb-1 text-2xs font-semibold uppercase tracking-caps-looser text-text-faint"
         >
           {group.label}
