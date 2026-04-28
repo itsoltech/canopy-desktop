@@ -69,7 +69,7 @@
 
 <PrefsSection
   title="Saved passwords"
-  description="Browser-pane credentials stored encrypted via Electron safeStorage"
+  description="Browser-pane credentials. Encrypted with the OS keychain when available; otherwise stored as base64 only — configure a system keyring for at-rest protection."
 >
   <div class="flex flex-col gap-1">
     {#each credentials as cred (cred.id)}
