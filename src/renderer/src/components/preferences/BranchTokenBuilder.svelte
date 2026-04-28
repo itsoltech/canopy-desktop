@@ -31,17 +31,31 @@
   let dragOverIdx: number | null = $state(null)
   let dragFromAvailable: string | null = $state(null)
 
-  let sepPopup = $state<{ visible: boolean; pendingKey: string; x: number; y: number }>({
+  let sepPopup = $state<{
+    visible: boolean
+    pendingKey: string
+    x: number
+    y: number
+    triggerEl: HTMLElement | null
+  }>({
     visible: false,
     pendingKey: '',
     x: 0,
     y: 0,
+    triggerEl: null,
   })
-  let editSepPopup = $state<{ visible: boolean; tokenIdx: number; x: number; y: number }>({
+  let editSepPopup = $state<{
+    visible: boolean
+    tokenIdx: number
+    x: number
+    y: number
+    triggerEl: HTMLElement | null
+  }>({
     visible: false,
     tokenIdx: -1,
     x: 0,
     y: 0,
+    triggerEl: null,
   })
 
   function parseTemplate(tpl: string): TemplateToken[] {
@@ -78,6 +92,7 @@
         pendingKey: key,
         x: e?.clientX ?? 200,
         y: e?.clientY ?? 200,
+        triggerEl: (e?.currentTarget as HTMLElement) ?? null,
       }
     }
   }
@@ -85,33 +100,39 @@
   function confirmSeparatorAndAdd(sep: string): void {
     const tag = `{${sepPopup.pendingKey}}`
     templateInput = templateInput + sep + tag
-    sepPopup = { visible: false, pendingKey: '', x: 0, y: 0 }
+    sepPopup = { visible: false, pendingKey: '', x: 0, y: 0, triggerEl: null }
     onSave()
   }
 
   function closeSepPopup(): void {
-    sepPopup = { visible: false, pendingKey: '', x: 0, y: 0 }
+    sepPopup = { visible: false, pendingKey: '', x: 0, y: 0, triggerEl: null }
   }
 
   function onSeparatorTokenClick(index: number, e: MouseEvent): void {
-    editSepPopup = { visible: true, tokenIdx: index, x: e.clientX, y: e.clientY }
+    editSepPopup = {
+      visible: true,
+      tokenIdx: index,
+      x: e.clientX,
+      y: e.clientY,
+      triggerEl: e.currentTarget as HTMLElement,
+    }
   }
 
   function changeSeparator(newSep: string): void {
     const tokens = [...templateTokens]
     tokens[editSepPopup.tokenIdx] = { type: 'separator', value: newSep }
     templateInput = tokensToTemplate(tokens)
-    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0 }
+    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0, triggerEl: null }
     onSave()
   }
 
   function removeSeparatorToken(): void {
     removeTokenAt(editSepPopup.tokenIdx)
-    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0 }
+    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0, triggerEl: null }
   }
 
   function closeEditSepPopup(): void {
-    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0 }
+    editSepPopup = { visible: false, tokenIdx: -1, x: 0, y: 0, triggerEl: null }
   }
 
   function ensureSeparators(tokens: TemplateToken[]): TemplateToken[] {
@@ -303,6 +324,7 @@
     y={sepPopup.y}
     label="Separator"
     separators={SEPARATORS}
+    triggerEl={sepPopup.triggerEl}
     onPick={confirmSeparatorAndAdd}
     onClose={closeSepPopup}
   />
@@ -314,6 +336,7 @@
     y={editSepPopup.y}
     label="Change to"
     separators={SEPARATORS}
+    triggerEl={editSepPopup.triggerEl}
     onPick={changeSeparator}
     onClose={closeEditSepPopup}
     onRemove={removeSeparatorToken}
