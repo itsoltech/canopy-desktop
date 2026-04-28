@@ -39,14 +39,12 @@
   let refreshing = $state(false)
   let containerEl: HTMLDivElement | undefined = $state()
 
-  // Setup progress state
   let setupLabel = $state('')
   let setupCurrent = $state(0)
   let setupTotal = $state(0)
   let setupErrors = $state<string[]>([])
   let cleanupProgressListener: (() => void) | null = null
 
-  // Setup terminal
   let setupTerm: Terminal | null = null
   let progressState = $state(0)
   let progressValue = $state(0)
@@ -63,7 +61,6 @@
         : selectedBase,
   )
 
-  // Worktree dir: <baseDir>/<projectName>/<safeBranchName>
   let worktreeDir = $derived.by(() => {
     if (!effectiveBranchName) return ''
     const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
@@ -143,7 +140,6 @@
     }
   }
 
-  // Validate branch name
   let branchNameError = $derived.by(() => {
     if (!newBranchName) return null
     if (/\s/.test(newBranchName)) return 'No spaces allowed'
@@ -171,7 +167,6 @@
     mode = next
     selectedBase = ''
     newBranchName = ''
-    // branchQuery preserved — search stays useful across modes
   }
 
   async function createWorktree(): Promise<void> {
@@ -276,39 +271,54 @@
       }
     }
   }
+
+  const inputCls =
+    'w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint'
+  const btnCancelCls =
+    'px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-active text-text transition-colors duration-fast hover:bg-border focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1 disabled:opacity-40 disabled:cursor-default'
+  const btnPrimaryCls =
+    'px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-accent-bg text-accent-text transition-colors duration-fast enabled:hover:bg-accent-muted focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1 disabled:opacity-40 disabled:cursor-default'
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="dialog-overlay"
+  class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
   onkeydown={handleKeydown}
   onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
-    class="modal-container"
+    class="outline-none w-[480px] max-h-[560px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_oklch(0_0_0/0.6)] overflow-hidden"
     role="dialog"
     aria-modal="true"
     aria-labelledby="create-worktree-title"
     tabindex="-1"
     onmousedown={(e) => e.stopPropagation()}
   >
-    <h3 id="create-worktree-title" class="modal-title">Create Worktree</h3>
+    <h3
+      id="create-worktree-title"
+      class="m-0 px-5 pt-4 pb-3 text-[15px] font-semibold text-text flex-shrink-0"
+    >
+      Create Worktree
+    </h3>
 
     {#if step === 'loading'}
-      <div class="modal-body center">
-        <p class="status-text">Loading branches...</p>
+      <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2">
+        <p class="text-md text-text-secondary m-0">Loading branches...</p>
       </div>
     {:else if step === 'pickBase'}
       {#if mode === 'new' && selectedBase}
-        <!-- Name new branch -->
-        <div class="modal-body">
-          <p class="field-info">Base: <strong>{selectedBase}</strong></p>
+        <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0">
+          <p class="m-0 mb-3 text-md text-text-secondary">
+            Base: <strong class="text-text">{selectedBase}</strong>
+          </p>
           <!-- svelte-ignore a11y_label_has_associated_control -->
-          <label class="field-label">New branch name</label>
+          <label class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase">
+            New branch name
+          </label>
           <input
-            class="field-input"
+            class={inputCls}
             type="text"
             bind:value={newBranchName}
             placeholder="feature/my-branch"
@@ -322,15 +332,17 @@
             }}
           />
           {#if branchNameError}
-            <p class="field-error">{branchNameError}</p>
+            <p class="mt-1.5 mb-0 text-sm text-danger-text">{branchNameError}</p>
           {/if}
           {#if worktreeDir}
-            <p class="field-detail">Path: {worktreeDirDisplay}</p>
+            <p class="mt-1.5 mb-0 text-xs text-text-faint font-mono break-all">
+              Path: {worktreeDirDisplay}
+            </p>
           {/if}
-          <div class="modal-actions">
-            <button class="btn btn-cancel" onclick={() => (selectedBase = '')}>Back</button>
+          <div class="flex justify-end gap-2 mt-4">
+            <button class={btnCancelCls} onclick={() => (selectedBase = '')}>Back</button>
             <button
-              class="btn btn-primary"
+              class={btnPrimaryCls}
               onclick={createWorktree}
               disabled={!newBranchName || !!branchNameError}
             >
@@ -339,12 +351,18 @@
           </div>
         </div>
       {:else}
-        <!-- Branch picker (shared between new-mode base selection and existing-mode checkout) -->
-        <div class="modal-body">
-          <div class="mode-toggle" role="radiogroup" aria-label="Branch mode">
+        <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0">
+          <div
+            class="flex gap-0.5 p-0.5 mb-3 bg-active rounded-lg"
+            role="radiogroup"
+            aria-label="Branch mode"
+          >
             <button
-              class="mode-btn"
-              class:active={mode === 'new'}
+              class="flex-1 px-2 py-[5px] border-0 rounded-md bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-all duration-fast"
+              class:!bg-bg-overlay={mode === 'new'}
+              class:!text-text={mode === 'new'}
+              class:shadow-[0_1px_2px_oklch(0_0_0/0.15)]={mode === 'new'}
+              class:hover:text-text-secondary={mode !== 'new'}
               onclick={() => setMode('new')}
               role="radio"
               aria-checked={mode === 'new'}
@@ -353,8 +371,11 @@
               New branch
             </button>
             <button
-              class="mode-btn"
-              class:active={mode === 'existing'}
+              class="flex-1 px-2 py-[5px] border-0 rounded-md bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-all duration-fast"
+              class:!bg-bg-overlay={mode === 'existing'}
+              class:!text-text={mode === 'existing'}
+              class:shadow-[0_1px_2px_oklch(0_0_0/0.15)]={mode === 'existing'}
+              class:hover:text-text-secondary={mode !== 'existing'}
               onclick={() => setMode('existing')}
               role="radio"
               aria-checked={mode === 'existing'}
@@ -376,15 +397,13 @@
           />
           {#if mode === 'existing'}
             {#if selectedBase && worktreeDir}
-              <p class="field-detail">Path: {worktreeDirDisplay}</p>
+              <p class="mt-1.5 mb-0 text-xs text-text-faint font-mono break-all">
+                Path: {worktreeDirDisplay}
+              </p>
             {/if}
-            <div class="modal-actions">
-              <button class="btn btn-cancel" onclick={onClose}>Cancel</button>
-              <button
-                class="btn btn-primary"
-                onclick={createWorktreeFromExisting}
-                disabled={!selectedBase}
-              >
+            <div class="flex justify-end gap-2 mt-4">
+              <button class={btnCancelCls} onclick={onClose}>Cancel</button>
+              <button class={btnPrimaryCls} onclick={createWorktreeFromExisting} disabled={!selectedBase}>
                 Create
               </button>
             </div>
@@ -392,53 +411,56 @@
         </div>
       {/if}
     {:else if step === 'creating'}
-      <div class="modal-body center">
-        <p class="status-text">Creating worktree...</p>
+      <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2">
+        <p class="text-md text-text-secondary m-0">Creating worktree...</p>
       </div>
     {:else if step === 'setup'}
-      <div class="modal-body setup-body">
-        <p class="status-text">Running setup... ({setupCurrent}/{setupTotal})</p>
-        <p class="setup-label">{setupLabel}</p>
-        <div class="setup-terminal-wrapper">
+      <div class="flex flex-col px-5 pb-5 gap-2 flex-1 overflow-y-auto min-h-0">
+        <p class="text-md text-text-secondary m-0">
+          Running setup... ({setupCurrent}/{setupTotal})
+        </p>
+        <p class="text-sm font-mono text-text-muted m-0">{setupLabel}</p>
+        <div class="relative rounded-lg overflow-hidden border border-border-subtle">
           {#if progressState > 0}
             <div
-              class="progress-bar"
-              class:progress-error={progressState === 2}
+              class="absolute top-0 left-0 h-0.5 z-[5] transition-[width] duration-slow ease-out"
+              class:bg-accent={progressState !== 2 && progressState !== 4 && progressState !== 3}
+              class:bg-danger={progressState === 2}
+              class:bg-warning={progressState === 4}
               class:progress-indeterminate={progressState === 3}
-              class:progress-warning={progressState === 4}
               style:width={progressState === 3 ? '100%' : `${progressValue}%`}
             ></div>
           {/if}
-          <div class="setup-terminal" use:setupTerminalAction></div>
+          <div class="h-[220px] p-2 box-border" use:setupTerminalAction></div>
         </div>
         {#if setupErrors.length > 0}
           {#each setupErrors as err (err)}
-            <p class="field-error">{err}</p>
+            <p class="mt-1.5 mb-0 text-sm text-danger-text">{err}</p>
           {/each}
         {/if}
-        <div class="modal-actions">
-          <button class="btn btn-cancel" onclick={skipSetup}>Skip</button>
+        <div class="flex justify-end gap-2 mt-4">
+          <button class={btnCancelCls} onclick={skipSetup}>Skip</button>
         </div>
       </div>
     {:else if step === 'done'}
-      <div class="modal-body center">
-        <p class="status-text success">Worktree created</p>
-        <p class="field-detail">{createdPath}</p>
+      <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2">
+        <p class="text-md text-success m-0">Worktree created</p>
+        <p class="text-xs text-text-faint font-mono break-all m-0">{createdPath}</p>
         {#if setupErrors.length > 0}
-          <div class="setup-warnings">
-            <p class="status-text warning">Setup completed with warnings:</p>
+          <div class="mt-2 flex flex-col gap-1 items-center">
+            <p class="text-md text-warning-text m-0">Setup completed with warnings:</p>
             {#each setupErrors as err (err)}
-              <p class="field-error">{err}</p>
+              <p class="text-sm text-danger-text m-0">{err}</p>
             {/each}
           </div>
         {/if}
       </div>
     {:else if step === 'error'}
-      <div class="modal-body center">
-        <p class="status-text error">Error</p>
-        <p class="field-detail">{errorMessage}</p>
-        <div class="modal-actions">
-          <button class="btn btn-cancel" onclick={onClose}>Close</button>
+      <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2">
+        <p class="text-md text-danger-text m-0">Error</p>
+        <p class="text-xs text-text-faint font-mono break-all m-0">{errorMessage}</p>
+        <div class="flex justify-end gap-2 mt-4">
+          <button class={btnCancelCls} onclick={onClose}>Close</button>
         </div>
       </div>
     {/if}
@@ -446,118 +468,6 @@
 </div>
 
 <style>
-  .dialog-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1001;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 80px;
-    background: var(--color-scrim);
-  }
-
-  .modal-container {
-    outline: none;
-    width: 480px;
-    max-height: 560px;
-    display: flex;
-    flex-direction: column;
-    background: var(--color-bg-overlay);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    box-shadow: 0 16px 48px oklch(0 0 0 / 0.6);
-    overflow: hidden;
-  }
-
-  .modal-title {
-    margin: 0;
-    padding: 16px 20px 12px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--color-text);
-    flex-shrink: 0;
-  }
-
-  .modal-body {
-    padding: 0 20px 20px;
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
-  }
-
-  .modal-body.center {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 30px 20px;
-    gap: 8px;
-  }
-
-  .status-text {
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    margin: 0;
-  }
-
-  .status-text.success {
-    color: var(--color-success);
-  }
-
-  .status-text.error {
-    color: var(--color-danger-text);
-  }
-
-  .status-text.warning {
-    color: var(--color-warning-text);
-  }
-
-  .setup-body {
-    display: flex;
-    flex-direction: column;
-    padding: 0 20px 20px;
-    gap: 8px;
-  }
-
-  .setup-label {
-    font-size: 12px;
-    font-family: monospace;
-    color: var(--color-text-muted);
-    margin: 0;
-  }
-
-  .setup-terminal-wrapper {
-    position: relative;
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid var(--color-border-subtle);
-  }
-
-  .setup-terminal {
-    height: 220px;
-    padding: 8px;
-    box-sizing: border-box;
-  }
-
-  .progress-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 2px;
-    background: var(--color-accent);
-    transition: width 0.3s ease;
-    z-index: 5;
-  }
-
-  .progress-error {
-    background: var(--color-danger);
-  }
-
-  .progress-warning {
-    background: var(--color-warning);
-  }
-
   .progress-indeterminate {
     animation: indeterminate 1.5s ease-in-out infinite;
     background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
@@ -577,148 +487,5 @@
       animation: none;
       background: var(--color-accent);
     }
-  }
-
-  .setup-warnings {
-    margin-top: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    align-items: center;
-  }
-
-  .field-label {
-    display: block;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    color: var(--color-text-muted);
-    text-transform: uppercase;
-  }
-
-  .field-input {
-    width: 100%;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-bg-input);
-    color: var(--color-text);
-    font-size: 13px;
-    font-family: inherit;
-    padding: 8px 10px;
-    outline: none;
-    transition: border-color 0.1s;
-    box-sizing: border-box;
-  }
-
-  .field-input:focus {
-    border-color: var(--color-focus-ring);
-  }
-
-  .field-input::placeholder {
-    color: var(--color-text-faint);
-  }
-
-  .field-info {
-    margin: 0 0 12px;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-  }
-
-  .field-info strong {
-    color: var(--color-text);
-  }
-
-  .field-error {
-    margin: 6px 0 0;
-    font-size: 12px;
-    color: var(--color-danger-text);
-  }
-
-  .field-detail {
-    margin: 6px 0 0;
-    font-size: 11px;
-    color: var(--color-text-faint);
-    font-family: monospace;
-    word-break: break-all;
-  }
-
-  .mode-toggle {
-    display: flex;
-    gap: 2px;
-    padding: 2px;
-    margin: 0 0 12px;
-    background: var(--color-active);
-    border-radius: 6px;
-  }
-
-  .mode-btn {
-    flex: 1;
-    padding: 5px 8px;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--color-text-muted);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      color 0.1s;
-  }
-
-  .mode-btn:hover:not(.active) {
-    color: var(--color-text-secondary);
-  }
-
-  .mode-btn.active {
-    background: var(--color-bg-overlay);
-    color: var(--color-text);
-    box-shadow: 0 1px 2px var(--color-shadow, oklch(0 0 0 / 0.15));
-  }
-
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
-  }
-
-  .btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-    outline: none;
-    transition: background 0.1s;
-  }
-
-  .btn:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 1px;
-  }
-
-  .btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-
-  .btn-cancel {
-    background: var(--color-active);
-    color: var(--color-text);
-  }
-
-  .btn-cancel:hover {
-    background: var(--color-border);
-  }
-
-  .btn-primary {
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: var(--color-accent-muted);
   }
 </style>

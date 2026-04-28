@@ -57,12 +57,10 @@
   const isMac = navigator.userAgent.includes('Mac')
   const mod = isMac ? 'Cmd' : 'Ctrl'
 
-  // Build action list from all sources
   let allItems = $derived.by((): PaletteItem[] => {
     const items: PaletteItem[] = []
     const path = workspaceState.selectedWorktreePath
 
-    // --- Tools ---
     for (const tool of getTools()) {
       const available = getToolAvailability()[tool.id] !== false
       items.push({
@@ -77,7 +75,6 @@
       })
     }
 
-    // --- Worktrees ---
     if (workspaceState.isGitRepo) {
       for (const wt of workspaceState.worktrees) {
         const branchName = wt.branch || wt.path.split('/').pop() || wt.path
@@ -95,7 +92,6 @@
       }
     }
 
-    // --- Tabs ---
     const openTabs = getAllTabs()
     for (const tab of openTabs) {
       items.push({
@@ -107,7 +103,6 @@
       })
     }
 
-    // --- App actions ---
     items.push({
       id: 'app:sidebar',
       label: 'Toggle Sidebar',
@@ -228,7 +223,6 @@
       })
     }
 
-    // --- Git commands ---
     if (workspaceState.isGitRepo && workspaceState.repoRoot) {
       const root = workspaceState.repoRoot
 
@@ -433,7 +427,6 @@
         action: () => showCreateWorktree(),
       })
 
-      // Only show remove worktree if selected worktree is not main
       const selectedWt = workspaceState.worktrees.find(
         (w) => w.path === workspaceState.selectedWorktreePath,
       )
@@ -470,7 +463,6 @@
 
               await window.api.gitWorktreeRemove(root, wtPath, warnings.length > 0)
 
-              // Offer to delete branch if merged
               const branchMerged = await window.api.gitBranchMerged(root, branch)
               if (branchMerged) {
                 const del = await confirm({
@@ -497,7 +489,6 @@
     return items
   })
 
-  // Determine if we're in a prefix-filter mode
   let filterMode = $derived.by((): 'all' | 'app' | 'git' => {
     if (query.startsWith('>')) return 'app'
     if (query.toLowerCase().startsWith('git ')) return 'git'
@@ -510,7 +501,6 @@
     return query.trim().toLowerCase()
   })
 
-  // Fuzzy-ish matching: all query chars must appear in order in the label
   function fuzzyMatch(text: string, q: string): boolean {
     if (!q) return true
     const lower = text.toLowerCase()
@@ -521,11 +511,9 @@
     return qi === q.length
   }
 
-  // Filtered + grouped items
   let filteredItems = $derived.by((): PaletteItem[] => {
     let source = allItems
 
-    // Category filter based on prefix mode
     if (filterMode === 'app') {
       source = source.filter((i) => i.category === 'App')
     } else if (filterMode === 'git') {
@@ -538,7 +526,6 @@
     )
   })
 
-  // Group by category for display
   let groupedItems = $derived.by((): { category: string; items: PaletteItem[] }[] => {
     const categoryOrder = ['Tools', 'Git', 'Worktrees', 'Tabs', 'App']
     const groups = new SvelteMap<string, PaletteItem[]>()
@@ -554,10 +541,8 @@
       .map((c) => ({ category: c, items: groups.get(c)! }))
   })
 
-  // Flat list for keyboard navigation
   let flatItems = $derived(groupedItems.flatMap((g) => g.items))
 
-  // Clamp selected index when filter changes
   $effect(() => {
     if (selectedIndex >= flatItems.length) {
       selectedIndex = Math.max(0, flatItems.length - 1)
@@ -602,19 +587,17 @@
 
   function scrollSelectedIntoView(): void {
     requestAnimationFrame(() => {
-      const el = document.querySelector('.palette-item.selected')
+      const el = document.querySelector('[data-palette-selected="true"]')
       el?.scrollIntoView({ block: 'nearest' })
     })
   }
 
-  // Reset selection when query changes
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     query
     selectedIndex = 0
   })
 
-  // Flat index tracking for rendering
   function flatIndex(categoryIdx: number, itemIdx: number): number {
     let idx = 0
     for (let i = 0; i < categoryIdx; i++) {
@@ -625,20 +608,24 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="palette-overlay" onkeydown={handleKeydown} onclick={onClose}>
+<div
+  class="fixed inset-0 z-[1000] flex justify-center pt-20 bg-scrim"
+  onkeydown={handleKeydown}
+  onclick={onClose}
+>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="palette-container"
+    class="w-[520px] max-h-[440px] flex flex-col bg-bg-overlay border border-border rounded-xl shadow-modal backdrop-blur-2xl overflow-hidden self-start"
     role="dialog"
     aria-modal="true"
     aria-label="Command palette"
     onclick={(e) => e.stopPropagation()}
   >
-    <div class="palette-input-row">
+    <div class="px-3.5 py-3 border-b border-active flex-shrink-0">
       <input
         bind:this={inputEl}
         bind:value={query}
-        class="palette-input"
+        class="w-full border-0 bg-transparent text-text text-lg font-inherit outline-none placeholder:text-text-faint"
         type="text"
         placeholder={filterMode === 'app'
           ? 'Search app commands...'
@@ -650,20 +637,27 @@
       />
     </div>
 
-    <div class="palette-results">
+    <div class="overflow-y-auto flex-1 py-1.5">
       {#if flatItems.length === 0}
-        <div class="palette-empty">No results</div>
+        <div class="px-3.5 py-5 text-center text-text-faint text-md">No results</div>
       {:else}
         {#each groupedItems as group, gi (group.category)}
-          <div class="palette-group">
-            <div class="palette-group-label">{group.category}</div>
+          <div class="py-0.5">
+            <div
+              class="text-2xs font-semibold tracking-[0.8px] text-text-muted px-3.5 pt-1.5 pb-1 uppercase"
+            >
+              {group.category}
+            </div>
             {#each group.items as item, ii (item.id)}
+              {@const isSelected = flatIndex(gi, ii) === selectedIndex}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
-                class="palette-item"
-                class:selected={flatIndex(gi, ii) === selectedIndex}
-                class:disabled={item.disabled}
+                class="flex items-center gap-2.5 px-3.5 py-1.5 cursor-pointer text-md text-text transition-colors duration-fast"
+                class:!bg-active={isSelected}
+                class:!text-text-faint={item.disabled}
+                class:!cursor-default={item.disabled}
+                data-palette-selected={isSelected}
                 onclick={() => {
                   if (!item.disabled) {
                     onClose()
@@ -674,12 +668,17 @@
                   if (!item.disabled) selectedIndex = flatIndex(gi, ii)
                 }}
               >
-                <span class="item-label">{item.label}</span>
+                <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                  >{item.label}</span
+                >
                 {#if item.description}
-                  <span class="item-desc">{item.description}</span>
+                  <span class="text-xs text-text-faint flex-shrink-0">{item.description}</span>
                 {/if}
                 {#if item.shortcut}
-                  <span class="item-shortcut">{item.shortcut}</span>
+                  <span
+                    class="text-xs text-text-faint px-1.5 py-px rounded-md bg-hover flex-shrink-0"
+                    >{item.shortcut}</span
+                  >
                 {/if}
               </div>
             {/each}
@@ -689,118 +688,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .palette-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1000;
-    display: flex;
-    justify-content: center;
-    padding-top: 80px;
-    background: var(--color-scrim);
-  }
-
-  .palette-container {
-    width: 520px;
-    max-height: 440px;
-    display: flex;
-    flex-direction: column;
-    background: var(--color-bg-overlay);
-    border: 1px solid var(--color-border);
-    border-radius: var(--r-xl);
-    box-shadow: var(--shadow-modal);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    overflow: hidden;
-    align-self: flex-start;
-  }
-
-  .palette-input-row {
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--color-active);
-    flex-shrink: 0;
-  }
-
-  .palette-input {
-    width: 100%;
-    border: none;
-    background: transparent;
-    color: var(--color-text);
-    font-size: 14px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .palette-input::placeholder {
-    color: var(--color-text-faint);
-  }
-
-  .palette-results {
-    overflow-y: auto;
-    flex: 1;
-    padding: 6px 0;
-  }
-
-  .palette-empty {
-    padding: 20px 14px;
-    text-align: center;
-    color: var(--color-text-faint);
-    font-size: 13px;
-  }
-
-  .palette-group {
-    padding: 2px 0;
-  }
-
-  .palette-group-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.8px;
-    color: var(--color-text-muted);
-    padding: 6px 14px 4px;
-    text-transform: uppercase;
-  }
-
-  .palette-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 7px 14px;
-    cursor: pointer;
-    font-size: 13px;
-    color: var(--color-text);
-    transition: background var(--dur-fast);
-  }
-
-  .palette-item.selected {
-    background: var(--color-active);
-  }
-
-  .palette-item.disabled {
-    color: var(--color-text-faint);
-    cursor: default;
-  }
-
-  .item-label {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .item-desc {
-    font-size: 11px;
-    color: var(--color-text-faint);
-    flex-shrink: 0;
-  }
-
-  .item-shortcut {
-    font-size: 11px;
-    color: var(--color-text-faint);
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: var(--color-hover);
-    flex-shrink: 0;
-  }
-</style>

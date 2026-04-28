@@ -56,7 +56,6 @@
   })
 
   async function init(): Promise<void> {
-    // Fetch full task data (with description) in parallel with branch type
     const [typeInfo, foundTask] = await Promise.all([
       window.api
         .taskTrackerResolveBranchType(
@@ -154,13 +153,10 @@
       }
 
       if (selectedAgentId) {
-        // Capture values before component is destroyed by closeDialog
         const agentId = selectedAgentId
         const connId = connectionId
         const taskSnapshot = JSON.parse(JSON.stringify(fullTask)) as typeof fullTask
 
-        // Open agent tab BEFORE switching worktree so ensureDefaultTab
-        // sees an existing tab and doesn't race with a shell tab
         try {
           const tab = await openTool(agentId, worktreePath)
           await selectWorktree(worktreePath)
@@ -212,42 +208,52 @@
   onMount(() => {
     init()
   })
+
+  const iconBtnCls =
+    'flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer flex-shrink-0 hover:bg-hover hover:text-text'
 </script>
 
 {#if initialized}
-  <div class="picker-header">
-    <button class="back-btn" onclick={onBack} aria-label="Back">
+  <div class="flex items-center gap-2 px-4 pt-3.5 pb-2.5 border-b border-border-subtle">
+    <button class={iconBtnCls} onclick={onBack} aria-label="Back">
       <ArrowLeft size={16} />
     </button>
-    <h3 class="picker-title">Create Branch</h3>
-    <button class="close-btn" onclick={() => closeDialog()} aria-label="Close">
+    <h3 class="m-0 text-lg font-semibold text-text flex-1">Create Branch</h3>
+    <button class={iconBtnCls} onclick={() => closeDialog()} aria-label="Close">
       <X size={16} />
     </button>
   </div>
-  <div class="branch-form">
-    <div class="task-card">
-      <div class="task-card-header">
+  <div class="p-4 flex flex-col gap-3.5">
+    <div class="px-3 py-2.5 bg-bg-input border border-border rounded-xl">
+      <div class="flex items-center gap-2 mb-1">
         {#if fullTask.url}
-          <button class="task-key-link" onclick={() => window.api.openExternal(fullTask.url!)}>
+          <button
+            class="inline-flex items-center gap-1 font-semibold text-sm text-accent-text bg-transparent border-0 p-0 cursor-pointer font-inherit hover:underline"
+            onclick={() => window.api.openExternal(fullTask.url!)}
+          >
             {fullTask.key}
             <ExternalLink size={11} />
           </button>
         {:else}
-          <span class="task-key">{fullTask.key}</span>
+          <span class="font-semibold text-sm text-accent-text">{fullTask.key}</span>
         {/if}
         {#if fullTask.status}
-          <span class="task-status">{fullTask.status}</span>
+          <span class="text-2xs px-1.5 py-px rounded-md bg-active text-text-muted"
+            >{fullTask.status}</span
+          >
         {/if}
       </div>
-      <p class="task-title">{fullTask.summary}</p>
+      <p class="m-0 text-md text-text leading-snug">{fullTask.summary}</p>
       {#if fullTask.description}
-        <p class="task-description">{fullTask.description}</p>
+        <p class="mt-1.5 mb-0 text-xs text-text-muted leading-snug max-h-[60px] overflow-y-auto">
+          {fullTask.description}
+        </p>
       {/if}
     </div>
 
     {#if templateHasBranchType}
-      <div class="field-row">
-        <span class="field-label">Type</span>
+      <div class="flex items-center gap-2.5">
+        <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Type</span>
         <CustomSelect
           value={selectedBranchType}
           options={branchTypeOptions.map((o) => ({ value: o, label: o }))}
@@ -259,13 +265,15 @@
         />
       </div>
     {/if}
-    <div class="field-row">
-      <span class="field-label">Branch</span>
-      <code class="branch-preview">{resolvedBranchName}</code>
+    <div class="flex items-center gap-2.5">
+      <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Branch</span>
+      <code class="text-sm text-accent-text bg-bg-input px-2.5 py-[5px] rounded-lg flex-1"
+        >{resolvedBranchName}</code
+      >
     </div>
     {#if availableAgents.length > 0}
-      <div class="field-row">
-        <span class="field-label">Agent</span>
+      <div class="flex items-center gap-2.5">
+        <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Agent</span>
         <CustomSelect
           value={selectedAgentId}
           options={[
@@ -279,10 +287,13 @@
         />
       </div>
     {/if}
-    <div class="branch-actions">
-      <button class="btn-cancel" onclick={onBack}>Back</button>
+    <div class="flex justify-end gap-2 pt-1 border-t border-border-subtle">
       <button
-        class="btn-create"
+        class="px-3.5 py-1.5 border-0 rounded-lg bg-active text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover-strong"
+        onclick={onBack}>Back</button
+      >
+      <button
+        class="px-3.5 py-1.5 border-0 rounded-lg bg-accent-bg text-accent-text text-sm font-inherit cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
         onclick={confirmBranchCreation}
         disabled={creatingWorktree || !resolvedBranchName}
       >
@@ -292,176 +303,3 @@
     </div>
   </div>
 {/if}
-
-<style>
-  .picker-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 14px 16px 10px;
-    border-bottom: 1px solid var(--color-border-subtle);
-  }
-
-  .picker-title {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--color-text);
-    flex: 1;
-  }
-
-  .back-btn,
-  .close-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 6px;
-    background: none;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .back-btn:hover,
-  .close-btn:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-
-  .branch-form {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .task-card {
-    padding: 10px 12px;
-    background: var(--color-bg-input);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-  }
-
-  .task-card-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
-  }
-
-  .task-key {
-    font-weight: 600;
-    font-size: 12px;
-    color: var(--color-accent-text);
-  }
-
-  .task-key-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-weight: 600;
-    font-size: 12px;
-    color: var(--color-accent-text);
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    font-family: inherit;
-  }
-
-  .task-key-link:hover {
-    text-decoration: underline;
-  }
-
-  .task-status {
-    font-size: 10px;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: var(--color-active);
-    color: var(--color-text-muted);
-  }
-
-  .task-title {
-    margin: 0;
-    font-size: 13px;
-    color: var(--color-text);
-    line-height: 1.4;
-  }
-
-  .task-description {
-    margin: 6px 0 0;
-    font-size: 11px;
-    color: var(--color-text-muted);
-    line-height: 1.4;
-    max-height: 60px;
-    overflow-y: auto;
-  }
-
-  .field-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .field-label {
-    font-size: 12px;
-    color: var(--color-text-muted);
-    width: 50px;
-    flex-shrink: 0;
-  }
-
-  .branch-preview {
-    font-size: 12px;
-    color: var(--color-accent-text);
-    background: var(--color-bg-input);
-    padding: 5px 10px;
-    border-radius: 6px;
-    flex: 1;
-  }
-
-  .branch-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    padding-top: 4px;
-    border-top: 1px solid var(--color-border-subtle);
-  }
-
-  .btn-cancel {
-    padding: 6px 14px;
-    border: none;
-    border-radius: 6px;
-    background: var(--color-active);
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-cancel:hover {
-    background: var(--color-hover-strong);
-  }
-
-  .btn-create {
-    padding: 6px 14px;
-    border: none;
-    border-radius: 6px;
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-create:hover:not(:disabled) {
-    background: var(--color-accent-bg-hover);
-  }
-
-  .btn-create:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-</style>
