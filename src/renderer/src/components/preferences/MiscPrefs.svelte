@@ -2,6 +2,8 @@
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { resetAllSessions } from '../../lib/stores/wpmTracker.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   let runToolbarEnabled = $derived(prefs['runConfig.showInTitlebar'] === 'true')
   let wpmEnabled = $derived(prefs['wpm.enabled'] === 'true')
@@ -22,38 +24,35 @@
   }
 </script>
 
-<div class="flex flex-col gap-4">
-  <h3 class="text-[15px] font-semibold text-text m-0">Misc</h3>
+<div class="flex flex-col gap-7">
+  <PrefsSection title="Title bar">
+    <PrefsRow
+      label="Show Run Configurations toolbar"
+      help="A toolbar in the title bar for quick-launching run configurations"
+      search="run configuration toolbar titlebar launch"
+    >
+      <CustomCheckbox checked={runToolbarEnabled} onchange={toggleRunToolbar} />
+    </PrefsRow>
+  </PrefsSection>
 
-  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-    <CustomCheckbox checked={runToolbarEnabled} onchange={toggleRunToolbar} />
-    <span>Show Run Configurations in title bar</span>
-  </label>
-  {#if runToolbarEnabled}
-    <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
-      Display a toolbar for quick-launching run configurations from the title bar
-    </div>
-  {/if}
+  <PrefsSection
+    title="Terminal overlays"
+    description="Real-time hints displayed over terminal panes"
+  >
+    <PrefsRow
+      label="Typing speed (WPM)"
+      help="Tracks printable keystrokes in a 10-second sliding window. Control keys, arrows, and escape sequences are excluded. Shows current WPM, peak speed, and total characters."
+      search="wpm typing speed words per minute keystrokes"
+    >
+      <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
+    </PrefsRow>
 
-  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-    <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
-    <span>Show typing speed (WPM) in terminals</span>
-  </label>
-  {#if wpmEnabled}
-    <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
-      Tracks printable keystrokes in a 10-second sliding window. Control keys, arrows, and escape
-      sequences are excluded. Displays current WPM, peak speed, and total characters.
-    </div>
-  {/if}
-
-  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-    <CustomCheckbox checked={keystrokeVisualizerEnabled} onchange={toggleKeystrokeVisualizer} />
-    <span>Show keystroke overlay in terminals</span>
-  </label>
-  {#if keystrokeVisualizerEnabled}
-    <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
-      Displays pressed keys and keyboard shortcuts as a floating overlay in the bottom-left corner
-      of the terminal. Keys fade out after 2 seconds.
-    </div>
-  {/if}
+    <PrefsRow
+      label="Keystroke overlay"
+      help="Pressed keys and shortcuts shown as a floating overlay in the bottom-left corner. Keys fade out after 2 seconds."
+      search="keystroke visualizer overlay screencast presentation"
+    >
+      <CustomCheckbox checked={keystrokeVisualizerEnabled} onchange={toggleKeystrokeVisualizer} />
+    </PrefsRow>
+  </PrefsSection>
 </div>

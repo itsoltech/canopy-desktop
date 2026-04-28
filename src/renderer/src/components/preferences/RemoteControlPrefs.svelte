@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { ShieldAlert, Trash2 } from '@lucide/svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import CustomRadio from '../shared/CustomRadio.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   type GuardProfile = 'none' | 'destructive' | 'full'
 
@@ -41,7 +45,7 @@
 
   async function removeDevice(deviceId: string, name: string): Promise<void> {
     const ok = await confirm({
-      title: 'Remove Trusted Device',
+      title: 'Remove trusted device',
       message: `Remove "${name}" from trusted devices? It will need manual approval to connect again.`,
       confirmLabel: 'Remove',
       destructive: true,
@@ -73,154 +77,126 @@
   })
 </script>
 
-<div class="flex flex-col gap-4">
-  <h3 class="text-[15px] font-semibold text-text m-0 inline-flex items-center gap-2">
-    Remote Control
-    <span
-      class="inline-block px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.6px] text-warning bg-experimental-bg border border-experimental-border rounded-[10px] align-middle"
-      title="This feature is in beta — expect rough edges">Beta</span
-    >
-  </h3>
-
-  <p class="text-xs text-text-muted leading-normal">
-    Control Canopy from another device on your local WiFi network — phone, tablet, or another
-    laptop. Scan a QR code from the command palette to pair a device. Connections are end-to-end
-    encrypted via WebRTC DTLS. Once you have a trusted device, the signaling server stays bound in
-    the background on every app launch so that device can reconnect without you reopening the
-    pairing modal — disable the toggle below or remove all trusted devices to stop this auto-listen
-    behavior.
-  </p>
-
+<div class="flex flex-col gap-7">
   <div
-    class="px-3 py-2.5 bg-experimental-bg border border-experimental-border rounded-lg text-xs text-text-secondary leading-normal"
+    class="flex items-start gap-3 p-3 rounded-md bg-experimental-bg border border-experimental-border"
   >
-    <strong class="text-text block mb-1">Beta security notes:</strong>
-    <ul class="m-0 pl-4">
-      <li>
-        The pairing handshake (token exchange, SDP offer/answer) travels over plain HTTP/WebSocket
-        on the LAN — anyone with a packet sniffer on the same WiFi can observe it. Only the WebRTC
-        data channels themselves are encrypted (DTLS).
-      </li>
-      <li class="mt-1">
-        "Remember this device" uses the device's self-reported random ID for recognition — it's not
+    <ShieldAlert size={16} class="shrink-0 text-warning-text mt-0.5" />
+    <div class="flex flex-col gap-1.5 text-xs text-text-secondary leading-snug">
+      <p class="m-0">
+        <strong class="text-text font-semibold">Beta security notes.</strong>
+        Pairing handshakes (token exchange, SDP offer/answer) travel over plain HTTP/WebSocket on the
+        LAN — anyone with a packet sniffer on the same WiFi can observe them. Only the WebRTC data channels
+        themselves are encrypted (DTLS).
+      </p>
+      <p class="m-0">
+        "Remember this device" uses the device's self-reported random ID for recognition — it is not
         cryptographic identity. Anyone who knows or guesses a trusted device's ID can skip the
         accept modal. Cryptographic challenge-response is planned for a future release; until then,
         avoid using this on untrusted networks.
-      </li>
-    </ul>
+      </p>
+    </div>
   </div>
 
-  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-    <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
-    <span>Enable remote control</span>
-  </label>
-  <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
-    When disabled, the command palette does not expose the "Open Remote Connection" action, the
-    signaling server is never bound (including listen mode), and trusted devices cannot reconnect
-    until the toggle is re-enabled.
-  </div>
-
-  <fieldset
-    class="flex flex-col gap-2 p-3 border border-border rounded-lg"
-    class:opacity-50={!enabled}
-    disabled={!enabled}
+  <PrefsSection
+    title="Remote control"
+    description="Control Canopy from another device on your local network. Connections use end-to-end encrypted WebRTC DTLS data channels."
   >
-    <legend class="text-xs font-semibold uppercase tracking-[0.4px] text-text-secondary px-1.5"
-      >Action restrictions</legend
+    <PrefsRow
+      label="Enable remote control"
+      help="When disabled, the command palette hides the Open Remote Connection action, the signaling server is never bound, and trusted devices cannot reconnect."
+      search="remote control enable signaling pair phone tablet"
+      badge={{ text: 'Beta', tone: 'warning' }}
     >
-    <label class="flex gap-2 items-start cursor-pointer text-md text-text">
-      <input
-        class="mt-[3px]"
-        type="radio"
-        name="remote-action-guard"
-        value="none"
-        checked={guardProfile === 'none'}
-        onchange={() => setGuard('none')}
-      />
-      <span class="flex flex-col gap-0.5">
-        <strong>None</strong>
-        <small class="text-xs text-text-muted"
-          >Paired device has full access without per-action prompts.</small
-        >
-      </span>
-    </label>
-    <label class="flex gap-2 items-start cursor-pointer text-md text-text">
-      <input
-        class="mt-[3px]"
-        type="radio"
-        name="remote-action-guard"
-        value="destructive"
-        checked={guardProfile === 'destructive'}
-        onchange={() => setGuard('destructive')}
-      />
-      <span class="flex flex-col gap-0.5">
-        <strong>Destructive only (recommended)</strong>
-        <small class="text-xs text-text-muted"
-          >Ask before kills, deletes, worktree removes and tab closes.</small
-        >
-      </span>
-    </label>
-    <label class="flex gap-2 items-start cursor-pointer text-md text-text">
-      <input
-        class="mt-[3px]"
-        type="radio"
-        name="remote-action-guard"
-        value="full"
-        checked={guardProfile === 'full'}
-        onchange={() => setGuard('full')}
-      />
-      <span class="flex flex-col gap-0.5">
-        <strong>Full</strong>
-        <small class="text-xs text-text-muted"
-          >Every action from the remote device requires confirmation on this desktop.</small
-        >
-      </span>
-    </label>
-  </fieldset>
+      <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
+    </PrefsRow>
+  </PrefsSection>
 
-  <div>
-    <h4 class="text-md font-semibold text-text m-0 mb-1">Trusted Devices</h4>
-    <p class="text-xs text-text-muted leading-normal">
-      Devices you mark as "Remember this device" during pairing auto-connect on future sessions
-      without showing the accept modal. Remove a device here to require manual approval again.
-    </p>
+  <PrefsSection
+    title="Action restrictions"
+    description="What the paired device may do without per-action approval on this desktop"
+  >
+    <div class="flex flex-col" class:opacity-50={!enabled} class:pointer-events-none={!enabled}>
+      <PrefsRow
+        label="None"
+        help="Paired device has full access without per-action prompts"
+        search="remote guard none full-access"
+      >
+        <CustomRadio
+          checked={guardProfile === 'none'}
+          onchange={() => setGuard('none')}
+          disabled={!enabled}
+        />
+      </PrefsRow>
+      <PrefsRow
+        label="Destructive only"
+        help="Ask before kills, deletes, worktree removes, and tab closes"
+        search="remote guard destructive recommended default"
+        badge={{ text: 'Recommended', tone: 'accent' }}
+      >
+        <CustomRadio
+          checked={guardProfile === 'destructive'}
+          onchange={() => setGuard('destructive')}
+          disabled={!enabled}
+        />
+      </PrefsRow>
+      <PrefsRow
+        label="Full"
+        help="Every action from the remote device requires confirmation on this desktop"
+        search="remote guard full strict every action"
+      >
+        <CustomRadio
+          checked={guardProfile === 'full'}
+          onchange={() => setGuard('full')}
+          disabled={!enabled}
+        />
+      </PrefsRow>
+    </div>
+  </PrefsSection>
+
+  <PrefsSection
+    title="Trusted devices"
+    description="Devices marked as remembered during pairing reconnect automatically. Remove a device here to require manual approval again."
+  >
     {#if loading}
       <p
-        class="text-sm text-text-muted px-3.5 py-3 bg-bg-input border border-dashed border-border-subtle rounded-lg mt-2"
+        class="text-sm text-text-muted px-3 py-3 bg-bg-input rounded-md border border-border-subtle"
       >
         Loading…
       </p>
     {:else if trustedDevices.length === 0}
       <p
-        class="text-sm text-text-muted px-3.5 py-3 bg-bg-input border border-dashed border-border-subtle rounded-lg mt-2"
+        class="text-sm text-text-muted px-3 py-3 bg-bg-input rounded-md border border-border-subtle"
       >
         No trusted devices yet.
       </p>
     {:else}
-      <ul class="list-none p-0 m-0 mt-2 flex flex-col gap-1.5">
+      <ul role="list" class="m-0 p-0 flex flex-col gap-1">
         {#each trustedDevices as device (device.deviceId)}
           <li
-            class="flex items-center justify-between gap-3 px-3 py-2.5 bg-bg-input border border-border-subtle rounded-lg"
+            class="flex items-center justify-between gap-3 px-3 py-2 bg-bg-input border border-border-subtle rounded-md"
           >
             <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-md font-medium text-text">{device.name}</span>
+              <span class="text-md text-text truncate">{device.name}</span>
               <span class="text-2xs text-text-muted">
                 <code class="font-mono text-text-secondary">{device.deviceId.slice(0, 12)}…</code>
-                · added {formatRelative(device.addedAt)}
-                · last seen {formatRelative(device.lastSeen)}
+                · added {formatRelative(device.addedAt)} · last seen {formatRelative(
+                  device.lastSeen,
+                )}
               </span>
             </div>
             <button
               type="button"
-              class="px-3 py-1 rounded-md bg-bg border border-border text-danger-text text-xs cursor-pointer flex-shrink-0 hover:bg-danger-bg hover:border-danger"
+              class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer shrink-0 hover:bg-danger-bg hover:text-danger-text"
               onclick={() => removeDevice(device.deviceId, device.name)}
-              title="Remove trusted device"
+              aria-label="Remove {device.name}"
+              title="Remove"
             >
-              Remove
+              <Trash2 size={13} />
             </button>
           </li>
         {/each}
       </ul>
     {/if}
-  </div>
+  </PrefsSection>
 </div>

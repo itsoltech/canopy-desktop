@@ -2,6 +2,8 @@
   import type { ProfilePrefs } from '../../../../main/profiles/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import ProfileEnvVarsSection from './ProfileEnvVarsSection.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   let {
     prefs,
@@ -23,174 +25,187 @@
 
   function onTextInput<K extends keyof ProfilePrefs>(key: K) {
     return (e: Event): void => {
+      // Bound only to <input>/<textarea> elements; their .value is a string.
       const target = e.target as HTMLInputElement | HTMLTextAreaElement
+      // ProfilePrefs fields used here are all string | undefined, so the string value satisfies ProfilePrefs[K].
       set(key, target.value as ProfilePrefs[K])
     }
   }
+
+  function onApiKeyInput(e: Event): void {
+    // Bound to a password <input>; .value is a string.
+    onApiKeyChange((e.target as HTMLInputElement).value)
+  }
 </script>
 
-<div class="flex flex-col gap-2.5 mb-5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
-    Model & behavior
-  </h4>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="claude-model">Model</label>
-    <span class="text-xs text-text-faint">Short name (sonnet, opus, haiku) or full model ID</span>
-    <input
-      id="claude-model"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-      type="text"
-      value={prefs.model ?? ''}
-      oninput={onTextInput('model')}
-      placeholder="sonnet, opus, haiku, or model ID"
-      spellcheck="false"
-    />
-  </div>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="claude-perm">Permission mode</label>
-    <span class="text-xs text-text-faint"
-      >Controls what Claude can do without asking. Plan = read-only, Auto = full autonomy</span
+<div class="flex flex-col gap-7">
+  <PrefsSection title="Model & behavior">
+    <PrefsRow
+      label="Model"
+      help="Short name (sonnet, opus, haiku) or full model ID"
+      search="claude model sonnet opus haiku"
+      layout="stacked"
     >
-    <CustomSelect
-      id="claude-perm"
-      value={prefs.permissionMode ?? ''}
-      options={[
-        { value: '', label: 'Default' },
-        { value: 'plan', label: 'Plan' },
-        { value: 'auto', label: 'Auto' },
-        { value: 'acceptEdits', label: 'Accept edits' },
-        { value: 'bypassPermissions', label: 'Bypass permissions' },
-      ]}
-      onchange={(v) => set('permissionMode', v)}
-    />
-  </div>
+      <input
+        id="claude-model"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        type="text"
+        name="claudeModel"
+        aria-label="Claude model"
+        value={prefs.model ?? ''}
+        oninput={onTextInput('model')}
+        placeholder="sonnet, opus, haiku, or model ID"
+        spellcheck="false"
+      />
+    </PrefsRow>
 
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="claude-effort">Effort level</label>
-    <span class="text-xs text-text-faint"
-      >Higher effort means more thorough but slower responses</span
+    <PrefsRow
+      label="Permission mode"
+      help="Controls what Claude can do without asking. Plan = read-only, Auto = full autonomy."
+      search="claude permission mode plan auto bypass accept edits"
     >
-    <CustomSelect
-      id="claude-effort"
-      value={prefs.effortLevel ?? ''}
-      options={[
-        { value: '', label: 'Default' },
-        { value: 'low', label: 'Low' },
-        { value: 'medium', label: 'Medium' },
-        { value: 'high', label: 'High' },
-        { value: 'xhigh', label: 'Extra High' },
-        { value: 'max', label: 'Max' },
-      ]}
-      onchange={(v) => set('effortLevel', v)}
-    />
-  </div>
-</div>
+      <CustomSelect
+        id="claude-perm"
+        value={prefs.permissionMode ?? ''}
+        options={[
+          { value: '', label: 'Default' },
+          { value: 'plan', label: 'Plan' },
+          { value: 'auto', label: 'Auto' },
+          { value: 'acceptEdits', label: 'Accept edits' },
+          { value: 'bypassPermissions', label: 'Bypass permissions' },
+        ]}
+        onchange={(v) => set('permissionMode', v)}
+        maxWidth="200px"
+      />
+    </PrefsRow>
 
-<div class="flex flex-col gap-2.5 mb-5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
-    API / Provider
-  </h4>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="claude-apikey">API key</label>
-    <span class="text-xs text-text-faint"
-      >Anthropic API key. Falls back to ANTHROPIC_API_KEY env variable</span
+    <PrefsRow
+      label="Effort level"
+      help="Higher effort means more thorough but slower responses"
+      search="claude effort level low medium high max thinking"
     >
-    <input
-      id="claude-apikey"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-      type="password"
-      value={apiKey}
-      oninput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
-      placeholder={hasApiKey ? '•••• (saved — leave empty to keep)' : 'sk-ant-...'}
-      spellcheck="false"
-      autocomplete="off"
-    />
-  </div>
+      <CustomSelect
+        id="claude-effort"
+        value={prefs.effortLevel ?? ''}
+        options={[
+          { value: '', label: 'Default' },
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'high', label: 'High' },
+          { value: 'xhigh', label: 'Extra high' },
+          { value: 'max', label: 'Max' },
+        ]}
+        onchange={(v) => set('effortLevel', v)}
+        maxWidth="200px"
+      />
+    </PrefsRow>
+  </PrefsSection>
 
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="claude-baseurl">Base URL</label>
-    <span class="text-xs text-text-faint"
-      >Custom API endpoint. Use for Ollama, GLM, MinMax, or any OpenAI-compatible Anthropic proxy.</span
+  <PrefsSection title="API & provider">
+    <PrefsRow
+      label="API key"
+      help="Anthropic API key. Falls back to ANTHROPIC_API_KEY env variable."
+      search="claude anthropic api key secret"
+      layout="stacked"
     >
-    <input
-      id="claude-baseurl"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-      type="text"
-      value={prefs.baseUrl ?? ''}
-      oninput={onTextInput('baseUrl')}
-      placeholder="https://api.anthropic.com"
-      spellcheck="false"
-    />
-  </div>
+      <input
+        id="claude-apikey"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        type="password"
+        name="claudeApiKey"
+        aria-label="Claude API key"
+        value={apiKey}
+        oninput={onApiKeyInput}
+        placeholder={hasApiKey ? '•••• (saved — leave empty to keep)' : 'sk-ant-…'}
+        spellcheck="false"
+        autocomplete="off"
+      />
+    </PrefsRow>
 
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="claude-provider">Provider</label>
-    <span class="text-xs text-text-faint">Cloud provider for the Claude API backend</span>
-    <CustomSelect
-      id="claude-provider"
-      value={prefs.provider ?? ''}
-      options={[
-        { value: '', label: 'Default (Anthropic)' },
-        { value: 'bedrock', label: 'AWS Bedrock' },
-        { value: 'vertex', label: 'Google Vertex AI' },
-        { value: 'foundry', label: 'Microsoft Foundry' },
-      ]}
-      onchange={(v) => set('provider', v)}
-    />
-  </div>
-</div>
-
-<div class="flex flex-col gap-2.5 mb-5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
-    System prompt
-  </h4>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="claude-sysprompt"
-      >Append to system prompt</label
+    <PrefsRow
+      label="Base URL"
+      help="Custom API endpoint. Use for Ollama, GLM, MinMax, or any OpenAI-compatible Anthropic proxy."
+      search="claude base url ollama glm proxy endpoint"
+      layout="stacked"
     >
-    <span class="text-xs text-text-faint"
-      >Extra instructions added after the default system prompt in every session</span
-    >
-    <textarea
-      id="claude-sysprompt"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring resize-y min-h-[60px]"
-      rows="3"
-      value={prefs.appendSystemPrompt ?? ''}
-      oninput={onTextInput('appendSystemPrompt')}
-      placeholder="Additional instructions appended to the default system prompt"
-      spellcheck="false"
-    ></textarea>
-  </div>
-</div>
+      <input
+        id="claude-baseurl"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        type="text"
+        name="claudeBaseUrl"
+        aria-label="Claude base URL"
+        value={prefs.baseUrl ?? ''}
+        oninput={onTextInput('baseUrl')}
+        placeholder="https://api.anthropic.com"
+        spellcheck="false"
+      />
+    </PrefsRow>
 
-<ProfileEnvVarsSection
-  customEnv={prefs.customEnv}
-  hint="Extra env vars passed to Claude Code sessions in this profile"
-  onChange={(v) => set('customEnv', v)}
-/>
-
-<div class="flex flex-col gap-2.5 mb-5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">Advanced</h4>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="claude-settings"
-      >Settings JSON override</label
+    <PrefsRow
+      label="Provider"
+      help="Cloud provider for the Claude API backend"
+      search="claude provider bedrock vertex foundry aws google azure"
     >
-    <textarea
-      id="claude-settings"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text font-mono text-sm outline-none focus:border-focus-ring resize-y min-h-[60px]"
-      rows="4"
-      value={prefs.settingsJson ?? ''}
-      oninput={onTextInput('settingsJson')}
-      placeholder={'{"language": "japanese", "effortLevel": "high"}'}
-      spellcheck="false"
-    ></textarea>
-    <span class="text-xs text-text-faint"
-      >Merged into per-session settings.json. Hooks and status line are always preserved.</span
+      <CustomSelect
+        id="claude-provider"
+        value={prefs.provider ?? ''}
+        options={[
+          { value: '', label: 'Default (Anthropic)' },
+          { value: 'bedrock', label: 'AWS Bedrock' },
+          { value: 'vertex', label: 'Google Vertex AI' },
+          { value: 'foundry', label: 'Microsoft Foundry' },
+        ]}
+        onchange={(v) => set('provider', v)}
+        maxWidth="220px"
+      />
+    </PrefsRow>
+  </PrefsSection>
+
+  <PrefsSection title="System prompt">
+    <PrefsRow
+      label="Append to system prompt"
+      help="Extra instructions added after the default system prompt in every session"
+      search="claude system prompt append instructions"
+      layout="stacked"
     >
-  </div>
+      <textarea
+        id="claude-sysprompt"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring resize-y min-h-15 placeholder:text-text-faint"
+        rows="3"
+        name="claudeSystemPrompt"
+        aria-label="Append to system prompt"
+        value={prefs.appendSystemPrompt ?? ''}
+        oninput={onTextInput('appendSystemPrompt')}
+        placeholder="Additional instructions appended to the default system prompt"
+        spellcheck="false"
+      ></textarea>
+    </PrefsRow>
+  </PrefsSection>
+
+  <ProfileEnvVarsSection
+    customEnv={prefs.customEnv}
+    hint="Extra env vars passed to Claude Code sessions in this profile"
+    onChange={(v) => set('customEnv', v)}
+  />
+
+  <PrefsSection title="Advanced">
+    <PrefsRow
+      label="Settings JSON override"
+      help="Merged into per-session settings.json. Hooks and status line are always preserved."
+      search="claude settings json override advanced"
+      layout="stacked"
+    >
+      <textarea
+        id="claude-settings"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text font-mono text-sm outline-none focus:border-focus-ring resize-y min-h-15 placeholder:text-text-faint"
+        rows="4"
+        name="claudeSettingsJson"
+        aria-label="Settings JSON override"
+        value={prefs.settingsJson ?? ''}
+        oninput={onTextInput('settingsJson')}
+        placeholder={'{"language": "japanese", "effortLevel": "high"}'}
+        spellcheck="false"
+      ></textarea>
+    </PrefsRow>
+  </PrefsSection>
 </div>

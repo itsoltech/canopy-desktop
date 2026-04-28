@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick, type Component } from 'svelte'
+  import { Plus, Trash2 } from '@lucide/svelte'
   import type { AgentType } from '../../../../main/agents/types'
   import type { AgentProfileMasked, ProfilePrefs } from '../../../../main/profiles/types'
   import { getProfilesByAgent, saveProfile, deleteProfile } from '../../lib/stores/profiles.svelte'
@@ -16,11 +17,9 @@
 
   let {
     agentType,
-    title,
     form: FormComponent,
   }: {
     agentType: AgentType
-    title: string
     form: Component<FormProps>
   } = $props()
 
@@ -170,87 +169,100 @@
   }
 </script>
 
-<div class="flex flex-col gap-4 h-full">
-  <h3 class="text-[15px] font-semibold text-text m-0">{title}</h3>
-  <p class="text-sm text-text-faint m-0 leading-snug">
-    Create multiple profiles to switch between providers (Anthropic, Ollama, GLM, etc.) without
-    re-entering settings. Click a profile in the sidebar to launch it.
-  </p>
+<div class="grid grid-cols-[180px_1fr] gap-5 h-full min-h-0">
+  <aside class="flex flex-col gap-2 border-r border-border-subtle pr-3 min-h-0">
+    <div class="flex items-center justify-between gap-2 pl-1">
+      <span class="text-2xs font-semibold uppercase tracking-caps-looser text-text-faint">
+        Profiles
+      </span>
+      <button
+        type="button"
+        class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text disabled:opacity-50 disabled:cursor-default"
+        onclick={handleNew}
+        disabled={saving}
+        aria-label="New profile"
+        title="New profile"
+      >
+        <Plus size={14} />
+      </button>
+    </div>
 
-  <div class="grid grid-cols-[200px_1fr] gap-4 flex-1 min-h-0">
-    <aside class="flex flex-col gap-2 border-r border-border pr-3 min-h-0">
-      <div class="flex items-center justify-between gap-2">
-        <span class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted"
-          >Profiles</span
-        >
-        <button
-          class="px-2.5 py-1 border border-dashed border-text-faint rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-50 disabled:cursor-not-allowed"
-          onclick={handleNew}
-          disabled={saving}>+ New</button
-        >
-      </div>
-      {#if agentProfiles.length === 0}
-        <div class="text-sm text-text-faint p-2">No profiles yet</div>
-      {:else}
-        <ul class="list-none m-0 p-0 flex flex-col gap-0.5 overflow-y-auto group/profilelist">
-          {#each agentProfiles as p (p.id)}
-            <li
-              class="flex items-center rounded-lg bg-transparent group/profilerow hover:bg-hover"
-              class:!bg-active={selectedId === p.id}
+    {#if agentProfiles.length === 0}
+      <div class="text-sm text-text-faint px-2 py-3">No profiles yet</div>
+    {:else}
+      <ul role="list" class="m-0 p-0 flex flex-col gap-1 overflow-y-auto">
+        {#each agentProfiles as p (p.id)}
+          {@const active = selectedId === p.id}
+          <li
+            class="group/profilerow flex items-center rounded-md hover:bg-hover"
+            class:bg-accent-bg={active}
+          >
+            <button
+              type="button"
+              class="flex-1 flex items-center gap-1.5 px-2 py-1 border-0 bg-transparent font-inherit text-md text-left cursor-pointer min-w-0"
+              class:text-text={!active}
+              class:text-accent-text={active}
+              onclick={() => selectProfile(p.id)}
+              title={p.name}
             >
-              <button
-                class="flex-1 flex items-center gap-1.5 px-2 py-1.5 border-0 bg-transparent text-text font-inherit text-md text-left cursor-pointer min-w-0"
-                onclick={() => selectProfile(p.id)}
-                title={p.name}
-              >
-                <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{p.name}</span>
-                {#if p.isDefault}
-                  <span
-                    class="text-2xs uppercase text-text-faint border border-border rounded-sm px-1"
-                    >default</span
-                  >
-                {/if}
-              </button>
-              <button
-                class="invisible group-hover/profilerow:visible border-0 bg-transparent text-text-faint text-sm cursor-pointer px-2 py-1.5 mr-1 rounded-sm flex-shrink-0 hover:text-danger-text hover:bg-danger-bg"
-                title="Delete"
-                onclick={() => handleDelete(p)}
-                aria-label="Delete profile {p.name}"
-              >
-                ✕
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </aside>
+              <span class="flex-1 truncate">{p.name}</span>
+              {#if p.isDefault}
+                <span
+                  class="text-2xs uppercase tracking-caps-tight text-text-faint border border-border-subtle rounded-sm px-1 shrink-0"
+                  >default</span
+                >
+              {/if}
+            </button>
+            <button
+              type="button"
+              class="invisible group-hover/profilerow:visible flex items-center justify-center size-6 mr-1 border-0 bg-transparent rounded-sm text-text-faint cursor-pointer shrink-0 hover:text-danger-text hover:bg-danger-bg"
+              title="Delete"
+              onclick={() => handleDelete(p)}
+              aria-label="Delete profile {p.name}"
+            >
+              <Trash2 size={12} />
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </aside>
 
-    <section class="flex flex-col gap-4 overflow-y-auto min-h-0">
-      {#if selected}
-        <div class="flex items-end gap-3 pb-3 border-b border-border">
-          <div class="flex flex-col gap-1 flex-1">
-            <label class="text-sm font-medium text-text-secondary" for="profile-name"
-              >Profile name</label
-            >
-            <input
-              id="profile-name"
-              class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-              type="text"
-              bind:this={nameInputEl}
-              value={draftName}
-              oninput={onNameInput}
-              spellcheck="false"
-            />
-          </div>
+  <section class="flex flex-col min-h-0">
+    {#if selected}
+      <div class="flex items-end gap-3 pb-4 mb-7 border-b border-border-subtle shrink-0">
+        <div class="flex flex-col gap-1 flex-1 min-w-0">
+          <label
+            class="text-2xs font-semibold uppercase tracking-caps-looser text-text-faint"
+            for="profile-name">Profile name</label
+          >
+          <input
+            id="profile-name"
+            class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring"
+            type="text"
+            name="profileName"
+            bind:this={nameInputEl}
+            value={draftName}
+            oninput={onNameInput}
+            spellcheck="false"
+          />
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          {#if dirty}
+            <span class="text-xs text-warning-text">Unsaved changes</span>
+          {/if}
           <button
-            class="px-4 py-1.5 border-0 rounded-lg bg-accent-bg text-accent-text text-md font-inherit cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            type="button"
+            class="px-3.5 py-1.5 rounded-md text-md font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
             onclick={handleSave}
             disabled={saving || !dirty}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
+      </div>
 
+      <div class="flex-1 overflow-y-auto pr-1 py-2">
         <FormComponent
           prefs={draftPrefs}
           apiKey={draftApiKey}
@@ -258,11 +270,11 @@
           {onPrefsChange}
           {onApiKeyChange}
         />
-      {:else}
-        <div class="text-md text-text-faint p-6 text-center">
-          Select or create a profile to begin.
-        </div>
-      {/if}
-    </section>
-  </div>
+      </div>
+    {:else}
+      <div class="text-md text-text-faint p-6 text-center">
+        Select or create a profile to begin.
+      </div>
+    {/if}
+  </section>
 </div>

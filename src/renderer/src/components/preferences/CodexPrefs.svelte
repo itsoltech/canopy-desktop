@@ -3,4 +3,4 @@
   import CodexProfileForm from './CodexProfileForm.svelte'
 </script>
 
-<AgentProfilesPanel agentType="codex" title="Codex" form={CodexProfileForm} />
+<AgentProfilesPanel agentType="codex" form={CodexProfileForm} />

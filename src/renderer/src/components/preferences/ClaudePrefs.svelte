@@ -3,4 +3,4 @@
   import ClaudeProfileForm from './ClaudeProfileForm.svelte'
 </script>
 
-<AgentProfilesPanel agentType="claude" title="Claude Code" form={ClaudeProfileForm} />
+<AgentProfilesPanel agentType="claude" form={ClaudeProfileForm} />

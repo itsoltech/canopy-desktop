@@ -3,6 +3,8 @@
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   let autoUpdate = $derived(prefs['update.autoUpdate'] !== 'false')
   let channel = $derived(prefs['update.channel'] || 'stable')
@@ -70,60 +72,72 @@
   })
 </script>
 
-<div class="flex flex-col gap-4">
-  <h3 class="text-[15px] font-semibold text-text m-0">Updates</h3>
-
-  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-    <CustomCheckbox checked={autoUpdate} onchange={toggleAutoUpdate} />
-    <span>Automatically download and install updates</span>
-  </label>
-
-  <div class="flex items-center gap-3 text-md">
-    <span class="text-text min-w-40">Update channel</span>
-    <CustomSelect
-      value={channel}
-      options={[
-        { value: 'stable', label: 'Stable' },
-        { value: 'next', label: 'Pre-release' },
-      ]}
-      onchange={setChannel}
-      maxWidth="180px"
-    />
-  </div>
-  <div class="text-xs text-text-muted leading-normal -mt-2">
-    Stable gets tested releases. Pre-release includes newest features but may have bugs
-  </div>
-
-  <div class="flex items-center gap-3 text-md">
-    <span class="text-text min-w-40">Check frequency</span>
-    <CustomSelect
-      value={checkFrequency}
-      options={[
-        { value: 'hourly', label: 'Every hour' },
-        { value: 'daily', label: 'Every day' },
-        { value: 'weekly', label: 'Every week' },
-        { value: 'never', label: 'Never (manual only)' },
-      ]}
-      onchange={setCheckFrequency}
-      maxWidth="180px"
-    />
-  </div>
-  <div class="text-xs text-text-muted leading-normal -mt-2">
-    How often the app checks for new versions in the background
-  </div>
-
-  <div class="flex items-center gap-3">
-    <button
-      class="px-3.5 py-1.5 border border-text-faint rounded-lg bg-hover text-text text-md font-inherit cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong disabled:opacity-50 disabled:cursor-default"
-      onclick={checkNow}
-      disabled={checkState === 'checking'}
+<div class="flex flex-col gap-7">
+  <PrefsSection title="Automatic updates">
+    <PrefsRow
+      label="Download and install automatically"
+      help="Updates are fetched in the background and applied on the next restart"
+      search="auto download install background"
     >
-      {checkState === 'checking' ? 'Checking...' : 'Check for updates'}
-    </button>
-    {#if checkState === 'up-to-date'}
-      <span class="text-sm text-success">You're up to date</span>
-    {:else if checkState === 'error'}
-      <span class="text-sm text-danger">Check failed</span>
-    {/if}
-  </div>
+      <CustomCheckbox checked={autoUpdate} onchange={toggleAutoUpdate} />
+    </PrefsRow>
+
+    <PrefsRow
+      label="Update channel"
+      help="Stable receives tested releases. Pre-release includes the newest features but may have bugs."
+      search="channel stable next pre-release beta"
+    >
+      <CustomSelect
+        value={channel}
+        options={[
+          { value: 'stable', label: 'Stable' },
+          { value: 'next', label: 'Pre-release' },
+        ]}
+        onchange={setChannel}
+        maxWidth="180px"
+      />
+    </PrefsRow>
+
+    <PrefsRow
+      label="Check frequency"
+      help="How often the app checks for new versions in the background"
+      search="check frequency hourly daily weekly never manual"
+    >
+      <CustomSelect
+        value={checkFrequency}
+        options={[
+          { value: 'hourly', label: 'Every hour' },
+          { value: 'daily', label: 'Every day' },
+          { value: 'weekly', label: 'Every week' },
+          { value: 'never', label: 'Never (manual only)' },
+        ]}
+        onchange={setCheckFrequency}
+        maxWidth="180px"
+      />
+    </PrefsRow>
+  </PrefsSection>
+
+  <PrefsSection title="Manual check">
+    <PrefsRow
+      label="Check for updates"
+      help="Run a one-off check against the current channel"
+      search="check now manual update"
+    >
+      <div class="flex items-center gap-3">
+        <button
+          type="button"
+          class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-border-subtle text-text-secondary hover:bg-active hover:text-text disabled:opacity-50 disabled:cursor-default"
+          onclick={checkNow}
+          disabled={checkState === 'checking'}
+        >
+          {checkState === 'checking' ? 'Checking…' : 'Check now'}
+        </button>
+        {#if checkState === 'up-to-date'}
+          <span class="text-sm text-success">You're up to date</span>
+        {:else if checkState === 'error'}
+          <span class="text-sm text-danger">Check failed</span>
+        {/if}
+      </div>
+    </PrefsRow>
+  </PrefsSection>
 </div>

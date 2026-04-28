@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus } from '@lucide/svelte'
+  import { Plus, Trash2 } from '@lucide/svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import {
@@ -8,6 +8,7 @@
     saveRepoConfig,
     saveGlobalConfig,
   } from '../../lib/stores/taskTracker.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
 
   interface Props {
     repoRoot?: string
@@ -116,76 +117,94 @@
   }
 </script>
 
-<div class="flex flex-col gap-2.5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
-    Branch naming
-  </h4>
-
-  {#if boards.length > 0}
-    <div class="flex items-center gap-2 text-md">
-      <span class="text-text-secondary w-[90px] flex-shrink-0">Board</span>
-      <CustomSelect
-        value={templateScope}
-        options={[
-          { value: 'default', label: 'All boards (default)' },
-          ...boards.map((b) => ({ value: b.id, label: b.name })),
-        ]}
-        onchange={(v) => {
-          templateScope = v
-          templateInput = branchTemplate.template
-          updatePreview()
-        }}
-      />
-    </div>
-    {#if templateScope !== 'default' && !config?.boardOverrides[templateScope]?.branchTemplate}
-      <span class="text-xs text-text-faint">
-        No override — uses default template. Edit below to create an override.
-      </span>
-    {/if}
-  {/if}
-
-  <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />
-
-  <div class="flex items-center gap-2">
-    <span class="text-sm text-text-secondary w-[90px] flex-shrink-0">Preview</span>
-    <code class="text-sm text-accent-text bg-border-subtle px-2 py-0.5 rounded-md"
-      >{branchPreview || '—'}</code
-    >
-  </div>
-
-  <div class="flex flex-col gap-1">
-    <span class="text-sm font-medium text-text-secondary">Custom variables</span>
-    {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
-      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-border-subtle text-md">
-        <code class="text-accent-text font-mono text-sm">{'{' + key + '}'}</code>
-        <span class="text-text-secondary font-mono text-sm flex-1">{value}</span>
-        <button
-          class="px-2 py-0.5 border-0 rounded-md bg-danger-bg text-danger-text text-xs font-inherit cursor-pointer flex-shrink-0"
-          onclick={() => removeCustomVar(key)}>Remove</button
-        >
+<PrefsSection
+  title="Branch naming"
+  description="Template for branch names created from tracker tasks"
+>
+  <div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
+    {#if boards.length > 0}
+      <div class="flex items-center gap-3">
+        <span class="text-sm text-text-secondary w-20 shrink-0">Board</span>
+        <CustomSelect
+          value={templateScope}
+          options={[
+            { value: 'default', label: 'All boards (default)' },
+            ...boards.map((b) => ({ value: b.id, label: b.name })),
+          ]}
+          onchange={(v) => {
+            templateScope = v
+            templateInput = branchTemplate.template
+            updatePreview()
+          }}
+        />
       </div>
-    {/each}
-    <div class="flex items-center gap-1.5">
-      <input
-        class="w-[100px] px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-        bind:value={newVarKey}
-        placeholder="key"
-        spellcheck="false"
-      />
-      <input
-        class="w-[100px] px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-        bind:value={newVarValue}
-        placeholder="value"
-        spellcheck="false"
-      />
-      <button
-        class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer enabled:hover:bg-hover enabled:hover:text-text-secondary disabled:opacity-50 disabled:cursor-default"
-        onclick={addCustomVar}
-        disabled={!newVarKey.trim()}
-        title="Add"
+      {#if templateScope !== 'default' && !config?.boardOverrides[templateScope]?.branchTemplate}
+        <p class="text-xs text-text-faint m-0">
+          No override — uses default template. Edit below to create one.
+        </p>
+      {/if}
+    {/if}
+
+    <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />
+
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-text-secondary w-20 shrink-0">Preview</span>
+      <code class="text-sm text-accent-text bg-bg-input px-2 py-0.5 rounded-md font-mono"
+        >{branchPreview || '—'}</code
       >
-        <Plus size={14} />
-      </button>
+    </div>
+
+    <div class="flex flex-col gap-1.5">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+        >Custom variables</span
+      >
+      {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
+        <div
+          class="flex items-center gap-2 px-2.5 py-1 rounded-md bg-bg-input border border-border-subtle text-md"
+        >
+          <code class="text-accent-text font-mono text-sm shrink-0">{'{' + key + '}'}</code>
+          <span class="text-text-secondary font-mono text-sm flex-1 truncate">{value}</span>
+          <button
+            type="button"
+            class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer shrink-0 hover:bg-danger-bg hover:text-danger-text"
+            onclick={() => removeCustomVar(key)}
+            aria-label="Remove {key}"
+            title="Remove"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      {/each}
+      <div class="flex items-center gap-1.5">
+        <input
+          class="w-25 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
+          name="newVarKey"
+          aria-label="Variable key"
+          bind:value={newVarKey}
+          placeholder="key"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <input
+          class="w-25 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
+          name="newVarValue"
+          aria-label="Variable value"
+          bind:value={newVarValue}
+          placeholder="value"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <button
+          type="button"
+          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
+          onclick={addCustomVar}
+          disabled={!newVarKey.trim()}
+          aria-label="Add variable"
+          title="Add"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
     </div>
   </div>
-</div>
+</PrefsSection>

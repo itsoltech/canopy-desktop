@@ -18,6 +18,8 @@
   import TaskConnectionsPrefs from './TaskConnectionsPrefs.svelte'
   import TaskBranchNamingPrefs from './TaskBranchNamingPrefs.svelte'
   import TaskPRNamingPrefs from './TaskPRNamingPrefs.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   type ConfigScope = 'global' | 'project'
   let scope = $state<ConfigScope>('global')
@@ -141,55 +143,68 @@
   }
 </script>
 
-<div class="flex flex-col gap-5">
-  <h3 class="text-[15px] font-semibold text-text m-0">Task Tracker</h3>
+<div class="flex flex-col gap-7">
+  <div class="flex flex-col gap-2">
+    <div
+      class="inline-flex w-fit p-0.5 bg-bg-input border border-border-subtle rounded-md select-none"
+      role="tablist"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={scope === 'global'}
+        class="px-3 py-1 border-0 rounded-sm text-sm font-inherit cursor-pointer disabled:opacity-40 disabled:cursor-default"
+        class:bg-bg={scope === 'global'}
+        class:text-text={scope === 'global'}
+        class:bg-transparent={scope !== 'global'}
+        class:text-text-muted={scope !== 'global'}
+        class:hover:text-text-secondary={scope !== 'global'}
+        onclick={() => handleScopeChange('global')}
+      >
+        Global
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={scope === 'project'}
+        class="px-3 py-1 border-0 rounded-sm text-sm font-inherit cursor-pointer disabled:opacity-40 disabled:cursor-default"
+        class:bg-bg={scope === 'project'}
+        class:text-text={scope === 'project'}
+        class:bg-transparent={scope !== 'project'}
+        class:text-text-muted={scope !== 'project'}
+        class:hover:text-text-secondary={scope !== 'project'}
+        disabled={!repoRoot}
+        onclick={() => handleScopeChange('project')}
+        title={repoRoot
+          ? 'Project-specific settings (.canopy/config.json)'
+          : 'Open a repository to configure project settings'}
+      >
+        Project
+      </button>
+    </div>
 
-  <div class="flex gap-0.5 bg-border-subtle rounded-xl p-0.5 w-fit">
-    <button
-      class="px-4 py-1.5 border-0 rounded-lg text-sm font-medium font-inherit cursor-pointer transition-all duration-base disabled:opacity-40 disabled:cursor-default {scope ===
-      'global'
-        ? '!bg-bg !text-text shadow-[0_1px_2px_oklch(0_0_0/0.1)]'
-        : 'bg-transparent text-text-muted enabled:hover:text-text-secondary'}"
-      onclick={() => handleScopeChange('global')}
-    >
-      Global
-    </button>
-    <button
-      class="px-4 py-1.5 border-0 rounded-lg text-sm font-medium font-inherit cursor-pointer transition-all duration-base disabled:opacity-40 disabled:cursor-default {scope ===
-      'project'
-        ? '!bg-bg !text-text shadow-[0_1px_2px_oklch(0_0_0/0.1)]'
-        : 'bg-transparent text-text-muted enabled:hover:text-text-secondary'}"
-      disabled={!repoRoot}
-      onclick={() => handleScopeChange('project')}
-      title={repoRoot
-        ? 'Project-specific settings (.canopy/config.json)'
-        : 'Open a repository to configure project settings'}
-    >
-      Project
-    </button>
+    <p class="text-xs text-text-muted m-0 leading-snug">
+      {#if scope === 'global'}
+        Personal settings used across all projects.
+      {:else}
+        Stored in <code class="font-mono text-text-secondary">.canopy/config.json</code> — shared with
+        your team via git. Overrides global settings.
+      {/if}
+    </p>
   </div>
 
-  <span class="text-xs text-text-faint -mt-3">
-    {#if scope === 'global'}
-      Your personal settings, used across all projects.
-    {:else}
-      Stored in <code>.canopy/config.json</code> — shared with your team via git. Overrides global settings.
-    {/if}
-  </span>
-
   {#if scope === 'project' && !repoRoot}
-    <p class="text-xs text-text-faint">Open a repository to configure project settings.</p>
+    <p class="text-sm text-text-faint m-0">Open a repository to configure project settings.</p>
   {:else if scope === 'project' && !repoConfig}
-    <div>
-      <span class="text-xs text-text-faint">
-        No <code>.canopy/config.json</code> found in this repository.
-      </span>
-      <div class="mt-2">
-        <button
-          class="px-3.5 py-1.5 border-0 rounded-lg text-md font-inherit cursor-pointer bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
-          onclick={handleInitProject}>Initialize Project Config</button
-        >
-      </div>
+    <div class="flex flex-col gap-2 items-start">
+      <p class="text-sm text-text-faint m-0">
+        No <code class="font-mono text-text-secondary">.canopy/config.json</code> in this repository.
+      </p>
+      <button
+        type="button"
+        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
+        onclick={handleInitProject}>Initialize project config</button
+      >
     </div>
   {:else if config}
     <TaskConnectionsPrefs {repoRoot} {scope} />
@@ -205,40 +220,49 @@
 
     <TaskPRNamingPrefs {repoRoot} {boards} {scope} />
 
-    <div class="flex flex-col gap-2.5">
-      <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">Filters</h4>
-
-      <label class="flex items-center gap-2 text-md text-text cursor-pointer">
+    <PrefsSection title="Filters" description="Limit which tasks appear in pickers">
+      <PrefsRow
+        label="Only show tasks assigned to me"
+        help="Hides tasks assigned to other people or unassigned"
+        search="filter assigned to me mine"
+      >
         <CustomCheckbox checked={config.filters.assignedToMe} onchange={toggleAssignedToMe} />
-        <span>Only show tasks assigned to me</span>
-      </label>
+      </PrefsRow>
 
-      <div class="flex items-center gap-1.5">
-        <span class="text-sm font-medium text-text-secondary">Status filter</span>
-        <button
-          class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer enabled:hover:bg-hover enabled:hover:text-text-secondary disabled:opacity-50 disabled:cursor-default"
-          onclick={loadStatusesFromApi}
-          disabled={loadingStatuses}
-          title="Refresh from API"
-        >
-          <RefreshCw size={12} />
-        </button>
-      </div>
-      {#if availableStatuses.length > 0}
-        {#each availableStatuses as status (status)}
-          <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-            <CustomCheckbox
-              checked={config.filters.statuses.includes(status)}
-              onchange={() => toggleStatus(status)}
-            />
-            <span>{status}</span>
-          </label>
-        {/each}
-      {:else}
-        <span class="text-xs text-text-faint"
-          >Click refresh to load statuses from your tracker.</span
-        >
-      {/if}
-    </div>
+      <PrefsRow
+        label="Status filter"
+        help={availableStatuses.length === 0
+          ? 'Click refresh to load statuses from your tracker.'
+          : `${config.filters.statuses.length} of ${availableStatuses.length} selected`}
+        search="filter status statuses"
+        layout="stacked"
+      >
+        <div class="flex flex-col gap-2">
+          <button
+            type="button"
+            class="self-start flex items-center gap-1 px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text disabled:opacity-50 disabled:cursor-default"
+            onclick={loadStatusesFromApi}
+            disabled={loadingStatuses}
+            title="Refresh from API"
+          >
+            <RefreshCw size={12} />
+            <span>{loadingStatuses ? 'Loading…' : 'Refresh from API'}</span>
+          </button>
+          {#if availableStatuses.length > 0}
+            <div class="flex flex-wrap gap-x-4 gap-y-1.5">
+              {#each availableStatuses as status (status)}
+                <label class="flex items-center gap-2 text-md text-text cursor-pointer">
+                  <CustomCheckbox
+                    checked={config.filters.statuses.includes(status)}
+                    onchange={() => toggleStatus(status)}
+                  />
+                  <span>{status}</span>
+                </label>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </PrefsRow>
+    </PrefsSection>
   {/if}
 </div>

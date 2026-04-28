@@ -1,6 +1,8 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   let telemetryEnabled = $derived(prefs['telemetry.enabled'] !== 'false')
 
@@ -9,21 +11,20 @@
   }
 </script>
 
-<div class="flex flex-col gap-4">
-  <h3 class="text-[15px] font-semibold text-text m-0">Privacy</h3>
-
-  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-    <CustomCheckbox checked={telemetryEnabled} onchange={toggleTelemetry} />
-    <span>Minimal telemetry</span>
-  </label>
-  <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
-    Sends one daily ping so we can count active users. The payload contains only screen resolution,
-    locale, app version, OS and architecture. No stable identifier is stored or transmitted.
+<div class="flex flex-col gap-7">
+  <PrefsSection title="Telemetry" description="What Canopy sends to its makers">
+    <PrefsRow
+      label="Send minimal telemetry"
+      help="One daily ping helps us count active users. The payload contains only screen resolution, locale, app version, OS, and architecture. No stable identifier is stored or transmitted."
+      search="telemetry diagnostics ping analytics privacy"
+    >
+      <CustomCheckbox checked={telemetryEnabled} onchange={toggleTelemetry} />
+    </PrefsRow>
     <a
-      class="text-accent no-underline hover:underline"
+      class="text-xs text-accent-text no-underline hover:underline mt-1 w-fit"
       href="https://canopy.itsol.tech/privacy-policy"
       target="_blank"
-      rel="noopener noreferrer">Privacy policy</a
+      rel="noopener noreferrer">Privacy policy →</a
     >
-  </div>
+  </PrefsSection>
 </div>

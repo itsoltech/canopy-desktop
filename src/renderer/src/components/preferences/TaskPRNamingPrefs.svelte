@@ -7,6 +7,7 @@
     saveRepoConfig,
     saveGlobalConfig,
   } from '../../lib/stores/taskTracker.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
 
   interface Props {
     repoRoot?: string
@@ -101,64 +102,73 @@
   }
 </script>
 
-<div class="flex flex-col gap-2.5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
-    Pull request naming
-  </h4>
+<PrefsSection
+  title="Pull request naming"
+  description="Templates applied when creating PRs from tasks"
+>
+  <div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
+    {#if boards.length > 0}
+      <div class="flex items-center gap-3">
+        <span class="text-sm text-text-secondary w-20 shrink-0">Board</span>
+        <CustomSelect
+          value={prScope}
+          options={[
+            { value: 'default', label: 'All boards (default)' },
+            ...boards.map((b) => ({ value: b.id, label: b.name })),
+          ]}
+          onchange={(v) => {
+            prScope = v
+            initialized = false
+          }}
+        />
+      </div>
+    {/if}
 
-  {#if boards.length > 0}
-    <div class="flex items-center gap-2 text-md">
-      <span class="text-text-secondary w-[90px] flex-shrink-0">Board</span>
-      <CustomSelect
-        value={prScope}
-        options={[
-          { value: 'default', label: 'All boards (default)' },
-          ...boards.map((b) => ({ value: b.id, label: b.name })),
-        ]}
-        onchange={(v) => {
-          prScope = v
-          initialized = false
-        }}
+    <BranchTokenBuilder
+      bind:templateInput={titleTemplateInput}
+      placeholders={PR_TAGS}
+      onSave={onTitleTemplateSave}
+      label="Title"
+      autoSeparators={false}
+    />
+
+    <BranchTokenBuilder
+      bind:templateInput={bodyTemplateInput}
+      placeholders={PR_TAGS}
+      onSave={onBodyTemplateSave}
+      label="Body"
+      autoSeparators={false}
+    />
+
+    <div class="flex flex-col gap-1">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+        >Body text</span
+      >
+      <textarea
+        class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring resize-y min-h-15 placeholder:text-text-faint"
+        name="prBody"
+        aria-label="PR body template"
+        bind:value={bodyTemplateInput}
+        oninput={onBodyTemplateSave}
+        rows="4"
+        placeholder="PR body template — use tags above or type freely"
+        spellcheck="false"
+      ></textarea>
+    </div>
+
+    <div class="flex flex-col gap-1">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+        >Default target branch</span
+      >
+      <input
+        class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        name="defaultTargetBranch"
+        aria-label="Default target branch"
+        bind:value={defaultTargetBranch}
+        oninput={() => savePRField('defaultTargetBranch', defaultTargetBranch)}
+        placeholder="develop"
+        spellcheck="false"
       />
     </div>
-  {/if}
-
-  <BranchTokenBuilder
-    bind:templateInput={titleTemplateInput}
-    placeholders={PR_TAGS}
-    onSave={onTitleTemplateSave}
-    label="Title"
-    autoSeparators={false}
-  />
-
-  <BranchTokenBuilder
-    bind:templateInput={bodyTemplateInput}
-    placeholders={PR_TAGS}
-    onSave={onBodyTemplateSave}
-    label="Body"
-    autoSeparators={false}
-  />
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary">Body text</label>
-    <textarea
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring resize-y min-h-[60px] placeholder:text-text-faint"
-      bind:value={bodyTemplateInput}
-      oninput={onBodyTemplateSave}
-      rows="4"
-      placeholder="PR body template — use tags above or type freely"
-      spellcheck="false"
-    ></textarea>
   </div>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary">Default target branch</label>
-    <input
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-      bind:value={defaultTargetBranch}
-      oninput={() => savePRField('defaultTargetBranch', defaultTargetBranch)}
-      placeholder="develop"
-      spellcheck="false"
-    />
-  </div>
-</div>
+</PrefsSection>

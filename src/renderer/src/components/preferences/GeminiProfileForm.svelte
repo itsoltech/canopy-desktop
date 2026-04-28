@@ -2,6 +2,8 @@
   import type { ProfilePrefs } from '../../../../main/profiles/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import ProfileEnvVarsSection from './ProfileEnvVarsSection.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   let {
     prefs,
@@ -29,92 +31,94 @@
   }
 </script>
 
-<div class="flex flex-col gap-2.5 mb-5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
-    Model & behavior
-  </h4>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="gemini-model">Model</label>
-    <input
-      id="gemini-model"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-      type="text"
-      value={prefs.model ?? ''}
-      oninput={onTextInput('model')}
-      placeholder="Default"
-      spellcheck="false"
-    />
-    <span class="text-xs text-text-faint">Leave empty for Gemini CLI default</span>
-  </div>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="gemini-approval"
-      >Approval mode</label
+<div class="flex flex-col gap-7">
+  <PrefsSection title="Model & behavior">
+    <PrefsRow
+      label="Model"
+      help="Leave empty for the Gemini CLI default"
+      search="gemini model"
+      layout="stacked"
     >
-    <span class="text-xs text-text-faint"
-      >Controls what Gemini can do without asking. YOLO = full autonomy, Plan = read-only</span
+      <input
+        id="gemini-model"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        type="text"
+        name="geminiModel"
+        aria-label="Gemini model"
+        value={prefs.model ?? ''}
+        oninput={onTextInput('model')}
+        placeholder="Default"
+        spellcheck="false"
+      />
+    </PrefsRow>
+
+    <PrefsRow
+      label="Approval mode"
+      help="Controls what Gemini can do without asking. YOLO = full autonomy, Plan = read-only."
+      search="gemini approval mode yolo plan auto edit"
     >
-    <CustomSelect
-      id="gemini-approval"
-      value={prefs.approvalMode ?? ''}
-      options={[
-        { value: '', label: 'Default' },
-        { value: 'default', label: 'Prompt' },
-        { value: 'auto_edit', label: 'Auto Edit' },
-        { value: 'yolo', label: 'YOLO' },
-        { value: 'plan', label: 'Plan (read-only)' },
-      ]}
-      onchange={(v) => set('approvalMode', v)}
-    />
-  </div>
-</div>
+      <CustomSelect
+        id="gemini-approval"
+        value={prefs.approvalMode ?? ''}
+        options={[
+          { value: '', label: 'Default' },
+          { value: 'default', label: 'Prompt' },
+          { value: 'auto_edit', label: 'Auto edit' },
+          { value: 'yolo', label: 'YOLO' },
+          { value: 'plan', label: 'Plan (read-only)' },
+        ]}
+        onchange={(v) => set('approvalMode', v)}
+        maxWidth="200px"
+      />
+    </PrefsRow>
+  </PrefsSection>
 
-<div class="flex flex-col gap-2.5 mb-5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">API</h4>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="gemini-apikey">API key</label>
-    <span class="text-xs text-text-faint"
-      >Google AI API key. Falls back to GEMINI_API_KEY env variable</span
+  <PrefsSection title="API">
+    <PrefsRow
+      label="API key"
+      help="Google AI API key. Falls back to GEMINI_API_KEY env variable."
+      search="gemini google api key secret"
+      layout="stacked"
     >
-    <input
-      id="gemini-apikey"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-      type="password"
-      value={apiKey}
-      oninput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
-      placeholder={hasApiKey ? '•••• (saved — leave empty to keep)' : 'Uses GEMINI_API_KEY'}
-      spellcheck="false"
-      autocomplete="off"
-    />
-  </div>
-</div>
+      <input
+        id="gemini-apikey"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        type="password"
+        name="geminiApiKey"
+        aria-label="Gemini API key"
+        value={apiKey}
+        oninput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
+        placeholder={hasApiKey ? '•••• (saved — leave empty to keep)' : 'Uses GEMINI_API_KEY'}
+        spellcheck="false"
+        autocomplete="off"
+      />
+    </PrefsRow>
+  </PrefsSection>
 
-<ProfileEnvVarsSection
-  customEnv={prefs.customEnv}
-  hint="Extra env vars passed to Gemini CLI sessions in this profile"
-  onChange={(v) => set('customEnv', v)}
-/>
+  <ProfileEnvVarsSection
+    customEnv={prefs.customEnv}
+    hint="Extra env vars passed to Gemini CLI sessions in this profile"
+    onChange={(v) => set('customEnv', v)}
+  />
 
-<div class="flex flex-col gap-2.5 mb-5">
-  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">Advanced</h4>
-
-  <div class="flex flex-col gap-1">
-    <label class="text-sm font-medium text-text-secondary" for="gemini-settings"
-      >Settings JSON override</label
+  <PrefsSection title="Advanced">
+    <PrefsRow
+      label="Settings JSON override"
+      help="Merged into per-session .gemini/settings.json (hooks always preserved)"
+      search="gemini settings json override advanced"
+      layout="stacked"
     >
-    <textarea
-      id="gemini-settings"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text font-mono text-sm outline-none focus:border-focus-ring resize-y min-h-[60px]"
-      rows="4"
-      value={prefs.settingsJson ?? ''}
-      oninput={onTextInput('settingsJson')}
-      placeholder={'{"key": "value"}'}
-      spellcheck="false"
-    ></textarea>
-    <span class="text-xs text-text-faint"
-      >Merged into per-session .gemini/settings.json (hooks always preserved)</span
-    >
-  </div>
+      <textarea
+        id="gemini-settings"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text font-mono text-sm outline-none focus:border-focus-ring resize-y min-h-15 placeholder:text-text-faint"
+        rows="4"
+        name="geminiSettingsJson"
+        aria-label="Settings JSON override"
+        value={prefs.settingsJson ?? ''}
+        oninput={onTextInput('settingsJson')}
+        placeholder={'{"key": "value"}'}
+        spellcheck="false"
+      ></textarea>
+    </PrefsRow>
+  </PrefsSection>
 </div>

@@ -202,105 +202,115 @@
   }
 </script>
 
-<div class="flex items-center gap-2 mb-2">
-  <label class="text-sm text-text-secondary w-[90px] flex-shrink-0">{label}</label>
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="flex flex-wrap gap-[3px] flex-1 min-h-7 px-1.5 py-[3px] border border-border rounded-lg bg-bg-input items-center box-content"
-    ondragover={onTrackDragOver}
-    ondrop={onTrackDrop}
-  >
-    {#each templateTokens as token, i (`${token.type}:${token.value}:${i}`)}
-      {#if token.type === 'placeholder'}
-        <span
-          class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs cursor-grab select-none transition-all duration-fast bg-accent-bg text-accent-text border active:cursor-grabbing {dragOverIdx ===
-          i
-            ? 'border-focus-ring shadow-[0_0_0_1px_var(--color-accent-muted)]'
-            : 'border-accent-muted'}"
-          draggable="true"
-          ondragstart={() => onTokenDragStart(i)}
-          ondragover={(e) => onTokenDragOver(i, e)}
-          ondrop={() => onTokenDrop(i)}
-          ondragend={onTokenDragEnd}
-          role="listitem"
-        >
-          {token.value}
-          <button
-            class="inline-flex items-center justify-center w-[14px] h-[14px] border-0 rounded-full bg-transparent text-text-muted text-sm leading-none cursor-pointer p-0 hover:bg-danger-bg hover:text-danger-text"
-            onclick={() => removeTokenAt(i)}
-            aria-label="Remove token">×</button
-          >
-        </span>
-      {:else}
-        <button
-          class="inline-flex items-center px-1.5 py-0.5 rounded-md text-xs cursor-grab select-none transition-all duration-fast bg-hover text-text-muted border font-mono active:cursor-grabbing {dragOverIdx ===
-          i
-            ? 'border-focus-ring shadow-[0_0_0_1px_var(--color-accent-muted)]'
-            : 'border-transparent'}"
-          draggable="true"
-          ondragstart={() => onTokenDragStart(i)}
-          ondragover={(e) => onTokenDragOver(i, e)}
-          ondrop={() => onTokenDrop(i)}
-          ondragend={onTokenDragEnd}
-          onclick={(e) => onSeparatorTokenClick(i, e)}
-        >
-          {token.value}
-        </button>
-      {/if}
-    {/each}
-    {#if templateTokens.length === 0}
-      <span class="text-xs text-text-faint px-1 py-0.5 leading-[22px]"
-        >Drag or click tags below to build template</span
-      >
-    {/if}
-  </div>
-</div>
-
-<div class="flex flex-wrap items-center gap-1 mb-1">
-  <span class="text-xs text-text-faint">Available tags: </span>
-  {#each placeholders as ph (ph.key)}
-    <button
-      class="text-xs px-1.5 py-0.5 border border-border rounded-md bg-hover text-text-secondary font-inherit cursor-pointer transition-all duration-fast hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
-      class:!opacity-35={templateInput.includes('{' + ph.key + '}')}
-      class:!cursor-default={templateInput.includes('{' + ph.key + '}')}
-      title={ph.description + ' (e.g. ' + ph.example + ')'}
-      draggable="true"
-      ondragstart={() => onAvailableDragStart(ph.key)}
-      ondragend={onTokenDragEnd}
-      onclick={(e) => addPlaceholderToTemplate(ph.key, e)}
+<div class="flex flex-col gap-1.5">
+  <div class="flex items-center gap-3">
+    <span class="text-sm text-text-secondary w-20 shrink-0">{label}</span>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="flex flex-wrap gap-1 flex-1 min-h-7 px-1.5 py-1 border border-border rounded-md bg-bg-input items-center"
+      ondragover={onTrackDragOver}
+      ondrop={onTrackDrop}
     >
-      &#123;{ph.key}&#125;
-    </button>
-  {/each}
-</div>
+      {#each templateTokens as token, i (`${token.type}:${token.value}:${i}`)}
+        {#if token.type === 'placeholder'}
+          <span
+            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-xs font-mono cursor-grab select-none bg-accent-bg text-accent-text border active:cursor-grabbing {dragOverIdx ===
+            i
+              ? 'border-focus-ring'
+              : 'border-accent-muted'}"
+            draggable="true"
+            ondragstart={() => onTokenDragStart(i)}
+            ondragover={(e) => onTokenDragOver(i, e)}
+            ondrop={() => onTokenDrop(i)}
+            ondragend={onTokenDragEnd}
+            role="listitem"
+          >
+            {token.value}
+            <button
+              type="button"
+              class="inline-flex items-center justify-center size-3.5 border-0 rounded-full bg-transparent text-text-muted text-sm leading-none cursor-pointer p-0 hover:bg-danger-bg hover:text-danger-text"
+              onclick={() => removeTokenAt(i)}
+              aria-label="Remove token">×</button
+            >
+          </span>
+        {:else}
+          <button
+            type="button"
+            class="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs font-mono cursor-grab select-none bg-bg-input text-text-muted border active:cursor-grabbing {dragOverIdx ===
+            i
+              ? 'border-focus-ring'
+              : 'border-border-subtle'}"
+            draggable="true"
+            ondragstart={() => onTokenDragStart(i)}
+            ondragover={(e) => onTokenDragOver(i, e)}
+            ondrop={() => onTokenDrop(i)}
+            ondragend={onTokenDragEnd}
+            onclick={(e) => onSeparatorTokenClick(i, e)}
+          >
+            {token.value}
+          </button>
+        {/if}
+      {/each}
+      {#if templateTokens.length === 0}
+        <span class="text-xs text-text-faint px-1">Drag or click tags below to build template</span>
+      {/if}
+    </div>
+  </div>
 
-<details class="mt-2 mb-2">
-  <summary class="text-xs text-text-faint cursor-pointer mb-1.5">Manual edit</summary>
-  <input
-    class="w-full box-border flex-1 px-2 py-1 border border-border rounded-lg bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring"
-    bind:value={templateInput}
-    oninput={() => onSave()}
-  />
-  <p class="text-sm text-text-muted m-0 mt-1.5 mb-3">
-    Conditional: <code>{'{?parentKey}...{/parentKey}'}</code> — only renders if value exists.
-  </p>
-</details>
+  <div class="flex flex-wrap items-center gap-1 pl-23">
+    <span class="text-2xs uppercase tracking-caps-tight text-text-faint mr-1">Tags</span>
+    {#each placeholders as ph (ph.key)}
+      {@const used = templateInput.includes('{' + ph.key + '}')}
+      <button
+        type="button"
+        class="text-xs px-1.5 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary font-mono cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+        class:opacity-35={used}
+        class:!cursor-default={used}
+        title={ph.description + ' (e.g. ' + ph.example + ')'}
+        draggable="true"
+        ondragstart={() => onAvailableDragStart(ph.key)}
+        ondragend={onTokenDragEnd}
+        onclick={(e) => addPlaceholderToTemplate(ph.key, e)}
+      >
+        {`{${ph.key}}`}
+      </button>
+    {/each}
+  </div>
+
+  <details class="pl-23">
+    <summary class="text-2xs uppercase tracking-caps-tight text-text-faint cursor-pointer mb-1.5"
+      >Manual edit</summary
+    >
+    <input
+      class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-mono outline-none focus:border-focus-ring"
+      name="manualTemplate"
+      aria-label="Manual template"
+      bind:value={templateInput}
+      oninput={() => onSave()}
+    />
+    <p class="text-xs text-text-muted m-0 mt-1.5">
+      Conditional: <code class="font-mono">{'{?parentKey}…{/parentKey}'}</code> — only renders if value
+      exists.
+    </p>
+  </details>
+</div>
 
 {#if sepPopup.visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-[1100]" onclick={closeSepPopup}>
+  <div class="fixed inset-0 z-popover" onclick={closeSepPopup}>
     <div
-      class="fixed flex items-center gap-1 px-2 py-1 bg-bg-overlay border border-border rounded-lg shadow-[0_4px_16px_var(--color-scrim)] -translate-x-1/2 -translate-y-full -mt-2"
+      class="fixed flex items-center gap-1 px-2 py-1 bg-bg-overlay border border-border rounded-md shadow-popover -translate-x-1/2 -translate-y-full -mt-2"
       style="left:{sepPopup.x}px;top:{sepPopup.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <span class="text-2xs text-text-muted mr-0.5">Separator:</span>
+      <span class="text-2xs uppercase tracking-caps-tight text-text-muted mr-0.5">Separator</span>
       {#each SEPARATORS as sep (sep)}
         <button
-          class="px-2.5 py-[3px] border border-border rounded-md bg-hover text-text-secondary text-sm font-inherit cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+          type="button"
+          class="px-2 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary text-sm font-mono cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
           onclick={() => confirmSeparatorAndAdd(sep)}
         >
-          <code>{sep}</code>
+          {sep}
         </button>
       {/each}
     </div>
@@ -309,24 +319,26 @@
 
 {#if editSepPopup.visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-[1100]" onclick={closeEditSepPopup}>
+  <div class="fixed inset-0 z-popover" onclick={closeEditSepPopup}>
     <div
-      class="fixed flex items-center gap-1 px-2 py-1 bg-bg-overlay border border-border rounded-lg shadow-[0_4px_16px_var(--color-scrim)] -translate-x-1/2 -translate-y-full -mt-2"
+      class="fixed flex items-center gap-1 px-2 py-1 bg-bg-overlay border border-border rounded-md shadow-popover -translate-x-1/2 -translate-y-full -mt-2"
       style="left:{editSepPopup.x}px;top:{editSepPopup.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <span class="text-2xs text-text-muted mr-0.5">Change to:</span>
+      <span class="text-2xs uppercase tracking-caps-tight text-text-muted mr-0.5">Change to</span>
       {#each SEPARATORS as sep (sep)}
         <button
-          class="px-2.5 py-[3px] border border-border rounded-md bg-hover text-text-secondary text-sm font-inherit cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+          type="button"
+          class="px-2 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary text-sm font-mono cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
           onclick={() => changeSeparator(sep)}
         >
-          <code>{sep}</code>
+          {sep}
         </button>
       {/each}
       <button
-        class="px-2.5 py-[3px] border border-border rounded-md bg-hover text-danger-text text-sm font-inherit cursor-pointer hover:bg-danger-bg hover:border-danger-text"
-        onclick={removeSeparatorToken}>x</button
+        type="button"
+        class="px-2 py-0.5 border border-border rounded-sm bg-bg-input text-danger-text text-sm font-mono cursor-pointer hover:bg-danger-bg hover:border-danger-text"
+        onclick={removeSeparatorToken}>×</button
       >
     </div>
   </div>

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   let notchEnabled = $derived(prefs['notch.enabled'] === 'true')
 
@@ -11,14 +13,14 @@
   }
 </script>
 
-<div class="flex flex-col gap-4">
-  <h3 class="text-[15px] font-semibold text-text m-0">Notch</h3>
-
-  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-    <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
-    <span>Show session status in notch overlay</span>
-  </label>
-  <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
-    Show active session info in an overlay near the top of the screen
-  </div>
+<div class="flex flex-col gap-7">
+  <PrefsSection title="Notch overlay">
+    <PrefsRow
+      label="Show session status near the notch"
+      help="A floating overlay near the top of the screen shows active session info — handy when Canopy is in the background"
+      search="notch overlay status session indicator macos"
+    >
+      <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
+    </PrefsRow>
+  </PrefsSection>
 </div>
