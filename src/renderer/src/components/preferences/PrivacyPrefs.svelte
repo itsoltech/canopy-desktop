@@ -9,62 +9,21 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Privacy</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Privacy</h3>
 
-  <label class="checkbox-row">
+  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
     <CustomCheckbox checked={telemetryEnabled} onchange={toggleTelemetry} />
     <span>Minimal telemetry</span>
   </label>
-  <div class="hint-row">
+  <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
     Sends one daily ping so we can count active users. The payload contains only screen resolution,
     locale, app version, OS and architecture. No stable identifier is stored or transmitted.
     <a
-      class="privacy-link"
+      class="text-accent no-underline hover:underline"
       href="https://canopy.itsol.tech/privacy-policy"
       target="_blank"
       rel="noopener noreferrer">Privacy policy</a
     >
   </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--c-text);
-    cursor: pointer;
-  }
-
-  .hint-row {
-    font-size: 11px;
-    color: var(--c-text-muted);
-    line-height: 1.5;
-    padding-left: 24px;
-    margin-top: -8px;
-  }
-
-  .privacy-link {
-    color: var(--c-accent);
-    text-decoration: none;
-  }
-
-  .privacy-link:hover {
-    text-decoration: underline;
-  }
-</style>

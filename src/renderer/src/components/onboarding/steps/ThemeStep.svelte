@@ -9,126 +9,53 @@
   }
 </script>
 
-<div class="step">
-  <h2 class="title">Choose your theme</h2>
-  <p class="description">
+<div class="flex flex-col items-center text-center gap-4">
+  <h2 class="m-0 text-lg font-semibold text-text">Choose your theme</h2>
+  <p class="m-0 text-md text-text-secondary">
     Pick a terminal color scheme. You can change this anytime in Preferences.
   </p>
 
-  <div class="theme-grid" role="group" aria-label="Theme">
+  <div class="grid grid-cols-4 gap-2 w-full max-w-[480px]" role="group" aria-label="Theme">
     {#each themeNames as name (name)}
       {@const theme = getTheme(name)}
-      <button class="theme-btn" class:active={name === currentTheme} onclick={() => setTheme(name)}>
-        <div class="theme-preview" style:background={theme.background}>
-          <span class="preview-text" style:color={theme.foreground}>Aa</span>
-          <div class="preview-colors">
-            <span class="color-dot" style:background={theme.red ?? '#ff6b6b'}></span>
-            <span class="color-dot" style:background={theme.green ?? '#69db7c'}></span>
-            <span class="color-dot" style:background={theme.blue ?? '#74c0fc'}></span>
-            <span class="color-dot" style:background={theme.yellow ?? '#ffd43b'}></span>
+      <button
+        class="flex flex-col items-center gap-1.5 p-2 border-2 border-transparent rounded-xl bg-border-subtle cursor-pointer transition-[border-color,background] duration-base hover:bg-hover hover:border-hover-strong"
+        class:!border-focus-ring={name === currentTheme}
+        class:!bg-accent-bg={name === currentTheme}
+        onclick={() => setTheme(name)}
+      >
+        <div
+          class="w-full aspect-[16/10] rounded-md flex flex-col items-center justify-center gap-1 border border-active"
+          style:background={theme.background}
+        >
+          <span
+            class="text-xl font-semibold font-['JetBrains_Mono',monospace]"
+            style:color={theme.foreground}>Aa</span
+          >
+          <div class="flex gap-[3px]">
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              style:background={theme.red ?? 'var(--color-danger)'}
+            ></span>
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              style:background={theme.green ?? 'var(--color-success)'}
+            ></span>
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              style:background={theme.blue ?? 'var(--color-accent)'}
+            ></span>
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              style:background={theme.yellow ?? 'var(--color-warning)'}
+            ></span>
           </div>
         </div>
-        <span class="theme-name">{name}</span>
+        <span
+          class="text-xs text-text-secondary font-inherit whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
+          class:!text-accent={name === currentTheme}>{name}</span
+        >
       </button>
     {/each}
   </div>
 </div>
-
-<style>
-  .step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 16px;
-  }
-
-  .title {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .description {
-    margin: 0;
-    font-size: 13px;
-    color: var(--c-text-secondary);
-  }
-
-  .theme-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    width: 100%;
-    max-width: 480px;
-  }
-
-  .theme-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 8px;
-    border: 2px solid transparent;
-    border-radius: 8px;
-    background: var(--c-border-subtle);
-    cursor: pointer;
-    transition:
-      border-color 0.15s,
-      background 0.15s;
-  }
-
-  .theme-btn:hover {
-    background: var(--c-hover);
-    border-color: var(--c-hover-strong);
-  }
-
-  .theme-btn.active {
-    border-color: var(--c-focus-ring);
-    background: var(--c-accent-bg);
-  }
-
-  .theme-preview {
-    width: 100%;
-    aspect-ratio: 16 / 10;
-    border-radius: 4px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    border: 1px solid var(--c-active);
-  }
-
-  .preview-text {
-    font-size: 16px;
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .preview-colors {
-    display: flex;
-    gap: 3px;
-  }
-
-  .color-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-  }
-
-  .theme-name {
-    font-size: 11px;
-    color: var(--c-text-secondary);
-    font-family: inherit;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-  }
-
-  .theme-btn.active .theme-name {
-    color: var(--c-accent);
-  }
-</style>

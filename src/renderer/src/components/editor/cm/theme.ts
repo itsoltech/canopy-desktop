@@ -5,59 +5,59 @@ import { tags as t } from '@lezer/highlight'
 
 const canopyTheme = EditorView.theme({
   '&': {
-    color: 'var(--c-text)',
-    backgroundColor: 'var(--c-bg)',
+    color: 'var(--color-text)',
+    backgroundColor: 'var(--color-bg)',
     height: '100%',
   },
   '.cm-content': {
-    caretColor: 'var(--c-accent, #4a9eff)',
+    caretColor: 'var(--color-accent)',
     fontFamily:
       "var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace)",
     fontSize: '13px',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: 'var(--c-accent, #4a9eff)',
+    borderLeftColor: 'var(--color-accent)',
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
-    backgroundColor: 'var(--c-selection, rgba(74, 158, 255, 0.25))',
+    backgroundColor: 'oklch(0.782 0.115 243.83 / 0.25)',
   },
   '.cm-gutters': {
-    backgroundColor: 'var(--c-bg)',
-    color: 'var(--c-text-muted, rgba(200, 200, 200, 0.5))',
+    backgroundColor: 'var(--color-bg)',
+    color: 'var(--color-text-muted)',
     border: 'none',
-    borderRight: '1px solid var(--c-border-subtle, rgba(255, 255, 255, 0.08))',
+    borderRight: '1px solid var(--color-border-subtle)',
   },
   '.cm-activeLine': {
-    backgroundColor: 'var(--c-hover, rgba(255, 255, 255, 0.04))',
+    backgroundColor: 'var(--color-hover)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'var(--c-hover, rgba(255, 255, 255, 0.04))',
-    color: 'var(--c-text)',
+    backgroundColor: 'var(--color-hover)',
+    color: 'var(--color-text)',
   },
   '.cm-lineNumbers .cm-gutterElement': {
     padding: '0 8px 0 6px',
     minWidth: '2.5em',
   },
   '.cm-tooltip': {
-    backgroundColor: 'var(--c-surface, #1e1e1e)',
-    color: 'var(--c-text)',
-    border: '1px solid var(--c-border-subtle, rgba(255, 255, 255, 0.08))',
+    backgroundColor: 'var(--color-bg-elevated)',
+    color: 'var(--color-text)',
+    border: '1px solid var(--color-border-subtle)',
   },
   '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-    backgroundColor: 'var(--c-hover, rgba(255, 255, 255, 0.08))',
-    color: 'var(--c-text)',
+    backgroundColor: 'var(--color-hover)',
+    color: 'var(--color-text)',
   },
   '.cm-matchingBracket, .cm-nonmatchingBracket': {
-    backgroundColor: 'var(--c-hover, rgba(255, 255, 255, 0.08))',
-    outline: '1px solid var(--c-border-subtle, rgba(255, 255, 255, 0.2))',
+    backgroundColor: 'var(--color-hover)',
+    outline: '1px solid var(--color-border-subtle)',
   },
   '.cm-panels': {
-    backgroundColor: 'var(--c-bg-elevated)',
-    color: 'var(--c-text)',
+    backgroundColor: 'var(--color-bg-elevated)',
+    color: 'var(--color-text)',
     fontFamily: 'var(--font-sans)',
   },
   '.cm-panels.cm-panels-top': {
-    borderBottom: '1px solid var(--c-border-subtle)',
+    borderBottom: '1px solid var(--color-border-subtle)',
   },
   '.cm-panel.cm-search': {
     padding: '6px 32px 6px 10px',
@@ -65,9 +65,9 @@ const canopyTheme = EditorView.theme({
     lineHeight: '1.6',
   },
   '.cm-panel.cm-search input, .cm-panel.cm-search input.cm-textfield': {
-    background: 'var(--c-bg-input)',
-    color: 'var(--c-text)',
-    border: '1px solid var(--c-border)',
+    background: 'var(--color-bg-input)',
+    color: 'var(--color-text)',
+    border: '1px solid var(--color-border)',
     borderRadius: '4px',
     padding: '3px 8px',
     fontFamily: 'var(--font-mono)',
@@ -77,14 +77,14 @@ const canopyTheme = EditorView.theme({
     verticalAlign: 'middle',
   },
   '.cm-panel.cm-search input:focus, .cm-panel.cm-search input.cm-textfield:focus': {
-    borderColor: 'var(--c-accent)',
-    boxShadow: '0 0 0 2px var(--c-focus-ring)',
+    borderColor: 'var(--color-accent)',
+    boxShadow: '0 0 0 2px var(--color-focus-ring)',
   },
   '.cm-panel.cm-search input::placeholder': {
-    color: 'var(--c-text-muted)',
+    color: 'var(--color-text-muted)',
   },
   '.cm-panel.cm-search input[type="checkbox"]': {
-    accentColor: 'var(--c-accent)',
+    accentColor: 'var(--color-accent)',
     cursor: 'pointer',
     width: '13px',
     height: '13px',
@@ -92,7 +92,7 @@ const canopyTheme = EditorView.theme({
     verticalAlign: '-2px',
   },
   '.cm-panel.cm-search label': {
-    color: 'var(--c-text-secondary)',
+    color: 'var(--color-text-secondary)',
     fontSize: '12px',
     cursor: 'pointer',
     userSelect: 'none',
@@ -103,9 +103,9 @@ const canopyTheme = EditorView.theme({
     lineHeight: '0',
   },
   '.cm-panel.cm-search button, .cm-panel.cm-search button.cm-button': {
-    background: 'var(--c-bg-input)',
-    color: 'var(--c-text)',
-    border: '1px solid var(--c-border-subtle)',
+    background: 'var(--color-bg-input)',
+    color: 'var(--color-text)',
+    border: '1px solid var(--color-border-subtle)',
     borderRadius: '4px',
     padding: '3px 10px',
     fontSize: '12px',
@@ -117,15 +117,15 @@ const canopyTheme = EditorView.theme({
     verticalAlign: 'middle',
   },
   '.cm-panel.cm-search button:hover, .cm-panel.cm-search button.cm-button:hover': {
-    background: 'var(--c-hover-strong)',
-    borderColor: 'var(--c-border)',
+    background: 'var(--color-hover-strong)',
+    borderColor: 'var(--color-border)',
   },
   '.cm-panel.cm-search button:active, .cm-panel.cm-search button.cm-button:active': {
-    background: 'var(--c-active)',
+    background: 'var(--color-active)',
   },
   '.cm-panel.cm-search button:focus-visible': {
     outline: 'none',
-    boxShadow: '0 0 0 2px var(--c-focus-ring)',
+    boxShadow: '0 0 0 2px var(--color-focus-ring)',
   },
   '.cm-panel.cm-search button[name="close"]': {
     position: 'absolute',
@@ -133,82 +133,82 @@ const canopyTheme = EditorView.theme({
     right: '4px',
     background: 'transparent',
     border: 'none',
-    color: 'var(--c-text-muted)',
+    color: 'var(--color-text-muted)',
     fontSize: '16px',
     lineHeight: '1',
     padding: '2px 6px',
     minWidth: 'unset',
   },
   '.cm-panel.cm-search button[name="close"]:hover': {
-    background: 'var(--c-hover)',
-    color: 'var(--c-text)',
+    background: 'var(--color-hover)',
+    color: 'var(--color-text)',
     borderColor: 'transparent',
   },
   '.cm-searchMatch': {
-    backgroundColor: 'color-mix(in srgb, var(--c-warning) 22%, transparent)',
+    backgroundColor: 'color-mix(in srgb, var(--color-warning) 22%, transparent)',
     borderRadius: '2px',
   },
   '.cm-searchMatch.cm-searchMatch-selected': {
-    backgroundColor: 'color-mix(in srgb, var(--c-warning) 45%, transparent)',
-    outline: '1px solid color-mix(in srgb, var(--c-warning) 70%, transparent)',
+    backgroundColor: 'color-mix(in srgb, var(--color-warning) 45%, transparent)',
+    outline: '1px solid color-mix(in srgb, var(--color-warning) 70%, transparent)',
   },
 })
 
 const highlightStyle = HighlightStyle.define([
   {
     tag: t.keyword,
-    color: 'var(--c-syntax-keyword, #c586c0)',
+    color: 'var(--color-syntax-keyword)',
   },
   {
     tag: [t.string, t.special(t.string)],
-    color: 'var(--c-syntax-string, #ce9178)',
+    color: 'var(--color-syntax-string)',
   },
   {
     tag: t.comment,
-    color: 'var(--c-syntax-comment, #6a9955)',
+    color: 'var(--color-syntax-comment)',
     fontStyle: 'italic',
   },
   {
     tag: [t.number, t.bool, t.null],
-    color: 'var(--c-syntax-number, #b5cea8)',
+    color: 'var(--color-syntax-number)',
   },
   {
     tag: t.operator,
-    color: 'var(--c-syntax-operator, #d4d4d4)',
+    color: 'var(--color-syntax-operator)',
   },
   {
     tag: [t.function(t.variableName), t.function(t.propertyName)],
-    color: 'var(--c-syntax-function, #dcdcaa)',
+    color: 'var(--color-syntax-function)',
   },
   {
     tag: t.variableName,
-    color: 'var(--c-syntax-variable, #9cdcfe)',
+    color: 'var(--color-syntax-variable)',
   },
   {
     tag: [t.propertyName, t.attributeName],
-    color: 'var(--c-syntax-property, #9cdcfe)',
+    color: 'var(--color-syntax-property)',
   },
   {
     tag: [t.typeName, t.className],
-    color: 'var(--c-syntax-type, #4ec9b0)',
+    color: 'var(--color-syntax-type)',
   },
   {
     tag: [t.tagName, t.angleBracket],
-    color: 'var(--c-syntax-tag, #569cd6)',
+    color: 'var(--color-syntax-tag)',
   },
   {
     tag: t.heading,
-    color: 'var(--c-syntax-heading, #569cd6)',
+    color: 'var(--color-syntax-heading)',
     fontWeight: 'bold',
   },
   {
     tag: [t.link, t.url],
-    color: 'var(--c-accent, #4a9eff)',
+    color: 'var(--color-accent)',
     textDecoration: 'underline',
   },
   {
     tag: t.invalid,
-    color: 'var(--c-error-text, #f48771)',
+    color: 'var(--color-syntax-error)',
   },
 ])
 

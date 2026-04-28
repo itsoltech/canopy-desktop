@@ -43,7 +43,7 @@
 </script>
 
 <CollapsibleSection title="TOOLS" sectionKey="tools" borderTop>
-  <ul class="tool-list">
+  <ul class="list-none p-0 m-0">
     {#each aiTools as tool (tool.id)}
       {@const profiles = getProfilesByAgent(tool.id as AgentType)}
       {@const count = runningCount(tool.id)}
@@ -52,48 +52,60 @@
       {@const isOpen = expanded[tool.id]}
       <li>
         {#if isFlat}
-          <!-- Single (or no) profile: render as a flat launcher, no accordion -->
           <button
-            class="tool-item"
+            class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
             onclick={() => onLaunchTool(tool.id, { profileId: defaultProfile?.id })}
             title={tool.name}
           >
             <ToolIcon icon={tool.icon} size={14} />
-            <span class="tool-name">{tool.name}</span>
+            <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1">{tool.name}</span>
             {#if count > 0}
-              <span class="badge">{count}</span>
+              <span
+                class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-border text-text text-2xs font-semibold flex-shrink-0"
+                >{count}</span
+              >
             {/if}
           </button>
         {:else}
-          <!-- Multiple profiles: expandable group -->
           <button
-            class="tool-item"
+            class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
             onclick={() => toggle(tool.id)}
             title={tool.name}
             aria-expanded={isOpen}
           >
-            <span class="chevron" class:open={isOpen}>
+            <span
+              class="inline-flex w-2.5 h-2.5 text-text-faint transition-transform duration-fast ease-std"
+              class:rotate-90={isOpen}
+            >
               <ChevronRight size={10} />
             </span>
             <ToolIcon icon={tool.icon} size={14} />
-            <span class="tool-name">{tool.name}</span>
+            <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1">{tool.name}</span>
             {#if count > 0}
-              <span class="badge">{count}</span>
+              <span
+                class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-border text-text text-2xs font-semibold flex-shrink-0"
+                >{count}</span
+              >
             {:else}
-              <span class="badge subtle">{profiles.length}</span>
+              <span
+                class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-transparent text-text-faint text-2xs font-medium flex-shrink-0"
+                >{profiles.length}</span
+              >
             {/if}
           </button>
           {#if isOpen}
-            <ul class="profile-sublist">
+            <ul class="list-none p-0 m-0 mb-0.5">
               {#each profiles as p (p.id)}
                 <li>
                   <button
-                    class="profile-item"
+                    class="flex items-center gap-2 w-full h-6 pr-3 pl-7 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover hover:text-text"
                     onclick={() => onLaunchTool(tool.id, { profileId: p.id })}
                     title="Launch {tool.name} with {p.name}"
                   >
-                    <span class="profile-dot"></span>
-                    <span class="profile-name">{p.name}</span>
+                    <span class="w-1 h-1 rounded-full bg-text-faint flex-shrink-0"></span>
+                    <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+                      >{p.name}</span
+                    >
                   </button>
                 </li>
               {/each}
@@ -105,126 +117,21 @@
     {#each otherTools as tool (tool.id)}
       {@const count = runningCount(tool.id)}
       <li>
-        <button class="tool-item" onclick={() => onLaunchTool(tool.id)} title={tool.name}>
+        <button
+          class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+          onclick={() => onLaunchTool(tool.id)}
+          title={tool.name}
+        >
           <ToolIcon icon={tool.icon} size={14} />
-          <span class="tool-name">{tool.name}</span>
+          <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1">{tool.name}</span>
           {#if count > 0}
-            <span class="badge">{count}</span>
+            <span
+              class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-border text-text text-2xs font-semibold flex-shrink-0"
+              >{count}</span
+            >
           {/if}
         </button>
       </li>
     {/each}
   </ul>
 </CollapsibleSection>
-
-<style>
-  .tool-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  .tool-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    height: 28px;
-    padding: 0 12px;
-    border: none;
-    background: none;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.1s;
-  }
-
-  .tool-item:hover {
-    background: var(--c-hover);
-  }
-
-  .chevron {
-    display: inline-flex;
-    width: 10px;
-    height: 10px;
-    color: var(--c-text-faint);
-    transition: transform 0.12s ease;
-  }
-
-  .chevron.open {
-    transform: rotate(90deg);
-  }
-
-  .tool-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-
-  .badge {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    border-radius: 8px;
-    background: var(--c-border);
-    color: var(--c-text);
-    font-size: 10px;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-
-  .badge.subtle {
-    background: transparent;
-    color: var(--c-text-faint);
-    font-weight: 500;
-  }
-
-  .profile-sublist {
-    list-style: none;
-    padding: 0;
-    margin: 0 0 2px 0;
-  }
-
-  .profile-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    height: 24px;
-    padding: 0 12px 0 30px;
-    border: none;
-    background: none;
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.1s;
-  }
-
-  .profile-item:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .profile-dot {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--c-text-faint);
-    flex-shrink: 0;
-  }
-
-  .profile-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-</style>

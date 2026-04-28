@@ -98,11 +98,11 @@
 
   function statusDotColor(status: WorstStatus): string {
     return match(status)
-      .with('waitingPermission', () => 'var(--c-warning-text)')
-      .with('error', () => 'var(--c-danger-text)')
-      .with('working', () => 'var(--c-accent-text)')
-      .with('idle', () => 'var(--c-success)')
-      .otherwise(() => 'var(--c-text-faint)')
+      .with('waitingPermission', () => 'var(--color-warning-text)')
+      .with('error', () => 'var(--color-danger-text)')
+      .with('working', () => 'var(--color-accent-text)')
+      .with('idle', () => 'var(--color-success)')
+      .otherwise(() => 'var(--color-text-faint)')
   }
 
   function agentStatusLabel(s: AgentSessionState): string {
@@ -119,9 +119,9 @@
   }
 
   function contextColor(pct: number): string {
-    if (pct >= 90) return 'var(--c-danger-text)'
-    if (pct >= 70) return 'var(--c-warning-text)'
-    return 'var(--c-success)'
+    if (pct >= 90) return 'var(--color-danger-text)'
+    if (pct >= 70) return 'var(--color-warning-text)'
+    return 'var(--color-success)'
   }
 
   function formatCost(usd: number): string {
@@ -186,57 +186,73 @@
 </script>
 
 {#if projects.length > 0}
-  <footer class="status-bar">
-    <!-- Focused pane context flows from the left -->
-    {#if focusedPaneKind === 'agent' && activeAgent}
-      <span
-        class="status-item agent-status"
-        class:permission={activeAgent.status.type === 'waitingPermission'}
-        class:error={activeAgent.status.type === 'error'}
-        class:working={activeAgent.status.type === 'thinking' ||
-          activeAgent.status.type === 'toolCalling' ||
-          activeAgent.status.type === 'compacting'}
-      >
-        {agentStatusLabel(activeAgent)}
-      </span>
-
-      {#if activeAgent.model}
-        <span class="status-item dim">{activeAgent.model}</span>
-      {/if}
-
-      {#if activeAgent.contextPercent != null}
+  <footer
+    class="flex items-center justify-between gap-3 w-full h-status-bar px-2 bg-bg-glass border-t border-border-subtle font-sans text-xs font-medium text-text-secondary select-none flex-shrink-0 app-no-drag"
+  >
+    <div class="flex items-center gap-3 min-w-0">
+      {#if focusedPaneKind === 'agent' && activeAgent}
         <span
-          class="status-item context mono"
-          style="color: {contextColor(activeAgent.contextPercent)}"
-          title="Context window usage"
+          class="flex items-center gap-1 leading-none whitespace-nowrap font-medium"
+          class:text-text-secondary={activeAgent.status.type !== 'thinking' &&
+            activeAgent.status.type !== 'toolCalling' &&
+            activeAgent.status.type !== 'compacting' &&
+            activeAgent.status.type !== 'waitingPermission' &&
+            activeAgent.status.type !== 'error'}
+          class:text-accent-text={activeAgent.status.type === 'thinking' ||
+            activeAgent.status.type === 'toolCalling' ||
+            activeAgent.status.type === 'compacting'}
+          class:text-warning-text={activeAgent.status.type === 'waitingPermission'}
+          class:text-danger-text={activeAgent.status.type === 'error'}
         >
-          ctx {activeAgent.contextPercent}%
+          {agentStatusLabel(activeAgent)}
         </span>
-      {/if}
 
-      {#if activeAgent.costUsd != null}
-        <span class="status-item mono" title="Session cost">
-          {formatCost(activeAgent.costUsd)}
-        </span>
-      {/if}
+        {#if activeAgent.model}
+          <span class="flex items-center gap-1 leading-none whitespace-nowrap text-text-muted"
+            >{activeAgent.model}</span
+          >
+        {/if}
 
-      {#if taskProgress}
-        <span class="status-item dim" title="Task progress">
-          {taskProgress.done}/{taskProgress.total} tasks
-        </span>
-      {/if}
-    {:else if focusedPaneKind === 'shell'}
-      <span class="status-item dim">Shell</span>
-    {:else if focusedPaneKind === 'notes'}
-      <span class="status-item dim">Notes</span>
-    {:else if focusedPaneKind === 'drawing'}
-      <span class="status-item dim">Drawing</span>
-    {/if}
+        {#if activeAgent.contextPercent != null}
+          <span
+            class="flex items-center gap-1 leading-none whitespace-nowrap font-mono text-xs tabular-nums"
+            style="color: {contextColor(activeAgent.contextPercent)}"
+            title="Context window usage"
+          >
+            ctx {activeAgent.contextPercent}%
+          </span>
+        {/if}
 
-    <div class="push">
+        {#if activeAgent.costUsd != null}
+          <span
+            class="flex items-center gap-1 leading-none whitespace-nowrap font-mono text-xs"
+            title="Session cost"
+          >
+            {formatCost(activeAgent.costUsd)}
+          </span>
+        {/if}
+
+        {#if taskProgress}
+          <span
+            class="flex items-center gap-1 leading-none whitespace-nowrap text-text-muted"
+            title="Task progress"
+          >
+            {taskProgress.done}/{taskProgress.total} tasks
+          </span>
+        {/if}
+      {:else if focusedPaneKind === 'shell'}
+        <span class="flex items-center gap-1 leading-none text-text-muted">Shell</span>
+      {:else if focusedPaneKind === 'notes'}
+        <span class="flex items-center gap-1 leading-none text-text-muted">Notes</span>
+      {:else if focusedPaneKind === 'drawing'}
+        <span class="flex items-center gap-1 leading-none text-text-muted">Drawing</span>
+      {/if}
+    </div>
+
+    <div class="flex items-center gap-3 min-w-0">
       {#if workspaceState.isGitRepo && workspaceState.branch}
         <button
-          class="status-item branch"
+          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent text-inherit font-inherit px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
           aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
             ? ', uncommitted changes'
             : ''}"
@@ -247,9 +263,15 @@
               d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 2.122a2.25 2.25 0 1 0-1 0v1.836A2.252 2.252 0 0 0 2 9.5a2.25 2.25 0 1 0 3.163.132l2.382-2.382A1.75 1.75 0 0 1 8.783 6.75h1.467a2.25 2.25 0 1 0 0-1.5H8.783a3.25 3.25 0 0 0-2.299.952L4.5 8.186V5.372ZM4.25 12a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Zm8.25-6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"
             />
           </svg>
-          <span class="label mono">{workspaceState.branch}</span>
+          <span class="overflow-hidden text-ellipsis max-w-40 font-mono text-xs"
+            >{workspaceState.branch}</span
+          >
           {#if workspaceState.isDirty}
-            <span class="dirty-dot" title="Uncommitted changes" aria-hidden="true"></span>
+            <span
+              class="w-1.5 h-1.5 rounded-full bg-warning-text flex-shrink-0"
+              title="Uncommitted changes"
+              aria-hidden="true"
+            ></span>
           {/if}
         </button>
 
@@ -257,7 +279,7 @@
           {@const ahead = workspaceState.aheadBehind.ahead}
           {@const behind = workspaceState.aheadBehind.behind}
           <button
-            class="status-item sync mono"
+            class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent text-inherit font-mono text-xs px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
             aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
               ? ', '
               : ''}{behind > 0 ? `${behind} behind` : ''}"
@@ -273,19 +295,22 @@
       {/if}
 
       {#if worktreeCount > 1 && worktreeName}
-        <span class="status-item worktree" title="Worktree: {worktreeName}">
+        <span
+          class="flex items-center gap-1 leading-none whitespace-nowrap"
+          title="Worktree: {worktreeName}"
+        >
           <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
             <path
               d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"
             />
           </svg>
-          <span class="label">{worktreeName}</span>
+          <span class="overflow-hidden text-ellipsis max-w-35">{worktreeName}</span>
         </span>
       {/if}
 
       {#if perfHudEnabled && perfHudState.metrics}
         <button
-          class="status-item dim perf-hud"
+          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent text-text-muted font-inherit tabular-nums px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
           aria-label="App CPU {perfHudState.metrics.cpu}%, RAM {perfHudState.metrics.memMb} MB"
           title="App CPU / RAM — click to open settings"
           onclick={openPerfHudSettings}
@@ -296,7 +321,7 @@
 
       {#if agentCount > 0}
         <button
-          class="status-item agents"
+          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent text-inherit font-inherit px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
           aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
             ? `, ${globalStatusLabel(globalWorstStatus)}`
             : ''}"
@@ -306,18 +331,20 @@
           onclick={focusWorstAgent}
         >
           <span
-            class="agent-dot"
-            class:pulse={globalWorstStatus === 'waitingPermission' ||
+            class="w-2 h-2 rounded-full flex-shrink-0"
+            class:animate-badge-pulse={globalWorstStatus === 'waitingPermission' ||
+              globalWorstStatus === 'working'}
+            class:motion-reduce:animate-none={globalWorstStatus === 'waitingPermission' ||
               globalWorstStatus === 'working'}
             style="background: {statusDotColor(globalWorstStatus)}"
           ></span>
-          <span class="label">{agentCount}</span>
+          <span class="overflow-hidden text-ellipsis max-w-35">{agentCount}</span>
         </button>
       {/if}
 
       {#if permissionSessionId}
         <button
-          class="status-item permission-bell"
+          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent font-inherit text-warning-text animate-badge-pulse motion-reduce:animate-none px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover"
           aria-label="Agent waiting for permission"
           title="Agent waiting for permission"
           onclick={focusPermissionAgent}
@@ -332,7 +359,7 @@
 
       {#if hasUpdate}
         <button
-          class="status-item update"
+          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent font-inherit text-accent-text px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover"
           aria-label="Install update v{updateState.version}"
           title="Update v{updateState.version} ready to install"
           onclick={installUpdate}
@@ -346,7 +373,7 @@
       {/if}
 
       <button
-        class="status-item inspector-toggle"
+        class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent font-inherit text-text-muted px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
         aria-label="Toggle Inspector"
         title="Toggle Inspector"
         onclick={() => toggleRightPanel()}
@@ -359,7 +386,7 @@
       </button>
 
       <button
-        class="status-item settings-btn"
+        class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent font-inherit text-text-muted px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
         aria-label="Open Settings"
         title="Open Settings"
         onclick={() => showPreferences()}
@@ -369,170 +396,3 @@
     </div>
   </footer>
 {/if}
-
-<style>
-  .status-bar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    height: var(--h-status-bar);
-    padding: 0 8px;
-    background: var(--c-bg-glass);
-    border-top: 1px solid var(--c-border-subtle);
-    font-family: var(--font-sans);
-    font-size: var(--fs-xs);
-    font-weight: var(--fw-medium);
-    color: var(--c-text-secondary);
-    user-select: none;
-    -webkit-app-region: no-drag;
-    flex-shrink: 0;
-  }
-
-  .push {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .status-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    line-height: 1;
-    white-space: nowrap;
-    border: none;
-    background: none;
-    color: inherit;
-    font: inherit;
-    padding: 0;
-  }
-
-  button.status-item {
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: var(--r-sm);
-    transition:
-      background var(--dur-fast),
-      color var(--dur-fast);
-  }
-
-  button.status-item:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .status-item svg {
-    width: 12px;
-    height: 12px;
-    color: var(--c-text-muted);
-    flex-shrink: 0;
-  }
-
-  .label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 140px;
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-    font-size: var(--fs-xs);
-  }
-
-  .branch .label {
-    max-width: 160px;
-  }
-
-  .dirty-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--c-warning-text);
-    flex-shrink: 0;
-  }
-
-  .sync-label {
-    font-variant-numeric: tabular-nums;
-  }
-
-  .dim {
-    color: var(--c-text-muted);
-  }
-
-  .perf-hud {
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Agent status in center */
-  .agent-status {
-    color: var(--c-text-secondary);
-    font-weight: 500;
-  }
-
-  .agent-status.working {
-    color: var(--c-accent-text);
-  }
-
-  .agent-status.permission {
-    color: var(--c-warning-text);
-  }
-
-  .agent-status.error {
-    color: var(--c-danger-text);
-  }
-
-  .context {
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Right section */
-  .agent-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .agent-dot.pulse {
-    animation: badge-pulse 1.5s ease-in-out infinite;
-  }
-
-  .permission-bell {
-    color: var(--c-warning-text);
-    animation: badge-pulse 1.5s ease-in-out infinite;
-  }
-
-  .update {
-    color: var(--c-accent-text);
-  }
-
-  .inspector-toggle {
-    color: var(--c-text-muted);
-  }
-
-  .inspector-toggle:hover {
-    color: var(--c-text);
-  }
-
-  .settings-btn {
-    color: var(--c-text-muted);
-  }
-
-  @keyframes badge-pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.4;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .agent-dot.pulse,
-    .permission-bell {
-      animation: none;
-    }
-  }
-</style>

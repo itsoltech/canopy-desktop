@@ -73,9 +73,11 @@
   }
 </script>
 
-<div class="number-wrapper">
+<div
+  class="inline-flex items-center w-fit border border-border rounded-lg bg-hover overflow-hidden focus-within:border-focus-ring"
+>
   <button
-    class="spin-btn"
+    class="flex items-center justify-center w-7 py-1.5 border-0 border-r border-active bg-transparent text-text-secondary text-lg font-inherit cursor-pointer select-none transition-colors duration-fast hover:bg-hover-strong hover:text-text"
     tabindex="-1"
     aria-label="Decrease"
     onpointerdown={() => startRepeat(decrement)}
@@ -86,7 +88,7 @@
   </button>
   <input
     {id}
-    class="number-field"
+    class="w-10 text-center border-0 bg-transparent text-text text-md font-inherit outline-none py-1.5"
     type="text"
     inputmode="numeric"
     value={editing ? editValue : displayValue}
@@ -99,7 +101,7 @@
     onkeydown={handleKeydown}
   />
   <button
-    class="spin-btn"
+    class="flex items-center justify-center w-7 py-1.5 border-0 border-l border-active bg-transparent text-text-secondary text-lg font-inherit cursor-pointer select-none transition-colors duration-fast hover:bg-hover-strong hover:text-text"
     tabindex="-1"
     aria-label="Increase"
     onpointerdown={() => startRepeat(increment)}
@@ -109,60 +111,3 @@
     +
   </button>
 </div>
-
-<style>
-  .number-wrapper {
-    display: inline-flex;
-    align-items: center;
-    width: fit-content;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-hover);
-    overflow: hidden;
-  }
-
-  .number-wrapper:focus-within {
-    border-color: var(--c-focus-ring);
-  }
-
-  .number-field {
-    width: 40px;
-    text-align: center;
-    border: none;
-    background: transparent;
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-    padding: 6px 0;
-  }
-
-  .spin-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    padding: 6px 0;
-    border: none;
-    background: transparent;
-    color: var(--c-text-secondary);
-    font-size: 14px;
-    font-family: inherit;
-    cursor: pointer;
-    user-select: none;
-    transition: background 0.1s;
-  }
-
-  .spin-btn:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-
-  .spin-btn:first-child {
-    border-right: 1px solid var(--c-active);
-  }
-
-  .spin-btn:last-child {
-    border-left: 1px solid var(--c-active);
-  }
-</style>

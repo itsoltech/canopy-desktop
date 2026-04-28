@@ -20,113 +20,67 @@
   }
 </script>
 
-<div class="step">
-  <h2 class="title">Customize features</h2>
-  <p class="description">Toggle the features you want. All of these can be changed later.</p>
+<div class="flex flex-col items-center text-center gap-4">
+  <h2 class="m-0 text-lg font-semibold text-text">Customize features</h2>
+  <p class="m-0 text-md text-text-secondary">
+    Toggle the features you want. All of these can be changed later.
+  </p>
 
-  <div class="toggles">
-    <label class="toggle-row">
+  <div class="flex flex-col gap-0.5 w-full max-w-[400px] text-left">
+    <label
+      class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors duration-fast hover:bg-border-subtle"
+    >
       <CustomCheckbox
         checked={reopenLast}
         onchange={() => toggle('reopenLastWorkspace', reopenLast)}
       />
-      <div class="toggle-info">
-        <span class="toggle-label">Reopen last workspace on startup</span>
-        <span class="toggle-hint">Resume where you left off when launching Canopy.</span>
+      <div class="flex flex-col gap-0.5">
+        <span class="text-md text-text">Reopen last workspace on startup</span>
+        <span class="text-xs text-text-muted leading-snug"
+          >Resume where you left off when launching Canopy.</span
+        >
       </div>
     </label>
 
     {#if isMac}
-      <label class="toggle-row">
+      <label
+        class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors duration-fast hover:bg-border-subtle"
+      >
         <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
-        <div class="toggle-info">
-          <span class="toggle-label">Notch overlay</span>
-          <span class="toggle-hint">Show AI session status in the MacBook notch area.</span>
+        <div class="flex flex-col gap-0.5">
+          <span class="text-md text-text">Notch overlay</span>
+          <span class="text-xs text-text-muted leading-snug"
+            >Show AI session status in the MacBook notch area.</span
+          >
         </div>
       </label>
     {/if}
 
-    <label class="toggle-row">
+    <label
+      class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors duration-fast hover:bg-border-subtle"
+    >
       <CustomCheckbox checked={wpmEnabled} onchange={() => toggle('wpm.enabled', wpmEnabled)} />
-      <div class="toggle-info">
-        <span class="toggle-label">Typing speed (WPM)</span>
-        <span class="toggle-hint">Display words-per-minute in terminals.</span>
+      <div class="flex flex-col gap-0.5">
+        <span class="text-md text-text">Typing speed (WPM)</span>
+        <span class="text-xs text-text-muted leading-snug"
+          >Display words-per-minute in terminals.</span
+        >
       </div>
     </label>
 
-    <label class="toggle-row">
+    <label
+      class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors duration-fast hover:bg-border-subtle"
+    >
       <CustomCheckbox
         checked={telemetryEnabled}
         onchange={() => toggle('telemetry.enabled', telemetryEnabled)}
       />
-      <div class="toggle-info">
-        <span class="toggle-label">Minimal telemetry</span>
-        <span class="toggle-hint"
+      <div class="flex flex-col gap-0.5">
+        <span class="text-md text-text">Minimal telemetry</span>
+        <span class="text-xs text-text-muted leading-snug"
           >Send one daily ping to count active users. No personal data is collected.</span
         >
       </div>
     </label>
   </div>
 </div>
-
-<style>
-  .step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 16px;
-  }
-
-  .title {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .description {
-    margin: 0;
-    font-size: 13px;
-    color: var(--c-text-secondary);
-  }
-
-  .toggles {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    width: 100%;
-    max-width: 400px;
-    text-align: left;
-  }
-
-  .toggle-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    transition: background 0.1s;
-  }
-
-  .toggle-row:hover {
-    background: var(--c-border-subtle);
-  }
-
-  .toggle-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .toggle-label {
-    font-size: 13px;
-    color: var(--c-text);
-  }
-
-  .toggle-hint {
-    font-size: 11px;
-    color: var(--c-text-muted);
-    line-height: 1.4;
-  }
-</style>

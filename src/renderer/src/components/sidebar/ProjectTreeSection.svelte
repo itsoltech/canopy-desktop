@@ -48,7 +48,6 @@
     await Promise.all(running.map((p) => window.api.killPty(p.sessionId, true)))
   }
 
-  // Per-project collapse state
   function storageKey(project: ProjectState): string {
     return `canopy:sidebar:collapsed:projects:${project.workspace.path}`
   }
@@ -64,12 +63,10 @@
     collapseState = { ...collapseState, [project.workspace.path]: !current }
   }
 
-  // Reactive collapse tracking
   let collapseState: Record<string, boolean> = $state(
     Object.fromEntries(projects.map((p) => [p.workspace.path, isCollapsed(p)])),
   )
 
-  // Sync when projects change
   $effect(() => {
     for (const p of projects) {
       if (!(p.workspace.path in collapseState)) {
@@ -78,7 +75,6 @@
     }
   })
 
-  // Per-project merged branches
   let mergedBranches: Record<string, Set<string>> = $state({})
 
   async function checkMergedStatus(project: ProjectState, signal: AbortSignal): Promise<void> {
@@ -99,7 +95,6 @@
     mergedBranches = { ...mergedBranches, [project.workspace.path]: next }
   }
 
-  // Re-check merged status when any project's worktrees change
   $effect(() => {
     const ac = new AbortController()
     const deps = projects.map((p) => p.worktrees.length)
@@ -115,7 +110,6 @@
     return mergedBranches[project.workspace.path] ?? new Set()
   }
 
-  // GitHub PR badges
   let prMap = $derived(getBranchPRMap())
   let githubConnectionCount = $derived(
     (getResolvedConfig()?.config.trackers ?? []).filter((t) => t.provider === 'github').length,
@@ -210,13 +204,10 @@
     if (path) await attachProject(path)
   }
 
-  // Move element to document.body to escape sidebar overflow/backdrop-filter
   function portal(node: HTMLElement): { destroy(): void } {
     document.body.appendChild(node)
     return { destroy: () => node.remove() }
   }
-
-  // --- Worktree context menu ---
 
   interface WorktreeCtx {
     x: number
@@ -304,6 +295,17 @@
 
     await doRemoveWorktree(project, wt)
   }
+
+  function statusDotBg(status: string): string {
+    return (
+      {
+        idle: 'bg-success',
+        working: 'bg-accent-text animate-badge-pulse motion-reduce:animate-none',
+        waitingPermission: 'bg-warning-text animate-badge-pulse-fast motion-reduce:animate-none',
+        error: 'bg-danger-text',
+      }[status] ?? 'bg-text-faint'
+    )
+  }
 </script>
 
 <svelte:window onkeydown={handleCtxKeydown} />
@@ -311,36 +313,54 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 {#if ctxMenu}
-  <div class="ctx-overlay" use:portal onclick={closeCtxMenu}>
+  <div class="fixed inset-0 z-overlay" use:portal onclick={closeCtxMenu}>
     <div
-      class="ctx-menu"
+      class="fixed min-w-45 bg-bg-overlay border border-border rounded-xl shadow-ctx p-1 z-popover"
       style="left: {ctxMenu.x}px; top: {ctxMenu.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <button class="ctx-item" onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button>
-      <button class="ctx-item" onclick={ctxCopyPath}>Copy Path</button>
+      <button
+        class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+        onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button
+      >
+      <button
+        class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+        onclick={ctxCopyPath}>Copy Path</button
+      >
       {#if ctxMenu.wt.branch !== '(detached)'}
-        <button class="ctx-item" onclick={ctxCopyBranch}>Copy Branch Name</button>
-        <div class="ctx-divider"></div>
-        <button class="ctx-item" onclick={ctxNewWorktree}>New Worktree from Branch</button>
+        <button
+          class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+          onclick={ctxCopyBranch}>Copy Branch Name</button
+        >
+        <div class="h-px mx-2 my-1 bg-border-subtle"></div>
+        <button
+          class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+          onclick={ctxNewWorktree}>New Worktree from Branch</button
+        >
       {/if}
       {#if isWorktreeActive(ctxMenu.wt.path)}
-        <div class="ctx-divider"></div>
-        <button class="ctx-item destructive" onclick={ctxStopAll}>Stop All Terminals</button>
+        <div class="h-px mx-2 my-1 bg-border-subtle"></div>
+        <button
+          class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+          onclick={ctxStopAll}>Stop All Terminals</button
+        >
       {/if}
       {#if !ctxMenu.wt.isMain}
-        <div class="ctx-divider"></div>
-        <button class="ctx-item destructive" onclick={ctxRemoveWorktree}>Remove Worktree</button>
+        <div class="h-px mx-2 my-1 bg-border-subtle"></div>
+        <button
+          class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+          onclick={ctxRemoveWorktree}>Remove Worktree</button
+        >
       {/if}
     </div>
   </div>
 {/if}
 
-<section class="sidebar-section">
-  <div class="section-header">
-    <h3 class="section-title">PROJECTS</h3>
+<section class="py-3">
+  <div class="flex items-center justify-between px-3 pb-2">
+    <h3 class="text-2xs font-semibold tracking-caps uppercase text-text-muted">PROJECTS</h3>
     <button
-      class="section-attach"
+      class="font-inherit text-2xs font-medium text-text-secondary bg-transparent border-0 p-0 cursor-pointer transition-colors duration-fast hover:text-accent-text"
       onclick={handleAttachProject}
       title="Attach a project folder"
       aria-label="Attach a project folder"
@@ -352,11 +372,13 @@
   {#each projects as project (project.workspace.path)}
     {@const collapsed = collapseState[project.workspace.path] ?? false}
     {@const merged = getMerged(project)}
-    <div class="project-group">
-      <div class="project-header">
+    <div class="mb-0.5">
+      <div class="flex items-center justify-between pl-3 pr-2">
         <button
-          class="project-toggle"
-          class:active={!project.isGitRepo &&
+          class="group flex items-center gap-1 flex-1 min-w-0 bg-transparent border-0 py-1 cursor-pointer text-inherit"
+          class:bg-hover-strong={!project.isGitRepo &&
+            workspaceState.selectedWorktreePath === project.workspace.path}
+          class:rounded-md={!project.isGitRepo &&
             workspaceState.selectedWorktreePath === project.workspace.path}
           onclick={() => {
             if (project.isGitRepo) {
@@ -384,29 +406,35 @@
           }}
           aria-expanded={!collapsed}
         >
-          <span class="chevron" class:open={!collapsed && project.isGitRepo}>
+          <span
+            class="flex items-center text-text-faint w-3 flex-shrink-0 transition-transform duration-base ease-std"
+            class:rotate-90={!collapsed && project.isGitRepo}
+          >
             {#if project.isGitRepo}
               <ChevronRight size={12} />
             {/if}
           </span>
-          <span class="project-name">{project.workspace.name}</span>
+          <span
+            class="text-sm font-medium text-text-secondary group-hover:text-text overflow-hidden text-ellipsis whitespace-nowrap"
+            >{project.workspace.name}</span
+          >
         </button>
-        <div class="project-actions">
+        <div class="flex items-center gap-0.5 flex-shrink-0">
           {#if project.isGitRepo}
             <button
-              class="action-btn"
+              class="font-mono text-2xs font-medium text-accent-text bg-transparent border-0 px-1.5 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:text-accent hover:bg-accent-bg"
               onclick={(e) => handleNewWorktree(e, project)}
               title="Create worktree">+ new</button
             >
           {:else}
             <button
-              class="action-btn"
+              class="font-mono text-2xs font-medium text-accent-text bg-transparent border-0 px-1.5 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:text-accent hover:bg-accent-bg"
               onclick={(e) => handleInitGit(e, project)}
               title="Initialize git repository">init</button
             >
           {/if}
           <button
-            class="detach-btn"
+            class="flex items-center justify-center w-4.5 h-4.5 p-0 border-0 bg-transparent text-text-faint cursor-pointer rounded-sm transition-colors duration-fast hover:text-text-secondary hover:bg-hover"
             onclick={(e) => handleDetach(e, project)}
             title="Detach project from window"
             aria-label="Detach project from window"
@@ -417,31 +445,45 @@
       </div>
 
       {#if !collapsed && project.isGitRepo}
-        <ul class="worktree-list">
+        <ul class="list-none p-0 m-0">
           {#each sortedWorktrees(project.worktrees) as wt (wt.path)}
             {@const wtActive = isWorktreeActive(wt.path)}
             {@const agentStatus = getWorktreeAgentStatus(wt.path)}
             {@const wtBadge = worktreeBadges[wt.path] ?? 'none'}
             {@const isRemoving = removingPaths.has(wt.path)}
-            <li class="worktree-row" class:removing={isRemoving}>
+            <li
+              class="flex items-center"
+              class:opacity-45={isRemoving}
+              class:pointer-events-none={isRemoving}
+            >
               <button
-                class="worktree-item"
-                class:active={wt.path === workspaceState.selectedWorktreePath}
+                class="flex items-center gap-1.5 flex-1 min-w-0 py-1 pr-2 pl-6 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left rounded-sm mx-1 hover:bg-hover hover:text-text"
+                class:bg-active={wt.path === workspaceState.selectedWorktreePath}
+                class:text-text={wt.path === workspaceState.selectedWorktreePath}
                 onclick={() => selectWorktree(wt.path)}
                 oncontextmenu={(e) => handleWorktreeContextMenu(e, project, wt)}
               >
                 <span
-                  class="indicator"
-                  class:has-dot={agentStatus !== 'none'}
+                  class="font-mono text-xs text-text-secondary w-2.5 flex-shrink-0"
+                  class:relative={agentStatus !== 'none'}
+                  class:inline-flex={agentStatus !== 'none'}
+                  class:items-center={agentStatus !== 'none'}
+                  class:justify-center={agentStatus !== 'none'}
                   title={agentStatus !== 'none' ? `Agent: ${agentStatus}` : undefined}
                   aria-label={agentStatus !== 'none' ? `Agent status: ${agentStatus}` : undefined}
                 >
                   {#if agentStatus !== 'none'}
-                    <span class="wt-status-dot {agentStatus}" aria-hidden="true"></span>
+                    <span
+                      class="w-1.5 h-1.5 rounded-full {statusDotBg(agentStatus)}"
+                      aria-hidden="true"
+                    ></span>
                     {#if wtBadge !== 'none'}
                       <span
-                        class="wt-notify-dot"
-                        class:permission={wtBadge === 'permission'}
+                        class="absolute -top-0.5 -right-0.5 w-1.25 h-1.25 rounded-full"
+                        class:bg-accent-text={wtBadge !== 'permission'}
+                        class:bg-warning-text={wtBadge === 'permission'}
+                        class:animate-badge-pulse={wtBadge === 'permission'}
+                        class:motion-reduce:animate-none={wtBadge === 'permission'}
                         aria-hidden="true"
                       ></span>
                     {/if}
@@ -449,13 +491,24 @@
                     {wt.isMain ? '*' : ' '}
                   {/if}
                 </span>
-                <span class="branch-name" title={wt.path}>{worktreeLabel(wt)}</span>
+                <span
+                  class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+                  title={wt.path}>{worktreeLabel(wt)}</span
+                >
                 {#if isRemoving}
-                  <span class="removing-label">removing...</span>
+                  <span
+                    class="text-micro font-medium text-warning-text flex-shrink-0 animate-badge-pulse motion-reduce:animate-none"
+                    >removing...</span
+                  >
                 {:else if wt.branch === '(detached)'}
-                  <span class="detached-badge" title={wt.head}>{wt.head.slice(0, 7)}</span>
+                  <span
+                    class="text-micro font-medium font-mono text-warning-text flex-shrink-0"
+                    title={wt.head}>{wt.head.slice(0, 7)}</span
+                  >
                 {:else if merged.has(wt.branch)}
-                  <span class="merged-badge" title="Merged">merged</span>
+                  <span class="text-micro font-medium text-success flex-shrink-0" title="Merged"
+                    >merged</span
+                  >
                 {/if}
                 {#if prMap[wt.branch]}
                   {@const pr = prMap[wt.branch]}
@@ -476,7 +529,7 @@
                   <span
                     role="button"
                     tabindex="-1"
-                    class="stop-btn"
+                    class="inline-flex items-center justify-center w-4 h-4 p-0 border-0 bg-transparent text-warning-text cursor-pointer flex-shrink-0 rounded-sm transition-colors duration-fast hover:text-danger hover:bg-danger-bg"
                     title="Stop all terminals in this worktree"
                     onclick={(e) => {
                       e.stopPropagation()
@@ -489,7 +542,7 @@
               </button>
               {#if !wtActive && !wt.isMain && merged.has(wt.branch) && !isRemoving}
                 <button
-                  class="remove-btn"
+                  class="flex items-center justify-center w-6 h-6 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-md mr-1 transition-colors duration-fast hover:text-danger hover:bg-danger-bg"
                   title="Remove worktree and delete branch"
                   aria-label="Remove worktree and delete branch"
                   onclick={(e) => removeWorktree(e, project, wt)}
@@ -504,424 +557,3 @@
     </div>
   {/each}
 </section>
-
-<style>
-  .sidebar-section {
-    padding: 12px 0;
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 12px 8px;
-  }
-
-  .section-attach {
-    font-family: inherit;
-    font-size: 10px;
-    font-weight: 500;
-    color: var(--c-text-secondary);
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    transition: color var(--dur-fast);
-  }
-
-  .section-attach:hover {
-    color: var(--c-accent-text);
-  }
-
-  .section-title {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-  }
-
-  .project-group {
-    margin-bottom: 2px;
-  }
-
-  .project-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 8px 0 12px;
-  }
-
-  .project-toggle {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: none;
-    padding: 4px 0;
-    cursor: pointer;
-    color: inherit;
-  }
-
-  .project-toggle:hover .project-name {
-    color: var(--c-text);
-  }
-
-  .project-toggle.active {
-    background: var(--c-hover-strong);
-    border-radius: 4px;
-  }
-
-  .project-toggle.active .project-name {
-    color: var(--c-text);
-  }
-
-  .chevron {
-    display: flex;
-    align-items: center;
-    color: var(--c-text-faint);
-    transition: transform var(--dur-base) var(--ease-std);
-    transform: rotate(0deg);
-    width: 12px;
-    flex-shrink: 0;
-  }
-
-  .chevron.open {
-    transform: rotate(90deg);
-  }
-
-  .project-name {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--c-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .project-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    flex-shrink: 0;
-  }
-
-  .action-btn {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 400;
-    color: var(--c-accent-text);
-    background: none;
-    border: none;
-    padding: 2px 6px;
-    border-radius: var(--r-sm);
-    cursor: pointer;
-    transition:
-      color var(--dur-fast),
-      background var(--dur-fast);
-  }
-
-  .action-btn:hover {
-    color: var(--c-accent);
-    background: var(--c-accent-bg);
-  }
-
-  .detach-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--c-text-faint);
-    cursor: pointer;
-    border-radius: 3px;
-    transition:
-      color var(--dur-fast),
-      background var(--dur-fast);
-  }
-
-  .detach-btn:hover {
-    color: var(--c-text-secondary);
-    background: var(--c-hover);
-  }
-
-  .worktree-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  .worktree-row {
-    display: flex;
-    align-items: center;
-  }
-
-  .worktree-row.removing {
-    opacity: 0.45;
-    pointer-events: none;
-  }
-
-  .worktree-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: 1;
-    min-width: 0;
-    padding: 4px 8px 4px 24px;
-    border: none;
-    background: none;
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-    border-radius: var(--r-sm);
-    margin: 0 4px;
-  }
-
-  .worktree-item:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .worktree-item.active {
-    background: var(--c-active);
-    color: var(--c-text);
-  }
-
-  .indicator {
-    font-family: monospace;
-    font-size: 11px;
-    color: var(--c-text-secondary);
-    width: 10px;
-    flex-shrink: 0;
-  }
-
-  .indicator.has-dot {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .wt-status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--c-text-faint);
-  }
-
-  .wt-status-dot.idle {
-    background: var(--c-success);
-  }
-
-  .wt-status-dot.working {
-    background: var(--c-accent-text);
-    animation: wt-pulse 1.5s ease-in-out infinite;
-  }
-
-  .wt-status-dot.waitingPermission {
-    background: var(--c-warning-text);
-    animation: wt-pulse 1s ease-in-out infinite;
-  }
-
-  .wt-status-dot.error {
-    background: var(--c-danger-text);
-  }
-
-  .wt-notify-dot {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--c-accent-text);
-  }
-
-  .wt-notify-dot.permission {
-    background: var(--c-warning-text);
-    animation: wt-pulse 1.5s ease-in-out infinite;
-  }
-
-  @keyframes wt-pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.4;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .wt-status-dot.working,
-    .wt-status-dot.waitingPermission,
-    .wt-notify-dot.permission,
-    .removing-label {
-      animation: none;
-    }
-  }
-
-  .branch-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .detached-badge {
-    font-size: 9px;
-    font-weight: 500;
-    font-family: monospace;
-    color: var(--c-warning-text);
-    flex-shrink: 0;
-    margin-left: auto;
-  }
-
-  .merged-badge {
-    font-size: 9px;
-    font-weight: 500;
-    color: var(--c-success);
-    flex-shrink: 0;
-    margin-left: auto;
-  }
-
-  .pr-badge {
-    font-size: 9px;
-    font-weight: 500;
-    padding: 0 4px;
-    border-radius: 3px;
-    border: none;
-    cursor: pointer;
-    flex-shrink: 0;
-    margin-left: 4px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    font-family: inherit;
-    line-height: 16px;
-  }
-
-  .pr-badge:hover {
-    opacity: 0.8;
-  }
-
-  .pr-badge.draft {
-    background: var(--c-hover-strong);
-    color: var(--c-text-muted);
-  }
-
-  .pr-badge.approved {
-    background: color-mix(in srgb, var(--c-success) 20%, transparent);
-    color: var(--c-success);
-  }
-
-  .pr-badge.changes-requested {
-    background: var(--c-warning-bg, var(--c-warning));
-    color: var(--c-warning-text);
-  }
-
-  .removing-label {
-    font-size: 9px;
-    font-weight: 500;
-    color: var(--c-warning-text);
-    flex-shrink: 0;
-    margin-left: auto;
-    animation: wt-pulse 1.5s ease-in-out infinite;
-  }
-
-  .stop-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--c-warning-text);
-    cursor: pointer;
-    flex-shrink: 0;
-    margin-left: auto;
-    transition:
-      color var(--dur-fast),
-      background var(--dur-fast);
-  }
-
-  .stop-btn:hover {
-    color: var(--c-danger);
-    background: var(--c-danger-bg);
-  }
-
-  .remove-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--c-text-faint);
-    cursor: pointer;
-    flex-shrink: 0;
-    border-radius: 4px;
-    margin-right: 4px;
-    transition:
-      color var(--dur-fast),
-      background var(--dur-fast);
-  }
-
-  .remove-btn:hover {
-    color: var(--c-danger);
-    background: var(--c-danger-bg);
-  }
-
-  .ctx-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1002;
-  }
-
-  .ctx-menu {
-    position: fixed;
-    min-width: 180px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
-    border-radius: 8px;
-    box-shadow: var(--shadow-ctx);
-    padding: 4px;
-    z-index: 1003;
-  }
-
-  .ctx-item {
-    display: block;
-    width: 100%;
-    padding: 6px 10px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-    transition: background var(--dur-fast);
-  }
-
-  .ctx-item:hover {
-    background: var(--c-active);
-  }
-
-  .ctx-item.destructive {
-    color: var(--c-danger-text);
-  }
-
-  .ctx-divider {
-    height: 1px;
-    background: var(--c-border-subtle);
-    margin: 4px 8px;
-  }
-</style>

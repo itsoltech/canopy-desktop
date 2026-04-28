@@ -52,7 +52,7 @@
 
   function scrollIntoView(): void {
     requestAnimationFrame(() => {
-      const el = document.querySelector('.branch-item.selected')
+      const el = document.querySelector('[data-branch-selected="true"]')
       el?.scrollIntoView({ block: 'nearest' })
     })
   }
@@ -77,20 +77,22 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="branch-picker" onkeydown={handleKeydown}>
-  <div class="field-header">
+<div class="contents" onkeydown={handleKeydown}>
+  <div class="flex items-center gap-1.5 mb-1.5">
     <!-- svelte-ignore a11y_label_has_associated_control -->
-    <label class="field-label">{label}</label>
+    <label class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase">
+      {label}
+    </label>
     <button
-      class="btn-refresh"
+      class="flex items-center justify-center w-[22px] h-[22px] p-0 border-0 rounded-md bg-transparent text-text-muted cursor-pointer transition-colors duration-fast enabled:hover:bg-active enabled:hover:text-text-secondary disabled:opacity-50 disabled:cursor-default"
       onclick={onRefresh}
       disabled={refreshing}
       title="Fetch from remote"
       type="button"
     >
       <svg
-        class="refresh-icon"
-        class:spinning={refreshing}
+        class="transition-transform duration-base motion-reduce:!animate-none"
+        class:animate-spin={refreshing}
         width="14"
         height="14"
         viewBox="0 0 16 16"
@@ -101,174 +103,37 @@
     </button>
   </div>
   <input
-    class="field-input"
+    class="w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
     type="text"
     bind:value={query}
     placeholder="Search branches..."
     spellcheck="false"
     autocomplete="off"
   />
-  <div class="branch-list">
+  <div class="mt-2 max-h-[260px] overflow-y-auto border border-border-subtle rounded-lg">
     {#if filteredBranches.length === 0}
-      <div class="branch-empty">No branches found</div>
+      <div class="px-2.5 py-4 text-center text-md text-text-faint">No branches found</div>
     {:else}
       {#each filteredBranches as branch, i (branch)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
-          class="branch-item"
-          class:selected={i === selectedIdx}
-          class:picked={highlightPicked && selectedBranch === branch}
+          class="flex items-baseline px-2.5 py-1.5 text-md text-text cursor-pointer transition-colors duration-fast hover:bg-active"
+          class:!bg-active={i === selectedIdx}
+          class:!bg-accent-bg={highlightPicked && selectedBranch === branch}
+          class:!text-accent-text={highlightPicked && selectedBranch === branch}
+          data-branch-selected={i === selectedIdx}
           onclick={() => pick(branch)}
           onpointerenter={() => (selectedIdx = i)}
         >
-          <span class="branch-name">{branch}</span>
+          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            >{branch}</span
+          >
           {#if showRemoteOnlyTag && isRemoteOnly(branch, branches)}
-            <span class="remote-only-tag">(remote only)</span>
+            <span class="ml-2 text-xs text-text-faint flex-shrink-0">(remote only)</span>
           {/if}
         </div>
       {/each}
     {/if}
   </div>
 </div>
-
-<style>
-  .branch-picker {
-    display: contents;
-  }
-
-  .field-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 6px;
-  }
-
-  .field-label {
-    display: block;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-  }
-
-  .btn-refresh {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      color 0.1s;
-  }
-
-  .btn-refresh:hover:not(:disabled) {
-    background: var(--c-active);
-    color: var(--c-text-secondary);
-  }
-
-  .btn-refresh:disabled {
-    cursor: default;
-    opacity: 0.5;
-  }
-
-  .refresh-icon {
-    transition: transform 0.2s;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .refresh-icon.spinning {
-    animation: spin 0.8s linear infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .refresh-icon.spinning {
-      animation: none;
-    }
-  }
-
-  .field-input {
-    width: 100%;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    padding: 8px 10px;
-    outline: none;
-    transition: border-color 0.1s;
-    box-sizing: border-box;
-  }
-
-  .field-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .field-input::placeholder {
-    color: var(--c-text-faint);
-  }
-
-  .branch-list {
-    margin-top: 8px;
-    max-height: 260px;
-    overflow-y: auto;
-    border: 1px solid var(--c-border-subtle);
-    border-radius: 6px;
-  }
-
-  .branch-item {
-    display: flex;
-    align-items: baseline;
-    padding: 6px 10px;
-    font-size: 13px;
-    color: var(--c-text);
-    cursor: pointer;
-    transition: background 0.05s;
-  }
-
-  .branch-item:hover,
-  .branch-item.selected {
-    background: var(--c-active);
-  }
-
-  .branch-item.picked {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-  }
-
-  .branch-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .remote-only-tag {
-    margin-left: 8px;
-    font-size: 11px;
-    color: var(--c-text-faint);
-    flex-shrink: 0;
-  }
-
-  .branch-empty {
-    padding: 16px 10px;
-    text-align: center;
-    font-size: 13px;
-    color: var(--c-text-faint);
-  }
-</style>

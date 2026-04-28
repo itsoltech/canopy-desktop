@@ -14,7 +14,6 @@
 
   let urlOpenMode = $derived(prefs.urlOpenMode || 'ask')
 
-  // Saved passwords
   let credentials: Array<{
     id: string
     domain: string
@@ -119,11 +118,11 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Web Browser</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Web Browser</h3>
 
-  <div class="select-row">
-    <span class="select-label">Open external URLs in</span>
+  <div class="flex items-center gap-3 text-md">
+    <span class="text-text-secondary min-w-40">Open external URLs in</span>
     <CustomSelect
       value={urlOpenMode}
       options={[
@@ -135,95 +134,150 @@
       maxWidth="180px"
     />
   </div>
-  <div class="hint-row">
+  <div class="text-xs text-text-muted leading-normal -mt-2">
     Where to open links clicked in terminal output or <code>target="_blank"</code> links from the browser
     pane
   </div>
 
-  <h4 class="subsection-title">Default Viewports</h4>
+  <h4 class="text-md font-semibold text-text-secondary m-0 uppercase tracking-[0.5px]">
+    Default Viewports
+  </h4>
 
-  <div class="viewport-list">
+  <div class="flex flex-col gap-1">
     {#each Object.entries(DEFAULT_VIEWPORTS) as [name, preset] (name)}
-      <div class="viewport-row">
-        <span class="viewport-name">{name}</span>
-        <span class="viewport-dims">{preset.width}&times;{preset.height}</span>
-        <span class="viewport-scale">{preset.scaleFactor}x</span>
+      <div class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg bg-border-subtle text-md">
+        <span class="text-text min-w-[140px]">{name}</span>
+        <span class="text-text-muted font-mono text-sm min-w-20"
+          >{preset.width}&times;{preset.height}</span
+        >
+        <span class="text-text-faint text-xs min-w-6">{preset.scaleFactor}x</span>
         {#if preset.mobile}
-          <span class="viewport-mobile">mobile</span>
+          <span class="text-2xs text-accent-text uppercase tracking-[0.5px]">mobile</span>
         {/if}
-        <span class="builtin-badge">built-in</span>
+        <span class="ml-auto text-2xs text-text-faint">built-in</span>
       </div>
     {/each}
   </div>
 
-  <h4 class="subsection-title">Custom Viewports</h4>
+  <h4 class="text-md font-semibold text-text-secondary m-0 uppercase tracking-[0.5px]">
+    Custom Viewports
+  </h4>
 
-  <div class="viewport-list">
+  <div class="flex flex-col gap-1">
     {#each Object.entries(getCustomViewports()) as [name, preset] (name)}
-      <div class="viewport-row">
-        <span class="viewport-name">{name}</span>
-        <span class="viewport-dims">{preset.width}&times;{preset.height}</span>
-        <span class="viewport-scale">{preset.scaleFactor}x</span>
+      <div class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg bg-border-subtle text-md">
+        <span class="text-text min-w-[140px]">{name}</span>
+        <span class="text-text-muted font-mono text-sm min-w-20"
+          >{preset.width}&times;{preset.height}</span
+        >
+        <span class="text-text-faint text-xs min-w-6">{preset.scaleFactor}x</span>
         {#if preset.mobile}
-          <span class="viewport-mobile">mobile</span>
+          <span class="text-2xs text-accent-text uppercase tracking-[0.5px]">mobile</span>
         {/if}
-        <button class="remove-btn" onclick={() => removeViewport(name)}>Remove</button>
+        <button
+          class="ml-auto px-2 py-0.5 border-0 rounded-md bg-danger-bg text-danger-text text-xs font-inherit cursor-pointer"
+          onclick={() => removeViewport(name)}>Remove</button
+        >
       </div>
     {:else}
-      <p class="empty-text">No custom viewports yet</p>
+      <p class="text-sm text-text-faint m-0 px-2.5 py-1">No custom viewports yet</p>
     {/each}
   </div>
 
   {#if showForm}
-    <div class="add-form">
-      <input class="form-input" bind:value={newName} placeholder="Viewport name" />
-      <div class="form-row">
-        <input class="form-input num" type="number" bind:value={newWidth} min="1" />
-        <span class="form-x">&times;</span>
-        <input class="form-input num" type="number" bind:value={newHeight} min="1" />
-        <span class="form-label">Scale</span>
-        <input class="form-input scale" type="number" bind:value={newScale} min="0.5" step="0.5" />
+    <div class="flex flex-col gap-2 p-3 border border-border rounded-xl bg-border-subtle">
+      <input
+        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+        bind:value={newName}
+        placeholder="Viewport name"
+      />
+      <div class="flex items-center gap-2">
+        <input
+          class="w-20 px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+          type="number"
+          bind:value={newWidth}
+          min="1"
+        />
+        <span class="text-text-faint text-md">&times;</span>
+        <input
+          class="w-20 px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+          type="number"
+          bind:value={newHeight}
+          min="1"
+        />
+        <span class="text-text-faint text-sm ml-2">Scale</span>
+        <input
+          class="w-15 px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+          type="number"
+          bind:value={newScale}
+          min="0.5"
+          step="0.5"
+        />
       </div>
-      <label class="checkbox-row">
+      <label class="flex items-center gap-2 text-md text-text cursor-pointer">
         <CustomCheckbox checked={newMobile} onchange={(v) => (newMobile = v)} />
         <span>Mobile device</span>
       </label>
       {#if error}
-        <p class="form-error">{error}</p>
+        <p class="text-sm text-danger m-0">{error}</p>
       {/if}
-      <div class="form-actions">
-        <button class="btn btn-cancel" onclick={() => (showForm = false)}>Cancel</button>
-        <button class="btn btn-add" onclick={addViewport}>Add Viewport</button>
+      <div class="flex justify-end gap-2">
+        <button
+          class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-active text-text"
+          onclick={() => (showForm = false)}>Cancel</button
+        >
+        <button
+          class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
+          onclick={addViewport}>Add Viewport</button
+        >
       </div>
     </div>
   {:else}
-    <button class="btn-add-viewport" onclick={() => (showForm = true)}>
+    <button
+      class="self-start px-3.5 py-1.5 border border-dashed border-text-faint rounded-lg bg-transparent text-text-secondary text-md font-inherit cursor-pointer hover:bg-hover hover:text-text"
+      onclick={() => (showForm = true)}
+    >
       + Add Custom Viewport
     </button>
   {/if}
 
-  <h4 class="subsection-title">Saved Passwords</h4>
+  <h4 class="text-md font-semibold text-text-secondary m-0 uppercase tracking-[0.5px]">
+    Saved Passwords
+  </h4>
 
-  <div class="cred-list">
+  <div class="flex flex-col gap-1">
     {#each credentials as cred (cred.id)}
-      <div class="cred-card">
-        <div class="cred-header">
-          <span class="cred-domain">{cred.domain}</span>
+      <div class="flex flex-col gap-1 px-2.5 py-2 rounded-lg bg-border-subtle">
+        <div class="flex items-baseline gap-2 min-w-0">
+          <span
+            class="text-md font-medium text-text whitespace-nowrap overflow-hidden text-ellipsis"
+            >{cred.domain}</span
+          >
           {#if cred.title}
-            <span class="cred-title">{cred.title}</span>
+            <span
+              class="text-xs text-text-faint whitespace-nowrap overflow-hidden text-ellipsis min-w-0"
+              >{cred.title}</span
+            >
           {/if}
         </div>
-        <div class="cred-body">
-          <span class="cred-username">{cred.username}</span>
-          <span class="cred-password">
+        <div class="flex items-center gap-2">
+          <span
+            class="text-sm text-text-secondary whitespace-nowrap overflow-hidden text-ellipsis min-w-0 flex-1"
+            >{cred.username}</span
+          >
+          <span class="flex-shrink-0">
             {#if revealedId === cred.id}
-              <code class="password-revealed">{revealedPassword}</code>
+              <code class="text-xs text-text bg-hover px-1 py-px rounded-sm"
+                >{revealedPassword}</code
+              >
             {:else}
-              <span class="password-masked">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
+              <span class="text-text-faint text-sm tracking-[1px]"
+                >&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span
+              >
             {/if}
           </span>
           <button
-            class="reveal-btn"
+            class="px-1 py-0.5 border-0 rounded-md bg-transparent text-text-muted cursor-pointer flex items-center hover:text-text hover:bg-hover"
             onclick={() => revealPassword(cred.id, cred.domain)}
             title={revealedId === cred.id ? 'Hide password' : 'Show password (5s)'}
           >
@@ -234,327 +288,13 @@
             {/if}
           </button>
           <button
-            class="remove-btn"
+            class="ml-auto px-2 py-0.5 border-0 rounded-md bg-danger-bg text-danger-text text-xs font-inherit cursor-pointer"
             onclick={() => deleteCredential(cred.id, cred.domain, cred.username)}>Remove</button
           >
         </div>
       </div>
     {:else}
-      <p class="empty-text">No saved passwords</p>
+      <p class="text-sm text-text-faint m-0 px-2.5 py-1">No saved passwords</p>
     {/each}
   </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: #e0e0e0;
-    margin: 0;
-  }
-
-  .subsection-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.5);
-    margin: 0;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .select-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-  }
-
-  .select-label {
-    color: rgba(255, 255, 255, 0.8);
-    min-width: 160px;
-  }
-
-  .hint-row {
-    font-size: 11px;
-    color: var(--c-text-muted);
-    line-height: 1.5;
-    margin-top: -8px;
-  }
-
-  .viewport-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .viewport-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.03);
-    font-size: 13px;
-  }
-
-  .viewport-name {
-    color: #e0e0e0;
-    min-width: 140px;
-  }
-
-  .viewport-dims {
-    color: rgba(255, 255, 255, 0.5);
-    font-family: monospace;
-    font-size: 12px;
-    min-width: 80px;
-  }
-
-  .viewport-scale {
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 11px;
-    min-width: 24px;
-  }
-
-  .viewport-mobile {
-    font-size: 10px;
-    color: rgba(116, 192, 252, 0.6);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .builtin-badge {
-    margin-left: auto;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.25);
-  }
-
-  .empty-text {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.3);
-    margin: 0;
-    padding: 4px 10px;
-  }
-
-  .remove-btn {
-    margin-left: auto;
-    padding: 2px 8px;
-    border: none;
-    border-radius: 4px;
-    background: rgba(255, 100, 100, 0.15);
-    color: rgba(255, 120, 120, 0.8);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .remove-btn:hover {
-    background: rgba(255, 100, 100, 0.25);
-  }
-
-  .cred-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .cred-card {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .cred-header {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    min-width: 0;
-  }
-
-  .cred-domain {
-    font-size: 13px;
-    font-weight: 500;
-    color: #e0e0e0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .cred-title {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-
-  .cred-body {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .cred-username {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .cred-password {
-    flex-shrink: 0;
-  }
-
-  .password-masked {
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 12px;
-    letter-spacing: 1px;
-  }
-
-  .password-revealed {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.06);
-    padding: 1px 4px;
-    border-radius: 3px;
-  }
-
-  .reveal-btn {
-    padding: 2px 4px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: rgba(255, 255, 255, 0.4);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-  }
-
-  .reveal-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .add-form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .form-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .form-input {
-    padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .form-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
-  }
-
-  .form-input.num {
-    width: 80px;
-  }
-
-  .form-input.scale {
-    width: 60px;
-  }
-
-  .form-x {
-    color: rgba(255, 255, 255, 0.4);
-    font-size: 13px;
-  }
-
-  .form-label {
-    color: rgba(255, 255, 255, 0.4);
-    font-size: 12px;
-    margin-left: 8px;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.7);
-    cursor: pointer;
-  }
-
-  .form-error {
-    font-size: 12px;
-    color: #ff6b6b;
-    margin: 0;
-  }
-
-  .form-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-  }
-
-  .btn-cancel {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .btn-add {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
-  }
-
-  .btn-add:hover {
-    background: rgba(116, 192, 252, 0.3);
-  }
-
-  .btn-add-viewport {
-    align-self: flex-start;
-    padding: 6px 14px;
-    border: 1px dashed rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-add-viewport:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.7);
-  }
-</style>

@@ -31,46 +31,54 @@
   }
 
   function rateLimitBarClass(pct: number): string {
-    if (pct >= 90) return 'ctx-red'
-    if (pct >= 70) return 'ctx-yellow'
-    return 'ctx-green'
+    if (pct >= 90) return 'bg-danger'
+    if (pct >= 70) return 'bg-warning'
+    return 'bg-success'
   }
 </script>
 
 {#if rateLimitFiveHour != null || rateLimitSevenDay != null}
-  <div class="section">
-    <h4 class="section-label">Rate Limits</h4>
+  <div class="flex flex-col gap-1.5">
+    <h4 class="text-2xs font-semibold tracking-[0.5px] uppercase text-text-faint m-0">
+      Rate Limits
+    </h4>
     {#if rateLimitFiveHour != null}
-      <div class="rate-limit-row">
-        <div class="rate-limit-header">
-          <span class="rate-limit-label">5h window</span>
-          <span class="rate-limit-meta"
+      <div class="flex flex-col gap-[3px]">
+        <div class="flex justify-between items-baseline">
+          <span class="text-sm text-text-muted">5h window</span>
+          <span class="text-xs text-text-secondary"
             >{Math.round(100 - rateLimitFiveHour)}%{#if formatResetTime(rateLimitFiveHourResetsAt)}
-              <span class="rate-limit-reset">{formatResetTime(rateLimitFiveHourResetsAt)}</span
+              <span class="text-text-faint ml-[0.3em]"
+                >{formatResetTime(rateLimitFiveHourResetsAt)}</span
               >{/if}</span
           >
         </div>
-        <div class="context-track">
+        <div class="h-1 rounded-xs bg-active overflow-hidden">
           <div
-            class="context-fill {rateLimitBarClass(rateLimitFiveHour)}"
+            class="h-full rounded-xs transition-[width] duration-slow {rateLimitBarClass(
+              rateLimitFiveHour,
+            )}"
             style="width: {Math.max(100 - rateLimitFiveHour, 0)}%"
           ></div>
         </div>
       </div>
     {/if}
     {#if rateLimitSevenDay != null}
-      <div class="rate-limit-row">
-        <div class="rate-limit-header">
-          <span class="rate-limit-label">7d window</span>
-          <span class="rate-limit-meta"
+      <div class="flex flex-col gap-[3px]">
+        <div class="flex justify-between items-baseline">
+          <span class="text-sm text-text-muted">7d window</span>
+          <span class="text-xs text-text-secondary"
             >{Math.round(100 - rateLimitSevenDay)}%{#if formatResetTime(rateLimitSevenDayResetsAt)}
-              <span class="rate-limit-reset">{formatResetTime(rateLimitSevenDayResetsAt)}</span
+              <span class="text-text-faint ml-[0.3em]"
+                >{formatResetTime(rateLimitSevenDayResetsAt)}</span
               >{/if}</span
           >
         </div>
-        <div class="context-track">
+        <div class="h-1 rounded-xs bg-active overflow-hidden">
           <div
-            class="context-fill {rateLimitBarClass(rateLimitSevenDay)}"
+            class="h-full rounded-xs transition-[width] duration-slow {rateLimitBarClass(
+              rateLimitSevenDay,
+            )}"
             style="width: {Math.max(100 - rateLimitSevenDay, 0)}%"
           ></div>
         </div>
@@ -78,72 +86,3 @@
     {/if}
   </div>
 {/if}
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .section-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--c-text-faint);
-    margin: 0;
-  }
-
-  .context-track {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--c-active);
-    overflow: hidden;
-  }
-
-  .context-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.3s ease;
-  }
-
-  .context-fill.ctx-green {
-    background: var(--c-success);
-  }
-
-  .context-fill.ctx-yellow {
-    background: var(--c-warning);
-  }
-
-  .context-fill.ctx-red {
-    background: var(--c-danger);
-  }
-
-  .rate-limit-row {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .rate-limit-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-  }
-
-  .rate-limit-label {
-    font-size: 12px;
-    color: var(--c-text-muted);
-  }
-
-  .rate-limit-meta {
-    font-size: 11px;
-    color: var(--c-text-secondary);
-  }
-
-  .rate-limit-reset {
-    color: var(--c-text-faint);
-    margin-left: 0.3em;
-  }
-</style>

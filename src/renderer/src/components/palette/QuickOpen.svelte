@@ -34,14 +34,9 @@
 
   onMount(() => {
     inputEl?.focus()
-    // Kick off a refresh every time the picker opens so newly created files
-    // (via shell, an agent, or an external editor) show up without the user
-    // having to remember to hit ⇧⌘R. We render cached results immediately —
-    // the list updates reactively when the refresh completes.
     void forceReload(worktreePath)
   })
 
-  // Synchronous matching on every keystroke (fuzzysort is ~5-10ms on 50k files)
   $effect(() => {
     void query
     void files
@@ -68,7 +63,6 @@
     matchedResults = scored
   })
 
-  // Empty-query view: MRU first, then the rest of the file list
   const emptyResults: Result[] = $derived.by(() => {
     if (query.length > 0) return []
     const mru = getMru(worktreePath)
@@ -176,10 +170,12 @@
     const rel = indexes.filter((i) => i >= offset).map((i) => i - offset)
     return toSegments(base, rel)
   }
+
+  const markCls = 'bg-transparent text-accent font-semibold'
 </script>
 
 <div
-  class="quick-open-backdrop"
+  class="fixed inset-0 bg-scrim flex items-start justify-center pt-[10vh] z-[9999]"
   onclick={onClose}
   onkeydown={(e) => {
     if (e.key === 'Escape') onClose()
@@ -187,22 +183,23 @@
   role="presentation"
 >
   <div
-    class="quick-open"
+    class="w-[min(620px,90vw)] max-h-[70vh] flex flex-col bg-bg-elevated border border-border rounded-xl shadow-modal overflow-hidden"
     onclick={(e) => e.stopPropagation()}
     onkeydown={handleKeydown}
     role="dialog"
     aria-label="Quick Open"
   >
-    <div class="quick-open-header">
+    <div class="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-border-subtle">
       <input
         bind:this={inputEl}
         bind:value={query}
+        class="flex-1 bg-transparent border-0 outline-none text-text text-lg font-inherit"
         type="text"
         placeholder={loading && files.length === 0 ? 'Indexing files…' : 'Search files by name'}
         spellcheck="false"
         autocomplete="off"
       />
-      <span class="quick-open-hint">
+      <span class="text-xs text-text-faint whitespace-nowrap">
         {#if loading && files.length === 0}
           Loading…
         {:else if query.length > 0}
@@ -214,15 +211,15 @@
       </span>
     </div>
 
-    <div class="quick-open-results" bind:this={listEl} role="listbox">
+    <div class="flex-1 overflow-y-auto p-1" bind:this={listEl} role="listbox">
       {#each results as r, idx (r.path)}
         {@const selected = idx === selectedIndex}
         {@const dir = dirname(r.path)}
         {@const iconInfo = getFileIcon(r.path)}
         <button
           type="button"
-          class="quick-open-item"
-          class:selected
+          class="flex items-center gap-2.5 w-full px-2.5 py-1.5 bg-transparent border-0 rounded-md text-text cursor-pointer text-left"
+          class:!bg-accent-bg={selected}
           data-idx={idx}
           onclick={() => openAt(idx)}
           onmouseenter={() => (selectedIndex = idx)}
@@ -231,28 +228,33 @@
           title={r.path}
         >
           <FileIconDisplay info={iconInfo} size={14} />
-          <div class="quick-open-item-text">
+          <div class="flex flex-col min-w-0 flex-1">
             <!-- prettier-ignore -->
-            <span class="quick-open-name">{#each basenameSegments(r.path, r.indexes) as seg, sidx (sidx)}{#if seg.match}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</span>
+            <span class="text-md text-text overflow-hidden text-ellipsis whitespace-nowrap">{#each basenameSegments(r.path, r.indexes) as seg, sidx (sidx)}{#if seg.match}<mark class={markCls}>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</span>
             {#if dir}
-              <span class="quick-open-dir">
+              <span
+                class="flex items-center gap-1 text-xs text-text-muted overflow-hidden text-ellipsis whitespace-nowrap"
+              >
                 <FolderOpen size={11} />
                 <!-- prettier-ignore -->
-                <span class="quick-open-dir-path">{#each toSegments(r.path, r.indexes) as seg, sidx (sidx)}{#if seg.match}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</span>
+                <span class="overflow-hidden text-ellipsis whitespace-nowrap">{#each toSegments(r.path, r.indexes) as seg, sidx (sidx)}{#if seg.match}<mark class={markCls}>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</span>
               </span>
             {/if}
           </div>
           {#if r.fromMru && query.length === 0}
-            <span class="quick-open-badge">recent</span>
+            <span
+              class="px-1.5 py-px text-2xs rounded-sm bg-hover text-text-muted uppercase tracking-[0.5px]"
+              >recent</span
+            >
           {/if}
         </button>
       {/each}
       {#if !loading && results.length === 0 && query.length > 0}
-        <div class="quick-open-empty">No files match "{query}"</div>
+        <div class="p-5 text-center text-text-muted text-sm">No files match "{query}"</div>
       {/if}
     </div>
 
-    <div class="quick-open-footer">
+    <div class="flex gap-3.5 px-3.5 py-1.5 border-t border-border-subtle text-2xs text-text-faint">
       <span>↑↓ navigate</span>
       <span>↵ open</span>
       <span>Esc close</span>
@@ -260,144 +262,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .quick-open-backdrop {
-    position: fixed;
-    inset: 0;
-    background: var(--c-scrim, rgba(0, 0, 0, 0.5));
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 10vh;
-    z-index: 9999;
-  }
-
-  .quick-open {
-    width: min(620px, 90vw);
-    max-height: 70vh;
-    display: flex;
-    flex-direction: column;
-    background: var(--c-bg-elevated);
-    border: 1px solid var(--c-border);
-    border-radius: 8px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-    overflow: hidden;
-  }
-
-  .quick-open-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .quick-open-header input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
-    color: var(--c-text);
-    font-size: 14px;
-    font-family: inherit;
-  }
-
-  .quick-open-hint {
-    font-size: 11px;
-    color: var(--c-text-faint);
-    white-space: nowrap;
-  }
-
-  .quick-open-results {
-    flex: 1;
-    overflow-y: auto;
-    padding: 4px;
-  }
-
-  .quick-open-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 6px 10px;
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    color: var(--c-text);
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .quick-open-item.selected {
-    background: var(--c-accent-bg);
-  }
-
-  .quick-open-item-text {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .quick-open-name {
-    font-size: 13px;
-    color: var(--c-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .quick-open-dir {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    color: var(--c-text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .quick-open-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-  }
-
-  :global(.quick-open-name mark),
-  :global(.quick-open-dir mark) {
-    background: transparent;
-    color: var(--c-accent);
-    font-weight: 600;
-  }
-
-  .quick-open-badge {
-    padding: 1px 6px;
-    font-size: 10px;
-    border-radius: 3px;
-    background: var(--c-hover);
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .quick-open-empty {
-    padding: 20px;
-    text-align: center;
-    color: var(--c-text-muted);
-    font-size: 12px;
-  }
-
-  .quick-open-footer {
-    display: flex;
-    gap: 14px;
-    padding: 6px 14px;
-    border-top: 1px solid var(--c-border-subtle);
-    font-size: 10px;
-    color: var(--c-text-faint);
-  }
-</style>

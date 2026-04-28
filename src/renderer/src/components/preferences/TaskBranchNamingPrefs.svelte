@@ -116,12 +116,14 @@
   }
 </script>
 
-<div class="subsection">
-  <h4 class="subsection-title">Branch naming</h4>
+<div class="flex flex-col gap-2.5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
+    Branch naming
+  </h4>
 
   {#if boards.length > 0}
-    <div class="select-row">
-      <span class="select-label">Board</span>
+    <div class="flex items-center gap-2 text-md">
+      <span class="text-text-secondary w-[90px] flex-shrink-0">Board</span>
       <CustomSelect
         value={templateScope}
         options={[
@@ -136,7 +138,7 @@
       />
     </div>
     {#if templateScope !== 'default' && !config?.boardOverrides[templateScope]?.branchTemplate}
-      <span class="field-hint">
+      <span class="text-xs text-text-faint">
         No override — uses default template. Edit below to create an override.
       </span>
     {/if}
@@ -144,182 +146,46 @@
 
   <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />
 
-  <div class="preview-row">
-    <span class="preview-label">Preview</span>
-    <code class="preview-value">{branchPreview || '\u2014'}</code>
+  <div class="flex items-center gap-2">
+    <span class="text-sm text-text-secondary w-[90px] flex-shrink-0">Preview</span>
+    <code class="text-sm text-accent-text bg-border-subtle px-2 py-0.5 rounded-md"
+      >{branchPreview || '—'}</code
+    >
   </div>
 
-  <div class="var-section">
-    <span class="field-label">Custom variables</span>
+  <div class="flex flex-col gap-1">
+    <span class="text-sm font-medium text-text-secondary">Custom variables</span>
     {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
-      <div class="var-row">
-        <code class="var-key">{'{' + key + '}'}</code>
-        <span class="var-value">{value}</span>
-        <button class="remove-btn" onclick={() => removeCustomVar(key)}>Remove</button>
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-border-subtle text-md">
+        <code class="text-accent-text font-mono text-sm">{'{' + key + '}'}</code>
+        <span class="text-text-secondary font-mono text-sm flex-1">{value}</span>
+        <button
+          class="px-2 py-0.5 border-0 rounded-md bg-danger-bg text-danger-text text-xs font-inherit cursor-pointer flex-shrink-0"
+          onclick={() => removeCustomVar(key)}>Remove</button
+        >
       </div>
     {/each}
-    <div class="var-form">
-      <input class="text-input small" bind:value={newVarKey} placeholder="key" spellcheck="false" />
+    <div class="flex items-center gap-1.5">
       <input
-        class="text-input small"
+        class="w-[100px] px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+        bind:value={newVarKey}
+        placeholder="key"
+        spellcheck="false"
+      />
+      <input
+        class="w-[100px] px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
         bind:value={newVarValue}
         placeholder="value"
         spellcheck="false"
       />
-      <button class="icon-btn" onclick={addCustomVar} disabled={!newVarKey.trim()} title="Add">
+      <button
+        class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer enabled:hover:bg-hover enabled:hover:text-text-secondary disabled:opacity-50 disabled:cursor-default"
+        onclick={addCustomVar}
+        disabled={!newVarKey.trim()}
+        title="Add"
+      >
         <Plus size={14} />
       </button>
     </div>
   </div>
 </div>
-
-<style>
-  .subsection {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .subsection-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--c-text-muted);
-    margin: 0;
-  }
-
-  .select-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-  }
-
-  .select-label {
-    color: var(--c-text-secondary);
-    width: 90px;
-    flex-shrink: 0;
-  }
-
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--c-text-secondary);
-  }
-
-  .field-hint {
-    font-size: 11px;
-    color: var(--c-text-faint);
-  }
-
-  .text-input {
-    padding: 6px 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .text-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .text-input.small {
-    width: 100px;
-  }
-
-  .preview-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .preview-label {
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    width: 90px;
-    flex-shrink: 0;
-  }
-
-  .preview-value {
-    font-size: 12px;
-    color: var(--c-accent-text);
-    background: var(--c-border-subtle);
-    padding: 2px 8px;
-    border-radius: 4px;
-  }
-
-  .var-section {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .var-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    background: var(--c-border-subtle);
-    font-size: 13px;
-  }
-
-  .var-key {
-    color: var(--c-accent-text);
-    font-family: monospace;
-    font-size: 12px;
-  }
-
-  .var-value {
-    color: var(--c-text-secondary);
-    font-family: monospace;
-    font-size: 12px;
-    flex: 1;
-  }
-
-  .remove-btn {
-    padding: 2px 8px;
-    border: none;
-    border-radius: 4px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .var-form {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .icon-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-  }
-
-  .icon-btn:hover:not(:disabled) {
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
-  }
-
-  .icon-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-</style>

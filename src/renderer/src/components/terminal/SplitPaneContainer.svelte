@@ -66,10 +66,10 @@
   }
 </script>
 
-<div class="split-root" bind:this={containerEl}>
+<div class="relative w-full h-full overflow-hidden" bind:this={containerEl}>
   {#each layout.panes as rect (rect.paneId)}
     <div
-      class="pane-slot"
+      class="pane-slot absolute overflow-hidden min-w-20 min-h-15"
       style:left="{rect.x * 100}%"
       style:top="{rect.y * 100}%"
       style:width="{rect.w * 100}%"
@@ -89,7 +89,7 @@
 
   {#each layout.dividers as div (div.splitId)}
     <div
-      class="divider-slot"
+      class="absolute z-pane-divider"
       style:left="{div.x * 100}%"
       style:top="{div.y * 100}%"
       style:width="{div.w * 100}%"
@@ -102,25 +102,3 @@
     </div>
   {/each}
 </div>
-
-<style>
-  .split-root {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .pane-slot {
-    position: absolute;
-    overflow: hidden;
-    min-width: 80px;
-    min-height: 60px;
-    contain: layout paint;
-  }
-
-  .divider-slot {
-    position: absolute;
-    z-index: 5;
-  }
-</style>

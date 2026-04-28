@@ -387,9 +387,9 @@
         icon.id = '__canopy_autofill_icon'
         icon.innerHTML = svgKey
         icon.title = 'Autofill saved password'
-        icon.style.cssText = 'position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;z-index:99999;color:#4a9eed;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:color-mix(in srgb,currentColor 8%,transparent);backdrop-filter:blur(6px);box-shadow:0 0 0 1px rgba(128,128,128,0.2);transition:all 0.15s'
-        icon.onmouseenter = () => { icon.style.background = 'color-mix(in srgb,currentColor 15%,transparent)'; icon.style.boxShadow = '0 0 0 1px rgba(74,158,237,0.4)' }
-        icon.onmouseleave = () => { icon.style.background = 'color-mix(in srgb,currentColor 8%,transparent)'; icon.style.boxShadow = '0 0 0 1px rgba(128,128,128,0.2)' }
+        icon.style.cssText = 'position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;z-index:99999;color:oklch(0.683 0.143 249.49);display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:color-mix(in srgb,currentColor 8%,transparent);backdrop-filter:blur(6px);box-shadow:0 0 0 1px oklch(0.6 0 0 / 0.2);transition:all 0.15s'
+        icon.onmouseenter = () => { icon.style.background = 'color-mix(in srgb,currentColor 15%,transparent)'; icon.style.boxShadow = '0 0 0 1px oklch(0.683 0.143 249.49 / 0.4)' }
+        icon.onmouseleave = () => { icon.style.background = 'color-mix(in srgb,currentColor 8%,transparent)'; icon.style.boxShadow = '0 0 0 1px oklch(0.6 0 0 / 0.2)' }
 
         icon.onclick = (e) => {
           e.preventDefault(); e.stopPropagation()
@@ -398,19 +398,19 @@
 
           const picker = document.createElement('div')
           picker.id = '__canopy_cred_picker'
-          picker.style.cssText = 'position:absolute;right:0;top:100%;margin-top:4px;min-width:200px;padding:4px;background:rgba(30,30,30,0.98);border:1px solid rgba(255,255,255,0.12);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.6);z-index:100000;backdrop-filter:blur(8px)'
+          picker.style.cssText = 'position:absolute;right:0;top:100%;margin-top:4px;min-width:200px;padding:4px;background:oklch(0.235 0 0 / 0.98);border:1px solid oklch(1 0 0 / 0.12);border-radius:8px;box-shadow:0 8px 24px oklch(0 0 0 / 0.6);z-index:100000;backdrop-filter:blur(8px)'
 
           const header = document.createElement('div')
           header.textContent = 'Saved accounts'
-          header.style.cssText = 'padding:6px 10px 4px;font-size:10px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.5px'
+          header.style.cssText = 'padding:6px 10px 4px;font-size:10px;color:oklch(1 0 0 / 0.35);text-transform:uppercase;letter-spacing:0.5px'
           picker.appendChild(header)
 
           for (const c of creds) {
             const btn = document.createElement('button')
-            btn.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:none;border-radius:6px;background:none;color:rgba(255,255,255,0.85);font-size:12px;cursor:pointer;text-align:left;font-family:inherit;transition:background 0.1s'
+            btn.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:none;border-radius:6px;background:none;color:oklch(1 0 0 / 0.85);font-size:12px;cursor:pointer;text-align:left;font-family:inherit;transition:background 0.1s'
             const avatar = document.createElement('div')
             avatar.textContent = (c.u || '?')[0].toUpperCase()
-            avatar.style.cssText = 'width:24px;height:24px;border-radius:50%;background:rgba(116,192,252,0.15);color:rgba(116,192,252,0.8);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0'
+            avatar.style.cssText = 'width:24px;height:24px;border-radius:50%;background:oklch(0.782 0.115 243.83 / 0.15);color:oklch(0.782 0.115 243.83 / 0.8);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0'
             const info = document.createElement('div')
             info.style.cssText = 'overflow:hidden'
             const name = document.createElement('div')
@@ -419,7 +419,7 @@
             if (c.t) {
               const titleSpan = document.createElement('div')
               titleSpan.textContent = c.t
-              titleSpan.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
+              titleSpan.style.cssText = 'font-size:10px;color:oklch(1 0 0 / 0.3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
               info.appendChild(name)
               info.appendChild(titleSpan)
             } else {
@@ -427,11 +427,11 @@
             }
             const dots = document.createElement('div')
             dots.textContent = '\\u2022\\u2022\\u2022\\u2022\\u2022\\u2022\\u2022\\u2022'
-            dots.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:1px'
+            dots.style.cssText = 'font-size:10px;color:oklch(1 0 0 / 0.3);letter-spacing:1px'
             info.appendChild(dots)
             btn.appendChild(avatar)
             btn.appendChild(info)
-            btn.onmouseenter = () => { btn.style.background = 'rgba(255,255,255,0.06)' }
+            btn.onmouseenter = () => { btn.style.background = 'oklch(1 0 0 / 0.06)' }
             btn.onmouseleave = () => { btn.style.background = 'none' }
             btn.onclick = (ev) => {
               ev.preventDefault(); ev.stopPropagation()
@@ -687,7 +687,7 @@
       const hl = document.createElement('div')
       hl.id = '__canopy_pick_highlight'
       hl.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;'
-        + 'border:2px solid #74c0fc;background:rgba(116,192,252,0.12);transition:all 0.05s'
+        + 'border:2px solid oklch(0.782 0.115 243.83);background:oklch(0.782 0.115 243.83 / 0.12);transition:all 0.05s'
       document.body.appendChild(hl)
       document.body.appendChild(ov)
       const cleanup = () => {
@@ -730,7 +730,7 @@
       ov.style.cssText = 'position:fixed;inset:0;z-index:999999;cursor:crosshair'
       const sel = document.createElement('div')
       sel.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;'
-        + 'border:2px solid #74c0fc;background:rgba(116,192,252,0.15)'
+        + 'border:2px solid oklch(0.782 0.115 243.83);background:oklch(0.782 0.115 243.83 / 0.15)'
       document.body.appendChild(sel)
       document.body.appendChild(ov)
       const cleanup = () => {
@@ -1326,8 +1326,8 @@
   }
 
   .favorite-card.drag-over {
-    border-color: rgba(116, 192, 252, 0.5);
-    background: rgba(116, 192, 252, 0.08);
+    border-color: oklch(0.782 0.115 243.83 / 0.5);
+    background: oklch(0.782 0.115 243.83 / 0.08);
   }
 
   .fav-ctx-backdrop {
@@ -1341,10 +1341,10 @@
     z-index: 200;
     min-width: 120px;
     padding: 4px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: oklch(0.235 0 0 / 0.98);
+    border: 1px solid oklch(1 0 0 / 0.12);
     border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 16px oklch(0 0 0 / 0.5);
   }
 
   .fav-ctx-item {
@@ -1354,7 +1354,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: oklch(1 0 0 / 0.8);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -1362,18 +1362,18 @@
   }
 
   .fav-ctx-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: oklch(1 0 0 / 0.08);
   }
 
   .fav-ctx-delete {
-    color: rgba(255, 120, 120, 0.8);
+    color: oklch(0.732 0.144 19.07 / 0.8);
   }
 
   .fav-modal-backdrop {
     position: fixed;
     inset: 0;
     z-index: 300;
-    background: rgba(0, 0, 0, 0.5);
+    background: oklch(0 0 0 / 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1382,10 +1382,10 @@
   .fav-modal {
     width: 320px;
     padding: 20px;
-    background: rgb(35, 35, 35);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: oklch(0.289 0 0);
+    border: 1px solid oklch(1 0 0 / 0.12);
     border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 8px 32px oklch(0 0 0 / 0.6);
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -1394,7 +1394,7 @@
   .fav-modal-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: oklch(0.907 0 0);
     margin: 0;
   }
 
@@ -1403,22 +1403,22 @@
     flex-direction: column;
     gap: 4px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
+    color: oklch(1 0 0 / 0.5);
   }
 
   .fav-modal-input {
     padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid oklch(1 0 0 / 0.12);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
+    background: oklch(1 0 0 / 0.06);
+    color: oklch(0.907 0 0);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .fav-modal-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: oklch(0.782 0.115 243.83 / 0.5);
   }
 
   .fav-modal-actions {
@@ -1438,17 +1438,17 @@
   }
 
   .fav-modal-cancel {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: oklch(1 0 0 / 0.08);
+    color: oklch(1 0 0 / 0.7);
   }
 
   .fav-modal-save {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
+    background: oklch(0.782 0.115 243.83 / 0.2);
+    color: oklch(0.782 0.115 243.83 / 0.9);
   }
 
   .fav-modal-save:hover {
-    background: rgba(116, 192, 252, 0.3);
+    background: oklch(0.782 0.115 243.83 / 0.3);
   }
 
   .webview-hidden {
@@ -1467,10 +1467,10 @@
     top: 38px;
     min-width: 220px;
     padding: 4px;
-    background: rgba(30, 30, 30, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: oklch(0.235 0 0 / 0.98);
+    border: 1px solid oklch(1 0 0 / 0.12);
     border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 16px oklch(0 0 0 / 0.5);
     z-index: 100;
   }
 
@@ -1481,7 +1481,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.8);
+    color: oklch(1 0 0 / 0.8);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -1489,18 +1489,18 @@
   }
 
   .star-dropdown-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: oklch(1 0 0 / 0.08);
   }
 
   .star-dropdown-remove {
-    color: rgba(255, 130, 130, 0.8);
+    color: oklch(0.745 0.129 19.07 / 0.8);
   }
 
   .save-modal-backdrop {
     position: fixed;
     inset: 0;
     z-index: 300;
-    background: rgba(0, 0, 0, 0.5);
+    background: oklch(0 0 0 / 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1509,10 +1509,10 @@
   .save-modal {
     width: 340px;
     padding: 20px;
-    background: rgb(35, 35, 35);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: oklch(0.289 0 0);
+    border: 1px solid oklch(1 0 0 / 0.12);
     border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 8px 32px oklch(0 0 0 / 0.6);
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -1521,13 +1521,13 @@
   .save-modal-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: oklch(0.907 0 0);
     margin: 0;
   }
 
   .save-modal-domain {
     font-size: 12px;
-    color: rgba(116, 192, 252, 0.7);
+    color: oklch(0.782 0.115 243.83 / 0.7);
     margin: 0;
     font-family: monospace;
   }
@@ -1537,15 +1537,15 @@
     flex-direction: column;
     gap: 4px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
+    color: oklch(1 0 0 / 0.5);
   }
 
   .save-modal-input {
     padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid oklch(1 0 0 / 0.12);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
+    background: oklch(1 0 0 / 0.06);
+    color: oklch(0.907 0 0);
     font-size: 13px;
     font-family: inherit;
     outline: none;
@@ -1568,17 +1568,17 @@
   }
 
   .save-modal-dismiss {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: oklch(1 0 0 / 0.08);
+    color: oklch(1 0 0 / 0.7);
   }
 
   .save-modal-save {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
+    background: oklch(0.782 0.115 243.83 / 0.2);
+    color: oklch(0.782 0.115 243.83 / 0.9);
   }
 
   .save-modal-save:hover {
-    background: rgba(116, 192, 252, 0.3);
+    background: oklch(0.782 0.115 243.83 / 0.3);
   }
 
   .start-page {
@@ -1594,7 +1594,7 @@
   .start-title {
     font-size: 14px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.4);
+    color: oklch(1 0 0 / 0.4);
     margin: 0;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -1602,7 +1602,7 @@
 
   .start-hint {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.25);
+    color: oklch(1 0 0 / 0.25);
     margin: 0;
   }
 
@@ -1621,11 +1621,11 @@
     gap: 6px;
     width: 80px;
     padding: 12px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid oklch(1 0 0 / 0.1);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
+    background: oklch(1 0 0 / 0.03);
     cursor: pointer;
-    color: rgba(255, 255, 255, 0.7);
+    color: oklch(1 0 0 / 0.7);
     font-family: inherit;
     transition:
       background 0.1s,
@@ -1633,8 +1633,8 @@
   }
 
   .favorite-card:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: oklch(1 0 0 / 0.08);
+    border-color: oklch(1 0 0 / 0.2);
   }
 
   .favorite-icon {
@@ -1644,7 +1644,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
+    background: oklch(1 0 0 / 0.06);
     overflow: hidden;
   }
 
@@ -1656,7 +1656,7 @@
   .favorite-initials {
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.5);
+    color: oklch(1 0 0 / 0.5);
   }
 
   .favorite-name {
@@ -1679,7 +1679,7 @@
     justify-content: center;
     align-items: center;
     flex-direction: column;
-    background: rgba(0, 0, 0, 0.4);
+    background: oklch(0 0 0 / 0.4);
     gap: 6px;
     overflow: hidden;
   }
@@ -1699,7 +1699,7 @@
   }
 
   .device-frame {
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid oklch(1 0 0 / 0.12);
     border-radius: 4px;
     overflow: hidden;
     flex-shrink: 0;
@@ -1720,18 +1720,18 @@
 
   .device-label {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.35);
+    color: oklch(1 0 0 / 0.35);
   }
 
   .devtools-divider {
     flex-shrink: 0;
-    background: rgba(255, 255, 255, 0.08);
+    background: oklch(1 0 0 / 0.08);
     transition: background 0.1s;
   }
 
   .devtools-divider:hover,
   .devtools-divider.dragging {
-    background: rgba(116, 192, 252, 0.3);
+    background: oklch(0.782 0.115 243.83 / 0.3);
   }
 
   .browser-content:not(.devtools-left) .devtools-divider {

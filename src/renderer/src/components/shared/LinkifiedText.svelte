@@ -51,7 +51,7 @@
   {#if tok.type === 'link'}
     <button
       type="button"
-      class="path-link"
+      class="inline p-0 m-0 bg-transparent border-0 text-accent underline cursor-pointer font-inherit hover:no-underline hover:bg-hover"
       onclick={() => openFile(tok.absolutePath, cwd, { line: tok.line })}
       title={tok.absolutePath}
     >
@@ -59,24 +59,3 @@
     </button>
   {:else}{tok.content}{/if}
 {/each}
-
-<style>
-  .path-link {
-    display: inline;
-    padding: 0;
-    margin: 0;
-    background: none;
-    border: none;
-    color: var(--c-accent, #4a9eff);
-    text-decoration: underline;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: inherit;
-    line-height: inherit;
-  }
-
-  .path-link:hover {
-    text-decoration: none;
-    background: var(--c-hover);
-  }
-</style>

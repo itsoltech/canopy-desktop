@@ -73,11 +73,9 @@
   let searchQuery = $state('')
   let selectedIndex = $state(0)
 
-  // Board selector
   let boards: Board[] = $state([])
   let selectedBoardId = $state('')
 
-  // Status filter
   let availableStatuses: string[] = $derived.by(() => {
     const seen = new SvelteSet<string>()
     for (const task of allTasks) {
@@ -98,7 +96,6 @@
 
   let filteredTasks = $derived.by(() => {
     let result = allTasks
-    // Filter by board's project key
     if (selectedBoardProjectKey) {
       result = result.filter((i) => i.key.startsWith(selectedBoardProjectKey + '-'))
     }
@@ -120,7 +117,6 @@
   const DISPLAY_LIMIT = 200
   let displayedTasks = $derived(filteredTasks.slice(0, DISPLAY_LIMIT))
 
-  // Branch creation state
   let selectedTask: Task | null = $state(null)
 
   let searchInputEl: HTMLInputElement | null = $state(null)
@@ -180,7 +176,6 @@
         connectionId,
         { boardId: selectedBoardId || undefined },
       )
-      // Auto-exclude done/closed only if no saved filters
       if (!hasSavedFilters && excludedStatuses.size === 0 && allTasks.length > 0) {
         for (const task of allTasks) {
           if (DONE_STATUS_PATTERN.test(task.status)) {
@@ -227,7 +222,7 @@
   }
 
   function scrollToSelected(): void {
-    const el = document.querySelector('.task-row.selected')
+    const el = document.querySelector('[data-task-selected="true"]')
     el?.scrollIntoView({ block: 'nearest' })
   }
 
@@ -272,19 +267,23 @@
 
   function priorityColor(priority: string): string {
     const p = priority.toLowerCase()
-    if (p.includes('critical') || p.includes('highest')) return 'var(--c-danger)'
-    if (p.includes('high')) return 'var(--c-warning)'
-    if (p.includes('medium') || p.includes('normal')) return 'var(--c-warning-text)'
-    if (p.includes('low')) return 'var(--c-accent)'
-    return 'var(--c-text-muted)'
+    if (p.includes('critical') || p.includes('highest')) return 'var(--color-danger)'
+    if (p.includes('high')) return 'var(--color-warning)'
+    if (p.includes('medium') || p.includes('normal')) return 'var(--color-warning-text)'
+    if (p.includes('low')) return 'var(--color-accent)'
+    return 'var(--color-text-muted)'
   }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="dialog-overlay" onclick={closeDialog} role="presentation">
+<div
+  class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
+  onclick={closeDialog}
+  role="presentation"
+>
   <div
-    class="picker-container"
+    class="w-[600px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
@@ -298,12 +297,15 @@
         onBack={cancelBranchCreation}
       />
     {:else}
-      <div class="picker-header">
-        <h3 class="picker-title">Select Task</h3>
-        <div class="header-actions">
+      <div
+        class="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-border-subtle"
+      >
+        <h3 class="m-0 text-lg font-semibold text-text">Select Task</h3>
+        <div class="flex items-center gap-1">
           <button
-            class="filter-btn"
-            class:active={showFilters}
+            class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text-secondary"
+            class:!bg-accent-bg={showFilters}
+            class:!text-accent-text={showFilters}
             onclick={() => {
               showFilters = !showFilters
               saveFilters()
@@ -312,14 +314,18 @@
           >
             <Filter size={14} />
           </button>
-          <button class="close-btn" onclick={closeDialog} aria-label="Close">
+          <button
+            class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+            onclick={closeDialog}
+            aria-label="Close"
+          >
             <X size={16} />
           </button>
         </div>
       </div>
 
       {#if boards.length > 1}
-        <div class="board-row">
+        <div class="px-4 py-1.5 border-b border-border-subtle">
           <CustomSelect
             value={selectedBoardId}
             options={boards.map((b) => ({ value: b.id, label: b.name }))}
@@ -333,18 +339,21 @@
       {/if}
 
       {#if showFilters}
-        <div class="filters-panel">
-          <label class="filter-check">
+        <div class="px-4 py-2 border-b border-border-subtle flex flex-col gap-2">
+          <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
             <CustomCheckbox checked={assignedToMe} onchange={toggleAssignedToMe} />
             <span>Only assigned to me</span>
           </label>
           {#if availableStatuses.length > 0}
-            <div class="status-filters">
+            <div class="flex flex-wrap gap-1">
               {#each availableStatuses as status (status)}
                 <button
-                  class="status-chip"
-                  class:active={!excludedStatuses.has(status)}
-                  class:excluded={excludedStatuses.has(status)}
+                  class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
+                  class:!bg-accent-bg={!excludedStatuses.has(status)}
+                  class:!border-accent-muted={!excludedStatuses.has(status)}
+                  class:!text-accent-text={!excludedStatuses.has(status)}
+                  class:!opacity-40={excludedStatuses.has(status)}
+                  class:line-through={excludedStatuses.has(status)}
                   onclick={() => toggleStatus(status)}
                 >
                   {status}
@@ -355,10 +364,10 @@
         </div>
       {/if}
 
-      <div class="search-row">
+      <div class="flex items-center gap-2 px-4 py-2 border-b border-border-subtle text-text-muted">
         <Search size={14} />
         <input
-          class="search-input"
+          class="flex-1 border-0 bg-transparent text-text text-md font-inherit outline-none placeholder:text-text-faint"
           bind:this={searchInputEl}
           bind:value={searchQuery}
           placeholder="Search by key or title..."
@@ -366,24 +375,32 @@
         />
       </div>
 
-      <div class="task-list">
+      <div class="flex-1 overflow-y-auto py-1">
         {#if loading}
-          <div class="state-msg">
-            <Loader2 size={16} class="spin" />
+          <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
+            <Loader2 size={16} class="animate-spin" />
             <span>Loading tasks...</span>
           </div>
         {:else if error}
-          <div class="state-msg error">
+          <div
+            class="flex flex-col items-center justify-center gap-3 px-4 py-6 text-md text-danger-text"
+          >
             <span>{error}</span>
-            <button class="retry-btn" onclick={fetchTasks}>Retry</button>
+            <button
+              class="px-3 py-1 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover"
+              onclick={fetchTasks}>Retry</button
+            >
           </div>
         {:else if displayedTasks.length === 0}
-          <div class="state-msg">No tasks found</div>
+          <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
+            No tasks found
+          </div>
         {:else}
           {#each displayedTasks as task, i (task.key)}
             <div
-              class="task-row"
-              class:selected={i === selectedIndex}
+              class="flex items-center gap-2 w-full px-4 py-1.5 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left transition-colors duration-fast group/task hover:bg-hover"
+              class:!bg-hover={i === selectedIndex}
+              data-task-selected={i === selectedIndex}
               role="button"
               tabindex="0"
               onclick={() => selectTask(task)}
@@ -392,19 +409,21 @@
               }}
               onmouseenter={() => (selectedIndex = i)}
             >
-              <span class="task-key">{task.key}</span>
-              <span class="task-summary">{task.summary}</span>
-              <span class="status-badge">{task.status}</span>
-              <span
-                class="priority-dot"
-                style="color: {priorityColor(task.priority)}"
-                title={task.priority}
+              <span class="flex-shrink-0 font-semibold text-accent-text min-w-20">{task.key}</span>
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                >{task.summary}</span
               >
-                ●
-              </span>
+              <span class="flex-shrink-0 px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
+                >{task.status}</span
+              >
+              <span
+                class="flex-shrink-0 text-[8px] leading-none"
+                style="color: {priorityColor(task.priority)}"
+                title={task.priority}>●</span
+              >
               {#if hasActiveAgent}
                 <button
-                  class="send-btn"
+                  class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
                   onclick={(e) => sendTaskToAgent(task, e)}
                   title="Send to agent"
                   aria-label="Send to agent"
@@ -413,7 +432,7 @@
                 </button>
               {/if}
               <button
-                class="send-btn"
+                class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
                 onclick={(e) => {
                   e.stopPropagation()
                   copyTaskToClipboard(task, e)
@@ -428,9 +447,9 @@
         {/if}
       </div>
 
-      <div class="picker-footer">
-        <span class="hint">↑↓ navigate · Enter select · Esc close</span>
-        <span class="count"
+      <div class="flex items-center justify-between px-4 py-2 border-t border-border-subtle">
+        <span class="text-xs text-text-faint">↑↓ navigate · Enter select · Esc close</span>
+        <span class="text-xs text-text-muted"
           >{filteredTasks.length > DISPLAY_LIMIT
             ? `${DISPLAY_LIMIT} of ${filteredTasks.length} tasks`
             : `${filteredTasks.length} task${filteredTasks.length !== 1 ? 's' : ''}`}</span
@@ -439,316 +458,3 @@
     {/if}
   </div>
 </div>
-
-<style>
-  .dialog-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1001;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 80px;
-    background: var(--c-scrim);
-  }
-
-  .picker-container {
-    width: 600px;
-    max-height: 500px;
-    display: flex;
-    flex-direction: column;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
-    border-radius: 10px;
-    box-shadow: 0 16px 48px var(--c-scrim);
-    overflow: hidden;
-  }
-
-  .picker-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 16px 10px;
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .picker-title {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .header-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .filter-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 6px;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-  }
-
-  .filter-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
-  }
-
-  .filter-btn.active {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-  }
-
-  .board-row {
-    padding: 6px 16px;
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .filters-panel {
-    padding: 8px 16px;
-    margin: 0;
-    border-bottom: 1px solid var(--c-border-subtle);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .filter-check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    cursor: pointer;
-  }
-
-  .status-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .status-chip {
-    padding: 2px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 12px;
-    background: none;
-    color: var(--c-text-muted);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      color 0.1s;
-  }
-
-  .status-chip:hover {
-    border-color: var(--c-border);
-    color: var(--c-text-secondary);
-  }
-
-  .status-chip.active {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
-    color: var(--c-accent-text);
-  }
-
-  .status-chip.excluded {
-    opacity: 0.4;
-    text-decoration: line-through;
-  }
-
-  .close-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 6px;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-  }
-
-  .close-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .search-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--c-border-subtle);
-    color: var(--c-text-muted);
-  }
-
-  .search-input {
-    flex: 1;
-    border: none;
-    background: none;
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .search-input::placeholder {
-    color: var(--c-text-faint);
-  }
-
-  .task-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 4px 0;
-  }
-
-  .state-msg {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 24px 16px;
-    font-size: 13px;
-    color: var(--c-text-muted);
-  }
-
-  .state-msg.error {
-    color: var(--c-danger-text);
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .retry-btn {
-    padding: 4px 12px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: none;
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .retry-btn:hover {
-    background: var(--c-hover);
-  }
-
-  .task-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 6px 16px;
-    border: none;
-    background: none;
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.05s;
-  }
-
-  .task-row:hover,
-  .task-row.selected {
-    background: var(--c-hover);
-  }
-
-  .task-key {
-    flex-shrink: 0;
-    font-weight: 600;
-    color: var(--c-accent-text);
-    min-width: 80px;
-  }
-
-  .task-summary {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .status-badge {
-    flex-shrink: 0;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: var(--c-active);
-    font-size: 10px;
-    color: var(--c-text-muted);
-  }
-
-  .priority-dot {
-    flex-shrink: 0;
-    font-size: 8px;
-    line-height: 1;
-  }
-
-  .send-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text-faint);
-    cursor: pointer;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: opacity 0.1s;
-  }
-
-  .task-row:hover .send-btn,
-  .task-row.selected .send-btn {
-    opacity: 1;
-  }
-
-  .send-btn:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-generate);
-  }
-
-  .picker-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 16px;
-    border-top: 1px solid var(--c-border-subtle);
-  }
-
-  .hint {
-    font-size: 11px;
-    color: var(--c-text-faint);
-  }
-
-  .count {
-    font-size: 11px;
-    color: var(--c-text-muted);
-  }
-
-  :global(.spin) {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-</style>

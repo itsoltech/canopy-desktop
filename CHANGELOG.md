@@ -1,3 +1,14 @@
+## [0.13.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.1...v0.13.0-next.2) (2026-04-28)
+
+### Bug Fixes
+
+* **browser:** restore autofill click + reload prompt under Electron 41 ([#190](https://github.com/itsoltech/canopy-desktop/issues/190)) ([9ef9ac1](https://github.com/itsoltech/canopy-desktop/commit/9ef9ac1be37c1ad252bb151caf97befd19058bdd))
+* **editor:** style CodeMirror search panel with theme tokens ([#192](https://github.com/itsoltech/canopy-desktop/issues/192)) ([71b767f](https://github.com/itsoltech/canopy-desktop/commit/71b767f310eb255d91a08e4b960b1a1c705d7e2e)), closes [#191](https://github.com/itsoltech/canopy-desktop/issues/191)
+
+### Refactoring
+
+* **ui:** migrate renderer to Tailwind CSS ([#195](https://github.com/itsoltech/canopy-desktop/issues/195)) ([f1d545e](https://github.com/itsoltech/canopy-desktop/commit/f1d545e01c218b17c9c23bcd5bb7e747481b5409))
+
 ## [0.13.0-next.1](https://github.com/itsoltech/canopy-desktop/compare/v0.12.1-next.1...v0.13.0-next.1) (2026-04-22)
 
 ### Features

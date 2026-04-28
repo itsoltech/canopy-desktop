@@ -28,35 +28,39 @@
   }
 </script>
 
-<div class="subsection">
-  <h4 class="subsection-title">Model & behavior</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
+    Model & behavior
+  </h4>
 
-  <div class="field">
-    <label class="field-label" for="opencode-model">Model</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="opencode-model">Model</label>
     <input
       id="opencode-model"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="text"
       value={prefs.model ?? ''}
       oninput={onTextInput('model')}
       placeholder="provider/model"
       spellcheck="false"
     />
-    <span class="field-hint">Format: provider/model (e.g. anthropic/claude-sonnet-4-20250514)</span>
+    <span class="text-xs text-text-faint"
+      >Format: provider/model (e.g. anthropic/claude-sonnet-4-20250514)</span
+    >
   </div>
 </div>
 
-<div class="subsection">
-  <h4 class="subsection-title">API</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">API</h4>
 
-  <div class="field">
-    <label class="field-label" for="opencode-apikey">API key</label>
-    <span class="field-hint"
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="opencode-apikey">API key</label>
+    <span class="text-xs text-text-faint"
       >Set as ANTHROPIC_API_KEY. For other providers, use environment variables below</span
     >
     <input
       id="opencode-apikey"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="password"
       value={apiKey}
       oninput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
@@ -73,72 +77,22 @@
   onChange={(v) => set('customEnv', v)}
 />
 
-<div class="subsection">
-  <h4 class="subsection-title">Advanced</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">Advanced</h4>
 
-  <div class="field">
-    <label class="field-label" for="opencode-settings">Config JSON override</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="opencode-settings"
+      >Config JSON override</label
+    >
     <textarea
       id="opencode-settings"
-      class="text-input textarea mono"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text font-mono text-sm outline-none focus:border-focus-ring resize-y min-h-[60px]"
       rows="4"
       value={prefs.settingsJson ?? ''}
       oninput={onTextInput('settingsJson')}
       placeholder={'{"key": "value"}'}
       spellcheck="false"
     ></textarea>
-    <span class="field-hint">Passed via OPENCODE_CONFIG_CONTENT at session start</span>
+    <span class="text-xs text-text-faint">Passed via OPENCODE_CONFIG_CONTENT at session start</span>
   </div>
 </div>
-
-<style>
-  .subsection {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-  .subsection-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--c-text-muted);
-    margin: 0;
-  }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--c-text-secondary);
-  }
-  .field-hint {
-    font-size: 11px;
-    color: var(--c-text-faint);
-  }
-  .text-input {
-    padding: 6px 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-  .text-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-  .textarea {
-    resize: vertical;
-    min-height: 60px;
-  }
-  .mono {
-    font-family: monospace;
-    font-size: 12px;
-  }
-</style>

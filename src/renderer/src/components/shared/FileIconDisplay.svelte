@@ -11,11 +11,20 @@
 
 {#if info.kind === 'lucide'}
   {@const LucideComponent = info.Icon}
-  <span class="file-icon-wrap" style:color={info.color} style:--file-icon-size="{size}px">
+  <span
+    class="inline-flex items-center justify-center flex-shrink-0"
+    style:color={info.color}
+    style:width="{size}px"
+    style:height="{size}px"
+  >
     <LucideComponent {size} />
   </span>
 {:else}
-  <span class="file-icon-wrap" style:--file-icon-size="{size}px">
+  <span
+    class="inline-flex items-center justify-center flex-shrink-0"
+    style:width="{size}px"
+    style:height="{size}px"
+  >
     <svg
       viewBox="0 0 24 24"
       width={size}
@@ -28,14 +37,3 @@
     </svg>
   </span>
 {/if}
-
-<style>
-  .file-icon-wrap {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--file-icon-size, 14px);
-    height: var(--file-icon-size, 14px);
-    flex-shrink: 0;
-  }
-</style>

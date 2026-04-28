@@ -19,124 +19,49 @@
 </script>
 
 {#if toastState.visible}
-  <div class="toast" role="status" aria-live="polite">
+  <div
+    class="fixed bottom-4 right-4 flex items-center gap-2.5 px-2.5 py-2 bg-bg-overlay border border-border rounded-lg shadow-popover z-banner animate-slide-in-up motion-reduce:animate-none"
+    role="status"
+    aria-live="polite"
+  >
     {#if toastState.url}
-      <span class="toast-url">{toastState.url}</span>
-      <div class="toast-actions">
-        <button class="toast-btn" onclick={openInBrowser} title="Open in Browser pane">
+      <span class="text-sm text-text max-w-50 truncate">{toastState.url}</span>
+      <div class="flex items-center gap-1">
+        <button
+          class="flex items-center gap-1 px-2 py-1 border border-border rounded-md bg-hover text-text text-xs font-inherit cursor-pointer whitespace-nowrap hover:bg-hover-strong"
+          onclick={openInBrowser}
+          title="Open in Browser pane"
+        >
           <Globe size={13} />
           Browser
         </button>
-        <button class="toast-btn" onclick={openInSystem} title="Open in system browser">
+        <button
+          class="flex items-center gap-1 px-2 py-1 border border-border rounded-md bg-hover text-text text-xs font-inherit cursor-pointer whitespace-nowrap hover:bg-hover-strong"
+          onclick={openInSystem}
+          title="Open in system browser"
+        >
           <ExternalLink size={13} />
           System
         </button>
-        <button class="toast-close" onclick={dismissToast} title="Dismiss" aria-label="Dismiss">
+        <button
+          class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer p-0 hover:text-text hover:bg-active"
+          onclick={dismissToast}
+          title="Dismiss"
+          aria-label="Dismiss"
+        >
           <X size={13} />
         </button>
       </div>
     {:else}
-      <span class="toast-message">{toastState.message}</span>
-      <button class="toast-close" onclick={dismissToast} title="Dismiss" aria-label="Dismiss">
+      <span class="text-sm text-text max-w-75 truncate">{toastState.message}</span>
+      <button
+        class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer p-0 hover:text-text hover:bg-active"
+        onclick={dismissToast}
+        title="Dismiss"
+        aria-label="Dismiss"
+      >
         <X size={13} />
       </button>
     {/if}
   </div>
 {/if}
-
-<style>
-  .toast {
-    position: fixed;
-    bottom: 16px;
-    right: 16px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px var(--c-scrim);
-    z-index: 9999;
-    animation: slideIn 0.2s ease-out;
-  }
-
-  @keyframes slideIn {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .toast {
-      animation: none;
-    }
-  }
-
-  .toast-url {
-    font-size: 12px;
-    color: var(--c-text);
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .toast-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .toast-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    background: var(--c-hover);
-    color: var(--c-text);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  .toast-btn:hover {
-    background: var(--c-hover-strong);
-  }
-
-  .toast-close {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    padding: 0;
-  }
-
-  .toast-close:hover {
-    color: var(--c-text);
-    background: var(--c-active);
-  }
-
-  .toast-message {
-    font-size: 12px;
-    color: var(--c-text);
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-</style>
