@@ -45,174 +45,69 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="dialog-overlay" onkeydown={handleKeydown} onmousedown={onDismiss}>
+<div
+  class="fixed inset-0 z-[1001] flex justify-center items-start pt-[120px] bg-scrim"
+  onkeydown={handleKeydown}
+  onmousedown={onDismiss}
+>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="dialog-container"
+    class="w-[480px] bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
     role="dialog"
     aria-modal="true"
     aria-labelledby="crash-dialog-title"
     onmousedown={(e) => e.stopPropagation()}
   >
-    <h3 id="crash-dialog-title" class="dialog-title">
+    <h3
+      id="crash-dialog-title"
+      class="m-0 mb-2 text-[15px] font-semibold text-text flex items-center gap-2 [&>svg]:text-warning [&>svg]:flex-shrink-0"
+    >
       <TriangleAlert size={16} />
       Canopy crashed
     </h3>
-    <p class="dialog-message">
+    <p class="m-0 mb-3 text-md text-text-secondary leading-normal">
       The app did not shut down cleanly last time. You can report this to help us fix it.
     </p>
 
-    <div class="crash-details">
-      <div class="detail-row">
-        <span class="detail-label">Time</span>
+    <div class="flex flex-col gap-1 mb-3 text-sm text-text-muted">
+      <div class="flex gap-2">
+        <span class="min-w-16 text-text-faint">Time</span>
         <span>{formattedTime}</span>
       </div>
-      <div class="detail-row">
-        <span class="detail-label">Type</span>
+      <div class="flex gap-2">
+        <span class="min-w-16 text-text-faint">Type</span>
         <span>{data.type}</span>
       </div>
-      <div class="detail-row">
-        <span class="detail-label">Version</span>
+      <div class="flex gap-2">
+        <span class="min-w-16 text-text-faint">Version</span>
         <span>{data.appVersion}</span>
       </div>
-      <div class="detail-row">
-        <span class="detail-label">Electron</span>
+      <div class="flex gap-2">
+        <span class="min-w-16 text-text-faint">Electron</span>
         <span>{data.electronVersion}</span>
       </div>
-      <div class="detail-row">
-        <span class="detail-label">OS</span>
+      <div class="flex gap-2">
+        <span class="min-w-16 text-text-faint">OS</span>
         <span>{data.os}</span>
       </div>
     </div>
 
     {#if data.errorMessage || data.stack}
-      <pre class="crash-stack">{data.errorMessage}{#if data.stack}
+      <pre
+        class="m-0 mb-3 p-2 bg-bg border border-border rounded-lg font-mono text-xs leading-snug text-text-muted max-h-[200px] overflow-y-auto whitespace-pre-wrap break-all">{data.errorMessage}{#if data.stack}
           {data.stack}{/if}</pre>
     {/if}
 
-    <div class="dialog-actions">
-      <button bind:this={dismissBtn} class="btn btn-cancel" onclick={onDismiss}>Dismiss</button>
-      <button class="btn btn-confirm" onclick={onCreateIssue}>Create issue</button>
+    <div class="flex justify-end gap-2 mt-4">
+      <button
+        bind:this={dismissBtn}
+        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-active text-text transition-colors duration-fast hover:bg-border focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+        onclick={onDismiss}>Dismiss</button
+      >
+      <button
+        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-accent-bg text-accent-text transition-colors duration-fast hover:bg-accent-muted focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+        onclick={onCreateIssue}>Create issue</button
+      >
     </div>
   </div>
 </div>
-
-<style>
-  .dialog-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1001;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 120px;
-    background: var(--color-scrim);
-  }
-
-  .dialog-container {
-    width: 480px;
-    background: var(--color-bg-overlay);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    box-shadow: var(--color-shadow-dialog, 0 16px 48px oklch(0 0 0 / 0.6));
-    padding: 20px;
-  }
-
-  .dialog-title {
-    margin: 0 0 8px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--color-text);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .dialog-title :global(svg) {
-    color: var(--color-warning);
-    flex-shrink: 0;
-  }
-
-  .dialog-message {
-    margin: 0 0 12px;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    line-height: 1.5;
-  }
-
-  .crash-details {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-bottom: 12px;
-    font-size: 12px;
-    color: var(--color-text-muted);
-  }
-
-  .detail-row {
-    display: flex;
-    gap: 8px;
-  }
-
-  .detail-label {
-    min-width: 64px;
-    color: var(--color-text-faint);
-  }
-
-  .crash-stack {
-    margin: 0 0 12px;
-    padding: 8px;
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    font-family: monospace;
-    font-size: 11px;
-    line-height: 1.4;
-    color: var(--color-text-muted);
-    max-height: 200px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
-
-  .dialog-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
-  }
-
-  .btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-    outline: none;
-    transition: background 0.1s;
-  }
-
-  .btn:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 1px;
-  }
-
-  .btn-cancel {
-    background: var(--color-active);
-    color: var(--color-text);
-  }
-
-  .btn-cancel:hover {
-    background: var(--color-border);
-  }
-
-  .btn-confirm {
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-  }
-
-  .btn-confirm:hover {
-    background: var(--color-accent-muted);
-  }
-</style>
