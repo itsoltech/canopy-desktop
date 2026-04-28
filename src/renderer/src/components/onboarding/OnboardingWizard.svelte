@@ -150,7 +150,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background: var(--c-scrim);
+    background: var(--color-scrim);
   }
 
   .wizard {
@@ -160,10 +160,10 @@
     max-height: 85vh;
     display: flex;
     flex-direction: column;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-overlay);
+    border: 1px solid var(--color-border);
     border-radius: 12px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 48px oklch(0 0 0 / 0.6);
     overflow: hidden;
   }
 
@@ -180,7 +180,7 @@
     flex-direction: column;
     gap: 16px;
     padding: 16px 32px 24px;
-    border-top: 1px solid var(--c-border-subtle);
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   .nav-buttons {
@@ -200,27 +200,27 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 1px;
   }
 
   .btn-ghost {
     background: transparent;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .btn-ghost:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .btn-primary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
     font-weight: 500;
   }
 
   .btn-primary:hover {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 </style>

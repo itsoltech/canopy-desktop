@@ -53,7 +53,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -67,7 +67,7 @@
     display: flex;
     align-items: center;
     padding: 5px 0;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .shortcut-keys {
@@ -84,13 +84,13 @@
     min-width: 24px;
     height: 24px;
     padding: 0 6px;
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
+    background: var(--color-hover);
+    border: 1px solid var(--color-border);
     border-radius: 5px;
     font-size: 12px;
     font-family: inherit;
-    color: var(--c-text-secondary);
-    box-shadow: 0 1px 0 var(--c-border);
+    color: var(--color-text-secondary);
+    box-shadow: 0 1px 0 var(--color-border);
   }
 
   .key-sep {
@@ -99,7 +99,7 @@
 
   .shortcut-action {
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     margin-left: 12px;
   }
 </style>

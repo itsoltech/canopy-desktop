@@ -368,7 +368,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     margin: 0;
   }
 
@@ -390,10 +390,10 @@
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -401,15 +401,15 @@
   }
 
   .tracker-item:hover {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .tracker-provider-badge {
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
-    color: var(--c-accent-text);
-    background: var(--c-accent-bg);
+    color: var(--color-accent-text);
+    background: var(--color-accent-bg);
     padding: 1px 6px;
     border-radius: 3px;
     flex-shrink: 0;
@@ -420,13 +420,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .tracker-project {
     font-family: monospace;
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .status-dot {
@@ -437,11 +437,11 @@
   }
 
   .status-dot.ok {
-    background: var(--c-success);
+    background: var(--color-success);
   }
 
   .status-dot.missing {
-    background: var(--c-warning-text);
+    background: var(--color-warning-text);
   }
 
   .edit-form {
@@ -449,9 +449,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
   }
 
   .cred-section {
@@ -459,7 +459,7 @@
     flex-direction: column;
     gap: 6px;
     padding-top: 6px;
-    border-top: 1px solid var(--c-border);
+    border-top: 1px solid var(--color-border);
   }
 
   .field {
@@ -471,7 +471,7 @@
   .field-label {
     font-size: 11px;
     font-weight: 500;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -479,13 +479,13 @@
 
   .field-hint {
     font-size: 10px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .token-link {
     font-size: 10px;
     font-weight: 400;
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     background: none;
     border: none;
     padding: 0;
@@ -496,27 +496,27 @@
   }
 
   .token-link:hover {
-    color: var(--c-accent);
+    color: var(--color-accent);
   }
 
   .text-input {
     padding: 5px 8px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 5px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 12px;
     font-family: inherit;
     outline: none;
   }
 
   .text-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .hint-text {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .test-row {
@@ -528,7 +528,7 @@
     align-items: center;
     gap: 4px;
     font-size: 11px;
-    color: var(--c-success);
+    color: var(--color-success);
   }
 
   .status-fail {
@@ -536,7 +536,7 @@
     align-items: center;
     gap: 4px;
     font-size: 11px;
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .form-actions {
@@ -560,30 +560,30 @@
   }
 
   .btn-primary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-secondary {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .btn-secondary:hover:not(:disabled) {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
   }
 
   .btn-ghost {
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .btn-ghost:hover {
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .icon-btn {
@@ -595,16 +595,16 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
   }
 
   .icon-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
   }
 
   .icon-btn.danger:hover {
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 </style>

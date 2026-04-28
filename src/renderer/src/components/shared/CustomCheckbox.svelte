@@ -23,9 +23,18 @@
 </script>
 
 <button
-  class="checkbox"
-  class:checked
-  class:disabled
+  class="inline-flex items-center justify-center w-4 h-4 min-w-4 border-1.5 rounded-md p-0 outline-none cursor-pointer transition-colors duration-fast focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:border-focus-ring"
+  class:border-text-muted={!checked}
+  class:bg-transparent={!checked}
+  class:text-transparent={!checked}
+  class:border-accent={checked}
+  class:bg-accent={checked}
+  class:text-bg={checked}
+  class:cursor-default={disabled}
+  class:opacity-40={disabled}
+  class:hover:border-accent={!disabled && !checked}
+  class:hover:border-accent-text={!disabled && checked}
+  class:hover:bg-accent-text={!disabled && checked}
   role="checkbox"
   aria-checked={checked}
   aria-disabled={disabled}
@@ -36,50 +45,3 @@
     <Check size={12} strokeWidth={3} />
   {/if}
 </button>
-
-<style>
-  .checkbox {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    min-width: 16px;
-    border: 1.5px solid var(--c-text-muted);
-    border-radius: 4px;
-    background: transparent;
-    color: transparent;
-    cursor: pointer;
-    outline: none;
-    padding: 0;
-    transition:
-      background 0.1s,
-      border-color 0.1s,
-      color 0.1s;
-  }
-
-  .checkbox:hover:not(.disabled) {
-    border-color: var(--c-accent);
-  }
-
-  .checkbox:focus-visible {
-    border-color: var(--c-focus-ring);
-    box-shadow: 0 0 0 2px var(--c-focus-ring);
-  }
-
-  .checkbox.checked {
-    background: var(--c-accent);
-    border-color: var(--c-accent);
-    color: var(--c-bg);
-  }
-
-  .checkbox.checked:hover:not(.disabled) {
-    background: var(--c-accent-text);
-    border-color: var(--c-accent-text);
-  }
-
-  .checkbox.disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-</style>

@@ -255,14 +255,14 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: #e0e0e0;
+    color: oklch(0.907 0 0);
     margin: 0;
   }
 
   .subsection-title {
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.5);
+    color: oklch(1 0 0 / 0.5);
     margin: 0;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -276,13 +276,13 @@
   }
 
   .select-label {
-    color: rgba(255, 255, 255, 0.8);
+    color: oklch(1 0 0 / 0.8);
     min-width: 160px;
   }
 
   .hint-row {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.5;
     margin-top: -8px;
   }
@@ -299,31 +299,31 @@
     gap: 10px;
     padding: 6px 10px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.03);
+    background: oklch(1 0 0 / 0.03);
     font-size: 13px;
   }
 
   .viewport-name {
-    color: #e0e0e0;
+    color: oklch(0.907 0 0);
     min-width: 140px;
   }
 
   .viewport-dims {
-    color: rgba(255, 255, 255, 0.5);
+    color: oklch(1 0 0 / 0.5);
     font-family: monospace;
     font-size: 12px;
     min-width: 80px;
   }
 
   .viewport-scale {
-    color: rgba(255, 255, 255, 0.35);
+    color: oklch(1 0 0 / 0.35);
     font-size: 11px;
     min-width: 24px;
   }
 
   .viewport-mobile {
     font-size: 10px;
-    color: rgba(116, 192, 252, 0.6);
+    color: oklch(0.782 0.115 243.83 / 0.6);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -331,12 +331,12 @@
   .builtin-badge {
     margin-left: auto;
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.25);
+    color: oklch(1 0 0 / 0.25);
   }
 
   .empty-text {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.3);
+    color: oklch(1 0 0 / 0.3);
     margin: 0;
     padding: 4px 10px;
   }
@@ -346,15 +346,15 @@
     padding: 2px 8px;
     border: none;
     border-radius: 4px;
-    background: rgba(255, 100, 100, 0.15);
-    color: rgba(255, 120, 120, 0.8);
+    background: oklch(0.702 0.19 23.33 / 0.15);
+    color: oklch(0.731 0.165 21.99 / 0.8);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .remove-btn:hover {
-    background: rgba(255, 100, 100, 0.25);
+    background: oklch(0.702 0.19 23.33 / 0.25);
   }
 
   .cred-list {
@@ -369,7 +369,7 @@
     gap: 4px;
     padding: 8px 10px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.03);
+    background: oklch(1 0 0 / 0.03);
   }
 
   .cred-header {
@@ -382,7 +382,7 @@
   .cred-domain {
     font-size: 13px;
     font-weight: 500;
-    color: #e0e0e0;
+    color: oklch(0.907 0 0);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -390,7 +390,7 @@
 
   .cred-title {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.3);
+    color: oklch(1 0 0 / 0.3);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -405,7 +405,7 @@
 
   .cred-username {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
+    color: oklch(1 0 0 / 0.6);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -418,15 +418,15 @@
   }
 
   .password-masked {
-    color: rgba(255, 255, 255, 0.3);
+    color: oklch(1 0 0 / 0.3);
     font-size: 12px;
     letter-spacing: 1px;
   }
 
   .password-revealed {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.06);
+    color: oklch(1 0 0 / 0.7);
+    background: oklch(1 0 0 / 0.06);
     padding: 1px 4px;
     border-radius: 3px;
   }
@@ -436,15 +436,15 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: oklch(1 0 0 / 0.4);
     cursor: pointer;
     display: flex;
     align-items: center;
   }
 
   .reveal-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.06);
+    color: oklch(1 0 0 / 0.7);
+    background: oklch(1 0 0 / 0.06);
   }
 
   .add-form {
@@ -452,9 +452,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid oklch(1 0 0 / 0.1);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
+    background: oklch(1 0 0 / 0.03);
   }
 
   .form-row {
@@ -465,17 +465,17 @@
 
   .form-input {
     padding: 6px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid oklch(1 0 0 / 0.12);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #e0e0e0;
+    background: oklch(1 0 0 / 0.06);
+    color: oklch(0.907 0 0);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .form-input:focus {
-    border-color: rgba(116, 192, 252, 0.5);
+    border-color: oklch(0.782 0.115 243.83 / 0.5);
   }
 
   .form-input.num {
@@ -487,12 +487,12 @@
   }
 
   .form-x {
-    color: rgba(255, 255, 255, 0.4);
+    color: oklch(1 0 0 / 0.4);
     font-size: 13px;
   }
 
   .form-label {
-    color: rgba(255, 255, 255, 0.4);
+    color: oklch(1 0 0 / 0.4);
     font-size: 12px;
     margin-left: 8px;
   }
@@ -502,13 +502,13 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.7);
+    color: oklch(1 0 0 / 0.7);
     cursor: pointer;
   }
 
   .form-error {
     font-size: 12px;
-    color: #ff6b6b;
+    color: var(--color-danger);
     margin: 0;
   }
 
@@ -528,33 +528,33 @@
   }
 
   .btn-cancel {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
+    background: oklch(1 0 0 / 0.08);
+    color: oklch(1 0 0 / 0.7);
   }
 
   .btn-add {
-    background: rgba(116, 192, 252, 0.2);
-    color: rgba(116, 192, 252, 0.9);
+    background: oklch(0.782 0.115 243.83 / 0.2);
+    color: oklch(0.782 0.115 243.83 / 0.9);
   }
 
   .btn-add:hover {
-    background: rgba(116, 192, 252, 0.3);
+    background: oklch(0.782 0.115 243.83 / 0.3);
   }
 
   .btn-add-viewport {
     align-self: flex-start;
     padding: 6px 14px;
-    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border: 1px dashed oklch(1 0 0 / 0.15);
     border-radius: 6px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.5);
+    color: oklch(1 0 0 / 0.5);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-add-viewport:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.7);
+    background: oklch(1 0 0 / 0.05);
+    color: oklch(1 0 0 / 0.7);
   }
 </style>

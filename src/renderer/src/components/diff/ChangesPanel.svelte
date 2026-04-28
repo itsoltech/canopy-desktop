@@ -118,10 +118,10 @@
 
   function statusClass(status: DiffFile['status']): string {
     return match(status)
-      .with('added', () => 'status-added')
-      .with('modified', () => 'status-modified')
-      .with('deleted', () => 'status-deleted')
-      .with('renamed', () => 'status-renamed')
+      .with('added', () => 'text-success')
+      .with('modified', () => 'text-warning')
+      .with('deleted', () => 'text-danger')
+      .with('renamed', () => 'text-accent')
       .exhaustive()
   }
 
@@ -157,79 +157,79 @@
   }
 </script>
 
-<div class="changes-panel">
-  <div class="panel-header">
-    <span class="panel-title">Changes</span>
-    <button class="refresh-btn" onclick={refresh} title="Refresh" disabled={loading}>
-      <span class:spinning={loading} style="display:flex">
-        <RotateCw size={13} />
-      </span>
+<div class="flex flex-col h-full">
+  <div class="flex items-center justify-between px-3 py-2 flex-shrink-0">
+    <span class="text-xs font-semibold text-text-secondary uppercase tracking-caps-looser"
+      >Changes</span
+    >
+    <button
+      class="bg-transparent border-0 text-text-muted cursor-pointer px-1 py-0.5 rounded-md flex items-center justify-center enabled:hover:text-text enabled:hover:bg-hover disabled:opacity-50 disabled:cursor-default"
+      onclick={refresh}
+      title="Refresh"
+      disabled={loading}
+    >
+      <RotateCw size={13} class={loading ? 'animate-spin-slow motion-reduce:animate-none' : ''} />
     </button>
   </div>
 
   {#if totalFiles > 0}
-    <div class="summary-line">
-      <span class="summary-text">
+    <div class="flex items-center gap-2 px-3 pt-0.5 pb-2 flex-shrink-0 overflow-hidden">
+      <span class="text-xs text-text-muted whitespace-nowrap flex-shrink-0">
         {totalFiles} file{totalFiles !== 1 ? 's' : ''} changed,
-        <span class="stat-add">+{totalAdditions}</span>
-        <span class="stat-del">&minus;{totalDeletions}</span>
+        <span class="text-diff-add-fg">+{totalAdditions}</span>
+        <span class="text-diff-delete-fg">&minus;{totalDeletions}</span>
       </span>
-      <span class="summary-bar">
+      <span class="flex items-stretch h-1.5 rounded-xs overflow-hidden flex-1 min-w-5">
         {#if totalAdditions > 0}
-          <span class="summary-bar-add" style="width: {summaryBarAddWidth}px"></span>
+          <span class="block h-full bg-diff-add-fg" style="width: {summaryBarAddWidth}px"></span>
         {/if}
         {#if totalDeletions > 0}
-          <span class="summary-bar-del" style="width: {summaryBarDelWidth}px"></span>
+          <span class="block h-full bg-diff-delete-fg" style="width: {summaryBarDelWidth}px"></span>
         {/if}
       </span>
     </div>
   {/if}
 
-  <div class="filter-section">
+  <div class="px-3 pb-2 flex flex-col gap-1.5 flex-shrink-0">
     <input
-      class="filter-input"
+      class="bg-bg border border-border-subtle rounded-md text-text text-xs px-2 py-1 w-full outline-none font-mono box-border focus:border-accent placeholder:text-text-faint"
       type="text"
       placeholder="Filter files..."
       bind:value={filterQuery}
     />
-    <div class="status-filters">
-      <button
-        class="filter-btn"
-        class:filter-active={statusFilter === 'all'}
-        aria-label="Show all files"
-        aria-pressed={statusFilter === 'all'}
-        onclick={() => (statusFilter = 'all')}>All</button
-      >
-      <button
-        class="filter-btn"
-        class:filter-active={statusFilter === 'added'}
-        aria-label="Filter added files"
-        aria-pressed={statusFilter === 'added'}
-        onclick={() => (statusFilter = statusFilter === 'added' ? 'all' : 'added')}>A</button
-      >
-      <button
-        class="filter-btn"
-        class:filter-active={statusFilter === 'modified'}
-        aria-label="Filter modified files"
-        aria-pressed={statusFilter === 'modified'}
-        onclick={() => (statusFilter = statusFilter === 'modified' ? 'all' : 'modified')}>M</button
-      >
-      <button
-        class="filter-btn"
-        class:filter-active={statusFilter === 'deleted'}
-        aria-label="Filter deleted files"
-        aria-pressed={statusFilter === 'deleted'}
-        onclick={() => (statusFilter = statusFilter === 'deleted' ? 'all' : 'deleted')}>D</button
-      >
+    <div class="flex gap-1">
+      {#each [['all', 'All', 'Show all files'], ['added', 'A', 'Filter added files'], ['modified', 'M', 'Filter modified files'], ['deleted', 'D', 'Filter deleted files']] as [val, label, aria] (val)}
+        <button
+          class="bg-transparent border border-border-subtle text-text-muted cursor-pointer text-2xs font-semibold px-2 py-0.5 rounded-sm font-mono"
+          class:bg-accent={statusFilter === val}
+          class:text-bg={statusFilter === val}
+          class:border-accent={statusFilter === val}
+          class:hover:text-text={statusFilter !== val}
+          class:hover:bg-active={statusFilter !== val}
+          aria-label={aria}
+          aria-pressed={statusFilter === val}
+          onclick={() =>
+            (statusFilter =
+              val === 'all' ? 'all' : statusFilter === val ? 'all' : (val as typeof statusFilter))}
+        >
+          {label}
+        </button>
+      {/each}
     </div>
   </div>
 
   {#if filteredFiles.length > 0}
-    <ul class="file-list">
+    <ul class="p-0 m-0 overflow-y-auto flex-1">
       {#each filteredFiles as file (file.path)}
+        {@const isVisibleFile = visibleFilePath === file.path}
         <li
-          class="file-item"
-          class:file-visible={visibleFilePath === file.path}
+          class="flex items-center gap-1.5 py-1 cursor-pointer text-xs leading-snug relative hover:bg-hover"
+          class:bg-border-subtle={isVisibleFile}
+          class:border-l-2={isVisibleFile}
+          class:border-accent={isVisibleFile}
+          class:pl-2={isVisibleFile}
+          class:pr-2.5={true}
+          class:pl-2.5={!isVisibleFile}
           role="button"
           tabindex="0"
           onclick={() => handleClick(file)}
@@ -242,26 +242,31 @@
           onpointerenter={() => (hoveredPath = file.path)}
           onpointerleave={() => (hoveredPath = null)}
         >
-          <span class="status-icon {statusClass(file.status)}">{statusIcon(file.status)}</span>
-          <span class="file-path">
-            <span class="dir">{dirname(file.path)}</span><span class="name"
+          <span
+            class="flex-shrink-0 w-4 text-center font-semibold text-xs font-mono {statusClass(
+              file.status,
+            )}">{statusIcon(file.status)}</span
+          >
+          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+            <span class="text-text-muted">{dirname(file.path)}</span><span class="text-text"
               >{basename(file.path)}</span
             >
           </span>
-          <span class="stats">
-            {#if file.additions > 0}<span class="stat-add">+{file.additions}</span>{/if}
-            {#if file.deletions > 0}<span class="stat-del">&minus;{file.deletions}</span>{/if}
+          <span class="flex-shrink-0 text-xs font-mono flex gap-1">
+            {#if file.additions > 0}<span class="text-diff-add-fg">+{file.additions}</span>{/if}
+            {#if file.deletions > 0}<span class="text-diff-delete-fg">&minus;{file.deletions}</span
+              >{/if}
           </span>
           {#if hoveredPath === file.path}
-            <span class="actions">
+            <span class="flex gap-0.5 flex-shrink-0 w-11 justify-end">
               <button
-                class="action-btn stage"
+                class="bg-transparent border-0 cursor-pointer px-0.5 py-px rounded-sm flex items-center justify-center text-success hover:bg-diff-add-bg"
                 onclick={(e) => handleStage(e, file.path)}
                 title="Stage"
                 aria-label="Stage file"><Check size={12} /></button
               >
               <button
-                class="action-btn revert"
+                class="bg-transparent border-0 cursor-pointer px-0.5 py-px rounded-sm flex items-center justify-center text-danger hover:bg-diff-delete-bg"
                 onclick={(e) => handleRevert(e, file.path)}
                 title="Revert"
                 aria-label="Revert file"><X size={12} /></button
@@ -272,8 +277,8 @@
       {/each}
     </ul>
   {:else if !loading}
-    <div class="empty-state">
-      <span class="empty-text">
+    <div class="flex items-center justify-center h-full p-4">
+      <span class="text-sm text-text-muted">
         {#if filterQuery || statusFilter !== 'all'}
           No matching files
         {:else}
@@ -283,296 +288,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  .changes-panel {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
-
-  .panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 12px;
-    flex-shrink: 0;
-  }
-
-  .panel-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .refresh-btn {
-    background: none;
-    border: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .refresh-btn:hover {
-    color: var(--c-text);
-    background: var(--c-hover);
-  }
-
-  .refresh-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .spinning {
-    animation: spin 1s linear infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .spinning {
-      animation: none;
-    }
-  }
-
-  .summary-line {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 2px 12px 6px 12px;
-    flex-shrink: 0;
-    overflow: hidden;
-  }
-
-  .summary-text {
-    font-size: 11px;
-    color: var(--c-text-muted);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .summary-bar {
-    display: flex;
-    align-items: stretch;
-    height: 6px;
-    border-radius: 2px;
-    overflow: hidden;
-    flex: 1;
-    min-width: 20px;
-  }
-
-  .summary-bar-add {
-    height: 100%;
-    background: var(--diff-add-fg);
-    display: block;
-  }
-
-  .summary-bar-del {
-    height: 100%;
-    background: var(--diff-delete-fg);
-    display: block;
-  }
-
-  .filter-section {
-    padding: 0 12px 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex-shrink: 0;
-  }
-
-  .filter-input {
-    background: var(--c-bg);
-    border: 1px solid var(--c-border-subtle);
-    border-radius: 4px;
-    color: var(--c-text);
-    font-size: 11px;
-    padding: 3px 8px;
-    width: 100%;
-    outline: none;
-    font-family: var(--font-mono, monospace);
-    box-sizing: border-box;
-  }
-
-  .filter-input:focus {
-    border-color: var(--c-accent);
-  }
-
-  .filter-input::placeholder {
-    color: var(--c-text-faint);
-  }
-
-  .status-filters {
-    display: flex;
-    gap: 2px;
-  }
-
-  .filter-btn {
-    background: none;
-    border: 1px solid var(--c-border-subtle);
-    color: var(--c-text-muted);
-    cursor: pointer;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 8px;
-    border-radius: 3px;
-    font-family: var(--font-mono, monospace);
-  }
-
-  .filter-btn:hover {
-    color: var(--c-text);
-    background: var(--c-active);
-  }
-
-  .filter-btn.filter-active {
-    background: var(--c-accent);
-    color: var(--c-bg);
-    border-color: var(--c-accent);
-  }
-
-  .file-list {
-    padding: 0;
-    margin: 0;
-    overflow-y: auto;
-    flex: 1;
-  }
-
-  .file-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 10px;
-    cursor: pointer;
-    font-size: var(--fs-xs);
-    line-height: 1.4;
-    position: relative;
-  }
-
-  .file-item:hover {
-    background: var(--c-hover);
-  }
-
-  .file-item.file-visible {
-    background: var(--c-border-subtle);
-    border-left: 2px solid var(--c-accent);
-    padding-left: 8px;
-  }
-
-  .status-icon {
-    flex-shrink: 0;
-    width: 16px;
-    text-align: center;
-    font-weight: 600;
-    font-size: 11px;
-    font-family: var(--font-mono, monospace);
-  }
-
-  .status-added {
-    color: var(--c-success);
-  }
-
-  .status-modified {
-    color: var(--c-warning);
-  }
-
-  .status-deleted {
-    color: var(--c-danger);
-  }
-
-  .status-renamed {
-    color: var(--c-accent);
-  }
-
-  .file-path {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dir {
-    color: var(--c-text-muted);
-  }
-
-  .name {
-    color: var(--c-text);
-  }
-
-  .stats {
-    flex-shrink: 0;
-    font-size: 11px;
-    font-family: var(--font-mono, monospace);
-    display: flex;
-    gap: 4px;
-  }
-
-  .stat-add {
-    color: var(--diff-add-fg);
-  }
-
-  .stat-del {
-    color: var(--diff-delete-fg);
-  }
-
-  .actions {
-    display: flex;
-    gap: 2px;
-    flex-shrink: 0;
-    width: 44px;
-    justify-content: flex-end;
-  }
-
-  .action-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 1px 3px;
-    border-radius: 3px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .action-btn.stage {
-    color: var(--c-success);
-  }
-
-  .action-btn.stage:hover {
-    background: var(--diff-add-bg);
-  }
-
-  .action-btn.revert {
-    color: var(--c-danger);
-  }
-
-  .action-btn.revert:hover {
-    background: var(--diff-delete-bg);
-  }
-
-  .empty-state {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    padding: 16px;
-  }
-
-  .empty-text {
-    font-size: 12px;
-    color: var(--c-text-muted);
-  }
-</style>

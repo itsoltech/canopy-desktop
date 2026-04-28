@@ -73,7 +73,7 @@
     inset: 0;
     z-index: 2500;
     cursor: pointer;
-    background: var(--c-scrim, rgba(0, 0, 0, 0.55));
+    background: var(--color-scrim, oklch(0 0 0 / 0.55));
     animation: sheet-backdrop-fade 180ms ease-out;
   }
 
@@ -92,12 +92,12 @@
     max-width: 520px;
     max-height: 75vh;
     max-height: 75dvh;
-    background: var(--c-bg-elevated);
+    background: var(--color-bg-elevated);
     border-top-left-radius: 14px;
     border-top-right-radius: 14px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-bottom: none;
-    box-shadow: var(--c-shadow-sheet, 0 -8px 24px rgba(0, 0, 0, 0.35));
+    box-shadow: var(--color-shadow-sheet, 0 -8px 24px oklch(0 0 0 / 0.35));
     display: flex;
     flex-direction: column;
     animation: sheet-slide-up 220ms cubic-bezier(0.25, 1, 0.5, 1);
@@ -109,13 +109,13 @@
     align-items: center;
     justify-content: space-between;
     padding: 14px 18px 10px;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .sheet-title {
     font-size: 14px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .sheet-close {
@@ -131,12 +131,12 @@
     justify-content: center;
     border-radius: 5px;
     cursor: pointer;
-    background: var(--c-bg-input);
-    color: var(--c-text-secondary);
+    background: var(--color-bg-input);
+    color: var(--color-text-secondary);
   }
 
   .icon-btn:hover {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
   }
 
   .sheet-body {
@@ -161,32 +161,32 @@
     align-items: flex-start;
     gap: 2px;
     padding: 14px 14px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
     cursor: pointer;
   }
 
   .sheet-tool-row:active {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
+    background: var(--color-accent-bg);
+    border-color: var(--color-accent-muted);
   }
 
   .sheet-tool-name {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .sheet-tool-hint {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .muted {
     margin: 0;
     font-size: 12px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.5;
   }
 

@@ -10,9 +10,7 @@
   import { getTheme } from './lib/terminal/themes'
 
   onMount(async () => {
-    // Load preferences before anything else
     await loadPrefs()
-    // Workspace restore is handled by main process via url:action events
     return initUpdateListeners()
   })
 
@@ -21,19 +19,9 @@
   })
 </script>
 
-<div class="app">
+<div class="w-screen h-screen overflow-hidden flex flex-col">
   <Titlebar />
   <MainLayout />
   <StatusBar />
   <UpdateBanner />
 </div>
-
-<style>
-  .app {
-    width: 100vw;
-    height: 100vh;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-</style>

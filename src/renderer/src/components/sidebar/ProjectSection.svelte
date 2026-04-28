@@ -60,31 +60,49 @@
 
 <CollapsibleSection title="PROJECTS" sectionKey="projects">
   {#snippet headerExtra()}
-    <button class="new-btn" onclick={handleOpenFolder} title="Open folder">+ open</button>
+    <button
+      class="text-2xs font-medium font-inherit text-text-muted bg-transparent border-0 px-1.5 py-px rounded-md cursor-pointer transition-colors duration-fast hover:text-text hover:bg-active"
+      onclick={handleOpenFolder}
+      title="Open folder">+ open</button
+    >
   {/snippet}
-  <ul class="project-list">
+  <ul class="list-none p-0 m-0">
     {#each pinnedProjects as ws (ws.id)}
       <li>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
-          class="project-item"
-          class:active={ws.path === workspaceState.workspace?.path}
+          class="group flex items-center gap-1.5 w-full px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
+          class:bg-hover-strong={ws.path === workspaceState.workspace?.path}
           onclick={() => switchProject(ws.path)}
           title={ws.path}
         >
           {#if projectIcons[ws.path]}
-            <img class="project-icon" src={projectIcons[ws.path]} alt="" width="14" height="14" />
+            <img
+              class="w-3.5 h-3.5 rounded-xs flex-shrink-0"
+              src={projectIcons[ws.path]}
+              alt=""
+              width="14"
+              height="14"
+            />
           {:else}
             <Folder size={14} />
           {/if}
-          <span class="project-name">{basename(ws.path)}</span>
-          <div class="project-actions">
-            <button class="action-btn" onclick={(e) => handlePin(e, ws.id)} title="Unpin">
+          <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0"
+            >{basename(ws.path)}</span
+          >
+          <div
+            class="flex items-center gap-0.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity duration-fast flex-shrink-0"
+          >
+            <button
+              class="flex items-center justify-center w-4.5 h-4.5 border-0 bg-transparent text-text-muted rounded-sm cursor-pointer p-0 hover:text-text hover:bg-hover-strong"
+              onclick={(e) => handlePin(e, ws.id)}
+              title="Unpin"
+            >
               <PinOff size={11} />
             </button>
             <button
-              class="action-btn"
+              class="flex items-center justify-center w-4.5 h-4.5 border-0 bg-transparent text-text-muted rounded-sm cursor-pointer p-0 hover:text-text hover:bg-hover-strong"
               onclick={(e) => handleRemove(e, ws.id, ws.name)}
               title="Remove"
             >
@@ -95,30 +113,44 @@
       </li>
     {/each}
     {#if hasPinned && recentProjects.length > 0}
-      <li class="separator"></li>
+      <li class="h-px mx-3 my-1 bg-border-subtle"></li>
     {/if}
     {#each recentProjects as ws (ws.id)}
       <li>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
-          class="project-item"
-          class:active={ws.path === workspaceState.workspace?.path}
+          class="group flex items-center gap-1.5 w-full px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
+          class:bg-hover-strong={ws.path === workspaceState.workspace?.path}
           onclick={() => switchProject(ws.path)}
           title={ws.path}
         >
           {#if projectIcons[ws.path]}
-            <img class="project-icon" src={projectIcons[ws.path]} alt="" width="14" height="14" />
+            <img
+              class="w-3.5 h-3.5 rounded-xs flex-shrink-0"
+              src={projectIcons[ws.path]}
+              alt=""
+              width="14"
+              height="14"
+            />
           {:else}
             <Folder size={14} />
           {/if}
-          <span class="project-name">{basename(ws.path)}</span>
-          <div class="project-actions">
-            <button class="action-btn" onclick={(e) => handlePin(e, ws.id)} title="Pin">
+          <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0"
+            >{basename(ws.path)}</span
+          >
+          <div
+            class="flex items-center gap-0.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity duration-fast flex-shrink-0"
+          >
+            <button
+              class="flex items-center justify-center w-4.5 h-4.5 border-0 bg-transparent text-text-muted rounded-sm cursor-pointer p-0 hover:text-text hover:bg-hover-strong"
+              onclick={(e) => handlePin(e, ws.id)}
+              title="Pin"
+            >
               <Pin size={11} />
             </button>
             <button
-              class="action-btn"
+              class="flex items-center justify-center w-4.5 h-4.5 border-0 bg-transparent text-text-muted rounded-sm cursor-pointer p-0 hover:text-text hover:bg-hover-strong"
               onclick={(e) => handleRemove(e, ws.id, ws.name)}
               title="Remove"
             >
@@ -130,110 +162,3 @@
     {/each}
   </ul>
 </CollapsibleSection>
-
-<style>
-  .new-btn {
-    font-size: 10px;
-    font-weight: 500;
-    font-family: inherit;
-    color: var(--c-text-muted);
-    background: none;
-    border: none;
-    padding: 1px 5px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition:
-      color 0.1s,
-      background 0.1s;
-  }
-
-  .new-btn:hover {
-    color: var(--c-text);
-    background: var(--c-active);
-  }
-
-  .project-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  .separator {
-    height: 1px;
-    background: var(--c-border-subtle);
-    margin: 4px 12px;
-  }
-
-  .project-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 4px 12px;
-    border: none;
-    background: none;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .project-item:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .project-item.active {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-
-  .project-item:hover .project-actions {
-    opacity: 1;
-  }
-
-  .project-icon {
-    width: 14px;
-    height: 14px;
-    border-radius: 2px;
-    flex-shrink: 0;
-  }
-
-  .project-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .project-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    margin-left: auto;
-    opacity: 0;
-    transition: opacity 0.1s;
-    flex-shrink: 0;
-  }
-
-  .action-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    border-radius: 3px;
-    cursor: pointer;
-    padding: 0;
-  }
-
-  .action-btn:hover {
-    color: var(--c-text);
-    background: var(--c-hover-strong);
-  }
-</style>

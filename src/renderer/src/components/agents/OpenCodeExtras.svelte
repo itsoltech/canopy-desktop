@@ -25,20 +25,20 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin: 0;
   }
 
   .question-box {
     padding: 6px 10px;
     border-radius: 6px;
-    border-left: 3px solid var(--c-warning-text);
-    background: var(--c-border-subtle);
+    border-left: 3px solid var(--color-warning-text);
+    background: var(--color-border-subtle);
   }
 
   .question-text {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     line-height: 1.4;
   }
 </style>

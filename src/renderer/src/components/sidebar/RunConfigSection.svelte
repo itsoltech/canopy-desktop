@@ -72,31 +72,39 @@
 
 <CollapsibleSection title="RUN" sectionKey="runConfigs" borderTop>
   {#snippet headerExtra()}
-    <button class="header-btn" title="Add configuration" onclick={() => showRunConfigManager()}>
+    <button
+      class="flex items-center justify-center w-6 h-6 -my-1 border-0 bg-transparent text-text-muted cursor-pointer rounded-md transition-colors duration-fast hover:bg-hover hover:text-text"
+      title="Add configuration"
+      onclick={() => showRunConfigManager()}
+    >
       <Plus size={14} />
     </button>
   {/snippet}
 
-  <ul class="config-list">
+  <ul class="list-none p-0 m-0">
     {#each [...grouped.entries()] as [relativePath, group] (relativePath)}
       {#if relativePath !== '.'}
-        <li class="group-header">{relativePath}</li>
+        <li
+          class="px-3 pt-1 pb-0.5 text-2xs font-semibold text-text-muted uppercase tracking-caps-tight"
+        >
+          {relativePath}
+        </li>
       {/if}
       {#each group.configurations as config (config.name)}
         {@const runningCount = getRunningSessionIds(group.configDir, config.name).length}
-        <li class="config-item">
+        <li class="group flex items-center gap-1 h-7 pl-3 pr-2 hover:bg-hover">
           <button
-            class="config-name"
+            class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-inherit text-text cursor-pointer bg-transparent border-0 p-0 text-left hover:underline"
             title={`${config.command} ${config.args ?? ''}`}
             onclick={() => showRunConfigManager(group.configDir, config.name)}
           >
             {config.name}
           </button>
-          <div class="config-actions">
+          <div class="flex gap-px flex-shrink-0 opacity-0 group-hover:opacity-100">
             {#if runningCount > 0}
               <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
                 <button
-                  class="config-action stop"
+                  class="relative flex items-center justify-center w-5.5 h-5.5 border-0 bg-transparent text-danger-text cursor-pointer rounded-md flex-shrink-0 hover:bg-hover-strong"
                   aria-label={runningCount > 1
                     ? `Stop all ${runningCount} sessions for ${config.name}`
                     : `Stop ${config.name}`}
@@ -104,14 +112,17 @@
                 >
                   <Square size={12} />
                   {#if runningCount > 1}
-                    <span class="count-badge">{runningCount}</span>
+                    <span
+                      class="absolute -top-0.5 -right-0.5 min-w-3.5 h-3.5 px-px rounded-2xl bg-accent-bg text-accent-text text-micro font-bold leading-3.5 text-center"
+                      >{runningCount}</span
+                    >
                   {/if}
                 </button>
               </Tooltip>
             {:else}
               <Tooltip text="Run">
                 <button
-                  class="config-action play"
+                  class="flex items-center justify-center w-5.5 h-5.5 border-0 bg-transparent text-success-text cursor-pointer rounded-md flex-shrink-0 hover:bg-hover-strong"
                   aria-label={`Run ${config.name}`}
                   onclick={() => handlePlay(group.configDir, config.name)}
                 >
@@ -121,7 +132,7 @@
             {/if}
             <Tooltip text="Delete">
               <button
-                class="config-action danger"
+                class="flex items-center justify-center w-5.5 h-5.5 border-0 bg-transparent text-text-muted cursor-pointer rounded-md flex-shrink-0 hover:bg-hover-strong hover:text-danger-text"
                 aria-label={`Delete ${config.name}`}
                 onclick={() => handleDelete(group.configDir, config.name)}
               >
@@ -133,153 +144,7 @@
       {/each}
     {/each}
     {#if grouped.size === 0}
-      <li class="empty">No run configurations found</li>
+      <li class="px-3 py-2 text-xs text-text-faint">No run configurations found</li>
     {/if}
   </ul>
 </CollapsibleSection>
-
-<style>
-  .config-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  .group-header {
-    padding: 4px 12px 2px;
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .config-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    height: 28px;
-    padding: 0 8px 0 12px;
-  }
-
-  .config-item:hover {
-    background: var(--c-hover);
-  }
-
-  .config-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    font-family: inherit;
-    color: var(--c-text);
-    cursor: pointer;
-    background: none;
-    border: none;
-    padding: 0;
-    text-align: left;
-  }
-
-  .config-name:hover {
-    text-decoration: underline;
-  }
-
-  .config-actions {
-    display: flex;
-    gap: 1px;
-    flex-shrink: 0;
-    opacity: 0;
-  }
-
-  .config-item:hover .config-actions {
-    opacity: 1;
-  }
-
-  .config-action {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    border-radius: 4px;
-    flex-shrink: 0;
-    position: relative;
-  }
-
-  .config-action:hover {
-    background: var(--c-hover-strong);
-  }
-
-  .config-action.play {
-    color: var(--c-success-text);
-  }
-
-  .count-badge {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    min-width: 14px;
-    height: 14px;
-    padding: 0 3px;
-    border-radius: 7px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 14px;
-    text-align: center;
-  }
-
-  .config-action.stop {
-    color: var(--c-danger-text);
-  }
-
-  .config-action.danger:hover {
-    color: var(--c-danger-text);
-  }
-
-  .header-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    margin: -4px 0;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    border-radius: 4px;
-  }
-
-  .header-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .empty {
-    padding: 8px 12px;
-    font-size: 11px;
-    color: var(--c-text-faint);
-  }
-
-  :global(.running-indicator) {
-    color: var(--c-success-text);
-    animation: pulse 1.5s ease-in-out infinite;
-  }
-
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.4;
-    }
-  }
-</style>

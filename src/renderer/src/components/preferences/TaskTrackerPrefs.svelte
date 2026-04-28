@@ -248,14 +248,14 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
   .scope-tabs {
     display: flex;
     gap: 2px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
     border-radius: 8px;
     padding: 2px;
     width: fit-content;
@@ -266,7 +266,7 @@
     border: none;
     border-radius: 6px;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-size: 12px;
     font-weight: 500;
     font-family: inherit;
@@ -275,13 +275,13 @@
   }
 
   .scope-tab:hover:not(:disabled) {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .scope-tab.active {
-    background: var(--c-bg);
-    color: var(--c-text);
-    box-shadow: 0 1px 2px var(--c-shadow, rgba(0, 0, 0, 0.1));
+    background: var(--color-bg);
+    color: var(--color-text);
+    box-shadow: 0 1px 2px var(--color-shadow, oklch(0 0 0 / 0.1));
   }
 
   .scope-tab:disabled {
@@ -291,7 +291,7 @@
 
   .scope-hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin-top: -12px;
   }
 
@@ -306,7 +306,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     margin: 0;
   }
 
@@ -315,7 +315,7 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
   }
 
@@ -328,12 +328,12 @@
   .filter-label {
     font-size: 12px;
     font-weight: 500;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .hint-text {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .btn {
@@ -346,12 +346,12 @@
   }
 
   .btn-primary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-primary:hover {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .icon-btn {
@@ -363,13 +363,13 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
   }
 
   .icon-btn:hover:not(:disabled) {
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
   }
 
   .icon-btn:disabled {

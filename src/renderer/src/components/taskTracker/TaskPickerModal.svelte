@@ -272,11 +272,11 @@
 
   function priorityColor(priority: string): string {
     const p = priority.toLowerCase()
-    if (p.includes('critical') || p.includes('highest')) return 'var(--c-danger)'
-    if (p.includes('high')) return 'var(--c-warning)'
-    if (p.includes('medium') || p.includes('normal')) return 'var(--c-warning-text)'
-    if (p.includes('low')) return 'var(--c-accent)'
-    return 'var(--c-text-muted)'
+    if (p.includes('critical') || p.includes('highest')) return 'var(--color-danger)'
+    if (p.includes('high')) return 'var(--color-warning)'
+    if (p.includes('medium') || p.includes('normal')) return 'var(--color-warning-text)'
+    if (p.includes('low')) return 'var(--color-accent)'
+    return 'var(--color-text-muted)'
   }
 </script>
 
@@ -449,7 +449,7 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 80px;
-    background: var(--c-scrim);
+    background: var(--color-scrim);
   }
 
   .picker-container {
@@ -457,10 +457,10 @@
     max-height: 500px;
     display: flex;
     flex-direction: column;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-overlay);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
-    box-shadow: 0 16px 48px var(--c-scrim);
+    box-shadow: 0 16px 48px var(--color-scrim);
     overflow: hidden;
   }
 
@@ -469,14 +469,14 @@
     align-items: center;
     justify-content: space-between;
     padding: 14px 16px 10px;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .picker-title {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .header-actions {
@@ -494,29 +494,29 @@
     border: none;
     border-radius: 6px;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
   }
 
   .filter-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
   }
 
   .filter-btn.active {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .board-row {
     padding: 6px 16px;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .filters-panel {
     padding: 8px 16px;
     margin: 0;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -527,7 +527,7 @@
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     cursor: pointer;
   }
 
@@ -539,10 +539,10 @@
 
   .status-chip {
     padding: 2px 8px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 12px;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
@@ -552,14 +552,14 @@
   }
 
   .status-chip:hover {
-    border-color: var(--c-border);
-    color: var(--c-text-secondary);
+    border-color: var(--color-border);
+    color: var(--color-text-secondary);
   }
 
   .status-chip.active {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    border-color: var(--color-accent-muted);
+    color: var(--color-accent-text);
   }
 
   .status-chip.excluded {
@@ -576,13 +576,13 @@
     border: none;
     border-radius: 6px;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
   }
 
   .close-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .search-row {
@@ -590,22 +590,22 @@
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    border-bottom: 1px solid var(--c-border-subtle);
-    color: var(--c-text-muted);
+    border-bottom: 1px solid var(--color-border-subtle);
+    color: var(--color-text-muted);
   }
 
   .search-input {
     flex: 1;
     border: none;
     background: none;
-    color: var(--c-text);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .search-input::placeholder {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .task-list {
@@ -621,28 +621,28 @@
     gap: 8px;
     padding: 24px 16px;
     font-size: 13px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .state-msg.error {
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
     flex-direction: column;
     gap: 12px;
   }
 
   .retry-btn {
     padding: 4px 12px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
     background: none;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .retry-btn:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .task-row {
@@ -653,7 +653,7 @@
     padding: 6px 16px;
     border: none;
     background: none;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -663,13 +663,13 @@
 
   .task-row:hover,
   .task-row.selected {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .task-key {
     flex-shrink: 0;
     font-weight: 600;
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     min-width: 80px;
   }
 
@@ -684,9 +684,9 @@
     flex-shrink: 0;
     padding: 1px 6px;
     border-radius: 4px;
-    background: var(--c-active);
+    background: var(--color-active);
     font-size: 10px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .priority-dot {
@@ -704,7 +704,7 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     cursor: pointer;
     flex-shrink: 0;
     opacity: 0;
@@ -717,8 +717,8 @@
   }
 
   .send-btn:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-generate);
+    background: var(--color-hover-strong);
+    color: var(--color-generate);
   }
 
   .picker-footer {
@@ -726,17 +726,17 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 16px;
-    border-top: 1px solid var(--c-border-subtle);
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   .hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .count {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   :global(.spin) {

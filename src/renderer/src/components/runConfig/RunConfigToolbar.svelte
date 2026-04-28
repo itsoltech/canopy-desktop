@@ -274,10 +274,10 @@
     height: 24px;
     padding: 0 8px;
     max-width: 180px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
+    background: var(--color-bg-secondary);
+    color: var(--color-text);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
@@ -285,7 +285,7 @@
   }
 
   .select-trigger:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .select-label {
@@ -302,10 +302,10 @@
 
   .dropdown {
     position: fixed;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 24px oklch(0 0 0 / 0.3);
     padding: 4px 0;
     max-height: 60vh;
     overflow-y: auto;
@@ -316,7 +316,7 @@
     padding: 6px 12px 2px;
     font-size: 9px;
     font-weight: 700;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -328,15 +328,15 @@
     padding: 4px 8px 4px 12px;
     cursor: pointer;
     font-size: 12px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .dropdown-item:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .dropdown-item.selected {
-    background: var(--c-active);
+    background: var(--color-active);
   }
 
   .dropdown-item-name {
@@ -354,14 +354,14 @@
     height: 22px;
     border: none;
     background: none;
-    color: var(--c-success-text);
+    color: var(--color-success-text);
     cursor: pointer;
     border-radius: 4px;
     flex-shrink: 0;
   }
 
   .dropdown-item-play:hover {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
   }
 
   .dropdown-item-stop {
@@ -372,7 +372,7 @@
     height: 22px;
     border: none;
     background: none;
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
     cursor: pointer;
     border-radius: 4px;
     flex-shrink: 0;
@@ -380,17 +380,17 @@
   }
 
   .dropdown-item-stop:hover {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
   }
 
   .dropdown-separator {
     height: 1px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
     margin: 4px 0;
   }
 
   .dropdown-item.edit-item {
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .play-btn {
@@ -401,14 +401,14 @@
     height: 24px;
     border: none;
     background: none;
-    color: var(--c-success-text);
+    color: var(--color-success-text);
     cursor: pointer;
     border-radius: 4px;
     position: relative;
   }
 
   .play-btn:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .stop-btn {
@@ -419,14 +419,14 @@
     height: 24px;
     border: none;
     background: none;
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
     cursor: pointer;
     border-radius: 4px;
     position: relative;
   }
 
   .stop-btn:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .count-badge {
@@ -437,8 +437,8 @@
     height: 14px;
     padding: 0 3px;
     border-radius: 7px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
     font-size: 9px;
     font-weight: 700;
     line-height: 14px;
@@ -453,13 +453,13 @@
     height: 24px;
     border: none;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     border-radius: 4px;
   }
 
   .settings-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 </style>

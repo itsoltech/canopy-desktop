@@ -299,14 +299,14 @@
     align-items: center;
     gap: 8px;
     padding: 14px 16px 10px;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .picker-title {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     flex: 1;
   }
 
@@ -320,15 +320,15 @@
     border: none;
     border-radius: 6px;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     flex-shrink: 0;
   }
 
   .back-btn:hover,
   .close-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .branch-form {
@@ -340,8 +340,8 @@
 
   .task-card {
     padding: 10px 12px;
-    background: var(--c-bg-input);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
   }
 
@@ -355,7 +355,7 @@
   .task-key {
     font-weight: 600;
     font-size: 12px;
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
   }
 
   .task-key-link {
@@ -364,7 +364,7 @@
     gap: 4px;
     font-weight: 600;
     font-size: 12px;
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     background: none;
     border: none;
     padding: 0;
@@ -380,21 +380,21 @@
     font-size: 10px;
     padding: 1px 6px;
     border-radius: 4px;
-    background: var(--c-active);
-    color: var(--c-text-muted);
+    background: var(--color-active);
+    color: var(--color-text-muted);
   }
 
   .task-title {
     margin: 0;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     line-height: 1.4;
   }
 
   .task-description {
     margin: 6px 0 0;
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.4;
     max-height: 60px;
     overflow-y: auto;
@@ -408,15 +408,15 @@
 
   .field-label {
     font-size: 12px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     width: 50px;
     flex-shrink: 0;
   }
 
   .branch-preview {
     font-size: 12px;
-    color: var(--c-accent-text);
-    background: var(--c-bg-input);
+    color: var(--color-accent-text);
+    background: var(--color-bg-input);
     padding: 5px 10px;
     border-radius: 6px;
     flex: 1;
@@ -427,37 +427,37 @@
     justify-content: flex-end;
     gap: 8px;
     padding-top: 4px;
-    border-top: 1px solid var(--c-border-subtle);
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   .btn-cancel {
     padding: 6px 14px;
     border: none;
     border-radius: 6px;
-    background: var(--c-active);
-    color: var(--c-text-secondary);
+    background: var(--color-active);
+    color: var(--color-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-cancel:hover {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
   }
 
   .btn-create {
     padding: 6px 14px;
     border: none;
     border-radius: 6px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-create:hover:not(:disabled) {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-create:disabled {

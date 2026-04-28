@@ -265,7 +265,7 @@
   .quick-open-backdrop {
     position: fixed;
     inset: 0;
-    background: var(--c-scrim, rgba(0, 0, 0, 0.5));
+    background: var(--color-scrim, oklch(0 0 0 / 0.5));
     display: flex;
     align-items: flex-start;
     justify-content: center;
@@ -278,10 +278,10 @@
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    background: var(--c-bg-elevated);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 20px 60px oklch(0 0 0 / 0.4);
     overflow: hidden;
   }
 
@@ -290,7 +290,7 @@
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .quick-open-header input {
@@ -298,14 +298,14 @@
     background: transparent;
     border: none;
     outline: none;
-    color: var(--c-text);
+    color: var(--color-text);
     font-size: 14px;
     font-family: inherit;
   }
 
   .quick-open-hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     white-space: nowrap;
   }
 
@@ -324,13 +324,13 @@
     background: transparent;
     border: none;
     border-radius: 4px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
     text-align: left;
   }
 
   .quick-open-item.selected {
-    background: var(--c-accent-bg);
+    background: var(--color-accent-bg);
   }
 
   .quick-open-item-text {
@@ -342,7 +342,7 @@
 
   .quick-open-name {
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -353,7 +353,7 @@
     align-items: center;
     gap: 4px;
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -371,7 +371,7 @@
   :global(.quick-open-name mark),
   :global(.quick-open-dir mark) {
     background: transparent;
-    color: var(--c-accent);
+    color: var(--color-accent);
     font-weight: 600;
   }
 
@@ -379,8 +379,8 @@
     padding: 1px 6px;
     font-size: 10px;
     border-radius: 3px;
-    background: var(--c-hover);
-    color: var(--c-text-muted);
+    background: var(--color-hover);
+    color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -388,7 +388,7 @@
   .quick-open-empty {
     padding: 20px;
     text-align: center;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-size: 12px;
   }
 
@@ -396,8 +396,8 @@
     display: flex;
     gap: 14px;
     padding: 6px 14px;
-    border-top: 1px solid var(--c-border-subtle);
+    border-top: 1px solid var(--color-border-subtle);
     font-size: 10px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 </style>

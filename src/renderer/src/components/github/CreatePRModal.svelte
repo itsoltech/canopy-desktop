@@ -140,13 +140,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: oklch(0 0 0 / 0.5);
     z-index: 100;
   }
 
   .modal {
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 12px;
     padding: 20px;
     width: 480px;
@@ -156,7 +156,7 @@
   .modal-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0 0 16px;
   }
 
@@ -167,17 +167,17 @@
   .form-label {
     display: block;
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     margin-bottom: 4px;
   }
 
   .form-input {
     width: 100%;
     padding: 6px 8px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
+    background: var(--color-bg-input);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
@@ -185,7 +185,7 @@
   }
 
   .form-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .form-textarea {
@@ -203,7 +203,7 @@
     align-items: center;
     gap: 6px;
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     cursor: pointer;
   }
 
@@ -229,20 +229,20 @@
   }
 
   .btn-primary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-secondary {
-    background: var(--c-active);
-    color: var(--c-text-secondary);
+    background: var(--color-active);
+    color: var(--color-text-secondary);
   }
 
   .btn-secondary:hover:not(:disabled) {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
   }
 </style>

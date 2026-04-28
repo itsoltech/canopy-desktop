@@ -84,12 +84,22 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="pane-tab-strip" class:focused onclick={onFocus} onpointerdown={handleStripPointerDown}>
-  <span class="pane-label" title={label}>{label}</span>
-  <div class="pane-actions">
+<div
+  class="h-7 min-h-7 flex items-center justify-between gap-2 pl-2.5 pr-1.5 bg-bg-glass-light border-b border-border-subtle select-none"
+  class:bg-active={focused}
+  onclick={onFocus}
+  onpointerdown={handleStripPointerDown}
+>
+  <span
+    class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs"
+    class:text-text={focused}
+    class:text-text-secondary={!focused}
+    title={label}>{label}</span
+  >
+  <div class="flex items-center gap-0.5 flex-shrink-0">
     <button
       type="button"
-      class="strip-action"
+      class="strip-action w-4.5 h-4.5 inline-flex items-center justify-center border-0 rounded-sm bg-transparent text-text-muted cursor-pointer p-0 hover:bg-hover-strong hover:text-text"
       onclick={handleDetachClick}
       title="Detach pane to tab"
       aria-label="Detach pane to tab"
@@ -98,7 +108,7 @@
     </button>
     <button
       type="button"
-      class="strip-action"
+      class="strip-action w-4.5 h-4.5 inline-flex items-center justify-center border-0 rounded-sm bg-transparent text-text-muted cursor-pointer p-0 hover:bg-hover-strong hover:text-text"
       onclick={handleCloseClick}
       title="Close pane"
       aria-label="Close pane"
@@ -107,62 +117,3 @@
     </button>
   </div>
 </div>
-
-<style>
-  .pane-tab-strip {
-    height: 28px;
-    min-height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 0 6px 0 10px;
-    background: var(--c-bg-glass-light);
-    border-bottom: 1px solid var(--c-border-subtle);
-    user-select: none;
-  }
-
-  .pane-tab-strip.focused {
-    background: var(--c-active);
-  }
-
-  .pane-label {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11px;
-    color: var(--c-text-secondary);
-  }
-
-  .pane-tab-strip.focused .pane-label {
-    color: var(--c-text);
-  }
-
-  .pane-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    flex-shrink: 0;
-  }
-
-  .strip-action {
-    width: 18px;
-    height: 18px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 3px;
-    background: transparent;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    padding: 0;
-  }
-
-  .strip-action:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-</style>

@@ -27,6 +27,14 @@
   </div>
 {/if}
 
+<!--
+  <style> retained as a justified exception:
+   - 6 unique @keyframes (keystroke-pop / keystroke-pop-fast / blazing / inferno + container-pulse[-inferno])
+     with progressive scale/rotate/translate values not expressible as Tailwind utilities
+   - filter: drop-shadow(...) per intensity level pulling from theme color tokens
+   - cascading variant rules (.key-badge.fast, .blazing, .inferno) keep markup minimal
+  All theme tokens referenced as var(--color-*).
+-->
 <style>
   .keystroke-overlay {
     position: absolute;
@@ -42,16 +50,16 @@
   }
 
   .keystroke-overlay.fast {
-    filter: drop-shadow(0 0 4px var(--c-accent-muted));
+    filter: drop-shadow(0 0 4px var(--color-accent-muted));
   }
 
   .keystroke-overlay.blazing {
-    filter: drop-shadow(0 0 8px var(--c-blazing-drop));
+    filter: drop-shadow(0 0 8px var(--color-blazing-drop));
     animation: container-pulse 0.4s ease-in-out infinite alternate;
   }
 
   .keystroke-overlay.inferno {
-    filter: drop-shadow(0 0 12px var(--c-inferno-drop));
+    filter: drop-shadow(0 0 12px var(--color-inferno-drop));
     animation: container-pulse-inferno 0.3s ease-in-out infinite alternate;
   }
 
@@ -59,12 +67,12 @@
     display: inline-flex;
     align-items: center;
     padding: 2px 8px;
-    background: var(--c-hover-strong);
-    border: 1px solid var(--c-active);
+    background: var(--color-hover-strong);
+    border: 1px solid var(--color-active);
     border-radius: 4px;
     font-family: monospace;
     font-size: 12px;
-    color: var(--c-text);
+    color: var(--color-text);
     white-space: nowrap;
     animation: keystroke-pop 2s ease forwards;
     -webkit-font-smoothing: antialiased;
@@ -76,30 +84,30 @@
   }
 
   .key-badge.fast {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
-    color: var(--c-accent-text);
-    box-shadow: 0 0 6px var(--c-accent-bg);
+    background: var(--color-accent-bg);
+    border-color: var(--color-accent-muted);
+    color: var(--color-accent-text);
+    box-shadow: 0 0 6px var(--color-accent-bg);
     animation: keystroke-pop-fast 2s ease forwards;
   }
 
   .key-badge.blazing {
-    background: var(--c-blazing-bg);
-    border-color: var(--c-blazing-border);
-    color: var(--c-blazing-text);
+    background: var(--color-blazing-bg);
+    border-color: var(--color-blazing-border);
+    color: var(--color-blazing-text);
     box-shadow:
-      0 0 8px var(--c-blazing-glow),
-      0 0 16px var(--c-blazing-glow-deep);
+      0 0 8px var(--color-blazing-glow),
+      0 0 16px var(--color-blazing-glow-deep);
     animation: keystroke-pop-blazing 2s ease forwards;
   }
 
   .key-badge.inferno {
-    background: var(--c-inferno-bg);
-    border-color: var(--c-inferno-border);
-    color: var(--c-inferno-text);
+    background: var(--color-inferno-bg);
+    border-color: var(--color-inferno-border);
+    color: var(--color-inferno-text);
     box-shadow:
-      0 0 10px var(--c-inferno-glow),
-      0 0 20px var(--c-inferno-glow-deep);
+      0 0 10px var(--color-inferno-glow),
+      0 0 20px var(--color-inferno-glow-deep);
     animation: keystroke-pop-inferno 2s ease forwards;
   }
 
@@ -198,19 +206,19 @@
 
   @keyframes container-pulse-inferno {
     from {
-      filter: drop-shadow(0 0 8px var(--c-inferno-shadow));
+      filter: drop-shadow(0 0 8px var(--color-inferno-shadow));
     }
     to {
-      filter: drop-shadow(0 0 16px var(--c-inferno-shadow-strong));
+      filter: drop-shadow(0 0 16px var(--color-inferno-shadow-strong));
     }
   }
 
   @keyframes container-pulse {
     from {
-      filter: drop-shadow(0 0 6px var(--c-blazing-shadow));
+      filter: drop-shadow(0 0 6px var(--color-blazing-shadow));
     }
     to {
-      filter: drop-shadow(0 0 12px var(--c-blazing-shadow-strong));
+      filter: drop-shadow(0 0 12px var(--color-blazing-shadow-strong));
     }
   }
 

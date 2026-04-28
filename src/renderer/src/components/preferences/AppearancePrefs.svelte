@@ -78,7 +78,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -91,7 +91,7 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -104,10 +104,10 @@
 
   .theme-btn {
     padding: 4px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-border-subtle);
-    color: var(--c-text);
+    background: var(--color-border-subtle);
+    color: var(--color-text);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -117,22 +117,22 @@
   }
 
   .theme-btn:hover {
-    background: var(--c-active);
-    border-color: var(--c-text-faint);
+    background: var(--color-active);
+    border-color: var(--color-text-faint);
   }
 
   .theme-btn.active {
-    background: var(--c-accent-bg);
-    border-color: var(--c-focus-ring);
-    color: var(--c-accent);
+    background: var(--color-accent-bg);
+    border-color: var(--color-focus-ring);
+    color: var(--color-accent);
   }
 
   .text-input {
     padding: 6px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 13px;
     font-family: monospace;
     outline: none;
@@ -140,10 +140,10 @@
 
   .field-hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .text-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 </style>

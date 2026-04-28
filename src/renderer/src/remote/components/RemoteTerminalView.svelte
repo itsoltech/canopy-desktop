@@ -164,7 +164,11 @@
     cursor: string
   } {
     if (typeof window === 'undefined') {
-      return { background: '#1e1e1e', foreground: '#e0e0e0', cursor: '#74c0fc' }
+      return {
+        background: 'var(--color-bg)',
+        foreground: 'oklch(0.907 0 0)',
+        cursor: 'var(--color-accent)',
+      }
     }
     const style = getComputedStyle(document.documentElement)
     const read = (name: string, fallback: string): string => {
@@ -172,9 +176,9 @@
       return v.length > 0 ? v : fallback
     }
     return {
-      background: read('--c-bg', '#1e1e1e'),
-      foreground: read('--c-text', '#e0e0e0'),
-      cursor: read('--c-accent-text', '#74c0fc'),
+      background: read('--c-bg', 'var(--color-bg)'),
+      foreground: read('--c-text', 'oklch(0.907 0 0)'),
+      cursor: read('--c-accent-text', 'var(--color-accent)'),
     }
   }
 
@@ -448,8 +452,8 @@
     width: 100%;
     overflow: auto;
     border-radius: 8px;
-    border: 1px solid var(--c-border);
-    background: var(--c-bg, #1e1e1e);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg, var(--color-bg));
     /* Block scroll chaining so a swipe past the edge doesn't trigger the
        mobile browser's pull-to-refresh (which would tear down the remote
        session) and doesn't bubble up into the page body. `contain` keeps

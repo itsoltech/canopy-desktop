@@ -112,7 +112,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background: var(--c-scrim);
+    background: var(--color-scrim);
   }
 
   .container {
@@ -122,10 +122,10 @@
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-overlay);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 48px oklch(0 0 0 / 0.6);
     padding: 24px;
     overflow: hidden;
   }
@@ -140,7 +140,7 @@
     margin: 0;
     font-size: 20px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     letter-spacing: 0.5px;
   }
 
@@ -148,7 +148,7 @@
     display: block;
     margin-top: 4px;
     font-size: 12px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .content {
@@ -164,12 +164,12 @@
     padding: 24px;
     text-align: center;
     font-size: 13px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .separator {
     height: 1px;
-    background: var(--c-active);
+    background: var(--color-active);
     margin: 16px 0;
   }
 
@@ -183,8 +183,8 @@
   .version-badge {
     display: inline-block;
     padding: 2px 8px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
     border-radius: 4px;
     font-size: 12px;
     font-weight: 600;
@@ -193,13 +193,13 @@
 
   .date {
     font-size: 12px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .entry-body {
     font-size: 13px;
     line-height: 1.6;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .entry-body :global(h1),
@@ -208,7 +208,7 @@
     margin: 10px 0 4px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .entry-body :global(h1) {
@@ -230,18 +230,18 @@
   }
 
   .entry-body :global(strong) {
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .entry-body :global(code) {
     padding: 1px 4px;
-    background: var(--c-active);
+    background: var(--color-active);
     border-radius: 3px;
     font-size: 12px;
   }
 
   .entry-body :global(a) {
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     text-decoration: none;
   }
 
@@ -264,17 +264,17 @@
     cursor: pointer;
     border: none;
     outline: none;
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
     transition: background 0.1s;
   }
 
   .btn-close:hover {
-    background: var(--c-border);
+    background: var(--color-border);
   }
 
   .btn-close:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 1px;
   }
 </style>

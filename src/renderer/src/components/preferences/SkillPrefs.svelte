@@ -440,7 +440,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -452,7 +452,7 @@
 
   .skill-row {
     border-radius: 6px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
     overflow: hidden;
   }
 
@@ -466,24 +466,24 @@
   }
 
   .skill-main:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .skill-name {
-    color: var(--c-text);
+    color: var(--color-text);
     min-width: 120px;
     font-weight: 500;
   }
 
   .skill-agents {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
     flex: 1;
   }
 
   .skill-details {
     padding: 10px 12px;
-    border-top: 1px solid var(--c-border);
+    border-top: 1px solid var(--color-border);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -491,7 +491,7 @@
 
   .skill-description {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     margin: 0;
     line-height: 1.4;
   }
@@ -510,14 +510,14 @@
   .meta-label {
     font-size: 11px;
     font-weight: 600;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.3px;
   }
 
   .meta-value {
     font-size: 12px;
-    color: var(--c-text);
+    color: var(--color-text);
     word-break: break-all;
   }
 
@@ -534,7 +534,7 @@
 
   .agent-toggle {
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -549,14 +549,14 @@
 
   .empty-state {
     font-size: 13px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin: 0;
   }
 
   .scan-group-label {
     font-size: 11px;
     font-weight: 600;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.4px;
   }
@@ -566,24 +566,24 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
   }
 
   .form-input {
     padding: 6px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .form-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .form-row {
@@ -594,7 +594,7 @@
 
   .form-label {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     min-width: 60px;
   }
 
@@ -603,7 +603,7 @@
     display: flex;
     gap: 12px;
     font-size: 12px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .agent-checkbox {
@@ -615,7 +615,7 @@
 
   .form-error {
     font-size: 12px;
-    color: var(--c-danger);
+    color: var(--color-danger);
     margin: 0;
   }
 
@@ -635,17 +635,17 @@
   }
 
   .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .btn-install {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-install:hover {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-install:disabled {
@@ -660,18 +660,18 @@
 
   .btn-add-skill {
     padding: 6px 14px;
-    border: 1px dashed var(--c-text-faint);
+    border: 1px dashed var(--color-text-faint);
     border-radius: 6px;
     background: transparent;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-add-skill:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .btn-action {
@@ -680,16 +680,16 @@
   }
 
   .btn-update {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-update:hover {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-remove {
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
   }
 </style>

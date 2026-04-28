@@ -147,13 +147,13 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     margin: 0;
   }
 
   .field-hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .env-list {
@@ -168,22 +168,22 @@
     gap: 6px;
     padding: 4px 10px;
     border-radius: 6px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
     font-size: 13px;
   }
 
   .env-key {
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     font-family: monospace;
     font-size: 12px;
   }
 
   .env-sep {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .env-value {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-family: monospace;
     font-size: 12px;
     flex: 1;
@@ -194,15 +194,15 @@
 
   .env-value.masked {
     letter-spacing: 1px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .reveal-btn {
     padding: 2px 8px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
     background: transparent;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
@@ -210,16 +210,16 @@
   }
 
   .reveal-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .remove-btn {
     padding: 2px 8px;
     border: none;
     border-radius: 4px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
@@ -231,17 +231,17 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
   }
 
   .form-input {
     padding: 6px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 13px;
     font-family: monospace;
     outline: none;
@@ -263,29 +263,29 @@
   }
 
   .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .btn-add {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-add-item {
     align-self: flex-start;
     padding: 6px 14px;
-    border: 1px dashed var(--c-text-faint);
+    border: 1px dashed var(--color-text-faint);
     border-radius: 6px;
     background: transparent;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-add-item:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 </style>

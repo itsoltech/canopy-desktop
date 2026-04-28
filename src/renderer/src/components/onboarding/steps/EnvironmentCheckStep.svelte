@@ -133,9 +133,9 @@
           <div class="check-row">
             <div class="check-status">
               {#if status?.found}
-                <CircleCheck size={20} color="var(--c-success)" />
+                <CircleCheck size={20} color="var(--color-success)" />
               {:else}
-                <CircleAlert size={20} color="var(--c-warning)" />
+                <CircleAlert size={20} color="var(--color-warning)" />
               {/if}
             </div>
             <div class="check-info">
@@ -188,7 +188,7 @@
     {/if}
   {:else}
     <div class="loading">
-      <RefreshCw size={20} class="spin" color="var(--c-text-faint)" />
+      <RefreshCw size={20} class="spin" color="var(--color-text-faint)" />
     </div>
   {/if}
 </div>
@@ -206,13 +206,13 @@
     margin: 0;
     font-size: 18px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .description {
     margin: 0;
     font-size: 13px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     max-width: 380px;
     line-height: 1.5;
   }
@@ -250,12 +250,12 @@
   .check-label {
     font-size: 13px;
     font-weight: 500;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .check-detail {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-family: monospace;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -280,7 +280,7 @@
     width: 56px;
     font-size: 10px;
     font-weight: 500;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     text-transform: uppercase;
     letter-spacing: 0.3px;
   }
@@ -291,10 +291,10 @@
     font-size: 11px;
     font-family: monospace;
     padding: 4px 8px;
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
+    background: var(--color-hover);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    color: var(--c-text);
+    color: var(--color-text);
     user-select: all;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -303,7 +303,7 @@
 
   .install-link {
     font-size: 11px;
-    color: var(--c-accent);
+    color: var(--color-accent);
     background: none;
     border: none;
     padding: 0;
@@ -324,16 +324,16 @@
     width: 26px;
     height: 26px;
     padding: 0;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
     cursor: pointer;
     transition: background 0.1s;
   }
 
   .copy-btn:hover {
-    background: var(--c-active);
+    background: var(--color-active);
   }
 
   .recheck-btn {
@@ -341,10 +341,10 @@
     align-items: center;
     gap: 6px;
     padding: 7px 16px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
     background: transparent;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -352,8 +352,8 @@
   }
 
   .recheck-btn:hover:not(:disabled) {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .recheck-btn:disabled {

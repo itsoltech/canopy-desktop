@@ -126,7 +126,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -135,7 +135,7 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
   }
 
@@ -147,13 +147,13 @@
   }
 
   .select-label {
-    color: var(--c-text);
+    color: var(--color-text);
     min-width: 160px;
   }
 
   .hint-row {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.5;
     margin-top: -8px;
   }
@@ -166,10 +166,10 @@
 
   .check-btn {
     padding: 6px 14px;
-    border: 1px solid var(--c-text-faint);
+    border: 1px solid var(--color-text-faint);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
@@ -179,8 +179,8 @@
   }
 
   .check-btn:hover:not(:disabled) {
-    background: var(--c-hover-strong);
-    border-color: var(--c-text-faint);
+    background: var(--color-hover-strong);
+    border-color: var(--color-text-faint);
   }
 
   .check-btn:disabled {
@@ -193,10 +193,10 @@
   }
 
   .check-status.ok {
-    color: var(--c-success);
+    color: var(--color-success);
   }
 
   .check-status.err {
-    color: var(--c-danger);
+    color: var(--color-danger);
   }
 </style>

@@ -583,13 +583,13 @@
 
 <Toast />
 
-<main class="main-layout">
+<main class="flex flex-row flex-1 min-h-0 overflow-hidden">
   {#if workspaceState.sidebarOpen && projects.length > 0}
     <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="sidebar-resize-handle"
-      class:dragging={sidebarDragging}
+      class="w-1 cursor-col-resize bg-transparent flex-shrink-0 transition-colors duration-base hover:bg-accent-muted"
+      class:bg-accent-muted={sidebarDragging}
       onpointerdown={handleSidebarPointerDown}
       onpointermove={handleSidebarPointerMove}
       onpointerup={handleSidebarPointerUp}
@@ -597,16 +597,16 @@
     ></div>
   {/if}
 
-  <div class="center-area">
+  <div class="flex-1 min-w-0 flex flex-col">
     {#if workspaceState.selectedWorktreePath}
       <TabBar worktreePath={workspaceState.selectedWorktreePath} />
     {/if}
 
-    <div class="content-row">
-      <div class="terminal-area">
+    <div class="flex-1 min-h-0 flex flex-row">
+      <div class="flex-1 min-h-0 relative">
         {#each allTabs as tab (tab.id)}
           {#if !tab.suspended}
-            <div class="terminal-panel" class:hidden={tab.id !== currentActiveTabId}>
+            <div class="absolute inset-0 bg-bg" class:hidden={tab.id !== currentActiveTabId}>
               <SplitPaneContainer
                 node={tab.rootSplit}
                 tabId={tab.id}
@@ -624,11 +624,11 @@
         {#if projects.length === 0 && allTabs.length === 0}
           <WelcomeDashboard />
         {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
-          <div class="empty-state">
-            <p class="hint">
+          <div class="flex flex-col items-center justify-center h-full text-text-faint">
+            <p class="text-lg font-normal m-0">
               Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a new tab
             </p>
-            <p class="hint-sub">
+            <p class="text-sm font-normal mt-1.5 mb-0 text-text-faint">
               {isMac ? 'Cmd' : 'Ctrl'}+K to open command palette
             </p>
           </div>
@@ -638,8 +638,8 @@
       {#if workspaceState.rightPanelOpen && workspaceState.selectedWorktreePath}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="right-resize-handle"
-          class:dragging={rpDragging}
+          class="w-px cursor-col-resize bg-transparent flex-shrink-0 relative after:content-empty after:absolute after:inset-y-0 after:-inset-x-1 after:cursor-col-resize hover:bg-accent-muted"
+          class:bg-accent-muted={rpDragging}
           onpointerdown={handleRpPointerDown}
           onpointermove={handleRpPointerMove}
           onpointerup={handleRpPointerUp}
@@ -654,97 +654,3 @@
     </div>
   </div>
 </main>
-
-<style>
-  .main-layout {
-    display: flex;
-    flex-direction: row;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .sidebar-resize-handle {
-    width: 4px;
-    cursor: col-resize;
-    background: transparent;
-    transition: background 0.15s;
-    flex-shrink: 0;
-  }
-
-  .sidebar-resize-handle:hover,
-  .sidebar-resize-handle.dragging {
-    background: var(--c-accent-muted);
-  }
-
-  .right-resize-handle {
-    width: 1px;
-    cursor: col-resize;
-    background: transparent;
-    flex-shrink: 0;
-    position: relative;
-  }
-
-  .right-resize-handle::after {
-    content: '';
-    position: absolute;
-    inset: 0 -3px;
-    cursor: col-resize;
-  }
-
-  .right-resize-handle:hover,
-  .right-resize-handle.dragging {
-    background: var(--c-accent-muted);
-  }
-
-  .center-area {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .content-row {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: row;
-  }
-
-  .terminal-area {
-    flex: 1;
-    min-height: 0;
-    position: relative;
-  }
-
-  .terminal-panel {
-    position: absolute;
-    inset: 0;
-    background: var(--c-bg);
-  }
-
-  .terminal-panel.hidden {
-    display: none;
-  }
-
-  .empty-state {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--c-text-faint);
-  }
-
-  .hint {
-    font-size: 14px;
-    font-weight: 400;
-    margin: 0;
-  }
-
-  .hint-sub {
-    font-size: 12px;
-    font-weight: 400;
-    margin: 6px 0 0;
-    color: var(--c-text-faint);
-  }
-</style>

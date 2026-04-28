@@ -21,12 +21,20 @@
   })
 </script>
 
-<aside class="right-panel" style:width="{width}px">
-  <div class="tab-header">
-    <div class="segmented-control" role="tablist">
+<aside
+  class="min-w-50 max-w-125 h-full bg-bg border-l border-border-subtle flex flex-col flex-shrink-0"
+  style:width="{width}px"
+>
+  <div class="flex items-center justify-center px-3 py-2 flex-shrink-0">
+    <div class="flex gap-1 w-full bg-bg-input rounded-lg p-0.5" role="tablist">
       <button
-        class="segment"
-        class:active={workspaceState.rightPanelTab === 'session'}
+        class="flex-1 flex items-center justify-center gap-1 h-6 text-xs font-medium cursor-pointer border-0 font-inherit rounded-md transition-colors duration-base motion-reduce:transition-none"
+        class:bg-active={workspaceState.rightPanelTab === 'session'}
+        class:bg-transparent={workspaceState.rightPanelTab !== 'session'}
+        class:text-text={workspaceState.rightPanelTab === 'session'}
+        class:text-text-secondary={workspaceState.rightPanelTab !== 'session'}
+        class:hover:bg-hover={workspaceState.rightPanelTab !== 'session'}
+        class:hover:text-text={workspaceState.rightPanelTab !== 'session'}
         role="tab"
         aria-selected={workspaceState.rightPanelTab === 'session'}
         onclick={() => (workspaceState.rightPanelTab = 'session')}
@@ -34,146 +42,56 @@
         Session
       </button>
       <button
-        class="segment"
-        class:active={workspaceState.rightPanelTab === 'changes'}
+        class="flex-1 flex items-center justify-center gap-1 h-6 text-xs font-medium cursor-pointer border-0 font-inherit rounded-md transition-colors duration-base motion-reduce:transition-none"
+        class:bg-active={workspaceState.rightPanelTab === 'changes'}
+        class:bg-transparent={workspaceState.rightPanelTab !== 'changes'}
+        class:text-text={workspaceState.rightPanelTab === 'changes'}
+        class:text-text-secondary={workspaceState.rightPanelTab !== 'changes'}
+        class:hover:bg-hover={workspaceState.rightPanelTab !== 'changes'}
+        class:hover:text-text={workspaceState.rightPanelTab !== 'changes'}
         role="tab"
         aria-selected={workspaceState.rightPanelTab === 'changes'}
         onclick={() => (workspaceState.rightPanelTab = 'changes')}
       >
         Changes
         {#if workspaceState.changesCount > 0}
-          <span class="badge">{workspaceState.changesCount}</span>
+          <span
+            class="text-2xs font-semibold min-w-3.5 h-3.5 rounded-3xl inline-flex items-center justify-center px-1 leading-none"
+            class:bg-border={workspaceState.rightPanelTab === 'changes'}
+            class:text-text={workspaceState.rightPanelTab === 'changes'}
+            class:bg-active={workspaceState.rightPanelTab !== 'changes'}
+            class:text-text-secondary={workspaceState.rightPanelTab !== 'changes'}
+          >
+            {workspaceState.changesCount}
+          </span>
         {/if}
       </button>
     </div>
   </div>
 
-  <div class="tab-content" class:hidden={workspaceState.rightPanelTab !== 'session'}>
+  <div
+    class="flex-1 overflow-y-auto min-h-0"
+    class:hidden={workspaceState.rightPanelTab !== 'session'}
+  >
     {#if agentState}
       <AgentInspector state={agentState} />
     {:else}
-      <div class="empty-state">
-        <span class="empty-text">No active agent session</span>
+      <div class="flex items-center justify-center h-full p-4">
+        <span class="text-sm text-text-muted">No active agent session</span>
       </div>
     {/if}
   </div>
 
-  <div class="tab-content" class:hidden={workspaceState.rightPanelTab !== 'changes'}>
+  <div
+    class="flex-1 overflow-y-auto min-h-0"
+    class:hidden={workspaceState.rightPanelTab !== 'changes'}
+  >
     {#if worktreePath}
       <ChangesPanel {worktreePath} bind:fileCount={changesFileCount} />
     {:else}
-      <div class="empty-state">
-        <span class="empty-text">No changes yet</span>
+      <div class="flex items-center justify-center h-full p-4">
+        <span class="text-sm text-text-muted">No changes yet</span>
       </div>
     {/if}
   </div>
 </aside>
-
-<style>
-  .right-panel {
-    min-width: 200px;
-    max-width: 500px;
-    height: 100%;
-    background: var(--c-bg);
-    border-left: 1px solid var(--c-border-subtle);
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-  }
-
-  .tab-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px 12px;
-    flex-shrink: 0;
-  }
-
-  .segmented-control {
-    display: flex;
-    gap: 4px;
-    width: 100%;
-    background: var(--c-bg-input);
-    border-radius: var(--r-lg);
-    padding: 3px;
-  }
-
-  .segment {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    height: 24px;
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--c-text-secondary);
-    cursor: pointer;
-    border: none;
-    background: none;
-    font-family: inherit;
-    border-radius: var(--r-md);
-    transition:
-      background var(--dur-base) var(--ease-std),
-      color var(--dur-base) var(--ease-std);
-  }
-
-  .segment:hover:not(.active) {
-    color: var(--c-text);
-    background: var(--c-hover);
-  }
-
-  .segment.active {
-    background: var(--c-active);
-    color: var(--c-text);
-  }
-
-  .badge {
-    font-size: 10px;
-    font-weight: 600;
-    min-width: 14px;
-    height: 14px;
-    border-radius: 7px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 4px;
-    background: var(--c-active);
-    color: var(--c-text-secondary);
-    line-height: 1;
-  }
-
-  .segment.active .badge {
-    background: var(--c-border);
-    color: var(--c-text);
-  }
-
-  .tab-content {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
-  }
-
-  .tab-content.hidden {
-    display: none;
-  }
-
-  .empty-state {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    padding: 16px;
-  }
-
-  .empty-text {
-    font-size: 12px;
-    color: var(--c-text-muted);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .segment {
-      transition: none;
-    }
-  }
-</style>

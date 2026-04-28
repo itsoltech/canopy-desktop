@@ -239,7 +239,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: oklch(0 0 0 / 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -247,14 +247,14 @@
   }
 
   .modal {
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 12px;
     width: 700px;
     height: 500px;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 20px 60px oklch(0 0 0 / 0.3);
   }
 
   .modal-header {
@@ -262,7 +262,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 14px 20px;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
     flex-shrink: 0;
   }
 
@@ -270,7 +270,7 @@
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .close-btn {
@@ -281,14 +281,14 @@
     height: 28px;
     border: none;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     border-radius: 6px;
   }
 
   .close-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .modal-content {
@@ -300,7 +300,7 @@
   .tree-panel {
     width: 240px;
     flex-shrink: 0;
-    border-right: 1px solid var(--c-border-subtle);
+    border-right: 1px solid var(--color-border-subtle);
     overflow-y: auto;
     padding: 8px 0;
   }
@@ -319,7 +319,7 @@
   .project-name {
     font-size: 10px;
     font-weight: 700;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -332,14 +332,14 @@
     height: 22px;
     border: none;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     border-radius: 3px;
   }
 
   .tree-action:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .tree-item {
@@ -358,11 +358,11 @@
   }
 
   .tree-item:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .tree-item.active {
-    background: var(--c-active);
+    background: var(--color-active);
   }
 
   .tree-item-name {
@@ -371,7 +371,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 12px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .tree-item-actions {
@@ -393,28 +393,28 @@
     height: 22px;
     border: none;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     border-radius: 3px;
     position: relative;
   }
 
   .tree-item-action:hover {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
   }
 
   .tree-item-action.play {
-    color: var(--c-success-text);
+    color: var(--color-success-text);
   }
 
   .tree-item-action.danger:hover {
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .tree-empty {
     padding: 16px 12px;
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     text-align: center;
   }
 
@@ -427,18 +427,18 @@
     align-items: center;
     gap: 6px;
     padding: 6px 14px;
-    border: 1px dashed var(--c-text-faint);
+    border: 1px dashed var(--color-text-faint);
     border-radius: 6px;
     background: transparent;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .new-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .editor-panel {
@@ -456,6 +456,6 @@
     justify-content: center;
     height: 100%;
     font-size: 13px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 </style>

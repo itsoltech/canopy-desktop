@@ -191,7 +191,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -204,7 +204,7 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -220,21 +220,21 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .radio-desc {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-family: monospace;
   }
 
   .field-input {
     width: 100%;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
+    background: var(--color-bg-input);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     padding: 8px 10px;
@@ -244,16 +244,16 @@
   }
 
   .field-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .field-input::placeholder {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .field-hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .setup-list {
@@ -271,17 +271,17 @@
   .setup-type {
     font-size: 11px;
     font-family: monospace;
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     min-width: 32px;
     flex-shrink: 0;
   }
 
   .setup-input {
     flex: 1;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
+    background: var(--color-bg-input);
+    color: var(--color-text);
     font-size: 12px;
     font-family: monospace;
     padding: 5px 8px;
@@ -291,11 +291,11 @@
   }
 
   .setup-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .setup-input::placeholder {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .setup-input-short {
@@ -305,14 +305,14 @@
 
   .setup-arrow {
     font-size: 12px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     flex-shrink: 0;
   }
 
   .setup-remove {
     background: none;
     border: none;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     font-size: 16px;
     cursor: pointer;
     padding: 0 4px;
@@ -322,7 +322,7 @@
   }
 
   .setup-remove:hover {
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .setup-actions {
@@ -331,10 +331,10 @@
   }
 
   .setup-add {
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
+    background: var(--color-hover);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
     font-family: inherit;
     padding: 4px 10px;
@@ -345,7 +345,7 @@
   }
 
   .setup-add:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
+    background: var(--color-hover-strong);
+    color: var(--color-text);
   }
 </style>

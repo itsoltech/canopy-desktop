@@ -14,6 +14,9 @@
   let timer: ReturnType<typeof setTimeout> | null = null
   let portalEl: HTMLDivElement | null = null
 
+  const tooltipClasses =
+    'fixed px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-nowrap pointer-events-none z-banner shadow-tooltip'
+
   function handleEnter(event: MouseEvent | FocusEvent): void {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
     x = rect.left + rect.width / 2
@@ -30,20 +33,8 @@
   function showPortal(): void {
     hidePortal()
     portalEl = document.createElement('div')
-    portalEl.style.cssText = `
-      position: fixed;
-      padding: 4px 8px;
-      border-radius: 4px;
-      background: var(--c-bg-secondary);
-      border: 1px solid var(--c-border);
-      color: var(--c-text);
-      font-size: 11px;
-      white-space: nowrap;
-      pointer-events: none;
-      z-index: 9999;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-      visibility: hidden;
-    `
+    portalEl.className = tooltipClasses
+    portalEl.style.visibility = 'hidden'
     portalEl.textContent = text
     document.body.appendChild(portalEl)
 
@@ -63,7 +54,6 @@
     }
   }
 
-  // Cleanup on unmount via $effect return
   $effect(() => {
     return () => {
       if (timer) clearTimeout(timer)
@@ -75,7 +65,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span
-  class="tooltip-trigger"
+  class="inline-flex"
   onmouseenter={handleEnter}
   onmouseleave={dismiss}
   onmousedown={dismiss}
@@ -84,9 +74,3 @@
 >
   {@render children()}
 </span>
-
-<style>
-  .tooltip-trigger {
-    display: inline-flex;
-  }
-</style>

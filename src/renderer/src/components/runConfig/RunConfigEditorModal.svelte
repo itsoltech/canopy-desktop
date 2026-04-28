@@ -145,7 +145,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: oklch(0 0 0 / 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -153,14 +153,14 @@
   }
 
   .modal {
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 12px;
     width: 480px;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 20px 60px oklch(0 0 0 / 0.3);
   }
 
   .modal-header {
@@ -168,14 +168,14 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px 20px;
-    border-bottom: 1px solid var(--c-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .modal-header h2 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .close-btn {
@@ -186,14 +186,14 @@
     height: 28px;
     border: none;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     border-radius: 6px;
   }
 
   .close-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .modal-body {
@@ -209,18 +209,18 @@
     align-items: center;
     gap: 6px;
     padding: 6px 8px;
-    background: var(--c-bg-secondary);
+    background: var(--color-bg-secondary);
     border-radius: 6px;
     font-size: 11px;
   }
 
   .location-label {
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     flex-shrink: 0;
   }
 
   .location-path {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -235,7 +235,7 @@
   .field label {
     font-size: 11px;
     font-weight: 500;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .location-picker {
@@ -247,10 +247,10 @@
     flex: 1;
     height: 32px;
     padding: 0 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
+    background: var(--color-bg-secondary);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
@@ -258,16 +258,16 @@
   }
 
   .location-select:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .browse-btn {
     height: 32px;
     padding: 0 12px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text-muted);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-muted);
     cursor: pointer;
     font-size: 12px;
     font-family: inherit;
@@ -275,7 +275,7 @@
   }
 
   .browse-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 </style>

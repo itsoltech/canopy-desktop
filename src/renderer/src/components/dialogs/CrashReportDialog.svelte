@@ -106,15 +106,15 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 120px;
-    background: var(--c-scrim);
+    background: var(--color-scrim);
   }
 
   .dialog-container {
     width: 480px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-overlay);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
-    box-shadow: var(--c-shadow-dialog, 0 16px 48px rgba(0, 0, 0, 0.6));
+    box-shadow: var(--color-shadow-dialog, 0 16px 48px oklch(0 0 0 / 0.6));
     padding: 20px;
   }
 
@@ -122,21 +122,21 @@
     margin: 0 0 8px;
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     display: flex;
     align-items: center;
     gap: 8px;
   }
 
   .dialog-title :global(svg) {
-    color: var(--c-warning);
+    color: var(--color-warning);
     flex-shrink: 0;
   }
 
   .dialog-message {
     margin: 0 0 12px;
     font-size: 13px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     line-height: 1.5;
   }
 
@@ -146,7 +146,7 @@
     gap: 4px;
     margin-bottom: 12px;
     font-size: 12px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .detail-row {
@@ -156,19 +156,19 @@
 
   .detail-label {
     min-width: 64px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .crash-stack {
     margin: 0 0 12px;
     padding: 8px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
     font-family: monospace;
     font-size: 11px;
     line-height: 1.4;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     max-height: 200px;
     overflow-y: auto;
     white-space: pre-wrap;
@@ -194,25 +194,25 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 1px;
   }
 
   .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .btn-cancel:hover {
-    background: var(--c-border);
+    background: var(--color-border);
   }
 
   .btn-confirm {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-confirm:hover {
-    background: var(--c-accent-muted);
+    background: var(--color-accent-muted);
   }
 </style>

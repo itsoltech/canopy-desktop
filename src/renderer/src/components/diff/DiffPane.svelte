@@ -230,9 +230,9 @@
 
   function statusClass(status: DiffFile['status']): string {
     return match(status)
-      .with('added', () => 'badge-added')
-      .with('deleted', () => 'badge-deleted')
-      .with('modified', 'renamed', () => 'badge-modified')
+      .with('added', () => 'bg-success-bg text-diff-add-fg')
+      .with('deleted', () => 'bg-diff-delete-bg text-diff-delete-fg')
+      .with('modified', 'renamed', () => 'bg-accent-bg text-accent')
       .exhaustive()
   }
 
@@ -400,23 +400,27 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="diff-pane"
+  class="flex flex-col w-full h-full overflow-hidden bg-bg outline-none"
   class:hidden={!active}
   bind:this={paneEl}
   tabindex="-1"
   onkeydown={handleKeydown}
 >
-  <div class="diff-toolbar" class:toolbar-pulse={justRefreshed}>
-    <span class="toolbar-title">Diff</span>
-    <span class="toolbar-summary">
+  <div
+    class="flex items-center gap-2.5 px-4 py-2 bg-bg-elevated border-b border-border-subtle flex-shrink-0 transition-shadow duration-slow motion-reduce:transition-none"
+    class:animate-pulse-glow={justRefreshed}
+    class:motion-reduce:animate-none={justRefreshed}
+  >
+    <span class="text-md font-semibold text-text">Diff</span>
+    <span class="text-sm text-text-muted flex-1">
       {files.length} file{files.length !== 1 ? 's' : ''}
-      <span class="stat-add">+{totalAdditions}</span>
-      <span class="stat-del">&minus;{totalDeletions}</span>
+      <span class="text-diff-add-fg">+{totalAdditions}</span>
+      <span class="text-diff-delete-fg">&minus;{totalDeletions}</span>
     </span>
     {#if showSearch}
-      <div class="search-bar">
+      <div class="flex items-center gap-1.5">
         <input
-          class="search-input"
+          class="bg-bg border border-border rounded-md text-text text-sm px-2 py-0.5 w-45 outline-none font-mono focus:border-accent"
           type="text"
           placeholder="Search in diff..."
           bind:value={searchQuery}
@@ -425,15 +429,22 @@
           }}
         />
         {#if searchQuery}
-          <span class="match-count">{matchCount} match{matchCount !== 1 ? 'es' : ''}</span>
+          <span class="text-xs text-text-muted whitespace-nowrap"
+            >{matchCount} match{matchCount !== 1 ? 'es' : ''}</span
+          >
         {/if}
       </div>
     {/if}
-    <button class="toolbar-btn" onclick={toggleSearch} title="Search" aria-label="Search in diff">
+    <button
+      class="bg-transparent border-0 text-text-muted cursor-pointer px-1.5 py-0.5 rounded-md flex items-center justify-center hover:text-text hover:bg-active"
+      onclick={toggleSearch}
+      title="Search"
+      aria-label="Search in diff"
+    >
       <Search size={14} />
     </button>
     <button
-      class="toolbar-btn"
+      class="bg-transparent border-0 text-text-muted cursor-pointer px-1.5 py-0.5 rounded-md flex items-center justify-center enabled:hover:text-text enabled:hover:bg-active disabled:opacity-40 disabled:cursor-default"
       onclick={refresh}
       title="Refresh"
       aria-label="Refresh diff"
@@ -443,24 +454,29 @@
     </button>
   </div>
 
-  <div class="diff-body" bind:this={bodyEl}>
+  <div
+    class="flex-1 overflow-auto min-h-0 font-mono text-sm leading-normal container-inline"
+    bind:this={bodyEl}
+  >
     {#if loading && files.length === 0}
-      <div class="empty-state">Loading...</div>
+      <div class="flex items-center justify-center h-full text-md text-text-muted">Loading...</div>
     {:else if files.length === 0}
-      <div class="empty-state">No uncommitted changes</div>
+      <div class="flex items-center justify-center h-full text-md text-text-muted">
+        No uncommitted changes
+      </div>
     {:else}
-      <div class="diff-scroll-content">
+      <div class="w-fit min-w-full">
         {#each files as file, fileIndex (file.path)}
           <div
-            class="file-section"
-            class:file-focused={focusedFileIndex === fileIndex}
+            class="border-b border-border-subtle"
+            class:bg-file-focused={focusedFileIndex === fileIndex}
             id="diff-file-{file.path}"
             data-filepath={file.path}
             onpointerenter={() => (hoveredFilePath = file.path)}
             onpointerleave={() => (hoveredFilePath = null)}
           >
             <div
-              class="file-header"
+              class="file-header flex items-center gap-2 px-4 py-2 bg-bg-elevated border-b border-border-subtle sticky top-0 z-10 cursor-pointer select-none hover:bg-file-header-hover"
               role="button"
               tabindex="0"
               aria-expanded={!collapsedFiles.has(file.path)}
@@ -472,26 +488,42 @@
                 }
               }}
             >
-              <span class="chevron" class:chevron-open={!collapsedFiles.has(file.path)}>
+              <span
+                class="text-text-muted transition-transform duration-base ease-std flex-shrink-0 flex items-center motion-reduce:transition-none"
+                class:rotate-90={!collapsedFiles.has(file.path)}
+              >
                 <ChevronRight size={12} />
               </span>
-              <span class="file-status {statusClass(file.status)}">{statusLabel(file.status)}</span>
-              <span class="file-path" title={file.path}>{file.path}</span>
-              <span class="stats-bar">
+              <span
+                class="text-2xs font-semibold py-px px-1.5 rounded-sm uppercase tracking-caps-tight flex-shrink-0 {statusClass(
+                  file.status,
+                )}">{statusLabel(file.status)}</span
+              >
+              <span
+                class="text-sm text-text flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono"
+                title={file.path}>{file.path}</span
+              >
+              <span class="flex items-center h-2 rounded-xs overflow-hidden flex-shrink-0">
                 {#if file.additions > 0}
-                  <span class="stats-bar-add" style="width: {statsBarAddWidth(file)}px"></span>
+                  <span
+                    class="block h-full bg-diff-add-fg"
+                    style="width: {statsBarAddWidth(file)}px"
+                  ></span>
                 {/if}
                 {#if file.deletions > 0}
-                  <span class="stats-bar-del" style="width: {statsBarDelWidth(file)}px"></span>
+                  <span
+                    class="block h-full bg-diff-delete-fg"
+                    style="width: {statsBarDelWidth(file)}px"
+                  ></span>
                 {/if}
               </span>
-              <span class="file-stats">
-                <span class="stat-add">+{file.additions}</span>
-                <span class="stat-del">&minus;{file.deletions}</span>
+              <span class="flex gap-1.5 text-xs flex-shrink-0">
+                <span class="text-diff-add-fg">+{file.additions}</span>
+                <span class="text-diff-delete-fg">&minus;{file.deletions}</span>
               </span>
               {#if hoveredFilePath === file.path}
                 <button
-                  class="copy-diff-btn"
+                  class="bg-transparent border border-border text-text-muted cursor-pointer px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center justify-center hover:text-text hover:bg-active"
                   title="Copy diff"
                   aria-label="Copy diff to clipboard"
                   onclick={(e) => {
@@ -506,23 +538,31 @@
 
             {#if !collapsedFiles.has(file.path)}
               {#if file.hunks.length === 0}
-                <div class="no-hunks">Binary file or empty diff</div>
+                <div class="px-4 py-3 text-text-muted italic">Binary file or empty diff</div>
               {:else}
                 {#each file.hunks as hunk (hunk.header)}
-                  <div class="hunk">
-                    <div class="hunk-header">
-                      <span class="gutter old-gutter"></span>
-                      <span class="gutter new-gutter"></span>
-                      <span class="hunk-text">{hunk.header}</span>
+                  <div>
+                    <div class="flex bg-diff-hunk-header-bg text-text-muted py-0.5 text-xs">
+                      <span
+                        class="inline-block w-4ch text-right pr-1 text-text-faint flex-shrink-0 select-none"
+                      ></span>
+                      <span
+                        class="inline-block w-4ch text-right pr-1 text-text-faint flex-shrink-0 select-none"
+                      ></span>
+                      <span class="px-2 flex-1">{hunk.header}</span>
                     </div>
                     {#each hunk.changes as change, i (`${i}-${change.type}`)}
                       <div
-                        class="diff-line {change.type}"
-                        class:search-match={lineMatchesSearch(change.content)}
+                        class="diff-line {change.type} flex select-text relative"
+                        class:bg-diff-add-bg={change.type === 'add'}
+                        class:bg-diff-delete-bg={change.type === 'delete'}
+                        class:outline-1={lineMatchesSearch(change.content)}
+                        class:outline-warning={lineMatchesSearch(change.content)}
+                        class:-outline-offset-1={lineMatchesSearch(change.content)}
                       >
                         {#if hasAgent}
                           <button
-                            class="comment-trigger"
+                            class="comment-trigger absolute left-px top-1/2 -translate-y-1/2 w-5.5 h-5.5 rounded-lg border-0 bg-accent text-bg text-base font-bold leading-none cursor-pointer opacity-0 z-10 flex items-center justify-center transition-opacity duration-fast motion-reduce:transition-none hover:brightness-110 active:brightness-85"
                             title="Add review comment"
                             aria-label="Add review comment"
                             onclick={() =>
@@ -530,17 +570,19 @@
                             >+</button
                           >
                         {/if}
-                        <span class="gutter old-gutter"
+                        <span
+                          class="inline-block w-4ch text-right pr-1 text-text-faint flex-shrink-0 select-none"
                           >{change.type !== 'add' && change.oldLine != null
                             ? change.oldLine
                             : ''}</span
                         >
-                        <span class="gutter new-gutter"
+                        <span
+                          class="inline-block w-4ch text-right pr-1 text-text-faint flex-shrink-0 select-none"
                           >{change.type !== 'delete' && change.newLine != null
                             ? change.newLine
                             : ''}</span
                         >
-                        <span class="line-prefix"
+                        <span class="line-prefix w-1ch flex-shrink-0 select-none text-text-faint"
                           >{change.type === 'add'
                             ? '+'
                             : change.type === 'delete'
@@ -548,16 +590,25 @@
                               : ' '}</span
                         >
                         {#if searchQuery && lineMatchesSearch(change.content)}
-                          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                          <span class="line-content">{@html highlightMatch(change.content)}</span>
+                          <span
+                            class="line-content flex-1 px-2 pl-1 whitespace-pre min-w-0 text-text"
+                          >
+                            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                            {@html highlightMatch(change.content)}
+                          </span>
                         {:else}
-                          <span class="line-content">{change.content}</span>
+                          <span
+                            class="line-content flex-1 px-2 pl-1 whitespace-pre min-w-0 text-text"
+                            >{change.content}</span
+                          >
                         {/if}
                       </div>
                       {#if commentKey === `${file.path}:${hunk.header}:${i}`}
-                        <div class="comment-form">
+                        <div
+                          class="sticky left-0 w-cqi-comment my-1 mx-2 border border-border rounded-lg bg-bg-elevated overflow-hidden box-border animate-slide-down-in motion-reduce:animate-none"
+                        >
                           <textarea
-                            class="comment-input"
+                            class="w-full min-h-16 px-4 py-2.5 border-0 bg-bg-elevated text-text font-inherit text-sm leading-normal resize-none outline-none box-border placeholder:text-text-muted"
                             placeholder="Comment for agent — {file.path}:{getLineNum(change)}"
                             bind:value={commentText}
                             onkeydown={(e) => {
@@ -565,14 +616,19 @@
                               if (e.key === 'Escape') closeComment()
                             }}
                           ></textarea>
-                          <div class="comment-footer">
-                            <span class="comment-hint">
+                          <div
+                            class="flex items-center px-4 py-1.5 bg-bg-elevated border-t border-border-subtle"
+                          >
+                            <span class="text-xs text-text-secondary flex-1">
                               {navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to send
                             </span>
-                            <div class="comment-actions">
-                              <button class="comment-cancel" onclick={closeComment}>Cancel</button>
+                            <div class="flex gap-1">
                               <button
-                                class="comment-send"
+                                class="px-2.5 py-0.5 border border-border-subtle bg-transparent text-text-muted rounded-md text-xs cursor-pointer font-inherit hover:text-text hover:bg-hover"
+                                onclick={closeComment}>Cancel</button
+                              >
+                              <button
+                                class="px-2.5 py-0.5 border-0 bg-accent text-bg rounded-md text-xs font-semibold cursor-pointer font-inherit enabled:hover:brightness-110 disabled:opacity-35 disabled:cursor-default disabled:filter-none"
                                 onclick={sendComment}
                                 disabled={!commentText.trim()}
                               >
@@ -594,500 +650,27 @@
   </div>
 </div>
 
+<!--
+  <style> retained as a justified exception:
+   - `.diff-line.add .line-prefix` / `.diff-line.add .line-content` cascading overrides
+     (parent class controls children color) — not expressible without per-line class duplication
+   - `.diff-line:hover .comment-trigger { opacity: 1 }` — descendant-on-hover toggle
+   - `:global(.search-highlight)` — applies to <mark> injected via @html
+-->
 <style>
-  .diff-pane {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: var(--c-bg);
-    outline: none;
+  .diff-line.add .line-prefix,
+  .diff-line.add .line-content {
+    color: var(--color-diff-add-fg);
   }
-
-  .diff-pane.hidden {
-    display: none;
+  .diff-line.delete .line-prefix,
+  .diff-line.delete .line-content {
+    color: var(--color-diff-delete-fg);
   }
-
-  .diff-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 16px;
-    background: var(--c-bg-elevated);
-    border-bottom: 1px solid var(--c-border-subtle);
-    flex-shrink: 0;
-    transition: box-shadow 0.3s ease;
-  }
-
-  .toolbar-pulse {
-    animation: pulse-glow 1s ease-out;
-  }
-
-  @keyframes pulse-glow {
-    0% {
-      box-shadow: inset 0 0 12px color-mix(in srgb, var(--c-accent) 40%, transparent);
-    }
-    100% {
-      box-shadow: none;
-    }
-  }
-
-  .toolbar-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .toolbar-summary {
-    font-size: 12px;
-    color: var(--c-text-muted);
-    flex: 1;
-  }
-
-  .stat-add {
-    color: var(--diff-add-fg);
-  }
-
-  .stat-del {
-    color: var(--diff-delete-fg);
-  }
-
-  .toolbar-btn {
-    background: none;
-    border: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .toolbar-btn:hover {
-    color: var(--c-text);
-    background: var(--c-active);
-  }
-
-  .toolbar-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-
-  .search-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .search-input {
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    color: var(--c-text);
-    font-size: 12px;
-    padding: 3px 8px;
-    width: 180px;
-    outline: none;
-    font-family: var(--font-mono, monospace);
-  }
-
-  .search-input:focus {
-    border-color: var(--c-accent);
-  }
-
-  .match-count {
-    font-size: 11px;
-    color: var(--c-text-muted);
-    white-space: nowrap;
-  }
-
-  .diff-body {
-    flex: 1;
-    overflow: auto;
-    min-height: 0;
-    font-family: var(--font-mono, monospace);
-    font-size: 12px;
-    line-height: 1.5;
-    container-type: inline-size;
-  }
-
-  .diff-scroll-content {
-    width: fit-content;
-    min-width: 100%;
-  }
-
-  .file-section {
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .file-section.file-focused {
-    background: color-mix(in srgb, var(--c-accent) 5%, transparent);
-  }
-
-  .file-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    background: var(--c-bg-elevated);
-    border-bottom: 1px solid var(--c-border-subtle);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .file-header:hover {
-    background: color-mix(in srgb, var(--c-text) 8%, var(--c-bg-elevated));
-  }
-
-  .chevron {
-    color: var(--c-text-muted);
-    transition: transform 0.15s ease;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-  }
-
-  .chevron.chevron-open {
-    transform: rotate(90deg);
-  }
-
-  .file-status {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    flex-shrink: 0;
-  }
-
-  .badge-added {
-    background: color-mix(in srgb, var(--c-success) 20%, transparent);
-    color: var(--diff-add-fg);
-  }
-
-  .badge-modified {
-    background: color-mix(in srgb, var(--c-accent) 20%, transparent);
-    color: var(--c-accent);
-  }
-
-  .badge-deleted {
-    background: var(--diff-delete-bg);
-    color: var(--diff-delete-fg);
-  }
-
-  .file-path {
-    font-size: 12px;
-    color: var(--c-text);
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: var(--font-mono, monospace);
-  }
-
-  .stats-bar {
-    display: flex;
-    align-items: center;
-    height: 8px;
-    border-radius: 2px;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
-
-  .stats-bar-add {
-    height: 100%;
-    background: var(--diff-add-fg);
-    display: block;
-  }
-
-  .stats-bar-del {
-    height: 100%;
-    background: var(--diff-delete-fg);
-    display: block;
-  }
-
-  .file-stats {
-    display: flex;
-    gap: 6px;
-    font-size: 11px;
-    flex-shrink: 0;
-  }
-
-  .copy-diff-btn {
-    background: none;
-    border: 1px solid var(--c-border);
-    color: var(--c-text-muted);
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 4px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .copy-diff-btn:hover {
-    color: var(--c-text);
-    background: var(--c-active);
-  }
-
-  .no-hunks {
-    padding: 12px 16px;
-    color: var(--c-text-muted);
-    font-style: italic;
-  }
-
-  .hunk-header {
-    display: flex;
-    background: var(--diff-hunk-header-bg);
-    color: var(--c-text-muted);
-    padding: 2px 0;
-    font-size: 11px;
-  }
-
-  .hunk-text {
-    padding: 0 8px;
-    flex: 1;
-  }
-
-  .diff-line {
-    display: flex;
-    -webkit-user-select: text;
-    user-select: text;
-    position: relative;
-  }
-
-  .diff-line.search-match {
-    outline: 1px solid var(--c-warning);
-    outline-offset: -1px;
-  }
-
-  :global(.search-highlight) {
-    background: color-mix(in srgb, var(--c-warning) 30%, transparent);
-    border-radius: 2px;
-  }
-
-  .comment-trigger {
-    position: absolute;
-    left: 1px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    border: none;
-    background: var(--c-accent);
-    color: var(--c-bg);
-    font-size: 15px;
-    font-weight: 700;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: opacity 0.1s ease;
-  }
-
   .diff-line:hover .comment-trigger {
     opacity: 1;
   }
-
-  .comment-trigger:hover {
-    filter: brightness(1.1);
-  }
-
-  .comment-trigger:active {
-    filter: brightness(0.85);
-  }
-
-  .comment-form {
-    position: sticky;
-    left: 0;
-    width: calc(100cqi - 16px);
-    margin: 4px 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-elevated);
-    overflow: hidden;
-    animation: comment-slide-in 0.15s ease both;
-    box-sizing: border-box;
-  }
-
-  @keyframes comment-slide-in {
-    0% {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .comment-input {
-    width: 100%;
-    min-height: 64px;
-    padding: 10px 16px;
-    border: none;
-    background: var(--c-bg-elevated);
-    color: var(--c-text);
-    font-family: inherit;
-    font-size: 12px;
-    line-height: 1.5;
-    resize: none;
-    outline: none;
-    box-sizing: border-box;
-  }
-
-  .comment-input::placeholder {
-    color: var(--c-text-muted);
-  }
-
-  .comment-footer {
-    display: flex;
-    align-items: center;
-    padding: 6px 16px;
-    background: var(--c-bg-elevated);
-    border-top: 1px solid var(--c-border-subtle);
-  }
-
-  .comment-hint {
-    font-size: 11px;
-    color: var(--c-text-secondary);
-    flex: 1;
-  }
-
-  .comment-actions {
-    display: flex;
-    gap: 4px;
-  }
-
-  .comment-cancel {
-    padding: 3px 10px;
-    border: 1px solid var(--c-border-subtle);
-    background: none;
-    color: var(--c-text-muted);
-    border-radius: 4px;
-    font-size: 11px;
-    cursor: pointer;
-    font-family: inherit;
-  }
-
-  .comment-cancel:hover {
-    color: var(--c-text);
-    background: var(--c-hover);
-  }
-
-  .comment-send {
-    padding: 3px 10px;
-    border: none;
-    background: var(--c-accent);
-    color: var(--c-bg);
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    font-family: inherit;
-  }
-
-  .comment-send:hover {
-    filter: brightness(1.1);
-  }
-
-  .comment-send:disabled {
-    opacity: 0.35;
-    cursor: default;
-    filter: none;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .comment-trigger {
-      transition: none;
-    }
-
-    .comment-form {
-      animation: none;
-    }
-
-    .comment-send {
-      transition: none;
-    }
-
-    .toolbar-pulse {
-      animation: none;
-    }
-
-    .chevron {
-      transition: none;
-    }
-  }
-
-  .diff-line.add {
-    background: var(--diff-add-bg);
-  }
-
-  .diff-line.delete {
-    background: var(--diff-delete-bg);
-  }
-
-  .gutter {
-    display: inline-block;
-    width: 4ch;
-    text-align: right;
-    padding-right: 4px;
-    color: var(--c-text-faint);
-    flex-shrink: 0;
-    -webkit-user-select: none;
-    user-select: none;
-  }
-
-  .line-prefix {
-    width: 1ch;
-    flex-shrink: 0;
-    -webkit-user-select: none;
-    user-select: none;
-    color: var(--c-text-faint);
-  }
-
-  .diff-line.add .line-prefix {
-    color: var(--diff-add-fg);
-  }
-
-  .diff-line.delete .line-prefix {
-    color: var(--diff-delete-fg);
-  }
-
-  .line-content {
-    flex: 1;
-    padding: 0 8px 0 4px;
-    white-space: pre;
-    min-width: 0;
-    color: var(--c-text);
-  }
-
-  .diff-line.add .line-content {
-    color: var(--diff-add-fg);
-  }
-
-  .diff-line.delete .line-content {
-    color: var(--diff-delete-fg);
-  }
-
-  .empty-state {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    font-size: 13px;
-    color: var(--c-text-muted);
-    font-family: inherit;
+  :global(.search-highlight) {
+    background: color-mix(in srgb, var(--color-warning) 30%, transparent);
+    border-radius: 2px;
   }
 </style>

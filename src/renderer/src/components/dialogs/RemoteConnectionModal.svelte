@@ -121,12 +121,12 @@
       return
     }
     // Pull the dot color from the active theme so the QR is still
-    // readable in light themes — hardcoded #e0e0e0 would be almost
+    // readable in light themes — hardcoded oklch(0.907 0 0) would be almost
     // invisible on a light background. The canopy-green corner
     // markers stay hardcoded because they're brand identity tied to
     // the tree-crown logo in the center of the code.
     const style = getComputedStyle(document.documentElement)
-    const dotColor = style.getPropertyValue('--c-text').trim() || '#e0e0e0'
+    const dotColor = style.getPropertyValue('--c-text').trim() || 'oklch(0.907 0 0)'
     qrInstance = new QRCodeStyling({
       width: 260,
       height: 260,
@@ -138,8 +138,8 @@
       // Corner markers in the same canopy-green as the tree crown in
       // the app icon, so the QR pulls visual identity from the
       // embedded logo instead of fighting it with a blue accent.
-      cornersSquareOptions: { color: '#6bb04f', type: 'extra-rounded' },
-      cornersDotOptions: { color: '#6bb04f' },
+      cornersSquareOptions: { color: 'oklch(0.689 0.149 137.53)', type: 'extra-rounded' },
+      cornersDotOptions: { color: 'oklch(0.689 0.149 137.53)' },
       // H-level error correction so the embedded image doesn't make the
       // QR unscannable — H tolerates ~30% of the code being obscured,
       // leaving plenty of redundancy for a centered logo.
@@ -377,16 +377,16 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 80px;
-    background: var(--c-scrim);
+    background: var(--color-scrim);
   }
 
   .modal-container {
     width: 420px;
     max-width: 90vw;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-overlay);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
-    box-shadow: var(--c-shadow-dialog, 0 16px 48px rgba(0, 0, 0, 0.6));
+    box-shadow: var(--color-shadow-dialog, 0 16px 48px oklch(0 0 0 / 0.6));
     padding: 24px;
   }
 
@@ -394,7 +394,7 @@
     margin: 0 0 4px;
     font-size: 16px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -407,9 +407,9 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.6px;
-    color: var(--c-warning);
-    background: color-mix(in srgb, var(--c-warning) 15%, transparent);
-    border: 1px solid color-mix(in srgb, var(--c-warning) 40%, transparent);
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
     border-radius: 10px;
     vertical-align: middle;
   }
@@ -417,15 +417,15 @@
   .subtitle {
     margin: 0 0 16px;
     font-size: 13px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .qr-wrap {
     display: flex;
     justify-content: center;
     padding: 16px;
-    background: var(--c-bg-input);
-    border: 1px solid var(--c-border-subtle);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-subtle);
     border-radius: 8px;
     margin-bottom: 16px;
   }
@@ -442,7 +442,7 @@
   }
 
   .meta-label {
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-transform: uppercase;
     font-weight: 600;
     letter-spacing: 0.3px;
@@ -450,7 +450,7 @@
   }
 
   .meta-value {
-    color: var(--c-text);
+    color: var(--color-text);
     font-variant-numeric: tabular-nums;
   }
 
@@ -460,8 +460,8 @@
     align-items: center;
     margin-top: 12px;
     padding: 8px 10px;
-    background: var(--c-bg-input);
-    border: 1px solid var(--c-border-subtle);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-subtle);
     border-radius: 6px;
   }
 
@@ -469,7 +469,7 @@
     flex: 1;
     font-size: 11px;
     font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -481,7 +481,7 @@
     gap: 8px;
     padding: 10px 12px;
     margin-top: 16px;
-    background: var(--c-bg-input);
+    background: var(--color-bg-input);
     border-radius: 6px;
     font-size: 12px;
   }
@@ -490,13 +490,13 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--c-text-muted);
+    background: var(--color-text-muted);
   }
 
   .status-row[data-kind='waiting'] .status-dot,
   .status-row[data-kind='starting'] .status-dot {
-    background: var(--c-warning);
-    box-shadow: 0 0 8px var(--c-warning);
+    background: var(--color-warning);
+    box-shadow: 0 0 8px var(--color-warning);
     animation: pulse 1.4s ease-in-out infinite;
   }
 
@@ -504,27 +504,27 @@
      reconnects. Visually quieter than `waiting` (no glow, slower pulse)
      to communicate "alive but idle" rather than "actively pairing". */
   .status-row[data-kind='listening'] .status-dot {
-    background: var(--c-success);
+    background: var(--color-success);
     animation: pulse 2.4s ease-in-out infinite;
   }
 
   .status-row[data-kind='peerArrived'] .status-dot {
-    background: var(--c-accent);
-    box-shadow: 0 0 8px var(--c-accent);
+    background: var(--color-accent);
+    box-shadow: 0 0 8px var(--color-accent);
   }
 
   .status-row[data-kind='paired'] .status-dot {
-    background: var(--c-success);
-    box-shadow: 0 0 8px var(--c-success);
+    background: var(--color-success);
+    box-shadow: 0 0 8px var(--color-success);
   }
 
   .status-row[data-kind='reconnecting'] .status-dot {
-    background: var(--c-warning);
+    background: var(--color-warning);
     animation: pulse 1s ease-in-out infinite;
   }
 
   .status-row[data-kind='error'] .status-dot {
-    background: var(--c-danger);
+    background: var(--color-danger);
   }
 
   @keyframes pulse {
@@ -549,20 +549,20 @@
   }
 
   .status-label {
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .placeholder {
     padding: 48px 16px;
     text-align: center;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 13px;
   }
 
   .connected-block {
     padding: 20px 18px;
-    background: var(--c-bg-input);
-    border: 1px solid var(--c-border-subtle);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-subtle);
     border-radius: 8px;
     margin-bottom: 12px;
     display: flex;
@@ -574,20 +574,20 @@
     margin: 0;
     font-size: 13px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .connected-device {
     margin: 0;
     font-size: 15px;
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     font-weight: 500;
   }
 
   .error-block {
     padding: 16px;
-    background: var(--c-danger-bg);
-    border: 1px solid var(--c-danger);
+    background: var(--color-danger-bg);
+    border: 1px solid var(--color-danger);
     border-radius: 6px;
     margin-bottom: 16px;
   }
@@ -595,12 +595,12 @@
   .error-block p {
     margin: 0 0 4px;
     font-size: 13px;
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .error-block code {
     font-size: 11px;
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
     font-family: ui-monospace, 'SF Mono', Menlo, monospace;
     word-break: break-all;
   }
@@ -624,44 +624,44 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 1px;
   }
 
   .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .btn-cancel:hover {
-    background: var(--c-border);
+    background: var(--color-border);
   }
 
   .btn-secondary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-secondary:hover {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-confirm {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-confirm:hover:not(:disabled) {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-danger {
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
   }
 
   .btn-danger:hover {
-    background: color-mix(in srgb, var(--c-danger) 30%, transparent);
+    background: color-mix(in srgb, var(--color-danger) 30%, transparent);
   }
 
   .btn:disabled {
@@ -672,8 +672,8 @@
   .accept-block {
     margin-top: 16px;
     padding: 14px 16px;
-    background: var(--c-accent-bg);
-    border: 1px solid var(--c-accent-muted);
+    background: var(--color-accent-bg);
+    border: 1px solid var(--color-accent-muted);
     border-radius: 8px;
   }
 
@@ -681,7 +681,7 @@
     margin: 0 0 8px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .accept-meta {
@@ -693,12 +693,12 @@
 
   .device-name {
     font-size: 14px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .device-fp {
     font-size: 11px;
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     font-family: ui-monospace, 'SF Mono', Menlo, monospace;
   }
 
@@ -707,7 +707,7 @@
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     cursor: pointer;
     margin-bottom: 10px;
   }
@@ -715,7 +715,7 @@
   .action-error {
     margin: 4px 0 8px;
     font-size: 11px;
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .accept-actions {

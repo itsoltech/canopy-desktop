@@ -36,7 +36,6 @@
   }
 
   $effect(() => {
-    // Re-check when worktree list changes (read .length synchronously for dependency tracking)
     const ac = new AbortController()
     if (workspaceState.worktrees.length >= 0) checkMergedStatus(ac.signal)
     return () => ac.abort()
@@ -46,7 +45,6 @@
     (getResolvedConfig()?.config.trackers ?? []).filter((t) => t.provider === 'github').length,
   )
 
-  // Fetch PRs when worktree list or GitHub connections change
   let prevGhConnCount = 0
   $effect(() => {
     const repoRoot = workspaceState.repoRoot
@@ -86,7 +84,6 @@
       await window.api.gitWorktreeRemove(repoRoot, wt.path, false)
       if (!isDetached) await window.api.gitBranchDelete(repoRoot, wt.branch, false)
     } catch {
-      // Force remove if normal remove fails (e.g. dirty worktree)
       try {
         await window.api.gitWorktreeRemove(repoRoot, wt.path, true)
         if (!isDetached) await window.api.gitBranchDelete(repoRoot, wt.branch, true)
@@ -95,7 +92,6 @@
       }
     }
 
-    // If the removed worktree was selected, fall back to main
     if (workspaceState.selectedWorktreePath === wt.path) {
       const main = workspaceState.worktrees.find((w) => w.isMain)
       if (main) selectWorktree(main.path)
@@ -105,22 +101,35 @@
 
 <CollapsibleSection title="WORKTREES" sectionKey="worktrees">
   {#snippet headerExtra()}
-    <button class="new-btn" onclick={showCreateWorktree} title="Create worktree">+ new</button>
+    <button
+      class="text-2xs font-medium font-inherit text-text-muted bg-transparent border-0 px-1.5 py-px rounded-md cursor-pointer transition-colors duration-fast hover:text-text hover:bg-active"
+      onclick={showCreateWorktree}
+      title="Create worktree">+ new</button
+    >
   {/snippet}
-  <ul class="worktree-list">
+  <ul class="list-none p-0 m-0">
     {#each workspaceState.worktrees as wt (wt.path)}
-      <li class="worktree-row">
+      <li class="flex items-center">
         <button
-          class="worktree-item"
-          class:active={wt.path === workspaceState.selectedWorktreePath}
+          class="flex items-center gap-1 flex-1 min-w-0 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
+          class:bg-hover-strong={wt.path === workspaceState.selectedWorktreePath}
           onclick={() => selectWorktree(wt.path)}
         >
-          <span class="indicator">{wt.isMain ? '*' : ' '}</span>
-          <span class="branch-name" title={wt.path}>{worktreeLabel(wt)}</span>
+          <span class="font-mono text-xs text-text-secondary w-2.5 flex-shrink-0"
+            >{wt.isMain ? '*' : ' '}</span
+          >
+          <span class="overflow-hidden text-ellipsis whitespace-nowrap" title={wt.path}
+            >{worktreeLabel(wt)}</span
+          >
           {#if wt.branch === '(detached)'}
-            <span class="detached-badge" title={wt.head}>{wt.head.slice(0, 7)}</span>
+            <span
+              class="text-2xs font-medium font-mono text-warning-text flex-shrink-0 ml-auto"
+              title={wt.head}>{wt.head.slice(0, 7)}</span
+            >
           {:else if mergedBranches.has(wt.branch)}
-            <span class="merged-badge" title="Merged">merged</span>
+            <span class="text-2xs font-medium text-success flex-shrink-0 ml-auto" title="Merged"
+              >merged</span
+            >
           {/if}
           {#if prMap[wt.branch]}
             {@const pr = prMap[wt.branch]}
@@ -139,7 +148,7 @@
         </button>
         {#if !wt.isMain && mergedBranches.has(wt.branch)}
           <button
-            class="remove-btn"
+            class="flex items-center justify-center w-6 h-6 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-md mr-1 transition-colors duration-fast hover:text-danger hover:bg-danger-bg"
             title="Remove worktree and delete branch"
             aria-label="Remove worktree and delete branch"
             onclick={(e) => removeWorktree(e, wt)}
@@ -151,151 +160,3 @@
     {/each}
   </ul>
 </CollapsibleSection>
-
-<style>
-  .new-btn {
-    font-size: 10px;
-    font-weight: 500;
-    font-family: inherit;
-    color: var(--c-text-muted);
-    background: none;
-    border: none;
-    padding: 1px 5px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition:
-      color 0.1s,
-      background 0.1s;
-  }
-
-  .new-btn:hover {
-    color: var(--c-text);
-    background: var(--c-active);
-  }
-
-  .worktree-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  .worktree-row {
-    display: flex;
-    align-items: center;
-  }
-
-  .worktree-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-    padding: 4px 12px;
-    border: none;
-    background: none;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .worktree-item:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .worktree-item.active {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-
-  .indicator {
-    font-family: monospace;
-    font-size: 11px;
-    color: var(--c-text-secondary);
-    width: 10px;
-    flex-shrink: 0;
-  }
-
-  .branch-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .detached-badge {
-    font-size: 9px;
-    font-weight: 500;
-    font-family: monospace;
-    color: var(--c-warning-text);
-    flex-shrink: 0;
-    margin-left: auto;
-  }
-
-  .merged-badge {
-    font-size: 9px;
-    font-weight: 500;
-    color: var(--c-success);
-    flex-shrink: 0;
-    margin-left: auto;
-  }
-
-  .pr-badge {
-    font-size: 9px;
-    font-weight: 500;
-    padding: 0 4px;
-    border-radius: 3px;
-    border: none;
-    cursor: pointer;
-    flex-shrink: 0;
-    margin-left: auto;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    font-family: inherit;
-    line-height: 16px;
-  }
-
-  .pr-badge:hover {
-    opacity: 0.8;
-  }
-
-  .pr-badge.draft {
-    background: var(--c-hover-strong);
-    color: var(--c-text-muted);
-  }
-
-  .pr-badge.approved {
-    background: color-mix(in srgb, var(--c-success) 20%, transparent);
-    color: var(--c-success);
-  }
-
-  .pr-badge.changes-requested {
-    background: var(--c-warning-bg, var(--c-warning));
-    color: var(--c-warning-text);
-  }
-
-  .remove-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--c-text-faint);
-    cursor: pointer;
-    flex-shrink: 0;
-    border-radius: 4px;
-    margin-right: 4px;
-    transition:
-      color 0.1s,
-      background 0.1s;
-  }
-
-  .remove-btn:hover {
-    color: var(--c-danger);
-    background: var(--c-danger-bg);
-  }
-</style>

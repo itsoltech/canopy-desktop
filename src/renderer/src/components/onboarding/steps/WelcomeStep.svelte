@@ -4,7 +4,7 @@
 
 <div class="step">
   <div class="icon-wrap">
-    <Layers size={48} strokeWidth={1.5} color="var(--c-accent)" />
+    <Layers size={48} strokeWidth={1.5} color="var(--color-accent)" />
   </div>
   <h2 class="title">Welcome to Canopy</h2>
   <p class="description">
@@ -29,7 +29,7 @@
     width: 80px;
     height: 80px;
     border-radius: 20px;
-    background: var(--c-accent-bg);
+    background: var(--color-accent-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -40,13 +40,13 @@
     margin: 0;
     font-size: 22px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .description {
     margin: 0;
     font-size: 14px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     line-height: 1.5;
     max-width: 380px;
   }
@@ -54,6 +54,6 @@
   .hint {
     margin: 8px 0 0;
     font-size: 12px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 </style>

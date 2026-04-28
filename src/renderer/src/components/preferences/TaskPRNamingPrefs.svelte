@@ -173,7 +173,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     margin: 0;
   }
 
@@ -185,7 +185,7 @@
   }
 
   .select-label {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     width: 90px;
     flex-shrink: 0;
   }
@@ -199,22 +199,22 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .text-input {
     padding: 6px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .text-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .textarea {
@@ -223,6 +223,6 @@
   }
 
   .textarea::placeholder {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 </style>

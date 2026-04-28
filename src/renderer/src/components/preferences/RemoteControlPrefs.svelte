@@ -208,7 +208,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
     display: inline-flex;
     align-items: center;
@@ -222,9 +222,9 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.6px;
-    color: var(--c-warning);
-    background: color-mix(in srgb, var(--c-warning) 15%, transparent);
-    border: 1px solid color-mix(in srgb, var(--c-warning) 40%, transparent);
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
     border-radius: 10px;
     vertical-align: middle;
   }
@@ -234,13 +234,13 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
   }
 
   .hint-row {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;
@@ -258,16 +258,16 @@
 
   .security-note {
     padding: 10px 12px;
-    background: color-mix(in srgb, var(--c-warning) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--c-warning) 30%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
     border-radius: 6px;
     font-size: 11px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     line-height: 1.5;
   }
 
   .security-note strong {
-    color: var(--c-text);
+    color: var(--color-text);
     display: block;
     margin-bottom: 4px;
   }
@@ -286,7 +286,7 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
   }
 
@@ -299,7 +299,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.4px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     padding: 0 6px;
   }
 
@@ -309,7 +309,7 @@
     align-items: flex-start;
     cursor: pointer;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .radio-row input[type='radio'] {
@@ -324,22 +324,22 @@
 
   .radio-row small {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .trusted-devices h4 {
     font-size: 13px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0 0 4px;
   }
 
   .devices-empty {
     font-size: 12px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     padding: 12px 14px;
-    background: var(--c-bg-input);
-    border: 1px dashed var(--c-border-subtle);
+    background: var(--color-bg-input);
+    border: 1px dashed var(--color-border-subtle);
     border-radius: 6px;
     margin: 8px 0 0;
   }
@@ -359,8 +359,8 @@
     justify-content: space-between;
     gap: 12px;
     padding: 10px 12px;
-    background: var(--c-bg-input);
-    border: 1px solid var(--c-border-subtle);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-subtle);
     border-radius: 6px;
   }
 
@@ -374,33 +374,33 @@
   .device-name {
     font-size: 13px;
     font-weight: 500;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .device-meta {
     font-size: 10px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .device-id {
     font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .device-remove {
     all: unset;
     padding: 5px 12px;
     border-radius: 4px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
-    color: var(--c-danger-text);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    color: var(--color-danger-text);
     font-size: 11px;
     cursor: pointer;
     flex-shrink: 0;
   }
 
   .device-remove:hover {
-    background: var(--c-danger-bg);
-    border-color: var(--c-danger);
+    background: var(--color-danger-bg);
+    border-color: var(--color-danger);
   }
 </style>

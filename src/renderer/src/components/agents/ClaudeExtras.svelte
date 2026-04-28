@@ -91,14 +91,14 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin: 0;
   }
 
   .context-track {
     height: 4px;
     border-radius: 2px;
-    background: var(--c-active);
+    background: var(--color-active);
     overflow: hidden;
   }
 
@@ -109,15 +109,15 @@
   }
 
   .context-fill.ctx-green {
-    background: var(--c-success);
+    background: var(--color-success);
   }
 
   .context-fill.ctx-yellow {
-    background: var(--c-warning);
+    background: var(--color-warning);
   }
 
   .context-fill.ctx-red {
-    background: var(--c-danger);
+    background: var(--color-danger);
   }
 
   .rate-limit-row {
@@ -134,16 +134,16 @@
 
   .rate-limit-label {
     font-size: 12px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .rate-limit-meta {
     font-size: 11px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .rate-limit-reset {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin-left: 0.3em;
   }
 </style>

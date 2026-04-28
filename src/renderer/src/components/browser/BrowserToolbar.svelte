@@ -105,10 +105,10 @@
   }
 </script>
 
-<div class="browser-toolbar">
-  <div class="nav-buttons">
+<div class="flex items-center gap-1 h-9 px-1.5 bg-bg-input border-b border-active flex-shrink-0">
+  <div class="flex items-center gap-0.5 flex-shrink-0">
     <button
-      class="nav-btn"
+      class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent text-text-secondary cursor-pointer p-0 enabled:hover:bg-active enabled:hover:text-text disabled:text-text-faint disabled:cursor-default"
       disabled={!canGoBack}
       onclick={onBack}
       title="Back"
@@ -117,7 +117,7 @@
       <ArrowLeft size={14} />
     </button>
     <button
-      class="nav-btn"
+      class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent text-text-secondary cursor-pointer p-0 enabled:hover:bg-active enabled:hover:text-text disabled:text-text-faint disabled:cursor-default"
       disabled={!canGoForward}
       onclick={onForward}
       title="Forward"
@@ -126,19 +126,18 @@
       <ArrowRight size={14} />
     </button>
     <button
-      class="nav-btn"
-      class:loading={isLoading}
+      class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent text-text-secondary cursor-pointer p-0 hover:bg-active hover:text-text"
       onclick={onReload}
       title="Reload"
       aria-label="Reload"
     >
-      <RotateCw size={14} />
+      <RotateCw size={14} class={isLoading ? 'animate-spin-slow motion-reduce:animate-none' : ''} />
     </button>
   </div>
 
   <input
     bind:this={urlInput}
-    class="url-bar"
+    class="flex-1 h-6.5 px-2 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none min-w-0 focus:border-focus-ring placeholder:text-text-faint"
     type="text"
     bind:value={inputValue}
     onkeydown={handleKeydown}
@@ -149,8 +148,10 @@
 
   {#if url && url !== 'about:blank'}
     <button
-      class="nav-btn star-btn"
-      class:favorited={isFavorited}
+      class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent cursor-pointer p-0 hover:bg-active"
+      class:text-warning={isFavorited}
+      class:text-text-secondary={!isFavorited}
+      class:hover:text-text={!isFavorited}
       onclick={onToggleFavorite}
       title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
       aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
@@ -159,24 +160,26 @@
     </button>
   {/if}
 
-  <div class="action-buttons">
-    <div class="capture-wrapper">
+  <div class="flex items-center gap-0.5 flex-shrink-0">
+    <div class="relative flex items-center gap-1">
       {#if pickMode !== 'none'}
         <button
-          class="nav-btn cancel-btn"
+          class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent text-danger-text cursor-pointer p-0 hover:bg-danger-bg"
           onclick={onCancelPick}
           title="Cancel (Esc)"
           aria-label="Cancel pick"
         >
           <X size={14} />
         </button>
-        <span class="pick-label">
+        <span class="text-xs text-accent-text whitespace-nowrap">
           {pickMode === 'element' ? 'Select...' : 'Capture...'}
         </span>
       {:else}
         <button
-          class="nav-btn"
-          class:active={captureDropdownOpen}
+          class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent cursor-pointer p-0 enabled:hover:bg-active enabled:hover:text-text disabled:text-text-faint disabled:cursor-default"
+          class:text-accent={captureDropdownOpen}
+          class:bg-accent-bg={captureDropdownOpen}
+          class:text-text-secondary={!captureDropdownOpen}
           disabled={!hasAiSessions}
           onclick={() => (captureDropdownOpen ? closeDropdown() : openDropdown())}
           title={hasAiSessions ? 'Capture to AI agent' : 'No AI sessions open'}
@@ -188,10 +191,12 @@
       {#if captureDropdownOpen}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="capture-backdrop" onclick={closeDropdown}></div>
-        <div class="capture-dropdown">
+        <div class="fixed inset-0 z-overlay" onclick={closeDropdown}></div>
+        <div
+          class="absolute top-full right-0 mt-1 min-w-40 p-1 bg-bg-overlay border border-border rounded-lg shadow-popover z-popover"
+        >
           <button
-            class="capture-option"
+            class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-active"
             onclick={() => {
               closeDropdown()
               onStartElementPick()
@@ -201,7 +206,7 @@
             Select Element
           </button>
           <button
-            class="capture-option"
+            class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-active"
             onclick={() => {
               closeDropdown()
               onStartRegionCapture()
@@ -214,10 +219,12 @@
       {/if}
     </div>
 
-    <div class="capture-wrapper">
+    <div class="relative flex items-center gap-1">
       <button
-        class="nav-btn"
-        class:active={activeDevice !== null || deviceDropdownOpen}
+        class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent cursor-pointer p-0 hover:bg-active hover:text-text"
+        class:text-accent={activeDevice !== null || deviceDropdownOpen}
+        class:bg-accent-bg={activeDevice !== null || deviceDropdownOpen}
+        class:text-text-secondary={!(activeDevice !== null || deviceDropdownOpen)}
         onclick={() => (deviceDropdownOpen = !deviceDropdownOpen)}
         title="Responsive mode"
         aria-label="Responsive mode"
@@ -227,11 +234,13 @@
       {#if deviceDropdownOpen}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="capture-backdrop" onclick={() => (deviceDropdownOpen = false)}></div>
-        <div class="capture-dropdown">
+        <div class="fixed inset-0 z-overlay" onclick={() => (deviceDropdownOpen = false)}></div>
+        <div
+          class="absolute top-full right-0 mt-1 min-w-40 p-1 bg-bg-overlay border border-border rounded-lg shadow-popover z-popover"
+        >
           {#if activeDevice}
             <button
-              class="capture-option active-device"
+              class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-danger-text text-sm font-inherit cursor-pointer text-left hover:bg-active"
               onclick={() => {
                 deviceDropdownOpen = false
                 onSetDevice(null)
@@ -240,12 +249,13 @@
               <X size={13} />
               Reset to Desktop
             </button>
-            <div class="dropdown-divider"></div>
+            <div class="h-px mx-1.5 my-0.5 bg-border-subtle"></div>
           {/if}
           {#each Object.entries(viewports) as [name, preset] (name)}
             <button
-              class="capture-option"
-              class:selected={activeDevice === name}
+              class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-sm font-inherit cursor-pointer text-left hover:bg-active"
+              class:text-accent={activeDevice === name}
+              class:text-text={activeDevice !== name}
               onclick={() => {
                 deviceDropdownOpen = false
                 onSetDevice(name)
@@ -253,7 +263,9 @@
             >
               <Smartphone size={13} />
               {name}
-              <span class="device-size">{preset.width}&times;{preset.height}</span>
+              <span class="ml-auto text-2xs text-text-muted"
+                >{preset.width}&times;{preset.height}</span
+              >
             </button>
           {/each}
         </div>
@@ -262,7 +274,7 @@
 
     {#if isDevToolsOpen}
       <button
-        class="nav-btn"
+        class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent text-text-secondary cursor-pointer p-0 hover:bg-active hover:text-text"
         onclick={onSwitchDevToolsMode}
         title="Switch DevTools position ({devToolsMode === 'bottom' ? 'left' : 'bottom'})"
         aria-label="Switch DevTools position to {devToolsMode === 'bottom' ? 'left' : 'bottom'}"
@@ -275,8 +287,10 @@
       </button>
     {/if}
     <button
-      class="nav-btn"
-      class:active={isDevToolsOpen}
+      class="flex items-center justify-center w-6.5 h-6.5 border-0 rounded-md bg-transparent cursor-pointer p-0 hover:bg-active hover:text-text"
+      class:text-accent={isDevToolsOpen}
+      class:bg-accent-bg={isDevToolsOpen}
+      class:text-text-secondary={!isDevToolsOpen}
       onclick={onToggleDevTools}
       title="Toggle DevTools"
       aria-label="Toggle DevTools"
@@ -285,180 +299,3 @@
     </button>
   </div>
 </div>
-
-<style>
-  .browser-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    height: 36px;
-    padding: 0 6px;
-    background: var(--c-bg-input);
-    border-bottom: 1px solid var(--c-active);
-    flex-shrink: 0;
-  }
-
-  .nav-buttons,
-  .action-buttons {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    flex-shrink: 0;
-  }
-
-  .nav-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text-secondary);
-    cursor: pointer;
-    padding: 0;
-  }
-
-  .nav-btn:hover:not(:disabled) {
-    background: var(--c-active);
-    color: var(--c-text);
-  }
-
-  .nav-btn:disabled {
-    color: var(--c-text-faint);
-    cursor: default;
-  }
-
-  .nav-btn.active {
-    color: var(--c-accent);
-    background: var(--c-accent-bg);
-  }
-
-  .nav-btn.loading {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .nav-btn.loading {
-      animation: none;
-    }
-  }
-
-  .star-btn.favorited {
-    color: rgb(250, 200, 60);
-  }
-
-  .capture-wrapper {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .cancel-btn {
-    color: var(--c-danger-text) !important;
-  }
-
-  .cancel-btn:hover {
-    background: var(--c-danger-bg) !important;
-  }
-
-  .pick-label {
-    font-size: 11px;
-    color: var(--c-accent-text);
-    white-space: nowrap;
-  }
-
-  .capture-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 99;
-  }
-
-  .capture-dropdown {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    margin-top: 4px;
-    min-width: 160px;
-    padding: 4px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-    z-index: 100;
-  }
-
-  .capture-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 6px 10px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .capture-option:hover {
-    background: var(--c-active);
-  }
-
-  .capture-option.selected {
-    color: rgb(116, 192, 252);
-  }
-
-  .capture-option.active-device {
-    color: rgba(255, 130, 130, 0.9);
-  }
-
-  .device-size {
-    margin-left: auto;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .dropdown-divider {
-    height: 1px;
-    margin: 2px 6px;
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .url-bar {
-    flex: 1;
-    height: 26px;
-    padding: 0 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
-    min-width: 0;
-  }
-
-  .url-bar:focus {
-    border-color: var(--c-focus-ring);
-    color: var(--c-text);
-  }
-
-  .url-bar::placeholder {
-    color: var(--c-text-faint);
-  }
-</style>

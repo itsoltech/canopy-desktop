@@ -200,23 +200,23 @@
   .field label {
     font-size: 11px;
     font-weight: 500;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .field input {
     height: 30px;
     padding: 0 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
+    background: var(--color-bg-secondary);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .field input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .section-label {
@@ -226,7 +226,7 @@
     margin-top: 4px;
     font-size: 11px;
     font-weight: 600;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -239,14 +239,14 @@
     height: 22px;
     border: none;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     border-radius: 4px;
   }
 
   .add-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .env-row {
@@ -259,17 +259,17 @@
     flex: 1;
     height: 28px;
     padding: 0 8px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
+    background: var(--color-bg-secondary);
+    color: var(--color-text);
     font-size: 12px;
     font-family: var(--font-mono, monospace);
     outline: none;
   }
 
   .env-eq {
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-size: 12px;
   }
 
@@ -277,10 +277,10 @@
     flex: 2;
     height: 28px;
     padding: 0 8px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
+    background: var(--color-bg-secondary);
+    color: var(--color-text);
     font-size: 12px;
     font-family: var(--font-mono, monospace);
     outline: none;
@@ -288,13 +288,13 @@
 
   .env-key:focus,
   .env-value:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .error {
     padding: 8px 10px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
     border-radius: 6px;
     font-size: 12px;
   }
@@ -317,12 +317,12 @@
   }
 
   .btn.primary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn.primary:hover {
-    background: var(--c-accent-muted);
+    background: var(--color-accent-muted);
   }
 
   .btn:disabled {

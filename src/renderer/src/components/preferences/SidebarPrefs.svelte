@@ -100,13 +100,13 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
   .section-desc {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     margin: 0;
   }
 
@@ -126,7 +126,7 @@
   }
 
   .section-row:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .checkbox-row {
@@ -134,17 +134,17 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
   }
 
   .forced {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin-left: 4px;
   }
 
@@ -162,7 +162,7 @@
     background: none;
     border: 1px solid transparent;
     border-radius: 4px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     cursor: pointer;
     transition:
       background 0.1s,
@@ -170,8 +170,8 @@
   }
 
   .order-btn:hover:not(:disabled) {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
+    background: var(--color-hover-strong);
+    color: var(--color-text);
   }
 
   .order-btn:disabled {

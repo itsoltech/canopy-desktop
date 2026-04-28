@@ -28,10 +28,10 @@ export function createBaseExtensions(opts: BaseExtensionOpts): Extension[] {
       thickness: 1,
       highlightActiveBlock: true,
       colors: {
-        light: 'var(--c-indent-guide, rgba(255, 255, 255, 0.12))',
-        dark: 'var(--c-indent-guide, rgba(255, 255, 255, 0.12))',
-        activeLight: 'var(--c-indent-guide-active, rgba(255, 255, 255, 0.3))',
-        activeDark: 'var(--c-indent-guide-active, rgba(255, 255, 255, 0.3))',
+        light: 'oklch(1 0 0 / 0.12)',
+        dark: 'oklch(1 0 0 / 0.12)',
+        activeLight: 'oklch(1 0 0 / 0.3)',
+        activeDark: 'oklch(1 0 0 / 0.3)',
       },
     }),
     EditorView.domEventHandlers({

@@ -68,7 +68,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -77,13 +77,13 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
   }
 
   .hint-row {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;

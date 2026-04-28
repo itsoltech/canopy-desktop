@@ -167,7 +167,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -176,7 +176,7 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
   }
 
@@ -188,7 +188,7 @@
   }
 
   .select-label {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     min-width: 110px;
   }
 
@@ -200,19 +200,19 @@
   }
 
   .info-label {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     min-width: 80px;
   }
 
   .info-value {
-    color: var(--c-text);
+    color: var(--color-text);
     font-family: monospace;
     font-size: 12px;
   }
 
   .hint-row {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;
@@ -242,14 +242,14 @@
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
-    border: 1px solid var(--c-border);
-    background: var(--c-border-subtle);
-    color: var(--c-text-secondary);
+    border: 1px solid var(--color-border);
+    background: var(--color-border-subtle);
+    color: var(--color-text-secondary);
     transition: background 0.1s;
   }
 
   .action-btn:hover {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 </style>

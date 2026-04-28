@@ -221,13 +221,13 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
   .section-desc {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     margin: 0;
   }
 
@@ -243,17 +243,17 @@
     gap: 10px;
     padding: 6px 10px;
     border-radius: 6px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
     font-size: 13px;
   }
 
   .tool-name {
-    color: var(--c-text);
+    color: var(--color-text);
     min-width: 100px;
   }
 
   .tool-command {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-family: monospace;
     font-size: 12px;
     flex: 1;
@@ -261,29 +261,29 @@
 
   .tool-category {
     font-size: 10px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
   .builtin-badge {
     font-size: 10px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .remove-btn {
     padding: 2px 8px;
     border: none;
     border-radius: 4px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .remove-btn:hover {
-    background: var(--c-danger-bg);
+    background: var(--color-danger-bg);
   }
 
   .add-form {
@@ -291,29 +291,29 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
   }
 
   .form-input {
     padding: 6px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .form-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .form-error {
     font-size: 12px;
-    color: var(--c-danger);
+    color: var(--color-danger);
     margin: 0;
   }
 
@@ -333,34 +333,34 @@
   }
 
   .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .btn-add {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-add:hover {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-add-tool {
     align-self: flex-start;
     padding: 6px 14px;
-    border: 1px dashed var(--c-text-faint);
+    border: 1px dashed var(--color-text-faint);
     border-radius: 6px;
     background: transparent;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-add-tool:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .edit-form {
@@ -368,9 +368,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
     width: 100%;
   }
 
@@ -380,7 +380,7 @@
 
   .edit-id-label {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     font-family: monospace;
   }
 
@@ -388,14 +388,14 @@
     padding: 2px 8px;
     border: none;
     border-radius: 4px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .edit-btn:hover {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 </style>

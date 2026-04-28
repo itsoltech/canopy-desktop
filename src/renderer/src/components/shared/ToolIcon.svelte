@@ -23,7 +23,7 @@
   <FileText {size} />
 {:else}
   <span
-    class="fallback"
+    class="inline-flex items-center justify-center rounded-sm bg-hover-strong text-text-secondary font-semibold flex-shrink-0"
     style:width="{size}px"
     style:height="{size}px"
     style:font-size="{size * 0.6}px"
@@ -31,16 +31,3 @@
     {icon.charAt(0).toUpperCase()}
   </span>
 {/if}
-
-<style>
-  .fallback {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 3px;
-    background: var(--c-hover-strong);
-    color: var(--c-text-secondary);
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-</style>

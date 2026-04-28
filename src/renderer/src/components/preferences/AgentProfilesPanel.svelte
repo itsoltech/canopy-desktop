@@ -257,13 +257,13 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
   .section-hint {
     font-size: 12px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin: 0;
     line-height: 1.4;
   }
@@ -280,7 +280,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-right: 1px solid var(--c-border);
+    border-right: 1px solid var(--color-border);
     padding-right: 12px;
     min-height: 0;
   }
@@ -297,23 +297,23 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .btn-new {
     padding: 4px 10px;
-    border: 1px dashed var(--c-text-faint);
+    border: 1px dashed var(--color-text-faint);
     border-radius: 6px;
     background: transparent;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-new:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .btn-new:disabled {
@@ -339,11 +339,11 @@
   }
 
   .profile-row:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .profile-row.selected {
-    background: var(--c-active);
+    background: var(--color-active);
   }
 
   .profile-row-select {
@@ -354,7 +354,7 @@
     padding: 6px 8px;
     border: none;
     background: transparent;
-    color: var(--c-text);
+    color: var(--color-text);
     font-family: inherit;
     font-size: 13px;
     text-align: left;
@@ -372,8 +372,8 @@
   .badge-default {
     font-size: 10px;
     text-transform: uppercase;
-    color: var(--c-text-faint);
-    border: 1px solid var(--c-border);
+    color: var(--color-text-faint);
+    border: 1px solid var(--color-border);
     border-radius: 3px;
     padding: 0 4px;
   }
@@ -381,7 +381,7 @@
   .row-delete {
     border: none;
     background: transparent;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     font-size: 12px;
     cursor: pointer;
     padding: 6px 8px;
@@ -396,13 +396,13 @@
   }
 
   .row-delete:hover {
-    color: var(--c-danger-text);
-    background: var(--c-danger-bg);
+    color: var(--color-danger-text);
+    background: var(--color-danger-bg);
   }
 
   .empty {
     font-size: 12px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     padding: 8px;
   }
 
@@ -419,7 +419,7 @@
     align-items: flex-end;
     gap: 12px;
     padding-bottom: 12px;
-    border-bottom: 1px solid var(--c-border);
+    border-bottom: 1px solid var(--color-border);
   }
 
   .form-header .field {
@@ -435,37 +435,37 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .text-input {
     padding: 6px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .text-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .btn-save {
     padding: 6px 16px;
     border: none;
     border-radius: 6px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .btn-save:hover:not(:disabled) {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-save:disabled {
@@ -475,7 +475,7 @@
 
   .empty-form {
     font-size: 13px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     padding: 24px;
     text-align: center;
   }

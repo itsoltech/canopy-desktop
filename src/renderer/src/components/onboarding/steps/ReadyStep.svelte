@@ -12,7 +12,7 @@
 
 <div class="step">
   <div class="icon-wrap">
-    <Check size={48} strokeWidth={1.5} color="var(--c-success)" />
+    <Check size={48} strokeWidth={1.5} color="var(--color-success)" />
   </div>
   <h2 class="title">You're all set</h2>
   <p class="description">
@@ -37,7 +37,7 @@
     width: 80px;
     height: 80px;
     border-radius: 20px;
-    background: var(--c-accent-bg);
+    background: var(--color-accent-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -48,13 +48,13 @@
     margin: 0;
     font-size: 22px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .description {
     margin: 0;
     font-size: 14px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     line-height: 1.5;
     max-width: 360px;
   }
@@ -64,10 +64,10 @@
     padding: 1px 5px;
     font-size: 12px;
     font-family: inherit;
-    background: var(--c-active);
-    border: 1px solid var(--c-text-faint);
+    background: var(--color-active);
+    border: 1px solid var(--color-text-faint);
     border-radius: 4px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .open-btn {
@@ -75,8 +75,8 @@
     padding: 10px 28px;
     border: none;
     border-radius: 8px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
     font-size: 14px;
     font-weight: 500;
     font-family: inherit;
@@ -85,11 +85,11 @@
   }
 
   .open-btn:hover {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .open-btn:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 </style>

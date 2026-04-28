@@ -1,3 +1,5 @@
+@import 'tailwindcss';
+
 @font-face {
   font-family: 'JetBrains Mono';
   src: url('./fonts/JetBrainsMono-Regular.ttf') format('truetype');
@@ -41,136 +43,415 @@
   font-display: swap;
 }
 
-:root {
-  --c-bg: #1e1e1e;
-  --c-bg-elevated: #2b2b2b;
-  --c-bg-glass: rgba(30, 30, 30, 0.75);
-  --c-bg-glass-heavy: rgba(30, 30, 30, 0.85);
-  --c-bg-glass-light: rgba(30, 30, 30, 0.6);
-  --c-bg-overlay: rgba(30, 30, 30, 0.98);
-  --c-bg-input: rgba(0, 0, 0, 0.3);
+@theme {
+  --color-bg: oklch(0.235 0 0);
+  --color-bg-elevated: oklch(0.289 0 0);
+  --color-bg-glass: oklch(0.235 0 0 / 0.75);
+  --color-bg-glass-heavy: oklch(0.235 0 0 / 0.85);
+  --color-bg-glass-light: oklch(0.235 0 0 / 0.6);
+  --color-bg-overlay: oklch(0.235 0 0 / 0.98);
+  --color-bg-input: oklch(0 0 0 / 0.3);
 
-  --c-text: rgba(224, 224, 224, 0.86);
-  --c-text-secondary: rgba(224, 224, 224, 0.6);
-  --c-text-muted: rgba(224, 224, 224, 0.4);
-  --c-text-faint: rgba(224, 224, 224, 0.25);
+  --color-text: oklch(0.907 0 0 / 0.86);
+  --color-text-secondary: oklch(0.907 0 0 / 0.6);
+  --color-text-muted: oklch(0.907 0 0 / 0.4);
+  --color-text-faint: oklch(0.907 0 0 / 0.25);
 
-  --c-border: rgba(255, 255, 255, 0.12);
-  --c-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border: oklch(1 0 0 / 0.12);
+  --color-border-subtle: oklch(1 0 0 / 0.06);
 
-  --c-hover: rgba(255, 255, 255, 0.06);
-  --c-hover-strong: rgba(255, 255, 255, 0.1);
-  --c-active: rgba(255, 255, 255, 0.08);
-  --c-focus-ring: rgba(116, 192, 252, 0.6);
+  --color-hover: oklch(1 0 0 / 0.06);
+  --color-hover-strong: oklch(1 0 0 / 0.1);
+  --color-active: oklch(1 0 0 / 0.08);
+  --color-focus-ring: oklch(0.782 0.115 243.83 / 0.6);
 
-  --c-accent: rgb(116, 192, 252);
-  --c-accent-bg: rgba(116, 192, 252, 0.15);
-  --c-accent-bg-hover: rgba(116, 192, 252, 0.25);
-  --c-accent-text: rgba(116, 192, 252, 0.9);
-  --c-accent-muted: rgba(116, 192, 252, 0.3);
+  --color-accent: oklch(0.782 0.115 243.83);
+  --color-accent-bg: oklch(0.782 0.115 243.83 / 0.15);
+  --color-accent-bg-hover: oklch(0.782 0.115 243.83 / 0.25);
+  --color-accent-text: oklch(0.782 0.115 243.83 / 0.9);
+  --color-accent-muted: oklch(0.782 0.115 243.83 / 0.3);
 
-  --c-danger: rgb(255, 107, 107);
-  --c-danger-bg: rgba(255, 107, 107, 0.2);
-  --c-danger-text: rgba(255, 107, 107, 0.9);
-  --c-success: rgb(105, 219, 124);
-  --c-warning: rgb(255, 212, 59);
-  --c-warning-text: rgba(255, 212, 59, 0.9);
-  --c-generate: rgb(218, 119, 242);
+  --color-danger: oklch(0.712 0.181 22.84);
+  --color-danger-bg: oklch(0.712 0.181 22.84 / 0.2);
+  --color-danger-text: oklch(0.712 0.181 22.84 / 0.9);
+  --color-success: oklch(0.802 0.168 147.32);
+  --color-success-bg: oklch(0.802 0.168 147.32 / 0.2);
+  --color-success-text: oklch(0.802 0.168 147.32 / 0.9);
+  --color-warning: oklch(0.883 0.165 92.22);
+  --color-warning-bg: oklch(0.883 0.165 92.22 / 0.2);
+  --color-warning-text: oklch(0.883 0.165 92.22 / 0.9);
+  --color-generate: oklch(0.725 0.196 319.53);
+  --color-generate-bg: color-mix(in srgb, oklch(0.725 0.196 319.53) 20%, transparent);
+  --color-generate-bg-hover: color-mix(in srgb, oklch(0.725 0.196 319.53) 30%, transparent);
 
-  --c-blazing: rgb(255, 140, 50);
-  --c-blazing-bg: rgba(255, 140, 50, 0.2);
-  --c-blazing-border: rgba(255, 140, 50, 0.4);
-  --c-blazing-text: rgba(255, 200, 140, 1);
-  --c-blazing-glow: rgba(255, 140, 50, 0.3);
-  --c-blazing-glow-deep: rgba(255, 80, 20, 0.15);
-  --c-blazing-shadow: rgba(255, 140, 50, 0.5);
-  --c-blazing-shadow-strong: rgba(255, 80, 20, 0.7);
-  --c-blazing-drop: rgba(255, 140, 50, 0.6);
+  --color-blazing: oklch(0.752 0.169 53.69);
+  --color-blazing-bg: oklch(0.752 0.169 53.69 / 0.2);
+  --color-blazing-border: oklch(0.752 0.169 53.69 / 0.4);
+  --color-blazing-text: oklch(0.868 0.099 68.36);
+  --color-blazing-glow: oklch(0.752 0.169 53.69 / 0.3);
+  --color-blazing-glow-deep: oklch(0.671 0.22 36.41 / 0.15);
+  --color-blazing-shadow: oklch(0.752 0.169 53.69 / 0.5);
+  --color-blazing-shadow-strong: oklch(0.671 0.22 36.41 / 0.7);
+  --color-blazing-drop: oklch(0.752 0.169 53.69 / 0.6);
 
-  --c-inferno: rgb(255, 50, 50);
-  --c-inferno-bg: rgba(255, 50, 50, 0.2);
-  --c-inferno-border: rgba(255, 50, 50, 0.5);
-  --c-inferno-text: rgba(255, 180, 180, 1);
-  --c-inferno-glow: rgba(255, 50, 50, 0.4);
-  --c-inferno-glow-deep: rgba(200, 0, 0, 0.25);
-  --c-inferno-shadow: rgba(255, 30, 30, 0.6);
-  --c-inferno-shadow-strong: rgba(200, 0, 0, 0.8);
-  --c-inferno-drop: rgba(255, 50, 50, 0.7);
+  --color-inferno: oklch(0.648 0.238 27.04);
+  --color-inferno-bg: oklch(0.648 0.238 27.04 / 0.2);
+  --color-inferno-border: oklch(0.648 0.238 27.04 / 0.5);
+  --color-inferno-text: oklch(0.841 0.088 19.07);
+  --color-inferno-glow: oklch(0.648 0.238 27.04 / 0.4);
+  --color-inferno-glow-deep: oklch(0.523 0.215 29.23 / 0.25);
+  --color-inferno-shadow: oklch(0.636 0.249 28.24 / 0.6);
+  --color-inferno-shadow-strong: oklch(0.523 0.215 29.23 / 0.8);
+  --color-inferno-drop: oklch(0.648 0.238 27.04 / 0.7);
 
-  --c-scrollbar: rgba(255, 255, 255, 0.15);
-  --c-scrollbar-hover: rgba(255, 255, 255, 0.3);
-  --c-scrollbar-active: rgba(255, 255, 255, 0.4);
+  --color-scrollbar: oklch(1 0 0 / 0.15);
+  --color-scrollbar-hover: oklch(1 0 0 / 0.3);
+  --color-scrollbar-active: oklch(1 0 0 / 0.4);
 
-  --c-scrim: rgba(0, 0, 0, 0.5);
+  --color-scrim: oklch(0 0 0 / 0.5);
 
-  --diff-add-bg: color-mix(in srgb, var(--c-success) 15%, transparent);
-  --diff-add-fg: var(--c-success);
-  --diff-delete-bg: color-mix(in srgb, var(--c-danger) 15%, transparent);
-  --diff-delete-fg: var(--c-danger);
-  --diff-hunk-header-bg: color-mix(in srgb, var(--c-accent) 10%, transparent);
+  --color-diff-add-bg: color-mix(in srgb, var(--color-success) 15%, transparent);
+  --color-diff-add-fg: var(--color-success);
+  --color-diff-delete-bg: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  --color-diff-delete-fg: var(--color-danger);
+  --color-diff-hunk-header-bg: color-mix(in srgb, var(--color-accent) 10%, transparent);
 
-  color-scheme: dark;
+  --color-experimental-bg: color-mix(in srgb, var(--color-warning) 15%, transparent);
+
+  /* Code editor syntax highlighting (CodeMirror theme defaults). */
+  --color-syntax-keyword: oklch(0.702 0.109 329.42);
+  --color-syntax-string: oklch(0.71 0.083 43.17);
+  --color-syntax-comment: oklch(0.632 0.109 136.61);
+  --color-syntax-number: oklch(0.823 0.059 134.91);
+  --color-syntax-operator: oklch(0.87 0 0);
+  --color-syntax-function: oklch(0.882 0.066 107.67);
+  --color-syntax-variable: oklch(0.863 0.08 232.08);
+  --color-syntax-property: oklch(0.863 0.08 232.08);
+  --color-syntax-type: oklch(0.76 0.115 177.18);
+  --color-syntax-tag: oklch(0.671 0.112 245.54);
+  --color-syntax-heading: oklch(0.671 0.112 245.54);
+  --color-syntax-error: oklch(0.738 0.138 32.5);
+  --color-folder-icon: color-mix(in srgb, var(--color-blazing-text) 70%, transparent);
+
+  /* Status palette — used for agent/notch state indicators (full opacity over dark bg) */
+  --color-status-idle: oklch(0.8 0.182 151.71);
+  --color-status-working: oklch(0.769 0.165 70.08);
+  --color-status-permission: oklch(0.711 0.166 22.22);
+  --color-status-error: oklch(0.711 0.166 22.22);
+  --color-status-compacting: oklch(0.714 0.143 254.62);
+  --color-status-ended: oklch(0.51 0 0);
+  --color-status-none: oklch(0.45 0 0);
+
+  /* Notch overlay — separate Electron window, always on solid black */
+  --color-notch-bg: oklch(0 0 0);
+  --color-notch-text: oklch(1 0 0 / 0.9);
+  --color-notch-text-dim: oklch(1 0 0 / 0.35);
+  --color-notch-icon-bg: oklch(1 0 0 / 0.06);
+  --color-notch-row-hover: oklch(1 0 0 / 0.08);
+  --color-notch-row-peek: oklch(1 0 0 / 0.1);
+  --color-notch-scrollbar: oklch(1 0 0 / 0.15);
+  --color-notch-chevron: oklch(1 0 0 / 0.2);
 
   --font-sans:
     system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI',
     Roboto, 'Helvetica Neue', sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
-  --fs-micro: 9px;
-  --fs-2xs: 10px;
-  --fs-xs: 11px;
-  --fs-sm: 12px;
-  --fs-md: 13px;
-  --fs-lg: 14px;
-  --fs-xl: 16px;
-  --fs-2xl: 20px;
-  --fs-3xl: 28px;
+  --text-micro: 9px;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 14px;
+  /* Override Tailwind v4 default (1rem = 16px) — canopy uses 15px as the
+     dialog/modal title midpoint between body 14px (text-lg) and h1/large 16px (text-xl). */
+  --text-base: 15px;
+  --text-xl: 16px;
+  --text-2xl: 20px;
+  --text-3xl: 28px;
 
-  --fw-light: 300;
-  --fw-regular: 400;
-  --fw-medium: 500;
-  --fw-semibold: 600;
-  --fw-bold: 700;
+  --font-weight-light: 300;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
 
-  --lh-tight: 1.15;
-  --lh-snug: 1.35;
-  --lh-body: 1.6;
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-body: 1.6;
 
-  --ls-caps: 0.1em;
-  --ls-caps-tight: 0.05em;
-  --ls-caps-looser: 0.04em;
+  --tracking-caps: 0.1em;
+  --tracking-caps-tight: 0.05em;
+  --tracking-caps-looser: 0.04em;
 
-  --sp-0: 0;
-  --sp-px: 1px;
-  --sp-0_5: 2px;
-  --sp-1: 4px;
-  --sp-1_5: 6px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-5: 20px;
-  --sp-6: 24px;
-  --sp-8: 32px;
+  --spacing: 4px;
 
-  --h-status-bar: 24px;
-  --h-tab-bar: 32px;
-  --h-row: 28px;
+  --height-status-bar: 24px;
+  --height-tab-bar: 32px;
+  --height-row: 28px;
 
-  --r-xs: 2px;
-  --r-sm: 3px;
-  --r-md: 4px;
-  --r-lg: 6px;
-  --r-xl: 8px;
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
+  --radius-3xl: 16px;
+  --radius-4xl: 24px;
+  /* Inner radius for the last visible notch row when island is expanded
+     (outer 24px − content padding 6px = 18px so corners nest perfectly). */
+  --radius-notch-row: 18px;
 
-  --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.4);
-  --shadow-ctx: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.6);
+  --shadow-menu: 0 8px 24px oklch(0 0 0 / 0.4);
+  --shadow-ctx: 0 8px 32px oklch(0 0 0 / 0.5);
+  --shadow-modal: 0 20px 60px oklch(0 0 0 / 0.6);
+  --shadow-banner: 0 4px 20px oklch(0 0 0 / 0.4);
+  --shadow-popover: 0 4px 16px oklch(0 0 0 / 0.5);
+  --shadow-tooltip: 0 2px 8px oklch(0 0 0 / 0.2);
+  --shadow-notch: 0 8px 40px oklch(0 0 0 / 0.55);
 
-  --dur-fast: 100ms;
-  --dur-base: 150ms;
-  --dur-slow: 300ms;
+  --duration-fast: 100ms;
+  --duration-base: 150ms;
+  --duration-slow: 300ms;
+  --duration-slower: 600ms;
   --ease-std: ease;
   --ease-pulse: ease-in-out;
+  --ease-notch-overshoot: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --ease-notch-spring: cubic-bezier(0.175, 0.885, 0.32, 1);
+  --ease-press: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --animate-slide-in-up: slide-in-up 0.2s ease-out;
+  --animate-spin-slow: spin-slow 1.5s linear infinite;
+  --animate-peek-pulse: peek-pulse 2s ease-out;
+  --animate-badge-pulse: badge-pulse 1.5s ease-in-out infinite;
+  --animate-badge-pulse-fast: badge-pulse 1s ease-in-out infinite;
+  --animate-progress-indeterminate: progress-indeterminate 1.5s ease-in-out infinite;
+  --animate-pulse-glow: pulse-glow 1s ease-out;
+  --animate-slide-down-in: slide-down-in 0.15s ease both;
+
+  /* Narrow-window breakpoints for chrome (Titlebar etc.). Used as `max-narrow:hidden` to drop content. */
+  --breakpoint-narrow: 820px;
+  --breakpoint-tight: 560px;
+}
+
+@keyframes slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes peek-pulse {
+  0% {
+    background: var(--color-notch-row-peek);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes badge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes pulse-glow {
+  0% {
+    box-shadow: inset 0 0 12px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
+@keyframes slide-down-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+@utility z-pane-divider {
+  z-index: 5;
+}
+
+@utility z-pane-overlay {
+  z-index: 10;
+}
+
+@utility z-banner {
+  z-index: 9999;
+}
+
+@utility z-overlay {
+  z-index: 10000;
+}
+
+@utility z-popover {
+  z-index: 10001;
+}
+
+@utility border-1\.5 {
+  border-width: 1.5px;
+}
+
+@utility font-inherit {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  line-height: inherit;
+}
+
+@utility app-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+@utility app-no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+@utility content-empty {
+  content: '';
+}
+
+@utility content-edit-hint {
+  content: 'Click to edit...';
+}
+
+/* Inset shadows for tab strip active/drop indicators (Tailwind has no `shadow-inset-*` namespace). */
+@utility shadow-tab-active {
+  box-shadow: inset 0 -1px 0 var(--color-accent);
+}
+@utility shadow-tab-drop {
+  box-shadow: inset 0 0 0 1px var(--color-accent-muted);
+}
+
+/* Sliding gradient track for progress-indeterminate animation. */
+@utility bg-progress-indeterminate {
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+}
+
+/* Character-width units for diff line gutters. ch ≈ width of "0" in the current font. */
+@utility w-1ch {
+  width: 1ch;
+}
+@utility w-4ch {
+  width: 4ch;
+}
+
+/* Container-query inline-size minus 16px gutter for sticky comment-form. */
+@utility w-cqi-comment {
+  width: calc(100cqi - 16px);
+}
+
+/* File-section soft highlight when keyboard-focused (j/k navigation). */
+@utility bg-file-focused {
+  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
+}
+
+/* Container-query inline-size context (parent of cqi-relative children). */
+@utility container-inline {
+  container-type: inline-size;
+}
+
+/* File-header darker hover (text-tinted bg-elevated). */
+@utility bg-file-header-hover {
+  background: color-mix(in srgb, var(--color-text) 8%, var(--color-bg-elevated));
+}
+
+/* Search highlight inside diff lines. */
+@utility bg-search-highlight {
+  background: color-mix(in srgb, var(--color-warning) 30%, transparent);
+}
+
+/* Hover state for destructive action buttons (30% danger over transparent). */
+@utility bg-danger-hover {
+  background: color-mix(in srgb, var(--color-danger) 30%, transparent);
+}
+
+/* Dialog viewport caps — bounded so big dialogs don't grow past 90% of the viewport. */
+@utility max-w-dialog {
+  max-width: 90vw;
+}
+@utility max-h-dialog {
+  max-height: 70vh;
+}
+@utility max-h-dialog-tall {
+  max-height: 90vh;
+}
+
+/* Preferences modal sizing. */
+@utility w-prefs {
+  width: 880px;
+}
+@utility max-w-prefs {
+  max-width: 92vw;
+}
+@utility h-prefs {
+  height: 640px;
+}
+@utility max-h-prefs {
+  max-height: 88vh;
+}
+
+/* macOS traffic-light buttons reserve ~78px on each side of the titlebar.
+   Used on the titlebar drag region for Mac builds only. */
+@utility px-mac-traffic {
+  padding-left: 78px;
+  padding-right: 78px;
+}
+
+/* Grid-row trick for animating collapse without max-height: parent has display:grid,
+   inner child has overflow:hidden; toggling between 1fr↔0fr animates the inner height. */
+@utility grid-rows-open {
+  grid-template-rows: 1fr;
+}
+@utility grid-rows-closed {
+  grid-template-rows: 0fr;
+}
+@utility transition-grid-rows {
+  transition-property: grid-template-rows;
+  transition-duration: var(--duration-base);
+  transition-timing-function: var(--ease-std);
 }
 
 *,
@@ -195,29 +476,15 @@ ul {
 
 body {
   min-height: 100vh;
-  color: var(--c-text);
-  background: var(--c-bg);
+  color: var(--color-text);
+  background: var(--color-bg);
   font-family: var(--font-sans);
-  font-size: var(--fs-sm);
-  line-height: var(--lh-body);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
   text-rendering: optimizeLegibility;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-.badge-experimental {
-  display: inline-flex;
-  align-items: center;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--c-warning, #f0a020) 15%, transparent);
-  color: var(--c-warning, #f0a020);
-  vertical-align: middle;
 }
 
 /* Non-Retina (1x DPI) displays: adjust font rendering to reduce
@@ -230,7 +497,6 @@ body {
   }
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -241,99 +507,18 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--c-scrollbar);
+  background: var(--color-scrollbar);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--c-scrollbar-hover);
+  background: var(--color-scrollbar-hover);
 }
 
 ::-webkit-scrollbar-thumb:active {
-  background: var(--c-scrollbar-active);
+  background: var(--color-scrollbar-active);
 }
 
 ::-webkit-scrollbar-corner {
   background: transparent;
-}
-
-.type-hero {
-  font-family: var(--font-sans);
-  font-size: var(--fs-3xl);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-tight);
-  letter-spacing: -0.01em;
-  color: var(--c-text);
-}
-
-.type-h1 {
-  font-family: var(--font-sans);
-  font-size: var(--fs-2xl);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-snug);
-  color: var(--c-text);
-}
-
-.type-h2 {
-  font-family: var(--font-sans);
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-semibold);
-  color: var(--c-text);
-}
-
-.type-body {
-  font-family: var(--font-sans);
-  font-size: var(--fs-sm);
-  color: var(--c-text);
-}
-
-.type-body-secondary {
-  font-family: var(--font-sans);
-  font-size: var(--fs-sm);
-  color: var(--c-text-secondary);
-}
-
-.type-meta {
-  font-family: var(--font-sans);
-  font-size: var(--fs-xs);
-  color: var(--c-text-muted);
-}
-
-.type-section-label {
-  font-family: var(--font-sans);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--ls-caps);
-  text-transform: uppercase;
-  color: var(--c-text-muted);
-}
-
-.type-inspector-label {
-  font-family: var(--font-sans);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--c-text-faint);
-}
-
-.type-badge {
-  font-family: var(--font-sans);
-  font-size: var(--fs-micro);
-  font-weight: var(--fw-medium);
-  line-height: 16px;
-}
-
-.type-code,
-.type-mono {
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  font-variant-ligatures: contextual;
-}
-
-.type-terminal {
-  font-family: var(--font-mono);
-  font-size: var(--fs-md);
-  line-height: 1.4;
-  color: var(--c-text);
 }

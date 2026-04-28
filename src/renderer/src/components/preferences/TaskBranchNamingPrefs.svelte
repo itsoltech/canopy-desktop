@@ -185,7 +185,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     margin: 0;
   }
 
@@ -197,7 +197,7 @@
   }
 
   .select-label {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     width: 90px;
     flex-shrink: 0;
   }
@@ -205,27 +205,27 @@
   .field-label {
     font-size: 12px;
     font-weight: 500;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .field-hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .text-input {
     padding: 6px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     outline: none;
   }
 
   .text-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .text-input.small {
@@ -240,15 +240,15 @@
 
   .preview-label {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     width: 90px;
     flex-shrink: 0;
   }
 
   .preview-value {
     font-size: 12px;
-    color: var(--c-accent-text);
-    background: var(--c-border-subtle);
+    color: var(--color-accent-text);
+    background: var(--color-border-subtle);
     padding: 2px 8px;
     border-radius: 4px;
   }
@@ -265,18 +265,18 @@
     gap: 6px;
     padding: 4px 10px;
     border-radius: 6px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
     font-size: 13px;
   }
 
   .var-key {
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
     font-family: monospace;
     font-size: 12px;
   }
 
   .var-value {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-family: monospace;
     font-size: 12px;
     flex: 1;
@@ -286,8 +286,8 @@
     padding: 2px 8px;
     border: none;
     border-radius: 4px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
@@ -309,13 +309,13 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
   }
 
   .icon-btn:hover:not(:disabled) {
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
   }
 
   .icon-btn:disabled {

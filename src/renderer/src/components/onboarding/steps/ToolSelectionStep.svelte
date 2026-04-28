@@ -52,13 +52,13 @@
     margin: 0;
     font-size: 18px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .description {
     margin: 0;
     font-size: 13px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .toggles {
@@ -80,7 +80,7 @@
   }
 
   .toggle-row:hover {
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
   }
 
   .toggle-info {
@@ -91,12 +91,12 @@
 
   .toggle-label {
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .toggle-hint {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.4;
   }
 </style>

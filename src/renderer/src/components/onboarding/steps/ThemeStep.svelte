@@ -22,10 +22,11 @@
         <div class="theme-preview" style:background={theme.background}>
           <span class="preview-text" style:color={theme.foreground}>Aa</span>
           <div class="preview-colors">
-            <span class="color-dot" style:background={theme.red ?? '#ff6b6b'}></span>
-            <span class="color-dot" style:background={theme.green ?? '#69db7c'}></span>
-            <span class="color-dot" style:background={theme.blue ?? '#74c0fc'}></span>
-            <span class="color-dot" style:background={theme.yellow ?? '#ffd43b'}></span>
+            <span class="color-dot" style:background={theme.red ?? 'var(--color-danger)'}></span>
+            <span class="color-dot" style:background={theme.green ?? 'var(--color-success)'}></span>
+            <span class="color-dot" style:background={theme.blue ?? 'var(--color-accent)'}></span>
+            <span class="color-dot" style:background={theme.yellow ?? 'var(--color-warning)'}
+            ></span>
           </div>
         </div>
         <span class="theme-name">{name}</span>
@@ -47,13 +48,13 @@
     margin: 0;
     font-size: 18px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .description {
     margin: 0;
     font-size: 13px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .theme-grid {
@@ -72,7 +73,7 @@
     padding: 8px;
     border: 2px solid transparent;
     border-radius: 8px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
     cursor: pointer;
     transition:
       border-color 0.15s,
@@ -80,13 +81,13 @@
   }
 
   .theme-btn:hover {
-    background: var(--c-hover);
-    border-color: var(--c-hover-strong);
+    background: var(--color-hover);
+    border-color: var(--color-hover-strong);
   }
 
   .theme-btn.active {
-    border-color: var(--c-focus-ring);
-    background: var(--c-accent-bg);
+    border-color: var(--color-focus-ring);
+    background: var(--color-accent-bg);
   }
 
   .theme-preview {
@@ -98,7 +99,7 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    border: 1px solid var(--c-active);
+    border: 1px solid var(--color-active);
   }
 
   .preview-text {
@@ -120,7 +121,7 @@
 
   .theme-name {
     font-size: 11px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-family: inherit;
     white-space: nowrap;
     overflow: hidden;
@@ -129,6 +130,6 @@
   }
 
   .theme-btn.active .theme-name {
-    color: var(--c-accent);
+    color: var(--color-accent);
   }
 </style>

@@ -239,18 +239,18 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .context-value {
     font-size: 11px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .context-track {
     height: 4px;
     border-radius: 2px;
-    background: var(--c-active);
+    background: var(--color-active);
     overflow: hidden;
   }
 
@@ -261,15 +261,15 @@
   }
 
   .context-fill.ctx-green {
-    background: var(--c-success);
+    background: var(--color-success);
   }
 
   .context-fill.ctx-yellow {
-    background: var(--c-warning);
+    background: var(--color-warning);
   }
 
   .context-fill.ctx-red {
-    background: var(--c-danger-text);
+    background: var(--color-danger-text);
   }
 
   .inspector {
@@ -284,7 +284,7 @@
     font-weight: 600;
     letter-spacing: 1px;
     text-transform: uppercase;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin: 0;
   }
 
@@ -295,7 +295,7 @@
     gap: 8px;
     padding: 6px 10px;
     border-radius: 6px;
-    background: var(--c-border-subtle);
+    background: var(--color-border-subtle);
   }
 
   .status-dot {
@@ -303,25 +303,25 @@
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
-    background: var(--c-text-faint);
+    background: var(--color-text-faint);
   }
 
   .status-badge.idle .status-dot {
-    background: var(--c-success);
+    background: var(--color-success);
   }
 
   .status-badge.active .status-dot {
-    background: var(--c-accent-text);
+    background: var(--color-accent-text);
     animation: pulse-dot 1.5s ease-in-out infinite;
   }
 
   .status-badge.permission .status-dot {
-    background: var(--c-warning-text);
+    background: var(--color-warning-text);
     animation: pulse-dot 1s ease-in-out infinite;
   }
 
   .status-badge.error .status-dot {
-    background: var(--c-danger-text);
+    background: var(--color-danger-text);
   }
 
   @keyframes pulse-dot {
@@ -342,7 +342,7 @@
 
   .status-text {
     font-size: 12px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   /* Sections */
@@ -357,7 +357,7 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin: 0;
   }
 
@@ -370,11 +370,11 @@
   }
 
   .info-key {
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .info-val {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   /* Item lists */
@@ -401,15 +401,15 @@
   }
 
   .task-done {
-    color: var(--c-success);
+    color: var(--color-success);
   }
 
   .task-active {
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
   }
 
   .task-pending {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .task-completed {
@@ -419,7 +419,7 @@
 
   .item-text {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -428,7 +428,7 @@
 
   .item-dim {
     font-size: 10px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     flex-shrink: 0;
   }
 
@@ -436,7 +436,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--c-focus-ring);
+    background: var(--color-focus-ring);
     flex-shrink: 0;
   }
 
@@ -451,7 +451,7 @@
 
   .notif-msg {
     font-size: 11px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -460,7 +460,7 @@
 
   .notif-time {
     font-size: 10px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     flex-shrink: 0;
   }
 </style>

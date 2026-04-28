@@ -454,7 +454,7 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 80px;
-    background: var(--c-scrim);
+    background: var(--color-scrim);
   }
 
   .modal-container {
@@ -463,10 +463,10 @@
     max-height: 560px;
     display: flex;
     flex-direction: column;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-overlay);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 48px oklch(0 0 0 / 0.6);
     overflow: hidden;
   }
 
@@ -475,7 +475,7 @@
     padding: 16px 20px 12px;
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     flex-shrink: 0;
   }
 
@@ -497,20 +497,20 @@
 
   .status-text {
     font-size: 13px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     margin: 0;
   }
 
   .status-text.success {
-    color: var(--c-success);
+    color: var(--color-success);
   }
 
   .status-text.error {
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .status-text.warning {
-    color: var(--c-warning-text);
+    color: var(--color-warning-text);
   }
 
   .setup-body {
@@ -523,7 +523,7 @@
   .setup-label {
     font-size: 12px;
     font-family: monospace;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     margin: 0;
   }
 
@@ -531,7 +531,7 @@
     position: relative;
     border-radius: 6px;
     overflow: hidden;
-    border: 1px solid var(--c-border-subtle);
+    border: 1px solid var(--color-border-subtle);
   }
 
   .setup-terminal {
@@ -545,22 +545,22 @@
     top: 0;
     left: 0;
     height: 2px;
-    background: var(--c-accent);
+    background: var(--color-accent);
     transition: width 0.3s ease;
     z-index: 5;
   }
 
   .progress-error {
-    background: var(--c-danger);
+    background: var(--color-danger);
   }
 
   .progress-warning {
-    background: var(--c-warning);
+    background: var(--color-warning);
   }
 
   .progress-indeterminate {
     animation: indeterminate 1.5s ease-in-out infinite;
-    background: linear-gradient(90deg, transparent, var(--c-accent), transparent);
+    background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
   }
 
   @keyframes indeterminate {
@@ -575,7 +575,7 @@
   @media (prefers-reduced-motion: reduce) {
     .progress-indeterminate {
       animation: none;
-      background: var(--c-accent);
+      background: var(--color-accent);
     }
   }
 
@@ -592,16 +592,16 @@
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.5px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-transform: uppercase;
   }
 
   .field-input {
     width: 100%;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
+    background: var(--color-bg-input);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     padding: 8px 10px;
@@ -611,33 +611,33 @@
   }
 
   .field-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .field-input::placeholder {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .field-info {
     margin: 0 0 12px;
     font-size: 13px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .field-info strong {
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .field-error {
     margin: 6px 0 0;
     font-size: 12px;
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .field-detail {
     margin: 6px 0 0;
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     font-family: monospace;
     word-break: break-all;
   }
@@ -647,7 +647,7 @@
     gap: 2px;
     padding: 2px;
     margin: 0 0 12px;
-    background: var(--c-active);
+    background: var(--color-active);
     border-radius: 6px;
   }
 
@@ -657,7 +657,7 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -667,13 +667,13 @@
   }
 
   .mode-btn:hover:not(.active) {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
   }
 
   .mode-btn.active {
-    background: var(--c-bg-overlay);
-    color: var(--c-text);
-    box-shadow: 0 1px 2px var(--c-shadow, rgba(0, 0, 0, 0.15));
+    background: var(--color-bg-overlay);
+    color: var(--color-text);
+    box-shadow: 0 1px 2px var(--color-shadow, oklch(0 0 0 / 0.15));
   }
 
   .modal-actions {
@@ -695,7 +695,7 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 1px;
   }
 
@@ -705,20 +705,20 @@
   }
 
   .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .btn-cancel:hover {
-    background: var(--c-border);
+    background: var(--color-border);
   }
 
   .btn-primary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: var(--c-accent-muted);
+    background: var(--color-accent-muted);
   }
 </style>

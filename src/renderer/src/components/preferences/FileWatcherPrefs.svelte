@@ -133,19 +133,19 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
   .section-desc {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     margin: 0;
     line-height: 1.5;
   }
 
   .section-desc code {
-    background: var(--c-hover);
+    background: var(--color-hover);
     padding: 1px 5px;
     border-radius: 3px;
     font-size: 11px;
@@ -164,15 +164,15 @@
     align-items: center;
     gap: 4px;
     padding: 4px 4px 4px 10px;
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
+    background: var(--color-hover);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
     font-size: 12px;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .pattern-text {
-    font-family: var(--c-font-mono, monospace);
+    font-family: var(--color-font-mono, monospace);
   }
 
   .remove-btn {
@@ -184,7 +184,7 @@
     background: none;
     border: none;
     border-radius: 3px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     cursor: pointer;
     transition:
       background 0.1s,
@@ -192,13 +192,13 @@
   }
 
   .remove-btn:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-danger-text);
+    background: var(--color-hover-strong);
+    color: var(--color-danger-text);
   }
 
   .empty {
     font-size: 12px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     font-style: italic;
     margin: 0;
   }
@@ -211,17 +211,17 @@
   .pattern-input {
     flex: 1;
     padding: 6px 10px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    color: var(--c-text);
+    color: var(--color-text);
     font-size: 12px;
     font-family: inherit;
   }
 
   .pattern-input:focus {
     outline: none;
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .add-btn {
@@ -229,17 +229,17 @@
     align-items: center;
     gap: 4px;
     padding: 6px 12px;
-    background: var(--c-accent-bg);
-    border: 1px solid var(--c-border);
+    background: var(--color-accent-bg);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    color: var(--c-text);
+    color: var(--color-text);
     font-size: 12px;
     cursor: pointer;
     transition: background 0.1s;
   }
 
   .add-btn:hover:not(:disabled) {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
   }
 
   .add-btn:disabled {
@@ -251,7 +251,7 @@
     display: flex;
     justify-content: flex-end;
     padding-top: 8px;
-    border-top: 1px solid var(--c-border);
+    border-top: 1px solid var(--color-border);
   }
 
   .reset-btn {
@@ -260,9 +260,9 @@
     gap: 4px;
     padding: 4px 10px;
     background: none;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 11px;
     cursor: pointer;
     transition:
@@ -271,7 +271,7 @@
   }
 
   .reset-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 </style>

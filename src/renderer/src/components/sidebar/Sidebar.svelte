@@ -31,56 +31,34 @@
   })
 </script>
 
-<aside class="sidebar" style="width: {width}px; min-width: {width}px">
-  {#each sections as section (section.id)}
-    {#if section.visible}
-      {#if section.id === 'projects'}
-        <ProjectTreeSection />
-      {:else if section.id === 'git'}
-        {#if workspaceState.isGitRepo && workspaceState.selectedWorktreePath}
-          <GitSection />
+<aside
+  class="flex-shrink-0 h-full bg-bg-glass backdrop-blur-xl border-r border-border-subtle flex flex-col overflow-hidden"
+  style="width: {width}px; min-width: {width}px"
+>
+  <div class="flex-1 min-h-0 overflow-y-auto flex flex-col">
+    {#each sections as section (section.id)}
+      {#if section.visible}
+        {#if section.id === 'projects'}
+          <ProjectTreeSection />
+        {:else if section.id === 'git'}
+          {#if workspaceState.isGitRepo && workspaceState.selectedWorktreePath}
+            <GitSection />
+          {/if}
+        {:else if section.id === 'files'}
+          <FileTreeSection />
+        {:else if section.id === 'tools'}
+          <ToolSection {onLaunchTool} />
+        {:else if section.id === 'tasks'}
+          <TaskTrackerSection />
+        {:else if section.id === 'runConfigs'}
+          <RunConfigSection />
         {/if}
-      {:else if section.id === 'files'}
-        <FileTreeSection />
-      {:else if section.id === 'tools'}
-        <ToolSection {onLaunchTool} />
-      {:else if section.id === 'tasks'}
-        <TaskTrackerSection />
-      {:else if section.id === 'runConfigs'}
-        <RunConfigSection />
       {/if}
-    {/if}
-  {/each}
-  <div class="sidebar-footer">
+    {/each}
+  </div>
+  <div class="flex-shrink-0 px-3 py-2 border-t border-border-subtle">
     {#if version}
-      <span class="version-label">v{version}</span>
+      <span class="text-xs text-text-faint select-none">v{version}</span>
     {/if}
   </div>
 </aside>
-
-<style>
-  .sidebar {
-    flex-shrink: 0;
-    height: 100%;
-    background: var(--c-bg-glass);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-right: 1px solid var(--c-border-subtle);
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
-
-  .sidebar-footer {
-    margin-top: auto;
-    padding: 8px 12px;
-    border-top: 1px solid var(--c-border-subtle);
-  }
-
-  .version-label {
-    font-size: 11px;
-    color: var(--c-text-faint);
-    user-select: none;
-  }
-</style>

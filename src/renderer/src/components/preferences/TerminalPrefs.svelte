@@ -66,7 +66,10 @@
   <label class="checkbox-row">
     <input type="checkbox" checked={tmuxEnabled} onchange={toggleTmux} />
     <span>Enable tmux session persistence</span>
-    <span class="badge-experimental">Experimental</span>
+    <span
+      class="inline-flex items-center text-2xs font-semibold uppercase tracking-caps-looser px-1.5 py-px rounded-md align-middle ml-1 bg-experimental-bg text-warning"
+      >Experimental</span
+    >
   </label>
 
   {#if tmuxAvailable === false}
@@ -133,7 +136,7 @@
   .section-title {
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -142,7 +145,7 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
   }
 
@@ -150,17 +153,13 @@
     padding-left: 24px;
   }
 
-  .checkbox-row .badge-experimental {
-    margin-left: 4px;
-  }
-
   .checkbox-row input[type='checkbox'] {
-    accent-color: var(--c-accent);
+    accent-color: var(--color-accent);
   }
 
   .hint-row {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     line-height: 1.5;
     padding-left: 24px;
     margin-top: -8px;
@@ -172,7 +171,7 @@
 
   .warning-row {
     font-size: 12px;
-    color: var(--c-danger, #e55);
+    color: var(--color-danger);
     padding-left: 24px;
     margin-top: -8px;
   }
@@ -186,16 +185,16 @@
   }
 
   .select-label {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     min-width: 80px;
   }
 
   .select-input {
     padding: 4px 8px;
     border-radius: 4px;
-    border: 1px solid var(--c-border);
-    background: var(--c-surface);
-    color: var(--c-text);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+    color: var(--color-text);
     font-size: 12px;
     font-family: inherit;
   }
@@ -208,12 +207,12 @@
   }
 
   .info-label {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     min-width: 80px;
   }
 
   .info-value {
-    color: var(--c-text);
+    color: var(--color-text);
     font-family: monospace;
     font-size: 12px;
   }
@@ -230,19 +229,19 @@
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
-    border: 1px solid var(--c-border);
-    background: var(--c-border-subtle);
-    color: var(--c-text-secondary);
+    border: 1px solid var(--color-border);
+    background: var(--color-border-subtle);
+    color: var(--color-text-secondary);
     transition: background 0.1s;
   }
 
   .action-btn:hover {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .action-btn.destructive:hover {
-    border-color: var(--c-danger, #e55);
-    color: var(--c-danger, #e55);
+    border-color: var(--color-danger);
+    color: var(--color-danger);
   }
 </style>

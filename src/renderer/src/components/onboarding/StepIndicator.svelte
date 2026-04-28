@@ -24,18 +24,18 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--c-text-faint);
+    background: var(--color-text-faint);
     transition:
       background 0.2s,
       transform 0.2s;
   }
 
   .dot.active {
-    background: var(--c-accent);
+    background: var(--color-accent);
     transform: scale(1.25);
   }
 
   .dot.completed {
-    background: var(--c-accent-muted);
+    background: var(--color-accent-muted);
   }
 </style>

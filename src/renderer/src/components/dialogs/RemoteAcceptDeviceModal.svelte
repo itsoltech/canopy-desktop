@@ -147,15 +147,15 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 120px;
-    background: var(--c-scrim);
+    background: var(--color-scrim);
   }
 
   .dialog-container {
     width: 420px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-overlay);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
-    box-shadow: var(--c-shadow-dialog, 0 16px 48px rgba(0, 0, 0, 0.6));
+    box-shadow: var(--color-shadow-dialog, 0 16px 48px oklch(0 0 0 / 0.6));
     padding: 20px;
   }
 
@@ -163,20 +163,20 @@
     margin: 0 0 8px;
     font-size: 15px;
     font-weight: 600;
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .dialog-message {
     margin: 0 0 16px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     line-height: 1.5;
   }
 
   .device-block {
     padding: 10px 12px;
-    background: var(--c-bg-input);
-    border: 1px solid var(--c-border-subtle);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-subtle);
     border-radius: 6px;
     display: flex;
     flex-direction: column;
@@ -191,7 +191,7 @@
   }
 
   .device-label {
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.3px;
     font-size: 10px;
@@ -199,12 +199,12 @@
   }
 
   .device-value {
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .device-value.fingerprint {
     font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    color: var(--c-accent-text);
+    color: var(--color-accent-text);
   }
 
   .remember-row {
@@ -212,7 +212,7 @@
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     padding: 8px 0;
     cursor: pointer;
   }
@@ -220,18 +220,18 @@
   .countdown {
     margin: 8px 0 0;
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-align: right;
   }
 
   .action-error {
     margin: 8px 0 0;
     padding: 8px 10px;
-    background: var(--c-danger-bg);
-    border: 1px solid var(--c-danger);
+    background: var(--color-danger-bg);
+    border: 1px solid var(--color-danger);
     border-radius: 4px;
     font-size: 12px;
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .dialog-actions {
@@ -253,7 +253,7 @@
   }
 
   .btn:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 1px;
   }
 
@@ -263,29 +263,29 @@
   }
 
   .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .btn-cancel:hover:not(:disabled) {
-    background: var(--c-border);
+    background: var(--color-border);
   }
 
   .btn-confirm {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .btn-confirm:hover:not(:disabled) {
-    background: var(--c-accent-bg-hover);
+    background: var(--color-accent-bg-hover);
   }
 
   .btn-confirm.destructive {
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
   }
 
   .btn-confirm.destructive:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--c-danger) 30%, transparent);
+    background: color-mix(in srgb, var(--color-danger) 30%, transparent);
   }
 </style>

@@ -149,7 +149,7 @@
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.5px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     text-transform: uppercase;
   }
 
@@ -163,7 +163,7 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     transition:
       background 0.1s,
@@ -171,8 +171,8 @@
   }
 
   .btn-refresh:hover:not(:disabled) {
-    background: var(--c-active);
-    color: var(--c-text-secondary);
+    background: var(--color-active);
+    color: var(--color-text-secondary);
   }
 
   .btn-refresh:disabled {
@@ -202,10 +202,10 @@
 
   .field-input {
     width: 100%;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
+    background: var(--color-bg-input);
+    color: var(--color-text);
     font-size: 13px;
     font-family: inherit;
     padding: 8px 10px;
@@ -215,18 +215,18 @@
   }
 
   .field-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .field-input::placeholder {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .branch-list {
     margin-top: 8px;
     max-height: 260px;
     overflow-y: auto;
-    border: 1px solid var(--c-border-subtle);
+    border: 1px solid var(--color-border-subtle);
     border-radius: 6px;
   }
 
@@ -235,19 +235,19 @@
     align-items: baseline;
     padding: 6px 10px;
     font-size: 13px;
-    color: var(--c-text);
+    color: var(--color-text);
     cursor: pointer;
     transition: background 0.05s;
   }
 
   .branch-item:hover,
   .branch-item.selected {
-    background: var(--c-active);
+    background: var(--color-active);
   }
 
   .branch-item.picked {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
   }
 
   .branch-name {
@@ -261,7 +261,7 @@
   .remote-only-tag {
     margin-left: 8px;
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     flex-shrink: 0;
   }
 
@@ -269,6 +269,6 @@
     padding: 16px 10px;
     text-align: center;
     font-size: 13px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 </style>

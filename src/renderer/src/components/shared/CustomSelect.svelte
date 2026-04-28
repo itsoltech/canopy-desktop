@@ -151,15 +151,21 @@
 <button
   bind:this={triggerEl}
   {id}
-  class="trigger"
+  class="inline-flex items-center justify-between gap-2 w-full px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit cursor-pointer outline-none text-left focus:border-focus-ring"
   style="max-width: {maxWidth};"
   onclick={() => (open ? close() : openDropdown())}
   onkeydown={handleTriggerKeydown}
   aria-haspopup="listbox"
   aria-expanded={open}
 >
-  <span class="trigger-label">{selectedLabel}</span>
-  <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+  <span class="flex-1 truncate">{selectedLabel}</span>
+  <svg
+    class="flex-shrink-0 opacity-50"
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="currentColor"
+  >
     <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" fill="none" />
   </svg>
 </button>
@@ -167,11 +173,11 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="custom-select-overlay" use:portal onclick={close}>
+  <div class="fixed inset-0 z-overlay" use:portal onclick={close}>
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <div
       bind:this={listEl}
-      class="custom-select-dropdown"
+      class="fixed p-1 bg-bg-overlay border border-border rounded-lg shadow-popover max-h-50 overflow-y-auto outline-none z-popover"
       style="top: {top}px; left: {left}px; min-width: {width}px;"
       role="listbox"
       tabindex="0"
@@ -180,13 +186,18 @@
     >
       {#each flatItems as item, i (item.type === 'group' ? `g-${i}-${item.label}` : item.value)}
         {#if item.type === 'group'}
-          <div class="group-label">{item.label}</div>
+          <div
+            class="px-2.5 pt-1.5 pb-0.5 text-xs font-semibold text-text-muted whitespace-nowrap select-none"
+          >
+            {item.label}
+          </div>
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div
-            class="option"
-            class:focused={i === focusedIndex}
-            class:selected={item.value === value}
+            class="px-2.5 py-1.5 rounded-md text-md cursor-pointer whitespace-nowrap"
+            class:bg-hover-strong={i === focusedIndex}
+            class:text-accent={item.value === value}
+            class:text-text={item.value !== value}
             role="option"
             aria-selected={item.value === value}
             onclick={() => select(item.value!)}
@@ -199,85 +210,3 @@
     </div>
   </div>
 {/if}
-
-<style>
-  .trigger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    width: 100%;
-    padding: 6px 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    outline: none;
-    text-align: left;
-  }
-
-  .trigger:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .trigger-label {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .chevron {
-    flex-shrink: 0;
-    opacity: 0.5;
-  }
-
-  :global(.custom-select-overlay) {
-    position: fixed;
-    inset: 0;
-    z-index: 10000;
-  }
-
-  :global(.custom-select-dropdown) {
-    position: fixed;
-    padding: 4px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-    max-height: 200px;
-    overflow-y: auto;
-    outline: none;
-    z-index: 10001;
-  }
-
-  .group-label {
-    padding: 6px 10px 2px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-text-muted);
-    white-space: nowrap;
-    user-select: none;
-  }
-
-  .option {
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 13px;
-    color: var(--c-text);
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  .option.focused {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-
-  .option.selected {
-    color: var(--c-accent);
-  }
-</style>

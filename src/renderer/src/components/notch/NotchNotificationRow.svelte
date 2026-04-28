@@ -27,13 +27,25 @@
 
   const config = $derived(
     {
-      idle: { color: '#4ade80', label: highlight ? 'Finished' : 'Idle' },
-      thinking: { color: '#f59e0b', label: 'Thinking...' },
-      toolCalling: { color: '#f59e0b', label: session.toolName ?? 'Tool call' },
-      compacting: { color: '#60a5fa', label: 'Compacting...' },
-      waitingPermission: { color: '#f87171', label: session.detail ?? 'Permission needed' },
-      error: { color: '#f87171', label: session.detail ?? 'Error' },
-      ended: { color: '#666', label: 'Ended' },
+      idle: {
+        color: 'var(--color-status-idle)',
+        label: highlight ? 'Finished' : 'Idle',
+      },
+      thinking: { color: 'var(--color-status-working)', label: 'Thinking...' },
+      toolCalling: {
+        color: 'var(--color-status-working)',
+        label: session.toolName ?? 'Tool call',
+      },
+      compacting: { color: 'var(--color-status-compacting)', label: 'Compacting...' },
+      waitingPermission: {
+        color: 'var(--color-status-permission)',
+        label: session.detail ?? 'Permission needed',
+      },
+      error: {
+        color: 'var(--color-status-error)',
+        label: session.detail ?? 'Error',
+      },
+      ended: { color: 'var(--color-status-ended)', label: 'Ended' },
     }[session.status],
   )
 
@@ -44,12 +56,20 @@
   )
 </script>
 
-<button class="row" class:highlight {onclick}>
-  <span class="icon" style:color={config.color}>
+<button
+  class="notch-row flex items-center gap-2.5 h-12 box-border px-3 py-2 w-full border-0 bg-transparent rounded-2xl last:rounded-b-notch-row cursor-pointer text-left text-notch-text transition duration-base motion-reduce:transition-none hover:bg-notch-row-hover active:scale-98 motion-reduce:active:scale-100"
+  class:animate-peek-pulse={highlight}
+  class:motion-reduce:animate-none={highlight}
+  {onclick}
+>
+  <span
+    class="flex-shrink-0 flex items-center justify-center w-7 h-7 bg-notch-icon-bg rounded-xl"
+    style:color={config.color}
+  >
     {#if session.status === 'waitingPermission'}
       <ShieldAlert size={15} />
     {:else if isActive}
-      <span class="spin"><Loader size={15} /></span>
+      <span class="flex animate-spin-slow motion-reduce:animate-none"><Loader size={15} /></span>
     {:else if session.status === 'error'}
       <AlertTriangle size={15} />
     {:else}
@@ -57,153 +77,23 @@
     {/if}
   </span>
 
-  <span class="info">
-    <span class="name">
+  <span class="flex flex-col gap-0.5 min-w-0 flex-1 overflow-hidden">
+    <span class="text-md font-medium truncate text-notch-text">
       {session.workspaceName}
       {#if session.branch}
-        <span class="branch">{session.branch}</span>
+        <span class="text-notch-text-dim font-normal ml-1.5 text-sm">{session.branch}</span>
       {/if}
       {#if session.title}
-        <span class="title">{session.title}</span>
+        <span class="text-notch-text-dim font-normal ml-1.5 text-sm">· {session.title}</span>
       {/if}
     </span>
-    <span class="status-label" style:color={config.color}>{config.label}</span>
+    <span
+      class="text-xs whitespace-nowrap overflow-hidden text-ellipsis opacity-85"
+      style:color={config.color}>{config.label}</span
+    >
   </span>
 
-  <span class="chevron">
-    <ChevronRight size={14} color="rgba(255,255,255,0.2)" />
+  <span class="flex-shrink-0 flex items-center text-notch-chevron">
+    <ChevronRight size={14} />
   </span>
 </button>
-
-<style>
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    height: 48px;
-    box-sizing: border-box;
-    padding: 8px 12px;
-    margin: 0 6px;
-    width: calc(100% - 12px);
-    border: none;
-    background: transparent;
-    border-radius: 10px;
-    cursor: pointer;
-    text-align: left;
-    color: rgba(255, 255, 255, 0.9); /* fixed: notch overlay always on black bg */
-    transition:
-      background 0.15s ease,
-      transform 0.15s cubic-bezier(0.32, 0.72, 0, 1);
-  }
-
-  .row.highlight {
-    animation: peek-pulse 2s ease-out;
-  }
-
-  @keyframes peek-pulse {
-    0% {
-      background: rgba(255, 255, 255, 0.1);
-    }
-    100% {
-      background: transparent;
-    }
-  }
-
-  .row:hover {
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .row:active {
-    transform: scale(0.98);
-  }
-
-  .icon {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
-  }
-
-  .spin {
-    display: flex;
-    animation: rotate 1.5s linear infinite;
-  }
-
-  @keyframes rotate {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-  }
-
-  .name {
-    font-size: 13px;
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .branch {
-    color: rgba(255, 255, 255, 0.35);
-    font-weight: 400;
-    margin-left: 6px;
-    font-size: 12px;
-  }
-
-  .title {
-    color: rgba(255, 255, 255, 0.35);
-    font-weight: 400;
-    margin-left: 6px;
-    font-size: 12px;
-  }
-
-  .title::before {
-    content: '\00b7\00a0';
-  }
-
-  .status-label {
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    opacity: 0.85;
-  }
-
-  .chevron {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .spin {
-      animation: none;
-    }
-    .row.highlight {
-      animation: none;
-    }
-    .row {
-      transition: none;
-    }
-    .row:active {
-      transform: none;
-    }
-  }
-</style>

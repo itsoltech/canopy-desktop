@@ -82,7 +82,7 @@ export type FileIconInfo =
 const DEFAULT_ICON: FileIconInfo = {
   kind: 'lucide',
   Icon: FileIcon,
-  color: 'var(--c-text-muted)',
+  color: 'var(--color-text-muted)',
 }
 
 function brand(icon: SimpleIcon): FileIconInfo {
@@ -206,7 +206,7 @@ const extMap: Record<string, FileIconInfo> = {
   // Markdown / docs
   md: brand(siMarkdown),
   mdx: brand(siMarkdown),
-  txt: { kind: 'lucide', Icon: FileText, color: 'var(--c-text-muted)' },
+  txt: { kind: 'lucide', Icon: FileText, color: 'var(--color-text-muted)' },
   rst: { kind: 'lucide', Icon: FileText, color: '#888' },
   log: { kind: 'lucide', Icon: FileText, color: '#888' },
   // Shell

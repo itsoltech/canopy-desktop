@@ -63,15 +63,23 @@ export function resetGitHubState(): void {
 }
 
 export function formatPrBadge(pr: GitHubPRInfo): { className: string; label: string } {
+  const base =
+    'text-2xs font-medium px-1 rounded-sm border-0 cursor-pointer flex-shrink-0 ml-auto font-inherit leading-4 hover:opacity-80'
   return match(pr)
-    .with({ isDraft: true }, () => ({ className: 'pr-badge draft', label: 'Draft' }))
+    .with({ isDraft: true }, () => ({
+      className: `${base} bg-hover-strong text-text-muted`,
+      label: 'Draft',
+    }))
     .with({ reviewDecision: 'APPROVED' }, () => ({
-      className: 'pr-badge approved',
+      className: `${base} bg-success-bg text-success`,
       label: 'Approved',
     }))
     .with({ reviewDecision: 'CHANGES_REQUESTED' }, () => ({
-      className: 'pr-badge changes-requested',
+      className: `${base} bg-warning-bg text-warning-text`,
       label: 'Changes',
     }))
-    .otherwise(() => ({ className: 'pr-badge', label: `PR #${pr.number}` }))
+    .otherwise(() => ({
+      className: `${base} bg-accent-bg text-accent-text`,
+      label: `PR #${pr.number}`,
+    }))
 }

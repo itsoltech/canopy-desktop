@@ -58,7 +58,7 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     margin: 0;
   }
 
@@ -70,11 +70,11 @@
   }
 
   .info-key {
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .info-val {
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -87,7 +87,7 @@
 
   .last-msg {
     font-size: 11px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     margin: 0;
     line-height: 1.4;
     word-break: break-word;

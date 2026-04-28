@@ -311,7 +311,7 @@
 <style>
   .form-label {
     font-size: 12px;
-    color: var(--c-text-secondary);
+    color: var(--color-text-secondary);
     width: 90px;
     flex-shrink: 0;
   }
@@ -319,22 +319,22 @@
   .form-input {
     flex: 1;
     padding: 5px 8px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
+    background: var(--color-bg-input);
+    color: var(--color-text);
     font-size: 12px;
     font-family: inherit;
     outline: none;
   }
 
   .form-input:focus {
-    border-color: var(--c-focus-ring);
+    border-color: var(--color-focus-ring);
   }
 
   .section-desc {
     font-size: 12px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     margin: 0 0 12px;
   }
 
@@ -352,16 +352,16 @@
     flex: 1;
     min-height: 28px;
     padding: 3px 6px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    background: var(--c-bg-input);
+    background: var(--color-bg-input);
     align-items: center;
     box-sizing: content-box;
   }
 
   .token-empty {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     padding: 2px 4px;
     line-height: 22px;
   }
@@ -383,21 +383,21 @@
   }
 
   .token.placeholder {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    border: 1px solid var(--c-accent-muted);
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
+    border: 1px solid var(--color-accent-muted);
   }
 
   .token.separator {
-    background: var(--c-hover);
-    color: var(--c-text-muted);
+    background: var(--color-hover);
+    color: var(--color-text-muted);
     border: 1px solid transparent;
     font-family: monospace;
   }
 
   .token.drag-over {
-    border-color: var(--c-focus-ring);
-    box-shadow: 0 0 0 1px var(--c-accent-muted);
+    border-color: var(--color-focus-ring);
+    box-shadow: 0 0 0 1px var(--color-accent-muted);
   }
 
   .token-remove {
@@ -409,7 +409,7 @@
     border: none;
     border-radius: 50%;
     background: none;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-size: 12px;
     line-height: 1;
     cursor: pointer;
@@ -417,8 +417,8 @@
   }
 
   .token-remove:hover {
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
   }
 
   .placeholder-list {
@@ -431,25 +431,25 @@
 
   .placeholder-hint {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .placeholder-tag {
     font-size: 11px;
     padding: 2px 7px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
     font-family: inherit;
     cursor: pointer;
     transition: all 0.1s;
   }
 
   .placeholder-tag:hover {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    border-color: var(--color-accent-muted);
+    color: var(--color-accent-text);
   }
 
   .placeholder-tag.used {
@@ -464,7 +464,7 @@
 
   .advanced-template summary {
     font-size: 11px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     cursor: pointer;
     margin-bottom: 6px;
   }
@@ -486,43 +486,43 @@
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
+    background: var(--color-bg-overlay);
+    border: 1px solid var(--color-border);
     border-radius: 6px;
-    box-shadow: 0 4px 16px var(--c-scrim);
+    box-shadow: 0 4px 16px var(--color-scrim);
     transform: translate(-50%, -100%) translateY(-8px);
   }
 
   .popup-hint {
     font-size: 10px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     margin-right: 2px;
   }
 
   .popup-sep-btn {
     padding: 3px 10px;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
   }
 
   .popup-sep-btn:hover {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
-    color: var(--c-accent-text);
+    background: var(--color-accent-bg);
+    border-color: var(--color-accent-muted);
+    color: var(--color-accent-text);
   }
 
   .popup-sep-btn.remove {
-    color: var(--c-danger-text);
+    color: var(--color-danger-text);
   }
 
   .popup-sep-btn.remove:hover {
-    background: var(--c-danger-bg);
-    border-color: var(--c-danger-text);
-    color: var(--c-danger-text);
+    background: var(--color-danger-bg);
+    border-color: var(--color-danger-text);
+    color: var(--color-danger-text);
   }
 </style>
