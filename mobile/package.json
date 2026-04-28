@@ -72,6 +72,13 @@
     "@types/react": "~19.2.2",
     "typescript": "~5.9.2"
   },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.13",
+    "postcss": "^8.5.10",
+    "xcode": {
+      "uuid": "^14.0.0"
+    }
+  },
   "private": true,
   "volta": {
     "node": "22.20.0"
