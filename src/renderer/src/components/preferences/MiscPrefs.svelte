@@ -22,70 +22,38 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Misc</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Misc</h3>
 
-  <label class="checkbox-row">
+  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
     <CustomCheckbox checked={runToolbarEnabled} onchange={toggleRunToolbar} />
     <span>Show Run Configurations in title bar</span>
   </label>
   {#if runToolbarEnabled}
-    <div class="hint-row">
+    <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
       Display a toolbar for quick-launching run configurations from the title bar
     </div>
   {/if}
 
-  <label class="checkbox-row">
+  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
     <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
     <span>Show typing speed (WPM) in terminals</span>
   </label>
   {#if wpmEnabled}
-    <div class="hint-row">
+    <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
       Tracks printable keystrokes in a 10-second sliding window. Control keys, arrows, and escape
       sequences are excluded. Displays current WPM, peak speed, and total characters.
     </div>
   {/if}
 
-  <label class="checkbox-row">
+  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
     <CustomCheckbox checked={keystrokeVisualizerEnabled} onchange={toggleKeystrokeVisualizer} />
     <span>Show keystroke overlay in terminals</span>
   </label>
   {#if keystrokeVisualizerEnabled}
-    <div class="hint-row">
+    <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
       Displays pressed keys and keyboard shortcuts as a floating overlay in the bottom-left corner
       of the terminal. Keys fade out after 2 seconds.
     </div>
   {/if}
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--color-text);
-    cursor: pointer;
-  }
-
-  .hint-row {
-    font-size: 11px;
-    color: var(--color-text-muted);
-    line-height: 1.5;
-    padding-left: 24px;
-    margin-top: -8px;
-  }
-</style>

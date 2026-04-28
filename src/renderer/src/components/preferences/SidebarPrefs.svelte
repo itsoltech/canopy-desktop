@@ -46,28 +46,32 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Sidebar</h3>
-  <p class="section-desc">Choose which sections appear in the sidebar and their order.</p>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Sidebar</h3>
+  <p class="text-sm text-text-secondary m-0">
+    Choose which sections appear in the sidebar and their order.
+  </p>
 
-  <div class="section-list">
+  <div class="flex flex-col gap-0.5">
     {#each config as item, i (item.id)}
       {@const def = SECTION_DEFS.find((d) => d.id === item.id)}
-      <div class="section-row">
-        <label class="checkbox-row">
+      <div
+        class="flex items-center justify-between px-2 py-1.5 rounded-lg transition-colors duration-fast hover:bg-hover"
+      >
+        <label class="flex items-center gap-2 text-md text-text cursor-pointer">
           <CustomCheckbox
             checked={item.visible}
             disabled={def?.forced}
             onchange={() => toggleVisibility(i)}
           />
-          <span class:forced={def?.forced}>{def?.label ?? item.id}</span>
+          <span class:text-text-secondary={def?.forced}>{def?.label ?? item.id}</span>
           {#if def?.forced}
-            <span class="hint">Always visible</span>
+            <span class="text-xs text-text-faint ml-1">Always visible</span>
           {/if}
         </label>
-        <div class="order-buttons">
+        <div class="flex gap-0.5">
           <button
-            class="order-btn"
+            class="flex items-center justify-center w-6 h-6 bg-transparent border border-transparent rounded-md text-text-secondary cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-20 disabled:cursor-default"
             data-order-up={i}
             disabled={i === 0}
             onclick={() => moveUp(i)}
@@ -76,7 +80,7 @@
             <ChevronUp size={14} />
           </button>
           <button
-            class="order-btn"
+            class="flex items-center justify-center w-6 h-6 bg-transparent border border-transparent rounded-md text-text-secondary cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-20 disabled:cursor-default"
             data-order-down={i}
             disabled={i === config.length - 1}
             onclick={() => moveDown(i)}
@@ -89,93 +93,3 @@
     {/each}
   </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .section-desc {
-    font-size: 12px;
-    color: var(--color-text-secondary);
-    margin: 0;
-  }
-
-  .section-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .section-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 8px;
-    border-radius: 6px;
-    transition: background 0.1s;
-  }
-
-  .section-row:hover {
-    background: var(--color-hover);
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--color-text);
-    cursor: pointer;
-  }
-
-  .forced {
-    color: var(--color-text-secondary);
-  }
-
-  .hint {
-    font-size: 11px;
-    color: var(--color-text-faint);
-    margin-left: 4px;
-  }
-
-  .order-buttons {
-    display: flex;
-    gap: 2px;
-  }
-
-  .order-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background: none;
-    border: 1px solid transparent;
-    border-radius: 4px;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      color 0.1s;
-  }
-
-  .order-btn:hover:not(:disabled) {
-    background: var(--color-hover-strong);
-    color: var(--color-text);
-  }
-
-  .order-btn:disabled {
-    opacity: 0.2;
-    cursor: default;
-  }
-</style>

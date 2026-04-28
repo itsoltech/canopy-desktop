@@ -44,14 +44,12 @@
     }
 
     await loadGlobalConfig()
-    // Auto-init global config if it doesn't exist (read store directly to avoid stale $derived)
     if (!getGlobalConfig()) {
       await initGlobalConfig()
     }
 
     if (repoRoot) {
       await loadRepoConfig(repoRoot)
-      // Read store directly to avoid stale $derived after await
       if (getRepoConfig()) scope = 'project'
     }
 
@@ -143,20 +141,24 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Task Tracker</h3>
+<div class="flex flex-col gap-5">
+  <h3 class="text-[15px] font-semibold text-text m-0">Task Tracker</h3>
 
-  <div class="scope-tabs">
+  <div class="flex gap-0.5 bg-border-subtle rounded-xl p-0.5 w-fit">
     <button
-      class="scope-tab"
-      class:active={scope === 'global'}
+      class="px-4 py-1.5 border-0 rounded-lg bg-transparent text-text-muted text-sm font-medium font-inherit cursor-pointer transition-all duration-base disabled:opacity-40 disabled:cursor-default enabled:hover:text-text-secondary"
+      class:!bg-bg={scope === 'global'}
+      class:!text-text={scope === 'global'}
+      class:shadow-[0_1px_2px_oklch(0_0_0/0.1)]={scope === 'global'}
       onclick={() => handleScopeChange('global')}
     >
       Global
     </button>
     <button
-      class="scope-tab"
-      class:active={scope === 'project'}
+      class="px-4 py-1.5 border-0 rounded-lg bg-transparent text-text-muted text-sm font-medium font-inherit cursor-pointer transition-all duration-base disabled:opacity-40 disabled:cursor-default enabled:hover:text-text-secondary"
+      class:!bg-bg={scope === 'project'}
+      class:!text-text={scope === 'project'}
+      class:shadow-[0_1px_2px_oklch(0_0_0/0.1)]={scope === 'project'}
       disabled={!repoRoot}
       onclick={() => handleScopeChange('project')}
       title={repoRoot
@@ -167,7 +169,7 @@
     </button>
   </div>
 
-  <span class="scope-hint">
+  <span class="text-xs text-text-faint -mt-3">
     {#if scope === 'global'}
       Your personal settings, used across all projects.
     {:else}
@@ -176,15 +178,16 @@
   </span>
 
   {#if scope === 'project' && !repoRoot}
-    <p class="hint-text">Open a repository to configure project settings.</p>
+    <p class="text-xs text-text-faint">Open a repository to configure project settings.</p>
   {:else if scope === 'project' && !repoConfig}
     <div>
-      <span class="hint-text">
+      <span class="text-xs text-text-faint">
         No <code>.canopy/config.json</code> found in this repository.
       </span>
-      <div style="margin-top: 8px">
-        <button class="btn btn-primary" onclick={handleInitProject}
-          >Initialize Project Config</button
+      <div class="mt-2">
+        <button
+          class="px-3.5 py-1.5 border-0 rounded-lg text-md font-inherit cursor-pointer bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
+          onclick={handleInitProject}>Initialize Project Config</button
         >
       </div>
     </div>
@@ -202,18 +205,18 @@
 
     <TaskPRNamingPrefs {repoRoot} {boards} {scope} />
 
-    <div class="subsection">
-      <h4 class="subsection-title">Filters</h4>
+    <div class="flex flex-col gap-2.5">
+      <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">Filters</h4>
 
-      <label class="checkbox-row">
+      <label class="flex items-center gap-2 text-md text-text cursor-pointer">
         <CustomCheckbox checked={config.filters.assignedToMe} onchange={toggleAssignedToMe} />
         <span>Only show tasks assigned to me</span>
       </label>
 
-      <div class="filter-header">
-        <span class="filter-label">Status filter</span>
+      <div class="flex items-center gap-1.5">
+        <span class="text-sm font-medium text-text-secondary">Status filter</span>
         <button
-          class="icon-btn"
+          class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer enabled:hover:bg-hover enabled:hover:text-text-secondary disabled:opacity-50 disabled:cursor-default"
           onclick={loadStatusesFromApi}
           disabled={loadingStatuses}
           title="Refresh from API"
@@ -223,7 +226,7 @@
       </div>
       {#if availableStatuses.length > 0}
         {#each availableStatuses as status (status)}
-          <label class="checkbox-row">
+          <label class="flex items-center gap-2 text-md text-text cursor-pointer">
             <CustomCheckbox
               checked={config.filters.statuses.includes(status)}
               onchange={() => toggleStatus(status)}
@@ -232,148 +235,8 @@
           </label>
         {/each}
       {:else}
-        <span class="hint-text">Click refresh to load statuses from your tracker.</span>
+        <span class="text-xs text-text-faint">Click refresh to load statuses from your tracker.</span>
       {/if}
     </div>
   {/if}
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .scope-tabs {
-    display: flex;
-    gap: 2px;
-    background: var(--color-border-subtle);
-    border-radius: 8px;
-    padding: 2px;
-    width: fit-content;
-  }
-
-  .scope-tab {
-    padding: 5px 16px;
-    border: none;
-    border-radius: 6px;
-    background: none;
-    color: var(--color-text-muted);
-    font-size: 12px;
-    font-weight: 500;
-    font-family: inherit;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .scope-tab:hover:not(:disabled) {
-    color: var(--color-text-secondary);
-  }
-
-  .scope-tab.active {
-    background: var(--color-bg);
-    color: var(--color-text);
-    box-shadow: 0 1px 2px var(--color-shadow, oklch(0 0 0 / 0.1));
-  }
-
-  .scope-tab:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-
-  .scope-hint {
-    font-size: 11px;
-    color: var(--color-text-faint);
-    margin-top: -12px;
-  }
-
-  .subsection {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .subsection-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--color-text-muted);
-    margin: 0;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--color-text);
-    cursor: pointer;
-  }
-
-  .filter-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .filter-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-  }
-
-  .hint-text {
-    font-size: 11px;
-    color: var(--color-text-faint);
-  }
-
-  .btn {
-    padding: 6px 14px;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-primary {
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-  }
-
-  .btn-primary:hover {
-    background: var(--color-accent-bg-hover);
-  }
-
-  .icon-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--color-text-muted);
-    cursor: pointer;
-  }
-
-  .icon-btn:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-secondary);
-  }
-
-  .icon-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-</style>

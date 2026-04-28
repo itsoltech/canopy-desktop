@@ -24,7 +24,6 @@
   let config = $derived(scope === 'global' ? getGlobalConfig() : getRepoConfig())
   let trackerCreds = $derived(getTrackerCredentials())
 
-  // Editing state
   let editingId = $state<string | null>(null)
   let editProvider = $state<'jira' | 'youtrack' | 'github'>('jira')
   let editBaseUrl = $state('')
@@ -121,7 +120,6 @@
       return
     }
 
-    // After successful save, switch to edit mode so retries don't duplicate
     if (newTrackerId) editingId = newTrackerId
 
     if (editToken) {
@@ -155,7 +153,6 @@
       confirmLabel: 'Remove',
     })
     if (!ok) return
-    // Clean up keychain credentials only if no other tracker shares the same provider+baseUrl
     const tracker = config.trackers.find((t) => t.id === trackerId)
     if (tracker?.baseUrl) {
       const otherConfig = scope === 'global' ? getRepoConfig() : getGlobalConfig()
@@ -190,38 +187,56 @@
 </script>
 
 {#if config}
-  <div class="subsection">
-    <div class="header-row">
-      <h4 class="subsection-title">Connections</h4>
+  <div class="flex flex-col gap-2">
+    <div class="flex items-center justify-between">
+      <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
+        Connections
+      </h4>
       {#if editingId === null}
-        <button class="icon-btn" onclick={startAdd} title="Add connection">
+        <button
+          class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text-secondary"
+          onclick={startAdd}
+          title="Add connection"
+        >
           <Plus size={14} />
         </button>
       {/if}
     </div>
 
     {#if config.trackers.length === 0 && editingId === null}
-      <span class="hint-text">No connections configured. Click + to add one.</span>
+      <span class="text-xs text-text-faint">No connections configured. Click + to add one.</span>
     {/if}
 
     {#each config.trackers as tracker (tracker.id)}
       {#if editingId === tracker.id}
         {@render editForm()}
       {:else}
-        <div class="tracker-row">
-          <button class="tracker-item" onclick={() => startEdit(tracker)}>
-            <span class="tracker-provider-badge">{providerLabel(tracker.provider)}</span>
-            <span class="tracker-url">{tracker.baseUrl || 'Not configured'}</span>
+        <div class="flex items-center gap-1">
+          <button
+            class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-sm font-inherit cursor-pointer text-left hover:border-focus-ring"
+            onclick={() => startEdit(tracker)}
+          >
+            <span
+              class="text-2xs font-semibold uppercase text-accent-text bg-accent-bg px-1.5 py-px rounded-sm flex-shrink-0"
+              >{providerLabel(tracker.provider)}</span
+            >
+            <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-text-secondary"
+              >{tracker.baseUrl || 'Not configured'}</span
+            >
             {#if tracker.projectKey}
-              <span class="tracker-project">{tracker.projectKey}</span>
+              <span class="font-mono text-xs text-text-muted">{tracker.projectKey}</span>
             {/if}
-            {#if trackerCreds[tracker.id]?.hasToken}
-              <span class="status-dot ok"></span>
-            {:else}
-              <span class="status-dot missing"></span>
-            {/if}
+            <span
+              class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              class:bg-success={trackerCreds[tracker.id]?.hasToken}
+              class:bg-warning-text={!trackerCreds[tracker.id]?.hasToken}
+            ></span>
           </button>
-          <button class="icon-btn danger" onclick={() => removeTracker(tracker.id)} title="Remove">
+          <button
+            class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-danger-text"
+            onclick={() => removeTracker(tracker.id)}
+            title="Remove"
+          >
             <Trash2 size={12} />
           </button>
         </div>
@@ -235,9 +250,10 @@
 {/if}
 
 {#snippet editForm()}
-  <div class="edit-form">
-    <div class="field">
-      <label class="field-label">Provider</label>
+  <div class="flex flex-col gap-2 p-2.5 border border-border rounded-xl bg-border-subtle">
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-text-secondary flex items-center gap-2">Provider</label
+      >
       <CustomSelect
         value={editProvider}
         options={[
@@ -249,10 +265,11 @@
       />
     </div>
 
-    <div class="field">
-      <label class="field-label">Base URL</label>
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-text-secondary flex items-center gap-2">Base URL</label
+      >
       <input
-        class="text-input"
+        class="px-2 py-1 border border-border rounded-md bg-hover text-text text-sm font-inherit outline-none focus:border-focus-ring"
         bind:value={editBaseUrl}
         placeholder={editProvider === 'github'
           ? 'https://github.com'
@@ -262,10 +279,12 @@
     </div>
 
     {#if editProvider === 'github'}
-      <div class="field">
-        <label class="field-label">Repository (optional)</label>
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-medium text-text-secondary flex items-center gap-2"
+          >Repository (optional)</label
+        >
         <input
-          class="text-input"
+          class="px-2 py-1 border border-border rounded-md bg-hover text-text text-sm font-inherit outline-none focus:border-focus-ring"
           bind:value={editProjectKey}
           placeholder="owner/repo — auto-detected if empty"
           spellcheck="false"
@@ -273,14 +292,16 @@
       </div>
     {/if}
 
-    <div class="cred-section">
-      <span class="field-hint">Credentials — stored locally, never committed.</span>
+    <div class="flex flex-col gap-1.5 pt-1.5 border-t border-border">
+      <span class="text-2xs text-text-faint">Credentials — stored locally, never committed.</span>
 
       {#if editProvider === 'jira'}
-        <div class="field">
-          <label class="field-label">Email</label>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium text-text-secondary flex items-center gap-2"
+            >Email</label
+          >
           <input
-            class="text-input"
+            class="px-2 py-1 border border-border rounded-md bg-hover text-text text-sm font-inherit outline-none focus:border-focus-ring"
             bind:value={editUsername}
             placeholder="user@company.com"
             spellcheck="false"
@@ -288,12 +309,12 @@
         </div>
       {/if}
 
-      <div class="field">
-        <label class="field-label"
-          >API Token
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-medium text-text-secondary flex items-center gap-2">
+          API Token
           {#if editProvider === 'jira'}
             <button
-              class="token-link"
+              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
               onclick={() =>
                 window.api.openExternal(
                   'https://id.atlassian.com/manage-profile/security/api-tokens',
@@ -303,7 +324,7 @@
             </button>
           {:else if editProvider === 'youtrack'}
             <button
-              class="token-link"
+              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
               onclick={() => {
                 const url = editBaseUrl
                   ? `${editBaseUrl.replace(/\/$/, '')}/hub/tokens`
@@ -315,7 +336,7 @@
             </button>
           {:else if editProvider === 'github'}
             <button
-              class="token-link"
+              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
               onclick={() => window.api.openExternal('https://github.com/settings/tokens')}
             >
               Generate
@@ -323,7 +344,7 @@
           {/if}
         </label>
         <input
-          class="text-input"
+          class="px-2 py-1 border border-border rounded-md bg-hover text-text text-sm font-inherit outline-none focus:border-focus-ring"
           type="password"
           bind:value={editToken}
           placeholder={editingId !== '__new__' && trackerCreds[editingId ?? '']?.hasToken
@@ -334,277 +355,31 @@
       </div>
     </div>
 
-    <div class="test-row" aria-live="polite">
+    <div class="min-h-[18px]" aria-live="polite">
       {#if testResult === 'success'}
-        <span class="status-ok"><Check size={14} /> OK</span>
+        <span class="flex items-center gap-1 text-xs text-success"><Check size={14} /> OK</span>
       {:else if testResult === 'fail'}
-        <span class="status-fail"><X size={14} /> Failed</span>
+        <span class="flex items-center gap-1 text-xs text-danger-text"><X size={14} /> Failed</span>
       {/if}
     </div>
 
-    <div class="form-actions">
-      <button class="btn btn-ghost" onclick={cancelEdit}>Cancel</button>
+    <div class="flex gap-1.5 justify-end">
       <button
-        class="btn btn-secondary"
+        class="px-3 py-1 border-0 rounded-md text-sm font-inherit cursor-pointer bg-transparent text-text-muted hover:text-text"
+        onclick={cancelEdit}>Cancel</button
+      >
+      <button
+        class="px-3 py-1 border-0 rounded-md text-sm font-inherit cursor-pointer bg-active text-text enabled:hover:bg-hover-strong disabled:opacity-50 disabled:cursor-default"
         onclick={testConnection}
         disabled={testing || !editBaseUrl || !editToken}
       >
         {#if testing}Testing...{:else}Test{/if}
       </button>
-      <button class="btn btn-primary" onclick={saveTracker} disabled={!editBaseUrl}>Save</button>
+      <button
+        class="px-3 py-1 border-0 rounded-md text-sm font-inherit cursor-pointer bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
+        onclick={saveTracker}
+        disabled={!editBaseUrl}>Save</button
+      >
     </div>
   </div>
 {/snippet}
-
-<style>
-  .subsection {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .subsection-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--color-text-muted);
-    margin: 0;
-  }
-
-  .header-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .tracker-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .tracker-item {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-hover);
-    color: var(--color-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .tracker-item:hover {
-    border-color: var(--color-focus-ring);
-  }
-
-  .tracker-provider-badge {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    color: var(--color-accent-text);
-    background: var(--color-accent-bg);
-    padding: 1px 6px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-
-  .tracker-url {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--color-text-secondary);
-  }
-
-  .tracker-project {
-    font-family: monospace;
-    font-size: 11px;
-    color: var(--color-text-muted);
-  }
-
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .status-dot.ok {
-    background: var(--color-success);
-  }
-
-  .status-dot.missing {
-    background: var(--color-warning-text);
-  }
-
-  .edit-form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    background: var(--color-border-subtle);
-  }
-
-  .cred-section {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding-top: 6px;
-    border-top: 1px solid var(--color-border);
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .field-label {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .field-hint {
-    font-size: 10px;
-    color: var(--color-text-faint);
-  }
-
-  .token-link {
-    font-size: 10px;
-    font-weight: 400;
-    color: var(--color-accent-text);
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    font-family: inherit;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-
-  .token-link:hover {
-    color: var(--color-accent);
-  }
-
-  .text-input {
-    padding: 5px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: 5px;
-    background: var(--color-hover);
-    color: var(--color-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .text-input:focus {
-    border-color: var(--color-focus-ring);
-  }
-
-  .hint-text {
-    font-size: 11px;
-    color: var(--color-text-faint);
-  }
-
-  .test-row {
-    min-height: 18px;
-  }
-
-  .status-ok {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    color: var(--color-success);
-  }
-
-  .status-fail {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    color: var(--color-danger-text);
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 6px;
-    justify-content: flex-end;
-  }
-
-  .btn {
-    padding: 4px 12px;
-    border: none;
-    border-radius: 5px;
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .btn-primary {
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: var(--color-accent-bg-hover);
-  }
-
-  .btn-secondary {
-    background: var(--color-active);
-    color: var(--color-text);
-  }
-
-  .btn-secondary:hover:not(:disabled) {
-    background: var(--color-hover-strong);
-  }
-
-  .btn-ghost {
-    background: none;
-    color: var(--color-text-muted);
-  }
-
-  .btn-ghost:hover {
-    color: var(--color-text);
-  }
-
-  .icon-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--color-text-muted);
-    cursor: pointer;
-  }
-
-  .icon-btn:hover {
-    background: var(--color-hover);
-    color: var(--color-text-secondary);
-  }
-
-  .icon-btn.danger:hover {
-    color: var(--color-danger-text);
-  }
-</style>

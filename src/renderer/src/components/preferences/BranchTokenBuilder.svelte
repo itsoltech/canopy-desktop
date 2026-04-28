@@ -25,12 +25,10 @@
     templateTokens.length > 0 && templateTokens[templateTokens.length - 1].type === 'separator',
   )
 
-  // Drag state
   let dragIdx: number | null = $state(null)
   let dragOverIdx: number | null = $state(null)
   let dragFromAvailable: string | null = $state(null)
 
-  // Popups
   let sepPopup = $state<{ visible: boolean; pendingKey: string; x: number; y: number }>({
     visible: false,
     pendingKey: '',
@@ -204,15 +202,20 @@
   }
 </script>
 
-<div class="token-builder">
-  <label class="form-label">{label}</label>
+<div class="flex items-center gap-2 mb-2">
+  <label class="text-sm text-text-secondary w-[90px] flex-shrink-0">{label}</label>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="token-track" ondragover={onTrackDragOver} ondrop={onTrackDrop}>
+  <div
+    class="flex flex-wrap gap-[3px] flex-1 min-h-7 px-1.5 py-[3px] border border-border rounded-lg bg-bg-input items-center box-content"
+    ondragover={onTrackDragOver}
+    ondrop={onTrackDrop}
+  >
     {#each templateTokens as token, i (`${token.type}:${token.value}:${i}`)}
       {#if token.type === 'placeholder'}
         <span
-          class="token placeholder"
-          class:drag-over={dragOverIdx === i}
+          class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs cursor-grab select-none transition-all duration-fast bg-accent-bg text-accent-text border border-accent-muted active:cursor-grabbing"
+          class:!border-focus-ring={dragOverIdx === i}
+          class:shadow-[0_0_0_1px_var(--color-accent-muted)]={dragOverIdx === i}
           draggable="true"
           ondragstart={() => onTokenDragStart(i)}
           ondragover={(e) => onTokenDragOver(i, e)}
@@ -221,14 +224,17 @@
           role="listitem"
         >
           {token.value}
-          <button class="token-remove" onclick={() => removeTokenAt(i)} aria-label="Remove token"
-            >×</button
+          <button
+            class="inline-flex items-center justify-center w-[14px] h-[14px] border-0 rounded-full bg-transparent text-text-muted text-sm leading-none cursor-pointer p-0 hover:bg-danger-bg hover:text-danger-text"
+            onclick={() => removeTokenAt(i)}
+            aria-label="Remove token">×</button
           >
         </span>
       {:else}
         <button
-          class="token separator"
-          class:drag-over={dragOverIdx === i}
+          class="inline-flex items-center px-1.5 py-0.5 rounded-md text-xs cursor-grab select-none transition-all duration-fast bg-hover text-text-muted border border-transparent font-mono active:cursor-grabbing"
+          class:!border-focus-ring={dragOverIdx === i}
+          class:shadow-[0_0_0_1px_var(--color-accent-muted)]={dragOverIdx === i}
           draggable="true"
           ondragstart={() => onTokenDragStart(i)}
           ondragover={(e) => onTokenDragOver(i, e)}
@@ -241,17 +247,20 @@
       {/if}
     {/each}
     {#if templateTokens.length === 0}
-      <span class="token-empty">Drag or click tags below to build template</span>
+      <span class="text-xs text-text-faint px-1 py-0.5 leading-[22px]"
+        >Drag or click tags below to build template</span
+      >
     {/if}
   </div>
 </div>
 
-<div class="placeholder-list">
-  <span class="placeholder-hint">Available tags: </span>
+<div class="flex flex-wrap items-center gap-1 mb-1">
+  <span class="text-xs text-text-faint">Available tags: </span>
   {#each placeholders as ph (ph.key)}
     <button
-      class="placeholder-tag"
-      class:used={templateInput.includes('{' + ph.key + '}')}
+      class="text-xs px-1.5 py-0.5 border border-border rounded-md bg-hover text-text-secondary font-inherit cursor-pointer transition-all duration-fast hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+      class:!opacity-35={templateInput.includes('{' + ph.key + '}')}
+      class:!cursor-default={templateInput.includes('{' + ph.key + '}')}
       title={ph.description + ' (e.g. ' + ph.example + ')'}
       draggable="true"
       ondragstart={() => onAvailableDragStart(ph.key)}
@@ -263,25 +272,32 @@
   {/each}
 </div>
 
-<details class="advanced-template">
-  <summary>Manual edit</summary>
-  <input class="form-input" bind:value={templateInput} oninput={() => onSave()} />
-  <p class="section-desc" style="margin-top: 6px;">
+<details class="mt-2 mb-2">
+  <summary class="text-xs text-text-faint cursor-pointer mb-1.5">Manual edit</summary>
+  <input
+    class="w-full box-border flex-1 px-2 py-1 border border-border rounded-lg bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring"
+    bind:value={templateInput}
+    oninput={() => onSave()}
+  />
+  <p class="text-sm text-text-muted m-0 mt-1.5 mb-3">
     Conditional: <code>{'{?parentKey}...{/parentKey}'}</code> — only renders if value exists.
   </p>
 </details>
 
 {#if sepPopup.visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="popup-overlay" onclick={closeSepPopup}>
+  <div class="fixed inset-0 z-[1100]" onclick={closeSepPopup}>
     <div
-      class="sep-popup"
+      class="fixed flex items-center gap-1 px-2 py-1 bg-bg-overlay border border-border rounded-lg shadow-[0_4px_16px_var(--color-scrim)] -translate-x-1/2 -translate-y-full -mt-2"
       style="left:{sepPopup.x}px;top:{sepPopup.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <span class="popup-hint">Separator:</span>
+      <span class="text-2xs text-text-muted mr-0.5">Separator:</span>
       {#each SEPARATORS as sep (sep)}
-        <button class="popup-sep-btn" onclick={() => confirmSeparatorAndAdd(sep)}>
+        <button
+          class="px-2.5 py-[3px] border border-border rounded-md bg-hover text-text-secondary text-sm font-inherit cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+          onclick={() => confirmSeparatorAndAdd(sep)}
+        >
           <code>{sep}</code>
         </button>
       {/each}
@@ -291,238 +307,25 @@
 
 {#if editSepPopup.visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="popup-overlay" onclick={closeEditSepPopup}>
+  <div class="fixed inset-0 z-[1100]" onclick={closeEditSepPopup}>
     <div
-      class="sep-popup"
+      class="fixed flex items-center gap-1 px-2 py-1 bg-bg-overlay border border-border rounded-lg shadow-[0_4px_16px_var(--color-scrim)] -translate-x-1/2 -translate-y-full -mt-2"
       style="left:{editSepPopup.x}px;top:{editSepPopup.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <span class="popup-hint">Change to:</span>
+      <span class="text-2xs text-text-muted mr-0.5">Change to:</span>
       {#each SEPARATORS as sep (sep)}
-        <button class="popup-sep-btn" onclick={() => changeSeparator(sep)}>
+        <button
+          class="px-2.5 py-[3px] border border-border rounded-md bg-hover text-text-secondary text-sm font-inherit cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+          onclick={() => changeSeparator(sep)}
+        >
           <code>{sep}</code>
         </button>
       {/each}
-      <button class="popup-sep-btn remove" onclick={removeSeparatorToken}>x</button>
+      <button
+        class="px-2.5 py-[3px] border border-border rounded-md bg-hover text-danger-text text-sm font-inherit cursor-pointer hover:bg-danger-bg hover:border-danger-text"
+        onclick={removeSeparatorToken}>x</button
+      >
     </div>
   </div>
 {/if}
-
-<style>
-  .form-label {
-    font-size: 12px;
-    color: var(--color-text-secondary);
-    width: 90px;
-    flex-shrink: 0;
-  }
-
-  .form-input {
-    flex: 1;
-    padding: 5px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-bg-input);
-    color: var(--color-text);
-    font-size: 12px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .form-input:focus {
-    border-color: var(--color-focus-ring);
-  }
-
-  .section-desc {
-    font-size: 12px;
-    color: var(--color-text-muted);
-    margin: 0 0 12px;
-  }
-
-  .token-builder {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .token-track {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 3px;
-    flex: 1;
-    min-height: 28px;
-    padding: 3px 6px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-bg-input);
-    align-items: center;
-    box-sizing: content-box;
-  }
-
-  .token-empty {
-    font-size: 11px;
-    color: var(--color-text-faint);
-    padding: 2px 4px;
-    line-height: 22px;
-  }
-
-  .token {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 11px;
-    cursor: grab;
-    user-select: none;
-    transition: all 0.1s;
-  }
-
-  .token:active {
-    cursor: grabbing;
-  }
-
-  .token.placeholder {
-    background: var(--color-accent-bg);
-    color: var(--color-accent-text);
-    border: 1px solid var(--color-accent-muted);
-  }
-
-  .token.separator {
-    background: var(--color-hover);
-    color: var(--color-text-muted);
-    border: 1px solid transparent;
-    font-family: monospace;
-  }
-
-  .token.drag-over {
-    border-color: var(--color-focus-ring);
-    box-shadow: 0 0 0 1px var(--color-accent-muted);
-  }
-
-  .token-remove {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    border: none;
-    border-radius: 50%;
-    background: none;
-    color: var(--color-text-muted);
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0;
-  }
-
-  .token-remove:hover {
-    background: var(--color-danger-bg);
-    color: var(--color-danger-text);
-  }
-
-  .placeholder-list {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 4px;
-  }
-
-  .placeholder-hint {
-    font-size: 11px;
-    color: var(--color-text-faint);
-  }
-
-  .placeholder-tag {
-    font-size: 11px;
-    padding: 2px 7px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-hover);
-    color: var(--color-text-secondary);
-    font-family: inherit;
-    cursor: pointer;
-    transition: all 0.1s;
-  }
-
-  .placeholder-tag:hover {
-    background: var(--color-accent-bg);
-    border-color: var(--color-accent-muted);
-    color: var(--color-accent-text);
-  }
-
-  .placeholder-tag.used {
-    opacity: 0.35;
-    cursor: default;
-  }
-
-  .advanced-template {
-    margin-top: 8px;
-    margin-bottom: 8px;
-  }
-
-  .advanced-template summary {
-    font-size: 11px;
-    color: var(--color-text-faint);
-    cursor: pointer;
-    margin-bottom: 6px;
-  }
-
-  .advanced-template .form-input {
-    width: 100%;
-    box-sizing: border-box;
-  }
-
-  .popup-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1100;
-  }
-
-  .sep-popup {
-    position: fixed;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    background: var(--color-bg-overlay);
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px var(--color-scrim);
-    transform: translate(-50%, -100%) translateY(-8px);
-  }
-
-  .popup-hint {
-    font-size: 10px;
-    color: var(--color-text-muted);
-    margin-right: 2px;
-  }
-
-  .popup-sep-btn {
-    padding: 3px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-hover);
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .popup-sep-btn:hover {
-    background: var(--color-accent-bg);
-    border-color: var(--color-accent-muted);
-    color: var(--color-accent-text);
-  }
-
-  .popup-sep-btn.remove {
-    color: var(--color-danger-text);
-  }
-
-  .popup-sep-btn.remove:hover {
-    background: var(--color-danger-bg);
-    border-color: var(--color-danger-text);
-    color: var(--color-danger-text);
-  }
-</style>

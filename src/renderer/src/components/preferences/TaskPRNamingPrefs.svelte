@@ -101,12 +101,14 @@
   }
 </script>
 
-<div class="subsection">
-  <h4 class="subsection-title">Pull request naming</h4>
+<div class="flex flex-col gap-2.5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
+    Pull request naming
+  </h4>
 
   {#if boards.length > 0}
-    <div class="select-row">
-      <span class="select-label">Board</span>
+    <div class="flex items-center gap-2 text-md">
+      <span class="text-text-secondary w-[90px] flex-shrink-0">Board</span>
       <CustomSelect
         value={prScope}
         options={[
@@ -137,10 +139,10 @@
     autoSeparators={false}
   />
 
-  <div class="field">
-    <label class="field-label">Body text</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary">Body text</label>
     <textarea
-      class="text-input textarea"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring resize-y min-h-[60px] placeholder:text-text-faint"
       bind:value={bodyTemplateInput}
       oninput={onBodyTemplateSave}
       rows="4"
@@ -149,10 +151,10 @@
     ></textarea>
   </div>
 
-  <div class="field">
-    <label class="field-label">Default target branch</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary">Default target branch</label>
     <input
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       bind:value={defaultTargetBranch}
       oninput={() => savePRField('defaultTargetBranch', defaultTargetBranch)}
       placeholder="develop"
@@ -160,69 +162,3 @@
     />
   </div>
 </div>
-
-<style>
-  .subsection {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .subsection-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--color-text-muted);
-    margin: 0;
-  }
-
-  .select-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-  }
-
-  .select-label {
-    color: var(--color-text-secondary);
-    width: 90px;
-    flex-shrink: 0;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-  }
-
-  .text-input {
-    padding: 6px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-hover);
-    color: var(--color-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .text-input:focus {
-    border-color: var(--color-focus-ring);
-  }
-
-  .textarea {
-    resize: vertical;
-    min-height: 60px;
-  }
-
-  .textarea::placeholder {
-    color: var(--color-text-faint);
-  }
-</style>

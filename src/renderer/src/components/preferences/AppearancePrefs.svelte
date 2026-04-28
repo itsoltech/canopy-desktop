@@ -21,17 +21,19 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Appearance</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Appearance</h3>
 
-  <div class="field">
-    <span class="field-label">Theme</span>
-    <span class="field-hint">Terminal color scheme</span>
-    <div class="theme-grid" role="group" aria-label="Theme">
+  <div class="flex flex-col gap-1.5">
+    <span class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]">Theme</span>
+    <span class="text-xs text-text-faint">Terminal color scheme</span>
+    <div class="flex flex-wrap gap-1.5" role="group" aria-label="Theme">
       {#each themeNames as name (name)}
         <button
-          class="theme-btn"
-          class:active={name === currentTheme}
+          class="px-2.5 py-1 border border-border rounded-lg bg-border-subtle text-text text-sm font-inherit cursor-pointer transition-colors duration-fast hover:bg-active hover:border-text-faint"
+          class:bg-accent-bg={name === currentTheme}
+          class:border-focus-ring={name === currentTheme}
+          class:text-accent={name === currentTheme}
           onclick={() => setTheme(name)}
         >
           {name}
@@ -40,14 +42,17 @@
     </div>
   </div>
 
-  <div class="field">
-    <label class="field-label" for="font-family">Font Family</label>
-    <span class="field-hint"
-      >Comma-separated list of fonts for the terminal. First available font is used</span
+  <div class="flex flex-col gap-1.5">
+    <label
+      class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
+      for="font-family">Font Family</label
     >
+    <span class="text-xs text-text-faint">
+      Comma-separated list of fonts for the terminal. First available font is used
+    </span>
     <input
       id="font-family"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-mono outline-none focus:border-focus-ring"
       type="text"
       value={fontFamily}
       onchange={updateFontFamily}
@@ -55,9 +60,12 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label" for="font-size">Font Size</label>
-    <span class="field-hint">Terminal text size in pixels (8–24)</span>
+  <div class="flex flex-col gap-1.5">
+    <label
+      class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
+      for="font-size">Font Size</label
+    >
+    <span class="text-xs text-text-faint">Terminal text size in pixels (8–24)</span>
     <CustomNumberInput
       id="font-size"
       value={fontSize}
@@ -67,83 +75,3 @@
     />
   </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .theme-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .theme-btn {
-    padding: 4px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-border-subtle);
-    color: var(--color-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      border-color 0.1s;
-  }
-
-  .theme-btn:hover {
-    background: var(--color-active);
-    border-color: var(--color-text-faint);
-  }
-
-  .theme-btn.active {
-    background: var(--color-accent-bg);
-    border-color: var(--color-focus-ring);
-    color: var(--color-accent);
-  }
-
-  .text-input {
-    padding: 6px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-hover);
-    color: var(--color-text);
-    font-size: 13px;
-    font-family: monospace;
-    outline: none;
-  }
-
-  .field-hint {
-    font-size: 11px;
-    color: var(--color-text-faint);
-  }
-
-  .text-input:focus {
-    border-color: var(--color-focus-ring);
-  }
-</style>

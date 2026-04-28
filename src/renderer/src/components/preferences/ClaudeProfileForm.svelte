@@ -29,15 +29,17 @@
   }
 </script>
 
-<div class="subsection">
-  <h4 class="subsection-title">Model & behavior</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
+    Model & behavior
+  </h4>
 
-  <div class="field">
-    <label class="field-label" for="claude-model">Model</label>
-    <span class="field-hint">Short name (sonnet, opus, haiku) or full model ID</span>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="claude-model">Model</label>
+    <span class="text-xs text-text-faint">Short name (sonnet, opus, haiku) or full model ID</span>
     <input
       id="claude-model"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="text"
       value={prefs.model ?? ''}
       oninput={onTextInput('model')}
@@ -46,9 +48,9 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label" for="claude-perm">Permission mode</label>
-    <span class="field-hint"
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="claude-perm">Permission mode</label>
+    <span class="text-xs text-text-faint"
       >Controls what Claude can do without asking. Plan = read-only, Auto = full autonomy</span
     >
     <CustomSelect
@@ -65,9 +67,11 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label" for="claude-effort">Effort level</label>
-    <span class="field-hint">Higher effort means more thorough but slower responses</span>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="claude-effort">Effort level</label>
+    <span class="text-xs text-text-faint"
+      >Higher effort means more thorough but slower responses</span
+    >
     <CustomSelect
       id="claude-effort"
       value={prefs.effortLevel ?? ''}
@@ -84,15 +88,19 @@
   </div>
 </div>
 
-<div class="subsection">
-  <h4 class="subsection-title">API / Provider</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
+    API / Provider
+  </h4>
 
-  <div class="field">
-    <label class="field-label" for="claude-apikey">API key</label>
-    <span class="field-hint">Anthropic API key. Falls back to ANTHROPIC_API_KEY env variable</span>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="claude-apikey">API key</label>
+    <span class="text-xs text-text-faint"
+      >Anthropic API key. Falls back to ANTHROPIC_API_KEY env variable</span
+    >
     <input
       id="claude-apikey"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="password"
       value={apiKey}
       oninput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
@@ -102,14 +110,14 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label" for="claude-baseurl">Base URL</label>
-    <span class="field-hint"
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="claude-baseurl">Base URL</label>
+    <span class="text-xs text-text-faint"
       >Custom API endpoint. Use for Ollama, GLM, MinMax, or any OpenAI-compatible Anthropic proxy.</span
     >
     <input
       id="claude-baseurl"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="text"
       value={prefs.baseUrl ?? ''}
       oninput={onTextInput('baseUrl')}
@@ -118,9 +126,9 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label" for="claude-provider">Provider</label>
-    <span class="field-hint">Cloud provider for the Claude API backend</span>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="claude-provider">Provider</label>
+    <span class="text-xs text-text-faint">Cloud provider for the Claude API backend</span>
     <CustomSelect
       id="claude-provider"
       value={prefs.provider ?? ''}
@@ -135,17 +143,21 @@
   </div>
 </div>
 
-<div class="subsection">
-  <h4 class="subsection-title">System prompt</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
+    System prompt
+  </h4>
 
-  <div class="field">
-    <label class="field-label" for="claude-sysprompt">Append to system prompt</label>
-    <span class="field-hint"
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="claude-sysprompt"
+      >Append to system prompt</label
+    >
+    <span class="text-xs text-text-faint"
       >Extra instructions added after the default system prompt in every session</span
     >
     <textarea
       id="claude-sysprompt"
-      class="text-input textarea"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring resize-y min-h-[60px]"
       rows="3"
       value={prefs.appendSystemPrompt ?? ''}
       oninput={onTextInput('appendSystemPrompt')}
@@ -161,82 +173,24 @@
   onChange={(v) => set('customEnv', v)}
 />
 
-<div class="subsection">
-  <h4 class="subsection-title">Advanced</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">Advanced</h4>
 
-  <div class="field">
-    <label class="field-label" for="claude-settings">Settings JSON override</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="claude-settings"
+      >Settings JSON override</label
+    >
     <textarea
       id="claude-settings"
-      class="text-input textarea mono"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text font-mono text-sm outline-none focus:border-focus-ring resize-y min-h-[60px]"
       rows="4"
       value={prefs.settingsJson ?? ''}
       oninput={onTextInput('settingsJson')}
       placeholder={'{"language": "japanese", "effortLevel": "high"}'}
       spellcheck="false"
     ></textarea>
-    <span class="field-hint"
+    <span class="text-xs text-text-faint"
       >Merged into per-session settings.json. Hooks and status line are always preserved.</span
     >
   </div>
 </div>
-
-<style>
-  .subsection {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-
-  .subsection-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--color-text-muted);
-    margin: 0;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-  }
-
-  .field-hint {
-    font-size: 11px;
-    color: var(--color-text-faint);
-  }
-
-  .text-input {
-    padding: 6px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-hover);
-    color: var(--color-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .text-input:focus {
-    border-color: var(--color-focus-ring);
-  }
-
-  .textarea {
-    resize: vertical;
-    min-height: 60px;
-  }
-
-  .mono {
-    font-family: monospace;
-    font-size: 12px;
-  }
-</style>

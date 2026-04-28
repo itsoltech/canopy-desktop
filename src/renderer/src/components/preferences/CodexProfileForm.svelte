@@ -31,26 +31,29 @@
   let fullAuto = $derived(prefs.fullAuto === 'true')
 </script>
 
-<div class="subsection">
-  <h4 class="subsection-title">Model & behavior</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
+    Model & behavior
+  </h4>
 
-  <div class="field">
-    <label class="field-label" for="codex-model">Model</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="codex-model">Model</label>
     <input
       id="codex-model"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="text"
       value={prefs.model ?? ''}
       oninput={onTextInput('model')}
       placeholder="Default"
       spellcheck="false"
     />
-    <span class="field-hint">Leave empty for Codex default</span>
+    <span class="text-xs text-text-faint">Leave empty for Codex default</span>
   </div>
 
-  <div class="field">
-    <label class="field-label" for="codex-approval">Approval mode</label>
-    <span class="field-hint">Controls when Codex pauses for human approval</span>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="codex-approval">Approval mode</label
+    >
+    <span class="text-xs text-text-faint">Controls when Codex pauses for human approval</span>
     <CustomSelect
       id="codex-approval"
       value={prefs.approvalMode ?? ''}
@@ -64,9 +67,9 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label" for="codex-sandbox">Sandbox</label>
-    <span class="field-hint">Command execution policy</span>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="codex-sandbox">Sandbox</label>
+    <span class="text-xs text-text-faint">Command execution policy</span>
     <CustomSelect
       id="codex-sandbox"
       value={prefs.sandbox ?? ''}
@@ -80,8 +83,8 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label checkbox-label">
+  <div class="flex flex-col gap-1">
+    <label class="flex items-center gap-2 text-sm font-medium text-text-secondary">
       <input
         type="checkbox"
         checked={fullAuto}
@@ -89,33 +92,35 @@
       />
       Full auto
     </label>
-    <span class="field-hint">Workspace-write sandbox + on-request approvals</span>
+    <span class="text-xs text-text-faint">Workspace-write sandbox + on-request approvals</span>
   </div>
 
-  <div class="field">
-    <label class="field-label" for="codex-profile">Profile</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="codex-profile">Profile</label>
     <input
       id="codex-profile"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="text"
       value={prefs.profile ?? ''}
       oninput={onTextInput('profile')}
       placeholder="Default"
       spellcheck="false"
     />
-    <span class="field-hint">Configuration profile from config.toml</span>
+    <span class="text-xs text-text-faint">Configuration profile from config.toml</span>
   </div>
 </div>
 
-<div class="subsection">
-  <h4 class="subsection-title">API</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">API</h4>
 
-  <div class="field">
-    <label class="field-label" for="codex-apikey">API key</label>
-    <span class="field-hint">OpenAI API key. Falls back to OPENAI_API_KEY env variable</span>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="codex-apikey">API key</label>
+    <span class="text-xs text-text-faint"
+      >OpenAI API key. Falls back to OPENAI_API_KEY env variable</span
+    >
     <input
       id="codex-apikey"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="password"
       value={apiKey}
       oninput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
@@ -125,18 +130,20 @@
     />
   </div>
 
-  <div class="field">
-    <label class="field-label" for="codex-baseurl">Base URL</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="codex-baseurl">Base URL</label>
     <input
       id="codex-baseurl"
-      class="text-input"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
       type="text"
       value={prefs.baseUrl ?? ''}
       oninput={onTextInput('baseUrl')}
       placeholder="https://api.openai.com"
       spellcheck="false"
     />
-    <span class="field-hint">Custom API endpoint (Ollama, vLLM, OpenAI-compatible proxy)</span>
+    <span class="text-xs text-text-faint"
+      >Custom API endpoint (Ollama, vLLM, OpenAI-compatible proxy)</span
+    >
   </div>
 </div>
 
@@ -146,78 +153,22 @@
   onChange={(v) => set('customEnv', v)}
 />
 
-<div class="subsection">
-  <h4 class="subsection-title">Advanced</h4>
+<div class="flex flex-col gap-2.5 mb-5">
+  <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">Advanced</h4>
 
-  <div class="field">
-    <label class="field-label" for="codex-settings">Settings JSON override</label>
+  <div class="flex flex-col gap-1">
+    <label class="text-sm font-medium text-text-secondary" for="codex-settings"
+      >Settings JSON override</label
+    >
     <textarea
       id="codex-settings"
-      class="text-input textarea mono"
+      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text font-mono text-sm outline-none focus:border-focus-ring resize-y min-h-[60px]"
       rows="4"
       value={prefs.settingsJson ?? ''}
       oninput={onTextInput('settingsJson')}
       placeholder={'{"key": "value"}'}
       spellcheck="false"
     ></textarea>
-    <span class="field-hint">Merged into per-session .codex/hooks.json</span>
+    <span class="text-xs text-text-faint">Merged into per-session .codex/hooks.json</span>
   </div>
 </div>
-
-<style>
-  .subsection {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-  .subsection-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--color-text-muted);
-    margin: 0;
-  }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-  }
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 500;
-  }
-  .field-hint {
-    font-size: 11px;
-    color: var(--color-text-faint);
-  }
-  .text-input {
-    padding: 6px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-hover);
-    color: var(--color-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-  .text-input:focus {
-    border-color: var(--color-focus-ring);
-  }
-  .textarea {
-    resize: vertical;
-    min-height: 60px;
-  }
-  .mono {
-    font-family: monospace;
-    font-size: 12px;
-  }
-</style>

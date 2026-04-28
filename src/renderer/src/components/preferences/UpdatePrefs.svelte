@@ -64,16 +64,16 @@
   onDestroy(() => checkCleanup?.())
 </script>
 
-<div class="section">
-  <h3 class="section-title">Updates</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Updates</h3>
 
-  <label class="checkbox-row">
+  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
     <CustomCheckbox checked={autoUpdate} onchange={toggleAutoUpdate} />
     <span>Automatically download and install updates</span>
   </label>
 
-  <div class="select-row">
-    <span class="select-label">Update channel</span>
+  <div class="flex items-center gap-3 text-md">
+    <span class="text-text min-w-40">Update channel</span>
     <CustomSelect
       value={channel}
       options={[
@@ -84,12 +84,12 @@
       maxWidth="180px"
     />
   </div>
-  <div class="hint-row">
+  <div class="text-xs text-text-muted leading-normal -mt-2">
     Stable gets tested releases. Pre-release includes newest features but may have bugs
   </div>
 
-  <div class="select-row">
-    <span class="select-label">Check frequency</span>
+  <div class="flex items-center gap-3 text-md">
+    <span class="text-text min-w-40">Check frequency</span>
     <CustomSelect
       value={checkFrequency}
       options={[
@@ -102,101 +102,22 @@
       maxWidth="180px"
     />
   </div>
-  <div class="hint-row">How often the app checks for new versions in the background</div>
+  <div class="text-xs text-text-muted leading-normal -mt-2">
+    How often the app checks for new versions in the background
+  </div>
 
-  <div class="check-row">
-    <button class="check-btn" onclick={checkNow} disabled={checkState === 'checking'}>
+  <div class="flex items-center gap-3">
+    <button
+      class="px-3.5 py-1.5 border border-text-faint rounded-lg bg-hover text-text text-md font-inherit cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong disabled:opacity-50 disabled:cursor-default"
+      onclick={checkNow}
+      disabled={checkState === 'checking'}
+    >
       {checkState === 'checking' ? 'Checking...' : 'Check for updates'}
     </button>
     {#if checkState === 'up-to-date'}
-      <span class="check-status ok">You're up to date</span>
+      <span class="text-sm text-success">You're up to date</span>
     {:else if checkState === 'error'}
-      <span class="check-status err">Check failed</span>
+      <span class="text-sm text-danger">Check failed</span>
     {/if}
   </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--color-text);
-    cursor: pointer;
-  }
-
-  .select-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-  }
-
-  .select-label {
-    color: var(--color-text);
-    min-width: 160px;
-  }
-
-  .hint-row {
-    font-size: 11px;
-    color: var(--color-text-muted);
-    line-height: 1.5;
-    margin-top: -8px;
-  }
-
-  .check-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .check-btn {
-    padding: 6px 14px;
-    border: 1px solid var(--color-text-faint);
-    border-radius: 6px;
-    background: var(--color-hover);
-    color: var(--color-text);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      border-color 0.15s;
-  }
-
-  .check-btn:hover:not(:disabled) {
-    background: var(--color-hover-strong);
-    border-color: var(--color-text-faint);
-  }
-
-  .check-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .check-status {
-    font-size: 12px;
-  }
-
-  .check-status.ok {
-    color: var(--color-success);
-  }
-
-  .check-status.err {
-    color: var(--color-danger);
-  }
-</style>

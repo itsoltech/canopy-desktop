@@ -11,44 +11,14 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Notch</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Notch</h3>
 
-  <label class="checkbox-row">
+  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
     <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
     <span>Show session status in notch overlay</span>
   </label>
-  <div class="hint-row">Show active session info in an overlay near the top of the screen</div>
+  <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
+    Show active session info in an overlay near the top of the screen
+  </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--color-text);
-    cursor: pointer;
-  }
-
-  .hint-row {
-    font-size: 11px;
-    color: var(--color-text-muted);
-    line-height: 1.5;
-    padding-left: 24px;
-    margin-top: -8px;
-  }
-</style>
