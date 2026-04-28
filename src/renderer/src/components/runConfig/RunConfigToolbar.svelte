@@ -140,33 +140,38 @@
 
   let totalRunningCount = $derived(running.size)
   let hasAnyRunning = $derived(totalRunningCount > 0)
+
+  const iconBtnCls =
+    'flex items-center justify-center w-6 h-6 border-0 bg-transparent cursor-pointer rounded-md relative hover:bg-hover'
+  const countBadgeCls =
+    'absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-[3px] rounded-[7px] bg-accent-bg text-accent-text text-[9px] font-bold leading-[14px] text-center'
 </script>
 
 {#if dropdownGroups.length > 0}
-  <div class="toolbar">
+  <div class="flex items-center gap-1 [app-region:no-drag]">
     <button
       bind:this={triggerEl}
-      class="select-trigger"
+      class="inline-flex items-center justify-between gap-1.5 h-6 px-2 max-w-[180px] border border-border rounded-md bg-bg-secondary text-text text-xs font-inherit cursor-pointer outline-none hover:bg-hover"
       onclick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
     >
-      <span class="select-label">{activeLabel}</span>
+      <span class="overflow-hidden text-ellipsis whitespace-nowrap">{activeLabel}</span>
       <ChevronDown size={12} />
     </button>
 
     {#if hasAnyRunning}
       <Tooltip text={`Stop all (${totalRunningCount})`}>
         <button
-          class="stop-btn"
+          class="{iconBtnCls} text-danger-text"
           onclick={handleStop}
           aria-label={`Stop all (${totalRunningCount})`}
         >
           <Square size={10} />
-          <span class="count-badge">{totalRunningCount}</span>
+          <span class={countBadgeCls}>{totalRunningCount}</span>
         </button>
       </Tooltip>
     {:else}
       <Tooltip text="Run">
-        <button class="play-btn" onclick={handlePlay} aria-label="Run">
+        <button class="{iconBtnCls} text-success-text" onclick={handlePlay} aria-label="Run">
           <Play size={12} />
         </button>
       </Tooltip>
@@ -174,7 +179,7 @@
 
     <Tooltip text="Manage configurations">
       <button
-        class="settings-btn"
+        class="{iconBtnCls} text-text-muted hover:text-text"
         onclick={() => {
           const target = getActiveTarget()
           showRunConfigManager(target?.configDir, target?.name)
@@ -189,21 +194,25 @@
   {#if dropdownOpen}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="dropdown-overlay" use:portal onclick={closeDropdown}>
+    <div class="fixed inset-0 z-[9998]" use:portal onclick={closeDropdown}>
       <div
-        class="dropdown"
+        class="fixed bg-bg border border-border rounded-lg shadow-[0_8px_24px_oklch(0_0_0/0.3)] py-1 max-h-[60vh] overflow-y-auto min-w-[200px]"
         style="top: {dropdownTop}px; left: {dropdownLeft}px; min-width: {dropdownWidth}px;"
         onclick={(e) => e.stopPropagation()}
         role="listbox"
         aria-label="Run configurations"
       >
         {#each dropdownGroups as group (group.label)}
-          <div class="dropdown-group-label">{group.label}</div>
+          <div
+            class="px-3 pt-1.5 pb-0.5 text-[9px] font-bold text-text-muted uppercase tracking-[0.5px]"
+          >
+            {group.label}
+          </div>
           {#each group.items as item (item.configDir + item.name)}
             {@const itemRunning = getRunningIdsFor(item.configDir, item.name).length}
             <div
-              class="dropdown-item"
-              class:selected={selected?.configDir === item.configDir &&
+              class="flex items-center gap-1.5 pl-3 pr-2 py-1 cursor-pointer text-sm text-text hover:bg-hover"
+              class:!bg-active={selected?.configDir === item.configDir &&
                 selected?.name === item.name}
               onclick={() => selectAndClose(item.configDir, item.name)}
               onkeydown={(e) => {
@@ -216,10 +225,11 @@
               aria-selected={selected?.configDir === item.configDir && selected?.name === item.name}
               tabindex="0"
             >
-              <span class="dropdown-item-name">{item.name}</span>
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{item.name}</span
+              >
               {#if itemRunning > 0}
                 <button
-                  class="dropdown-item-stop"
+                  class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-danger-text cursor-pointer rounded-md flex-shrink-0 relative hover:bg-hover-strong"
                   title={itemRunning > 1 ? `Stop all (${itemRunning})` : 'Stop'}
                   aria-label={itemRunning > 1 ? `Stop all (${itemRunning})` : 'Stop'}
                   onclick={(e) => {
@@ -229,12 +239,12 @@
                 >
                   <Square size={10} />
                   {#if itemRunning > 1}
-                    <span class="count-badge">{itemRunning}</span>
+                    <span class={countBadgeCls}>{itemRunning}</span>
                   {/if}
                 </button>
               {:else}
                 <button
-                  class="dropdown-item-play"
+                  class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-success-text cursor-pointer rounded-md flex-shrink-0 hover:bg-hover-strong"
                   title="Run"
                   aria-label="Run {item.name}"
                   onclick={(e) => {
@@ -248,8 +258,11 @@
             </div>
           {/each}
         {/each}
-        <div class="dropdown-separator"></div>
-        <button class="dropdown-item edit-item" onclick={openManager}>
+        <div class="h-px bg-border-subtle my-1"></div>
+        <button
+          class="flex items-center gap-1.5 pl-3 pr-2 py-1 cursor-pointer text-sm text-text-muted w-full text-left bg-transparent border-0 hover:bg-hover"
+          onclick={openManager}
+        >
           <Settings size={12} />
           <span>Edit Configurations...</span>
         </button>
@@ -257,209 +270,3 @@
     </div>
   {/if}
 {/if}
-
-<style>
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    app-region: no-drag;
-  }
-
-  .select-trigger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    height: 24px;
-    padding: 0 8px;
-    max-width: 180px;
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-    outline: none;
-  }
-
-  .select-trigger:hover {
-    background: var(--c-hover);
-  }
-
-  .select-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dropdown-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9998;
-  }
-
-  .dropdown {
-    position: fixed;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-    padding: 4px 0;
-    max-height: 60vh;
-    overflow-y: auto;
-    min-width: 200px;
-  }
-
-  .dropdown-group-label {
-    padding: 6px 12px 2px;
-    font-size: 9px;
-    font-weight: 700;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 8px 4px 12px;
-    cursor: pointer;
-    font-size: 12px;
-    color: var(--c-text);
-  }
-
-  .dropdown-item:hover {
-    background: var(--c-hover);
-  }
-
-  .dropdown-item.selected {
-    background: var(--c-active);
-  }
-
-  .dropdown-item-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dropdown-item-play {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: none;
-    color: var(--c-success-text);
-    cursor: pointer;
-    border-radius: 4px;
-    flex-shrink: 0;
-  }
-
-  .dropdown-item-play:hover {
-    background: var(--c-hover-strong);
-  }
-
-  .dropdown-item-stop {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: none;
-    color: var(--c-danger-text);
-    cursor: pointer;
-    border-radius: 4px;
-    flex-shrink: 0;
-    position: relative;
-  }
-
-  .dropdown-item-stop:hover {
-    background: var(--c-hover-strong);
-  }
-
-  .dropdown-separator {
-    height: 1px;
-    background: var(--c-border-subtle);
-    margin: 4px 0;
-  }
-
-  .dropdown-item.edit-item {
-    color: var(--c-text-muted);
-  }
-
-  .play-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    background: none;
-    color: var(--c-success-text);
-    cursor: pointer;
-    border-radius: 4px;
-    position: relative;
-  }
-
-  .play-btn:hover {
-    background: var(--c-hover);
-  }
-
-  .stop-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    background: none;
-    color: var(--c-danger-text);
-    cursor: pointer;
-    border-radius: 4px;
-    position: relative;
-  }
-
-  .stop-btn:hover {
-    background: var(--c-hover);
-  }
-
-  .count-badge {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    min-width: 14px;
-    height: 14px;
-    padding: 0 3px;
-    border-radius: 7px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 14px;
-    text-align: center;
-  }
-
-  .settings-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    border-radius: 4px;
-  }
-
-  .settings-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-</style>

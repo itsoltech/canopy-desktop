@@ -13,26 +13,32 @@
   }
 
   function truncate(text: string, max: number): string {
-    return text.length > max ? text.slice(0, max - 1) + '\u2026' : text
+    return text.length > max ? text.slice(0, max - 1) + '…' : text
   }
 </script>
 
 {#if cwd || turnCount || transcriptPath || lastMessage}
-  <div class="section">
-    <h4 class="section-label">Codex</h4>
-    <div class="info-grid">
+  <div class="flex flex-col gap-1.5">
+    <h4 class="text-2xs font-semibold tracking-[0.5px] uppercase text-text-faint m-0">Codex</h4>
+    <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] text-sm">
       {#if turnCount}
-        <span class="info-key">Turns</span>
-        <span class="info-val">{turnCount}</span>
+        <span class="text-text-muted">Turns</span>
+        <span class="text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap"
+          >{turnCount}</span
+        >
       {/if}
       {#if cwd}
-        <span class="info-key">CWD</span>
-        <span class="info-val mono" title={cwd}>{shortPath(cwd)}</span>
+        <span class="text-text-muted">CWD</span>
+        <span
+          class="text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs"
+          title={cwd}>{shortPath(cwd)}</span
+        >
       {/if}
       {#if transcriptPath}
-        <span class="info-key">Transcript</span>
-        <span class="info-val mono" title={transcriptPath}
-          >{shortPath(transcriptPath).split(/[/\\]/).pop()}</span
+        <span class="text-text-muted">Transcript</span>
+        <span
+          class="text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs"
+          title={transcriptPath}>{shortPath(transcriptPath).split(/[/\\]/).pop()}</span
         >
       {/if}
     </div>
@@ -40,56 +46,12 @@
 {/if}
 
 {#if lastMessage}
-  <div class="section">
-    <h4 class="section-label">Last response</h4>
-    <p class="last-msg">{truncate(lastMessage, 200)}</p>
+  <div class="flex flex-col gap-1.5">
+    <h4 class="text-2xs font-semibold tracking-[0.5px] uppercase text-text-faint m-0">
+      Last response
+    </h4>
+    <p class="text-xs text-text-secondary m-0 leading-snug break-words">
+      {truncate(lastMessage, 200)}
+    </p>
   </div>
 {/if}
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .section-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--c-text-faint);
-    margin: 0;
-  }
-
-  .info-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 3px 12px;
-    font-size: 12px;
-  }
-
-  .info-key {
-    color: var(--c-text-muted);
-  }
-
-  .info-val {
-    color: var(--c-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mono {
-    font-family: monospace;
-    font-size: 11px;
-  }
-
-  .last-msg {
-    font-size: 11px;
-    color: var(--c-text-secondary);
-    margin: 0;
-    line-height: 1.4;
-    word-break: break-word;
-  }
-</style>

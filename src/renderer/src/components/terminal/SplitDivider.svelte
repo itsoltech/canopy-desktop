@@ -35,35 +35,12 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="split-divider"
-  class:horizontal={direction === 'horizontal'}
-  class:vertical={direction === 'vertical'}
-  class:dragging
+  class="w-full h-full bg-border-subtle transition-colors duration-base z-pane-divider hover:bg-accent-muted"
+  class:bg-accent-muted={dragging}
+  class:cursor-col-resize={direction === 'vertical'}
+  class:cursor-row-resize={direction === 'horizontal'}
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onpointercancel={handlePointerUp}
 ></div>
-
-<style>
-  .split-divider {
-    width: 100%;
-    height: 100%;
-    background: var(--c-border-subtle);
-    transition: background 0.15s;
-    z-index: 5;
-  }
-
-  .split-divider:hover,
-  .split-divider.dragging {
-    background: var(--c-accent-muted);
-  }
-
-  .split-divider.vertical {
-    cursor: col-resize;
-  }
-
-  .split-divider.horizontal {
-    cursor: row-resize;
-  }
-</style>

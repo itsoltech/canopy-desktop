@@ -28,7 +28,6 @@
   let selectedId: string | null = $state(null)
   let nameInputEl: HTMLInputElement | undefined = $state()
 
-  // Pick a sensible default selection when the list updates
   $effect(() => {
     if (agentProfiles.length === 0) {
       selectedId = null
@@ -41,7 +40,6 @@
 
   let selected = $derived(agentProfiles.find((p) => p.id === selectedId) ?? null)
 
-  // Draft state: mirrors selected profile, mutated by the form
   let draftName = $state('')
   let draftPrefs: ProfilePrefs = $state({})
   let draftApiKey = $state('')
@@ -49,7 +47,6 @@
   let saving = $state(false)
   let dirty = $state(false)
 
-  // Sync draft when selection changes
   $effect(() => {
     if (!selected) {
       draftName = ''
@@ -173,33 +170,49 @@
   }
 </script>
 
-<div class="panel">
-  <h3 class="section-title">{title}</h3>
-  <p class="section-hint">
+<div class="flex flex-col gap-4 h-full">
+  <h3 class="text-[15px] font-semibold text-text m-0">{title}</h3>
+  <p class="text-sm text-text-faint m-0 leading-snug">
     Create multiple profiles to switch between providers (Anthropic, Ollama, GLM, etc.) without
     re-entering settings. Click a profile in the sidebar to launch it.
   </p>
 
-  <div class="layout">
-    <aside class="list-pane">
-      <div class="list-header">
-        <span class="list-title">Profiles</span>
-        <button class="btn-new" onclick={handleNew} disabled={saving}>+ New</button>
+  <div class="grid grid-cols-[200px_1fr] gap-4 flex-1 min-h-0">
+    <aside class="flex flex-col gap-2 border-r border-border pr-3 min-h-0">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted"
+          >Profiles</span
+        >
+        <button
+          class="px-2.5 py-1 border border-dashed border-text-faint rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-50 disabled:cursor-not-allowed"
+          onclick={handleNew}
+          disabled={saving}>+ New</button
+        >
       </div>
       {#if agentProfiles.length === 0}
-        <div class="empty">No profiles yet</div>
+        <div class="text-sm text-text-faint p-2">No profiles yet</div>
       {:else}
-        <ul class="profile-list">
+        <ul class="list-none m-0 p-0 flex flex-col gap-0.5 overflow-y-auto group/profilelist">
           {#each agentProfiles as p (p.id)}
-            <li class="profile-row" class:selected={selectedId === p.id}>
-              <button class="profile-row-select" onclick={() => selectProfile(p.id)} title={p.name}>
-                <span class="profile-name">{p.name}</span>
+            <li
+              class="flex items-center rounded-lg bg-transparent group/profilerow hover:bg-hover"
+              class:!bg-active={selectedId === p.id}
+            >
+              <button
+                class="flex-1 flex items-center gap-1.5 px-2 py-1.5 border-0 bg-transparent text-text font-inherit text-md text-left cursor-pointer min-w-0"
+                onclick={() => selectProfile(p.id)}
+                title={p.name}
+              >
+                <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{p.name}</span>
                 {#if p.isDefault}
-                  <span class="badge-default">default</span>
+                  <span
+                    class="text-2xs uppercase text-text-faint border border-border rounded-sm px-1"
+                    >default</span
+                  >
                 {/if}
               </button>
               <button
-                class="row-delete"
+                class="invisible group-hover/profilerow:visible border-0 bg-transparent text-text-faint text-sm cursor-pointer px-2 py-1.5 mr-1 rounded-sm flex-shrink-0 hover:text-danger-text hover:bg-danger-bg"
                 title="Delete"
                 onclick={() => handleDelete(p)}
                 aria-label="Delete profile {p.name}"
@@ -212,14 +225,16 @@
       {/if}
     </aside>
 
-    <section class="form-pane">
+    <section class="flex flex-col gap-4 overflow-y-auto min-h-0">
       {#if selected}
-        <div class="form-header">
-          <div class="field">
-            <label class="field-label" for="profile-name">Profile name</label>
+        <div class="flex items-end gap-3 pb-3 border-b border-border">
+          <div class="flex flex-col gap-1 flex-1">
+            <label class="text-sm font-medium text-text-secondary" for="profile-name"
+              >Profile name</label
+            >
             <input
               id="profile-name"
-              class="text-input"
+              class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
               type="text"
               bind:this={nameInputEl}
               value={draftName}
@@ -227,7 +242,11 @@
               spellcheck="false"
             />
           </div>
-          <button class="btn-save" onclick={handleSave} disabled={saving || !dirty}>
+          <button
+            class="px-4 py-1.5 border-0 rounded-lg bg-accent-bg text-accent-text text-md font-inherit cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            onclick={handleSave}
+            disabled={saving || !dirty}
+          >
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
@@ -240,243 +259,10 @@
           {onApiKeyChange}
         />
       {:else}
-        <div class="empty-form">Select or create a profile to begin.</div>
+        <div class="text-md text-text-faint p-6 text-center">
+          Select or create a profile to begin.
+        </div>
       {/if}
     </section>
   </div>
 </div>
-
-<style>
-  .panel {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    height: 100%;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0;
-  }
-
-  .section-hint {
-    font-size: 12px;
-    color: var(--c-text-faint);
-    margin: 0;
-    line-height: 1.4;
-  }
-
-  .layout {
-    display: grid;
-    grid-template-columns: 200px 1fr;
-    gap: 16px;
-    flex: 1;
-    min-height: 0;
-  }
-
-  .list-pane {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    border-right: 1px solid var(--c-border);
-    padding-right: 12px;
-    min-height: 0;
-  }
-
-  .list-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .list-title {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--c-text-muted);
-  }
-
-  .btn-new {
-    padding: 4px 10px;
-    border: 1px dashed var(--c-text-faint);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-new:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .btn-new:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .profile-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    overflow-y: auto;
-  }
-
-  .profile-row {
-    display: flex;
-    align-items: center;
-    border-radius: 6px;
-    background: transparent;
-  }
-
-  .profile-row:hover {
-    background: var(--c-hover);
-  }
-
-  .profile-row.selected {
-    background: var(--c-active);
-  }
-
-  .profile-row-select {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    border: none;
-    background: transparent;
-    color: var(--c-text);
-    font-family: inherit;
-    font-size: 13px;
-    text-align: left;
-    cursor: pointer;
-    min-width: 0;
-  }
-
-  .profile-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .badge-default {
-    font-size: 10px;
-    text-transform: uppercase;
-    color: var(--c-text-faint);
-    border: 1px solid var(--c-border);
-    border-radius: 3px;
-    padding: 0 4px;
-  }
-
-  .row-delete {
-    border: none;
-    background: transparent;
-    color: var(--c-text-faint);
-    font-size: 12px;
-    cursor: pointer;
-    padding: 6px 8px;
-    margin-right: 4px;
-    border-radius: 3px;
-    visibility: hidden;
-    flex-shrink: 0;
-  }
-
-  .profile-row:hover .row-delete {
-    visibility: visible;
-  }
-
-  .row-delete:hover {
-    color: var(--c-danger-text);
-    background: var(--c-danger-bg);
-  }
-
-  .empty {
-    font-size: 12px;
-    color: var(--c-text-faint);
-    padding: 8px;
-  }
-
-  .form-pane {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    overflow-y: auto;
-    min-height: 0;
-  }
-
-  .form-header {
-    display: flex;
-    align-items: flex-end;
-    gap: 12px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--c-border);
-  }
-
-  .form-header .field {
-    flex: 1;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--c-text-secondary);
-  }
-
-  .text-input {
-    padding: 6px 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .text-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .btn-save {
-    padding: 6px 16px;
-    border: none;
-    border-radius: 6px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-save:hover:not(:disabled) {
-    background: var(--c-accent-bg-hover);
-  }
-
-  .btn-save:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .empty-form {
-    font-size: 13px;
-    color: var(--c-text-faint);
-    padding: 24px;
-    text-align: center;
-  }
-</style>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { X } from '@lucide/svelte'
+  import { onMount } from 'svelte'
   import RunConfigForm from './RunConfigForm.svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import {
@@ -100,38 +101,59 @@
     }
   }
 
-  import { onMount } from 'svelte'
-
   onMount(() => modalEl?.focus())
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="overlay" role="dialog" aria-label="Run Configuration Editor" onkeydown={handleKeydown}>
+<div
+  class="fixed inset-0 bg-scrim flex items-center justify-center z-[1000]"
+  role="dialog"
+  aria-label="Run Configuration Editor"
+  onkeydown={handleKeydown}
+>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="modal" tabindex="0" bind:this={modalEl}>
-    <div class="modal-header">
-      <h2>{isEdit ? 'Edit' : 'New'} Run Configuration</h2>
-      <button class="close-btn" onclick={closeDialog}>
+  <div
+    class="bg-bg border border-border rounded-xl w-[480px] max-h-[80vh] flex flex-col shadow-modal"
+    tabindex="0"
+    bind:this={modalEl}
+  >
+    <div class="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
+      <h2 class="m-0 text-lg font-semibold text-text">
+        {isEdit ? 'Edit' : 'New'} Run Configuration
+      </h2>
+      <button
+        class="flex items-center justify-center w-7 h-7 border-0 bg-transparent text-text-muted cursor-pointer rounded-md hover:bg-hover hover:text-text"
+        onclick={closeDialog}
+      >
         <X size={16} />
       </button>
     </div>
 
-    <div class="modal-body">
+    <div class="px-5 py-4 overflow-y-auto flex flex-col gap-2.5">
       {#if isEdit}
-        <div class="location">
-          <span class="location-label">Location:</span>
-          <span class="location-path">{initialConfigDir}</span>
+        <div class="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md text-xs">
+          <span class="text-text-muted flex-shrink-0">Location:</span>
+          <span class="text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap"
+            >{initialConfigDir}</span
+          >
         </div>
       {:else}
-        <div class="field">
-          <label for="rc-location">Location</label>
-          <div class="location-picker">
-            <select id="rc-location" class="location-select" bind:value={selectedConfigDir}>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium text-text-muted" for="rc-location">Location</label>
+          <div class="flex gap-1">
+            <select
+              id="rc-location"
+              class="flex-1 h-8 px-2.5 border border-border rounded-lg bg-bg-secondary text-text text-md font-inherit outline-none cursor-pointer focus:border-focus-ring"
+              bind:value={selectedConfigDir}
+            >
               {#each locationOptions as opt (opt.dir)}
                 <option value={opt.dir}>{opt.label}</option>
               {/each}
             </select>
-            <button class="browse-btn" onclick={browseLocation}>Browse</button>
+            <button
+              class="h-8 px-3 border border-border rounded-lg bg-bg-secondary text-text-muted cursor-pointer text-sm font-inherit flex-shrink-0 hover:bg-hover hover:text-text"
+              onclick={browseLocation}>Browse</button
+            >
           </div>
         </div>
       {/if}
@@ -140,142 +162,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .modal {
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
-    border-radius: 12px;
-    width: 480px;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  }
-
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .modal-header h2 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .close-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    border-radius: 6px;
-  }
-
-  .close-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .modal-body {
-    padding: 16px 20px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .location {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    background: var(--c-bg-secondary);
-    border-radius: 6px;
-    font-size: 11px;
-  }
-
-  .location-label {
-    color: var(--c-text-muted);
-    flex-shrink: 0;
-  }
-
-  .location-path {
-    color: var(--c-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field label {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--c-text-muted);
-  }
-
-  .location-picker {
-    display: flex;
-    gap: 4px;
-  }
-
-  .location-select {
-    flex: 1;
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-    cursor: pointer;
-  }
-
-  .location-select:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .browse-btn {
-    height: 32px;
-    padding: 0 12px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text-muted);
-    cursor: pointer;
-    font-size: 12px;
-    font-family: inherit;
-    flex-shrink: 0;
-  }
-
-  .browse-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-</style>

@@ -82,16 +82,16 @@
   function getTabStatusDot(tab: TabInfo): { color: string; pulse: boolean; label: string } | null {
     const badge = getTabBadge(tab)
     if (badge === 'permission')
-      return { color: 'var(--c-warning)', pulse: true, label: 'Permission required' }
+      return { color: 'var(--color-warning)', pulse: true, label: 'Permission required' }
     if (badge === 'unread')
-      return { color: 'var(--c-accent)', pulse: true, label: 'Unread activity' }
+      return { color: 'var(--color-accent)', pulse: true, label: 'Unread activity' }
 
     const panes = allPanes(tab.rootSplit)
 
     // If every pane has exited, surface that instead of falling through to an
     // "idle" state — keeps the dot in sync with the `.tab.exited` text color.
     if (panes.length > 0 && panes.every((p) => !p.isRunning)) {
-      return { color: 'var(--c-blazing)', pulse: false, label: 'Exited' }
+      return { color: 'var(--color-blazing)', pulse: false, label: 'Exited' }
     }
 
     let priority = 0
@@ -102,7 +102,7 @@
       if (session) {
         const t = session.status.type
         if (t === 'waitingPermission')
-          return { color: 'var(--c-warning)', pulse: true, label: 'Permission required' }
+          return { color: 'var(--color-warning)', pulse: true, label: 'Permission required' }
         if (t === 'error') priority = Math.max(priority, 5)
         else if (t === 'thinking' || t === 'toolCalling' || t === 'compacting' || t === 'starting')
           priority = Math.max(priority, 4)
@@ -112,11 +112,11 @@
       }
     }
 
-    if (priority === 5) return { color: 'var(--c-danger)', pulse: false, label: 'Agent error' }
-    if (priority === 4) return { color: 'var(--c-accent)', pulse: true, label: 'Agent working' }
-    if (priority === 3) return { color: 'var(--c-success)', pulse: false, label: 'Agent idle' }
-    if (priority === 2) return { color: 'var(--c-accent)', pulse: true, label: 'Shell running' }
-    if (priority === 1) return { color: 'var(--c-success)', pulse: false, label: 'Shell idle' }
+    if (priority === 5) return { color: 'var(--color-danger)', pulse: false, label: 'Agent error' }
+    if (priority === 4) return { color: 'var(--color-accent)', pulse: true, label: 'Agent working' }
+    if (priority === 3) return { color: 'var(--color-success)', pulse: false, label: 'Agent idle' }
+    if (priority === 2) return { color: 'var(--color-accent)', pulse: true, label: 'Shell running' }
+    if (priority === 1) return { color: 'var(--color-success)', pulse: false, label: 'Shell idle' }
     return null
   }
 
@@ -333,21 +333,37 @@
 </script>
 
 {#if tabs.length > 0}
-  <div class="tab-bar" class:drag-active={dragActive} bind:this={containerEl}>
-    <div class="tabs-row" role="tablist" aria-label="Terminal tabs">
+  <div
+    class="h-tab-bar flex-shrink-0 flex items-stretch bg-bg-glass-light border-b border-border-subtle"
+    class:cursor-grabbing={dragActive}
+    bind:this={containerEl}
+  >
+    <div
+      class="flex items-stretch flex-1 min-w-0 overflow-hidden"
+      role="tablist"
+      aria-label="Terminal tabs"
+    >
       {#each visibleTabs as tab (tab.id)}
         {@const connState = getConnectionState(tab)}
         {@const favicon = getTabFavicon(tab)}
+        {@const isActiveTab = tab.id === currentActiveId}
+        {@const isExited = !tab.suspended && allPanes(tab.rootSplit).some((p) => !p.isRunning)}
+        {@const isDragging = dragActive && dragTabId === tab.id}
+        {@const isDropTarget = dragActive && dropTargetId === tab.id}
         <div
-          class="tab"
-          class:active={tab.id === currentActiveId}
-          class:exited={!tab.suspended && allPanes(tab.rootSplit).some((p) => !p.isRunning)}
-          class:dragging={dragActive && dragTabId === tab.id}
-          class:drop-target={dragActive && dropTargetId === tab.id}
+          class="group/tab flex items-center gap-1 min-w-15 max-w-45 flex-1 basis-30 px-2 border-0 bg-transparent text-text-secondary text-xs font-inherit cursor-pointer border-r border-border-subtle transition-colors duration-fast hover:bg-hover hover:text-text"
+          class:bg-bg={isActiveTab && !isDropTarget}
+          class:text-text={isActiveTab}
+          class:shadow-tab-active={isActiveTab && !isDropTarget}
+          class:opacity-40={isDragging}
+          class:bg-accent-bg={isDropTarget}
+          class:shadow-tab-drop={isDropTarget}
+          class:text-blazing={isExited && !isActiveTab}
+          class:text-blazing-text={isExited && isActiveTab}
           data-tab-id={tab.id}
           role="tab"
-          tabindex={tab.id === currentActiveId ? 0 : -1}
-          aria-selected={tab.id === currentActiveId}
+          tabindex={isActiveTab ? 0 : -1}
+          aria-selected={isActiveTab}
           onclick={async () => {
             if (!suppressClick) await switchTab(tab.id)
           }}
@@ -362,33 +378,41 @@
           title={getTabDisplayName(tab)}
         >
           {#if favicon}
-            <img class="tab-favicon" src={favicon} alt="" width="12" height="12" />
+            <img class="flex-shrink-0 rounded-xs" src={favicon} alt="" width="12" height="12" />
           {:else}
             {@const dot = getTabStatusDot(tab)}
             <span
-              class="tab-status-dot"
-              class:pulse={dot?.pulse ?? false}
-              style:background={dot?.color ?? 'var(--c-text-faint)'}
+              class="w-2 h-2 rounded-full flex-shrink-0 motion-reduce:animate-none"
+              class:animate-badge-pulse={dot?.pulse ?? false}
+              style:background={dot?.color ?? 'var(--color-text-faint)'}
               role={dot ? 'status' : undefined}
               aria-label={dot?.label ?? undefined}
               title={dot?.label ?? undefined}
             ></span>
           {/if}
           {#if isTabDirty(tab)}
-            <span class="tab-dirty-dot" aria-label="Unsaved changes" title="Unsaved changes"></span>
+            <span
+              class="w-2 h-2 rounded-full bg-text-muted flex-shrink-0"
+              aria-label="Unsaved changes"
+              title="Unsaved changes"
+            ></span>
           {/if}
-          <span class="tab-name">{getTabDisplayName(tab)}</span>
+          <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-left"
+            >{getTabDisplayName(tab)}</span
+          >
           {#if connState}
             <span
-              class="tab-badge connection-badge"
-              class:disconnected={connState === 'disconnected'}
+              class="w-1.5 h-1.5 rounded-full flex-shrink-0 motion-reduce:animate-none"
+              class:bg-warning-text={connState !== 'disconnected'}
+              class:animate-badge-pulse={connState !== 'disconnected'}
+              class:bg-danger-text={connState === 'disconnected'}
               role="status"
               aria-label={connState === 'disconnected' ? 'Disconnected' : 'Reconnecting'}
               title={connState === 'disconnected' ? 'Disconnected' : 'Reconnecting...'}
             ></span>
           {/if}
           <button
-            class="tab-close"
+            class="hidden group-hover/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
             onclick={(e: MouseEvent) => {
               e.stopPropagation()
               closeTab(tab.id)
@@ -403,13 +427,18 @@
     </div>
 
     {#if isPaneDragActive && dragState.detachToTabBar}
-      <div class="detach-indicator" aria-label="Drop to detach pane as new tab">+</div>
+      <div
+        class="flex items-center justify-center w-8 flex-shrink-0 bg-accent-bg border border-focus-ring rounded-md text-accent-text text-xl font-semibold pointer-events-none my-0.5 mx-1"
+        aria-label="Drop to detach pane as new tab"
+      >
+        +
+      </div>
     {/if}
 
     {#if overflowTabs.length > 0}
-      <div class="overflow-wrapper">
+      <div class="relative flex-shrink-0">
         <button
-          class="overflow-trigger"
+          class="flex items-center justify-center w-8 h-full border-0 bg-transparent text-text-secondary text-lg cursor-pointer hover:bg-hover hover:text-text"
           aria-label="Show more tabs"
           onclick={() => {
             showOverflow = !showOverflow
@@ -421,16 +450,18 @@
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="overflow-backdrop"
+            class="fixed inset-0 z-overlay"
             onclick={() => {
               showOverflow = false
             }}
           ></div>
-          <div class="overflow-menu">
+          <div
+            class="absolute top-full right-0 min-w-40 bg-bg-overlay backdrop-blur-md border border-border rounded-lg p-1 z-popover shadow-menu"
+          >
             {#each overflowTabs as tab (tab.id)}
               <button
-                class="overflow-item"
-                class:active={tab.id === currentActiveId}
+                class="block w-full px-2.5 py-1.5 border-0 bg-transparent text-text text-sm font-inherit text-left cursor-pointer rounded-md hover:bg-active"
+                class:bg-hover={tab.id === currentActiveId}
                 onclick={async () => {
                   await switchTab(tab.id)
                   showOverflow = false
@@ -445,248 +476,3 @@
     {/if}
   </div>
 {/if}
-
-<style>
-  .tab-bar {
-    height: 32px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: stretch;
-    background: var(--c-bg-glass-light);
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .tabs-row {
-    display: flex;
-    align-items: stretch;
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-  }
-
-  .tab {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 60px;
-    max-width: 180px;
-    flex: 1 1 120px;
-    padding: 0 8px;
-    border: none;
-    background: transparent;
-    color: var(--c-text-secondary);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-    border-right: 1px solid var(--c-border-subtle);
-    transition:
-      background var(--dur-fast),
-      color var(--dur-fast);
-  }
-
-  .tab:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .tab.dragging {
-    opacity: 0.4;
-  }
-
-  .tab.drop-target {
-    background: var(--c-accent-bg);
-    box-shadow: inset 0 0 0 1px var(--c-accent-muted);
-  }
-
-  .drag-active .tab {
-    cursor: grabbing;
-  }
-
-  .tab.active {
-    background: var(--c-bg);
-    color: var(--c-text);
-    box-shadow: inset 0 -1px 0 var(--c-accent);
-  }
-
-  .tab.exited {
-    color: color-mix(in srgb, var(--c-blazing) 60%, transparent);
-  }
-
-  .tab.exited.active {
-    color: color-mix(in srgb, var(--c-blazing) 90%, transparent);
-  }
-
-  .tab-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-    text-align: left;
-  }
-
-  .tab-dirty-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--c-text-muted, #888);
-    flex-shrink: 0;
-  }
-
-  .tab-badge {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .tab-badge.connection-badge {
-    background: var(--c-warning-text);
-    animation: badge-pulse 1.5s ease-in-out infinite;
-  }
-
-  .tab-badge.connection-badge.disconnected {
-    background: var(--c-danger-text);
-    animation: none;
-  }
-
-  .tab-status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .tab-status-dot.pulse {
-    animation: badge-pulse 1.5s ease-in-out infinite;
-  }
-
-  @keyframes badge-pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.4;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .tab-badge.connection-badge,
-    .tab-status-dot.pulse {
-      animation: none;
-    }
-  }
-
-  .tab-favicon {
-    flex-shrink: 0;
-    border-radius: 2px;
-  }
-
-  .tab-close {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    font-size: 14px;
-    cursor: pointer;
-    border-radius: 3px;
-    padding: 0;
-    line-height: 1;
-    flex-shrink: 0;
-  }
-
-  .tab:hover .tab-close {
-    display: flex;
-  }
-
-  .tab-close:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-
-  .detach-indicator {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    flex-shrink: 0;
-    background: var(--c-accent-bg);
-    border: 1px solid var(--c-focus-ring);
-    border-radius: 4px;
-    color: var(--c-accent-text);
-    font-size: 16px;
-    font-weight: 600;
-    pointer-events: none;
-    margin: 2px 4px;
-  }
-
-  .overflow-wrapper {
-    position: relative;
-    flex-shrink: 0;
-  }
-
-  .overflow-trigger {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 100%;
-    border: none;
-    background: transparent;
-    color: var(--c-text-secondary);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .overflow-trigger:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .overflow-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 99;
-  }
-
-  .overflow-menu {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    min-width: 160px;
-    background: var(--c-bg-overlay);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    padding: 4px;
-    z-index: 100;
-    box-shadow: var(--shadow-menu);
-  }
-
-  .overflow-item {
-    display: block;
-    width: 100%;
-    padding: 6px 10px;
-    border: none;
-    background: none;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    text-align: left;
-    cursor: pointer;
-    border-radius: 4px;
-  }
-
-  .overflow-item:hover {
-    background: var(--c-active);
-  }
-
-  .overflow-item.active {
-    color: var(--c-text);
-    background: var(--c-hover);
-  }
-</style>

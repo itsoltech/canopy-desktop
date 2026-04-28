@@ -63,26 +63,46 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="prefs-overlay" onkeydown={handleKeydown} onmousedown={closeDialog}>
+<div
+  class="fixed inset-0 z-overlay flex justify-center items-center bg-scrim"
+  onkeydown={handleKeydown}
+  onmousedown={closeDialog}
+>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
-    class="prefs-container"
+    class="outline-none w-prefs max-w-prefs h-prefs max-h-prefs flex bg-bg-overlay border border-border rounded-xl shadow-modal overflow-hidden"
     role="dialog"
     aria-modal="true"
     aria-labelledby="prefs-dialog-title"
     tabindex="-1"
     onmousedown={(e) => e.stopPropagation()}
   >
-    <div class="prefs-sidebar">
-      <h2 id="prefs-dialog-title" class="prefs-title">Settings</h2>
+    <div
+      class="w-44 flex-shrink-0 border-r border-active py-3 flex flex-col overflow-y-auto select-none"
+    >
+      <h2
+        id="prefs-dialog-title"
+        class="text-2xs font-semibold uppercase tracking-caps-tight text-text-muted px-3 pb-2 m-0"
+      >
+        Settings
+      </h2>
       {#each groups as group (group.label)}
-        <div role="group" aria-labelledby={`prefs-group-${group.label}`} class="prefs-group">
-          <span id={`prefs-group-${group.label}`} class="prefs-group-label">{group.label}</span>
+        <div
+          role="group"
+          aria-labelledby={`prefs-group-${group.label}`}
+          class="flex flex-col gap-px mt-2 first:mt-0"
+        >
+          <span
+            id={`prefs-group-${group.label}`}
+            class="block px-3 pb-1 text-2xs font-semibold text-text-faint uppercase tracking-caps-looser"
+            >{group.label}</span
+          >
           {#each group.sections as section (section)}
             <button
-              class="prefs-tab"
-              class:active={activeSection === section}
+              class="block w-full px-5 py-1 border-0 bg-transparent text-text-secondary text-sm font-inherit text-left cursor-pointer rounded-sm transition-colors duration-fast hover:bg-hover hover:text-text"
+              class:bg-active={activeSection === section}
+              class:text-text={activeSection === section}
               onclick={() => (activeSection = section)}
             >
               {section}
@@ -92,7 +112,7 @@
       {/each}
     </div>
 
-    <div class="prefs-content">
+    <div class="flex-1 overflow-y-auto px-6 py-5">
       {#if activeSection === 'General'}
         <GeneralPrefs />
       {:else if activeSection === 'Updates'}
@@ -137,98 +157,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .prefs-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1001;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: var(--c-scrim);
-  }
-
-  .prefs-container {
-    outline: none;
-    width: 960px;
-    max-width: 92vw;
-    height: 680px;
-    max-height: 88vh;
-    display: flex;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
-    border-radius: 10px;
-    box-shadow: var(--shadow-modal);
-    overflow: hidden;
-  }
-
-  .prefs-sidebar {
-    width: 150px;
-    flex-shrink: 0;
-    border-right: 1px solid var(--c-active);
-    padding: 16px 0;
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-  }
-
-  .prefs-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--c-text-secondary);
-    padding: 0 16px 12px;
-    margin: 0;
-    letter-spacing: 0.3px;
-  }
-
-  .prefs-group-label {
-    display: block;
-    padding: 8px 14px 4px;
-    font-size: var(--fs-2xs);
-    font-weight: 600;
-    color: var(--c-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    user-select: none;
-  }
-
-  .prefs-group:first-of-type > .prefs-group-label {
-    padding-top: 0;
-  }
-
-  .prefs-group {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .prefs-tab {
-    display: block;
-    width: 100%;
-    padding: 6px 14px 6px 26px;
-    border: none;
-    background: transparent;
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    text-align: left;
-    cursor: pointer;
-    transition: background var(--dur-fast);
-  }
-
-  .prefs-tab:hover {
-    background: var(--c-hover);
-  }
-
-  .prefs-tab.active {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-
-  .prefs-content {
-    flex: 1;
-    padding: 20px 24px;
-    overflow-y: auto;
-  }
-</style>

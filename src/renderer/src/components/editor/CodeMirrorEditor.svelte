@@ -199,21 +199,7 @@
   }
 </script>
 
-<div bind:this={container} class="cm-root"></div>
+<div bind:this={container} class="cm-root w-full h-full overflow-hidden"></div>
 
-<style>
-  .cm-root {
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-  .cm-root :global(.cm-editor) {
-    height: 100%;
-  }
-  .cm-root :global(.cm-editor.cm-focused) {
-    outline: none;
-  }
-  .cm-root :global(.cm-scroller) {
-    overflow: auto;
-  }
-</style>
+<!-- :global() rules required to style CodeMirror's internal classes (.cm-editor, .cm-scroller).
+     These selectors don't exist in our markup so cannot be expressed as Tailwind utilities. -->

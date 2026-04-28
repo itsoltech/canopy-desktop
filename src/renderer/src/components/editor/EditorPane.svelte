@@ -747,15 +747,15 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: var(--c-bg);
+    background: var(--color-bg);
   }
 
   .sub-tabs {
     display: flex;
     align-items: stretch;
     gap: 1px;
-    background: var(--c-bg-glass-heavy);
-    border-bottom: 1px solid var(--c-border-subtle);
+    background: var(--color-bg-glass-heavy);
+    border-bottom: 1px solid var(--color-border-subtle);
     overflow-x: auto;
     min-height: 30px;
     flex-shrink: 0;
@@ -770,8 +770,8 @@
     max-width: 240px;
     background: transparent;
     border: none;
-    border-right: 1px solid var(--c-border-subtle);
-    color: var(--c-text-muted);
+    border-right: 1px solid var(--color-border-subtle);
+    color: var(--color-text-muted);
     font-size: 12px;
     cursor: pointer;
     white-space: nowrap;
@@ -779,13 +779,13 @@
   }
 
   .sub-tab:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .sub-tab.active {
-    background: var(--c-bg);
-    color: var(--c-text);
+    background: var(--color-bg);
+    color: var(--color-text);
   }
 
   .sub-tab.active::after {
@@ -795,7 +795,7 @@
     right: 0;
     bottom: -1px;
     height: 2px;
-    background: var(--c-accent);
+    background: var(--color-accent);
   }
 
   .sub-tab-name {
@@ -805,7 +805,7 @@
   }
 
   .sub-tab-dirty {
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     font-size: 9px;
     line-height: 1;
   }
@@ -817,13 +817,13 @@
     width: 16px;
     height: 16px;
     border-radius: 3px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     opacity: 0.6;
     cursor: pointer;
   }
 
   .sub-tab-close:hover {
-    background: var(--c-hover-strong);
+    background: var(--color-hover-strong);
     opacity: 1;
   }
 
@@ -832,18 +832,18 @@
   }
 
   .sub-tabs.drop-target {
-    background: var(--c-accent-bg, rgba(74, 158, 255, 0.12));
-    box-shadow: inset 0 0 0 1px var(--c-accent, #4a9eff);
+    background: var(--color-accent-bg);
+    box-shadow: inset 0 0 0 1px var(--color-accent);
   }
 
   .sub-tab-drop-indicator {
     display: inline-block;
     width: 3px;
     align-self: stretch;
-    background: var(--c-accent, #4a9eff);
+    background: var(--color-accent);
     border-radius: 2px;
     flex-shrink: 0;
-    box-shadow: 0 0 6px var(--c-accent, #4a9eff);
+    box-shadow: 0 0 6px var(--color-accent);
   }
 
   .toolbar {
@@ -853,8 +853,8 @@
     padding: 4px 10px;
     height: 32px;
     min-height: 32px;
-    background: var(--c-bg-glass-heavy);
-    border-bottom: 1px solid var(--c-border-subtle);
+    background: var(--color-bg-glass-heavy);
+    border-bottom: 1px solid var(--color-border-subtle);
     user-select: none;
   }
 
@@ -869,19 +869,19 @@
   .file-name {
     font-size: 12px;
     font-weight: 500;
-    color: var(--c-text);
+    color: var(--color-text);
     white-space: nowrap;
   }
 
   .dirty-dot {
-    color: var(--c-text-muted, #888);
+    color: var(--color-text-muted);
     font-size: 12px;
     line-height: 1;
   }
 
   .file-path {
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -889,7 +889,7 @@
 
   .file-size {
     font-size: 10px;
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
     white-space: nowrap;
   }
 
@@ -908,13 +908,13 @@
     background: none;
     border: none;
     border-radius: 4px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
   }
 
   .toolbar-btn:hover {
-    background: var(--c-active);
-    color: var(--c-text);
+    background: var(--color-active);
+    color: var(--color-text);
   }
 
   .content-area {
@@ -932,11 +932,11 @@
     justify-content: center;
     height: 100%;
     font-size: 13px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
   }
 
   .status-message.error {
-    color: var(--c-danger);
+    color: var(--color-danger);
   }
 
   .truncation-notice {
@@ -946,9 +946,9 @@
     right: 0;
     padding: 6px 16px;
     font-size: 11px;
-    color: var(--c-warning-text);
-    background: var(--c-bg-overlay);
-    border-top: 1px solid var(--c-border);
+    color: var(--color-warning-text);
+    background: var(--color-bg-overlay);
+    border-top: 1px solid var(--color-border);
     text-align: center;
   }
 
@@ -958,9 +958,9 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: var(--c-warning-bg, var(--c-bg-overlay));
-    border-bottom: 1px solid var(--c-border);
-    color: var(--c-warning-text);
+    background: var(--color-warning-bg);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-warning-text);
     font-size: 12px;
   }
 
@@ -969,9 +969,9 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: var(--c-error-bg, var(--c-bg-overlay));
-    border-bottom: 1px solid var(--c-border);
-    color: var(--c-error-text, var(--c-danger));
+    background: var(--color-bg-overlay);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-danger);
     font-size: 12px;
   }
 
@@ -981,9 +981,9 @@
     justify-content: space-between;
     gap: 12px;
     padding: 6px 12px;
-    background: var(--c-warning-bg, var(--c-bg-overlay));
-    border-bottom: 1px solid var(--c-border);
-    color: var(--c-warning-text);
+    background: var(--color-warning-bg);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-warning-text);
     font-size: 12px;
   }
 
@@ -996,20 +996,20 @@
     padding: 3px 10px;
     font-size: 11px;
     border-radius: 3px;
-    border: 1px solid var(--c-border);
-    background: var(--c-bg);
-    color: var(--c-text);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
     cursor: pointer;
   }
 
   .conflict-btn:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
   }
 
   .conflict-btn.primary {
-    border-color: var(--c-accent, #4a9eff);
-    background: var(--c-accent, #4a9eff);
-    color: #fff;
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: oklch(1 0 0);
   }
 
   .conflict-btn.primary:hover {
@@ -1032,7 +1032,7 @@
     background: none;
     border: none;
     border-radius: 3px;
-    color: var(--c-warning-text);
+    color: var(--color-warning-text);
     cursor: pointer;
     opacity: 0.7;
     transition:
@@ -1041,7 +1041,7 @@
   }
 
   .dismiss-btn:hover {
-    background: var(--c-hover);
+    background: var(--color-hover);
     opacity: 1;
   }
 
@@ -1051,10 +1051,10 @@
     gap: 12px;
     padding: 3px 10px;
     min-height: 24px;
-    background: var(--c-bg-glass-heavy);
-    border-top: 1px solid var(--c-border-subtle);
+    background: var(--color-bg-glass-heavy);
+    border-top: 1px solid var(--color-border-subtle);
     font-size: 11px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     user-select: none;
     flex-shrink: 0;
   }
@@ -1073,9 +1073,9 @@
     font-weight: 500;
     line-height: 1.4;
     border-radius: 3px;
-    background: var(--c-accent-bg, rgba(74, 158, 255, 0.12));
-    color: var(--c-accent-text, var(--c-accent, #4a9eff));
-    border: 1px solid var(--c-accent-muted, rgba(74, 158, 255, 0.3));
+    background: var(--color-accent-bg);
+    color: var(--color-accent-text);
+    border: 1px solid var(--color-accent-muted);
     white-space: nowrap;
   }
 
@@ -1086,7 +1086,7 @@
   }
 
   .status-label {
-    color: var(--c-text-faint);
+    color: var(--color-text-faint);
   }
 
   .status-btn {
@@ -1095,19 +1095,19 @@
     background: none;
     border: 1px solid transparent;
     border-radius: 3px;
-    color: var(--c-text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     line-height: 1.4;
   }
 
   .status-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .status-btn.active {
-    background: var(--c-active);
-    color: var(--c-text);
-    border-color: var(--c-border);
+    background: var(--color-active);
+    color: var(--color-text);
+    border-color: var(--color-border);
   }
 </style>

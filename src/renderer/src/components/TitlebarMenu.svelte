@@ -38,10 +38,10 @@
   }
 </script>
 
-<div class="menu-wrapper">
+<div class="relative flex items-center app-no-drag">
   <button
     bind:this={buttonEl}
-    class="hamburger"
+    class="flex items-center justify-center w-9 h-7 border-0 rounded-md bg-transparent text-text-secondary cursor-pointer transition-colors duration-base hover:bg-active hover:text-text"
     onclick={toggle}
     title="Menu"
     aria-label="Application menu"
@@ -59,136 +59,66 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="titlebar-menu-overlay" use:portal onclick={close}>
+  <div class="fixed inset-0 z-overlay" use:portal onclick={close}>
     <div
-      class="titlebar-menu-dropdown"
+      class="fixed min-w-55 p-1 bg-bg-overlay border border-border rounded-lg shadow-popover z-popover"
       style="top: {dropdownTop}px; left: {dropdownLeft}px;"
       onclick={(e) => e.stopPropagation()}
     >
-      <button class="menu-item" onclick={() => handleAction(() => window.api.newWindow())}>
-        <span class="label">New Window</span>
-        <span class="shortcut">Ctrl+Shift+N</span>
+      <button
+        class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
+        onclick={() => handleAction(() => window.api.newWindow())}
+      >
+        <span class="flex-1">New Window</span>
+        <span class="text-text-muted text-xs">Ctrl+Shift+N</span>
       </button>
 
-      <div class="separator"></div>
+      <div class="h-px mx-1.5 my-1 bg-active"></div>
 
-      <button class="menu-item" onclick={() => handleAction(showPreferences)}>
-        <span class="label">Settings…</span>
-        <span class="shortcut">Ctrl+,</span>
+      <button
+        class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
+        onclick={() => handleAction(showPreferences)}
+      >
+        <span class="flex-1">Settings…</span>
+        <span class="text-text-muted text-xs">Ctrl+,</span>
       </button>
 
-      <div class="separator"></div>
+      <div class="h-px mx-1.5 my-1 bg-active"></div>
 
-      <button class="menu-item" onclick={() => handleAction(() => window.api.checkForUpdates())}>
-        <span class="label">Check for Updates…</span>
-      </button>
-      <button class="menu-item" onclick={() => handleAction(showAbout)}>
-        <span class="label">About Canopy</span>
+      <button
+        class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
+        onclick={() => handleAction(() => window.api.checkForUpdates())}
+      >
+        <span class="flex-1">Check for Updates…</span>
       </button>
       <button
-        class="menu-item"
+        class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
+        onclick={() => handleAction(showAbout)}
+      >
+        <span class="flex-1">About Canopy</span>
+      </button>
+      <button
+        class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() =>
           handleAction(() => window.api.openExternal('https://canopy.itsol.tech/privacy-policy'))}
       >
-        <span class="label">Privacy Policy</span>
+        <span class="flex-1">Privacy Policy</span>
       </button>
       <button
-        class="menu-item"
+        class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() => handleAction(() => window.api.openThirdPartyNotices())}
       >
-        <span class="label">Third-Party Licenses</span>
+        <span class="flex-1">Third-Party Licenses</span>
       </button>
 
-      <div class="separator"></div>
+      <div class="h-px mx-1.5 my-1 bg-active"></div>
 
-      <button class="menu-item" onclick={() => handleAction(() => window.api.quit())}>
-        <span class="label">Quit</span>
+      <button
+        class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
+        onclick={() => handleAction(() => window.api.quit())}
+      >
+        <span class="flex-1">Quit</span>
       </button>
     </div>
   </div>
 {/if}
-
-<style>
-  .menu-wrapper {
-    position: relative;
-    display: flex;
-    align-items: center;
-    app-region: no-drag;
-  }
-
-  .hamburger {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 28px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text-secondary);
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      color 0.15s;
-  }
-
-  .hamburger:hover {
-    background: var(--c-active);
-    color: var(--c-text);
-  }
-
-  :global(.titlebar-menu-overlay) {
-    position: fixed;
-    inset: 0;
-    z-index: 10000;
-  }
-
-  :global(.titlebar-menu-dropdown) {
-    position: fixed;
-    min-width: 220px;
-    padding: 4px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px var(--c-scrim);
-  }
-
-  .menu-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    width: 100%;
-    padding: 6px 10px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-    white-space: nowrap;
-    transition: background 0.1s;
-  }
-
-  .menu-item:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-
-  .label {
-    flex: 1;
-  }
-
-  .shortcut {
-    color: var(--c-text-muted);
-    font-size: 11px;
-  }
-
-  .separator {
-    height: 1px;
-    margin: 4px 6px;
-    background: var(--c-active);
-  }
-</style>

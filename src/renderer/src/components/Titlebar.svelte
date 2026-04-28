@@ -34,130 +34,40 @@
   })
 </script>
 
-<div class="titlebar" class:mac={isMac}>
+<div
+  class="h-10 flex items-center justify-center flex-shrink-0 relative bg-bg-glass backdrop-blur-xl border-b border-border-subtle app-drag"
+  class:px-mac-traffic={isMac}
+>
   {#if !isMac}
-    <div class="menu-area">
+    <div class="absolute left-2 top-0 h-full flex items-center app-no-drag">
       <TitlebarMenu />
     </div>
   {/if}
   {#if workspaceState.workspace}
-    <span class="title" title={fullTitle}>
+    <span
+      class="inline-block max-w-full min-w-0 truncate px-2 align-middle text-sm font-medium text-text-secondary tracking-caps-looser"
+      title={fullTitle}
+    >
       {workspaceState.workspace.name}
       {#if workspaceState.branch}
-        <span class="branch">{workspaceState.branch}</span>
+        <span class="text-text-muted ml-1.5 max-tight:hidden">— {workspaceState.branch}</span>
       {/if}
       {#if activeTabName}
-        <span class="tab-name">{activeTabName}</span>
+        <span class="text-text-muted ml-1.5 max-narrow:hidden">— {activeTabName}</span>
       {/if}
       {#if workspaceState.isDirty}
-        <span class="dirty">*</span>
+        <span class="text-warning-text ml-0.5">*</span>
       {/if}
     </span>
   {:else}
-    <span class="title">Canopy</span>
+    <span
+      class="inline-block max-w-full min-w-0 truncate px-2 align-middle text-sm font-medium text-text-secondary tracking-caps-looser"
+      >Canopy</span
+    >
   {/if}
   {#if showRunToolbar}
-    <div class="run-toolbar-area">
+    <div class="absolute right-3 top-0 h-full flex items-center app-no-drag">
       <RunConfigToolbar />
     </div>
   {/if}
 </div>
-
-<style>
-  .titlebar {
-    height: 40px;
-    app-region: drag;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    position: relative;
-    background: var(--c-bg-glass);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .titlebar.mac {
-    padding-left: 78px;
-    padding-right: 78px;
-  }
-
-  .menu-area {
-    position: absolute;
-    left: 8px;
-    top: 0;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    app-region: no-drag;
-  }
-
-  .title {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--c-text-secondary);
-    letter-spacing: 0.5px;
-
-    display: inline-block;
-    max-width: 100%;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    box-sizing: border-box;
-    padding: 0 8px;
-    vertical-align: middle;
-  }
-
-  .branch {
-    color: var(--c-text-muted);
-    margin-left: 6px;
-  }
-
-  .branch::before {
-    content: '\2014\00a0';
-  }
-
-  .tab-name {
-    color: var(--c-text-muted);
-    margin-left: 6px;
-  }
-
-  .tab-name::before {
-    content: '\2014\00a0';
-  }
-
-  .dirty {
-    color: var(--c-warning-text);
-    margin-left: 2px;
-  }
-
-  .run-toolbar-area {
-    position: absolute;
-    right: 12px;
-    top: 0;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    app-region: no-drag;
-  }
-
-  .run-toolbar-area :global(*) {
-    app-region: no-drag;
-  }
-
-  /* Narrow windows: drop the active pane/process title first */
-  @media (max-width: 820px) {
-    .tab-name {
-      display: none;
-    }
-  }
-
-  /* Very narrow (defensive — current BrowserWindow minWidth is 600): drop branch too */
-  @media (max-width: 560px) {
-    .branch {
-      display: none;
-    }
-  }
-</style>

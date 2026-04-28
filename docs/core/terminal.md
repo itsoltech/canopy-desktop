@@ -115,7 +115,7 @@ Detected URLs in terminal output are clickable. Behavior depends on the `urlOpen
 
 Default, Dracula, Monokai, Solarized Dark, Solarized Light, Nord, One Dark, Gruvbox Dark, Tokyo Night, Catppuccin Mocha, GitHub Dark, Rosé Pine.
 
-The terminal theme's `background` color is applied to the app chrome (`--c-bg` CSS variable), so switching themes changes the entire application appearance.
+The terminal theme's `background` color is applied to the app chrome (`--color-bg` CSS variable), so switching themes changes the entire application appearance.
 
 ### Environment variables
 

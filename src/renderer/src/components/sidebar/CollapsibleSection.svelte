@@ -27,92 +27,36 @@
   }
 </script>
 
-<section class="sidebar-section" class:border-top={borderTop}>
-  <div class="section-header">
-    <button class="section-toggle" onclick={toggle} aria-expanded={!collapsed}>
-      <span class="chevron" class:open={!collapsed}>
+<section class="py-3" class:border-t={borderTop} class:border-border-subtle={borderTop}>
+  <div class="flex items-center justify-between px-3 h-5 mb-2">
+    <button
+      class="flex items-center gap-1 flex-1 min-w-0 bg-transparent border-0 py-1 -my-1 cursor-pointer text-inherit group"
+      onclick={toggle}
+      aria-expanded={!collapsed}
+    >
+      <span
+        class="flex items-center text-text-faint transition-transform duration-base ease-std"
+        class:rotate-90={!collapsed}
+      >
         <ChevronRight size={12} />
       </span>
-      <h3 class="section-title">{title}</h3>
+      <h3
+        class="text-2xs font-semibold tracking-caps uppercase text-text-muted group-hover:text-text-secondary"
+      >
+        {title}
+      </h3>
     </button>
     {#if headerExtra}
       {@render headerExtra()}
     {/if}
   </div>
-  <div class="section-body" class:collapsed>
-    <div class="section-body-inner">
+  <div
+    class="grid transition-grid-rows motion-reduce:transition-none"
+    class:grid-rows-open={!collapsed}
+    class:grid-rows-closed={collapsed}
+  >
+    <div class="overflow-hidden">
       {@render children()}
     </div>
   </div>
 </section>
-
-<style>
-  .sidebar-section {
-    padding: 12px 0;
-  }
-
-  .border-top {
-    border-top: 1px solid var(--c-border-subtle);
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 12px;
-    height: 20px;
-    margin-bottom: 8px;
-  }
-
-  .section-toggle {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: none;
-    padding: 4px 0;
-    margin: -4px 0;
-    cursor: pointer;
-    color: inherit;
-  }
-
-  .section-title {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-  }
-
-  .section-toggle:hover .section-title {
-    color: var(--c-text-secondary);
-  }
-
-  .chevron {
-    display: flex;
-    align-items: center;
-    color: var(--c-text-faint);
-    transition: transform 0.15s ease;
-    transform: rotate(0deg);
-  }
-
-  .chevron.open {
-    transform: rotate(90deg);
-  }
-
-  .section-body {
-    display: grid;
-    grid-template-rows: 1fr;
-    transition: grid-template-rows 0.15s ease;
-  }
-
-  .section-body.collapsed {
-    grid-template-rows: 0fr;
-  }
-
-  .section-body-inner {
-    overflow: hidden;
-  }
-</style>

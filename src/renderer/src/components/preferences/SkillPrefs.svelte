@@ -148,211 +148,223 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Skills</h3>
+{#snippet skillRow(
+  id: string,
+  name: string,
+  agentDisplay: string,
+  details: import('svelte').Snippet,
+)}
+  <div class="rounded-lg bg-border-subtle overflow-hidden">
+    <div
+      class="flex items-center gap-2.5 px-2.5 py-1.5 text-md cursor-pointer hover:bg-hover"
+      role="button"
+      tabindex="0"
+      onclick={() => toggleExpand(id)}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          toggleExpand(id)
+        }
+      }}
+    >
+      <span class="text-text min-w-[120px] font-medium">{name}</span>
+      <span class="text-text-secondary text-sm flex-1">{agentDisplay}</span>
+    </div>
+    {#if expandedId === id}
+      <div class="px-3 py-2.5 border-t border-border flex flex-col gap-2.5">
+        {@render details()}
+      </div>
+    {/if}
+  </div>
+{/snippet}
 
-  <!-- Installed skills (from DB) -->
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Skills</h3>
+
   {#if skills.length > 0}
-    <div class="skill-list">
+    <div class="flex flex-col gap-1">
       {#each skills as skill (skill.id)}
-        <div class="skill-row">
-          <div
-            class="skill-main"
-            role="button"
-            tabindex="0"
-            onclick={() => toggleExpand(skill.id)}
-            onkeydown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                toggleExpand(skill.id)
-              }
-            }}
-          >
-            <span class="skill-name">{skill.name}</span>
-            <span class="skill-agents">
-              {skill.enabledAgents.map((a) => agentLabels[a] ?? a).join(', ')}
-            </span>
+        {@const agentDisplay = skill.enabledAgents.map((a) => agentLabels[a] ?? a).join(', ')}
+        {#snippet details()}
+          <p class="text-sm text-text-secondary m-0 leading-snug">
+            {skill.description || 'No description'}
+          </p>
+          <div class="flex flex-col gap-0.5">
+            <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+              >Source</span
+            >
+            <span class="text-sm text-text break-all">{skill.sourceUri}</span>
           </div>
-
-          {#if expandedId === skill.id}
-            <div class="skill-details">
-              <p class="skill-description">{skill.description || 'No description'}</p>
-
-              <div class="meta-item">
-                <span class="meta-label">Source</span>
-                <span class="meta-value">{skill.sourceUri}</span>
-              </div>
-              <div class="skill-meta-row">
-                <div class="meta-item">
-                  <span class="meta-label">Scope</span>
-                  <span class="meta-value">{skill.scope}</span>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">Type</span>
-                  <span class="meta-value">{skill.sourceType}</span>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">Method</span>
-                  <span class="meta-value">{skill.installMethod}</span>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">Version</span>
-                  <span class="meta-value">{skill.version}</span>
-                </div>
-              </div>
-
-              <div class="agent-toggles">
-                <span class="meta-label">Agents</span>
-                <div class="agent-toggle-list">
-                  {#each skill.agents as agent (agent)}
-                    <label class="agent-toggle">
-                      <input
-                        type="checkbox"
-                        checked={skill.enabledAgents.includes(agent)}
-                        onchange={() =>
-                          toggleAgent(skill.id, agent, !skill.enabledAgents.includes(agent))}
-                      />
-                      {agentLabels[agent] ?? agent}
-                    </label>
-                  {/each}
-                </div>
-              </div>
-
-              <div class="skill-actions">
-                <button class="btn btn-action btn-update" onclick={() => updateSkill(skill.id)}
-                  >Update</button
-                >
-                <button
-                  class="btn btn-action btn-remove"
-                  onclick={() => removeSkill(skill.id, skill.name)}>Remove</button
-                >
-              </div>
+          <div class="flex gap-6">
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                >Scope</span
+              >
+              <span class="text-sm text-text">{skill.scope}</span>
             </div>
-          {/if}
-        </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                >Type</span
+              >
+              <span class="text-sm text-text">{skill.sourceType}</span>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                >Method</span
+              >
+              <span class="text-sm text-text">{skill.installMethod}</span>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                >Version</span
+              >
+              <span class="text-sm text-text">{skill.version}</span>
+            </div>
+          </div>
+          <div class="flex flex-col gap-1">
+            <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+              >Agents</span
+            >
+            <div class="flex gap-3.5">
+              {#each skill.agents as agent (agent)}
+                <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={skill.enabledAgents.includes(agent)}
+                    onchange={() =>
+                      toggleAgent(skill.id, agent, !skill.enabledAgents.includes(agent))}
+                  />
+                  {agentLabels[agent] ?? agent}
+                </label>
+              {/each}
+            </div>
+          </div>
+          <div class="flex gap-2 pt-1">
+            <button
+              class="px-3.5 py-1 rounded-lg text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
+              onclick={() => updateSkill(skill.id)}>Update</button
+            >
+            <button
+              class="px-3.5 py-1 rounded-lg text-sm font-inherit cursor-pointer border-0 bg-danger-bg text-danger-text"
+              onclick={() => removeSkill(skill.id, skill.name)}>Remove</button
+            >
+          </div>
+        {/snippet}
+        {@render skillRow(skill.id, skill.name, agentDisplay, details)}
       {/each}
     </div>
   {/if}
 
-  <!-- Discovered skills (from disk scan) -->
   {#if scannedSkills.length > 0}
     {#if projectScanned.length > 0}
-      <span class="scan-group-label">Project Skills</span>
-      <div class="skill-list">
+      <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.4px]"
+        >Project Skills</span
+      >
+      <div class="flex flex-col gap-1">
         {#each projectScanned as skill (skill.filePath)}
-          <div class="skill-row">
-            <div
-              class="skill-main"
-              role="button"
-              tabindex="0"
-              onclick={() => toggleExpand(skill.filePath)}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  toggleExpand(skill.filePath)
-                }
-              }}
-            >
-              <span class="skill-name">{skill.name}</span>
-              <span class="skill-agents">{agentLabels[skill.agent] ?? skill.agent}</span>
-            </div>
-
-            {#if expandedId === skill.filePath}
-              <div class="skill-details">
-                <p class="skill-description">{skill.description || 'No description'}</p>
-                <div class="skill-meta-row">
-                  <div class="meta-item">
-                    <span class="meta-label">Agent</span>
-                    <span class="meta-value">{agentLabels[skill.agent] ?? skill.agent}</span>
-                  </div>
-                  <div class="meta-item">
-                    <span class="meta-label">Scope</span>
-                    <span class="meta-value">{skill.scope}</span>
-                  </div>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">File</span>
-                  <span class="meta-value">{skill.filePath}</span>
-                </div>
-                <div class="skill-actions">
-                  <button
-                    class="btn btn-action btn-remove"
-                    onclick={() => deleteScannedSkill(skill.filePath, skill.name)}>Delete</button
-                  >
-                </div>
+          {#snippet details()}
+            <p class="text-sm text-text-secondary m-0 leading-snug">
+              {skill.description || 'No description'}
+            </p>
+            <div class="flex gap-6">
+              <div class="flex flex-col gap-0.5">
+                <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                  >Agent</span
+                >
+                <span class="text-sm text-text">{agentLabels[skill.agent] ?? skill.agent}</span>
               </div>
-            {/if}
-          </div>
+              <div class="flex flex-col gap-0.5">
+                <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                  >Scope</span
+                >
+                <span class="text-sm text-text">{skill.scope}</span>
+              </div>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                >File</span
+              >
+              <span class="text-sm text-text break-all">{skill.filePath}</span>
+            </div>
+            <div class="flex gap-2 pt-1">
+              <button
+                class="px-3.5 py-1 rounded-lg text-sm font-inherit cursor-pointer border-0 bg-danger-bg text-danger-text"
+                onclick={() => deleteScannedSkill(skill.filePath, skill.name)}>Delete</button
+              >
+            </div>
+          {/snippet}
+          {@render skillRow(
+            skill.filePath,
+            skill.name,
+            agentLabels[skill.agent] ?? skill.agent,
+            details,
+          )}
         {/each}
       </div>
     {/if}
 
     {#if globalScanned.length > 0}
-      <span class="scan-group-label">Global Skills</span>
-      <div class="skill-list">
+      <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.4px]"
+        >Global Skills</span
+      >
+      <div class="flex flex-col gap-1">
         {#each globalScanned as skill (skill.filePath)}
-          <div class="skill-row">
-            <div
-              class="skill-main"
-              role="button"
-              tabindex="0"
-              onclick={() => toggleExpand(skill.filePath)}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  toggleExpand(skill.filePath)
-                }
-              }}
-            >
-              <span class="skill-name">{skill.name}</span>
-              <span class="skill-agents">{agentLabels[skill.agent] ?? skill.agent}</span>
-            </div>
-
-            {#if expandedId === skill.filePath}
-              <div class="skill-details">
-                <p class="skill-description">{skill.description || 'No description'}</p>
-                <div class="skill-meta-row">
-                  <div class="meta-item">
-                    <span class="meta-label">Agent</span>
-                    <span class="meta-value">{agentLabels[skill.agent] ?? skill.agent}</span>
-                  </div>
-                  <div class="meta-item">
-                    <span class="meta-label">Scope</span>
-                    <span class="meta-value">{skill.scope}</span>
-                  </div>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">File</span>
-                  <span class="meta-value">{skill.filePath}</span>
-                </div>
-                <div class="skill-actions">
-                  <button
-                    class="btn btn-action btn-remove"
-                    onclick={() => deleteScannedSkill(skill.filePath, skill.name)}>Delete</button
-                  >
-                </div>
+          {#snippet details()}
+            <p class="text-sm text-text-secondary m-0 leading-snug">
+              {skill.description || 'No description'}
+            </p>
+            <div class="flex gap-6">
+              <div class="flex flex-col gap-0.5">
+                <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                  >Agent</span
+                >
+                <span class="text-sm text-text">{agentLabels[skill.agent] ?? skill.agent}</span>
               </div>
-            {/if}
-          </div>
+              <div class="flex flex-col gap-0.5">
+                <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                  >Scope</span
+                >
+                <span class="text-sm text-text">{skill.scope}</span>
+              </div>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="text-xs font-semibold text-text-secondary uppercase tracking-[0.3px]"
+                >File</span
+              >
+              <span class="text-sm text-text break-all">{skill.filePath}</span>
+            </div>
+            <div class="flex gap-2 pt-1">
+              <button
+                class="px-3.5 py-1 rounded-lg text-sm font-inherit cursor-pointer border-0 bg-danger-bg text-danger-text"
+                onclick={() => deleteScannedSkill(skill.filePath, skill.name)}>Delete</button
+              >
+            </div>
+          {/snippet}
+          {@render skillRow(
+            skill.filePath,
+            skill.name,
+            agentLabels[skill.agent] ?? skill.agent,
+            details,
+          )}
         {/each}
       </div>
     {/if}
   {/if}
 
   {#if skills.length === 0 && scannedSkills.length === 0 && !scanning}
-    <p class="empty-state">
+    <p class="text-md text-text-faint m-0">
       No skills found. Install from a local path, URL, or GitHub, or scan to discover existing ones.
     </p>
   {/if}
 
   {#if scanning}
-    <p class="empty-state">Scanning for skills...</p>
+    <p class="text-md text-text-faint m-0">Scanning for skills...</p>
   {/if}
 
   {#if showInstallForm}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="install-form"
+      class="flex flex-col gap-2 p-3 border border-border rounded-xl bg-border-subtle"
       onkeydown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault()
@@ -362,16 +374,16 @@
       }}
     >
       <input
-        class="form-input"
+        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
         bind:value={installSource}
         placeholder="Source (github:owner/repo/path, local path, or URL)"
       />
 
-      <div class="form-row">
-        <label class="form-label">Agents:</label>
-        <div class="agent-checkboxes">
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-text-secondary min-w-15">Agents:</label>
+        <div class="flex gap-3 text-sm text-text">
           {#each Object.entries(agentLabels) as [key, label] (key)}
-            <label class="agent-checkbox">
+            <label class="flex items-center gap-1 cursor-pointer">
               <input
                 type="checkbox"
                 checked={installAgents.includes(key)}
@@ -383,37 +395,44 @@
         </div>
       </div>
 
-      <div class="form-row">
-        <label class="form-label">Scope:</label>
-        <div class="radio-group">
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-text-secondary min-w-15">Scope:</label>
+        <div class="flex gap-3 text-sm text-text">
           <label><input type="radio" bind:group={installScope} value="project" /> Project</label>
           <label><input type="radio" bind:group={installScope} value="global" /> Global</label>
         </div>
       </div>
 
-      <div class="form-row">
-        <label class="form-label">Method:</label>
-        <div class="radio-group">
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-text-secondary min-w-15">Method:</label>
+        <div class="flex gap-3 text-sm text-text">
           <label><input type="radio" bind:group={installMethod} value="copy" /> Copy</label>
           <label><input type="radio" bind:group={installMethod} value="symlink" /> Symlink</label>
         </div>
       </div>
 
       {#if installError}
-        <p class="form-error">{installError}</p>
+        <p class="text-sm text-danger m-0">{installError}</p>
       {/if}
 
-      <div class="form-actions">
-        <button class="btn btn-cancel" onclick={() => (showInstallForm = false)}>Cancel</button>
-        <button class="btn btn-install" onclick={installSkill} disabled={installing}>
+      <div class="flex justify-end gap-2">
+        <button
+          class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-active text-text"
+          onclick={() => (showInstallForm = false)}>Cancel</button
+        >
+        <button
+          class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text disabled:opacity-60 disabled:cursor-not-allowed hover:bg-accent-bg-hover"
+          onclick={installSkill}
+          disabled={installing}
+        >
           {installing ? 'Installing...' : 'Install'}
         </button>
       </div>
     </div>
   {:else}
-    <div class="button-row">
+    <div class="flex gap-2">
       <button
-        class="btn btn-add-skill"
+        class="px-3.5 py-1.5 border border-dashed border-text-faint rounded-lg bg-transparent text-text-secondary text-md font-inherit cursor-pointer hover:bg-hover hover:text-text"
         onclick={() => {
           installSource = ''
           installAgents = ['claude']
@@ -423,273 +442,13 @@
           showInstallForm = true
         }}>+ Install Skill</button
       >
-      <button class="btn btn-add-skill" onclick={scanForSkills} disabled={scanning}>
+      <button
+        class="px-3.5 py-1.5 border border-dashed border-text-faint rounded-lg bg-transparent text-text-secondary text-md font-inherit cursor-pointer disabled:opacity-60 hover:bg-hover hover:text-text"
+        onclick={scanForSkills}
+        disabled={scanning}
+      >
         {scanning ? 'Scanning...' : 'Rescan'}
       </button>
     </div>
   {/if}
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0;
-  }
-
-  .skill-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .skill-row {
-    border-radius: 6px;
-    background: var(--c-border-subtle);
-    overflow: hidden;
-  }
-
-  .skill-main {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .skill-main:hover {
-    background: var(--c-hover);
-  }
-
-  .skill-name {
-    color: var(--c-text);
-    min-width: 120px;
-    font-weight: 500;
-  }
-
-  .skill-agents {
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    flex: 1;
-  }
-
-  .skill-details {
-    padding: 10px 12px;
-    border-top: 1px solid var(--c-border);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .skill-description {
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    margin: 0;
-    line-height: 1.4;
-  }
-
-  .skill-meta-row {
-    display: flex;
-    gap: 24px;
-  }
-
-  .meta-item {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .meta-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-  }
-
-  .meta-value {
-    font-size: 12px;
-    color: var(--c-text);
-    word-break: break-all;
-  }
-
-  .agent-toggles {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .agent-toggle-list {
-    display: flex;
-    gap: 14px;
-  }
-
-  .agent-toggle {
-    font-size: 13px;
-    color: var(--c-text);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-  }
-
-  .skill-actions {
-    display: flex;
-    gap: 8px;
-    padding-top: 4px;
-  }
-
-  .empty-state {
-    font-size: 13px;
-    color: var(--c-text-faint);
-    margin: 0;
-  }
-
-  .scan-group-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-  }
-
-  .install-form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    border: 1px solid var(--c-border);
-    border-radius: 8px;
-    background: var(--c-border-subtle);
-  }
-
-  .form-input {
-    padding: 6px 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .form-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .form-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .form-label {
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    min-width: 60px;
-  }
-
-  .agent-checkboxes,
-  .radio-group {
-    display: flex;
-    gap: 12px;
-    font-size: 12px;
-    color: var(--c-text);
-  }
-
-  .agent-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    cursor: pointer;
-  }
-
-  .form-error {
-    font-size: 12px;
-    color: var(--c-danger);
-    margin: 0;
-  }
-
-  .form-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-  }
-
-  .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
-  }
-
-  .btn-install {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-  }
-
-  .btn-install:hover {
-    background: var(--c-accent-bg-hover);
-  }
-
-  .btn-install:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .button-row {
-    display: flex;
-    gap: 8px;
-  }
-
-  .btn-add-skill {
-    padding: 6px 14px;
-    border: 1px dashed var(--c-text-faint);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--c-text-secondary);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-add-skill:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .btn-action {
-    font-size: 12px;
-    padding: 5px 14px;
-  }
-
-  .btn-update {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-  }
-
-  .btn-update:hover {
-    background: var(--c-accent-bg-hover);
-  }
-
-  .btn-remove {
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
-  }
-</style>

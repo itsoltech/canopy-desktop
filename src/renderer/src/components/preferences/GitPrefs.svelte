@@ -19,8 +19,6 @@
     }
   }
 
-  // --- Worktree Setup Actions ---
-
   interface SetupCommandAction {
     type: 'command'
     command: string
@@ -84,30 +82,36 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Git</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Git</h3>
 
-  <div class="field">
-    <span class="field-label">Pull Strategy</span>
-    <span class="field-hint">How local commits are integrated when pulling remote changes</span>
-    <div class="radio-group">
-      <label class="radio-row">
+  <div class="flex flex-col gap-2">
+    <span class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
+      >Pull Strategy</span
+    >
+    <span class="text-xs text-text-faint">
+      How local commits are integrated when pulling remote changes
+    </span>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center gap-2 text-md text-text">
         <CustomRadio checked={pullRebase} onchange={() => setPullStrategy(true)} />
         <span>Rebase</span>
-        <span class="radio-desc">git pull --rebase</span>
+        <span class="text-xs text-text-muted font-mono">git pull --rebase</span>
       </label>
-      <label class="radio-row">
+      <label class="flex items-center gap-2 text-md text-text">
         <CustomRadio checked={!pullRebase} onchange={() => setPullStrategy(false)} />
         <span>Merge</span>
-        <span class="radio-desc">git pull</span>
+        <span class="text-xs text-text-muted font-mono">git pull</span>
       </label>
     </div>
   </div>
 
-  <div class="field">
-    <span class="field-label">Worktrees directory</span>
+  <div class="flex flex-col gap-2">
+    <span class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
+      >Worktrees directory</span
+    >
     <input
-      class="field-input"
+      class="w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
       type="text"
       value={worktreesDir}
       oninput={(e) => updateWorktreesDir(e.currentTarget.value)}
@@ -115,22 +119,26 @@
       spellcheck="false"
       autocomplete="off"
     />
-    <span class="field-hint">Pattern: &lt;dir&gt;/&lt;project&gt;/&lt;branch&gt;</span>
+    <span class="text-xs text-text-faint">Pattern: &lt;dir&gt;/&lt;project&gt;/&lt;branch&gt;</span>
   </div>
 
   {#if showSetup}
-    <div class="field">
-      <span class="field-label">Worktree Setup</span>
-      <span class="field-hint">Actions to run after creating a new worktree</span>
+    <div class="flex flex-col gap-2">
+      <span class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
+        >Worktree Setup</span
+      >
+      <span class="text-xs text-text-faint">Actions to run after creating a new worktree</span>
 
       {#if actions.length > 0}
-        <div class="setup-list">
+        <div class="flex flex-col gap-1.5">
           {#each actions as action, i (i)}
-            <div class="setup-item">
-              <span class="setup-type">{action.type === 'command' ? 'run' : 'copy'}</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs font-mono text-accent-text min-w-8 flex-shrink-0"
+                >{action.type === 'command' ? 'run' : 'copy'}</span
+              >
               {#if action.type === 'command'}
                 <input
-                  class="setup-input"
+                  class="flex-1 border border-border rounded-md bg-bg-input text-text text-sm font-mono px-2 py-1 outline-none focus:border-focus-ring placeholder:text-text-faint box-border"
                   type="text"
                   bind:value={action.command}
                   oninput={() => updateAction()}
@@ -140,7 +148,7 @@
                 />
               {:else}
                 <input
-                  class="setup-input setup-input-short"
+                  class="flex-1 min-w-0 border border-border rounded-md bg-bg-input text-text text-sm font-mono px-2 py-1 outline-none focus:border-focus-ring placeholder:text-text-faint box-border"
                   type="text"
                   bind:value={action.source}
                   oninput={() => updateAction()}
@@ -148,9 +156,9 @@
                   spellcheck="false"
                   autocomplete="off"
                 />
-                <span class="setup-arrow">→</span>
+                <span class="text-sm text-text-faint flex-shrink-0">→</span>
                 <input
-                  class="setup-input setup-input-short"
+                  class="flex-1 min-w-0 border border-border rounded-md bg-bg-input text-text text-sm font-mono px-2 py-1 outline-none focus:border-focus-ring placeholder:text-text-faint box-border"
                   type="text"
                   value={action.dest ?? action.source}
                   oninput={(e) => {
@@ -163,189 +171,32 @@
                   autocomplete="off"
                 />
               {/if}
-              <button class="setup-remove" onclick={() => removeAction(i)} title="Remove">×</button>
+              <button
+                class="bg-transparent border-0 text-text-faint text-base cursor-pointer px-1 leading-none flex-shrink-0 transition-colors duration-fast hover:text-danger-text"
+                onclick={() => removeAction(i)}
+                title="Remove">×</button
+              >
             </div>
           {/each}
         </div>
       {/if}
 
-      <div class="setup-actions">
-        <button class="setup-add" onclick={addCommand}>+ command</button>
-        <button class="setup-add" onclick={addCopy}>+ file copy</button>
+      <div class="flex gap-2">
+        <button
+          class="bg-hover border border-border rounded-md text-text-secondary text-sm font-inherit px-2.5 py-1 cursor-pointer transition-colors duration-fast hover:bg-hover-strong hover:text-text"
+          onclick={addCommand}>+ command</button
+        >
+        <button
+          class="bg-hover border border-border rounded-md text-text-secondary text-sm font-inherit px-2.5 py-1 cursor-pointer transition-colors duration-fast hover:bg-hover-strong hover:text-text"
+          onclick={addCopy}>+ file copy</button
+        >
       </div>
 
       {#if actions.some((a) => a.type === 'command')}
-        <span class="field-hint"> Variables: $MAIN_WORKTREE, $NEW_WORKTREE, $REPO_ROOT </span>
+        <span class="text-xs text-text-faint">
+          Variables: $MAIN_WORKTREE, $NEW_WORKTREE, $REPO_ROOT
+        </span>
       {/if}
     </div>
   {/if}
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--c-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .radio-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .radio-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--c-text);
-  }
-
-  .radio-desc {
-    font-size: 11px;
-    color: var(--c-text-muted);
-    font-family: monospace;
-  }
-
-  .field-input {
-    width: 100%;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    padding: 8px 10px;
-    outline: none;
-    transition: border-color 0.1s;
-    box-sizing: border-box;
-  }
-
-  .field-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .field-input::placeholder {
-    color: var(--c-text-faint);
-  }
-
-  .field-hint {
-    font-size: 11px;
-    color: var(--c-text-faint);
-  }
-
-  .setup-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .setup-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .setup-type {
-    font-size: 11px;
-    font-family: monospace;
-    color: var(--c-accent-text);
-    min-width: 32px;
-    flex-shrink: 0;
-  }
-
-  .setup-input {
-    flex: 1;
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    background: var(--c-bg-input);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: monospace;
-    padding: 5px 8px;
-    outline: none;
-    transition: border-color 0.1s;
-    box-sizing: border-box;
-  }
-
-  .setup-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .setup-input::placeholder {
-    color: var(--c-text-faint);
-  }
-
-  .setup-input-short {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .setup-arrow {
-    font-size: 12px;
-    color: var(--c-text-faint);
-    flex-shrink: 0;
-  }
-
-  .setup-remove {
-    background: none;
-    border: none;
-    color: var(--c-text-faint);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 0 4px;
-    line-height: 1;
-    flex-shrink: 0;
-    transition: color 0.1s;
-  }
-
-  .setup-remove:hover {
-    color: var(--c-danger-text);
-  }
-
-  .setup-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .setup-add {
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    padding: 4px 10px;
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      color 0.1s;
-  }
-
-  .setup-add:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-</style>

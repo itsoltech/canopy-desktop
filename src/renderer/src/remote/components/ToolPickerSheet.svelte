@@ -1,16 +1,4 @@
 <script lang="ts">
-  /**
-   * Mobile-only bottom sheet that lists available tools the user can
-   * spawn in the selected worktree. Extracted from `RemoteApp.svelte`
-   * because the sheet is otherwise self-contained (input: tool list
-   * + workspace label + close/pick callbacks, output: DOM) and the
-   * parent file was well over the 500-line component budget.
-   *
-   * Backdrop click, the X button, and Escape (handled by a parent
-   * `$effect` in `RemoteApp`) all dismiss the sheet. The backdrop is
-   * a `<button>` so keyboard users can Tab into it and hit Enter/Space.
-   */
-
   interface Tool {
     id: string
     name: string
@@ -32,188 +20,47 @@
   let availableTools = $derived(tools.filter((t) => t.available))
 </script>
 
-<button type="button" class="sheet-backdrop" aria-label="Close tool picker" onclick={onClose}
+<button
+  type="button"
+  class="sheet-backdrop fixed inset-0 z-[2500] cursor-pointer bg-scrim border-0 m-0 p-0 appearance-none"
+  aria-label="Close tool picker"
+  onclick={onClose}
 ></button>
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="tool-sheet"
+  class="tool-sheet fixed left-1/2 bottom-0 -translate-x-1/2 z-[2501] w-full max-w-[520px] max-h-[75dvh] bg-bg-elevated rounded-t-[14px] border border-border border-b-0 shadow-[0_-8px_24px_oklch(0_0_0/0.35)] flex flex-col"
   role="dialog"
   aria-modal="true"
   aria-labelledby="tool-sheet-title"
   onclick={(e) => e.stopPropagation()}
 >
-  <header class="sheet-header">
-    <span id="tool-sheet-title" class="sheet-title">Spawn a tool</span>
-    <button type="button" class="icon-btn sheet-close" onclick={onClose} aria-label="Close">
+  <header
+    class="flex-shrink-0 flex items-center justify-between px-[18px] pt-3.5 pb-2.5 border-b border-border-subtle"
+  >
+    <span id="tool-sheet-title" class="text-lg font-semibold text-text">Spawn a tool</span>
+    <button
+      type="button"
+      class="inline-flex items-center justify-center w-[30px] h-[30px] text-lg rounded-md cursor-pointer bg-bg-input text-text-secondary border-0 hover:bg-hover-strong"
+      onclick={onClose}
+      aria-label="Close"
+    >
       ×
     </button>
   </header>
-  <div class="sheet-body">
+  <div class="sheet-body flex-1 overflow-y-auto px-3.5 pt-2.5 pb-[18px] flex flex-col gap-1.5">
     {#each availableTools as tool (tool.id)}
-      <button type="button" class="sheet-tool-row" onclick={() => onPick(tool.id)}>
-        <span class="sheet-tool-name">{tool.name}</span>
-        <span class="sheet-tool-hint">Spawn in {workspaceLabel || 'current worktree'}</span>
+      <button
+        type="button"
+        class="flex flex-col items-start gap-0.5 p-3.5 bg-bg border border-border rounded-[10px] cursor-pointer text-left active:bg-accent-bg active:border-accent-muted"
+        onclick={() => onPick(tool.id)}
+      >
+        <span class="text-[15px] font-semibold text-text">{tool.name}</span>
+        <span class="text-xs text-text-muted">Spawn in {workspaceLabel || 'current worktree'}</span>
       </button>
     {/each}
     {#if availableTools.length === 0}
-      <p class="muted">No tools registered on host.</p>
+      <p class="m-0 text-sm text-text-muted leading-normal">No tools registered on host.</p>
     {/if}
   </div>
 </div>
-
-<style>
-  .sheet-backdrop {
-    /* Dim backdrop that covers the whole viewport. This is a <button> so
-       keyboard users can dismiss it with Tab + Enter — we reset every
-       native button style with `all: unset` so it still looks like a
-       plain dim scrim. */
-    all: unset;
-    position: fixed;
-    inset: 0;
-    z-index: 2500;
-    cursor: pointer;
-    background: var(--c-scrim, rgba(0, 0, 0, 0.55));
-    animation: sheet-backdrop-fade 180ms ease-out;
-  }
-
-  .tool-sheet {
-    /* Positioned fixed so it sits above the backdrop button regardless
-       of DOM order. `max-height: 75dvh` keeps it from eating the whole
-       screen when there are many tools, while respecting the iOS home
-       indicator via safe-area-inset-bottom (padded inside the body so
-       the last row doesn't sit on the bar). */
-    position: fixed;
-    left: 50%;
-    bottom: 0;
-    transform: translateX(-50%);
-    z-index: 2501;
-    width: 100%;
-    max-width: 520px;
-    max-height: 75vh;
-    max-height: 75dvh;
-    background: var(--c-bg-elevated);
-    border-top-left-radius: 14px;
-    border-top-right-radius: 14px;
-    border: 1px solid var(--c-border);
-    border-bottom: none;
-    box-shadow: var(--c-shadow-sheet, 0 -8px 24px rgba(0, 0, 0, 0.35));
-    display: flex;
-    flex-direction: column;
-    animation: sheet-slide-up 220ms cubic-bezier(0.25, 1, 0.5, 1);
-  }
-
-  .sheet-header {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 18px 10px;
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .sheet-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .sheet-close {
-    width: 30px;
-    height: 30px;
-    font-size: 18px;
-  }
-
-  .icon-btn {
-    all: unset;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 5px;
-    cursor: pointer;
-    background: var(--c-bg-input);
-    color: var(--c-text-secondary);
-  }
-
-  .icon-btn:hover {
-    background: var(--c-hover-strong);
-  }
-
-  .sheet-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px 14px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  @supports (padding: env(safe-area-inset-bottom)) {
-    .sheet-body {
-      padding-bottom: calc(18px + env(safe-area-inset-bottom));
-    }
-  }
-
-  .sheet-tool-row {
-    all: unset;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    padding: 14px 14px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
-    border-radius: 10px;
-    cursor: pointer;
-  }
-
-  .sheet-tool-row:active {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-muted);
-  }
-
-  .sheet-tool-name {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .sheet-tool-hint {
-    font-size: 11px;
-    color: var(--c-text-muted);
-  }
-
-  .muted {
-    margin: 0;
-    font-size: 12px;
-    color: var(--c-text-muted);
-    line-height: 1.5;
-  }
-
-  @keyframes sheet-backdrop-fade {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-
-  @keyframes sheet-slide-up {
-    from {
-      transform: translate(-50%, 100%);
-    }
-    to {
-      transform: translate(-50%, 0);
-    }
-  }
-
-  /* Respect `prefers-reduced-motion` — users with vestibular disorders
-     should not see the slide/fade animations. */
-  @media (prefers-reduced-motion: reduce) {
-    .sheet-backdrop,
-    .tool-sheet {
-      animation: none;
-    }
-  }
-</style>

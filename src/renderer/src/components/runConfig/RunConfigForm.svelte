@@ -105,77 +105,112 @@
     if (!result) return
     onSave(result)
   }
+
+  const inputCls =
+    'h-[30px] px-2.5 border border-border rounded-lg bg-bg-secondary text-text text-md font-inherit outline-none focus:border-focus-ring'
+  const fieldCls = 'flex flex-col gap-1'
+  const labelCls = 'text-xs font-medium text-text-muted'
+  const sectionLabelCls =
+    'flex items-center justify-between mt-1 text-xs font-semibold text-text-muted uppercase tracking-[0.5px]'
+  const addBtnCls =
+    'flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-text-muted cursor-pointer rounded-md hover:bg-hover hover:text-text'
+  const envInputCls =
+    'h-7 px-2 border border-border rounded-lg bg-bg-secondary text-text text-sm font-mono outline-none focus:border-focus-ring'
 </script>
 
-<div class="form">
-  <div class="field">
-    <label for="rcf-name">Name</label>
-    <input id="rcf-name" type="text" bind:value={name} placeholder="Dev Server" />
+<div class="flex flex-col gap-2.5">
+  <div class={fieldCls}>
+    <label class={labelCls} for="rcf-name">Name</label>
+    <input id="rcf-name" type="text" class={inputCls} bind:value={name} placeholder="Dev Server" />
   </div>
 
-  <div class="field">
-    <label for="rcf-command">Command</label>
-    <input id="rcf-command" type="text" bind:value={command} placeholder="npm" />
+  <div class={fieldCls}>
+    <label class={labelCls} for="rcf-command">Command</label>
+    <input id="rcf-command" type="text" class={inputCls} bind:value={command} placeholder="npm" />
   </div>
 
-  <div class="field">
-    <label for="rcf-args">Arguments</label>
-    <input id="rcf-args" type="text" bind:value={args} placeholder="run dev" />
+  <div class={fieldCls}>
+    <label class={labelCls} for="rcf-args">Arguments</label>
+    <input id="rcf-args" type="text" class={inputCls} bind:value={args} placeholder="run dev" />
   </div>
 
-  <div class="field">
-    <label for="rcf-cwd">Working Directory</label>
-    <input id="rcf-cwd" type="text" bind:value={cwd} placeholder="relative to config location" />
+  <div class={fieldCls}>
+    <label class={labelCls} for="rcf-cwd">Working Directory</label>
+    <input
+      id="rcf-cwd"
+      type="text"
+      class={inputCls}
+      bind:value={cwd}
+      placeholder="relative to config location"
+    />
   </div>
 
-  <div class="field">
-    <label for="rcf-max">Max Instances</label>
+  <div class={fieldCls}>
+    <label class={labelCls} for="rcf-max">Max Instances</label>
     <input
       id="rcf-max"
       type="number"
+      class={inputCls}
       min="0"
       bind:value={maxInstances}
       placeholder="0 = unlimited"
     />
   </div>
 
-  <div class="section-label">
+  <div class={sectionLabelCls}>
     <span>Environment Variables</span>
-    <button class="add-btn" onclick={addEnvPair}>
+    <button class={addBtnCls} onclick={addEnvPair}>
       <Plus size={14} />
     </button>
   </div>
 
   {#each envPairs as pair, i (i)}
-    <div class="env-row">
-      <input type="text" bind:value={pair.key} placeholder="KEY" class="env-key" />
-      <span class="env-eq">=</span>
-      <input type="text" bind:value={pair.value} placeholder="value" class="env-value" />
-      <button class="add-btn" onclick={() => removeEnvPair(i)}>
+    <div class="flex items-center gap-1">
+      <input type="text" bind:value={pair.key} placeholder="KEY" class="flex-1 {envInputCls}" />
+      <span class="text-text-muted text-sm">=</span>
+      <input
+        type="text"
+        bind:value={pair.value}
+        placeholder="value"
+        class="flex-[2] {envInputCls}"
+      />
+      <button class={addBtnCls} onclick={() => removeEnvPair(i)}>
         <Trash2 size={12} />
       </button>
     </div>
   {/each}
 
-  <div class="section-label"><span>Hooks</span></div>
+  <div class={sectionLabelCls}><span>Hooks</span></div>
 
-  <div class="field">
-    <label for="rcf-prerun">Pre-run</label>
-    <input id="rcf-prerun" type="text" bind:value={preRun} placeholder="npm install" />
+  <div class={fieldCls}>
+    <label class={labelCls} for="rcf-prerun">Pre-run</label>
+    <input
+      id="rcf-prerun"
+      type="text"
+      class={inputCls}
+      bind:value={preRun}
+      placeholder="npm install"
+    />
   </div>
 
-  <div class="field">
-    <label for="rcf-postrun">Post-run</label>
-    <input id="rcf-postrun" type="text" bind:value={postRun} placeholder="echo done" />
+  <div class={fieldCls}>
+    <label class={labelCls} for="rcf-postrun">Post-run</label>
+    <input
+      id="rcf-postrun"
+      type="text"
+      class={inputCls}
+      bind:value={postRun}
+      placeholder="echo done"
+    />
   </div>
 
   {#if error}
-    <div class="error">{error}</div>
+    <div class="px-2.5 py-2 bg-danger-bg text-danger-text rounded-lg text-sm">{error}</div>
   {/if}
 
-  <div class="form-footer">
+  <div class="flex justify-end mt-1">
     <button
-      class="btn primary"
+      class="h-[30px] px-4 border-0 rounded-lg text-md font-medium font-inherit cursor-pointer bg-accent-bg text-accent-text enabled:hover:bg-accent-muted disabled:opacity-40 disabled:cursor-default"
       onclick={handleSubmit}
       disabled={saving || !name.trim() || !command.trim()}
     >
@@ -183,150 +218,3 @@
     </button>
   </div>
 </div>
-
-<style>
-  .form {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field label {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--c-text-muted);
-  }
-
-  .field input {
-    height: 30px;
-    padding: 0 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .field input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .section-label {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .add-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    border-radius: 4px;
-  }
-
-  .add-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .env-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .env-key {
-    flex: 1;
-    height: 28px;
-    padding: 0 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: var(--font-mono, monospace);
-    outline: none;
-  }
-
-  .env-eq {
-    color: var(--c-text-muted);
-    font-size: 12px;
-  }
-
-  .env-value {
-    flex: 2;
-    height: 28px;
-    padding: 0 8px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-bg-secondary);
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: var(--font-mono, monospace);
-    outline: none;
-  }
-
-  .env-key:focus,
-  .env-value:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .error {
-    padding: 8px 10px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
-    border-radius: 6px;
-    font-size: 12px;
-  }
-
-  .form-footer {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 4px;
-  }
-
-  .btn {
-    height: 30px;
-    padding: 0 16px;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .btn.primary {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-  }
-
-  .btn.primary:hover {
-    background: var(--c-accent-muted);
-  }
-
-  .btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-</style>

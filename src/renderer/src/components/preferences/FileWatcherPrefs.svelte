@@ -3,9 +3,6 @@
   import { X, RotateCcw, Plus } from '@lucide/svelte'
   import { getPref, setPref, prefs } from '../../lib/stores/preferences.svelte'
 
-  // Defaults live in src/main/fileWatcher/defaults.ts and are fetched lazily
-  // via IPC so there's a single source of truth. Until the fetch resolves we
-  // render the user's saved list (or empty).
   let defaults: string[] = $state([])
 
   function readPatterns(): string[] {
@@ -27,16 +24,12 @@
 
   onMount(async () => {
     defaults = await window.api.getDefaultFileIgnorePatterns()
-    // If there was no saved pref, readPatterns() returned an empty list before
-    // defaults loaded — refresh now that we have them.
     if (!getPref('files.ignorePatterns', '')) {
       patterns = [...defaults]
     }
   })
 
-  // Keep local state in sync if prefs change from elsewhere
   $effect(() => {
-    // Read prefs to establish reactivity
     void prefs['files.ignorePatterns']
     patterns = readPatterns()
   })
@@ -74,21 +67,26 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">File Watcher</h3>
-  <p class="section-desc">
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">File Watcher</h3>
+  <p class="text-sm text-text-secondary m-0 leading-normal">
     Entries listed here are excluded from the sidebar file list. Use plain names (<code
-      >node_modules</code
-    >, <code>.git</code>) or <code>name/**</code> patterns to hide a top-level folder. Complex globs
-    like <code>**/*.log</code> are not currently supported. Changes apply immediately to all open workspaces.
+      class="bg-hover px-1.5 py-px rounded-sm text-xs font-inherit">node_modules</code
+    >, <code class="bg-hover px-1.5 py-px rounded-sm text-xs font-inherit">.git</code>) or
+    <code class="bg-hover px-1.5 py-px rounded-sm text-xs font-inherit">name/**</code> patterns to
+    hide a top-level folder. Complex globs like
+    <code class="bg-hover px-1.5 py-px rounded-sm text-xs font-inherit">**/*.log</code> are not currently
+    supported. Changes apply immediately to all open workspaces.
   </p>
 
-  <div class="pattern-list">
+  <div class="flex flex-wrap gap-1.5 min-h-8">
     {#each patterns as pattern (pattern)}
-      <div class="pattern-chip">
-        <span class="pattern-text">{pattern}</span>
+      <div
+        class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 bg-hover border border-border rounded-md text-sm text-text"
+      >
+        <span class="font-mono">{pattern}</span>
         <button
-          class="remove-btn"
+          class="flex items-center justify-center w-[18px] h-[18px] bg-transparent border-0 rounded-sm text-text-secondary cursor-pointer transition-colors duration-fast hover:bg-hover-strong hover:text-danger-text"
           onclick={() => removePattern(pattern)}
           aria-label={`Remove ${pattern}`}
         >
@@ -97,181 +95,35 @@
       </div>
     {/each}
     {#if patterns.length === 0}
-      <p class="empty">No patterns — all files are watched.</p>
+      <p class="text-sm text-text-faint italic m-0">No patterns — all files are watched.</p>
     {/if}
   </div>
 
-  <div class="add-row">
+  <div class="flex gap-1.5">
     <input
       type="text"
-      class="pattern-input"
+      class="flex-1 px-2.5 py-1.5 bg-bg border border-border rounded-md text-text text-md font-inherit focus:outline-none focus:border-focus-ring"
       placeholder="Add pattern (e.g. tmp/**)"
       bind:value={newPattern}
       onkeydown={handleInputKeydown}
     />
-    <button class="add-btn" onclick={addPattern} disabled={!newPattern.trim()}>
+    <button
+      class="flex items-center gap-1 px-3 py-1.5 bg-accent-bg border border-border rounded-md text-text text-md cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong disabled:opacity-40 disabled:cursor-default"
+      onclick={addPattern}
+      disabled={!newPattern.trim()}
+    >
       <Plus size={14} />
       <span>Add</span>
     </button>
   </div>
 
-  <div class="footer">
-    <button class="reset-btn" onclick={resetDefaults}>
+  <div class="flex justify-end pt-2 border-t border-border">
+    <button
+      class="flex items-center gap-1 px-2.5 py-1 bg-transparent border border-border rounded-md text-text-secondary text-xs cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
+      onclick={resetDefaults}
+    >
       <RotateCcw size={12} />
       <span>Reset to defaults</span>
     </button>
   </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0;
-  }
-
-  .section-desc {
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    margin: 0;
-    line-height: 1.5;
-  }
-
-  .section-desc code {
-    background: var(--c-hover);
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-size: 11px;
-    font-family: inherit;
-  }
-
-  .pattern-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    min-height: 32px;
-  }
-
-  .pattern-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 4px 4px 10px;
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    font-size: 12px;
-    color: var(--c-text);
-  }
-
-  .pattern-text {
-    font-family: var(--c-font-mono, monospace);
-  }
-
-  .remove-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    background: none;
-    border: none;
-    border-radius: 3px;
-    color: var(--c-text-secondary);
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      color 0.1s;
-  }
-
-  .remove-btn:hover {
-    background: var(--c-hover-strong);
-    color: var(--c-danger-text);
-  }
-
-  .empty {
-    font-size: 12px;
-    color: var(--c-text-faint);
-    font-style: italic;
-    margin: 0;
-  }
-
-  .add-row {
-    display: flex;
-    gap: 6px;
-  }
-
-  .pattern-input {
-    flex: 1;
-    padding: 6px 10px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-  }
-
-  .pattern-input:focus {
-    outline: none;
-    border-color: var(--c-focus-ring);
-  }
-
-  .add-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 12px;
-    background: var(--c-accent-bg);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    color: var(--c-text);
-    font-size: 12px;
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-
-  .add-btn:hover:not(:disabled) {
-    background: var(--c-hover-strong);
-  }
-
-  .add-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-
-  .footer {
-    display: flex;
-    justify-content: flex-end;
-    padding-top: 8px;
-    border-top: 1px solid var(--c-border);
-  }
-
-  .reset-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    background: none;
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    color: var(--c-text-secondary);
-    font-size: 11px;
-    cursor: pointer;
-    transition:
-      background 0.1s,
-      color 0.1s;
-  }
-
-  .reset-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-</style>

@@ -5,40 +5,12 @@
 </script>
 
 {#if pendingQuestion}
-  <div class="section">
-    <h4 class="section-label">Waiting for input</h4>
-    <div class="question-box">
-      <span class="question-text">{pendingQuestion}</span>
+  <div class="flex flex-col gap-1.5">
+    <h4 class="text-2xs font-semibold tracking-[0.5px] uppercase text-text-faint m-0">
+      Waiting for input
+    </h4>
+    <div class="px-2.5 py-1.5 rounded-lg border-l-[3px] border-warning-text bg-border-subtle">
+      <span class="text-sm text-text-secondary leading-snug">{pendingQuestion}</span>
     </div>
   </div>
 {/if}
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .section-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--c-text-faint);
-    margin: 0;
-  }
-
-  .question-box {
-    padding: 6px 10px;
-    border-radius: 6px;
-    border-left: 3px solid var(--c-warning-text);
-    background: var(--c-border-subtle);
-  }
-
-  .question-text {
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    line-height: 1.4;
-  }
-</style>

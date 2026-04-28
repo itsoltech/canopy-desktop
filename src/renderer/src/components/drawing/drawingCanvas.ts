@@ -190,9 +190,9 @@ export function redraw(params: RedrawParams): void {
   const ctx = params.canvas.getContext('2d')
   if (!ctx) return
 
-  const bg = getThemeColor(params.container, '--c-bg', '#1e1e1e')
-  const accent = getThemeColor(params.container, '--c-accent', '#60a5fa')
-  const accentBg = getThemeColor(params.container, '--c-accent-bg', 'rgba(96, 165, 250, 0.12)')
+  const bg = getThemeColor(params.container, '--color-bg', '#1e1e1e')
+  const accent = getThemeColor(params.container, '--color-accent', '#60a5fa')
+  const accentBg = getThemeColor(params.container, '--color-accent-bg', 'rgba(96, 165, 250, 0.12)')
 
   ctx.setTransform(params.dpr, 0, 0, params.dpr, 0, 0)
   ctx.fillStyle = bg

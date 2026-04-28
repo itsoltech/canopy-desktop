@@ -137,30 +137,49 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="overlay" role="dialog" aria-label="Run Configurations" onkeydown={handleKeydown}>
+<div
+  class="fixed inset-0 bg-scrim flex items-center justify-center z-[1000]"
+  role="dialog"
+  aria-label="Run Configurations"
+  onkeydown={handleKeydown}
+>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="modal" tabindex="0" bind:this={modalEl}>
-    <div class="modal-header">
-      <h2>Run Configurations</h2>
-      <button class="close-btn" onclick={closeDialog}>
+  <div
+    class="bg-bg border border-border rounded-xl w-[700px] h-[500px] flex flex-col shadow-modal"
+    tabindex="0"
+    bind:this={modalEl}
+  >
+    <div
+      class="flex items-center justify-between px-5 py-3.5 border-b border-border-subtle flex-shrink-0"
+    >
+      <h2 class="m-0 text-lg font-semibold text-text">Run Configurations</h2>
+      <button
+        class="flex items-center justify-center w-7 h-7 border-0 bg-transparent text-text-muted cursor-pointer rounded-md hover:bg-hover hover:text-text"
+        onclick={closeDialog}
+      >
         <X size={16} />
       </button>
     </div>
 
-    <div class="modal-content">
-      <div class="tree-panel">
+    <div class="flex flex-1 overflow-hidden">
+      <div class="w-60 flex-shrink-0 border-r border-border-subtle overflow-y-auto py-2">
         {#each [...grouped.entries()] as [relativePath, group] (relativePath)}
-          <div class="project-group">
-            <div class="project-header">
-              <span class="project-name">{relativePath === '.' ? 'Root' : relativePath}</span>
-              <button class="tree-action" onclick={() => startNew(group.configDir)}>
+          <div class="mb-1">
+            <div class="flex items-center justify-between px-3 pt-1 pb-0.5">
+              <span class="text-2xs font-bold text-text-muted uppercase tracking-[0.5px]"
+                >{relativePath === '.' ? 'Root' : relativePath}</span
+              >
+              <button
+                class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-text-muted cursor-pointer rounded-sm hover:bg-hover hover:text-text"
+                onclick={() => startNew(group.configDir)}
+              >
                 <Plus size={14} />
               </button>
             </div>
             {#each group.configurations as config (config.name)}
               <div
-                class="tree-item"
-                class:active={!isNew &&
+                class="flex items-center gap-1 w-full h-7 px-3 cursor-pointer border-0 bg-transparent text-inherit font-inherit text-left group/item hover:bg-hover"
+                class:!bg-active={!isNew &&
                   selectedKey?.configDir === group.configDir &&
                   selectedKey?.name === config.name}
                 onclick={() => selectConfig(group.configDir, config.name)}
@@ -173,10 +192,13 @@
                 role="button"
                 tabindex="0"
               >
-                <span class="tree-item-name">{config.name}</span>
-                <div class="tree-item-actions">
+                <span
+                  class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm text-text"
+                  >{config.name}</span
+                >
+                <div class="flex gap-px flex-shrink-0 opacity-0 group-hover/item:opacity-100">
                   <button
-                    class="tree-item-action play"
+                    class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-success-text cursor-pointer rounded-sm hover:bg-hover-strong"
                     onclick={(e) => {
                       e.stopPropagation()
                       handlePlay(group.configDir, config.name)
@@ -185,7 +207,7 @@
                     <Play size={14} />
                   </button>
                   <button
-                    class="tree-item-action danger"
+                    class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-text-muted cursor-pointer rounded-sm hover:bg-hover-strong hover:text-danger-text"
                     onclick={(e) => {
                       e.stopPropagation()
                       handleDelete(group.configDir, config.name)
@@ -200,11 +222,11 @@
         {/each}
 
         {#if grouped.size === 0}
-          <div class="tree-empty">
-            <p>No configurations</p>
+          <div class="px-3 py-4 text-xs text-text-faint text-center">
+            <p class="m-0 mb-3">No configurations</p>
             {#if workspaceState.repoRoot}
               <button
-                class="new-btn"
+                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 border border-dashed border-text-faint rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
                 onclick={() => startNew(workspaceState.repoRoot!)}
                 aria-label="Create new configuration"
               >
@@ -216,9 +238,9 @@
         {/if}
       </div>
 
-      <div class="editor-panel">
+      <div class="flex-1 overflow-y-auto">
         {#if isNew || selectedKey}
-          <div class="editor-form-wrapper">
+          <div class="px-5 py-4">
             <RunConfigForm
               config={isNew ? undefined : selectedConfig}
               {isNew}
@@ -228,234 +250,11 @@
             />
           </div>
         {:else}
-          <div class="editor-empty">Select a configuration or create a new one</div>
+          <div class="flex items-center justify-center h-full text-md text-text-faint">
+            Select a configuration or create a new one
+          </div>
         {/if}
       </div>
     </div>
   </div>
 </div>
-
-<style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .modal {
-    background: var(--c-bg);
-    border: 1px solid var(--c-border);
-    border-radius: 12px;
-    width: 700px;
-    height: 500px;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  }
-
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--c-border-subtle);
-    flex-shrink: 0;
-  }
-
-  .modal-header h2 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--c-text);
-  }
-
-  .close-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    border-radius: 6px;
-  }
-
-  .close-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .modal-content {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-  }
-
-  .tree-panel {
-    width: 240px;
-    flex-shrink: 0;
-    border-right: 1px solid var(--c-border-subtle);
-    overflow-y: auto;
-    padding: 8px 0;
-  }
-
-  .project-group {
-    margin-bottom: 4px;
-  }
-
-  .project-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 12px 2px;
-  }
-
-  .project-name {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .tree-action {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    border-radius: 3px;
-  }
-
-  .tree-action:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .tree-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    width: 100%;
-    height: 28px;
-    padding: 0 12px;
-    cursor: pointer;
-    border: none;
-    background: none;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-  }
-
-  .tree-item:hover {
-    background: var(--c-hover);
-  }
-
-  .tree-item.active {
-    background: var(--c-active);
-  }
-
-  .tree-item-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    color: var(--c-text);
-  }
-
-  .tree-item-actions {
-    display: flex;
-    gap: 1px;
-    flex-shrink: 0;
-    opacity: 0;
-  }
-
-  .tree-item:hover .tree-item-actions {
-    opacity: 1;
-  }
-
-  .tree-item-action {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: none;
-    color: var(--c-text-muted);
-    cursor: pointer;
-    border-radius: 3px;
-    position: relative;
-  }
-
-  .tree-item-action:hover {
-    background: var(--c-hover-strong);
-  }
-
-  .tree-item-action.play {
-    color: var(--c-success-text);
-  }
-
-  .tree-item-action.danger:hover {
-    color: var(--c-danger-text);
-  }
-
-  .tree-empty {
-    padding: 16px 12px;
-    font-size: 11px;
-    color: var(--c-text-faint);
-    text-align: center;
-  }
-
-  .tree-empty p {
-    margin: 0 0 12px;
-  }
-
-  .new-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    border: 1px dashed var(--c-text-faint);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--c-text-secondary);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .new-btn:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .editor-panel {
-    flex: 1;
-    overflow-y: auto;
-  }
-
-  .editor-form-wrapper {
-    padding: 16px 20px;
-  }
-
-  .editor-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    font-size: 13px;
-    color: var(--c-text-faint);
-  }
-</style>

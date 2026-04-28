@@ -128,7 +128,7 @@
     const theme = getTheme(themeName)
     termRef.options.theme = theme
     if (containerEl) {
-      containerEl.style.backgroundColor = theme.background ?? '#1e1e1e'
+      containerEl.style.backgroundColor = theme.background ?? 'var(--color-bg)'
     }
   })
 
@@ -371,7 +371,7 @@
       const currentFontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
 
       // Set container bg before xterm renders to avoid flash of wrong color
-      containerEl.style.backgroundColor = currentTheme.background ?? '#1e1e1e'
+      containerEl.style.backgroundColor = currentTheme.background ?? 'var(--color-bg)'
 
       const term = new Terminal({
         fontSize: currentFontSize,
@@ -645,93 +645,29 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="terminal-outer"
-  class:dragging
+  class="w-full h-full p-2 bg-bg relative overflow-hidden"
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
-  <div class="terminal-container" bind:this={containerEl}></div>
+  <div class="terminal-container w-full h-full" bind:this={containerEl}></div>
   {#if progressState > 0}
     <div
-      class="progress-bar"
-      class:progress-error={progressState === 2}
-      class:progress-indeterminate={progressState === 3}
-      class:progress-warning={progressState === 4}
+      class="absolute top-0 left-0 h-0.5 transition-all duration-slow ease-std z-pane-divider"
+      class:bg-accent={progressState === 1}
+      class:bg-danger={progressState === 2}
+      class:bg-warning={progressState === 4}
+      class:animate-progress-indeterminate={progressState === 3}
+      class:motion-reduce:animate-none={progressState === 3}
+      class:bg-progress-indeterminate={progressState === 3}
       style:width={progressState === 3 ? '100%' : `${progressValue}%`}
     ></div>
   {/if}
   {#if dragging}
-    <div class="drop-overlay">Drop files</div>
+    <div
+      class="absolute inset-0 z-pane-overlay flex items-center justify-center bg-scrim border-2 border-dashed border-focus-ring text-text text-lg pointer-events-none"
+    >
+      Drop files
+    </div>
   {/if}
 </div>
-
-<style>
-  .terminal-outer {
-    width: 100%;
-    height: 100%;
-    padding: 8px;
-    box-sizing: border-box;
-    background-color: var(--c-bg, #1e1e1e);
-    position: relative;
-    overflow: hidden;
-  }
-
-  .terminal-container {
-    width: 100%;
-    height: 100%;
-    contain: strict;
-  }
-
-  .progress-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 2px;
-    background: #3b82f6;
-    transition: width 0.3s ease;
-    z-index: 5;
-  }
-
-  .progress-error {
-    background: #ef4444;
-  }
-
-  .progress-warning {
-    background: #eab308;
-  }
-
-  .progress-indeterminate {
-    animation: indeterminate 1.5s ease-in-out infinite;
-    background: linear-gradient(90deg, transparent, #3b82f6, transparent);
-  }
-
-  @keyframes indeterminate {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(100%);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .progress-indeterminate {
-      animation: none;
-    }
-  }
-
-  .drop-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.5);
-    border: 2px dashed rgba(116, 192, 252, 0.6);
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 14px;
-    pointer-events: none;
-  }
-</style>

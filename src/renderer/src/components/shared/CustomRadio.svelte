@@ -21,9 +21,12 @@
 </script>
 
 <button
-  class="radio"
-  class:checked
-  class:disabled
+  class="inline-flex items-center justify-center w-4 h-4 min-w-4 border-1.5 rounded-full bg-transparent p-0 outline-none cursor-pointer transition-colors duration-fast focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:border-focus-ring"
+  class:border-text-muted={!checked}
+  class:border-accent={checked}
+  class:cursor-default={disabled}
+  class:opacity-40={disabled}
+  class:hover:border-accent={!disabled && !checked}
   role="radio"
   aria-checked={checked}
   aria-disabled={disabled}
@@ -31,51 +34,6 @@
   onkeydown={handleKeydown}
 >
   {#if checked}
-    <span class="dot"></span>
+    <span class="w-2 h-2 rounded-full bg-accent"></span>
   {/if}
 </button>
-
-<style>
-  .radio {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    min-width: 16px;
-    border: 1.5px solid var(--c-text-muted);
-    border-radius: 50%;
-    background: transparent;
-    cursor: pointer;
-    outline: none;
-    padding: 0;
-    transition:
-      background 0.1s,
-      border-color 0.1s;
-  }
-
-  .radio:hover:not(.disabled) {
-    border-color: var(--c-accent);
-  }
-
-  .radio:focus-visible {
-    border-color: var(--c-focus-ring);
-    box-shadow: 0 0 0 2px var(--c-focus-ring);
-  }
-
-  .radio.checked {
-    border-color: var(--c-accent);
-  }
-
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--c-accent);
-  }
-
-  .radio.disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-</style>

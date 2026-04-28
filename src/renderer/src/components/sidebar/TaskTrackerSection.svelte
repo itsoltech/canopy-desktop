@@ -20,7 +20,6 @@
   let activeTask = $derived(getActiveTask())
   let creatingPR = $state(false)
 
-  // Fallback: extract task key from branch name if no active task stored
   let taskKeyFromBranch = $derived.by(() => {
     if (activeTask) return null
     const branch = workspaceState.branch
@@ -33,7 +32,6 @@
 
   let prCheckTimer: ReturnType<typeof setTimeout> | null = null
 
-  // Check for existing PR when branch/worktree changes (debounced)
   $effect(() => {
     const branch = workspaceState.branch
     existingPRUrl = null
@@ -137,14 +135,14 @@
 
 <CollapsibleSection title="TASKS" sectionKey="tasks" borderTop>
   {#if loading}
-    <div class="loading">Loading...</div>
+    <div class="px-3 py-2 text-xs text-text-muted">Loading...</div>
   {:else if trackers.length > 0}
-    <ul class="tracker-list">
+    <ul class="list-none p-0 m-0">
       {#each trackers as tracker (tracker.id)}
         {@const hasCreds = trackerCreds[tracker.id]?.hasToken ?? false}
         <li>
           <button
-            class="tracker-item"
+            class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:opacity-50 disabled:cursor-default"
             onclick={() => browseTasks(tracker.id)}
             disabled={!hasCreds}
             title={hasCreds
@@ -152,10 +150,14 @@
               : 'Credentials required'}
           >
             <SquareKanban size={14} />
-            <span class="tracker-name" title={tracker.baseUrl || 'Not configured'}
+            <span
+              class="overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+              title={tracker.baseUrl || 'Not configured'}
               >{tracker.baseUrl || 'Not configured'}</span
             >
-            <span class="tracker-provider">{providerLabel(tracker.provider)}</span>
+            <span class="text-2xs text-text-faint flex-shrink-0"
+              >{providerLabel(tracker.provider)}</span
+            >
             {#if hasCreds}
               <ExternalLink size={12} />
             {/if}
@@ -165,26 +167,33 @@
     </ul>
 
     {#if activeTask}
-      <div class="active-task">
-        <span class="task-key">{activeTask.taskKey}</span>
-        <span class="task-summary" title={activeTask.summary}>{activeTask.summary}</span>
+      <div class="flex items-center gap-2 px-3 py-1.5 border-t border-border-subtle">
+        <span class="text-xs font-semibold text-accent-text flex-shrink-0"
+          >{activeTask.taskKey}</span
+        >
+        <span
+          class="text-xs text-text-muted overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+          title={activeTask.summary}>{activeTask.summary}</span
+        >
       </div>
     {/if}
 
-    <div class="pr-row">
+    <div class="px-3 py-1">
       {#if existingPRUrl}
         <button
-          class="pr-btn"
+          class="flex items-center gap-1.5 w-full px-2 py-1 border-0 rounded-md bg-active text-text-secondary text-xs font-inherit cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
           onclick={() => window.api.openExternal(existingPRUrl!)}
           title="Open existing Pull Request"
         >
           <ExternalLink size={13} />
           <span>Open PR</span>
-          <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
+          <span class="ml-auto text-2xs text-text-faint"
+            >{activeTask?.taskKey ?? taskKeyFromBranch}</span
+          >
         </button>
       {:else}
         <button
-          class="pr-btn"
+          class="flex items-center gap-1.5 w-full px-2 py-1 border-0 rounded-md bg-active text-text-secondary text-xs font-inherit cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
           onclick={doCreatePR}
           disabled={creatingPR || !canCreatePR}
           title={canCreatePR
@@ -194,197 +203,43 @@
           <GitPullRequest size={13} />
           <span>{creatingPR ? 'Creating...' : 'Create PR'}</span>
           {#if activeTask?.taskKey ?? taskKeyFromBranch}
-            <span class="pr-task-key">{activeTask?.taskKey ?? taskKeyFromBranch}</span>
+            <span class="ml-auto text-2xs text-text-faint"
+              >{activeTask?.taskKey ?? taskKeyFromBranch}</span
+            >
           {/if}
         </button>
       {/if}
     </div>
 
     {#if trackers.some((t) => !trackerCreds[t.id]?.hasToken)}
-      <div class="token-hint">
-        <button class="connect-btn" onclick={openTrackerPrefs}>
+      <div class="px-3 py-1">
+        <button
+          class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
+          onclick={openTrackerPrefs}
+        >
           Credentials required — configure in Preferences
         </button>
       </div>
     {/if}
-    <div class="add-row">
-      <button class="add-btn" onclick={openTrackerPrefs} title="Configure tracker">
+    <div class="px-3 py-1">
+      <button
+        class="flex items-center gap-1 px-1.5 py-0.5 border-0 bg-transparent text-text-faint text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
+        onclick={openTrackerPrefs}
+        title="Configure tracker"
+      >
         <Settings size={12} />
         <span>Settings</span>
       </button>
     </div>
   {:else}
-    <div class="empty-state">
-      <button class="connect-btn" onclick={openTrackerPrefs}>
+    <div class="px-3 py-2">
+      <button
+        class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
+        onclick={openTrackerPrefs}
+      >
         <Plus size={14} />
         Configure Tracker
       </button>
     </div>
   {/if}
 </CollapsibleSection>
-
-<style>
-  .loading {
-    padding: 8px 12px;
-    font-size: 11px;
-    color: var(--c-text-muted);
-  }
-
-  .empty-state {
-    padding: 8px 12px;
-  }
-
-  .token-hint {
-    padding: 4px 12px;
-  }
-
-  .connect-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 6px 10px;
-    border: 1px dashed var(--c-border);
-    border-radius: 6px;
-    background: none;
-    color: var(--c-text-muted);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    transition:
-      border-color 0.1s,
-      color 0.1s;
-  }
-
-  .connect-btn:hover {
-    border-color: var(--c-accent-muted);
-    color: var(--c-accent-text);
-  }
-
-  .tracker-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  .tracker-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    height: 28px;
-    padding: 0 12px;
-    border: none;
-    background: none;
-    color: var(--c-text);
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.1s;
-  }
-
-  .tracker-item:hover:not(:disabled) {
-    background: var(--c-hover);
-  }
-
-  .tracker-item:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .tracker-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-
-  .tracker-provider {
-    font-size: 10px;
-    color: var(--c-text-faint);
-    flex-shrink: 0;
-  }
-
-  .active-task {
-    padding: 6px 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-top: 1px solid var(--c-border-subtle);
-  }
-
-  .task-key {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--c-accent-text);
-    flex-shrink: 0;
-  }
-
-  .task-summary {
-    font-size: 11px;
-    color: var(--c-text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-
-  .pr-row {
-    padding: 4px 12px;
-  }
-
-  .pr-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 4px 8px;
-    border: none;
-    border-radius: 4px;
-    background: var(--c-active);
-    color: var(--c-text-secondary);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-
-  .pr-task-key {
-    margin-left: auto;
-    font-size: 10px;
-    color: var(--c-text-faint);
-  }
-
-  .pr-btn:hover:not(:disabled) {
-    background: var(--c-hover-strong);
-    color: var(--c-text);
-  }
-
-  .pr-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .add-row {
-    padding: 4px 12px 4px;
-  }
-
-  .add-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 6px;
-    border: none;
-    background: none;
-    color: var(--c-text-faint);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: color 0.1s;
-  }
-
-  .add-btn:hover {
-    color: var(--c-text-secondary);
-  }
-</style>

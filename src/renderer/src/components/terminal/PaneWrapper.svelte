@@ -161,16 +161,30 @@
       window.removeEventListener('pointerup', handlePaneDragEnd)
     }
   })
+
+  function dropZonePosition(zone: DropZone): string {
+    return {
+      left: 'left-0 top-0 w-1/2 h-full',
+      right: 'left-1/2 top-0 w-1/2 h-full',
+      top: 'left-0 top-0 w-full h-1/2',
+      bottom: 'left-0 top-1/2 w-full h-1/2',
+    }[zone]
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="pane-wrapper" class:drag-source={isDragSource} onclick={onFocus} bind:this={wrapperEl}>
+<div
+  class="relative flex flex-col w-full h-full overflow-hidden"
+  class:opacity-40={isDragSource}
+  onclick={onFocus}
+  bind:this={wrapperEl}
+>
   {#if isMultiPane}
     <PaneTabStrip {pane} {tabId} {worktreePath} {focused} {onFocus} />
   {/if}
 
-  <div class="pane-body">
+  <div class="relative flex-1 min-h-0 overflow-hidden">
     {#if pane.paneType === 'browser'}
       <BrowserPane
         browserId={pane.sessionId}
@@ -190,7 +204,7 @@
     {:else if pane.paneType === 'drawing'}
       <DrawingPane />
     {:else}
-      <div class="pane-content">
+      <div class="w-full h-full relative overflow-hidden">
         {#key pane.sessionId}
           <TerminalInstance
             sessionId={pane.sessionId}
@@ -225,73 +239,10 @@
   </div>
 
   {#if hoveredZone}
-    <div class="drop-zone-overlay {hoveredZone}"></div>
+    <div
+      class="absolute bg-accent-bg border-2 border-focus-ring rounded-md pointer-events-none z-pane-overlay transition-all duration-fast {dropZonePosition(
+        hoveredZone,
+      )}"
+    ></div>
   {/if}
 </div>
-
-<style>
-  .pane-wrapper {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .pane-body {
-    position: relative;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .pane-wrapper.drag-source {
-    opacity: 0.4;
-  }
-
-  .pane-content {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .drop-zone-overlay {
-    position: absolute;
-    background: var(--c-accent-bg);
-    border: 2px solid var(--c-focus-ring);
-    border-radius: 4px;
-    pointer-events: none;
-    z-index: 10;
-    transition: all 0.1s ease;
-  }
-
-  .drop-zone-overlay.left {
-    left: 0;
-    top: 0;
-    width: 50%;
-    height: 100%;
-  }
-
-  .drop-zone-overlay.right {
-    left: 50%;
-    top: 0;
-    width: 50%;
-    height: 100%;
-  }
-
-  .drop-zone-overlay.top {
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 50%;
-  }
-
-  .drop-zone-overlay.bottom {
-    left: 0;
-    top: 50%;
-    width: 100%;
-    height: 50%;
-  }
-</style>

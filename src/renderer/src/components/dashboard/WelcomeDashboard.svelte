@@ -153,61 +153,78 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 {#if contextMenu}
-  <div class="ctx-overlay" onclick={closeContextMenu}>
+  <div class="fixed inset-0 z-overlay" onclick={closeContextMenu}>
     <div
-      class="ctx-menu"
+      class="fixed min-w-45 bg-bg-overlay border border-border rounded-xl shadow-ctx p-1 z-popover"
       style="left: {contextMenu.x}px; top: {contextMenu.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <button class="ctx-item" onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button>
-      <button class="ctx-item" onclick={ctxCopyPath}>Copy Path</button>
-      <div class="ctx-divider"></div>
-      <button class="ctx-item destructive" onclick={ctxRemove}>Remove from Recent</button>
+      <button
+        class="block w-full px-3 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+        onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button
+      >
+      <button
+        class="block w-full px-3 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+        onclick={ctxCopyPath}>Copy Path</button
+      >
+      <div class="h-px mx-2 my-1 bg-active"></div>
+      <button
+        class="block w-full px-3 py-1.5 border-0 rounded-md bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+        onclick={ctxRemove}>Remove from Recent</button
+      >
     </div>
   </div>
 {/if}
 
-<div class="dashboard">
-  <div class="dashboard-inner">
-    <h1 class="logo">Canopy</h1>
+<div class="flex items-start justify-center h-full overflow-y-auto py-15 px-5">
+  <div class="w-full max-w-130">
+    <h1 class="text-3xl font-bold text-text-faint tracking-caps text-center m-0 mb-10">Canopy</h1>
 
     {#if workspaces.length > 0}
-      <h2 class="section-title">Recent</h2>
-      <div class="workspace-list">
+      <h2 class="text-xs font-semibold tracking-caps-tight uppercase text-text-faint m-0 mb-2">
+        Recent
+      </h2>
+      <div class="flex flex-col gap-0.5 mb-6">
         {#each workspaces as ws (ws.id)}
           <button
-            class="workspace-card"
+            class="block w-full px-3 py-2.5 border-0 rounded-lg bg-transparent text-inherit font-inherit text-inherit text-left cursor-pointer transition-colors duration-fast outline-none hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
             onclick={() => handleOpen(ws)}
             oncontextmenu={(e) => handleContextMenu(e, ws)}
           >
-            <div class="card-row-top">
-              <span class="card-name">{ws.name}</span>
-              <span class="card-meta">
+            <div class="flex items-baseline justify-between gap-3">
+              <span
+                class="text-md font-semibold text-text whitespace-nowrap overflow-hidden text-ellipsis"
+                >{ws.name}</span
+              >
+              <span class="flex items-baseline gap-1.5 flex-shrink-0 text-sm">
                 {#if ws.cached_branch}
-                  <span class="card-branch">{ws.cached_branch}</span>
+                  <span class="text-text-muted">{ws.cached_branch}</span>
                 {/if}
                 {#if ws.cached_dirty === 1}
-                  <span class="card-dirty">*</span>
+                  <span class="text-warning-text font-bold">*</span>
                 {/if}
                 {#if parseAheadBehind(ws.cached_ahead_behind)}
                   {@const ab = parseAheadBehind(ws.cached_ahead_behind)!}
                   {#if ab.ahead > 0}
-                    <span class="card-ahead">{ab.ahead}&#x2191;</span>
+                    <span class="text-success text-xs">{ab.ahead}&#x2191;</span>
                   {/if}
                   {#if ab.behind > 0}
-                    <span class="card-behind">{ab.behind}&#x2193;</span>
+                    <span class="text-warning-text text-xs">{ab.behind}&#x2193;</span>
                   {/if}
                 {/if}
               </span>
             </div>
-            <div class="card-row-bottom">
-              <span class="card-path">{ws.path}</span>
-              <span class="card-info">
+            <div class="flex items-baseline justify-between gap-3 mt-0.5">
+              <span
+                class="text-xs font-mono text-text-faint whitespace-nowrap overflow-hidden text-ellipsis"
+                >{ws.path}</span
+              >
+              <span class="flex items-baseline gap-2 flex-shrink-0 text-xs text-text-faint">
                 {#if ws.is_git_repo && ws.cached_worktree_count && ws.cached_worktree_count > 1}
-                  <span class="card-worktrees">{ws.cached_worktree_count} worktrees</span>
+                  <span>{ws.cached_worktree_count} worktrees</span>
                 {/if}
                 {#if ws.last_opened}
-                  <span class="card-time">{relativeTime(ws.last_opened)}</span>
+                  <span>{relativeTime(ws.last_opened)}</span>
                 {/if}
               </span>
             </div>
@@ -216,235 +233,16 @@
       </div>
     {/if}
 
-    <div class="quick-actions">
-      <button class="action-btn" onclick={handleOpenFolder}>Open Folder</button>
-      <button class="action-btn" onclick={handleOpenFromPath}>Open from Path...</button>
-      <span class="action-hint">{isMac ? 'Cmd' : 'Ctrl'}+O</span>
+    <div class="flex items-center gap-2">
+      <button
+        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-hover text-text-secondary transition-colors duration-fast hover:bg-hover-strong focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+        onclick={handleOpenFolder}>Open Folder</button
+      >
+      <button
+        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-hover text-text-secondary transition-colors duration-fast hover:bg-hover-strong focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+        onclick={handleOpenFromPath}>Open from Path...</button
+      >
+      <span class="text-xs text-text-faint ml-1">{isMac ? 'Cmd' : 'Ctrl'}+O</span>
     </div>
   </div>
 </div>
-
-<style>
-  .dashboard {
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    height: 100%;
-    overflow-y: auto;
-    padding: 60px 20px;
-  }
-
-  .dashboard-inner {
-    width: 100%;
-    max-width: 520px;
-  }
-
-  .logo {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--c-text-faint);
-    letter-spacing: 2px;
-    text-align: center;
-    margin: 0 0 40px;
-  }
-
-  .section-title {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--c-text-faint);
-    margin: 0 0 8px;
-  }
-
-  .workspace-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin-bottom: 24px;
-  }
-
-  .workspace-card {
-    display: block;
-    width: 100%;
-    padding: 10px 12px;
-    border: none;
-    border-radius: 6px;
-    background: none;
-    color: inherit;
-    font-family: inherit;
-    font-size: inherit;
-    text-align: left;
-    cursor: pointer;
-    transition: background 0.08s;
-    outline: none;
-  }
-
-  .workspace-card:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
-    outline-offset: 1px;
-  }
-
-  .workspace-card:hover {
-    background: var(--c-hover);
-  }
-
-  .card-row-top {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .card-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--c-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .card-meta {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    flex-shrink: 0;
-    font-size: 12px;
-  }
-
-  .card-branch {
-    color: var(--c-text-muted);
-  }
-
-  .card-dirty {
-    color: var(--c-warning-text);
-    font-weight: 700;
-  }
-
-  .card-ahead {
-    color: var(--c-success);
-    font-size: 11px;
-  }
-
-  .card-behind {
-    color: var(--c-warning-text);
-    font-size: 11px;
-  }
-
-  .card-row-bottom {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 2px;
-  }
-
-  .card-path {
-    font-size: 11px;
-    font-family: monospace;
-    color: var(--c-text-faint);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .card-info {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--c-text-faint);
-  }
-
-  .card-worktrees {
-    color: var(--c-text-faint);
-  }
-
-  .card-time {
-    color: var(--c-text-faint);
-  }
-
-  .quick-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .action-btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-    outline: none;
-    background: var(--c-hover);
-    color: var(--c-text-secondary);
-    transition: background 0.1s;
-  }
-
-  .action-btn:hover {
-    background: var(--c-hover-strong);
-  }
-
-  .action-btn:focus-visible {
-    outline: 2px solid var(--c-focus-ring);
-    outline-offset: 1px;
-  }
-
-  .action-hint {
-    font-size: 11px;
-    color: var(--c-text-faint);
-    margin-left: 4px;
-  }
-
-  /* Context menu */
-
-  .ctx-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1002;
-  }
-
-  .ctx-menu {
-    position: fixed;
-    min-width: 180px;
-    background: var(--c-bg-overlay);
-    border: 1px solid var(--c-border);
-    border-radius: 8px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-    padding: 4px;
-    z-index: 1003;
-  }
-
-  .ctx-item {
-    display: block;
-    width: 100%;
-    padding: 6px 12px;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.05s;
-  }
-
-  .ctx-item:hover {
-    background: var(--c-active);
-  }
-
-  .ctx-item.destructive {
-    color: var(--c-danger-text);
-  }
-
-  .ctx-divider {
-    height: 1px;
-    background: var(--c-active);
-    margin: 4px 8px;
-  }
-</style>

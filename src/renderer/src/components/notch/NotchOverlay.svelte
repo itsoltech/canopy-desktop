@@ -55,7 +55,6 @@
     })
   })
 
-  // Aggregate status: what's the "highest priority" across all sessions
   const aggregateStatus = $derived.by(() => {
     const s = state.sessions
     if (s.length === 0) return 'none'
@@ -68,11 +67,11 @@
 
   const statusColor = $derived(
     {
-      none: '#555',
-      idle: '#4ade80',
-      working: '#f59e0b',
-      waitingPermission: '#f87171',
-      error: '#f87171',
+      none: 'var(--color-status-none)',
+      idle: 'var(--color-status-idle)',
+      working: 'var(--color-status-working)',
+      waitingPermission: 'var(--color-status-permission)',
+      error: 'var(--color-status-error)',
     }[aggregateStatus],
   )
 
@@ -97,7 +96,6 @@
       collapseTimer = null
     }
     if (isPeeking) {
-      // First hover during a peek: keep showing only peeked sessions
       if (peekTimer) {
         clearTimeout(peekTimer)
         peekTimer = null
@@ -135,30 +133,41 @@
 {#if state.sessions.length > 0}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="island"
-    class:expanded={showExpanded}
+    class="notch-island relative flex flex-col mx-auto bg-notch-bg rounded-b-3xl overflow-hidden cursor-default transition-all duration-500 ease-notch-overshoot motion-reduce:duration-0"
+    class:rounded-b-4xl={showExpanded}
+    class:shadow-notch={showExpanded}
     style:width="{showExpanded ? 480 : collapsedWidth}px"
     style:height="{showExpanded ? expandedHeight : collapsedHeight}px"
     onmouseenter={handleMouseEnter}
     onmouseleave={handleMouseLeave}
   >
-    <div class="header" style:height="{collapsedHeight}px">
-      <span class="wing left" style:color={statusColor}>
+    <div class="flex items-center justify-center flex-shrink-0" style:height="{collapsedHeight}px">
+      <span
+        class="flex items-center justify-center w-10 flex-shrink-0 transition-colors duration-slow"
+        style:color={statusColor}
+      >
         {#if aggregateStatus === 'working'}
-          <span class="spin"><Loader size={15} /></span>
+          <span class="flex animate-spin-slow motion-reduce:animate-none"><Loader size={15} /></span
+          >
         {:else if aggregateStatus === 'waitingPermission'}
           <ShieldAlert size={15} />
         {:else}
           <TerminalSquare size={15} />
         {/if}
       </span>
-      <span class="notch-gap" style:width="{gapWidth}px"></span>
-      <span class="wing right" style:color={statusColor}>
+      <span
+        class="relative flex-shrink-0 transition-all duration-500 ease-notch-overshoot motion-reduce:duration-0"
+        style:width="{gapWidth}px"
+      ></span>
+      <span
+        class="flex items-center justify-center w-10 flex-shrink-0 transition-colors duration-slow"
+        style:color={statusColor}
+      >
         <Sparkles size={14} />
       </span>
     </div>
 
-    <div class="content">
+    <div class="notch-content px-1.5 pb-1.5 flex-1 min-h-0 overflow-y-auto">
       {#each visibleSessions as session (session.ptySessionId)}
         <NotchNotificationRow
           {session}
@@ -170,6 +179,14 @@
   </div>
 {/if}
 
+<!--
+  Body rules for the notch HTML entry (notch.html).
+  Live here instead of globals.css because they are entry-point-specific:
+   - main renderer's body (main.css) keeps its own background/overflow rules,
+   - flex centering on body anchors the notch island to the top-center so
+     width/height transitions grow symmetrically (left + right + down)
+     instead of margin-auto desyncing during a transition-all tween.
+-->
 <style>
   :global(body) {
     margin: 0;
@@ -180,120 +197,10 @@
     -webkit-font-smoothing: antialiased;
     -webkit-user-select: none;
     user-select: none;
-  }
-
-  .island {
-    position: relative;
     display: flex;
-    flex-direction: column;
-    margin: 0 auto;
-    background: #000;
-    border-radius: 0 0 16px 16px;
-    overflow: hidden;
-    cursor: default;
-    contain: layout style;
-    will-change: width, height, box-shadow;
-    transition:
-      width 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1),
-      height 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1),
-      border-radius 0.35s cubic-bezier(0.175, 0.885, 0.32, 1),
-      box-shadow 0.4s ease-out;
-  }
-
-  .island.expanded {
-    border-radius: 0 0 24px 24px;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.55);
-  }
-
-  /* Concave ears */
-  .island::before,
-  .island::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    width: 13px;
-    height: 13px;
-    background: transparent;
-    z-index: 1;
-  }
-
-  .island::before {
-    left: -13px;
-    border-top-right-radius: 6px;
-    box-shadow: 5px 0 #000;
-  }
-
-  .island::after {
-    right: -13px;
-    border-top-left-radius: 6px;
-    box-shadow: -5px 0 #000;
-  }
-
-  .header {
-    display: flex;
-    align-items: center;
     justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .wing {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    flex-shrink: 0;
-    transition: color 0.3s ease;
-  }
-
-  .notch-gap {
-    position: relative;
-    flex-shrink: 0;
-    transition: width 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1);
-  }
-
-  .spin {
-    display: flex;
-    animation: rotate 1.5s linear infinite;
-  }
-
-  @keyframes rotate {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .content {
-    padding: 0 0 6px;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-  }
-
-  .content::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  .content::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15); /* fixed: notch overlay always black */
-    border-radius: 2px;
-  }
-
-  .content::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .island {
-      transition-duration: 0s;
-    }
-    .spin {
-      animation: none;
-    }
-    .notch-gap {
-      transition-duration: 0s;
-    }
+    align-items: flex-start;
+    width: 100vw;
+    min-height: 100vh;
   }
 </style>

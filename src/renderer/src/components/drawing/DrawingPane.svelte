@@ -20,7 +20,14 @@
 
   // Drawing pane has no props — canvas state is keyed by project via drawingsState.
 
-  const COLORS = ['#e5e7eb', '#f87171', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa']
+  const COLORS = [
+    'oklch(0.928 0.006 264.53)',
+    'oklch(0.711 0.166 22.22)',
+    'oklch(0.837 0.164 84.43)',
+    'oklch(0.773 0.153 163.22)',
+    'oklch(0.714 0.143 254.62)',
+    'oklch(0.709 0.159 293.54)',
+  ]
   const SIZES = [3, 6, 12]
 
   let canvasEl: HTMLCanvasElement | undefined = $state()
@@ -543,8 +550,8 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: var(--c-bg);
-    color: var(--c-text);
+    background: var(--color-bg);
+    color: var(--color-text);
   }
 
   .drawing-header {
@@ -552,16 +559,16 @@
     align-items: center;
     gap: 10px;
     padding: 6px 10px;
-    border-bottom: 1px solid var(--c-border);
-    background: var(--c-bg-elevated);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
     flex-shrink: 0;
     flex-wrap: wrap;
   }
 
   .drawing-header button {
     background: transparent;
-    border: 1px solid var(--c-border);
-    color: var(--c-text-secondary);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
     padding: 4px 10px;
     font-size: 12px;
     border-radius: 4px;
@@ -574,7 +581,7 @@
   }
 
   .drawing-header button:not(:disabled):hover {
-    color: var(--c-text);
+    color: var(--color-text);
   }
 
   .tool-group,
@@ -586,9 +593,9 @@
   }
 
   .drawing-header .active {
-    background: var(--c-accent);
-    color: var(--c-bg);
-    border-color: var(--c-accent);
+    background: var(--color-accent);
+    color: var(--color-bg);
+    border-color: var(--color-accent);
   }
 
   .drawing-header button.swatch {
@@ -596,7 +603,7 @@
     height: 22px;
     padding: 0;
     border-radius: 50%;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--color-border);
     box-sizing: border-box;
     flex-shrink: 0;
   }
@@ -604,7 +611,7 @@
   .drawing-header button.swatch.active {
     background: inherit;
     border-color: transparent;
-    box-shadow: 0 0 0 2px var(--c-text);
+    box-shadow: 0 0 0 2px var(--color-text);
   }
 
   .size-group button {
@@ -627,14 +634,14 @@
   }
 
   .drawing-header button.primary:not(:disabled) {
-    background: var(--c-accent);
-    color: var(--c-bg);
-    border-color: var(--c-accent);
+    background: var(--color-accent);
+    color: var(--color-bg);
+    border-color: var(--color-accent);
   }
 
   .drawing-header button.danger:not(:disabled):hover {
-    color: var(--c-danger-text);
-    border-color: var(--c-danger);
+    color: var(--color-danger-text);
+    border-color: var(--color-danger);
   }
 
   .canvas-wrap {
@@ -662,7 +669,7 @@
   .tool-sep {
     width: 1px;
     height: 18px;
-    background: var(--c-border);
+    background: var(--color-border);
     margin: 0 2px;
   }
 

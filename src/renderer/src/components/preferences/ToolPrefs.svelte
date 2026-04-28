@@ -108,18 +108,18 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">Tools</h3>
-  <p class="section-desc">
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Tools</h3>
+  <p class="text-sm text-text-secondary m-0">
     Register custom CLI tools that appear in the command palette and can be opened as tabs.
   </p>
 
-  <div class="tool-list">
+  <div class="flex flex-col gap-1">
     {#each getTools() as tool (tool.id)}
       {#if editingId === tool.id}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="edit-form"
+          class="flex flex-col gap-2 p-3 border border-border rounded-xl bg-border-subtle w-full"
           onkeydown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()
@@ -128,12 +128,24 @@
             if (e.key === 'Escape') cancelEdit()
           }}
         >
-          <div class="edit-form-header">
-            <span class="edit-id-label">ID: {tool.id}</span>
+          <div class="mb-1">
+            <span class="text-xs text-text-faint font-mono">ID: {tool.id}</span>
           </div>
-          <input class="form-input" bind:value={editName} placeholder="Display name" />
-          <input class="form-input" bind:value={editCommand} placeholder="Command (binary name)" />
-          <input class="form-input" bind:value={editArgs} placeholder="Args (comma-separated)" />
+          <input
+            class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+            bind:value={editName}
+            placeholder="Display name"
+          />
+          <input
+            class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+            bind:value={editCommand}
+            placeholder="Command (binary name)"
+          />
+          <input
+            class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+            bind:value={editArgs}
+            placeholder="Args (comma-separated)"
+          />
           <CustomSelect
             value={editCategory}
             options={[
@@ -146,25 +158,36 @@
             onchange={(v) => (editCategory = v)}
           />
           {#if editError}
-            <p class="form-error">{editError}</p>
+            <p class="text-sm text-danger m-0">{editError}</p>
           {/if}
-          <div class="form-actions">
-            <button class="btn btn-cancel" onclick={cancelEdit}>Cancel</button>
-            <button class="btn btn-add" onclick={saveEdit}>Save</button>
+          <div class="flex justify-end gap-2">
+            <button
+              class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-active text-text"
+              onclick={cancelEdit}>Cancel</button
+            >
+            <button
+              class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
+              onclick={saveEdit}>Save</button
+            >
           </div>
         </div>
       {:else}
-        <div class="tool-row">
+        <div class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg bg-border-subtle text-md">
           <ToolIcon icon={tool.icon} size={16} />
-          <span class="tool-name">{tool.name}</span>
-          <span class="tool-command">{tool.command}</span>
-          <span class="tool-category">{tool.category}</span>
+          <span class="text-text min-w-[100px]">{tool.name}</span>
+          <span class="text-text-secondary font-mono text-sm flex-1">{tool.command}</span>
+          <span class="text-2xs text-text-muted uppercase tracking-[0.5px]">{tool.category}</span>
           {#if tool.isCustom}
-            <button class="edit-btn" onclick={() => startEdit(tool)}>Edit</button>
-            <button class="remove-btn" onclick={() => removeTool(tool.id, tool.name)}>Remove</button
+            <button
+              class="px-2 py-0.5 border-0 rounded-md bg-accent-bg text-accent-text text-xs font-inherit cursor-pointer hover:bg-accent-bg-hover"
+              onclick={() => startEdit(tool)}>Edit</button
+            >
+            <button
+              class="px-2 py-0.5 border-0 rounded-md bg-danger-bg text-danger-text text-xs font-inherit cursor-pointer"
+              onclick={() => removeTool(tool.id, tool.name)}>Remove</button
             >
           {:else}
-            <span class="builtin-badge">built-in</span>
+            <span class="text-2xs text-text-faint">built-in</span>
           {/if}
         </div>
       {/if}
@@ -174,7 +197,7 @@
   {#if showForm}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="add-form"
+      class="flex flex-col gap-2 p-3 border border-border rounded-xl bg-border-subtle"
       onkeydown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault()
@@ -183,10 +206,26 @@
         if (e.key === 'Escape') showForm = false
       }}
     >
-      <input class="form-input" bind:value={newId} placeholder="ID (e.g. my-tool)" />
-      <input class="form-input" bind:value={newName} placeholder="Display name" />
-      <input class="form-input" bind:value={newCommand} placeholder="Command (binary name)" />
-      <input class="form-input" bind:value={newArgs} placeholder="Args (comma-separated)" />
+      <input
+        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+        bind:value={newId}
+        placeholder="ID (e.g. my-tool)"
+      />
+      <input
+        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+        bind:value={newName}
+        placeholder="Display name"
+      />
+      <input
+        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+        bind:value={newCommand}
+        placeholder="Command (binary name)"
+      />
+      <input
+        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
+        bind:value={newArgs}
+        placeholder="Args (comma-separated)"
+      />
       <CustomSelect
         value={newCategory}
         options={[
@@ -199,203 +238,23 @@
         onchange={(v) => (newCategory = v)}
       />
       {#if error}
-        <p class="form-error">{error}</p>
+        <p class="text-sm text-danger m-0">{error}</p>
       {/if}
-      <div class="form-actions">
-        <button class="btn btn-cancel" onclick={() => (showForm = false)}>Cancel</button>
-        <button class="btn btn-add" onclick={addTool}>Add Tool</button>
+      <div class="flex justify-end gap-2">
+        <button
+          class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-active text-text"
+          onclick={() => (showForm = false)}>Cancel</button
+        >
+        <button
+          class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
+          onclick={addTool}>Add Tool</button
+        >
       </div>
     </div>
   {:else}
-    <button class="btn btn-add-tool" onclick={() => (showForm = true)}>+ Add Custom Tool</button>
+    <button
+      class="self-start px-3.5 py-1.5 border border-dashed border-text-faint rounded-lg bg-transparent text-text-secondary text-md font-inherit cursor-pointer hover:bg-hover hover:text-text"
+      onclick={() => (showForm = true)}>+ Add Custom Tool</button
+    >
   {/if}
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0;
-  }
-
-  .section-desc {
-    font-size: 12px;
-    color: var(--c-text-secondary);
-    margin: 0;
-  }
-
-  .tool-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .tool-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    border-radius: 6px;
-    background: var(--c-border-subtle);
-    font-size: 13px;
-  }
-
-  .tool-name {
-    color: var(--c-text);
-    min-width: 100px;
-  }
-
-  .tool-command {
-    color: var(--c-text-secondary);
-    font-family: monospace;
-    font-size: 12px;
-    flex: 1;
-  }
-
-  .tool-category {
-    font-size: 10px;
-    color: var(--c-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .builtin-badge {
-    font-size: 10px;
-    color: var(--c-text-faint);
-  }
-
-  .remove-btn {
-    padding: 2px 8px;
-    border: none;
-    border-radius: 4px;
-    background: var(--c-danger-bg);
-    color: var(--c-danger-text);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .remove-btn:hover {
-    background: var(--c-danger-bg);
-  }
-
-  .add-form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    border: 1px solid var(--c-border);
-    border-radius: 8px;
-    background: var(--c-border-subtle);
-  }
-
-  .form-input {
-    padding: 6px 10px;
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    background: var(--c-hover);
-    color: var(--c-text);
-    font-size: 13px;
-    font-family: inherit;
-    outline: none;
-  }
-
-  .form-input:focus {
-    border-color: var(--c-focus-ring);
-  }
-
-  .form-error {
-    font-size: 12px;
-    color: var(--c-danger);
-    margin: 0;
-  }
-
-  .form-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-  }
-
-  .btn-cancel {
-    background: var(--c-active);
-    color: var(--c-text);
-  }
-
-  .btn-add {
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-  }
-
-  .btn-add:hover {
-    background: var(--c-accent-bg-hover);
-  }
-
-  .btn-add-tool {
-    align-self: flex-start;
-    padding: 6px 14px;
-    border: 1px dashed var(--c-text-faint);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--c-text-secondary);
-    font-size: 13px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .btn-add-tool:hover {
-    background: var(--c-hover);
-    color: var(--c-text);
-  }
-
-  .edit-form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    border: 1px solid var(--c-border);
-    border-radius: 8px;
-    background: var(--c-border-subtle);
-    width: 100%;
-  }
-
-  .edit-form-header {
-    margin-bottom: 4px;
-  }
-
-  .edit-id-label {
-    font-size: 11px;
-    color: var(--c-text-faint);
-    font-family: monospace;
-  }
-
-  .edit-btn {
-    padding: 2px 8px;
-    border: none;
-    border-radius: 4px;
-    background: var(--c-accent-bg);
-    color: var(--c-accent-text);
-    font-size: 11px;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .edit-btn:hover {
-    background: var(--c-accent-bg-hover);
-  }
-</style>

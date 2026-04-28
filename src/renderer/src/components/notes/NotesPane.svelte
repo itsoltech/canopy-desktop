@@ -95,16 +95,25 @@
   }
 </script>
 
-<div class="notes-pane">
-  <header class="notes-header">
-    <div class="scope-toggle" role="tablist" aria-label="Note scope">
+<div class="flex flex-col w-full h-full bg-bg text-text font-sans">
+  <header
+    class="flex items-center gap-3 px-2.5 py-1.5 border-b border-border bg-bg-elevated text-sm flex-shrink-0"
+  >
+    <div
+      class="inline-flex border border-border rounded-md overflow-hidden"
+      role="tablist"
+      aria-label="Note scope"
+    >
       <button
         type="button"
         role="tab"
         id="notes-tab-worktree-{paneSessionId}"
         aria-controls="notes-panel-{paneSessionId}"
         aria-selected={scope === 'worktree'}
-        class:active={scope === 'worktree'}
+        class="bg-transparent border-0 px-2.5 py-0.5 text-sm cursor-pointer"
+        class:bg-accent={scope === 'worktree'}
+        class:text-bg={scope === 'worktree'}
+        class:text-text-secondary={scope !== 'worktree'}
         onclick={() => setScope('worktree')}
       >
         Worktree
@@ -115,16 +124,22 @@
         id="notes-tab-project-{paneSessionId}"
         aria-controls="notes-panel-{paneSessionId}"
         aria-selected={scope === 'project'}
-        class:active={scope === 'project'}
+        class="bg-transparent border-0 px-2.5 py-0.5 text-sm cursor-pointer"
+        class:bg-accent={scope === 'project'}
+        class:text-bg={scope === 'project'}
+        class:text-text-secondary={scope !== 'project'}
         onclick={() => setScope('project')}
       >
         Project
       </button>
     </div>
-    <span class="scope-label" title={label}>{label}</span>
+    <span
+      class="text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+      title={label}>{label}</span
+    >
     <button
       type="button"
-      class="preview-toggle"
+      class="bg-transparent text-text-secondary border border-border rounded-md px-2 py-0.5 text-sm cursor-pointer hover:text-text"
       aria-pressed={showPreview}
       onclick={() => (showPreview = !showPreview)}
       title="Toggle preview"
@@ -134,17 +149,22 @@
   </header>
 
   {#if !key}
-    <div class="empty-state">No active worktree.</div>
+    <div class="flex-1 flex items-center justify-center text-text-muted text-md">
+      No active worktree.
+    </div>
   {:else}
     <div
-      class="notes-body"
-      class:split={showPreview}
+      class="notes-body flex-1 grid min-h-0"
+      class:grid-cols-1={!showPreview}
+      class:grid-cols-2={showPreview}
       role="tabpanel"
       id="notes-panel-{paneSessionId}"
       aria-labelledby="notes-tab-{scope}-{paneSessionId}"
     >
       <textarea
-        class="editor"
+        class="bg-bg text-text border-0 outline-none px-3.5 py-3 font-mono text-md leading-snug resize-none w-full h-full"
+        class:border-r={showPreview}
+        class:border-border={showPreview}
         spellcheck="false"
         placeholder="# Notes — markdown supported. Lives only in memory (no file)."
         value={content}
@@ -152,7 +172,7 @@
       ></textarea>
       {#if showPreview}
         <div
-          class="preview markdown-body"
+          class="markdown-body overflow-auto px-4 py-3 text-md leading-snug outline-none cursor-text empty:before:content-edit-hint empty:before:text-text-muted empty:before:italic"
           contenteditable="true"
           bind:this={previewEl}
           oninput={onPreviewInput}
@@ -164,158 +184,5 @@
   {/if}
 </div>
 
-<style>
-  .notes-pane {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    height: 100%;
-    background: var(--c-bg);
-    color: var(--c-text);
-    font-family:
-      system-ui,
-      -apple-system,
-      sans-serif;
-  }
-
-  .notes-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--c-border);
-    background: var(--c-bg-elevated);
-    font-size: 12px;
-    flex-shrink: 0;
-  }
-
-  .scope-toggle {
-    display: inline-flex;
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .scope-toggle button {
-    background: transparent;
-    border: 0;
-    color: var(--c-text-secondary);
-    padding: 3px 10px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .scope-toggle button.active {
-    background: var(--c-accent);
-    color: var(--c-bg);
-  }
-
-  .scope-label {
-    color: var(--c-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-
-  .preview-toggle {
-    background: transparent;
-    color: var(--c-text-secondary);
-    border: 1px solid var(--c-border);
-    border-radius: 4px;
-    padding: 3px 8px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .preview-toggle:hover {
-    color: var(--c-text);
-  }
-
-  .notes-body {
-    flex: 1;
-    display: grid;
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-
-  .notes-body.split {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .editor {
-    background: var(--c-bg);
-    color: var(--c-text);
-    border: 0;
-    border-right: 1px solid var(--c-border);
-    outline: none;
-    padding: 12px 14px;
-    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-    font-size: 13px;
-    line-height: 1.55;
-    resize: none;
-    width: 100%;
-    height: 100%;
-  }
-
-  .notes-body:not(.split) .editor {
-    border-right: 0;
-  }
-
-  .preview {
-    overflow: auto;
-    padding: 12px 16px;
-    font-size: 13px;
-    line-height: 1.55;
-  }
-
-  .preview :global(h1),
-  .preview :global(h2),
-  .preview :global(h3) {
-    margin: 1em 0 0.4em;
-  }
-
-  .preview :global(code) {
-    background: var(--c-bg-elevated);
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 12px;
-  }
-
-  .preview :global(pre) {
-    background: var(--c-bg-elevated);
-    padding: 8px 10px;
-    border-radius: 4px;
-    overflow-x: auto;
-  }
-
-  .preview :global(pre code) {
-    background: transparent;
-    padding: 0;
-  }
-
-  .preview :global(a) {
-    color: var(--c-accent);
-  }
-
-  .empty-state {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--c-text-muted);
-    font-size: 13px;
-  }
-
-  .preview:empty::before {
-    content: 'Click to edit...';
-    color: var(--c-text-muted);
-    font-style: italic;
-  }
-
-  .preview[contenteditable='true'] {
-    outline: none;
-    cursor: text;
-  }
-</style>
+<!-- :global() rules style HTML rendered from markdown (sanitized DOMPurify output) which we
+     don't author directly — required for the markdown preview cascade. -->

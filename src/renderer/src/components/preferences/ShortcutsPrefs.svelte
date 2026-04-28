@@ -25,81 +25,22 @@
   ]
 </script>
 
-<div class="section">
-  <h3 class="section-title">Keyboard Shortcuts</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">Keyboard Shortcuts</h3>
 
-  <div class="shortcut-list">
+  <div class="flex flex-col gap-0.5">
     {#each shortcuts as shortcut, i (i)}
-      <div class="shortcut-row">
-        <span class="shortcut-keys">
+      <div class="flex items-center py-1 border-b border-border-subtle">
+        <span class="min-w-[200px] flex items-center gap-1">
           {#each shortcut.keys as key, k (k)}
-            {#if k > 0}<span class="key-sep"></span>{/if}
-            <kbd class="key">{key}</kbd>
+            <kbd
+              class="inline-flex items-center justify-center min-w-6 h-6 px-1.5 bg-hover border border-border rounded-sm text-sm font-inherit text-text-secondary shadow-[0_1px_0_var(--color-border)]"
+              >{key}</kbd
+            >
           {/each}
         </span>
-        <span class="shortcut-action">{shortcut.action}</span>
+        <span class="text-md text-text ml-3">{shortcut.action}</span>
       </div>
     {/each}
   </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0;
-  }
-
-  .shortcut-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .shortcut-row {
-    display: flex;
-    align-items: center;
-    padding: 5px 0;
-    border-bottom: 1px solid var(--c-border-subtle);
-  }
-
-  .shortcut-keys {
-    min-width: 200px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .key {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 24px;
-    height: 24px;
-    padding: 0 6px;
-    background: var(--c-hover);
-    border: 1px solid var(--c-border);
-    border-radius: 5px;
-    font-size: 12px;
-    font-family: inherit;
-    color: var(--c-text-secondary);
-    box-shadow: 0 1px 0 var(--c-border);
-  }
-
-  .key-sep {
-    display: none;
-  }
-
-  .shortcut-action {
-    font-size: 13px;
-    color: var(--c-text);
-    margin-left: 12px;
-  }
-</style>

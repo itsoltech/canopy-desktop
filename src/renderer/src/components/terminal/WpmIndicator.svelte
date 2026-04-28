@@ -25,71 +25,16 @@
 </script>
 
 {#if active}
-  <div class="wpm-badge" class:visible={visible || showBadge}>
-    <span class="wpm-number">{currentWpm}</span>
-    <span class="wpm-label">wpm</span>
+  <div
+    class="absolute bottom-1.5 right-2.5 flex items-baseline gap-1 px-2.5 py-1 bg-hover rounded-lg pointer-events-none transition-opacity duration-slower ease-out-expo z-pane-divider antialiased motion-reduce:transition-none"
+    class:opacity-100={visible || showBadge}
+    class:opacity-0={!(visible || showBadge)}
+  >
+    <span class="text-md font-medium tabular-nums text-text">{currentWpm}</span>
+    <span class="text-2xs font-normal text-text-faint">wpm</span>
     {#if stats.peakWpm > 0}
-      <span class="wpm-sep"></span>
-      <span class="wpm-peak">{stats.peakWpm} peak</span>
+      <span class="w-px h-2.5 bg-border mx-0.5 self-center"></span>
+      <span class="text-2xs font-normal text-text-faint">{stats.peakWpm} peak</span>
     {/if}
   </div>
 {/if}
-
-<style>
-  .wpm-badge {
-    position: absolute;
-    bottom: 6px;
-    right: 10px;
-    display: flex;
-    align-items: baseline;
-    gap: 4px;
-    padding: 4px 10px;
-    background: var(--c-hover);
-    border-radius: 6px;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-    z-index: 5;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .wpm-badge {
-      transition: none;
-    }
-  }
-
-  .wpm-badge.visible {
-    opacity: 1;
-  }
-
-  .wpm-number {
-    font-size: 13px;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    color: var(--c-text);
-    letter-spacing: -0.01em;
-  }
-
-  .wpm-label {
-    font-size: 10px;
-    font-weight: 400;
-    color: var(--c-text-faint);
-    letter-spacing: 0.02em;
-  }
-
-  .wpm-sep {
-    width: 1px;
-    height: 10px;
-    background: var(--c-border);
-    margin: 0 2px;
-    align-self: center;
-  }
-
-  .wpm-peak {
-    font-size: 10px;
-    font-weight: 400;
-    color: var(--c-text-faint);
-    letter-spacing: 0.02em;
-  }
-</style>

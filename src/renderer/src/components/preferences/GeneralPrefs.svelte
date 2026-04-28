@@ -89,28 +89,30 @@
   }
 </script>
 
-<div class="section">
-  <h3 class="section-title">General</h3>
+<div class="flex flex-col gap-4">
+  <h3 class="text-[15px] font-semibold text-text m-0">General</h3>
 
-  <label class="checkbox-row">
+  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
     <CustomCheckbox checked={reopenLast} onchange={toggleReopen} />
     <span>Reopen last workspace on startup</span>
   </label>
-  <div class="hint-row">Restore the previous workspace tabs and layout when the app starts</div>
+  <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
+    Restore the previous workspace tabs and layout when the app starts
+  </div>
 
-  <label class="checkbox-row">
+  <label class="flex items-center gap-2 text-md text-text cursor-pointer">
     <CustomCheckbox checked={perfHudEnabled} onchange={togglePerfHud} />
     <span>Show CPU and RAM usage in status bar</span>
   </label>
   {#if perfHudEnabled}
-    <div class="hint-row">
+    <div class="text-xs text-text-muted leading-normal pl-6 -mt-2">
       Aggregates total CPU and resident memory across all Canopy processes (main, renderer, GPU,
       utility). Sampled once per second; the sampler stops entirely when this toggle is off.
     </div>
   {/if}
 
-  <div class="select-row">
-    <span class="select-label">New tab ({isMac ? '⌘T' : 'Ctrl+T'})</span>
+  <div class="flex items-center gap-3 text-md">
+    <span class="text-text-secondary min-w-[110px]">New tab ({isMac ? '⌘T' : 'Ctrl+T'})</span>
     <CustomSelect
       value={newTabTool}
       options={startupToolOptions}
@@ -118,10 +120,12 @@
       maxWidth="180px"
     />
   </div>
-  <div class="hint-row select">Default tool to open when creating a new tab</div>
+  <div class="text-xs text-text-muted leading-normal -mt-2">
+    Default tool to open when creating a new tab
+  </div>
 
-  <div class="select-row">
-    <span class="select-label">New worktree</span>
+  <div class="flex items-center gap-3 text-md">
+    <span class="text-text-secondary min-w-[110px]">New worktree</span>
     <CustomSelect
       value={newWorktreeTool}
       options={startupToolOptions}
@@ -129,127 +133,37 @@
       maxWidth="180px"
     />
   </div>
-  <div class="hint-row select">Default tool to open in new worktree tabs</div>
-
-  <div class="info-row">
-    <span class="info-label">Shell</span>
-    <span class="info-value">Resolved from $SHELL at launch</span>
+  <div class="text-xs text-text-muted leading-normal -mt-2">
+    Default tool to open in new worktree tabs
   </div>
 
-  <div class="action-row">
-    <button class="action-btn" onclick={rerunSetupWizard}>Re-run setup wizard</button>
+  <div class="flex items-center gap-3 text-md">
+    <span class="text-text-secondary min-w-20">Shell</span>
+    <span class="text-text font-mono text-sm">Resolved from $SHELL at launch</span>
+  </div>
+
+  <div class="pt-1">
+    <button
+      class="px-3.5 py-1.5 rounded-lg text-sm font-inherit cursor-pointer border border-border bg-border-subtle text-text-secondary transition-colors duration-fast hover:bg-active hover:text-text"
+      onclick={rerunSetupWizard}>Re-run setup wizard</button
+    >
   </div>
 </div>
 
-<div class="section">
-  <h3 class="section-title">Backup & Restore</h3>
-  <div class="hint-row backup-hint">
+<div class="flex flex-col gap-4 mt-6">
+  <h3 class="text-[15px] font-semibold text-text m-0">Backup & Restore</h3>
+  <div class="text-xs text-text-muted leading-normal">
     Export all app settings, AI agent profiles, and integrations to a JSON file so you can restore
     them on another machine. The file contains plaintext API keys and tokens — store it securely.
   </div>
-  <div class="action-row action-row-gap">
-    <button class="action-btn" onclick={handleExportSettings}>Export Settings…</button>
-    <button class="action-btn" onclick={handleImportSettings}>Import Settings…</button>
+  <div class="pt-1 flex gap-2">
+    <button
+      class="px-3.5 py-1.5 rounded-lg text-sm font-inherit cursor-pointer border border-border bg-border-subtle text-text-secondary transition-colors duration-fast hover:bg-active hover:text-text"
+      onclick={handleExportSettings}>Export Settings…</button
+    >
+    <button
+      class="px-3.5 py-1.5 rounded-lg text-sm font-inherit cursor-pointer border border-border bg-border-subtle text-text-secondary transition-colors duration-fast hover:bg-active hover:text-text"
+      onclick={handleImportSettings}>Import Settings…</button
+    >
   </div>
 </div>
-
-<style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .section + .section {
-    margin-top: 24px;
-  }
-
-  .section-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--c-text);
-    margin: 0;
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--c-text);
-    cursor: pointer;
-  }
-
-  .select-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-  }
-
-  .select-label {
-    color: var(--c-text-secondary);
-    min-width: 110px;
-  }
-
-  .info-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-  }
-
-  .info-label {
-    color: var(--c-text-secondary);
-    min-width: 80px;
-  }
-
-  .info-value {
-    color: var(--c-text);
-    font-family: monospace;
-    font-size: 12px;
-  }
-
-  .hint-row {
-    font-size: 11px;
-    color: var(--c-text-muted);
-    line-height: 1.5;
-    padding-left: 24px;
-    margin-top: -8px;
-  }
-
-  .hint-row.select {
-    padding-left: 0;
-  }
-
-  .hint-row.backup-hint {
-    padding-left: 0;
-    margin-top: 0;
-  }
-
-  .action-row {
-    padding-top: 4px;
-  }
-
-  .action-row-gap {
-    display: flex;
-    gap: 8px;
-  }
-
-  .action-btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-    border: 1px solid var(--c-border);
-    background: var(--c-border-subtle);
-    color: var(--c-text-secondary);
-    transition: background 0.1s;
-  }
-
-  .action-btn:hover {
-    background: var(--c-active);
-    color: var(--c-text);
-  }
-</style>

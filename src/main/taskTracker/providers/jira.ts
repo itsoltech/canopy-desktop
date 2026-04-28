@@ -87,7 +87,10 @@ function parseSprintNumber(name: string): number | undefined {
 }
 
 function normalizeTrackerText(text: string): string {
-  return text.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 function adfToPlainText(node: unknown): string {
