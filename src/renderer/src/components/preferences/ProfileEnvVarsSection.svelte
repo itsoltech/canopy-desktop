@@ -29,6 +29,7 @@
   let showEnvForm = $state(false)
   let newEnvKey = $state('')
   let newEnvValue = $state('')
+  let newValueRevealed = $state(false)
 
   const revealed = new SvelteSet<string>()
   function toggleReveal(key: string): void {
@@ -53,12 +54,14 @@
     persistEnvEntries([...envEntries, { key: newEnvKey.trim(), value: newEnvValue }])
     newEnvKey = ''
     newEnvValue = ''
+    newValueRevealed = false
     showEnvForm = false
   }
 
   function cancelAdd(): void {
     newEnvKey = ''
     newEnvValue = ''
+    newValueRevealed = false
     showEnvForm = false
   }
 
@@ -134,16 +137,32 @@
           autocomplete="off"
           onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
         />
-        <input
-          class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newEnvValue"
-          aria-label="Variable value"
-          bind:value={newEnvValue}
-          placeholder="value"
-          spellcheck="false"
-          autocomplete="off"
-          onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
-        />
+        <div class="flex items-center gap-1.5">
+          <input
+            class="flex-1 min-w-0 px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
+            type={newValueRevealed ? 'text' : 'password'}
+            name="newEnvValue"
+            aria-label="Variable value"
+            bind:value={newEnvValue}
+            placeholder="value"
+            spellcheck="false"
+            autocomplete="off"
+            onkeydown={(e) => e.key === 'Enter' && addEnvVar()}
+          />
+          <button
+            type="button"
+            class="flex items-center justify-center size-7 rounded-md bg-transparent border border-border text-text-muted cursor-pointer shrink-0 hover:bg-hover hover:text-text"
+            onclick={() => (newValueRevealed = !newValueRevealed)}
+            title={newValueRevealed ? 'Hide value' : 'Show value'}
+            aria-label={newValueRevealed ? 'Hide value' : 'Show value'}
+          >
+            {#if newValueRevealed}
+              <EyeOff size={12} />
+            {:else}
+              <Eye size={12} />
+            {/if}
+          </button>
+        </div>
         <div class="flex justify-end gap-2">
           <button
             type="button"
