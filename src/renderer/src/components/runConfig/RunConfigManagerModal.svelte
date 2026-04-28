@@ -138,14 +138,14 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="fixed inset-0 bg-[oklch(0_0_0/0.5)] flex items-center justify-center z-[1000]"
+  class="fixed inset-0 bg-scrim flex items-center justify-center z-[1000]"
   role="dialog"
   aria-label="Run Configurations"
   onkeydown={handleKeydown}
 >
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
-    class="bg-bg border border-border rounded-xl w-[700px] h-[500px] flex flex-col shadow-[0_20px_60px_oklch(0_0_0/0.3)]"
+    class="bg-bg border border-border rounded-xl w-[700px] h-[500px] flex flex-col shadow-modal"
     tabindex="0"
     bind:this={modalEl}
   >

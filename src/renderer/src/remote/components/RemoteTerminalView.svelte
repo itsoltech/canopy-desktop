@@ -165,9 +165,9 @@
   } {
     if (typeof window === 'undefined') {
       return {
-        background: 'var(--color-bg)',
+        background: '#1e1e1e',
         foreground: 'oklch(0.907 0 0)',
-        cursor: 'var(--color-accent)',
+        cursor: '#60a5fa',
       }
     }
     const style = getComputedStyle(document.documentElement)
@@ -176,9 +176,9 @@
       return v.length > 0 ? v : fallback
     }
     return {
-      background: read('--c-bg', 'var(--color-bg)'),
-      foreground: read('--c-text', 'oklch(0.907 0 0)'),
-      cursor: read('--c-accent-text', 'var(--color-accent)'),
+      background: read('--color-bg', '#1e1e1e'),
+      foreground: read('--color-text', 'oklch(0.907 0 0)'),
+      cursor: read('--color-accent-text', '#60a5fa'),
     }
   }
 

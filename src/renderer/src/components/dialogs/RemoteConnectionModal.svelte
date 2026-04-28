@@ -84,7 +84,7 @@
       return
     }
     const style = getComputedStyle(document.documentElement)
-    const dotColor = style.getPropertyValue('--c-text').trim() || 'oklch(0.907 0 0)'
+    const dotColor = style.getPropertyValue('--color-text').trim() || 'oklch(0.907 0 0)'
     qrInstance = new QRCodeStyling({
       width: 260,
       height: 260,
