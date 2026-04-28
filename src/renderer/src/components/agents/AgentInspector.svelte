@@ -61,10 +61,10 @@
     state.contextPercent == null
       ? ''
       : state.contextPercent >= 90
-        ? 'ctx-red'
+        ? 'bg-danger-text'
         : state.contextPercent >= 70
-          ? 'ctx-yellow'
-          : 'ctx-green',
+          ? 'bg-warning'
+          : 'bg-success',
   )
 
   function formatContextSize(size: number | null): string {
@@ -88,29 +88,36 @@
     const hours = Math.floor(minutes / 60)
     return `${hours}h ${minutes % 60}m`
   }
+
+  const sectionLabelCls = 'text-2xs font-semibold tracking-[0.5px] uppercase text-text-faint m-0'
+  const infoGridCls = 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] text-sm'
+  const infoKeyCls = 'text-text-muted'
+  const infoValCls = 'text-text-secondary'
 </script>
 
-<div class="inspector">
-  <h3 class="inspector-title">{inspectorTitle}</h3>
+<div class="flex flex-col gap-3 p-3" data-status={statusClass}>
+  <h3 class="text-2xs font-semibold tracking-[1px] uppercase text-text-faint m-0">
+    {inspectorTitle}
+  </h3>
 
   <!-- Status -->
-  <div class="status-badge {statusClass}">
-    <span class="status-dot"></span>
-    <span class="status-text">{statusText}</span>
+  <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-border-subtle">
+    <span class="status-dot w-2 h-2 rounded-full flex-shrink-0 bg-text-faint"></span>
+    <span class="text-sm text-text">{statusText}</span>
   </div>
 
   <!-- Context Bar -->
   {#if state.contextPercent != null}
-    <div class="context-section">
-      <div class="context-header">
-        <span class="context-label">Context</span>
-        <span class="context-value"
+    <div class="flex flex-col gap-1">
+      <div class="flex justify-between items-baseline">
+        <span class={sectionLabelCls}>Context</span>
+        <span class="text-xs text-text-secondary"
           >{Math.round(state.contextPercent)}% of {formatContextSize(state.contextSize)}</span
         >
       </div>
-      <div class="context-track">
+      <div class="h-1 rounded-xs bg-active overflow-hidden">
         <div
-          class="context-fill {contextBarClass}"
+          class="h-full rounded-xs transition-[width] duration-slow {contextBarClass}"
           style="width: {Math.min(state.contextPercent, 100)}%"
         ></div>
       </div>
@@ -118,40 +125,40 @@
   {/if}
 
   <!-- Session Info -->
-  <div class="section">
-    <h4 class="section-label">Session</h4>
-    <div class="info-grid">
+  <div class="flex flex-col gap-1.5">
+    <h4 class={sectionLabelCls}>Session</h4>
+    <div class={infoGridCls}>
       {#if state.model}
-        <span class="info-key">Model</span>
-        <span class="info-val">{state.model}</span>
+        <span class={infoKeyCls}>Model</span>
+        <span class={infoValCls}>{state.model}</span>
       {/if}
       {#if state.permissionMode}
-        <span class="info-key">Mode</span>
-        <span class="info-val">{state.permissionMode}</span>
+        <span class={infoKeyCls}>Mode</span>
+        <span class={infoValCls}>{state.permissionMode}</span>
       {/if}
       {#if state.costUsd != null}
-        <span class="info-key">Cost</span>
-        <span class="info-val">{formatCost(state.costUsd)}</span>
+        <span class={infoKeyCls}>Cost</span>
+        <span class={infoValCls}>{formatCost(state.costUsd)}</span>
       {/if}
       {#if state.durationMs != null}
-        <span class="info-key">Duration</span>
-        <span class="info-val">{formatDuration(state.durationMs)}</span>
+        <span class={infoKeyCls}>Duration</span>
+        <span class={infoValCls}>{formatDuration(state.durationMs)}</span>
       {/if}
       {#if state.linesAdded != null || state.linesRemoved != null}
-        <span class="info-key">Lines</span>
-        <span class="info-val">+{state.linesAdded ?? 0} -{state.linesRemoved ?? 0}</span>
+        <span class={infoKeyCls}>Lines</span>
+        <span class={infoValCls}>+{state.linesAdded ?? 0} -{state.linesRemoved ?? 0}</span>
       {/if}
       {#if state.toolCallCount > 0}
-        <span class="info-key">Tool calls</span>
-        <span class="info-val">{state.toolCallCount}</span>
+        <span class={infoKeyCls}>Tool calls</span>
+        <span class={infoValCls}>{state.toolCallCount}</span>
       {/if}
       {#if state.compactCount > 0}
-        <span class="info-key">Compactions</span>
-        <span class="info-val">{state.compactCount}</span>
+        <span class={infoKeyCls}>Compactions</span>
+        <span class={infoValCls}>{state.compactCount}</span>
       {/if}
       {#if state.version}
-        <span class="info-key">Version</span>
-        <span class="info-val">{state.version}</span>
+        <span class={infoKeyCls}>Version</span>
+        <span class={infoValCls}>{state.version}</span>
       {/if}
     </div>
   </div>
@@ -167,20 +174,22 @@
 
   <!-- Tasks -->
   {#if visibleTasks.length > 0}
-    <div class="section">
-      <h4 class="section-label">Tasks ({taskCounts.done}/{taskCounts.total})</h4>
-      <div class="item-list">
+    <div class="flex flex-col gap-1.5">
+      <h4 class={sectionLabelCls}>Tasks ({taskCounts.done}/{taskCounts.total})</h4>
+      <div class="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto">
         {#each visibleTasks as task (task.id)}
-          <div class="item-row">
+          <div class="flex items-center gap-1.5 py-0.5">
             {#if task.status === 'completed'}
-              <span class="task-icon task-done">✓</span>
+              <span class="text-2xs w-3 flex-shrink-0 text-center text-success">✓</span>
             {:else if task.status === 'in_progress'}
-              <span class="task-icon task-active">▶</span>
+              <span class="text-2xs w-3 flex-shrink-0 text-center text-accent-text">▶</span>
             {:else}
-              <span class="task-icon task-pending">○</span>
+              <span class="text-2xs w-3 flex-shrink-0 text-center text-text-faint">○</span>
             {/if}
-            <span class="item-text" class:task-completed={task.status === 'completed'}
-              >{task.subject}</span
+            <span
+              class="text-sm text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+              class:line-through={task.status === 'completed'}
+              class:opacity-50={task.status === 'completed'}>{task.subject}</span
             >
           </div>
         {/each}
@@ -190,14 +199,18 @@
 
   <!-- Agents -->
   {#if state.activeSubagents.length > 0}
-    <div class="section">
-      <h4 class="section-label">Agents ({state.activeSubagents.length})</h4>
-      <div class="item-list">
+    <div class="flex flex-col gap-1.5">
+      <h4 class={sectionLabelCls}>Agents ({state.activeSubagents.length})</h4>
+      <div class="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto">
         {#each state.activeSubagents as agent (agent.agentId)}
-          <div class="item-row">
-            <span class="agent-dot"></span>
-            <span class="item-text">{agent.agentType}</span>
-            <span class="item-dim">({agent.agentId.slice(0, 8)})</span>
+          <div class="flex items-center gap-1.5 py-0.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-focus-ring flex-shrink-0"></span>
+            <span
+              class="text-sm text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+              >{agent.agentType}</span
+            >
+            <span class="text-2xs text-text-faint flex-shrink-0">({agent.agentId.slice(0, 8)})</span
+            >
           </div>
         {/each}
       </div>
@@ -206,13 +219,18 @@
 
   <!-- Notifications -->
   {#if reversedNotifications.length > 0}
-    <div class="section">
-      <h4 class="section-label">Notifications</h4>
-      <div class="item-list">
+    <div class="flex flex-col gap-1.5">
+      <h4 class={sectionLabelCls}>Notifications</h4>
+      <div class="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto">
         {#each reversedNotifications as notif (notif.timestamp)}
-          <div class="notif-row">
-            <span class="notif-msg">{notif.message || notif.title}</span>
-            <span class="notif-time">{relativeTime(notif.timestamp)}</span>
+          <div class="flex items-baseline justify-between gap-2 py-0.5">
+            <span
+              class="text-xs text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+              >{notif.message || notif.title}</span
+            >
+            <span class="text-2xs text-text-faint flex-shrink-0"
+              >{relativeTime(notif.timestamp)}</span
+            >
           </div>
         {/each}
       </div>
@@ -220,107 +238,23 @@
   {/if}
 </div>
 
+<!-- data-status drives the dot color/animation; pulse keyframes are easier here than as utilities. -->
 <style>
-  /* Context bar */
-  .context-section {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .context-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-  }
-
-  .context-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--color-text-faint);
-  }
-
-  .context-value {
-    font-size: 11px;
-    color: var(--color-text-secondary);
-  }
-
-  .context-track {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--color-active);
-    overflow: hidden;
-  }
-
-  .context-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.3s ease;
-  }
-
-  .context-fill.ctx-green {
+  [data-status='idle'] .status-dot {
     background: var(--color-success);
   }
 
-  .context-fill.ctx-yellow {
-    background: var(--color-warning);
-  }
-
-  .context-fill.ctx-red {
-    background: var(--color-danger-text);
-  }
-
-  .inspector {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 12px;
-  }
-
-  .inspector-title {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--color-text-faint);
-    margin: 0;
-  }
-
-  /* Status */
-  .status-badge {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    border-radius: 6px;
-    background: var(--color-border-subtle);
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background: var(--color-text-faint);
-  }
-
-  .status-badge.idle .status-dot {
-    background: var(--color-success);
-  }
-
-  .status-badge.active .status-dot {
+  [data-status='active'] .status-dot {
     background: var(--color-accent-text);
     animation: pulse-dot 1.5s ease-in-out infinite;
   }
 
-  .status-badge.permission .status-dot {
+  [data-status='permission'] .status-dot {
     background: var(--color-warning-text);
     animation: pulse-dot 1s ease-in-out infinite;
   }
 
-  .status-badge.error .status-dot {
+  [data-status='error'] .status-dot {
     background: var(--color-danger-text);
   }
 
@@ -338,129 +272,5 @@
     .status-dot {
       animation: none !important;
     }
-  }
-
-  .status-text {
-    font-size: 12px;
-    color: var(--color-text);
-  }
-
-  /* Sections */
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .section-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--color-text-faint);
-    margin: 0;
-  }
-
-  /* Info grid */
-  .info-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 3px 12px;
-    font-size: 12px;
-  }
-
-  .info-key {
-    color: var(--color-text-muted);
-  }
-
-  .info-val {
-    color: var(--color-text-secondary);
-  }
-
-  /* Item lists */
-  .item-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    max-height: 200px;
-    overflow-y: auto;
-  }
-
-  .item-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 0;
-  }
-
-  .task-icon {
-    font-size: 10px;
-    width: 12px;
-    flex-shrink: 0;
-    text-align: center;
-  }
-
-  .task-done {
-    color: var(--color-success);
-  }
-
-  .task-active {
-    color: var(--color-accent-text);
-  }
-
-  .task-pending {
-    color: var(--color-text-faint);
-  }
-
-  .task-completed {
-    text-decoration: line-through;
-    opacity: 0.5;
-  }
-
-  .item-text {
-    font-size: 12px;
-    color: var(--color-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-
-  .item-dim {
-    font-size: 10px;
-    color: var(--color-text-faint);
-    flex-shrink: 0;
-  }
-
-  .agent-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-focus-ring);
-    flex-shrink: 0;
-  }
-
-  /* Notifications */
-  .notif-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 2px 0;
-  }
-
-  .notif-msg {
-    font-size: 11px;
-    color: var(--color-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-
-  .notif-time {
-    font-size: 10px;
-    color: var(--color-text-faint);
-    flex-shrink: 0;
   }
 </style>
