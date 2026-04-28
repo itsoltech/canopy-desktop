@@ -146,19 +146,19 @@
 
   <div class="flex gap-0.5 bg-border-subtle rounded-xl p-0.5 w-fit">
     <button
-      class="px-4 py-1.5 border-0 rounded-lg bg-transparent text-text-muted text-sm font-medium font-inherit cursor-pointer transition-all duration-base disabled:opacity-40 disabled:cursor-default enabled:hover:text-text-secondary"
-      class:!bg-bg={scope === 'global'}
-      class:!text-text={scope === 'global'}
-      class:shadow-[0_1px_2px_oklch(0_0_0/0.1)]={scope === 'global'}
+      class="px-4 py-1.5 border-0 rounded-lg text-sm font-medium font-inherit cursor-pointer transition-all duration-base disabled:opacity-40 disabled:cursor-default {scope ===
+      'global'
+        ? '!bg-bg !text-text shadow-[0_1px_2px_oklch(0_0_0/0.1)]'
+        : 'bg-transparent text-text-muted enabled:hover:text-text-secondary'}"
       onclick={() => handleScopeChange('global')}
     >
       Global
     </button>
     <button
-      class="px-4 py-1.5 border-0 rounded-lg bg-transparent text-text-muted text-sm font-medium font-inherit cursor-pointer transition-all duration-base disabled:opacity-40 disabled:cursor-default enabled:hover:text-text-secondary"
-      class:!bg-bg={scope === 'project'}
-      class:!text-text={scope === 'project'}
-      class:shadow-[0_1px_2px_oklch(0_0_0/0.1)]={scope === 'project'}
+      class="px-4 py-1.5 border-0 rounded-lg text-sm font-medium font-inherit cursor-pointer transition-all duration-base disabled:opacity-40 disabled:cursor-default {scope ===
+      'project'
+        ? '!bg-bg !text-text shadow-[0_1px_2px_oklch(0_0_0/0.1)]'
+        : 'bg-transparent text-text-muted enabled:hover:text-text-secondary'}"
       disabled={!repoRoot}
       onclick={() => handleScopeChange('project')}
       title={repoRoot
@@ -235,7 +235,9 @@
           </label>
         {/each}
       {:else}
-        <span class="text-xs text-text-faint">Click refresh to load statuses from your tracker.</span>
+        <span class="text-xs text-text-faint"
+          >Click refresh to load statuses from your tracker.</span
+        >
       {/if}
     </div>
   {/if}

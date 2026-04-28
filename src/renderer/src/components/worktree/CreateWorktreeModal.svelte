@@ -304,7 +304,9 @@
     </h3>
 
     {#if step === 'loading'}
-      <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2">
+      <div
+        class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
+      >
         <p class="text-md text-text-secondary m-0">Loading branches...</p>
       </div>
     {:else if step === 'pickBase'}
@@ -358,11 +360,10 @@
             aria-label="Branch mode"
           >
             <button
-              class="flex-1 px-2 py-[5px] border-0 rounded-md bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-all duration-fast"
-              class:!bg-bg-overlay={mode === 'new'}
-              class:!text-text={mode === 'new'}
-              class:shadow-[0_1px_2px_oklch(0_0_0/0.15)]={mode === 'new'}
-              class:hover:text-text-secondary={mode !== 'new'}
+              class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
+              'new'
+                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+                : 'bg-transparent text-text-muted hover:text-text-secondary'}"
               onclick={() => setMode('new')}
               role="radio"
               aria-checked={mode === 'new'}
@@ -371,11 +372,10 @@
               New branch
             </button>
             <button
-              class="flex-1 px-2 py-[5px] border-0 rounded-md bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-all duration-fast"
-              class:!bg-bg-overlay={mode === 'existing'}
-              class:!text-text={mode === 'existing'}
-              class:shadow-[0_1px_2px_oklch(0_0_0/0.15)]={mode === 'existing'}
-              class:hover:text-text-secondary={mode !== 'existing'}
+              class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
+              'existing'
+                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+                : 'bg-transparent text-text-muted hover:text-text-secondary'}"
               onclick={() => setMode('existing')}
               role="radio"
               aria-checked={mode === 'existing'}
@@ -403,7 +403,11 @@
             {/if}
             <div class="flex justify-end gap-2 mt-4">
               <button class={btnCancelCls} onclick={onClose}>Cancel</button>
-              <button class={btnPrimaryCls} onclick={createWorktreeFromExisting} disabled={!selectedBase}>
+              <button
+                class={btnPrimaryCls}
+                onclick={createWorktreeFromExisting}
+                disabled={!selectedBase}
+              >
                 Create
               </button>
             </div>
@@ -411,7 +415,9 @@
         </div>
       {/if}
     {:else if step === 'creating'}
-      <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2">
+      <div
+        class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
+      >
         <p class="text-md text-text-secondary m-0">Creating worktree...</p>
       </div>
     {:else if step === 'setup'}
@@ -443,7 +449,9 @@
         </div>
       </div>
     {:else if step === 'done'}
-      <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2">
+      <div
+        class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
+      >
         <p class="text-md text-success m-0">Worktree created</p>
         <p class="text-xs text-text-faint font-mono break-all m-0">{createdPath}</p>
         {#if setupErrors.length > 0}
@@ -456,7 +464,9 @@
         {/if}
       </div>
     {:else if step === 'error'}
-      <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2">
+      <div
+        class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
+      >
         <p class="text-md text-danger-text m-0">Error</p>
         <p class="text-xs text-text-faint font-mono break-all m-0">{errorMessage}</p>
         <div class="flex justify-end gap-2 mt-4">

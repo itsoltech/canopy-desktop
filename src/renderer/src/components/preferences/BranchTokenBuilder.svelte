@@ -213,9 +213,10 @@
     {#each templateTokens as token, i (`${token.type}:${token.value}:${i}`)}
       {#if token.type === 'placeholder'}
         <span
-          class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs cursor-grab select-none transition-all duration-fast bg-accent-bg text-accent-text border border-accent-muted active:cursor-grabbing"
-          class:!border-focus-ring={dragOverIdx === i}
-          class:shadow-[0_0_0_1px_var(--color-accent-muted)]={dragOverIdx === i}
+          class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs cursor-grab select-none transition-all duration-fast bg-accent-bg text-accent-text border active:cursor-grabbing {dragOverIdx ===
+          i
+            ? 'border-focus-ring shadow-[0_0_0_1px_var(--color-accent-muted)]'
+            : 'border-accent-muted'}"
           draggable="true"
           ondragstart={() => onTokenDragStart(i)}
           ondragover={(e) => onTokenDragOver(i, e)}
@@ -232,9 +233,10 @@
         </span>
       {:else}
         <button
-          class="inline-flex items-center px-1.5 py-0.5 rounded-md text-xs cursor-grab select-none transition-all duration-fast bg-hover text-text-muted border border-transparent font-mono active:cursor-grabbing"
-          class:!border-focus-ring={dragOverIdx === i}
-          class:shadow-[0_0_0_1px_var(--color-accent-muted)]={dragOverIdx === i}
+          class="inline-flex items-center px-1.5 py-0.5 rounded-md text-xs cursor-grab select-none transition-all duration-fast bg-hover text-text-muted border font-mono active:cursor-grabbing {dragOverIdx ===
+          i
+            ? 'border-focus-ring shadow-[0_0_0_1px_var(--color-accent-muted)]'
+            : 'border-transparent'}"
           draggable="true"
           ondragstart={() => onTokenDragStart(i)}
           ondragover={(e) => onTokenDragOver(i, e)}

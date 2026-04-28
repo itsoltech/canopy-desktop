@@ -83,10 +83,9 @@
           <span class="text-accent-text font-mono text-sm">{entry.key}</span>
           <span class="text-text-faint">=</span>
           <span
-            class="font-mono text-sm flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-            class:text-text-secondary={isRevealed}
-            class:text-text-faint={!isRevealed}
-            class:tracking-[1px]={!isRevealed}
+            class="font-mono text-sm flex-1 overflow-hidden text-ellipsis whitespace-nowrap {isRevealed
+              ? 'text-text-secondary'
+              : 'text-text-faint tracking-[1px]'}"
           >
             {isRevealed ? entry.value : maskValue(entry.value)}
           </span>
