@@ -460,13 +460,15 @@
   transition-timing-function: var(--ease-std);
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  -webkit-user-select: none;
-  user-select: none;
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 input,

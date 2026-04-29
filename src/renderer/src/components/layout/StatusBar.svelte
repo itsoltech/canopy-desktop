@@ -318,7 +318,7 @@
             onclick={openPerfHudSettings}
           >
             <Cpu size={11} class="flex-shrink-0 text-text-faint" />
-            <span class="text-2xs font-mono" style="transform: translateY(1px)"
+            <span class="text-2xs font-mono mt-px"
               >{perfHudState.metrics.cpu}% · {perfHudState.metrics.memMb} MB</span
             >
           </button>
