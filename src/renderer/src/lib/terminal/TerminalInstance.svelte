@@ -176,10 +176,17 @@
       scrollPreservingWrite(term, data)
       return
     }
+    // Honor the TUI's last DECTCEM intent: if the burst itself ended with
+    // `\x1b[?25l`, the TUI wants the cursor hidden (e.g. claude while
+    // thinking, vim during paste). Restoring would override that intent
+    // and leave a stray xterm caret.
+    const lastDectcem = data.match(/\x1b\[\?25[lh](?!.*\x1b\[\?25[lh])/s)
+    const tuiWantsHidden = lastDectcem?.[0].endsWith('l') ?? false
     const prefixed = cursorHiddenForBurst ? data : '\x1b[?25l' + data
     cursorHiddenForBurst = true
     scrollPreservingWrite(term, prefixed)
     if (cursorRestoreTimer !== null) clearTimeout(cursorRestoreTimer)
+    if (tuiWantsHidden) return
     cursorRestoreTimer = setTimeout(() => {
       cursorRestoreTimer = null
       if (!cursorHiddenForBurst) return
@@ -411,7 +418,7 @@
       const term = new Terminal({
         fontSize: currentFontSize,
         fontFamily: currentFontFamily,
-        cursorBlink: !isWindows,
+        cursorBlink: true,
         allowProposedApi: true,
         theme: currentTheme,
         scrollback: 5000,
