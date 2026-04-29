@@ -130,7 +130,7 @@ All errors surface to the renderer as thrown `Error`s from the IPC handlers, cau
 
 ## Configuration
 
-Backup & Restore has no user-configurable options. The Export and Import actions live in the Settings sidebar footer (icon-buttons next to the version label).
+Backup & Restore has no user-configurable options. The Export and Import actions live in the Settings sidebar footer, next to the **Backup** label.
 
 ## Source files
 
