@@ -86,10 +86,8 @@
   let totalDeletions = $derived(allFiles.reduce((sum, f) => sum + f.deletions, 0))
   let totalChanges = $derived(totalAdditions + totalDeletions)
 
-  let summaryBarAddWidth = $derived(
-    totalChanges > 0 ? Math.round((totalAdditions / totalChanges) * 60) : 0,
-  )
-  let summaryBarDelWidth = $derived(totalChanges > 0 ? 60 - summaryBarAddWidth : 0)
+  let summaryBarAddPct = $derived(totalChanges > 0 ? (totalAdditions / totalChanges) * 100 : 0)
+  let summaryBarDelPct = $derived(totalChanges > 0 ? 100 - summaryBarAddPct : 0)
 
   // Expose file count to parent via bindable prop
   $effect(() => {
@@ -186,10 +184,10 @@
         class="flex items-stretch h-1.5 rounded-sm overflow-hidden flex-1 min-w-5 bg-border-subtle"
       >
         {#if totalAdditions > 0}
-          <span class="block h-full bg-diff-add-fg" style="width: {summaryBarAddWidth}px"></span>
+          <span class="block h-full bg-diff-add-fg" style="width: {summaryBarAddPct}%"></span>
         {/if}
         {#if totalDeletions > 0}
-          <span class="block h-full bg-diff-delete-fg" style="width: {summaryBarDelWidth}px"></span>
+          <span class="block h-full bg-diff-delete-fg" style="width: {summaryBarDelPct}%"></span>
         {/if}
       </span>
     </div>
