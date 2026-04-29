@@ -1786,8 +1786,38 @@ export function registerIpcHandlers(
     },
   )
 
+  // Validate a path that does not yet exist (for create operations). Walks up
+  // to the closest existing ancestor, validates IT through validatePathAccess
+  // (so realpath/symlink/workspace checks still apply), then re-attaches the
+  // not-yet-existing tail. Rejects any path whose tail would escape the
+  // ancestor via `..` or absolute references.
+  async function validateCreationPath(wcId: number, targetPath: string): Promise<string> {
+    const absolute = path.isAbsolute(targetPath) ? targetPath : path.resolve(targetPath)
+    const normalized = path.normalize(absolute)
+    let ancestor = normalized
+    const tail: string[] = []
+    while (true) {
+      try {
+        await fs.promises.access(ancestor)
+        break
+      } catch {
+        const parent = path.dirname(ancestor)
+        if (parent === ancestor) throw new Error('Access denied: no existing ancestor')
+        tail.unshift(path.basename(ancestor))
+        ancestor = parent
+      }
+    }
+    const resolvedAncestor = await validatePathAccess(wcId, ancestor)
+    const finalPath = path.join(resolvedAncestor, ...tail)
+    const rel = path.relative(resolvedAncestor, finalPath)
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error('Access denied: path escapes workspace')
+    }
+    return finalPath
+  }
+
   ipcMain.handle('fs:createFile', async (event, payload: { filePath: string }): Promise<void> => {
-    const resolved = await validatePathAccess(event.sender.id, payload.filePath)
+    const resolved = await validateCreationPath(event.sender.id, payload.filePath)
     // Ensure the parent dir exists (handles nested paths typed in the prompt
     // like "subdir/newfile.ts" — creates "subdir" if missing).
     await fs.promises.mkdir(path.dirname(resolved), { recursive: true })
@@ -1798,7 +1828,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('fs:mkdir', async (event, payload: { dirPath: string }): Promise<void> => {
-    const resolved = await validatePathAccess(event.sender.id, payload.dirPath)
+    const resolved = await validateCreationPath(event.sender.id, payload.dirPath)
     await fs.promises.mkdir(resolved, { recursive: true })
   })
 
