@@ -1002,6 +1002,18 @@ const api = {
         contextWindow?: number | null
       }>
     >,
+  getOpenAiModels: () =>
+    ipcRenderer.invoke('models:getOpenAiOptions') as Promise<
+      Array<{
+        value: string
+        label: string
+        family?: string | null
+        releaseDate?: string | null
+        lastUpdated?: string | null
+        reasoning?: boolean
+        contextWindow?: number | null
+      }>
+    >,
   saveProfile: (input: ProfileInput) =>
     ipcRenderer.invoke('profile:save', input) as Promise<AgentProfileMasked>,
   deleteProfile: (id: string) => ipcRenderer.invoke('profile:delete', { id }) as Promise<void>,

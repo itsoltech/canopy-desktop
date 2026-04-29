@@ -8,6 +8,7 @@
   import ShortcutsPrefs from './ShortcutsPrefs.svelte'
   import ClaudePrefs from './ClaudePrefs.svelte'
   import ClaudeSdkPrefs from './ClaudeSdkPrefs.svelte'
+  import CodexSdkPrefs from './CodexSdkPrefs.svelte'
   import GeminiPrefs from './GeminiPrefs.svelte'
   import OpenCodePrefs from './OpenCodePrefs.svelte'
   import CodexPrefs from './CodexPrefs.svelte'
@@ -34,7 +35,7 @@
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
     {
       label: 'AI Agents',
-      sections: ['Claude', 'Claude Agent', 'Gemini', 'OpenCode', 'Codex', 'Skills'],
+      sections: ['Claude', 'Claude Agent', 'Codex Agent', 'Gemini', 'OpenCode', 'Codex', 'Skills'],
     },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
@@ -115,6 +116,8 @@
         <ClaudePrefs />
       {:else if activeSection === 'Claude Agent'}
         <ClaudeSdkPrefs />
+      {:else if activeSection === 'Codex Agent'}
+        <CodexSdkPrefs />
       {:else if activeSection === 'Gemini'}
         <GeminiPrefs />
       {:else if activeSection === 'OpenCode'}

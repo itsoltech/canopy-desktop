@@ -23,14 +23,13 @@
 
   <label class="checkbox-row">
     <CustomCheckbox checked={sdkAgentsEnabled} onchange={toggleSdkAgents} />
-    <span>In-process SDK agents (Claude)</span>
+    <span>In-process SDK agents (Claude and Codex)</span>
   </label>
   {#if sdkAgentsEnabled}
     <div class="hint-row">
-      Enables a new pane kind that runs Anthropic's Claude Agent SDK in the Canopy main process — no
-      CLI child required. Conversations persist to the local SQLite database, support
-      AskUserQuestion / ExitPlanMode / tool-permission prompts inline in the chat stream, and can be
-      searched via FTS5. Uses the agent profile tagged 'claude-sdk'.
+      Enables SDK chat panes that run agent SDKs in the Canopy main process. Conversations persist
+      to the local SQLite database and can be searched via FTS5. Uses profiles tagged 'claude-sdk'
+      and 'codex-sdk'.
     </div>
   {:else}
     <div class="hint-row">

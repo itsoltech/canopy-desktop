@@ -80,6 +80,7 @@ export interface ProfileInput {
 export const KNOWN_AGENT_TYPES: readonly AgentType[] = [
   'claude',
   'claude-sdk',
+  'codex-sdk',
   'gemini',
   'opencode',
   'codex',
@@ -119,6 +120,15 @@ export const LEGACY_PREF_FIELDS: Record<AgentType, readonly (keyof ProfilePrefs)
     'providerHaikuModel',
     'customEnv',
     'mcpServers',
+  ],
+  'codex-sdk': [
+    'model',
+    'approvalMode',
+    'sandbox',
+    'baseUrl',
+    'customEnv',
+    'settingsJson',
+    'effortLevel',
   ],
   gemini: ['model', 'approvalMode', 'customEnv', 'settingsJson'],
   opencode: ['model', 'customEnv', 'settingsJson'],

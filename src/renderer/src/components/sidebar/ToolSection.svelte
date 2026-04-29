@@ -15,15 +15,22 @@
     onLaunchTool: (toolId: string, opts?: { profileId?: string }) => void
   } = $props()
 
-  const AI_TOOL_IDS = new Set<string>(['claude', 'claude-sdk', 'gemini', 'opencode', 'codex'])
+  const AI_TOOL_IDS = new Set<string>([
+    'claude',
+    'claude-sdk',
+    'codex-sdk',
+    'gemini',
+    'opencode',
+    'codex',
+  ])
 
   let sdkAgentsEnabled = $derived(prefs['experimental.sdkAgents'] === 'true')
 
   let availableTools = $derived(
     getTools().filter((t) => {
       if (getToolAvailability()[t.id] === false) return false
-      // Hide claude-sdk entry until the experimental flag is on.
-      if (t.id === 'claude-sdk' && !sdkAgentsEnabled) return false
+      // Hide SDK-backed agents until the experimental flag is on.
+      if ((t.id === 'claude-sdk' || t.id === 'codex-sdk') && !sdkAgentsEnabled) return false
       return true
     }),
   )

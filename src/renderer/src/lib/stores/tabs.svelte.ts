@@ -56,6 +56,7 @@ function disposeEphemeralPaneState(pane: PaneSession): void {
 // --- Active process detection ---
 
 const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
+const SDK_TOOL_IDS = new Set(['claude-sdk', 'codex-sdk'])
 export const isAiToolId = (id: string): boolean => AI_TOOL_IDS.has(id)
 
 const ACTIVE_CLAUDE_STATUSES = new Set([
@@ -199,6 +200,12 @@ function computeDisplayName(
   return `${baseLabel} #${sameLabelCount + 1}`
 }
 
+function sdkToolMeta(toolId: string): { toolId: 'claude-sdk' | 'codex-sdk'; name: string } {
+  return toolId === 'codex-sdk'
+    ? { toolId: 'codex-sdk', name: 'Codex Agent' }
+    : { toolId: 'claude-sdk', name: 'Claude Agent' }
+}
+
 export function getActiveAgentPane(): { pane: PaneSession; tabId: string } | null {
   const path = workspaceState.selectedWorktreePath
   if (!path) return null
@@ -233,13 +240,13 @@ export async function openTool(
 ): Promise<TabInfo> {
   // SDK-backed agents don't go through PTY spawn — route to the in-process
   // manager via openSdkChatTab. Requires a profileId and a resolved workspace.
-  if (toolId === 'claude-sdk') {
+  if (SDK_TOOL_IDS.has(toolId)) {
     const project = getProjectForWorktree(worktreePath)
     if (!project) throw new Error(`No workspace found for ${worktreePath}`)
     if (!options?.profileId) {
-      throw new Error('openTool(claude-sdk) requires a profileId')
+      throw new Error(`openTool(${toolId}) requires a profileId`)
     }
-    const tab = await openSdkChatTab(worktreePath, project.workspace.id, options.profileId)
+    const tab = await openSdkChatTab(worktreePath, project.workspace.id, options.profileId, toolId)
     if (!tab) throw new Error('Failed to create SDK chat session')
     return tab
   }
@@ -684,8 +691,10 @@ export async function openSdkChatTab(
   worktreePath: string,
   workspaceId: string,
   profileId: string,
+  toolId = 'claude-sdk',
   existingConversationId?: string,
 ): Promise<TabInfo | null> {
+  const meta = sdkToolMeta(toolId)
   let conversationId = existingConversationId
   if (!conversationId) {
     const result = await window.api.sdkAgent.create({ workspaceId, worktreePath, profileId })
@@ -701,8 +710,8 @@ export async function openSdkChatTab(
     id: paneId,
     sessionId: conversationId,
     wsUrl: '',
-    toolId: 'claude-sdk',
-    toolName: 'Claude Agent',
+    toolId: meta.toolId,
+    toolName: meta.name,
     isRunning: true,
     exitCode: null,
     title: null,
@@ -715,9 +724,9 @@ export async function openSdkChatTab(
   const id = nextTabId()
   const tab: TabInfo = {
     id,
-    toolId: 'claude-sdk',
-    toolName: 'Claude Agent',
-    name: 'Claude Agent',
+    toolId: meta.toolId,
+    toolName: meta.name,
+    name: meta.name,
     worktreePath,
     rootSplit: createLeaf(pane),
     focusedPaneId: paneId,
@@ -1265,42 +1274,46 @@ export async function restartPane(
         title: null,
       }))
     })
-    .with({ toolId: 'claude-sdk' }, async (p) => {
-      const project = getProjectForWorktree(worktreePath)
-      const workspaceId = p.workspaceId ?? project?.workspace.id
-      const profileId = p.profileId ?? getProfilesByAgent('claude-sdk')[0]?.id
-      const existing = !p.conversationId
-        ? await findLatestSdkConversation(workspaceId, worktreePath, profileId)
-        : null
-      let conversationId = p.conversationId ?? existing?.id
-      const resolvedProfileId = p.profileId ?? existing?.agentProfileId ?? profileId
+    .when(
+      (p) => SDK_TOOL_IDS.has(p.toolId),
+      async (p) => {
+        const meta = sdkToolMeta(p.toolId)
+        const project = getProjectForWorktree(worktreePath)
+        const workspaceId = p.workspaceId ?? project?.workspace.id
+        const profileId = p.profileId ?? getProfilesByAgent(meta.toolId)[0]?.id
+        const existing = !p.conversationId
+          ? await findLatestSdkConversation(workspaceId, worktreePath, profileId)
+          : null
+        let conversationId = p.conversationId ?? existing?.id
+        const resolvedProfileId = p.profileId ?? existing?.agentProfileId ?? profileId
 
-      if (!conversationId && workspaceId && resolvedProfileId) {
-        const result = await window.api.sdkAgent.create({
+        if (!conversationId && workspaceId && resolvedProfileId) {
+          const result = await window.api.sdkAgent.create({
+            workspaceId,
+            worktreePath,
+            profileId: resolvedProfileId,
+          })
+          if ('error' in result) return
+          conversationId = result.conversationId
+        }
+        if (!conversationId || !workspaceId || !resolvedProfileId) return
+
+        tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
+          ...prev,
+          sessionId: conversationId,
+          wsUrl: '',
+          toolId: meta.toolId,
+          toolName: meta.name,
+          isRunning: true,
+          exitCode: null,
+          title: null,
+          paneType: 'sdkChat',
+          conversationId,
           workspaceId,
-          worktreePath,
           profileId: resolvedProfileId,
-        })
-        if ('error' in result) return
-        conversationId = result.conversationId
-      }
-      if (!conversationId || !workspaceId || !resolvedProfileId) return
-
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
-        ...prev,
-        sessionId: conversationId,
-        wsUrl: '',
-        toolId: 'claude-sdk',
-        toolName: 'Claude Agent',
-        isRunning: true,
-        exitCode: null,
-        title: null,
-        paneType: 'sdkChat',
-        conversationId,
-        workspaceId,
-        profileId: resolvedProfileId,
-      }))
-    })
+        }))
+      },
+    )
     .when(
       (p) => !!(p.tmuxSessionName && p.detached),
       async (p) => {
@@ -2237,10 +2250,11 @@ async function restoreSplitNode(
         paneType: 'browser',
         url: node.browserUrl,
       }
-    } else if (node.toolId === 'claude-sdk') {
+    } else if (SDK_TOOL_IDS.has(node.toolId)) {
+      const meta = sdkToolMeta(node.toolId)
       const project = getProjectForWorktree(worktreePath)
       const workspaceId = node.workspaceId ?? project?.workspace.id
-      const profileId = node.profileId ?? getProfilesByAgent('claude-sdk')[0]?.id
+      const profileId = node.profileId ?? getProfilesByAgent(meta.toolId)[0]?.id
       const existing = !node.conversationId
         ? await findLatestSdkConversation(workspaceId, worktreePath, profileId)
         : null
@@ -2260,8 +2274,8 @@ async function restoreSplitNode(
         id: paneId,
         sessionId: conversationId ?? crypto.randomUUID(),
         wsUrl: '',
-        toolId: 'claude-sdk',
-        toolName: 'Claude Agent',
+        toolId: meta.toolId,
+        toolName: meta.name,
         isRunning: !!conversationId,
         exitCode: conversationId ? null : 1,
         title: null,

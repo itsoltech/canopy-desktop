@@ -730,6 +730,10 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle('models:getOpenAiOptions', async () => {
+    return modelsDevCatalog.getOptionsForProvider('openai')
+  })
+
   ipcMain.handle('profile:save', async (_event, input: ProfileInput) => {
     if (!input || typeof input !== 'object') {
       throw new Error('profile:save requires an input object')

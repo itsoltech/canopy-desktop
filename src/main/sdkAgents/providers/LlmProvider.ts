@@ -52,6 +52,11 @@ export interface ProviderQueryOptions {
   cwd: string
   mcpServers?: Record<string, unknown>
   apiKey?: string
+  baseUrl?: string
+  customEnv?: string
+  settingsJson?: string
+  approvalMode?: string
+  sandboxMode?: string
   context: ProviderToolContext
   /** SDK session id for resume (omit on first message). */
   resume?: string

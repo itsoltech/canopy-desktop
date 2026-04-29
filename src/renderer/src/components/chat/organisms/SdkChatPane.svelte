@@ -112,6 +112,7 @@
   let lastViewedConversationId = $state(currentConversationId)
   let paneEl: HTMLElement | undefined = $state()
   let activeProviderPreset = $state<ClaudeProviderPresetId>('anthropic')
+  let activeAgentType = $state<string>('claude-sdk')
   let providerModelOptions = $state<SelectOption[]>([])
   let forceExpand = $state(false)
   let shortcutsOverlay = $state(false)
@@ -145,7 +146,11 @@
     }
     return null
   })
-  let currentModelReasoning = $derived(resolvedModelOption?.reasoning === true)
+  let currentModelReasoning = $derived(
+    activeAgentType === 'codex-sdk'
+      ? (resolvedModelOption?.reasoning ?? true)
+      : resolvedModelOption?.reasoning === true,
+  )
 
   // Push the active model's context window into the session so the statusbar
   // and extras panel can render `ctx NN%` without round-tripping to main.
@@ -380,6 +385,7 @@
   $effect(() => {
     const profileId = state?.conversation?.agentProfileId
     if (!profileId) {
+      activeAgentType = 'claude-sdk'
       activeProviderPreset = inferPresetFromModel(currentModel)
       providerModelOptions = []
       return
@@ -388,6 +394,7 @@
     let cancelled = false
     window.api.getProfile(profileId).then((profile) => {
       if (cancelled) return
+      activeAgentType = profile?.agentType ?? 'claude-sdk'
       activeProviderPreset = normalizeClaudeProviderPreset(profile?.prefs.claudeProviderPreset)
     })
     return () => {
@@ -396,6 +403,25 @@
   })
 
   $effect(() => {
+    if (activeAgentType === 'codex-sdk') {
+      providerModelOptions = []
+      let cancelled = false
+      window.api
+        .getOpenAiModels()
+        .then((options) => {
+          if (!cancelled) providerModelOptions = options
+        })
+        .catch(() => {})
+      return () => {
+        cancelled = true
+      }
+    }
+  })
+
+  $effect(() => {
+    if (activeAgentType === 'codex-sdk') {
+      return
+    }
     const preset = activeProviderPreset
     let cancelled = false
     providerModelOptions = []
@@ -743,7 +769,14 @@
     }
 
     // Shift+Tab cycles the permission mode.
-    if (e.key === 'Tab' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (
+      activeAgentType !== 'codex-sdk' &&
+      e.key === 'Tab' &&
+      e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey
+    ) {
       e.preventDefault()
       const next = cyclePermissionMode(currentMode)
       void setPermissionMode(currentConversationId, next)
@@ -955,12 +988,14 @@
                 />
               {/snippet}
               {#snippet permissionMode()}
-                <PermissionModePicker
-                  value={currentMode}
-                  options={MODE_OPTIONS}
-                  onchange={(v) =>
-                    void setPermissionMode(currentConversationId, v as SdkPermissionMode)}
-                />
+                {#if activeAgentType !== 'codex-sdk'}
+                  <PermissionModePicker
+                    value={currentMode}
+                    options={MODE_OPTIONS}
+                    onchange={(v) =>
+                      void setPermissionMode(currentConversationId, v as SdkPermissionMode)}
+                  />
+                {/if}
               {/snippet}
               {#snippet effortPicker()}
                 {#if currentModelReasoning}

@@ -775,6 +775,17 @@ interface CanopyAPI {
       contextWindow?: number | null
     }>
   >
+  getOpenAiModels: () => Promise<
+    Array<{
+      value: string
+      label: string
+      family?: string | null
+      releaseDate?: string | null
+      lastUpdated?: string | null
+      reasoning?: boolean
+      contextWindow?: number | null
+    }>
+  >
   saveProfile: (input: ProfileInput) => Promise<AgentProfileMasked>
   deleteProfile: (id: string) => Promise<void>
   onProfilesChanged: (callback: (profiles: AgentProfileMasked[]) => void) => () => void

@@ -42,6 +42,7 @@
     "@electron-toolkit/utils": "^4.0.0",
     "@lezer/highlight": "^1.2.3",
     "@lucide/svelte": "^1.0.0-rc.1",
+    "@openai/codex-sdk": "^0.124.0",
     "@parcel/watcher": "^2.5.6",
     "@replit/codemirror-indentation-markers": "^6.5.3",
     "@selemondev/svgl-svelte": "^2.1.2",

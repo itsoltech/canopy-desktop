@@ -302,6 +302,13 @@ const migrations: Migration[] = [
       WHERE id = 'claude-sdk' AND name = 'Claude (SDK)';
     `,
   },
+  {
+    id: 20,
+    up: `
+      INSERT OR IGNORE INTO tool_definitions (id, name, command, args_json, icon, category, is_custom)
+      VALUES ('codex-sdk', 'Codex Agent', 'sdkchat:internal', '[]', 'OpenAI', 'ai', 0);
+    `,
+  },
 ]
 
 export class Database {

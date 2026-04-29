@@ -235,7 +235,7 @@ export class ToolRegistry {
             return
           }
           // SDK-backed agents run in-process — no binary to locate.
-          if (tool.id === 'claude-sdk') {
+          if (tool.id === 'claude-sdk' || tool.id === 'codex-sdk') {
             result[tool.id] = true
             resolve()
             return

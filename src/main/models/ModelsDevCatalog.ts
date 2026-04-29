@@ -39,8 +39,11 @@ interface CachedCatalogFile {
 const MODELS_DEV_URL = 'https://models.dev/api.json'
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
-const PROVIDER_ALIASES: Record<ClaudeProviderPresetId, string[]> = {
+type CatalogProviderId = ClaudeProviderPresetId | 'openai'
+
+const PROVIDER_ALIASES: Record<CatalogProviderId, string[]> = {
   anthropic: ['anthropic'],
+  openai: ['openai'],
   kimi: ['moonshot', 'kimi'],
   minimax: ['minimax'],
   zai: ['z-ai', 'zai', 'zhipu'],
@@ -105,16 +108,16 @@ function parseCatalog(payload: unknown): ParsedModel[] {
   return models
 }
 
-function matchesPreset(model: ParsedModel, preset: ClaudeProviderPresetId): boolean {
-  const aliases = PROVIDER_ALIASES[preset]
+function matchesProvider(model: ParsedModel, provider: CatalogProviderId): boolean {
+  const aliases = PROVIDER_ALIASES[provider]
   const providerId = normalize(model.providerId)
   const modelId = normalize(model.id)
   const name = normalize(model.name)
 
   if (aliases.includes(providerId)) return true
 
-  if (preset === 'zai') return modelId.includes('glm') || name.includes('glm')
-  if (preset === 'kimi') return modelId.includes('kimi') || name.includes('kimi')
+  if (provider === 'zai') return modelId.includes('glm') || name.includes('glm')
+  if (provider === 'kimi') return modelId.includes('kimi') || name.includes('kimi')
 
   return false
 }
@@ -138,15 +141,19 @@ export class ModelsDevCatalog {
   }
 
   async getOptionsForPreset(preset: ClaudeProviderPresetId): Promise<ModelOption[]> {
+    return this.getOptionsForProvider(preset)
+  }
+
+  async getOptionsForProvider(provider: CatalogProviderId): Promise<ModelOption[]> {
     const payload = await this.loadPayload()
     const models = parseCatalog(payload)
 
-    // Dedupe within the preset's matched subset. Doing this before the
+    // Dedupe within the provider's matched subset. Doing this before the
     // preset filter would let other providers (e.g. amazon-bedrock, 302ai)
     // claim shared model IDs first and squeeze the real provider out.
     const matched = models
       .filter((model) => !model.status.includes('deprecated'))
-      .filter((model) => matchesPreset(model, preset))
+      .filter((model) => matchesProvider(model, provider))
 
     const deduped = new Map<string, ParsedModel>()
     for (const model of matched) {
@@ -155,7 +162,7 @@ export class ModelsDevCatalog {
 
     let filtered = [...deduped.values()].sort(compareModels)
 
-    if (preset === 'anthropic') {
+    if (provider === 'anthropic') {
       const concreteNames = new Set(
         filtered.filter((model) => !/\(latest\)$/i.test(model.name)).map((model) => model.name),
       )

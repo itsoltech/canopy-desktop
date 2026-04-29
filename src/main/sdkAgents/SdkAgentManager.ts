@@ -33,6 +33,7 @@ import {
 } from './sessionRegistry'
 import type { CanUseToolCallback, LlmProvider } from './providers/LlmProvider'
 import { AnthropicProvider, shapeQuestionAllowPayload } from './providers/AnthropicProvider'
+import { OpenAiCodexProvider } from './providers/OpenAiCodexProvider'
 import type { Conversation, SdkMessageRecord, SdkToolEventRecord } from '../db/sdkAgentRows'
 import type { ConversationSearchHit } from '../db/ConversationStore'
 import { buildClaudeProviderEnv } from '../agents/claudeProviderEnv'
@@ -78,6 +79,7 @@ export class SdkAgentManager {
   private readonly registry = new SessionRegistry()
   private readonly providers = new Map<string, LlmProvider>([
     ['anthropic', new AnthropicProvider()],
+    ['openai', new OpenAiCodexProvider()],
   ])
 
   constructor(deps: SdkAgentManagerDeps) {
@@ -107,7 +109,7 @@ export class SdkAgentManager {
       }
     }
     const profile = profileResult.value
-    const model = profile.prefs.model ?? 'sonnet'
+    const model = profile.prefs.model ?? defaultModelForAgentType(profile.agentType)
     const permissionMode = normalizePermissionMode(profile.prefs.permissionMode)
     const effortLevel = normalizeEffortLevel(profile.prefs.effortLevel)
 
@@ -352,7 +354,7 @@ export class SdkAgentManager {
     const effortLevel =
       params.effortLevelOverride !== undefined ? params.effortLevelOverride : session.effortLevel
 
-    const provider = this.providers.get('anthropic')
+    const provider = this.providers.get(providerIdForAgentType(profile.agentType))
     if (!provider) {
       return { error: { _tag: 'sdk_internal', message: 'no provider registered' } }
     }
@@ -360,7 +362,8 @@ export class SdkAgentManager {
     // Configure the env just like commitMessageGenerator does, scoped to this
     // call. apiKey may be null; applyEnv handles that by only setting base URL
     // and provider env vars.
-    const savedEnv = applyEnv(profile.apiKey, profile.prefs)
+    const savedEnv =
+      provider.providerId === 'anthropic' ? applyEnv(profile.apiKey, profile.prefs) : null
     try {
       const canUseTool = this.buildCanUseTool(params.conversationId)
       const iterResult = await provider.query({
@@ -374,6 +377,11 @@ export class SdkAgentManager {
         mcpServers: parseMcpServers(profile.prefs.mcpServers),
         cwd: session.worktreePath,
         apiKey: profile.apiKey ?? undefined,
+        baseUrl: profile.prefs.baseUrl,
+        customEnv: profile.prefs.customEnv,
+        settingsJson: profile.prefs.settingsJson,
+        approvalMode: profile.prefs.approvalMode,
+        sandboxMode: profile.prefs.sandbox,
         context: {
           canUseTool,
           signal: session.abortController.signal,
@@ -402,7 +410,7 @@ export class SdkAgentManager {
       this.emitAndPersistError(params.conversationId, error)
       return { error }
     } finally {
-      restoreEnv(savedEnv)
+      if (savedEnv) restoreEnv(savedEnv)
     }
     return
   }
@@ -759,4 +767,12 @@ function parseMcpServers(raw: string | undefined): Record<string, unknown> | und
   } catch {
     return undefined
   }
+}
+
+function defaultModelForAgentType(agentType: string): string {
+  return agentType === 'codex-sdk' ? 'codex' : 'sonnet'
+}
+
+function providerIdForAgentType(agentType: string): 'anthropic' | 'openai' {
+  return agentType === 'codex-sdk' ? 'openai' : 'anthropic'
 }
