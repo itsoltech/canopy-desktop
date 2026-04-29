@@ -166,7 +166,7 @@
     const trimmed = value.trim()
     if (!trimmed) return 'Name is required'
     if (trimmed.startsWith('/')) return 'Use a relative path'
-    if (trimmed.includes('..')) return 'Path cannot contain ".."'
+    if (trimmed.split('/').includes('..')) return 'Path cannot contain ".."'
     return null
   }
 

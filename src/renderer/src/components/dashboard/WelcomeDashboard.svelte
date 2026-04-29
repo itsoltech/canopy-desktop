@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick } from 'svelte'
   import { openWorkspace } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import WelcomeEmpty from './_partials/WelcomeEmpty.svelte'
   import WelcomeContextMenu from './_partials/WelcomeContextMenu.svelte'
   import WelcomeRecents from './_partials/WelcomeRecents.svelte'
@@ -50,7 +51,13 @@
   })
 
   onMount(async () => {
-    workspaces = await window.api.listWorkspaces(20)
+    try {
+      workspaces = await window.api.listWorkspaces(20)
+    } catch (err) {
+      addToast(
+        `Failed to load recent workspaces: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
 
     await tick()
     if (workspaces.length === 0) {
