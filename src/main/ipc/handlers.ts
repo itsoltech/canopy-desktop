@@ -1786,6 +1786,22 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle('fs:createFile', async (event, payload: { filePath: string }): Promise<void> => {
+    const resolved = await validatePathAccess(event.sender.id, payload.filePath)
+    // Ensure the parent dir exists (handles nested paths typed in the prompt
+    // like "subdir/newfile.ts" — creates "subdir" if missing).
+    await fs.promises.mkdir(path.dirname(resolved), { recursive: true })
+    // wx flag: error if file already exists. Avoids silently clobbering
+    // anything the user typed by accident.
+    const handle = await fs.promises.open(resolved, 'wx')
+    await handle.close()
+  })
+
+  ipcMain.handle('fs:mkdir', async (event, payload: { dirPath: string }): Promise<void> => {
+    const resolved = await validatePathAccess(event.sender.id, payload.dirPath)
+    await fs.promises.mkdir(resolved, { recursive: true })
+  })
+
   ipcMain.handle(
     'dialog:confirmUnsavedChanges',
     async (event, payload: { filePaths: string[] }): Promise<'save' | 'discard' | 'cancel'> => {
