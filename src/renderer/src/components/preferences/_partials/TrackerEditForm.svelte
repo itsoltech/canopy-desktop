@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Check, X } from '@lucide/svelte'
+  import { match } from 'ts-pattern'
   import CustomSelect from '../../shared/CustomSelect.svelte'
 
   type Provider = 'jira' | 'youtrack' | 'github'
@@ -33,16 +34,16 @@
   } = $props()
 
   function openTokenPage(): void {
-    if (provider === 'jira') {
-      window.api.openExternal('https://id.atlassian.com/manage-profile/security/api-tokens')
-    } else if (provider === 'youtrack') {
-      const url = baseUrl
-        ? `${baseUrl.replace(/\/$/, '')}/hub/tokens`
-        : 'https://youtrack.jetbrains.com/hub/tokens'
-      window.api.openExternal(url)
-    } else if (provider === 'github') {
-      window.api.openExternal('https://github.com/settings/tokens')
-    }
+    const url = match(provider)
+      .with('jira', () => 'https://id.atlassian.com/manage-profile/security/api-tokens')
+      .with('youtrack', () =>
+        baseUrl
+          ? `${baseUrl.replace(/\/$/, '')}/hub/tokens`
+          : 'https://youtrack.jetbrains.com/hub/tokens',
+      )
+      .with('github', () => 'https://github.com/settings/tokens')
+      .exhaustive()
+    window.api.openExternal(url)
   }
 </script>
 
