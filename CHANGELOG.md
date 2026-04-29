@@ -1,3 +1,13 @@
+## [0.13.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.2...v0.13.0-next.3) (2026-04-29)
+
+### Bug Fixes
+
+* **mobile:** patch dependabot alerts via npm overrides ([#196](https://github.com/itsoltech/canopy-desktop/issues/196)) ([2e6837d](https://github.com/itsoltech/canopy-desktop/commit/2e6837d497e21bce23a6f3b4370d1d99cbe97318)), closes [#9](https://github.com/itsoltech/canopy-desktop/issues/9) [#12](https://github.com/itsoltech/canopy-desktop/issues/12) [#13](https://github.com/itsoltech/canopy-desktop/issues/13) [#15](https://github.com/itsoltech/canopy-desktop/issues/15) [#17](https://github.com/itsoltech/canopy-desktop/issues/17) [#16](https://github.com/itsoltech/canopy-desktop/issues/16)
+
+### Refactoring
+
+* **ui:** app-wide reskin to unify design language ([#198](https://github.com/itsoltech/canopy-desktop/issues/198)) ([88dea46](https://github.com/itsoltech/canopy-desktop/commit/88dea4635fdf15c17dadaa714b38976f03751f95))
+
 ## [0.13.0-next.2](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.1...v0.13.0-next.2) (2026-04-28)
 
 ### Bug Fixes
