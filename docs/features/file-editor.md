@@ -157,16 +157,22 @@ A pane with zero files after a merge/detach is not restored.
 
 ## IPC surface
 
-| Handler                        | Purpose                                                                    |
-| ------------------------------ | -------------------------------------------------------------------------- |
-| `fs:readFile`                  | Bounded read (up to 10 MB hard cap), binary detection, truncation flag.    |
-| `fs:writeFile`                 | Writes UTF-8, optionally gated by `expectedMtimeMs` to detect stale saves. |
-| `fs:stat`                      | Returns `{ mtimeMs, size, canWrite }`.                                     |
-| `dialog:confirmUnsavedChanges` | Native 3-way dialog (Save / Don't Save / Cancel) used by `closeTab`.       |
+| Handler                        | Purpose                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| `fs:readFile`                  | Bounded read (up to 10 MB hard cap), binary detection, truncation flag.               |
+| `fs:writeFile`                 | Writes UTF-8, optionally gated by `expectedMtimeMs` to detect stale saves.            |
+| `fs:stat`                      | Returns `{ mtimeMs, size, canWrite }`.                                                |
+| `fs:createFile`                | Creates an empty file (`wx` flag), creating parent dirs as needed. Used by file tree. |
+| `fs:mkdir`                     | Recursively creates a directory. Used by file tree.                                   |
+| `dialog:confirmUnsavedChanges` | Native 3-way dialog (Save / Don't Save / Cancel) used by `closeTab`.                  |
 
-All three validate `filePath` through `validatePathAccess(senderId, path)`
-which resolves symlinks and rejects anything outside the renderer's
-workspace roots.
+Read/write/stat handlers validate `filePath` through `validatePathAccess`,
+which calls `fs.realpath` on the target and rejects anything outside the
+renderer's workspace roots. Create handlers (`fs:createFile`, `fs:mkdir`)
+use `validateCreationPath`, which walks up to the closest existing ancestor,
+runs `validatePathAccess` against it, and rejects tails that escape via
+`..` or absolute references — needed because the target itself does not
+yet exist and `realpath` would fail with `ENOENT`.
 
 ## Keyboard shortcuts
 

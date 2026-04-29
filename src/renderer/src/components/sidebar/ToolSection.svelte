@@ -61,7 +61,7 @@
             <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1">{tool.name}</span>
             {#if count > 0}
               <span
-                class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-border text-text text-2xs font-semibold flex-shrink-0"
+                class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
                 >{count}</span
               >
             {/if}
@@ -83,12 +83,12 @@
             <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1">{tool.name}</span>
             {#if count > 0}
               <span
-                class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-border text-text text-2xs font-semibold flex-shrink-0"
+                class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
                 >{count}</span
               >
             {:else}
               <span
-                class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-transparent text-text-faint text-2xs font-medium flex-shrink-0"
+                class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-border-subtle text-text-muted text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
                 >{profiles.length}</span
               >
             {/if}
@@ -126,7 +126,7 @@
           <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1">{tool.name}</span>
           {#if count > 0}
             <span
-              class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-border text-text text-2xs font-semibold flex-shrink-0"
+              class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
               >{count}</span
             >
           {/if}

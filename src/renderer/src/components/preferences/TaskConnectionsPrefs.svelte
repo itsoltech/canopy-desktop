@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { Check, X, Plus, Trash2 } from '@lucide/svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
+  import { Plus, Trash2 } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import {
     getRepoConfig,
@@ -13,6 +12,8 @@
   } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import TrackerEditForm from './_partials/TrackerEditForm.svelte'
 
   interface Props {
     repoRoot?: string
@@ -148,7 +149,7 @@
   async function removeTracker(trackerId: string): Promise<void> {
     if (!config) return
     const ok = await confirm({
-      title: 'Remove Connection',
+      title: 'Remove connection',
       message: 'Remove this tracker connection?',
       confirmLabel: 'Remove',
     })
@@ -187,199 +188,92 @@
 </script>
 
 {#if config}
-  <div class="flex flex-col gap-2">
-    <div class="flex items-center justify-between">
-      <h4 class="text-xs font-semibold uppercase tracking-[0.5px] text-text-muted m-0">
-        Connections
-      </h4>
+  <PrefsSection title="Connections" description="Trackers Canopy can pull tasks from">
+    <div class="flex flex-col gap-1">
+      {#if config.trackers.length === 0 && editingId === null}
+        <p class="text-sm text-text-faint m-0">No connections configured.</p>
+      {/if}
+
+      {#each config.trackers as tracker (tracker.id)}
+        {#if editingId === tracker.id}
+          <TrackerEditForm
+            bind:provider={editProvider}
+            bind:baseUrl={editBaseUrl}
+            bind:projectKey={editProjectKey}
+            bind:username={editUsername}
+            bind:token={editToken}
+            isNew={false}
+            hasExistingToken={trackerCreds[tracker.id]?.hasToken ?? false}
+            {testing}
+            {testResult}
+            onCancel={cancelEdit}
+            onTest={testConnection}
+            onSave={saveTracker}
+          />
+        {:else}
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm font-inherit cursor-pointer text-left hover:border-border"
+              onclick={() => startEdit(tracker)}
+            >
+              <span
+                class="text-2xs font-semibold uppercase tracking-caps-tight text-accent-text bg-accent-bg px-1.5 py-px rounded-sm shrink-0"
+                >{providerLabel(tracker.provider)}</span
+              >
+              <span class="flex-1 text-text-secondary truncate"
+                >{tracker.baseUrl || 'Not configured'}</span
+              >
+              {#if tracker.projectKey}
+                <span class="font-mono text-xs text-text-muted shrink-0">{tracker.projectKey}</span>
+              {/if}
+              <span
+                class="size-1.5 rounded-full shrink-0"
+                class:bg-success={trackerCreds[tracker.id]?.hasToken}
+                class:bg-warning-text={!trackerCreds[tracker.id]?.hasToken}
+                title={trackerCreds[tracker.id]?.hasToken ? 'Has token' : 'Missing token'}
+              ></span>
+            </button>
+            <button
+              type="button"
+              class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+              onclick={() => removeTracker(tracker.id)}
+              aria-label="Remove connection"
+              title="Remove"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        {/if}
+      {/each}
+
+      {#if editingId === '__new__'}
+        <TrackerEditForm
+          bind:provider={editProvider}
+          bind:baseUrl={editBaseUrl}
+          bind:projectKey={editProjectKey}
+          bind:username={editUsername}
+          bind:token={editToken}
+          isNew={true}
+          hasExistingToken={false}
+          {testing}
+          {testResult}
+          onCancel={cancelEdit}
+          onTest={testConnection}
+          onSave={saveTracker}
+        />
+      {/if}
+
       {#if editingId === null}
         <button
-          class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text-secondary"
+          type="button"
+          class="self-start flex items-center gap-1 px-3 py-1 mt-1 rounded-md bg-border-subtle border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-active hover:text-text"
           onclick={startAdd}
-          title="Add connection"
         >
-          <Plus size={14} />
+          <Plus size={12} />
+          <span>Add connection</span>
         </button>
       {/if}
     </div>
-
-    {#if config.trackers.length === 0 && editingId === null}
-      <span class="text-xs text-text-faint">No connections configured. Click + to add one.</span>
-    {/if}
-
-    {#each config.trackers as tracker (tracker.id)}
-      {#if editingId === tracker.id}
-        {@render editForm()}
-      {:else}
-        <div class="flex items-center gap-1">
-          <button
-            class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-sm font-inherit cursor-pointer text-left hover:border-focus-ring"
-            onclick={() => startEdit(tracker)}
-          >
-            <span
-              class="text-2xs font-semibold uppercase text-accent-text bg-accent-bg px-1.5 py-px rounded-sm flex-shrink-0"
-              >{providerLabel(tracker.provider)}</span
-            >
-            <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-text-secondary"
-              >{tracker.baseUrl || 'Not configured'}</span
-            >
-            {#if tracker.projectKey}
-              <span class="font-mono text-xs text-text-muted">{tracker.projectKey}</span>
-            {/if}
-            <span
-              class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-              class:bg-success={trackerCreds[tracker.id]?.hasToken}
-              class:bg-warning-text={!trackerCreds[tracker.id]?.hasToken}
-            ></span>
-          </button>
-          <button
-            class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-danger-text"
-            onclick={() => removeTracker(tracker.id)}
-            title="Remove"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-      {/if}
-    {/each}
-
-    {#if editingId === '__new__'}
-      {@render editForm()}
-    {/if}
-  </div>
+  </PrefsSection>
 {/if}
-
-{#snippet editForm()}
-  <div class="flex flex-col gap-2 p-2.5 border border-border rounded-xl bg-border-subtle">
-    <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-text-secondary flex items-center gap-2">Provider</label
-      >
-      <CustomSelect
-        value={editProvider}
-        options={[
-          { value: 'jira', label: 'Jira' },
-          { value: 'youtrack', label: 'YouTrack' },
-          { value: 'github', label: 'GitHub' },
-        ]}
-        onchange={(v) => (editProvider = v as 'jira' | 'youtrack' | 'github')}
-      />
-    </div>
-
-    <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-text-secondary flex items-center gap-2">Base URL</label
-      >
-      <input
-        class="px-2 py-1 border border-border rounded-md bg-hover text-text text-sm font-inherit outline-none focus:border-focus-ring"
-        bind:value={editBaseUrl}
-        placeholder={editProvider === 'github'
-          ? 'https://github.com'
-          : 'https://company.atlassian.net'}
-        spellcheck="false"
-      />
-    </div>
-
-    {#if editProvider === 'github'}
-      <div class="flex flex-col gap-1">
-        <label class="text-xs font-medium text-text-secondary flex items-center gap-2"
-          >Repository (optional)</label
-        >
-        <input
-          class="px-2 py-1 border border-border rounded-md bg-hover text-text text-sm font-inherit outline-none focus:border-focus-ring"
-          bind:value={editProjectKey}
-          placeholder="owner/repo — auto-detected if empty"
-          spellcheck="false"
-        />
-      </div>
-    {/if}
-
-    <div class="flex flex-col gap-1.5 pt-1.5 border-t border-border">
-      <span class="text-2xs text-text-faint">Credentials — stored locally, never committed.</span>
-
-      {#if editProvider === 'jira'}
-        <div class="flex flex-col gap-1">
-          <label class="text-xs font-medium text-text-secondary flex items-center gap-2"
-            >Email</label
-          >
-          <input
-            class="px-2 py-1 border border-border rounded-md bg-hover text-text text-sm font-inherit outline-none focus:border-focus-ring"
-            bind:value={editUsername}
-            placeholder="user@company.com"
-            spellcheck="false"
-          />
-        </div>
-      {/if}
-
-      <div class="flex flex-col gap-1">
-        <label class="text-xs font-medium text-text-secondary flex items-center gap-2">
-          API Token
-          {#if editProvider === 'jira'}
-            <button
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={() =>
-                window.api.openExternal(
-                  'https://id.atlassian.com/manage-profile/security/api-tokens',
-                )}
-            >
-              Generate
-            </button>
-          {:else if editProvider === 'youtrack'}
-            <button
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={() => {
-                const url = editBaseUrl
-                  ? `${editBaseUrl.replace(/\/$/, '')}/hub/tokens`
-                  : 'https://youtrack.jetbrains.com/hub/tokens'
-                window.api.openExternal(url)
-              }}
-            >
-              Generate
-            </button>
-          {:else if editProvider === 'github'}
-            <button
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={() => window.api.openExternal('https://github.com/settings/tokens')}
-            >
-              Generate
-            </button>
-          {/if}
-        </label>
-        <input
-          class="px-2 py-1 border border-border rounded-md bg-hover text-text text-sm font-inherit outline-none focus:border-focus-ring"
-          type="password"
-          bind:value={editToken}
-          placeholder={editingId !== '__new__' && trackerCreds[editingId ?? '']?.hasToken
-            ? '••••••••'
-            : 'Enter token'}
-          autocomplete="off"
-        />
-      </div>
-    </div>
-
-    <div class="min-h-[18px]" aria-live="polite">
-      {#if testResult === 'success'}
-        <span class="flex items-center gap-1 text-xs text-success"><Check size={14} /> OK</span>
-      {:else if testResult === 'fail'}
-        <span class="flex items-center gap-1 text-xs text-danger-text"><X size={14} /> Failed</span>
-      {/if}
-    </div>
-
-    <div class="flex gap-1.5 justify-end">
-      <button
-        class="px-3 py-1 border-0 rounded-md text-sm font-inherit cursor-pointer bg-transparent text-text-muted hover:text-text"
-        onclick={cancelEdit}>Cancel</button
-      >
-      <button
-        class="px-3 py-1 border-0 rounded-md text-sm font-inherit cursor-pointer bg-active text-text enabled:hover:bg-hover-strong disabled:opacity-50 disabled:cursor-default"
-        onclick={testConnection}
-        disabled={testing || !editBaseUrl || !editToken}
-      >
-        {#if testing}Testing...{:else}Test{/if}
-      </button>
-      <button
-        class="px-3 py-1 border-0 rounded-md text-sm font-inherit cursor-pointer bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
-        onclick={saveTracker}
-        disabled={!editBaseUrl}>Save</button
-      >
-    </div>
-  </div>
-{/snippet}

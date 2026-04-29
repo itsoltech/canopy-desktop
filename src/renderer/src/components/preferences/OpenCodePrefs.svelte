@@ -3,4 +3,4 @@
   import OpenCodeProfileForm from './OpenCodeProfileForm.svelte'
 </script>
 
-<AgentProfilesPanel agentType="opencode" title="OpenCode" form={OpenCodeProfileForm} />
+<AgentProfilesPanel agentType="opencode" form={OpenCodeProfileForm} />

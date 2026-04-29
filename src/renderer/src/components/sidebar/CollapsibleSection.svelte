@@ -28,20 +28,20 @@
 </script>
 
 <section class="py-3" class:border-t={borderTop} class:border-border-subtle={borderTop}>
-  <div class="flex items-center justify-between px-3 h-5 mb-2">
+  <div class="flex items-center justify-between px-3 h-7 mb-1">
     <button
       class="flex items-center gap-1 flex-1 min-w-0 bg-transparent border-0 py-1 -my-1 cursor-pointer text-inherit group"
       onclick={toggle}
       aria-expanded={!collapsed}
     >
       <span
-        class="flex items-center text-text-faint transition-transform duration-base ease-std"
+        class="flex items-center text-text-faint group-hover:text-text-muted transition-transform duration-base ease-std"
         class:rotate-90={!collapsed}
       >
         <ChevronRight size={12} />
       </span>
       <h3
-        class="text-2xs font-semibold tracking-caps uppercase text-text-muted group-hover:text-text-secondary"
+        class="text-2xs font-semibold tracking-caps-looser uppercase text-text-faint group-hover:text-text-muted leading-tight"
       >
         {title}
       </h3>

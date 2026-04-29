@@ -17,7 +17,7 @@ Export is a merge-friendly operation: import upserts rows by natural key (`key` 
 
 ### Export
 
-1. User opens Preferences → General → Backup & Restore → **Export Settings…**
+1. User opens Settings and clicks the **Export** icon in the sidebar footer.
 2. A confirmation dialog warns that the file will contain plaintext API keys and tokens. The user either confirms or cancels.
 3. On confirm, the main process presents a native Save dialog (`dialog.showSaveDialog`) pre-filled with `canopy-settings-YYYY-MM-DD.json`.
 4. `SettingsExportService.buildExport()` reads every exportable preference (decrypting encrypted keys with `safeStorage`), every agent profile (with decrypted `apiKey`), every credential (with decrypted password), and every `is_custom = 1` tool definition.
@@ -26,7 +26,7 @@ Export is a merge-friendly operation: import upserts rows by natural key (`key` 
 
 ### Import
 
-1. User opens Preferences → General → Backup & Restore → **Import Settings…**
+1. User opens Settings and clicks the **Import** icon in the sidebar footer.
 2. A confirmation dialog warns that existing matching entries will be overwritten. The user either confirms or cancels.
 3. On confirm, the main process presents a native Open dialog filtered to `.json` files.
 4. The file is read, `JSON.parse`'d, and handed to `SettingsExportService.applyImport()`.
@@ -130,7 +130,7 @@ All errors surface to the renderer as thrown `Error`s from the IPC handlers, cau
 
 ## Configuration
 
-Backup & Restore has no user-configurable options. The Export and Import actions live under Preferences → General → Backup & Restore.
+Backup & Restore has no user-configurable options. The Export and Import actions live in the Settings sidebar footer, next to the **Backup** label.
 
 ## Source files
 
@@ -140,4 +140,4 @@ Backup & Restore has no user-configurable options. The Export and Import actions
 - Store helpers: `src/main/db/PreferencesStore.ts` (`getAllDecrypted`, `setMany`, `NON_EXPORTABLE_KEYS`), `src/main/profiles/ProfileStore.ts` (`listInternal`, `upsertForImport`), `src/main/db/CredentialStore.ts` (`listInternalDecrypted`, `upsertForImport`), `src/main/tools/ToolRegistry.ts` (`listCustom`, `upsertCustomForImport`)
 - IPC handlers: `src/main/ipc/handlers.ts` (`settings:export`, `settings:import`)
 - Preload bridge: `src/preload/index.ts` (`exportSettings`, `importSettings`)
-- UI: `src/renderer/src/components/preferences/GeneralPrefs.svelte` (Backup & Restore section)
+- UI: `src/renderer/src/components/preferences/PreferencesModal.svelte` (sidebar-footer Import/Export buttons)

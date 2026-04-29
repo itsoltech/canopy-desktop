@@ -422,16 +422,21 @@
 
 /* Preferences modal sizing. */
 @utility w-prefs {
-  width: 880px;
+  width: 920px;
 }
 @utility max-w-prefs {
   max-width: 92vw;
 }
 @utility h-prefs {
-  height: 640px;
+  height: 680px;
 }
 @utility max-h-prefs {
   max-height: 88vh;
+}
+
+/* Hover background for prefs setting rows — softer than bg-hover. */
+@utility bg-row-hover {
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
 }
 
 /* macOS traffic-light buttons reserve ~78px on each side of the titlebar.
@@ -455,13 +460,15 @@
   transition-timing-function: var(--ease-std);
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  -webkit-user-select: none;
-  user-select: none;
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 input,

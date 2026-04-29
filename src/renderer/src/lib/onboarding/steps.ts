@@ -170,6 +170,30 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.12.0',
     category: 'feature',
   },
+  {
+    id: 'file-tree-create',
+    title: 'Create files and folders from the sidebar',
+    description:
+      'The Files section now has a + button at the top of the tree, and each directory reveals a + button on hover. Click either one and type a name (or a nested path like "subdir/newfile.ts") to create a file or folder in place. Missing parent directories are created automatically.',
+    introducedIn: '0.13.0',
+    category: 'feature',
+  },
+  {
+    id: 'welcome-filter',
+    title: 'Filter recents on the welcome dashboard',
+    description:
+      'When you have more than four recent workspaces, the welcome dashboard shows a filter input. Press / to focus it, ↑/↓ to move between rows, Enter to open, and Cmd/Ctrl+Backspace to remove a workspace from the list.',
+    introducedIn: '0.13.0',
+    category: 'feature',
+  },
+  {
+    id: 'settings-backup',
+    title: 'Backup and restore settings',
+    description:
+      'The Settings dialog footer now has Export and Import buttons. Export writes a JSON snapshot of preferences, tracker configs, and skill settings; Import merges or replaces the current settings from a snapshot. Useful for syncing across machines or recovering after a reset.',
+    introducedIn: '0.13.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

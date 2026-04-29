@@ -1,4 +1,4 @@
-import { restoreLayout, closeAllTabsForWorktree } from './tabs.svelte'
+import { restoreLayout, closeAllTabsForWorktree, killAllTabs, tabsByWorktree } from './tabs.svelte'
 import {
   loadRepoConfig,
   getRepoConfig,
@@ -354,11 +354,25 @@ export async function detachProject(path: string): Promise<void> {
   const project = projects[idx]
   console.warn(`[workspace] detaching "${project.workspace.name}" (${path})`)
 
-  // Close tabs for all worktrees of this project (kills PTY sessions)
-  const worktreePaths = project.isGitRepo
-    ? project.worktrees.map((wt) => wt.path)
-    : [project.workspace.path]
-  for (const wtPath of worktreePaths) {
+  // Close tabs for every path owned by this project (kills PTY sessions).
+  // Includes workspace path, repoRoot, all worktree paths, plus any
+  // tabsByWorktree key under the repo root — so nothing lingers under a
+  // stale or symlink-normalized key.
+  const ownedPaths: string[] = []
+  const addPath = (p: string | null | undefined): void => {
+    if (p && !ownedPaths.includes(p)) ownedPaths.push(p)
+  }
+  addPath(project.workspace.path)
+  addPath(project.repoRoot)
+  for (const wt of project.worktrees) addPath(wt.path)
+  if (project.repoRoot) {
+    const normalize = (s: string): string => s.replace(/\\/g, '/')
+    const rootNorm = normalize(project.repoRoot) + '/'
+    for (const key of Object.keys(tabsByWorktree)) {
+      if (normalize(key).startsWith(rootNorm)) addPath(key)
+    }
+  }
+  for (const wtPath of ownedPaths) {
     await closeAllTabsForWorktree(wtPath)
   }
 
@@ -399,6 +413,12 @@ export async function detachProject(path: string): Promise<void> {
       // No projects left — stop the file tree watcher
       await window.api.unwatchFiles()
     }
+  }
+
+  // Safety net: if no projects remain, kill any remaining PTYs/tabs that
+  // might have been registered under stale keys, so the dashboard can render.
+  if (projects.length === 0 && Object.keys(tabsByWorktree).length > 0) {
+    await killAllTabs()
   }
 }
 

@@ -102,7 +102,7 @@
 <CollapsibleSection title="WORKTREES" sectionKey="worktrees">
   {#snippet headerExtra()}
     <button
-      class="text-2xs font-medium font-inherit text-text-muted bg-transparent border-0 px-1.5 py-px rounded-md cursor-pointer transition-colors duration-fast hover:text-text hover:bg-active"
+      class="inline-flex items-center h-5 px-1.5 rounded-sm font-inherit text-2xs font-medium text-text-faint bg-transparent border-0 cursor-pointer transition-colors duration-fast hover:text-text hover:bg-hover"
       onclick={showCreateWorktree}
       title="Create worktree">+ new</button
     >
@@ -111,8 +111,8 @@
     {#each workspaceState.worktrees as wt (wt.path)}
       <li class="flex items-center">
         <button
-          class="flex items-center gap-1 flex-1 min-w-0 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
-          class:bg-hover-strong={wt.path === workspaceState.selectedWorktreePath}
+          class="flex items-center gap-2 flex-1 min-w-0 h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
+          class:bg-active={wt.path === workspaceState.selectedWorktreePath}
           onclick={() => selectWorktree(wt.path)}
         >
           <span class="font-mono text-xs text-text-secondary w-2.5 flex-shrink-0"
@@ -123,12 +123,13 @@
           >
           {#if wt.branch === '(detached)'}
             <span
-              class="text-2xs font-medium font-mono text-warning-text flex-shrink-0 ml-auto"
+              class="ml-auto inline-flex items-center h-4 px-1.5 rounded-md text-2xs font-semibold font-mono tracking-caps-tight bg-border-subtle text-warning-text leading-tight flex-shrink-0"
               title={wt.head}>{wt.head.slice(0, 7)}</span
             >
           {:else if mergedBranches.has(wt.branch)}
-            <span class="text-2xs font-medium text-success flex-shrink-0 ml-auto" title="Merged"
-              >merged</span
+            <span
+              class="ml-auto inline-flex items-center h-4 px-1.5 rounded-md text-2xs font-semibold uppercase tracking-caps-tight bg-border-subtle text-success-text leading-tight flex-shrink-0"
+              title="Merged">merged</span
             >
           {/if}
           {#if prMap[wt.branch]}
@@ -148,7 +149,7 @@
         </button>
         {#if !wt.isMain && mergedBranches.has(wt.branch)}
           <button
-            class="flex items-center justify-center w-6 h-6 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-md mr-1 transition-colors duration-fast hover:text-danger hover:bg-danger-bg"
+            class="inline-flex items-center justify-center size-6 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-md mr-1 transition-colors duration-fast hover:text-danger-text hover:bg-danger-bg"
             title="Remove worktree and delete branch"
             aria-label="Remove worktree and delete branch"
             onclick={(e) => removeWorktree(e, wt)}

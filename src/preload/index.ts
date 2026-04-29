@@ -692,6 +692,8 @@ const api = {
     ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
   writeFile: (filePath: string, content: string, expectedMtimeMs?: number) =>
     ipcRenderer.invoke('fs:writeFile', { filePath, content, expectedMtimeMs }),
+  createFile: (filePath: string) => ipcRenderer.invoke('fs:createFile', { filePath }),
+  mkdir: (dirPath: string) => ipcRenderer.invoke('fs:mkdir', { dirPath }),
   statFile: (filePath: string) => ipcRenderer.invoke('fs:stat', { filePath }),
   quickOpenListFiles: (worktreePath: string, force?: boolean) =>
     ipcRenderer.invoke('quickOpen:listFiles', { worktreePath, force }) as Promise<string[]>,

@@ -1,4 +1,14 @@
 <script lang="ts">
+  import {
+    GitCommitVertical,
+    ArrowUpFromLine,
+    ArrowDownToLine,
+    RefreshCw,
+    Archive,
+    ArchiveRestore,
+    GitPullRequest,
+    Loader2,
+  } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt, showCreateGitHubPR } from '../../lib/stores/dialogs.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
@@ -123,7 +133,7 @@
 <CollapsibleSection title="GIT" sectionKey="git" borderTop>
   {#snippet headerExtra()}
     <span class="flex items-center gap-1 overflow-hidden">
-      <span class="text-2xs text-text-secondary truncate max-w-30"
+      <span class="text-2xs font-mono text-text-faint truncate max-w-30"
         >{workspaceState.branch ?? ''}</span
       >
       {#if workspaceState.isDirty}
@@ -138,71 +148,148 @@
   {/snippet}
   <div class="flex flex-col">
     <button
-      class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+      class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
       disabled={!workspaceState.isDirty || loading === 'commit'}
       onclick={doCommit}
       title={workspaceState.isDirty ? 'Commit staged changes' : 'Nothing to commit'}
     >
+      {#if loading === 'commit'}
+        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+      {:else}
+        <GitCommitVertical
+          size={13}
+          class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+        />
+      {/if}
       <span class="flex-1">Commit</span>
     </button>
+
+    <div
+      class="h-px mx-3 my-1 bg-border-subtle"
+      role="separator"
+      aria-orientation="horizontal"
+    ></div>
+
     <button
-      class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+      class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
       disabled={loading === 'push'}
       onclick={doPush}
       title="Push to remote"
     >
+      {#if loading === 'push'}
+        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+      {:else}
+        <ArrowUpFromLine
+          size={13}
+          class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+        />
+      {/if}
       <span class="flex-1">Push</span>
       {#if ahead > 0}
         <span
-          class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-border text-text text-2xs font-semibold flex-shrink-0"
+          class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
           >{ahead}</span
         >
       {/if}
     </button>
     <button
-      class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+      class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
       disabled={loading === 'pull'}
       onclick={doPull}
       title="Pull from remote"
     >
+      {#if loading === 'pull'}
+        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+      {:else}
+        <ArrowDownToLine
+          size={13}
+          class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+        />
+      {/if}
       <span class="flex-1">Pull</span>
       {#if behind > 0}
         <span
-          class="flex items-center justify-center min-w-4 h-4 px-1 rounded-2xl bg-border text-text text-2xs font-semibold flex-shrink-0"
+          class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
           >{behind}</span
         >
       {/if}
     </button>
     <button
-      class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+      class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
       disabled={loading === 'fetch'}
       onclick={doFetch}
       title="Fetch from remote"
     >
+      {#if loading === 'fetch'}
+        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+      {:else}
+        <RefreshCw
+          size={13}
+          class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+        />
+      {/if}
       <span class="flex-1">Fetch</span>
     </button>
+
+    <div
+      class="h-px mx-3 my-1 bg-border-subtle"
+      role="separator"
+      aria-orientation="horizontal"
+    ></div>
+
     <button
-      class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+      class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
       disabled={!workspaceState.isDirty || loading === 'stash'}
       onclick={doStash}
       title={workspaceState.isDirty ? 'Stash changes' : 'Nothing to stash'}
     >
+      {#if loading === 'stash'}
+        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+      {:else}
+        <Archive
+          size={13}
+          class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+        />
+      {/if}
       <span class="flex-1">Stash</span>
     </button>
     <button
-      class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+      class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
       disabled={loading === 'stashPop'}
       onclick={doStashPop}
       title="Pop stashed changes"
     >
+      {#if loading === 'stashPop'}
+        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+      {:else}
+        <ArchiveRestore
+          size={13}
+          class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+        />
+      {/if}
       <span class="flex-1">Stash Pop</span>
     </button>
+
+    <div
+      class="h-px mx-3 my-1 bg-border-subtle"
+      role="separator"
+      aria-orientation="horizontal"
+    ></div>
+
     <button
-      class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+      class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
       disabled={!workspaceState.branch || loading === 'pr'}
       onclick={doCreatePR}
       title="Create pull request"
     >
+      {#if loading === 'pr'}
+        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+      {:else}
+        <GitPullRequest
+          size={13}
+          class="text-text-faint group-enabled:group-hover:text-accent-text flex-shrink-0"
+        />
+      {/if}
       <span class="flex-1">Create PR</span>
     </button>
   </div>

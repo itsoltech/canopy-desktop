@@ -5,9 +5,21 @@
     checked: boolean
     onchange?: (checked: boolean) => void
     disabled?: boolean
+    id?: string
+    ariaLabel?: string
+    ariaLabelledby?: string
+    ariaDescribedby?: string
   }
 
-  let { checked, onchange, disabled = false }: Props = $props()
+  let {
+    checked,
+    onchange,
+    disabled = false,
+    id,
+    ariaLabel,
+    ariaLabelledby,
+    ariaDescribedby,
+  }: Props = $props()
 
   function toggle(): void {
     if (disabled) return
@@ -35,9 +47,15 @@
   class:hover:border-accent={!disabled && !checked}
   class:hover:border-accent-text={!disabled && checked}
   class:hover:bg-accent-text={!disabled && checked}
+  {id}
+  type="button"
   role="checkbox"
   aria-checked={checked}
   aria-disabled={disabled}
+  aria-label={ariaLabel}
+  aria-labelledby={ariaLabelledby}
+  aria-describedby={ariaDescribedby}
+  {disabled}
   onclick={toggle}
   onkeydown={handleKeydown}
 >

@@ -476,7 +476,7 @@
             onpointerleave={() => (hoveredFilePath = null)}
           >
             <div
-              class="file-header flex items-center gap-2 px-4 py-2 bg-bg-elevated border-b border-border-subtle sticky top-0 z-10 cursor-pointer select-none hover:bg-file-header-hover"
+              class="file-header flex items-center gap-2 h-9 px-4 bg-bg-elevated border-b border-border-subtle sticky top-0 z-10 cursor-pointer select-none hover:bg-file-header-hover"
               role="button"
               tabindex="0"
               aria-expanded={!collapsedFiles.has(file.path)}

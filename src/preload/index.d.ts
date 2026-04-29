@@ -557,6 +557,8 @@ interface CanopyAPI {
     content: string,
     expectedMtimeMs?: number,
   ) => Promise<FileWriteResult>
+  createFile: (filePath: string) => Promise<void>
+  mkdir: (dirPath: string) => Promise<void>
   statFile: (filePath: string) => Promise<FileStatResult>
   quickOpenListFiles: (worktreePath: string, force?: boolean) => Promise<string[]>
   quickOpenInvalidateCache: (worktreePath: string) => Promise<void>

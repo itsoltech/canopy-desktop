@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { Download, Upload } from '@lucide/svelte'
+  import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
+  import { loadPrefs } from '../../lib/stores/preferences.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import GeneralPrefs from './GeneralPrefs.svelte'
   import AppearancePrefs from './AppearancePrefs.svelte'
   import ToolPrefs from './ToolPrefs.svelte'
@@ -21,10 +24,17 @@
   import NotchPrefs from './NotchPrefs.svelte'
   import MiscPrefs from './MiscPrefs.svelte'
   import RemoteControlPrefs from './RemoteControlPrefs.svelte'
+  import PrefsHeader from './_partials/PrefsHeader.svelte'
+  import PrefsSidebar from './_partials/PrefsSidebar.svelte'
+  import { sectionMeta } from './_partials/sectionMeta'
+  import { clearQuery } from './_partials/prefsSearch.svelte'
 
   let { section: initialSection }: { section?: string } = $props()
 
+  const isMac = navigator.userAgent.includes('Mac')
+
   let containerEl: HTMLDivElement | undefined = $state()
+  let searchInputEl: HTMLInputElement | undefined = $state()
 
   const groups = [
     { label: 'General', sections: ['General', 'Updates', 'Privacy', 'Shortcuts'] },
@@ -48,16 +58,99 @@
   }
 
   let activeSection: Section = $state(resolveInitialSection())
+  const activeMeta = $derived(sectionMeta[activeSection])
+
+  function selectSection(section: string): void {
+    activeSection = section as Section
+  }
+
+  function handleClose(): void {
+    clearQuery()
+    closeDialog()
+  }
 
   onMount(() => {
     containerEl?.focus()
+    return () => {
+      clearQuery()
+    }
   })
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      closeDialog()
+      handleClose()
+      return
+    }
+    const shortcutModifier = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+    if (shortcutModifier && e.key.toLowerCase() === 'k') {
+      e.preventDefault()
+      e.stopPropagation()
+      searchInputEl?.focus()
+      searchInputEl?.select()
+      return
+    }
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+  }
+
+  async function handleExport(): Promise<void> {
+    const ok = await confirm({
+      title: 'Export settings',
+      message: 'Save all app settings and integrations to a JSON file?',
+      details:
+        'The file will contain your AI agent API keys, Linear/Jira tokens, and saved credentials as plaintext. Store it somewhere only you can access.',
+      confirmLabel: 'Export',
+    })
+    if (!ok) return
+
+    try {
+      const result = await window.api.exportSettings()
+      if (!result) return
+      addToast(`Settings exported to ${result.path}`)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      addToast(`Export failed: ${message}`)
+    }
+  }
+
+  async function handleImport(): Promise<void> {
+    const ok = await confirm({
+      title: 'Import settings',
+      message: 'Load settings from a JSON file?',
+      details:
+        'Existing settings with matching keys will be overwritten. Profiles, credentials, and custom tools not in the file are kept as-is.',
+      confirmLabel: 'Import',
+      destructive: true,
+    })
+    if (!ok) return
+
+    try {
+      const result = await window.api.importSettings()
+      if (!result) return
+      const { preferences, profiles, credentials, customTools } = result.counts
+      addToast(
+        `Imported ${preferences} preferences, ${profiles} profiles, ${credentials} credentials, ${customTools} tools`,
+      )
+      await loadPrefs()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      addToast(`Import failed: ${message}`)
     }
   }
 </script>
@@ -66,94 +159,106 @@
 <div
   class="fixed inset-0 z-overlay flex justify-center items-center bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={closeDialog}
+  onmousedown={handleClose}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
-    class="outline-none w-prefs max-w-prefs h-prefs max-h-prefs flex bg-bg-overlay border border-border rounded-xl shadow-modal overflow-hidden"
+    class="outline-none w-prefs max-w-prefs h-prefs max-h-prefs flex flex-col bg-bg-overlay border border-border rounded-xl shadow-modal overflow-hidden"
     role="dialog"
     aria-modal="true"
     aria-labelledby="prefs-dialog-title"
     tabindex="-1"
     onmousedown={(e) => e.stopPropagation()}
   >
-    <div
-      class="w-44 flex-shrink-0 border-r border-active py-3 flex flex-col overflow-y-auto select-none"
-    >
-      <h2
-        id="prefs-dialog-title"
-        class="text-2xs font-semibold uppercase tracking-caps-tight text-text-muted px-3 pb-2 m-0"
-      >
-        Settings
-      </h2>
-      {#each groups as group (group.label)}
-        <div
-          role="group"
-          aria-labelledby={`prefs-group-${group.label}`}
-          class="flex flex-col gap-px mt-2 first:mt-0"
-        >
-          <span
-            id={`prefs-group-${group.label}`}
-            class="block px-3 pb-1 text-2xs font-semibold text-text-faint uppercase tracking-caps-looser"
-            >{group.label}</span
-          >
-          {#each group.sections as section (section)}
-            <button
-              class="block w-full px-5 py-1 border-0 bg-transparent text-text-secondary text-sm font-inherit text-left cursor-pointer rounded-sm transition-colors duration-fast hover:bg-hover hover:text-text"
-              class:bg-active={activeSection === section}
-              class:text-text={activeSection === section}
-              onclick={() => (activeSection = section)}
-            >
-              {section}
-            </button>
-          {/each}
-        </div>
-      {/each}
-    </div>
+    <PrefsHeader
+      title="Settings"
+      breadcrumb={activeSection}
+      onclose={handleClose}
+      bind:inputEl={searchInputEl}
+    />
 
-    <div class="flex-1 overflow-y-auto px-6 py-5">
-      {#if activeSection === 'General'}
-        <GeneralPrefs />
-      {:else if activeSection === 'Updates'}
-        <UpdatePrefs />
-      {:else if activeSection === 'Appearance'}
-        <AppearancePrefs />
-      {:else if activeSection === 'Sidebar'}
-        <SidebarPrefs />
-      {:else if activeSection === 'Terminal'}
-        <TerminalPrefs />
-      {:else if activeSection === 'Tools'}
-        <ToolPrefs />
-      {:else if activeSection === 'Claude'}
-        <ClaudePrefs />
-      {:else if activeSection === 'Gemini'}
-        <GeminiPrefs />
-      {:else if activeSection === 'OpenCode'}
-        <OpenCodePrefs />
-      {:else if activeSection === 'Codex'}
-        <CodexPrefs />
-      {:else if activeSection === 'Skills'}
-        <SkillPrefs />
-      {:else if activeSection === 'Git'}
-        <GitPrefs />
-      {:else if activeSection === 'Web Browser'}
-        <ViewportsPrefs />
-      {:else if activeSection === 'Tasks'}
-        <TaskTrackerPrefs />
-      {:else if activeSection === 'File Watcher'}
-        <FileWatcherPrefs />
-      {:else if activeSection === 'Privacy'}
-        <PrivacyPrefs />
-      {:else if activeSection === 'Shortcuts'}
-        <ShortcutsPrefs />
-      {:else if activeSection === 'Notch'}
-        <NotchPrefs />
-      {:else if activeSection === 'Misc'}
-        <MiscPrefs />
-      {:else if activeSection === 'Remote Control'}
-        <RemoteControlPrefs />
-      {/if}
+    <div class="flex flex-1 min-h-0">
+      <PrefsSidebar {groups} {activeSection} onselect={selectSection}>
+        {#snippet footer()}
+          <div class="flex items-center justify-between gap-1">
+            <span class="text-2xs uppercase tracking-caps-tight text-text-faint pl-1">Backup</span>
+            <div class="flex items-center gap-0.5">
+              <button
+                type="button"
+                class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+                aria-label="Export settings"
+                title="Export settings…"
+                onclick={handleExport}
+              >
+                <Download size={14} />
+              </button>
+              <button
+                type="button"
+                class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+                aria-label="Import settings"
+                title="Import settings…"
+                onclick={handleImport}
+              >
+                <Upload size={14} />
+              </button>
+            </div>
+          </div>
+        {/snippet}
+      </PrefsSidebar>
+
+      <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div class="px-7 pt-5 pb-3 border-b border-border-subtle shrink-0 flex flex-col gap-0.5">
+          <h2 class="text-lg font-semibold text-text m-0 leading-tight">{activeSection}</h2>
+          {#if activeMeta?.description}
+            <p class="text-xs text-text-muted m-0 leading-snug">{activeMeta.description}</p>
+          {/if}
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-7 py-5">
+          {#if activeSection === 'General'}
+            <GeneralPrefs />
+          {:else if activeSection === 'Updates'}
+            <UpdatePrefs />
+          {:else if activeSection === 'Appearance'}
+            <AppearancePrefs />
+          {:else if activeSection === 'Sidebar'}
+            <SidebarPrefs />
+          {:else if activeSection === 'Terminal'}
+            <TerminalPrefs />
+          {:else if activeSection === 'Tools'}
+            <ToolPrefs />
+          {:else if activeSection === 'Claude'}
+            <ClaudePrefs />
+          {:else if activeSection === 'Gemini'}
+            <GeminiPrefs />
+          {:else if activeSection === 'OpenCode'}
+            <OpenCodePrefs />
+          {:else if activeSection === 'Codex'}
+            <CodexPrefs />
+          {:else if activeSection === 'Skills'}
+            <SkillPrefs />
+          {:else if activeSection === 'Git'}
+            <GitPrefs />
+          {:else if activeSection === 'Web Browser'}
+            <ViewportsPrefs />
+          {:else if activeSection === 'Tasks'}
+            <TaskTrackerPrefs />
+          {:else if activeSection === 'File Watcher'}
+            <FileWatcherPrefs />
+          {:else if activeSection === 'Privacy'}
+            <PrivacyPrefs />
+          {:else if activeSection === 'Shortcuts'}
+            <ShortcutsPrefs />
+          {:else if activeSection === 'Notch'}
+            <NotchPrefs />
+          {:else if activeSection === 'Misc'}
+            <MiscPrefs />
+          {:else if activeSection === 'Remote Control'}
+            <RemoteControlPrefs />
+          {/if}
+        </div>
+      </main>
     </div>
   </div>
 </div>

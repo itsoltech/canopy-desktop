@@ -598,7 +598,7 @@
           title={dirty ? 'Save (Cmd/Ctrl+S)' : 'No changes'}
           aria-label="Save file"
         >
-          <Save size={13} />
+          <Save size={12} />
         </button>
       {/if}
       <button
@@ -607,7 +607,7 @@
         title="Refresh"
         aria-label="Refresh file"
       >
-        <RotateCw size={13} />
+        <RotateCw size={12} />
       </button>
       <button
         class="toolbar-btn"
@@ -615,7 +615,7 @@
         title="Show in Folder"
         aria-label="Show in Folder"
       >
-        <FolderOpen size={13} />
+        <FolderOpen size={12} />
       </button>
     </div>
   </div>
@@ -753,38 +753,35 @@
   .sub-tabs {
     display: flex;
     align-items: stretch;
-    gap: 1px;
-    background: var(--color-bg-glass-heavy);
+    background: transparent;
     border-bottom: 1px solid var(--color-border-subtle);
     overflow-x: auto;
-    min-height: 30px;
+    height: 32px;
     flex-shrink: 0;
     user-select: none;
   }
 
   .sub-tab {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 8px 4px 12px;
+    gap: 4px;
+    padding: 0 12px;
     max-width: 240px;
     background: transparent;
     border: none;
-    border-right: 1px solid var(--color-border-subtle);
-    color: var(--color-text-muted);
+    color: var(--color-text-faint);
     font-size: 12px;
     cursor: pointer;
     white-space: nowrap;
     position: relative;
+    transition: color var(--duration-fast) var(--ease-std);
   }
 
   .sub-tab:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
+    color: var(--color-text-secondary);
   }
 
   .sub-tab.active {
-    background: var(--color-bg);
     color: var(--color-text);
   }
 
@@ -793,7 +790,7 @@
     position: absolute;
     left: 0;
     right: 0;
-    bottom: -1px;
+    bottom: 0;
     height: 2px;
     background: var(--color-accent);
   }
@@ -817,14 +814,17 @@
     width: 16px;
     height: 16px;
     border-radius: 3px;
-    color: var(--color-text-muted);
-    opacity: 0.6;
+    color: var(--color-text-faint);
+    background: transparent;
     cursor: pointer;
+    transition:
+      color var(--duration-fast) var(--ease-std),
+      background var(--duration-fast) var(--ease-std);
   }
 
   .sub-tab-close:hover {
-    background: var(--color-hover-strong);
-    opacity: 1;
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .sub-tab.dragging {
@@ -850,10 +850,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 10px;
+    padding: 0 12px;
     height: 32px;
     min-height: 32px;
-    background: var(--color-bg-glass-heavy);
+    background: transparent;
     border-bottom: 1px solid var(--color-border-subtle);
     user-select: none;
   }
@@ -881,40 +881,59 @@
 
   .file-path {
     font-size: 11px;
-    color: var(--color-text-muted);
+    color: var(--color-text-faint);
+    font-family: var(--font-mono);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .file-size {
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 6px;
+    border-radius: 3px;
+    background: var(--color-border-subtle);
+    color: var(--color-text-secondary);
     font-size: 10px;
-    color: var(--color-text-faint);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: 1;
     white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .toolbar-actions {
     display: flex;
-    gap: 2px;
+    gap: 4px;
     flex-shrink: 0;
   }
 
   .toolbar-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     background: none;
     border: none;
-    border-radius: 4px;
-    color: var(--color-text-muted);
+    border-radius: 3px;
+    color: var(--color-text-faint);
     cursor: pointer;
+    transition:
+      color var(--duration-fast) var(--ease-std),
+      background var(--duration-fast) var(--ease-std);
   }
 
   .toolbar-btn:hover {
-    background: var(--color-active);
-    color: var(--color-text);
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
+  }
+
+  .toolbar-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   .content-area {
@@ -1049,12 +1068,12 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 3px 10px;
-    min-height: 24px;
+    padding: 0 12px;
+    height: 24px;
     background: var(--color-bg-glass-heavy);
     border-top: 1px solid var(--color-border-subtle);
     font-size: 11px;
-    color: var(--color-text-muted);
+    color: var(--color-text-faint);
     user-select: none;
     flex-shrink: 0;
   }
@@ -1068,14 +1087,16 @@
   }
 
   .status-badge {
-    padding: 1px 6px;
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
     font-size: 10px;
-    font-weight: 500;
-    line-height: 1.4;
+    font-weight: 600;
+    line-height: 1;
     border-radius: 3px;
     background: var(--color-accent-bg);
     color: var(--color-accent-text);
-    border: 1px solid var(--color-accent-muted);
     white-space: nowrap;
   }
 
@@ -1090,24 +1111,29 @@
   }
 
   .status-btn {
-    padding: 1px 6px;
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
     font-size: 11px;
     background: none;
-    border: 1px solid transparent;
+    border: 0;
     border-radius: 3px;
-    color: var(--color-text-muted);
+    color: var(--color-text-faint);
     cursor: pointer;
-    line-height: 1.4;
+    line-height: 1;
+    transition:
+      color var(--duration-fast) var(--ease-std),
+      background var(--duration-fast) var(--ease-std);
   }
 
   .status-btn:hover {
     background: var(--color-hover);
-    color: var(--color-text);
+    color: var(--color-text-secondary);
   }
 
   .status-btn.active {
-    background: var(--color-active);
-    color: var(--color-text);
-    border-color: var(--color-border);
+    background: var(--color-border-subtle);
+    color: var(--color-text-secondary);
   }
 </style>

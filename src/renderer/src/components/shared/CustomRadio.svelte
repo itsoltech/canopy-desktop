@@ -3,9 +3,21 @@
     checked: boolean
     onchange?: () => void
     disabled?: boolean
+    id?: string
+    ariaLabel?: string
+    ariaLabelledby?: string
+    ariaDescribedby?: string
   }
 
-  let { checked, onchange, disabled = false }: Props = $props()
+  let {
+    checked,
+    onchange,
+    disabled = false,
+    id,
+    ariaLabel,
+    ariaLabelledby,
+    ariaDescribedby,
+  }: Props = $props()
 
   function select(): void {
     if (disabled || checked) return
@@ -27,9 +39,15 @@
   class:cursor-default={disabled}
   class:opacity-40={disabled}
   class:hover:border-accent={!disabled && !checked}
+  {id}
+  type="button"
   role="radio"
   aria-checked={checked}
   aria-disabled={disabled}
+  aria-label={ariaLabel}
+  aria-labelledby={ariaLabelledby}
+  aria-describedby={ariaDescribedby}
+  {disabled}
   onclick={select}
   onkeydown={handleKeydown}
 >

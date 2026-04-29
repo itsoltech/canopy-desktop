@@ -1,60 +1,74 @@
 <script lang="ts">
+  import { Plus, Pencil, Trash2 } from '@lucide/svelte'
   import { getTools } from '../../lib/stores/tools.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import ToolForm from './_partials/ToolForm.svelte'
+  import { prefsSearch, matches } from './_partials/prefsSearch.svelte'
+
+  interface ToolDraft {
+    id: string
+    name: string
+    command: string
+    args: string
+    category: string
+  }
+
+  function emptyDraft(): ToolDraft {
+    return { id: '', name: '', command: '', args: '', category: 'system' }
+  }
 
   let showForm = $state(false)
-  let newId = $state('')
-  let newName = $state('')
-  let newCommand = $state('')
-  let newArgs = $state('')
-  let newCategory = $state('system')
+  let newDraft = $state<ToolDraft>(emptyDraft())
   let error = $state('')
 
   let editingId: string | null = $state(null)
-  let editName = $state('')
-  let editCommand = $state('')
-  let editArgs = $state('')
-  let editCategory = $state('')
+  let editDraft = $state<ToolDraft>(emptyDraft())
   let editError = $state('')
 
+  function parseArgs(s: string): string[] {
+    return s
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)
+  }
+
   async function addTool(): Promise<void> {
-    if (!newId.trim() || !newName.trim() || !newCommand.trim()) {
+    if (!newDraft.id.trim() || !newDraft.name.trim() || !newDraft.command.trim()) {
       error = 'ID, name, and command are required'
       return
     }
-    if (getTools().some((t) => t.id === newId.trim())) {
+    if (getTools().some((t) => t.id === newDraft.id.trim())) {
       error = 'Tool ID already exists'
       return
     }
 
     try {
       await window.api.addCustomTool({
-        id: newId.trim(),
-        name: newName.trim(),
-        command: newCommand.trim(),
-        args: newArgs
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-        category: newCategory,
+        id: newDraft.id.trim(),
+        name: newDraft.name.trim(),
+        command: newDraft.command.trim(),
+        args: parseArgs(newDraft.args),
+        category: newDraft.category,
       })
-      newId = ''
-      newName = ''
-      newCommand = ''
-      newArgs = ''
-      newCategory = 'system'
-      showForm = false
+      newDraft = emptyDraft()
       error = ''
+      showForm = false
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     }
   }
 
+  function cancelAdd(): void {
+    newDraft = emptyDraft()
+    error = ''
+    showForm = false
+  }
+
   async function removeTool(id: string, name: string): Promise<void> {
     const ok = await confirm({
-      title: 'Remove Tool',
+      title: 'Remove tool',
       message: `Remove tool "${name}"? This cannot be undone.`,
       confirmLabel: 'Remove',
       destructive: true,
@@ -63,18 +77,21 @@
     await window.api.removeCustomTool(id)
   }
 
-  async function startEdit(tool: {
+  function startEdit(tool: {
     id: string
     name: string
     command: string
     args: string[]
     category: string
-  }): Promise<void> {
+  }): void {
     editingId = tool.id
-    editName = tool.name
-    editCommand = tool.command
-    editArgs = tool.args.join(', ')
-    editCategory = tool.category
+    editDraft = {
+      id: tool.id,
+      name: tool.name,
+      command: tool.command,
+      args: tool.args.join(', '),
+      category: tool.category,
+    }
     editError = ''
   }
 
@@ -85,20 +102,17 @@
 
   async function saveEdit(): Promise<void> {
     if (!editingId) return
-    if (!editName.trim() || !editCommand.trim()) {
+    if (!editDraft.name.trim() || !editDraft.command.trim()) {
       editError = 'Name and command are required'
       return
     }
 
     try {
       await window.api.updateCustomTool(editingId, {
-        name: editName.trim(),
-        command: editCommand.trim(),
-        args: editArgs
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-        category: editCategory,
+        name: editDraft.name.trim(),
+        command: editDraft.command.trim(),
+        args: parseArgs(editDraft.args),
+        category: editDraft.category,
       })
       editingId = null
       editError = ''
@@ -106,155 +120,82 @@
       editError = e instanceof Error ? e.message : String(e)
     }
   }
+
+  function visible(tool: { id: string; name: string; command: string; category: string }): boolean {
+    if (prefsSearch.query.trim() === '') return true
+    return matches(`${tool.name} ${tool.command} ${tool.category} ${tool.id}`)
+  }
 </script>
 
-<div class="flex flex-col gap-4">
-  <h3 class="text-[15px] font-semibold text-text m-0">Tools</h3>
-  <p class="text-sm text-text-secondary m-0">
-    Register custom CLI tools that appear in the command palette and can be opened as tabs.
-  </p>
-
-  <div class="flex flex-col gap-1">
-    {#each getTools() as tool (tool.id)}
-      {#if editingId === tool.id}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="flex flex-col gap-2 p-3 border border-border rounded-xl bg-border-subtle w-full"
-          onkeydown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              saveEdit()
-            }
-            if (e.key === 'Escape') cancelEdit()
-          }}
-        >
-          <div class="mb-1">
-            <span class="text-xs text-text-faint font-mono">ID: {tool.id}</span>
+<div class="flex flex-col gap-7">
+  <PrefsSection
+    title="Tools"
+    description="Register custom CLI tools that appear in the command palette and can be opened as tabs"
+  >
+    <div class="flex flex-col">
+      {#each getTools() as tool (tool.id)}
+        {#if editingId === tool.id}
+          <ToolForm
+            bind:draft={editDraft}
+            mode="edit"
+            error={editError}
+            onCancel={cancelEdit}
+            onSubmit={saveEdit}
+          />
+        {:else}
+          <div
+            class="group/tool flex items-center gap-3 py-2 border-t border-border-subtle first:border-t-0 first:pt-0 transition-opacity duration-fast"
+            class:opacity-30={!visible(tool)}
+          >
+            <ToolIcon icon={tool.icon} size={16} />
+            <span class="text-md text-text min-w-30 truncate">{tool.name}</span>
+            <code class="text-sm text-text-secondary font-mono flex-1 truncate">{tool.command}</code
+            >
+            <span class="text-2xs uppercase tracking-caps-tight text-text-muted shrink-0"
+              >{tool.category}</span
+            >
+            {#if tool.isCustom}
+              <div class="flex items-center gap-0.5 shrink-0">
+                <button
+                  type="button"
+                  class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+                  onclick={() => startEdit(tool)}
+                  aria-label="Edit {tool.name}"
+                  title="Edit"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  type="button"
+                  class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+                  onclick={() => removeTool(tool.id, tool.name)}
+                  aria-label="Remove {tool.name}"
+                  title="Remove"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            {:else}
+              <span class="text-2xs uppercase tracking-caps-tight text-text-faint shrink-0"
+                >built-in</span
+              >
+            {/if}
           </div>
-          <input
-            class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-            bind:value={editName}
-            placeholder="Display name"
-          />
-          <input
-            class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-            bind:value={editCommand}
-            placeholder="Command (binary name)"
-          />
-          <input
-            class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-            bind:value={editArgs}
-            placeholder="Args (comma-separated)"
-          />
-          <CustomSelect
-            value={editCategory}
-            options={[
-              { value: 'ai', label: 'AI' },
-              { value: 'git', label: 'Git' },
-              { value: 'system', label: 'System' },
-              { value: 'shell', label: 'Shell' },
-            ]}
-            maxWidth="100%"
-            onchange={(v) => (editCategory = v)}
-          />
-          {#if editError}
-            <p class="text-sm text-danger m-0">{editError}</p>
-          {/if}
-          <div class="flex justify-end gap-2">
-            <button
-              class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-active text-text"
-              onclick={cancelEdit}>Cancel</button
-            >
-            <button
-              class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
-              onclick={saveEdit}>Save</button
-            >
-          </div>
-        </div>
-      {:else}
-        <div class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg bg-border-subtle text-md">
-          <ToolIcon icon={tool.icon} size={16} />
-          <span class="text-text min-w-[100px]">{tool.name}</span>
-          <span class="text-text-secondary font-mono text-sm flex-1">{tool.command}</span>
-          <span class="text-2xs text-text-muted uppercase tracking-[0.5px]">{tool.category}</span>
-          {#if tool.isCustom}
-            <button
-              class="px-2 py-0.5 border-0 rounded-md bg-accent-bg text-accent-text text-xs font-inherit cursor-pointer hover:bg-accent-bg-hover"
-              onclick={() => startEdit(tool)}>Edit</button
-            >
-            <button
-              class="px-2 py-0.5 border-0 rounded-md bg-danger-bg text-danger-text text-xs font-inherit cursor-pointer"
-              onclick={() => removeTool(tool.id, tool.name)}>Remove</button
-            >
-          {:else}
-            <span class="text-2xs text-text-faint">built-in</span>
-          {/if}
-        </div>
-      {/if}
-    {/each}
-  </div>
-
-  {#if showForm}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="flex flex-col gap-2 p-3 border border-border rounded-xl bg-border-subtle"
-      onkeydown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          addTool()
-        }
-        if (e.key === 'Escape') showForm = false
-      }}
-    >
-      <input
-        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-        bind:value={newId}
-        placeholder="ID (e.g. my-tool)"
-      />
-      <input
-        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-        bind:value={newName}
-        placeholder="Display name"
-      />
-      <input
-        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-        bind:value={newCommand}
-        placeholder="Command (binary name)"
-      />
-      <input
-        class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none focus:border-focus-ring"
-        bind:value={newArgs}
-        placeholder="Args (comma-separated)"
-      />
-      <CustomSelect
-        value={newCategory}
-        options={[
-          { value: 'ai', label: 'AI' },
-          { value: 'git', label: 'Git' },
-          { value: 'system', label: 'System' },
-          { value: 'shell', label: 'Shell' },
-        ]}
-        maxWidth="100%"
-        onchange={(v) => (newCategory = v)}
-      />
-      {#if error}
-        <p class="text-sm text-danger m-0">{error}</p>
-      {/if}
-      <div class="flex justify-end gap-2">
-        <button
-          class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-active text-text"
-          onclick={() => (showForm = false)}>Cancel</button
-        >
-        <button
-          class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
-          onclick={addTool}>Add Tool</button
-        >
-      </div>
+        {/if}
+      {/each}
     </div>
-  {:else}
-    <button
-      class="self-start px-3.5 py-1.5 border border-dashed border-text-faint rounded-lg bg-transparent text-text-secondary text-md font-inherit cursor-pointer hover:bg-hover hover:text-text"
-      onclick={() => (showForm = true)}>+ Add Custom Tool</button
-    >
-  {/if}
+
+    {#if showForm}
+      <ToolForm bind:draft={newDraft} mode="add" {error} onCancel={cancelAdd} onSubmit={addTool} />
+    {:else}
+      <button
+        type="button"
+        class="self-start flex items-center gap-1 px-3 py-1 mt-3 rounded-md bg-border-subtle border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-active hover:text-text"
+        onclick={() => (showForm = true)}
+      >
+        <Plus size={12} />
+        <span>Add custom tool</span>
+      </button>
+    {/if}
+  </PrefsSection>
 </div>

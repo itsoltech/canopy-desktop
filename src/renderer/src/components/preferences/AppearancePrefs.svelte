@@ -2,6 +2,8 @@
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { themeNames } from '../../lib/terminal/themes'
   import CustomNumberInput from '../shared/CustomNumberInput.svelte'
+  import PrefsSection from './_partials/PrefsSection.svelte'
+  import PrefsRow from './_partials/PrefsRow.svelte'
 
   const DEFAULT_FONT_FAMILY =
     'JetBrains Mono, JetBrainsMono Nerd Font, JetBrainsMono NF, FiraCode Nerd Font, Fira Code, Menlo, monospace'
@@ -21,57 +23,66 @@
   }
 </script>
 
-<div class="flex flex-col gap-4">
-  <h3 class="text-[15px] font-semibold text-text m-0">Appearance</h3>
-
-  <div class="flex flex-col gap-1.5">
-    <span class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]">Theme</span>
-    <span class="text-xs text-text-faint">Terminal color scheme</span>
-    <div class="flex flex-wrap gap-1.5" role="group" aria-label="Theme">
-      {#each themeNames as name (name)}
-        <button
-          class="px-2.5 py-1 border border-border rounded-lg bg-border-subtle text-text text-sm font-inherit cursor-pointer transition-colors duration-fast hover:bg-active hover:border-text-faint"
-          class:bg-accent-bg={name === currentTheme}
-          class:border-focus-ring={name === currentTheme}
-          class:text-accent={name === currentTheme}
-          onclick={() => setTheme(name)}
-        >
-          {name}
-        </button>
-      {/each}
-    </div>
-  </div>
-
-  <div class="flex flex-col gap-1.5">
-    <label
-      class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
-      for="font-family">Font Family</label
+<div class="flex flex-col gap-7">
+  <PrefsSection title="Theme" description="Color scheme used by the terminal">
+    <PrefsRow
+      label="Terminal theme"
+      help="Pick a preset; changes apply immediately to all terminal tabs"
+      search="theme color preset palette"
+      layout="stacked"
     >
-    <span class="text-xs text-text-faint">
-      Comma-separated list of fonts for the terminal. First available font is used
-    </span>
-    <input
-      id="font-family"
-      class="px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-mono outline-none focus:border-focus-ring"
-      type="text"
-      value={fontFamily}
-      onchange={updateFontFamily}
-      spellcheck="false"
-    />
-  </div>
+      <div class="flex flex-wrap gap-1.5" role="group" aria-label="Theme">
+        {#each themeNames as name (name)}
+          {@const active = name === currentTheme}
+          <button
+            type="button"
+            class="px-2.5 py-1 border rounded-md text-sm font-inherit cursor-pointer hover:bg-active hover:border-text-faint"
+            class:border-border={!active}
+            class:bg-border-subtle={!active}
+            class:text-text={!active}
+            class:bg-accent-bg={active}
+            class:border-focus-ring={active}
+            class:text-accent={active}
+            onclick={() => setTheme(name)}
+          >
+            {name}
+          </button>
+        {/each}
+      </div>
+    </PrefsRow>
+  </PrefsSection>
 
-  <div class="flex flex-col gap-1.5">
-    <label
-      class="text-sm font-medium text-text-secondary uppercase tracking-[0.5px]"
-      for="font-size">Font Size</label
+  <PrefsSection title="Typography" description="Font used in terminal panes and code views">
+    <PrefsRow
+      label="Font family"
+      help="Comma-separated list of fonts; the first available font is used"
+      search="font family monospace jetbrains mono fira code"
+      layout="stacked"
     >
-    <span class="text-xs text-text-faint">Terminal text size in pixels (8–24)</span>
-    <CustomNumberInput
-      id="font-size"
-      value={fontSize}
-      min={8}
-      max={24}
-      onchange={(v) => setPref('fontSize', v)}
-    />
-  </div>
+      <input
+        id="font-family"
+        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring"
+        type="text"
+        name="fontFamily"
+        aria-label="Font family"
+        value={fontFamily}
+        onchange={updateFontFamily}
+        spellcheck="false"
+      />
+    </PrefsRow>
+
+    <PrefsRow
+      label="Font size"
+      help="Terminal text size in pixels (8–24)"
+      search="font size pixels"
+    >
+      <CustomNumberInput
+        id="font-size"
+        value={fontSize}
+        min={8}
+        max={24}
+        onchange={(v) => setPref('fontSize', v)}
+      />
+    </PrefsRow>
+  </PrefsSection>
 </div>

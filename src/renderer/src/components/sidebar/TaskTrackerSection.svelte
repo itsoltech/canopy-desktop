@@ -155,7 +155,8 @@
               title={tracker.baseUrl || 'Not configured'}
               >{tracker.baseUrl || 'Not configured'}</span
             >
-            <span class="text-2xs text-text-faint flex-shrink-0"
+            <span
+              class="inline-flex items-center h-4 px-1.5 rounded-md text-2xs font-semibold uppercase tracking-caps-tight bg-border-subtle text-text-muted leading-tight flex-shrink-0"
               >{providerLabel(tracker.provider)}</span
             >
             {#if hasCreds}
@@ -167,7 +168,9 @@
     </ul>
 
     {#if activeTask}
-      <div class="flex items-center gap-2 px-3 py-1.5 border-t border-border-subtle">
+      <div
+        class="flex items-center gap-2 mx-2 mt-1 px-3 py-1.5 rounded-md bg-bg-elevated border border-border-subtle"
+      >
         <span class="text-xs font-semibold text-accent-text flex-shrink-0"
           >{activeTask.taskKey}</span
         >

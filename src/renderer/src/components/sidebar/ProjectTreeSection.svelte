@@ -315,40 +315,40 @@
 {#if ctxMenu}
   <div class="fixed inset-0 z-overlay" use:portal onclick={closeCtxMenu}>
     <div
-      class="fixed min-w-45 bg-bg-overlay border border-border rounded-xl shadow-ctx p-1 z-popover"
+      class="fixed min-w-45 bg-bg-overlay border border-border rounded-md shadow-ctx p-1 z-popover"
       style="left: {ctxMenu.x}px; top: {ctxMenu.y}px"
       onclick={(e) => e.stopPropagation()}
     >
       <button
-        class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+        class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
         onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button
       >
       <button
-        class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+        class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
         onclick={ctxCopyPath}>Copy Path</button
       >
       {#if ctxMenu.wt.branch !== '(detached)'}
         <button
-          class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+          class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
           onclick={ctxCopyBranch}>Copy Branch Name</button
         >
         <div class="h-px mx-2 my-1 bg-border-subtle"></div>
         <button
-          class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+          class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
           onclick={ctxNewWorktree}>New Worktree from Branch</button
         >
       {/if}
       {#if isWorktreeActive(ctxMenu.wt.path)}
         <div class="h-px mx-2 my-1 bg-border-subtle"></div>
         <button
-          class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+          class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
           onclick={ctxStopAll}>Stop All Terminals</button
         >
       {/if}
       {#if !ctxMenu.wt.isMain}
         <div class="h-px mx-2 my-1 bg-border-subtle"></div>
         <button
-          class="block w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
+          class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
           onclick={ctxRemoveWorktree}>Remove Worktree</button
         >
       {/if}
@@ -357,10 +357,12 @@
 {/if}
 
 <section class="py-3">
-  <div class="flex items-center justify-between px-3 pb-2">
-    <h3 class="text-2xs font-semibold tracking-caps uppercase text-text-muted">PROJECTS</h3>
+  <div class="flex items-center justify-between px-3 h-7 mb-1">
+    <h3 class="text-2xs font-semibold tracking-caps-looser uppercase text-text-faint leading-tight">
+      PROJECTS
+    </h3>
     <button
-      class="font-inherit text-2xs font-medium text-text-secondary bg-transparent border-0 p-0 cursor-pointer transition-colors duration-fast hover:text-accent-text"
+      class="inline-flex items-center h-5 px-1.5 rounded-sm font-inherit text-2xs font-medium text-text-faint bg-transparent border-0 cursor-pointer transition-colors duration-fast hover:text-text hover:bg-hover"
       onclick={handleAttachProject}
       title="Attach a project folder"
       aria-label="Attach a project folder"
@@ -373,12 +375,10 @@
     {@const collapsed = collapseState[project.workspace.path] ?? false}
     {@const merged = getMerged(project)}
     <div class="mb-0.5">
-      <div class="flex items-center justify-between pl-3 pr-2">
+      <div class="flex items-center justify-between pl-3 pr-3">
         <button
-          class="group flex items-center gap-1 flex-1 min-w-0 bg-transparent border-0 py-1 cursor-pointer text-inherit"
-          class:bg-hover-strong={!project.isGitRepo &&
-            workspaceState.selectedWorktreePath === project.workspace.path}
-          class:rounded-md={!project.isGitRepo &&
+          class="group flex items-center gap-1 flex-1 min-w-0 bg-transparent border-0 py-1 cursor-pointer text-inherit rounded-sm"
+          class:bg-active={!project.isGitRepo &&
             workspaceState.selectedWorktreePath === project.workspace.path}
           onclick={() => {
             if (project.isGitRepo) {
@@ -422,19 +422,19 @@
         <div class="flex items-center gap-0.5 flex-shrink-0">
           {#if project.isGitRepo}
             <button
-              class="font-mono text-2xs font-medium text-accent-text bg-transparent border-0 px-1.5 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:text-accent hover:bg-accent-bg"
+              class="inline-flex items-center h-5 px-1.5 rounded-sm font-inherit text-2xs font-medium text-text-faint bg-transparent border-0 cursor-pointer transition-colors duration-fast hover:text-accent-text hover:bg-accent-bg"
               onclick={(e) => handleNewWorktree(e, project)}
               title="Create worktree">+ new</button
             >
           {:else}
             <button
-              class="font-mono text-2xs font-medium text-accent-text bg-transparent border-0 px-1.5 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:text-accent hover:bg-accent-bg"
+              class="inline-flex items-center h-5 px-1.5 rounded-sm font-inherit text-2xs font-medium text-text-faint bg-transparent border-0 cursor-pointer transition-colors duration-fast hover:text-accent-text hover:bg-accent-bg"
               onclick={(e) => handleInitGit(e, project)}
               title="Initialize git repository">init</button
             >
           {/if}
           <button
-            class="flex items-center justify-center w-4.5 h-4.5 p-0 border-0 bg-transparent text-text-faint cursor-pointer rounded-sm transition-colors duration-fast hover:text-text-secondary hover:bg-hover"
+            class="inline-flex items-center justify-center size-5 p-0 border-0 bg-transparent text-text-faint cursor-pointer rounded-sm transition-colors duration-fast hover:text-text hover:bg-hover"
             onclick={(e) => handleDetach(e, project)}
             title="Detach project from window"
             aria-label="Detach project from window"
@@ -457,7 +457,7 @@
               class:pointer-events-none={isRemoving}
             >
               <button
-                class="flex items-center gap-1.5 flex-1 min-w-0 py-1 pr-2 pl-6 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left rounded-sm mx-1 hover:bg-hover hover:text-text"
+                class="flex items-center gap-1.5 flex-1 min-w-0 h-7 pr-2 pl-6 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left rounded-sm mx-1 hover:bg-hover hover:text-text"
                 class:bg-active={wt.path === workspaceState.selectedWorktreePath}
                 class:text-text={wt.path === workspaceState.selectedWorktreePath}
                 onclick={() => selectWorktree(wt.path)}
@@ -497,17 +497,18 @@
                 >
                 {#if isRemoving}
                   <span
-                    class="text-micro font-medium text-warning-text flex-shrink-0 animate-badge-pulse motion-reduce:animate-none"
-                    >removing...</span
+                    class="inline-flex items-center h-4 px-1.5 rounded-md text-2xs font-semibold uppercase tracking-caps-tight bg-warning-bg text-warning-text leading-tight flex-shrink-0 animate-badge-pulse motion-reduce:animate-none"
+                    >removing</span
                   >
                 {:else if wt.branch === '(detached)'}
                   <span
-                    class="text-micro font-medium font-mono text-warning-text flex-shrink-0"
+                    class="inline-flex items-center h-4 px-1.5 rounded-md text-2xs font-semibold font-mono tracking-caps-tight bg-border-subtle text-warning-text leading-tight flex-shrink-0"
                     title={wt.head}>{wt.head.slice(0, 7)}</span
                   >
                 {:else if merged.has(wt.branch)}
-                  <span class="text-micro font-medium text-success flex-shrink-0" title="Merged"
-                    >merged</span
+                  <span
+                    class="inline-flex items-center h-4 px-1.5 rounded-md text-2xs font-semibold uppercase tracking-caps-tight bg-border-subtle text-success-text leading-tight flex-shrink-0"
+                    title="Merged">merged</span
                   >
                 {/if}
                 {#if prMap[wt.branch]}
@@ -529,20 +530,20 @@
                   <span
                     role="button"
                     tabindex="-1"
-                    class="inline-flex items-center justify-center w-4 h-4 p-0 border-0 bg-transparent text-warning-text cursor-pointer flex-shrink-0 rounded-sm transition-colors duration-fast hover:text-danger hover:bg-danger-bg"
+                    class="inline-flex items-center justify-center size-5 p-0 border-0 bg-transparent text-danger-text cursor-pointer flex-shrink-0 rounded-sm transition-colors duration-fast hover:bg-danger-bg"
                     title="Stop all terminals in this worktree"
                     onclick={(e) => {
                       e.stopPropagation()
                       stopWorktree(e, wt.path)
                     }}
                   >
-                    <Square size={8} />
+                    <Square size={10} fill="currentColor" />
                   </span>
                 {/if}
               </button>
               {#if !wtActive && !wt.isMain && merged.has(wt.branch) && !isRemoving}
                 <button
-                  class="flex items-center justify-center w-6 h-6 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-md mr-1 transition-colors duration-fast hover:text-danger hover:bg-danger-bg"
+                  class="inline-flex items-center justify-center size-5 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-sm mr-3 transition-colors duration-fast hover:text-danger-text hover:bg-danger-bg"
                   title="Remove worktree and delete branch"
                   aria-label="Remove worktree and delete branch"
                   onclick={(e) => removeWorktree(e, project, wt)}

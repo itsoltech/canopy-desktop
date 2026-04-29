@@ -1,5 +1,6 @@
 <script lang="ts">
   import { match } from 'ts-pattern'
+  import { Settings, GitBranch, Folder, Bell, ArrowDownToLine, Eye, Cpu } from '@lucide/svelte'
   import { workspaceState, projects, toggleRightPanel } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
   import { getAllTabs, activeTabId, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
@@ -8,7 +9,6 @@
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { perfHudState, enablePerfHud, disablePerfHud } from '../../lib/stores/perfHud.svelte'
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
-  import { Settings } from '@lucide/svelte'
 
   const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
@@ -187,12 +187,13 @@
 
 {#if projects.length > 0}
   <footer
-    class="flex items-center justify-between gap-3 w-full h-status-bar px-2 bg-bg-glass border-t border-border-subtle font-sans text-xs font-medium text-text-secondary select-none flex-shrink-0 app-no-drag"
+    class="flex items-center justify-between gap-4 w-full h-status-bar px-3 pb-px bg-bg-glass border-t border-border-subtle font-sans text-xs font-medium text-text-faint select-none flex-shrink-0 app-no-drag"
   >
-    <div class="flex items-center gap-3 min-w-0">
+    <!-- LEFT: focused-pane info -->
+    <div class="flex items-center gap-2 min-w-0">
       {#if focusedPaneKind === 'agent' && activeAgent}
         <span
-          class="flex items-center gap-1 leading-none whitespace-nowrap font-medium"
+          class="inline-flex items-center h-5 px-1.5 whitespace-nowrap font-medium"
           class:text-text-secondary={activeAgent.status.type !== 'thinking' &&
             activeAgent.status.type !== 'toolCalling' &&
             activeAgent.status.type !== 'compacting' &&
@@ -208,14 +209,14 @@
         </span>
 
         {#if activeAgent.model}
-          <span class="flex items-center gap-1 leading-none whitespace-nowrap text-text-muted"
+          <span class="inline-flex items-center h-5 whitespace-nowrap text-text-faint"
             >{activeAgent.model}</span
           >
         {/if}
 
         {#if activeAgent.contextPercent != null}
           <span
-            class="flex items-center gap-1 leading-none whitespace-nowrap font-mono text-xs tabular-nums"
+            class="inline-flex items-center h-5 whitespace-nowrap font-mono tabular-nums"
             style="color: {contextColor(activeAgent.contextPercent)}"
             title="Context window usage"
           >
@@ -225,7 +226,7 @@
 
         {#if activeAgent.costUsd != null}
           <span
-            class="flex items-center gap-1 leading-none whitespace-nowrap font-mono text-xs"
+            class="inline-flex items-center h-5 whitespace-nowrap font-mono text-text-faint"
             title="Session cost"
           >
             {formatCost(activeAgent.costUsd)}
@@ -234,165 +235,166 @@
 
         {#if taskProgress}
           <span
-            class="flex items-center gap-1 leading-none whitespace-nowrap text-text-muted"
+            class="inline-flex items-center h-5 whitespace-nowrap text-text-faint tabular-nums"
             title="Task progress"
           >
             {taskProgress.done}/{taskProgress.total} tasks
           </span>
         {/if}
       {:else if focusedPaneKind === 'shell'}
-        <span class="flex items-center gap-1 leading-none text-text-muted">Shell</span>
+        <span class="inline-flex items-center h-5 text-text-faint">Shell</span>
       {:else if focusedPaneKind === 'notes'}
-        <span class="flex items-center gap-1 leading-none text-text-muted">Notes</span>
+        <span class="inline-flex items-center h-5 text-text-faint">Notes</span>
       {:else if focusedPaneKind === 'drawing'}
-        <span class="flex items-center gap-1 leading-none text-text-muted">Drawing</span>
+        <span class="inline-flex items-center h-5 text-text-faint">Drawing</span>
       {/if}
     </div>
 
-    <div class="flex items-center gap-3 min-w-0">
-      {#if workspaceState.isGitRepo && workspaceState.branch}
-        <button
-          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent text-inherit font-inherit px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
-          aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
-            ? ', uncommitted changes'
-            : ''}"
-          title="Branch: {workspaceState.branch}"
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path
-              d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 2.122a2.25 2.25 0 1 0-1 0v1.836A2.252 2.252 0 0 0 2 9.5a2.25 2.25 0 1 0 3.163.132l2.382-2.382A1.75 1.75 0 0 1 8.783 6.75h1.467a2.25 2.25 0 1 0 0-1.5H8.783a3.25 3.25 0 0 0-2.299.952L4.5 8.186V5.372ZM4.25 12a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Zm8.25-6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"
-            />
-          </svg>
-          <span class="overflow-hidden text-ellipsis max-w-40 font-mono text-xs"
-            >{workspaceState.branch}</span
-          >
-          {#if workspaceState.isDirty}
-            <span
-              class="w-1.5 h-1.5 rounded-full bg-warning-text flex-shrink-0"
-              title="Uncommitted changes"
-              aria-hidden="true"
-            ></span>
-          {/if}
-        </button>
-
-        {#if workspaceState.aheadBehind && (workspaceState.aheadBehind.ahead > 0 || workspaceState.aheadBehind.behind > 0)}
-          {@const ahead = workspaceState.aheadBehind.ahead}
-          {@const behind = workspaceState.aheadBehind.behind}
+    <!-- RIGHT: three sub-groups separated by hairline dividers -->
+    <div class="flex items-center min-w-0">
+      <!-- Sub-group A: git -->
+      <div class="flex items-center gap-2">
+        {#if workspaceState.isGitRepo && workspaceState.branch}
           <button
-            class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent text-inherit font-mono text-xs px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
-            aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
-              ? ', '
-              : ''}{behind > 0 ? `${behind} behind` : ''}"
-            title="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0 ? ', ' : ''}{behind >
-            0
-              ? `${behind} behind`
+            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
+            aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
+              ? ', uncommitted changes'
               : ''}"
+            title="Branch: {workspaceState.branch}"
           >
-            {#if ahead > 0}<span aria-hidden="true">&#8593;{ahead}</span>{/if}
-            {#if behind > 0}<span aria-hidden="true">&#8595;{behind}</span>{/if}
+            <GitBranch size={12} class="flex-shrink-0" />
+            <span class="overflow-hidden text-ellipsis max-w-40 font-mono text-xs whitespace-nowrap"
+              >{workspaceState.branch}</span
+            >
+            {#if workspaceState.isDirty}
+              <span
+                class="size-1.5 rounded-full bg-warning-text flex-shrink-0"
+                title="Uncommitted changes"
+                aria-hidden="true"
+              ></span>
+            {/if}
+          </button>
+
+          {#if workspaceState.aheadBehind && (workspaceState.aheadBehind.ahead > 0 || workspaceState.aheadBehind.behind > 0)}
+            {@const ahead = workspaceState.aheadBehind.ahead}
+            {@const behind = workspaceState.aheadBehind.behind}
+            <button
+              class="inline-flex items-center gap-1 h-5 px-1.5 rounded-sm border-0 bg-border-subtle font-inherit text-text-secondary font-mono text-2xs font-semibold tabular-nums leading-none cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
+              aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
+                ? ', '
+                : ''}{behind > 0 ? `${behind} behind` : ''}"
+              title="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
+                ? ', '
+                : ''}{behind > 0 ? `${behind} behind` : ''}"
+            >
+              {#if ahead > 0}<span aria-hidden="true">↑{ahead}</span>{/if}
+              {#if behind > 0}<span aria-hidden="true">↓{behind}</span>{/if}
+            </button>
+          {/if}
+        {/if}
+
+        {#if worktreeCount > 1 && worktreeName}
+          <span
+            class="inline-flex items-center gap-1.5 h-5 px-1.5 whitespace-nowrap text-text-faint"
+            title="Worktree: {worktreeName}"
+          >
+            <Folder size={12} class="flex-shrink-0" />
+            <span class="overflow-hidden text-ellipsis max-w-35">{worktreeName}</span>
+          </span>
+        {/if}
+      </div>
+
+      {#if perfHudEnabled || agentCount > 0 || permissionSessionId || hasUpdate}
+        <span class="self-stretch w-px bg-border-subtle mx-3" aria-hidden="true"></span>
+      {/if}
+
+      <!-- Sub-group B: perf / agents / alerts -->
+      <div class="flex items-center gap-2">
+        {#if perfHudEnabled && perfHudState.metrics}
+          <button
+            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm border-0 bg-border-subtle font-inherit text-text-secondary tabular-nums leading-none cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
+            aria-label="App CPU {perfHudState.metrics.cpu}%, RAM {perfHudState.metrics.memMb} MB"
+            title="App CPU / RAM — click to open settings"
+            onclick={openPerfHudSettings}
+          >
+            <Cpu size={11} class="flex-shrink-0 text-text-faint" />
+            <span class="text-2xs font-mono mt-px"
+              >{perfHudState.metrics.cpu}% · {perfHudState.metrics.memMb} MB</span
+            >
           </button>
         {/if}
-      {/if}
 
-      {#if worktreeCount > 1 && worktreeName}
-        <span
-          class="flex items-center gap-1 leading-none whitespace-nowrap"
-          title="Worktree: {worktreeName}"
-        >
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-            <path
-              d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"
-            />
-          </svg>
-          <span class="overflow-hidden text-ellipsis max-w-35">{worktreeName}</span>
-        </span>
-      {/if}
+        {#if agentCount > 0}
+          <button
+            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
+            aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+              ? `, ${globalStatusLabel(globalWorstStatus)}`
+              : ''}"
+            title="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+              ? ` — ${globalStatusLabel(globalWorstStatus)}`
+              : ''}"
+            onclick={focusWorstAgent}
+          >
+            <span
+              class="size-2 rounded-full flex-shrink-0"
+              class:animate-badge-pulse={globalWorstStatus === 'waitingPermission' ||
+                globalWorstStatus === 'working'}
+              class:motion-reduce:animate-none={globalWorstStatus === 'waitingPermission' ||
+                globalWorstStatus === 'working'}
+              style="background: {statusDotColor(globalWorstStatus)}"
+            ></span>
+            <span
+              class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-border-subtle text-text-secondary text-2xs font-semibold tabular-nums leading-none"
+              >{agentCount}</span
+            >
+          </button>
+        {/if}
 
-      {#if perfHudEnabled && perfHudState.metrics}
+        {#if permissionSessionId}
+          <button
+            class="inline-flex items-center h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-warning-text animate-badge-pulse motion-reduce:animate-none cursor-pointer transition-colors duration-fast hover:bg-hover"
+            aria-label="Agent waiting for permission"
+            title="Agent waiting for permission"
+            onclick={focusPermissionAgent}
+          >
+            <Bell size={13} class="flex-shrink-0" />
+          </button>
+        {/if}
+
+        {#if hasUpdate}
+          <button
+            class="inline-flex items-center h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-accent-text cursor-pointer transition-colors duration-fast hover:bg-hover"
+            aria-label="Install update v{updateState.version}"
+            title="Update v{updateState.version} ready to install"
+            onclick={installUpdate}
+          >
+            <ArrowDownToLine size={13} class="flex-shrink-0" />
+          </button>
+        {/if}
+      </div>
+
+      <span class="self-stretch w-px bg-border-subtle mx-3" aria-hidden="true"></span>
+
+      <!-- Sub-group C: app actions -->
+      <div class="flex items-center gap-1">
         <button
-          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent text-text-muted font-inherit tabular-nums px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
-          aria-label="App CPU {perfHudState.metrics.cpu}%, RAM {perfHudState.metrics.memMb} MB"
-          title="App CPU / RAM — click to open settings"
-          onclick={openPerfHudSettings}
+          class="inline-flex items-center justify-center size-5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
+          aria-label="Toggle Inspector"
+          title="Toggle Inspector"
+          onclick={() => toggleRightPanel()}
         >
-          {perfHudState.metrics.cpu}% · {perfHudState.metrics.memMb} MB
+          <Eye size={13} />
         </button>
-      {/if}
 
-      {#if agentCount > 0}
         <button
-          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent text-inherit font-inherit px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
-          aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
-            ? `, ${globalStatusLabel(globalWorstStatus)}`
-            : ''}"
-          title="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
-            ? ` — ${globalStatusLabel(globalWorstStatus)}`
-            : ''}"
-          onclick={focusWorstAgent}
+          class="inline-flex items-center justify-center size-5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
+          aria-label="Open Settings"
+          title="Open Settings"
+          onclick={() => showPreferences()}
         >
-          <span
-            class="w-2 h-2 rounded-full flex-shrink-0"
-            class:animate-badge-pulse={globalWorstStatus === 'waitingPermission' ||
-              globalWorstStatus === 'working'}
-            class:motion-reduce:animate-none={globalWorstStatus === 'waitingPermission' ||
-              globalWorstStatus === 'working'}
-            style="background: {statusDotColor(globalWorstStatus)}"
-          ></span>
-          <span class="overflow-hidden text-ellipsis max-w-35">{agentCount}</span>
+          <Settings size={13} />
         </button>
-      {/if}
-
-      {#if permissionSessionId}
-        <button
-          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent font-inherit text-warning-text animate-badge-pulse motion-reduce:animate-none px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover"
-          aria-label="Agent waiting for permission"
-          title="Agent waiting for permission"
-          onclick={focusPermissionAgent}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path
-              d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2ZM8 1.918l-.797.161A4.002 4.002 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 0 0-3.203-3.92L8 1.917ZM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 6.88 3 6c0-2.42 1.72-4.44 4.005-4.901a1 1 0 1 1 1.99 0A5.002 5.002 0 0 1 13 6c0 .88.32 4.2 1.22 6Z"
-            />
-          </svg>
-        </button>
-      {/if}
-
-      {#if hasUpdate}
-        <button
-          class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent font-inherit text-accent-text px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover"
-          aria-label="Install update v{updateState.version}"
-          title="Update v{updateState.version} ready to install"
-          onclick={installUpdate}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path
-              d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 1.371 1.37V3.5a.25.25 0 0 1 .25-.25h.006a.25.25 0 0 1 .25.25v3.097l1.371-1.37a.25.25 0 0 1 .354.353l-1.793 1.793a.252.252 0 0 1-.166.073h-.027a.252.252 0 0 1-.166-.073L6.025 5.58a.25.25 0 0 1 .354-.353ZM5 10.75a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z"
-            />
-          </svg>
-        </button>
-      {/if}
-
-      <button
-        class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent font-inherit text-text-muted px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
-        aria-label="Toggle Inspector"
-        title="Toggle Inspector"
-        onclick={() => toggleRightPanel()}
-      >
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-          <path
-            d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.824.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"
-          />
-        </svg>
-      </button>
-
-      <button
-        class="flex items-center gap-1 leading-none whitespace-nowrap border-0 bg-transparent font-inherit text-text-muted px-1 py-0.5 rounded-sm cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
-        aria-label="Open Settings"
-        title="Open Settings"
-        onclick={() => showPreferences()}
-      >
-        <Settings size={13} />
-      </button>
+      </div>
     </div>
   </footer>
 {/if}

@@ -25,48 +25,42 @@
   class="min-w-50 max-w-125 h-full bg-bg border-l border-border-subtle flex flex-col flex-shrink-0"
   style:width="{width}px"
 >
-  <div class="flex items-center justify-center px-3 py-2 flex-shrink-0">
-    <div class="flex gap-1 w-full bg-bg-input rounded-lg p-0.5" role="tablist">
-      <button
-        class="flex-1 flex items-center justify-center gap-1 h-6 text-xs font-medium cursor-pointer border-0 font-inherit rounded-md transition-colors duration-base motion-reduce:transition-none"
-        class:bg-active={workspaceState.rightPanelTab === 'session'}
-        class:bg-transparent={workspaceState.rightPanelTab !== 'session'}
-        class:text-text={workspaceState.rightPanelTab === 'session'}
-        class:text-text-secondary={workspaceState.rightPanelTab !== 'session'}
-        class:hover:bg-hover={workspaceState.rightPanelTab !== 'session'}
-        class:hover:text-text={workspaceState.rightPanelTab !== 'session'}
-        role="tab"
-        aria-selected={workspaceState.rightPanelTab === 'session'}
-        onclick={() => (workspaceState.rightPanelTab = 'session')}
-      >
-        Session
-      </button>
-      <button
-        class="flex-1 flex items-center justify-center gap-1 h-6 text-xs font-medium cursor-pointer border-0 font-inherit rounded-md transition-colors duration-base motion-reduce:transition-none"
-        class:bg-active={workspaceState.rightPanelTab === 'changes'}
-        class:bg-transparent={workspaceState.rightPanelTab !== 'changes'}
-        class:text-text={workspaceState.rightPanelTab === 'changes'}
-        class:text-text-secondary={workspaceState.rightPanelTab !== 'changes'}
-        class:hover:bg-hover={workspaceState.rightPanelTab !== 'changes'}
-        class:hover:text-text={workspaceState.rightPanelTab !== 'changes'}
-        role="tab"
-        aria-selected={workspaceState.rightPanelTab === 'changes'}
-        onclick={() => (workspaceState.rightPanelTab = 'changes')}
-      >
-        Changes
-        {#if workspaceState.changesCount > 0}
-          <span
-            class="text-2xs font-semibold min-w-3.5 h-3.5 rounded-3xl inline-flex items-center justify-center px-1 leading-none"
-            class:bg-border={workspaceState.rightPanelTab === 'changes'}
-            class:text-text={workspaceState.rightPanelTab === 'changes'}
-            class:bg-active={workspaceState.rightPanelTab !== 'changes'}
-            class:text-text-secondary={workspaceState.rightPanelTab !== 'changes'}
-          >
-            {workspaceState.changesCount}
-          </span>
-        {/if}
-      </button>
-    </div>
+  <div class="flex items-stretch px-3 border-b border-border-subtle flex-shrink-0" role="tablist">
+    <button
+      class="relative flex-1 inline-flex items-center justify-center gap-1.5 h-9 text-xs font-medium font-inherit border-0 bg-transparent cursor-pointer transition-colors duration-fast"
+      class:text-text={workspaceState.rightPanelTab === 'session'}
+      class:text-text-faint={workspaceState.rightPanelTab !== 'session'}
+      class:hover:text-text-secondary={workspaceState.rightPanelTab !== 'session'}
+      role="tab"
+      aria-selected={workspaceState.rightPanelTab === 'session'}
+      onclick={() => (workspaceState.rightPanelTab = 'session')}
+    >
+      Session
+      {#if workspaceState.rightPanelTab === 'session'}
+        <span class="absolute inset-x-0 -bottom-px h-0.5 bg-accent" aria-hidden="true"></span>
+      {/if}
+    </button>
+    <button
+      class="relative flex-1 inline-flex items-center justify-center gap-1.5 h-9 text-xs font-medium font-inherit border-0 bg-transparent cursor-pointer transition-colors duration-fast"
+      class:text-text={workspaceState.rightPanelTab === 'changes'}
+      class:text-text-faint={workspaceState.rightPanelTab !== 'changes'}
+      class:hover:text-text-secondary={workspaceState.rightPanelTab !== 'changes'}
+      role="tab"
+      aria-selected={workspaceState.rightPanelTab === 'changes'}
+      onclick={() => (workspaceState.rightPanelTab = 'changes')}
+    >
+      Changes
+      {#if workspaceState.changesCount > 0}
+        <span
+          class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-border-subtle text-text-secondary text-2xs font-semibold tracking-caps-tight tabular-nums leading-none"
+        >
+          {workspaceState.changesCount}
+        </span>
+      {/if}
+      {#if workspaceState.rightPanelTab === 'changes'}
+        <span class="absolute inset-x-0 -bottom-px h-0.5 bg-accent" aria-hidden="true"></span>
+      {/if}
+    </button>
   </div>
 
   <div
@@ -77,7 +71,7 @@
       <AgentInspector state={agentState} />
     {:else}
       <div class="flex items-center justify-center h-full p-4">
-        <span class="text-sm text-text-muted">No active agent session</span>
+        <span class="text-sm text-text-faint">No active agent session</span>
       </div>
     {/if}
   </div>
@@ -90,7 +84,7 @@
       <ChangesPanel {worktreePath} bind:fileCount={changesFileCount} />
     {:else}
       <div class="flex items-center justify-center h-full p-4">
-        <span class="text-sm text-text-muted">No changes yet</span>
+        <span class="text-sm text-text-faint">No changes yet</span>
       </div>
     {/if}
   </div>

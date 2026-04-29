@@ -35,7 +35,7 @@
   class="flex-shrink-0 h-full bg-bg-glass backdrop-blur-xl border-r border-border-subtle flex flex-col overflow-hidden"
   style="width: {width}px; min-width: {width}px"
 >
-  <div class="flex-1 min-h-0 overflow-y-auto flex flex-col">
+  <div class="flex-1 min-h-0 overflow-y-auto flex flex-col [scrollbar-gutter:stable]">
     {#each sections as section (section.id)}
       {#if section.visible}
         {#if section.id === 'projects'}
@@ -56,9 +56,11 @@
       {/if}
     {/each}
   </div>
-  <div class="flex-shrink-0 px-3 py-2 border-t border-border-subtle">
+  <div class="flex-shrink-0 px-3 h-7 border-t border-border-subtle flex items-center">
     {#if version}
-      <span class="text-xs text-text-faint select-none">v{version}</span>
+      <span class="text-2xs text-text-faint tracking-caps-tight uppercase select-none"
+        >v{version}</span
+      >
     {/if}
   </div>
 </aside>
