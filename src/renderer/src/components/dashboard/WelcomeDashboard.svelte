@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
   import { openWorkspace } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
-  import { fileManagerLabel } from '../../lib/platform'
+  import WelcomeEmpty from './_partials/WelcomeEmpty.svelte'
+  import WelcomeContextMenu from './_partials/WelcomeContextMenu.svelte'
+  import WelcomeRecents from './_partials/WelcomeRecents.svelte'
 
   interface WorkspaceRow {
     id: string
@@ -17,52 +19,46 @@
   }
 
   const isMac = navigator.userAgent.includes('Mac')
+  const modKey = isMac ? '⌘' : 'Ctrl'
+
   let workspaces = $state<WorkspaceRow[]>([])
+  let filter = $state('')
+  let selectedIndex = $state(0)
   let contextMenu = $state<{ x: number; y: number; workspace: WorkspaceRow } | null>(null)
   let disposed = false
 
-  function relativeTime(dateStr: string | null): string {
-    if (!dateStr) return ''
-    const diff = Date.now() - Date.parse(dateStr)
-    const seconds = Math.floor(diff / 1000)
-    if (seconds < 60) return 'just now'
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m ago`
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    if (days === 1) return 'yesterday'
-    if (days < 30) return `${days}d ago`
-    const months = Math.floor(days / 30)
-    return `${months}mo ago`
-  }
+  let filterInputEl: HTMLInputElement | undefined = $state()
+  let openFolderBtnEl: HTMLButtonElement | undefined = $state()
+  let listEl: HTMLDivElement | undefined = $state()
 
-  function parseAheadBehind(raw: string | null): { ahead: number; behind: number } | null {
-    if (!raw) return null
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed.ahead === 'number') return parsed
-      // Legacy format: "ahead/behind"
-      const parts = raw.split('/')
-      if (parts.length === 2) {
-        return { ahead: parseInt(parts[0]), behind: parseInt(parts[1]) }
-      }
-    } catch {
-      // Legacy "ahead/behind" string format
-      const parts = raw.split('/')
-      if (parts.length === 2) {
-        const ahead = parseInt(parts[0])
-        const behind = parseInt(parts[1])
-        if (!isNaN(ahead) && !isNaN(behind)) return { ahead, behind }
-      }
-    }
-    return null
-  }
+  const filteredWorkspaces = $derived.by(() => {
+    const q = filter.trim().toLowerCase()
+    if (!q) return workspaces
+    return workspaces.filter(
+      (w) =>
+        w.name.toLowerCase().includes(q) ||
+        w.path.toLowerCase().includes(q) ||
+        (w.cached_branch?.toLowerCase().includes(q) ?? false),
+    )
+  })
+
+  const showFilter = $derived(workspaces.length > 4)
+
+  $effect(() => {
+    void filteredWorkspaces
+    if (selectedIndex >= filteredWorkspaces.length) selectedIndex = 0
+  })
 
   onMount(async () => {
-    workspaces = await window.api.listWorkspaces(10)
+    workspaces = await window.api.listWorkspaces(20)
 
-    // Refresh a few recent repos sequentially so the welcome screen stays cheap to render.
+    await tick()
+    if (workspaces.length === 0) {
+      openFolderBtnEl?.focus()
+    } else {
+      focusRow(0)
+    }
+
     for (const ws of workspaces.slice(0, 3)) {
       if (disposed) break
       if (ws.is_git_repo) {
@@ -70,12 +66,10 @@
           const fresh = await window.api.refreshWorkspaceGitStatus(ws.id, ws.path)
           if (fresh && !disposed) {
             const idx = workspaces.findIndex((w) => w.id === fresh.id)
-            if (idx !== -1) {
-              workspaces[idx] = fresh
-            }
+            if (idx !== -1) workspaces[idx] = fresh
           }
         } catch {
-          // Path may no longer exist — ignore
+          // path may no longer exist — ignore
         }
       }
     }
@@ -124,10 +118,7 @@
     closeContextMenu()
   }
 
-  async function ctxRemove(): Promise<void> {
-    if (!contextMenu) return
-    const ws = contextMenu.workspace
-    closeContextMenu()
+  async function removeWorkspace(ws: WorkspaceRow): Promise<void> {
     const ok = await confirm({
       title: 'Remove from Recent?',
       message: `Remove "${ws.name}" from your recent workspaces?`,
@@ -140,109 +131,153 @@
     workspaces = workspaces.filter((w) => w.id !== ws.id)
   }
 
+  async function ctxRemove(): Promise<void> {
+    if (!contextMenu) return
+    const ws = contextMenu.workspace
+    closeContextMenu()
+    await removeWorkspace(ws)
+  }
+
+  function focusRow(idx: number): void {
+    listEl?.querySelectorAll<HTMLElement>('[data-row]')[idx]?.focus()
+  }
+
+  function selectAt(idx: number, refocus: boolean): void {
+    const len = filteredWorkspaces.length
+    if (len === 0) return
+    selectedIndex = Math.max(0, Math.min(len - 1, idx))
+    if (refocus) focusRow(selectedIndex)
+  }
+
+  const NAV_DELTA: Record<string, number> = {
+    ArrowDown: 1,
+    ArrowUp: -1,
+    PageDown: 5,
+    PageUp: -5,
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
     if (contextMenu && e.key === 'Escape') {
       e.preventDefault()
       closeContextMenu()
+      return
+    }
+
+    const t = e.target
+    const onFilter = t === filterInputEl
+    const onRow = t instanceof HTMLElement && t.hasAttribute('data-row')
+    const inOtherInput =
+      t instanceof HTMLElement &&
+      !onFilter &&
+      (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+    if (inOtherInput) return
+
+    if (e.key === 'Escape') {
+      if (filter !== '') {
+        e.preventDefault()
+        filter = ''
+        return
+      }
+      if (onFilter) {
+        e.preventDefault()
+        focusRow(selectedIndex)
+        return
+      }
+    }
+
+    if (e.key === '/' && !onFilter && showFilter) {
+      e.preventDefault()
+      filterInputEl?.focus()
+      filterInputEl?.select()
+      return
+    }
+
+    // Quick-search: printable key on a row jumps to filter (only when filter is empty).
+    const printable =
+      e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && /\S/.test(e.key)
+    if (onRow && showFilter && filter === '' && printable) {
+      e.preventDefault()
+      filter = e.key
+      filterInputEl?.focus()
+      void tick().then(() => {
+        if (filterInputEl) {
+          filterInputEl.selectionStart = filterInputEl.selectionEnd = filter.length
+        }
+      })
+      return
+    }
+
+    // Navigation keys are scoped to filter/row so Enter on action buttons activates them.
+    if (!onFilter && !onRow) return
+    if (filteredWorkspaces.length === 0) return
+
+    const delta = NAV_DELTA[e.key]
+    if (delta !== undefined) {
+      e.preventDefault()
+      selectAt(selectedIndex + delta, !onFilter)
+      return
+    }
+    if (e.key === 'Home' && !onFilter) {
+      e.preventDefault()
+      selectAt(0, true)
+      return
+    }
+    if (e.key === 'End' && !onFilter) {
+      e.preventDefault()
+      selectAt(filteredWorkspaces.length - 1, true)
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleOpen(filteredWorkspaces[selectedIndex])
+      return
+    }
+    if (e.key === 'Backspace' && (e.metaKey || e.ctrlKey) && !onFilter) {
+      e.preventDefault()
+      const ws = filteredWorkspaces[selectedIndex]
+      if (ws) void removeWorkspace(ws)
     }
   }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 {#if contextMenu}
-  <div class="fixed inset-0 z-overlay" onclick={closeContextMenu}>
-    <div
-      class="fixed min-w-45 bg-bg-overlay border border-border rounded-xl shadow-ctx p-1 z-popover"
-      style="left: {contextMenu.x}px; top: {contextMenu.y}px"
-      onclick={(e) => e.stopPropagation()}
-    >
-      <button
-        class="block w-full px-3 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
-        onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button
-      >
-      <button
-        class="block w-full px-3 py-1.5 border-0 rounded-md bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
-        onclick={ctxCopyPath}>Copy Path</button
-      >
-      <div class="h-px mx-2 my-1 bg-active"></div>
-      <button
-        class="block w-full px-3 py-1.5 border-0 rounded-md bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-active"
-        onclick={ctxRemove}>Remove from Recent</button
-      >
-    </div>
-  </div>
+  <WelcomeContextMenu
+    x={contextMenu.x}
+    y={contextMenu.y}
+    onClose={closeContextMenu}
+    onReveal={ctxRevealInFileManager}
+    onCopyPath={ctxCopyPath}
+    onRemove={ctxRemove}
+  />
 {/if}
 
-<div class="flex items-start justify-center h-full overflow-y-auto py-15 px-5">
-  <div class="w-full max-w-130">
-    <h1 class="text-3xl font-bold text-text-faint tracking-caps text-center m-0 mb-10">Canopy</h1>
-
-    {#if workspaces.length > 0}
-      <h2 class="text-xs font-semibold tracking-caps-tight uppercase text-text-faint m-0 mb-2">
-        Recent
-      </h2>
-      <div class="flex flex-col gap-0.5 mb-6">
-        {#each workspaces as ws (ws.id)}
-          <button
-            class="block w-full px-3 py-2.5 border-0 rounded-lg bg-transparent text-inherit font-inherit text-inherit text-left cursor-pointer transition-colors duration-fast outline-none hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-            onclick={() => handleOpen(ws)}
-            oncontextmenu={(e) => handleContextMenu(e, ws)}
-          >
-            <div class="flex items-baseline justify-between gap-3">
-              <span
-                class="text-md font-semibold text-text whitespace-nowrap overflow-hidden text-ellipsis"
-                >{ws.name}</span
-              >
-              <span class="flex items-baseline gap-1.5 flex-shrink-0 text-sm">
-                {#if ws.cached_branch}
-                  <span class="text-text-muted">{ws.cached_branch}</span>
-                {/if}
-                {#if ws.cached_dirty === 1}
-                  <span class="text-warning-text font-bold">*</span>
-                {/if}
-                {#if parseAheadBehind(ws.cached_ahead_behind)}
-                  {@const ab = parseAheadBehind(ws.cached_ahead_behind)!}
-                  {#if ab.ahead > 0}
-                    <span class="text-success text-xs">{ab.ahead}&#x2191;</span>
-                  {/if}
-                  {#if ab.behind > 0}
-                    <span class="text-warning-text text-xs">{ab.behind}&#x2193;</span>
-                  {/if}
-                {/if}
-              </span>
-            </div>
-            <div class="flex items-baseline justify-between gap-3 mt-0.5">
-              <span
-                class="text-xs font-mono text-text-faint whitespace-nowrap overflow-hidden text-ellipsis"
-                >{ws.path}</span
-              >
-              <span class="flex items-baseline gap-2 flex-shrink-0 text-xs text-text-faint">
-                {#if ws.is_git_repo && ws.cached_worktree_count && ws.cached_worktree_count > 1}
-                  <span>{ws.cached_worktree_count} worktrees</span>
-                {/if}
-                {#if ws.last_opened}
-                  <span>{relativeTime(ws.last_opened)}</span>
-                {/if}
-              </span>
-            </div>
-          </button>
-        {/each}
-      </div>
+<div class="flex items-start justify-center h-full overflow-y-auto py-12 px-5">
+  <div class="w-full max-w-160 flex flex-col gap-6">
+    {#if workspaces.length === 0}
+      <WelcomeEmpty
+        {modKey}
+        onOpenFolder={handleOpenFolder}
+        onOpenFromPath={handleOpenFromPath}
+        bind:openFolderBtnEl
+      />
+    {:else}
+      <WelcomeRecents
+        {workspaces}
+        {filteredWorkspaces}
+        bind:filter
+        {showFilter}
+        {selectedIndex}
+        {modKey}
+        onOpen={handleOpen}
+        onSelect={(i) => (selectedIndex = i)}
+        onContextMenu={handleContextMenu}
+        onOpenFolder={handleOpenFolder}
+        onOpenFromPath={handleOpenFromPath}
+        bind:filterInputEl
+        bind:listEl
+      />
     {/if}
-
-    <div class="flex items-center gap-2">
-      <button
-        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-hover text-text-secondary transition-colors duration-fast hover:bg-hover-strong focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-        onclick={handleOpenFolder}>Open Folder</button
-      >
-      <button
-        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-hover text-text-secondary transition-colors duration-fast hover:bg-hover-strong focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-        onclick={handleOpenFromPath}>Open from Path...</button
-      >
-      <span class="text-xs text-text-faint ml-1">{isMac ? 'Cmd' : 'Ctrl'}+O</span>
-    </div>
   </div>
 </div>
