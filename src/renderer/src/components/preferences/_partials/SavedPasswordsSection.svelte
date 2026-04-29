@@ -50,7 +50,7 @@
       revealTimer = setTimeout(() => {
         revealedId = null
         revealedPassword = ''
-      }, 5000)
+      }, 15000)
     }
   }
 
@@ -98,7 +98,7 @@
             type="button"
             class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
             onclick={() => revealPassword(cred.id, cred.domain)}
-            title={revealedId === cred.id ? 'Hide password' : 'Show password (5s)'}
+            title={revealedId === cred.id ? 'Hide password' : 'Show password (15s)'}
             aria-label={revealedId === cred.id ? 'Hide password' : 'Show password'}
           >
             {#if revealedId === cred.id}
