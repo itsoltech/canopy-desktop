@@ -187,7 +187,7 @@
       <span class="flex-1">Push</span>
       {#if ahead > 0}
         <span
-          class="inline-flex items-center justify-center min-w-4 h-4 px-1.5 rounded-md bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
+          class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
           >{ahead}</span
         >
       {/if}
@@ -209,7 +209,7 @@
       <span class="flex-1">Pull</span>
       {#if behind > 0}
         <span
-          class="inline-flex items-center justify-center min-w-4 h-4 px-1.5 rounded-md bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
+          class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-accent-bg text-accent-text text-2xs font-semibold tracking-caps-tight leading-tight flex-shrink-0"
           >{behind}</span
         >
       {/if}
