@@ -33,16 +33,15 @@
   const submitLabel = mode === 'add' ? 'Add tool' : 'Save'
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
+<form
   class="flex flex-col gap-2 p-3 border border-border rounded-md bg-bg-input"
   class:my-1={mode === 'edit'}
   class:mt-3={mode === 'add'}
+  onsubmit={(e) => {
+    e.preventDefault()
+    onSubmit()
+  }}
   onkeydown={(e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      onSubmit()
-    }
     if (e.key === 'Escape') onCancel()
   }}
 >
@@ -101,9 +100,9 @@
       onclick={onCancel}>Cancel</button
     >
     <button
-      type="button"
+      type="submit"
       class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
-      onclick={onSubmit}>{submitLabel}</button
+      >{submitLabel}</button
     >
   </div>
-</div>
+</form>

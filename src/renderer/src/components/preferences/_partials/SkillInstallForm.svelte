@@ -70,14 +70,13 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
+<form
   class="flex flex-col gap-2 p-3 border border-border rounded-md bg-bg-input"
+  onsubmit={(e) => {
+    e.preventDefault()
+    install()
+  }}
   onkeydown={(e) => {
-    if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
-      e.preventDefault()
-      install()
-    }
     if (e.key === 'Escape') cancel()
   }}
 >
@@ -142,12 +141,11 @@
       onclick={cancel}>Cancel</button
     >
     <button
-      type="button"
+      type="submit"
       class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text disabled:opacity-60 disabled:cursor-default hover:bg-accent-bg-hover"
-      onclick={install}
       disabled={installing}
     >
       {installing ? 'Installing…' : 'Install'}
     </button>
   </div>
-</div>
+</form>
