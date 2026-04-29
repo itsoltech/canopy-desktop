@@ -180,6 +180,7 @@
     // `\x1b[?25l`, the TUI wants the cursor hidden (e.g. claude while
     // thinking, vim during paste). Restoring would override that intent
     // and leave a stray xterm caret.
+    // eslint-disable-next-line no-control-regex
     const lastDectcem = data.match(/\x1b\[\?25[lh](?!.*\x1b\[\?25[lh])/s)
     const tuiWantsHidden = lastDectcem?.[0].endsWith('l') ?? false
     const prefixed = cursorHiddenForBurst ? data : '\x1b[?25l' + data
