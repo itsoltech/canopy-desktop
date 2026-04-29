@@ -375,7 +375,7 @@
     {@const collapsed = collapseState[project.workspace.path] ?? false}
     {@const merged = getMerged(project)}
     <div class="mb-0.5">
-      <div class="flex items-center justify-between pl-3 pr-2">
+      <div class="flex items-center justify-between pl-3 pr-3">
         <button
           class="group flex items-center gap-1 flex-1 min-w-0 bg-transparent border-0 py-1 cursor-pointer text-inherit rounded-sm"
           class:bg-active={!project.isGitRepo &&
@@ -457,7 +457,7 @@
               class:pointer-events-none={isRemoving}
             >
               <button
-                class="flex items-center gap-1.5 flex-1 min-w-0 py-1 pr-2 pl-6 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left rounded-sm mx-1 hover:bg-hover hover:text-text"
+                class="flex items-center gap-1.5 flex-1 min-w-0 h-7 pr-2 pl-6 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left rounded-sm mx-1 hover:bg-hover hover:text-text"
                 class:bg-active={wt.path === workspaceState.selectedWorktreePath}
                 class:text-text={wt.path === workspaceState.selectedWorktreePath}
                 onclick={() => selectWorktree(wt.path)}
@@ -530,20 +530,20 @@
                   <span
                     role="button"
                     tabindex="-1"
-                    class="inline-flex items-center justify-center w-4 h-4 p-0 border-0 bg-transparent text-warning-text cursor-pointer flex-shrink-0 rounded-sm transition-colors duration-fast hover:text-danger hover:bg-danger-bg"
+                    class="inline-flex items-center justify-center size-5 p-0 border-0 bg-transparent text-danger-text cursor-pointer flex-shrink-0 rounded-sm transition-colors duration-fast hover:bg-danger-bg"
                     title="Stop all terminals in this worktree"
                     onclick={(e) => {
                       e.stopPropagation()
                       stopWorktree(e, wt.path)
                     }}
                   >
-                    <Square size={8} />
+                    <Square size={10} fill="currentColor" />
                   </span>
                 {/if}
               </button>
               {#if !wtActive && !wt.isMain && merged.has(wt.branch) && !isRemoving}
                 <button
-                  class="flex items-center justify-center w-6 h-6 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-md mr-1 transition-colors duration-fast hover:text-danger hover:bg-danger-bg"
+                  class="inline-flex items-center justify-center size-5 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-sm mr-3 transition-colors duration-fast hover:text-danger-text hover:bg-danger-bg"
                   title="Remove worktree and delete branch"
                   aria-label="Remove worktree and delete branch"
                   onclick={(e) => removeWorktree(e, project, wt)}
