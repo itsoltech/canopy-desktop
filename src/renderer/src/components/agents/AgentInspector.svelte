@@ -38,6 +38,15 @@
       .otherwise(() => 'dim'),
   )
 
+  let statusDotTone = $derived(
+    match(statusClass)
+      .with('permission', () => 'bg-warning-text animate-badge-pulse motion-reduce:animate-none')
+      .with('error', () => 'bg-danger-text')
+      .with('active', () => 'bg-accent-text animate-badge-pulse motion-reduce:animate-none')
+      .with('idle', () => 'bg-success')
+      .otherwise(() => 'bg-text-faint'),
+  )
+
   function relativeTime(ts: number): string {
     const diff = Date.now() - ts
     const seconds = Math.floor(diff / 1000)
@@ -89,35 +98,38 @@
     return `${hours}h ${minutes % 60}m`
   }
 
-  const sectionLabelCls = 'text-2xs font-semibold tracking-[0.5px] uppercase text-text-faint m-0'
-  const infoGridCls = 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] text-sm'
-  const infoKeyCls = 'text-text-muted'
+  const sectionLabelCls =
+    'text-2xs font-semibold tracking-caps-looser uppercase text-text-faint leading-tight m-0'
+  const infoGridCls = 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm'
+  const infoKeyCls = 'text-text-faint'
   const infoValCls = 'text-text-secondary'
 </script>
 
-<div class="flex flex-col gap-3 p-3" data-status={statusClass}>
-  <h3 class="text-2xs font-semibold tracking-[1px] uppercase text-text-faint m-0">
+<div class="flex flex-col gap-4 p-3" data-status={statusClass}>
+  <h3
+    class="text-2xs font-semibold tracking-caps-looser uppercase text-text-faint leading-tight m-0"
+  >
     {inspectorTitle}
   </h3>
 
   <!-- Status -->
-  <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-border-subtle">
-    <span class="status-dot w-2 h-2 rounded-full flex-shrink-0 bg-text-faint"></span>
+  <div class="flex items-center gap-2 h-7 px-2.5 rounded-md bg-border-subtle">
+    <span class="size-2 rounded-full flex-shrink-0 {statusDotTone}" aria-hidden="true"></span>
     <span class="text-sm text-text">{statusText}</span>
   </div>
 
   <!-- Context Bar -->
   {#if state.contextPercent != null}
-    <div class="flex flex-col gap-1">
+    <div class="flex flex-col gap-1.5">
       <div class="flex justify-between items-baseline">
         <span class={sectionLabelCls}>Context</span>
-        <span class="text-xs text-text-secondary"
+        <span class="text-2xs font-mono tabular-nums text-text-secondary"
           >{Math.round(state.contextPercent)}% of {formatContextSize(state.contextSize)}</span
         >
       </div>
-      <div class="h-1 rounded-xs bg-active overflow-hidden">
+      <div class="h-1.5 rounded-sm bg-border-subtle overflow-hidden">
         <div
-          class="h-full rounded-xs transition-[width] duration-slow {contextBarClass}"
+          class="h-full rounded-sm transition-[width] duration-slow {contextBarClass}"
           style="width: {Math.min(state.contextPercent, 100)}%"
         ></div>
       </div>
@@ -175,12 +187,19 @@
   <!-- Tasks -->
   {#if visibleTasks.length > 0}
     <div class="flex flex-col gap-1.5">
-      <h4 class={sectionLabelCls}>Tasks ({taskCounts.done}/{taskCounts.total})</h4>
-      <div class="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto">
+      <div class="flex items-baseline justify-between">
+        <h4 class={sectionLabelCls}>Tasks</h4>
+        <span class="text-2xs font-mono tabular-nums text-text-faint"
+          >{taskCounts.done}/{taskCounts.total}</span
+        >
+      </div>
+      <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1">
         {#each visibleTasks as task (task.id)}
-          <div class="flex items-center gap-1.5 py-0.5">
+          <div
+            class="flex items-center gap-2 h-6 px-1 rounded-sm transition-colors duration-fast hover:bg-hover"
+          >
             {#if task.status === 'completed'}
-              <span class="text-2xs w-3 flex-shrink-0 text-center text-success">✓</span>
+              <span class="text-2xs w-3 flex-shrink-0 text-center text-success-text">✓</span>
             {:else if task.status === 'in_progress'}
               <span class="text-2xs w-3 flex-shrink-0 text-center text-accent-text">▶</span>
             {:else}
@@ -200,16 +219,24 @@
   <!-- Agents -->
   {#if state.activeSubagents.length > 0}
     <div class="flex flex-col gap-1.5">
-      <h4 class={sectionLabelCls}>Agents ({state.activeSubagents.length})</h4>
-      <div class="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto">
+      <div class="flex items-baseline justify-between">
+        <h4 class={sectionLabelCls}>Agents</h4>
+        <span class="text-2xs font-mono tabular-nums text-text-faint"
+          >{state.activeSubagents.length}</span
+        >
+      </div>
+      <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1">
         {#each state.activeSubagents as agent (agent.agentId)}
-          <div class="flex items-center gap-1.5 py-0.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-focus-ring flex-shrink-0"></span>
+          <div
+            class="flex items-center gap-2 h-6 px-1 rounded-sm transition-colors duration-fast hover:bg-hover"
+          >
+            <span class="size-1.5 rounded-full bg-focus-ring flex-shrink-0"></span>
             <span
               class="text-sm text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap flex-1"
               >{agent.agentType}</span
             >
-            <span class="text-2xs text-text-faint flex-shrink-0">({agent.agentId.slice(0, 8)})</span
+            <span class="text-2xs font-mono text-text-faint flex-shrink-0"
+              >{agent.agentId.slice(0, 8)}</span
             >
           </div>
         {/each}
@@ -221,14 +248,17 @@
   {#if reversedNotifications.length > 0}
     <div class="flex flex-col gap-1.5">
       <h4 class={sectionLabelCls}>Notifications</h4>
-      <div class="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto">
+      <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1">
         {#each reversedNotifications as notif (notif.timestamp)}
-          <div class="flex items-baseline justify-between gap-2 py-0.5">
+          <div
+            class="flex items-baseline justify-between gap-2 px-1 py-1 rounded-sm transition-colors duration-fast hover:bg-hover"
+          >
             <span
               class="text-xs text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap flex-1"
               >{notif.message || notif.title}</span
             >
-            <span class="text-2xs text-text-faint flex-shrink-0"
+            <span
+              class="inline-flex items-center h-4 px-1 rounded-sm bg-border-subtle text-text-faint text-2xs font-mono tabular-nums leading-none flex-shrink-0"
               >{relativeTime(notif.timestamp)}</span
             >
           </div>

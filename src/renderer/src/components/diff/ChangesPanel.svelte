@@ -158,28 +158,33 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="flex items-center justify-between px-3 py-2 flex-shrink-0">
-    <span class="text-xs font-semibold text-text-secondary uppercase tracking-caps-looser"
-      >Changes</span
+  <div class="flex items-center justify-between px-3 pt-3 pb-1 flex-shrink-0">
+    <h3
+      class="text-2xs font-semibold tracking-caps-looser uppercase text-text-faint leading-tight m-0"
     >
+      Changes
+    </h3>
     <button
-      class="bg-transparent border-0 text-text-muted cursor-pointer px-1 py-0.5 rounded-md flex items-center justify-center enabled:hover:text-text enabled:hover:bg-hover disabled:opacity-50 disabled:cursor-default"
+      class="inline-flex items-center justify-center size-5 -my-1 rounded-sm border-0 bg-transparent text-text-faint cursor-pointer transition-colors duration-fast enabled:hover:text-text enabled:hover:bg-hover disabled:opacity-40 disabled:cursor-default"
       onclick={refresh}
       title="Refresh"
+      aria-label="Refresh"
       disabled={loading}
     >
-      <RotateCw size={13} class={loading ? 'animate-spin-slow motion-reduce:animate-none' : ''} />
+      <RotateCw size={12} class={loading ? 'animate-spin-slow motion-reduce:animate-none' : ''} />
     </button>
   </div>
 
   {#if totalFiles > 0}
     <div class="flex items-center gap-2 px-3 pt-0.5 pb-2 flex-shrink-0 overflow-hidden">
-      <span class="text-xs text-text-muted whitespace-nowrap flex-shrink-0">
+      <span class="text-xs text-text-faint whitespace-nowrap flex-shrink-0">
         {totalFiles} file{totalFiles !== 1 ? 's' : ''} changed,
-        <span class="text-diff-add-fg">+{totalAdditions}</span>
-        <span class="text-diff-delete-fg">&minus;{totalDeletions}</span>
+        <span class="text-diff-add-fg font-mono">+{totalAdditions}</span>
+        <span class="text-diff-delete-fg font-mono">&minus;{totalDeletions}</span>
       </span>
-      <span class="flex items-stretch h-1.5 rounded-xs overflow-hidden flex-1 min-w-5">
+      <span
+        class="flex items-stretch h-1.5 rounded-sm overflow-hidden flex-1 min-w-5 bg-border-subtle"
+      >
         {#if totalAdditions > 0}
           <span class="block h-full bg-diff-add-fg" style="width: {summaryBarAddWidth}px"></span>
         {/if}
@@ -191,21 +196,28 @@
   {/if}
 
   <div class="px-3 pb-2 flex flex-col gap-1.5 flex-shrink-0">
-    <input
-      class="bg-bg border border-border-subtle rounded-md text-text text-xs px-2 py-1 w-full outline-none font-mono box-border focus:border-accent placeholder:text-text-faint"
-      type="text"
-      placeholder="Filter files..."
-      bind:value={filterQuery}
-    />
+    <div
+      class="relative flex items-center h-7 rounded-md bg-bg-input border border-transparent focus-within:border-focus-ring transition-colors duration-fast"
+    >
+      <input
+        class="w-full h-full px-2.5 bg-transparent border-0 outline-none text-xs text-text font-mono placeholder:text-text-faint"
+        type="text"
+        placeholder="Filter files…"
+        spellcheck="false"
+        autocomplete="off"
+        bind:value={filterQuery}
+      />
+    </div>
     <div class="flex gap-1">
       {#each [['all', 'All', 'Show all files'], ['added', 'A', 'Filter added files'], ['modified', 'M', 'Filter modified files'], ['deleted', 'D', 'Filter deleted files']] as [val, label, aria] (val)}
         <button
-          class="bg-transparent border border-border-subtle text-text-muted cursor-pointer text-2xs font-semibold px-2 py-0.5 rounded-sm font-mono"
-          class:bg-accent={statusFilter === val}
-          class:text-bg={statusFilter === val}
-          class:border-accent={statusFilter === val}
+          class="inline-flex items-center justify-center h-5 px-2 rounded-sm border-0 cursor-pointer text-2xs font-semibold font-mono tracking-caps-tight leading-none transition-colors duration-fast"
+          class:bg-accent-bg={statusFilter === val}
+          class:text-accent-text={statusFilter === val}
+          class:bg-border-subtle={statusFilter !== val}
+          class:text-text-faint={statusFilter !== val}
           class:hover:text-text={statusFilter !== val}
-          class:hover:bg-active={statusFilter !== val}
+          class:hover:bg-hover={statusFilter !== val}
           aria-label={aria}
           aria-pressed={statusFilter === val}
           onclick={() =>
@@ -248,7 +260,7 @@
             )}">{statusIcon(file.status)}</span
           >
           <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-            <span class="text-text-muted">{dirname(file.path)}</span><span class="text-text"
+            <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
               >{basename(file.path)}</span
             >
           </span>
@@ -278,7 +290,7 @@
     </ul>
   {:else if !loading}
     <div class="flex items-center justify-center h-full p-4">
-      <span class="text-sm text-text-muted">
+      <span class="text-sm text-text-faint">
         {#if filterQuery || statusFilter !== 'all'}
           No matching files
         {:else}
