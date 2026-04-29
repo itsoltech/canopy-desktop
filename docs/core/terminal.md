@@ -48,6 +48,16 @@ The WsBridge maintains a circular buffer of up to 1 MB of PTY output per session
 4. The resize callback calls `window.api.resizePty(sessionId, cols, rows)` which forwards to `PtyManager.resize()`.
 5. When the user clicks back into a terminal after a remote peer resized the PTY, the component always sends `resizePty` on `pointerdown`/`focus` to reclaim the desktop dimensions.
 
+### Cursor handling on Windows (ConPTY)
+
+ConPTY repaints arrive as a stream of CUP+char runs, so without intervention the xterm cursor visibly traces the path of every redraw. To suppress this on Windows only:
+
+1. Each output burst is bracketed with DECTCEM hide (`\x1b[?25l`) before the data and a debounced restore (`\x1b[?25h`) 80ms after the last burst.
+2. The burst data is scanned for the last `\x1b[?25[lh]` sequence the TUI emitted; if the TUI ended with the cursor explicitly hidden (e.g. `claude` while thinking, `vim` during paste), the restore timer is skipped so the TUI's intent is honored.
+3. On disposal, any pending restore timer is cleared and the cursor is re-shown so no hidden-cursor state leaks across tab close.
+
+macOS and Linux are unaffected — `writeBurst` falls through to a plain scroll-preserving write without DECTCEM bracketing.
+
 ### Pane tab strip controls
 
 In split layouts, each pane shows a strip above the pane body with the pane title and actions:

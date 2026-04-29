@@ -247,7 +247,7 @@
       const frameData = pendingData
       pendingData = ''
       writeScheduled = false
-      scrollPreservingWrite(term, frameData)
+      writeBurst(term, frameData)
     })
   }
 
