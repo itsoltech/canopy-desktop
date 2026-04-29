@@ -61,7 +61,7 @@
 <CollapsibleSection title="PROJECTS" sectionKey="projects">
   {#snippet headerExtra()}
     <button
-      class="text-2xs font-medium font-inherit text-text-muted bg-transparent border-0 px-1.5 py-px rounded-md cursor-pointer transition-colors duration-fast hover:text-text hover:bg-active"
+      class="inline-flex items-center h-5 px-1.5 rounded-sm font-inherit text-2xs font-medium text-text-faint bg-transparent border-0 cursor-pointer transition-colors duration-fast hover:text-text hover:bg-hover"
       onclick={handleOpenFolder}
       title="Open folder">+ open</button
     >
@@ -72,8 +72,8 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
-          class="group flex items-center gap-1.5 w-full px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
-          class:bg-hover-strong={ws.path === workspaceState.workspace?.path}
+          class="group flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
+          class:bg-active={ws.path === workspaceState.workspace?.path}
           onclick={() => switchProject(ws.path)}
           title={ws.path}
         >
@@ -95,14 +95,14 @@
             class="flex items-center gap-0.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity duration-fast flex-shrink-0"
           >
             <button
-              class="flex items-center justify-center w-4.5 h-4.5 border-0 bg-transparent text-text-muted rounded-sm cursor-pointer p-0 hover:text-text hover:bg-hover-strong"
+              class="inline-flex items-center justify-center size-5 border-0 bg-transparent text-text-faint rounded-sm cursor-pointer p-0 transition-colors duration-fast hover:text-text hover:bg-hover"
               onclick={(e) => handlePin(e, ws.id)}
               title="Unpin"
             >
               <PinOff size={11} />
             </button>
             <button
-              class="flex items-center justify-center w-4.5 h-4.5 border-0 bg-transparent text-text-muted rounded-sm cursor-pointer p-0 hover:text-text hover:bg-hover-strong"
+              class="inline-flex items-center justify-center size-5 border-0 bg-transparent text-text-faint rounded-sm cursor-pointer p-0 transition-colors duration-fast hover:text-text hover:bg-hover"
               onclick={(e) => handleRemove(e, ws.id, ws.name)}
               title="Remove"
             >
@@ -120,8 +120,8 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
-          class="group flex items-center gap-1.5 w-full px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
-          class:bg-hover-strong={ws.path === workspaceState.workspace?.path}
+          class="group flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
+          class:bg-active={ws.path === workspaceState.workspace?.path}
           onclick={() => switchProject(ws.path)}
           title={ws.path}
         >
@@ -143,14 +143,14 @@
             class="flex items-center gap-0.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity duration-fast flex-shrink-0"
           >
             <button
-              class="flex items-center justify-center w-4.5 h-4.5 border-0 bg-transparent text-text-muted rounded-sm cursor-pointer p-0 hover:text-text hover:bg-hover-strong"
+              class="inline-flex items-center justify-center size-5 border-0 bg-transparent text-text-faint rounded-sm cursor-pointer p-0 transition-colors duration-fast hover:text-text hover:bg-hover"
               onclick={(e) => handlePin(e, ws.id)}
               title="Pin"
             >
               <Pin size={11} />
             </button>
             <button
-              class="flex items-center justify-center w-4.5 h-4.5 border-0 bg-transparent text-text-muted rounded-sm cursor-pointer p-0 hover:text-text hover:bg-hover-strong"
+              class="inline-flex items-center justify-center size-5 border-0 bg-transparent text-text-faint rounded-sm cursor-pointer p-0 transition-colors duration-fast hover:text-text hover:bg-hover"
               onclick={(e) => handleRemove(e, ws.id, ws.name)}
               title="Remove"
             >

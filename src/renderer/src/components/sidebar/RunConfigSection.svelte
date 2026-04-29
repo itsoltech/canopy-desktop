@@ -73,7 +73,7 @@
 <CollapsibleSection title="RUN" sectionKey="runConfigs" borderTop>
   {#snippet headerExtra()}
     <button
-      class="flex items-center justify-center w-6 h-6 -my-1 border-0 bg-transparent text-text-muted cursor-pointer rounded-md transition-colors duration-fast hover:bg-hover hover:text-text"
+      class="inline-flex items-center justify-center size-5 -my-1 border-0 bg-transparent text-text-faint cursor-pointer rounded-sm transition-colors duration-fast hover:bg-hover hover:text-text"
       title="Add configuration"
       onclick={() => showRunConfigManager()}
     >
@@ -85,7 +85,7 @@
     {#each [...grouped.entries()] as [relativePath, group] (relativePath)}
       {#if relativePath !== '.'}
         <li
-          class="px-3 pt-1 pb-0.5 text-2xs font-semibold text-text-muted uppercase tracking-caps-tight"
+          class="px-3 pt-1 pb-0.5 text-2xs font-semibold text-text-faint uppercase tracking-caps-looser leading-tight"
         >
           {relativePath}
         </li>
@@ -100,11 +100,11 @@
           >
             {config.name}
           </button>
-          <div class="flex gap-px flex-shrink-0 opacity-0 group-hover:opacity-100">
+          <div class="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
             {#if runningCount > 0}
               <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
                 <button
-                  class="relative flex items-center justify-center w-5.5 h-5.5 border-0 bg-transparent text-danger-text cursor-pointer rounded-md flex-shrink-0 hover:bg-hover-strong"
+                  class="relative inline-flex items-center justify-center size-6 border-0 bg-transparent text-danger-text cursor-pointer rounded-sm flex-shrink-0 transition-colors duration-fast hover:bg-hover-strong"
                   aria-label={runningCount > 1
                     ? `Stop all ${runningCount} sessions for ${config.name}`
                     : `Stop ${config.name}`}
@@ -113,7 +113,7 @@
                   <Square size={12} />
                   {#if runningCount > 1}
                     <span
-                      class="absolute -top-0.5 -right-0.5 min-w-3.5 h-3.5 px-px rounded-2xl bg-accent-bg text-accent-text text-micro font-bold leading-3.5 text-center"
+                      class="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-3.5 h-3.5 px-px rounded-md bg-accent-bg text-accent-text text-micro font-bold leading-tight"
                       >{runningCount}</span
                     >
                   {/if}
@@ -122,7 +122,7 @@
             {:else}
               <Tooltip text="Run">
                 <button
-                  class="flex items-center justify-center w-5.5 h-5.5 border-0 bg-transparent text-success-text cursor-pointer rounded-md flex-shrink-0 hover:bg-hover-strong"
+                  class="inline-flex items-center justify-center size-6 border-0 bg-transparent text-success-text cursor-pointer rounded-sm flex-shrink-0 transition-colors duration-fast hover:bg-hover-strong"
                   aria-label={`Run ${config.name}`}
                   onclick={() => handlePlay(group.configDir, config.name)}
                 >
@@ -132,7 +132,7 @@
             {/if}
             <Tooltip text="Delete">
               <button
-                class="flex items-center justify-center w-5.5 h-5.5 border-0 bg-transparent text-text-muted cursor-pointer rounded-md flex-shrink-0 hover:bg-hover-strong hover:text-danger-text"
+                class="inline-flex items-center justify-center size-6 border-0 bg-transparent text-text-muted cursor-pointer rounded-sm flex-shrink-0 transition-colors duration-fast hover:bg-hover-strong hover:text-danger-text"
                 aria-label={`Delete ${config.name}`}
                 onclick={() => handleDelete(group.configDir, config.name)}
               >
