@@ -2,6 +2,15 @@
   import { onMount } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import {
+    Search,
+    Wrench,
+    GitBranch,
+    GitCommitVertical,
+    PanelLeft,
+    Sliders,
+    Terminal,
+  } from 'lucide-svelte'
+  import {
     workspaceState,
     toggleSidebar,
     toggleRightPanel,
@@ -56,6 +65,15 @@
 
   const isMac = navigator.userAgent.includes('Mac')
   const mod = isMac ? 'Cmd' : 'Ctrl'
+
+  const CATEGORY_ICON: Record<string, typeof Search> = {
+    Tools: Wrench,
+    Git: GitCommitVertical,
+    Worktrees: GitBranch,
+    Tabs: PanelLeft,
+    App: Sliders,
+    Terminal,
+  }
 
   let allItems = $derived.by((): PaletteItem[] => {
     const items: PaletteItem[] = []
@@ -615,17 +633,18 @@
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="w-[520px] max-h-[440px] flex flex-col bg-bg-overlay border border-border rounded-xl shadow-modal backdrop-blur-2xl overflow-hidden self-start"
+    class="w-[520px] max-h-[440px] flex flex-col bg-bg-overlay border border-border-subtle rounded-lg shadow-modal backdrop-blur-2xl overflow-hidden self-start"
     role="dialog"
     aria-modal="true"
     aria-label="Command palette"
     onclick={(e) => e.stopPropagation()}
   >
-    <div class="px-3.5 py-3 border-b border-active flex-shrink-0">
+    <div class="h-12 px-3 flex items-center gap-2 border-b border-border-subtle flex-shrink-0">
+      <Search size={14} class="text-text-faint flex-shrink-0" />
       <input
         bind:this={inputEl}
         bind:value={query}
-        class="w-full border-0 bg-transparent text-text text-lg font-inherit outline-none placeholder:text-text-faint"
+        class="w-full border-0 bg-transparent text-text text-md font-inherit outline-none placeholder:text-text-faint"
         type="text"
         placeholder={filterMode === 'app'
           ? 'Search app commands...'
@@ -639,24 +658,28 @@
 
     <div class="overflow-y-auto flex-1 py-1.5">
       {#if flatItems.length === 0}
-        <div class="px-3.5 py-5 text-center text-text-faint text-md">No results</div>
+        <div class="px-3 py-5 text-center text-text-faint text-md">No results</div>
       {:else}
         {#each groupedItems as group, gi (group.category)}
+          {@const Icon = CATEGORY_ICON[group.category] ?? Sliders}
           <div class="py-0.5">
             <div
-              class="text-2xs font-semibold tracking-[0.8px] text-text-muted px-3.5 pt-1.5 pb-1 uppercase"
+              class="flex items-center gap-1.5 text-2xs font-semibold tracking-caps-looser text-text-faint px-3 pt-2 pb-1 uppercase leading-tight"
             >
-              {group.category}
+              <Icon size={11} class="flex-shrink-0" />
+              <span>{group.category}</span>
             </div>
             {#each group.items as item, ii (item.id)}
               {@const isSelected = flatIndex(gi, ii) === selectedIndex}
+              {@const isShortDesc = !!item.description && item.description.length <= 24}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
-                class="flex items-center gap-2.5 px-3.5 py-1.5 cursor-pointer text-md text-text transition-colors duration-fast"
-                class:!bg-active={isSelected}
-                class:!text-text-faint={item.disabled}
-                class:!cursor-default={item.disabled}
+                class="flex items-center gap-2 h-8 px-3 cursor-pointer text-md text-text transition-colors duration-fast"
+                class:bg-accent-bg={isSelected}
+                class:text-accent-text={isSelected}
+                class:opacity-50={item.disabled}
+                class:cursor-default={item.disabled}
                 data-palette-selected={isSelected}
                 onclick={() => {
                   if (!item.disabled) {
@@ -672,13 +695,32 @@
                   >{item.label}</span
                 >
                 {#if item.description}
-                  <span class="text-xs text-text-faint flex-shrink-0">{item.description}</span>
+                  {#if isShortDesc}
+                    <span
+                      class="inline-flex items-center h-5 px-1.5 rounded-sm text-2xs font-semibold tracking-caps-tight uppercase flex-shrink-0 {isSelected
+                        ? 'bg-accent-bg-hover text-accent-text'
+                        : 'bg-border-subtle text-text-faint'}"
+                    >
+                      {item.description}
+                    </span>
+                  {:else}
+                    <span
+                      class="text-xs flex-shrink-0 {isSelected
+                        ? 'text-accent-text'
+                        : 'text-text-faint'}"
+                    >
+                      {item.description}
+                    </span>
+                  {/if}
                 {/if}
                 {#if item.shortcut}
                   <span
-                    class="text-xs text-text-faint px-1.5 py-px rounded-md bg-hover flex-shrink-0"
-                    >{item.shortcut}</span
+                    class="inline-flex items-center h-5 px-1.5 rounded-sm text-2xs font-mono font-semibold flex-shrink-0 {isSelected
+                      ? 'bg-accent-bg-hover text-accent-text'
+                      : 'bg-border-subtle text-text-secondary'}"
                   >
+                    {item.shortcut}
+                  </span>
                 {/if}
               </div>
             {/each}
