@@ -94,53 +94,55 @@
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="w-105 bg-bg-overlay border border-border rounded-2xl shadow-modal p-5"
+    class="w-105 bg-bg-overlay border border-border rounded-2xl shadow-modal px-6 py-5 flex flex-col gap-4"
     role="dialog"
     aria-modal="true"
     aria-labelledby="input-dialog-title"
     onmousedown={(e) => e.stopPropagation()}
   >
-    <h3 id="input-dialog-title" class="m-0 mb-3 text-base font-semibold text-text">{title}</h3>
+    <h3 id="input-dialog-title" class="m-0 text-base font-semibold text-text">{title}</h3>
 
-    {#if multiline}
-      <textarea
-        bind:this={textareaEl}
-        bind:value
-        class="w-full border border-border rounded-md bg-bg-input text-text text-md font-inherit px-2.5 py-1.5 outline-none transition-colors duration-fast box-border resize-y min-h-20 focus:border-focus-ring placeholder:text-text-faint"
-        {placeholder}
-        rows="4"
-        spellcheck="false"
-      ></textarea>
-    {:else}
-      <input
-        bind:this={inputEl}
-        bind:value
-        class="w-full border border-border rounded-md bg-bg-input text-text text-md font-inherit px-2.5 py-1.5 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
-        type="text"
-        {placeholder}
-        spellcheck="false"
-        autocomplete="off"
-      />
-    {/if}
+    <div class="flex flex-col gap-2">
+      {#if multiline}
+        <textarea
+          bind:this={textareaEl}
+          bind:value
+          class="w-full border border-border rounded-md bg-bg-input text-text text-md font-inherit px-3 py-2 outline-none transition-colors duration-fast box-border resize-y min-h-20 focus:border-focus-ring placeholder:text-text-faint"
+          {placeholder}
+          rows="4"
+          spellcheck="false"
+        ></textarea>
+      {:else}
+        <input
+          bind:this={inputEl}
+          bind:value
+          class="w-full h-9 border border-border rounded-md bg-bg-input text-text text-md font-inherit px-3 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
+          type="text"
+          {placeholder}
+          spellcheck="false"
+          autocomplete="off"
+        />
+      {/if}
 
-    {#if error}
-      <p class="mt-1.5 mb-0 text-sm text-danger-text">{error}</p>
-    {/if}
+      {#if error}
+        <p class="m-0 text-sm text-danger-text">{error}</p>
+      {/if}
 
-    {#if checkbox}
-      <label
-        class="flex items-center gap-1.5 mt-2.5 text-sm text-text-secondary cursor-pointer select-none"
-      >
-        <CustomCheckbox {checked} onchange={(v) => (checked = v)} />
-        <span>{checkbox.label}</span>
-      </label>
-    {/if}
+      {#if checkbox}
+        <label
+          class="flex items-center gap-1.5 mt-1 text-sm text-text-secondary cursor-pointer select-none"
+        >
+          <CustomCheckbox {checked} onchange={(v) => (checked = v)} />
+          <span>{checkbox.label}</span>
+        </label>
+      {/if}
 
-    {#if multiline}
-      <p class="mt-1.5 mb-0 text-xs text-text-faint">{isMac ? 'Cmd' : 'Ctrl'}+Enter to submit</p>
-    {/if}
+      {#if multiline}
+        <p class="m-0 text-xs text-text-faint">{isMac ? 'Cmd' : 'Ctrl'}+Enter to submit</p>
+      {/if}
+    </div>
 
-    <div class="flex items-center gap-2 mt-4">
+    <div class="flex items-center gap-2">
       {#if onGenerate}
         <button
           class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none transition-colors duration-fast bg-generate-bg text-generate enabled:hover:bg-generate-bg-hover disabled:opacity-40 disabled:cursor-default focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
