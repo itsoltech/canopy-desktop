@@ -19,8 +19,14 @@
   let envEntries = $derived.by(() => {
     if (!customEnv) return [] as Array<{ key: string; value: string }>
     try {
-      const parsed = JSON.parse(customEnv) as Record<string, string>
-      return Object.entries(parsed).map(([key, value]) => ({ key, value }))
+      const parsed: unknown = JSON.parse(customEnv)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
+      const out: Array<{ key: string; value: string }> = []
+      for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof key !== 'string' || typeof value !== 'string') continue
+        out.push({ key, value })
+      }
+      return out
     } catch {
       return [] as Array<{ key: string; value: string }>
     }
@@ -30,6 +36,13 @@
   let newEnvKey = $state('')
   let newEnvValue = $state('')
   let newValueRevealed = $state(false)
+
+  const SECRET_NAME = /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)$/i
+  let secretWarning = $derived(
+    newEnvKey.trim().length > 0 && SECRET_NAME.test(newEnvKey.trim())
+      ? 'This name looks like a secret. Env values are stored in plaintext — use the API key field above when possible.'
+      : '',
+  )
 
   const revealed = new SvelteSet<string>()
   function toggleReveal(key: string): void {
@@ -163,6 +176,9 @@
             {/if}
           </button>
         </div>
+        {#if secretWarning}
+          <p class="text-xs text-warning-text m-0 leading-snug" role="alert">{secretWarning}</p>
+        {/if}
         <div class="flex justify-end gap-2">
           <button
             type="button"
