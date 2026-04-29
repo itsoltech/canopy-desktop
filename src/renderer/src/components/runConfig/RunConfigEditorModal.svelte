@@ -108,6 +108,7 @@
 <div
   class="fixed inset-0 bg-scrim flex items-center justify-center z-[1000]"
   role="dialog"
+  aria-modal="true"
   aria-label="Run Configuration Editor"
   onkeydown={handleKeydown}
 >
