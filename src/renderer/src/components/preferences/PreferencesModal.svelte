@@ -31,6 +31,8 @@
 
   let { section: initialSection }: { section?: string } = $props()
 
+  const isMac = navigator.userAgent.includes('Mac')
+
   let containerEl: HTMLDivElement | undefined = $state()
   let searchInputEl: HTMLInputElement | undefined = $state()
 
@@ -81,11 +83,29 @@
       handleClose()
       return
     }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    const shortcutModifier = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+    if (shortcutModifier && e.key.toLowerCase() === 'k') {
       e.preventDefault()
       e.stopPropagation()
       searchInputEl?.focus()
       searchInputEl?.select()
+      return
+    }
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
   }
 
