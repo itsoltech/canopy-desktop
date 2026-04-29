@@ -194,7 +194,7 @@
         {#each agentProfiles as p (p.id)}
           {@const active = selectedId === p.id}
           <li
-            class="group/profilerow flex items-center rounded-md hover:bg-hover"
+            class="group/profilerow flex items-center rounded-md hover:bg-hover focus-within:bg-hover"
             class:bg-accent-bg={active}
           >
             <button
@@ -215,7 +215,7 @@
             </button>
             <button
               type="button"
-              class="invisible group-hover/profilerow:visible flex items-center justify-center size-6 mr-1 border-0 bg-transparent rounded-sm text-text-faint cursor-pointer shrink-0 hover:text-danger-text hover:bg-danger-bg"
+              class="opacity-0 group-hover/profilerow:opacity-100 group-focus-within/profilerow:opacity-100 focus-visible:opacity-100 flex items-center justify-center size-6 mr-1 border-0 bg-transparent rounded-sm text-text-faint cursor-pointer shrink-0 hover:text-danger-text hover:bg-danger-bg"
               title="Delete"
               onclick={() => handleDelete(p)}
               aria-label="Delete profile {p.name}"
