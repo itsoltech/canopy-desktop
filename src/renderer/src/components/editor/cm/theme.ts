@@ -38,6 +38,13 @@ const canopyTheme = EditorView.theme({
     padding: '0 8px 0 6px',
     minWidth: '2.5em',
   },
+  '.cm-foldGutter .cm-gutterElement': {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: '0',
+    paddingBottom: '0',
+  },
   '.cm-tooltip': {
     backgroundColor: 'var(--color-bg-elevated)',
     color: 'var(--color-text)',
