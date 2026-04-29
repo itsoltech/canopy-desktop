@@ -3,6 +3,7 @@
   import { Plus, RotateCw, Trash2 } from '@lucide/svelte'
   import { getSkills } from '../../lib/stores/skills.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
@@ -41,12 +42,16 @@
   const projectScanned = $derived(scannedSkills.filter((s) => s.scope === 'project'))
   const globalScanned = $derived(scannedSkills.filter((s) => s.scope === 'global'))
 
+  function errMessage(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
+  }
+
   async function scanForSkills(): Promise<void> {
     scanning = true
     try {
       scannedSkills = await window.api.scanSkills(workspaceState.selectedWorktreePath ?? undefined)
     } catch (e) {
-      console.error('Scan failed:', e)
+      addToast(`Scan failed: ${errMessage(e)}`)
     } finally {
       scanning = false
     }
@@ -63,7 +68,7 @@
     try {
       await window.api.removeSkill(id, workspaceState.selectedWorktreePath ?? undefined)
     } catch (e) {
-      console.error('Failed to remove skill:', e)
+      addToast(`Remove failed: ${errMessage(e)}`)
     }
   }
 
@@ -79,7 +84,7 @@
       await window.api.deleteSkillFile(filePath)
       await scanForSkills()
     } catch (e) {
-      console.error('Failed to delete skill file:', e)
+      addToast(`Delete failed: ${errMessage(e)}`)
     }
   }
 
@@ -87,7 +92,7 @@
     try {
       await window.api.updateSkill(id, workspaceState.selectedWorktreePath ?? undefined)
     } catch (e) {
-      console.error('Failed to update skill:', e)
+      addToast(`Update failed: ${errMessage(e)}`)
     }
   }
 
@@ -100,7 +105,7 @@
         workspaceState.selectedWorktreePath ?? undefined,
       )
     } catch (e) {
-      console.error('Failed to toggle agent:', e)
+      addToast(`Toggle failed: ${errMessage(e)}`)
     }
   }
 
