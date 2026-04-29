@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
 import os from 'os'
-import { existsSync, readFileSync, realpathSync } from 'fs'
+import { existsSync, realpathSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { match } from 'ts-pattern'
@@ -751,10 +752,10 @@ app.whenReady().then(async () => {
     return shell.openPath(noticesPath)
   })
 
-  ipcMain.handle('app:getAboutInfo', () => ({
+  ipcMain.handle('app:getAboutInfo', async () => ({
     version: app.getVersion(),
     homepage: 'https://canopy.itsol.tech',
-    license: readFileSync(join(app.getAppPath(), 'LICENSE.md'), 'utf-8'),
+    license: await readFile(join(app.getAppPath(), 'LICENSE.md'), 'utf-8'),
   }))
 
   ipcMain.handle(
