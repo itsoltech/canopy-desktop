@@ -28,26 +28,31 @@
   let showPreview = $state(true)
   let editSource: 'editor' | 'preview' | null = $state(null)
   let editSourceTimer: ReturnType<typeof setTimeout> | null = null
+  let parseDebounceTimer: ReturnType<typeof setTimeout> | null = null
   let previewEl: HTMLDivElement | undefined = $state()
 
   onDestroy(() => {
     if (editSourceTimer) clearTimeout(editSourceTimer)
+    if (parseDebounceTimer) clearTimeout(parseDebounceTimer)
   })
 
   let parseGen = 0
   $effect(() => {
     const raw = content
-    const gen = ++parseGen
     if (editSource === 'preview') return
     if (!raw.trim()) {
       previewHtml = ''
       return
     }
-    Promise.resolve(marked.parse(raw)).then((html) => {
-      // Drop stale results from earlier, slower parses.
-      if (gen !== parseGen) return
-      previewHtml = DOMPurify.sanitize(html)
-    })
+    if (parseDebounceTimer) clearTimeout(parseDebounceTimer)
+    parseDebounceTimer = setTimeout(() => {
+      const gen = ++parseGen
+      Promise.resolve(marked.parse(raw)).then((html) => {
+        // Drop stale results from earlier, slower parses.
+        if (gen !== parseGen) return
+        previewHtml = DOMPurify.sanitize(html)
+      })
+    }, 200)
   })
 
   function setScope(next: NoteScope): void {

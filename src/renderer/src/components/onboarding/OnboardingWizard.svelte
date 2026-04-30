@@ -94,8 +94,8 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  role="presentation"
   class="fixed inset-0 z-[1001] flex justify-center items-center bg-scrim"
   onkeydown={handleKeydown}
 >

@@ -2,6 +2,18 @@ import type { AgentType } from '../agents/types'
 
 export type SkillAgentTarget = AgentType | 'cursor' | 'opencode'
 
+const VALID_SKILL_AGENT_TARGETS: ReadonlySet<string> = new Set([
+  'claude',
+  'gemini',
+  'opencode',
+  'codex',
+  'cursor',
+])
+
+export function isSkillAgentTarget(value: unknown): value is SkillAgentTarget {
+  return typeof value === 'string' && VALID_SKILL_AGENT_TARGETS.has(value)
+}
+
 export type SkillSourceType = 'github' | 'url' | 'local'
 
 export type SkillInstallMethod = 'copy' | 'symlink'

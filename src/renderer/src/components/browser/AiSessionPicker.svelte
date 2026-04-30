@@ -27,16 +27,18 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  role="presentation"
   class="fixed inset-0 z-overlay flex items-center justify-center bg-scrim"
   onmousedown={onClose}
   onkeydown={handleKeydown}
 >
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
     class="outline-none min-w-55 p-2 bg-bg-overlay border border-border rounded-xl shadow-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Send to session"
     tabindex="-1"
     onmousedown={(e) => e.stopPropagation()}
   >

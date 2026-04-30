@@ -79,7 +79,11 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') closeDialog()
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      closeDialog()
+    }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit()
   }
 

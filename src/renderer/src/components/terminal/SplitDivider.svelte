@@ -33,8 +33,10 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  role="separator"
+  aria-orientation={direction === 'vertical' ? 'vertical' : 'horizontal'}
+  aria-label="Resize panes"
   class="w-full h-full bg-border-subtle transition-colors duration-base z-pane-divider hover:bg-accent-muted"
   class:bg-accent-muted={dragging}
   class:cursor-col-resize={direction === 'vertical'}

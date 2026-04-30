@@ -82,7 +82,7 @@ import { skillErrorMessage } from '../skills/errors'
 import type { SkillError } from '../skills/errors'
 import { getTransformer } from '../skills/SkillTransformer'
 import { scanSkills } from '../skills/SkillScanner'
-import type { SkillAgentTarget } from '../skills/types'
+import { isSkillAgentTarget, type SkillAgentTarget } from '../skills/types'
 import type { ProfileStore } from '../profiles/ProfileStore'
 import { profileToReader } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
@@ -792,12 +792,27 @@ export function registerIpcHandlers(
     })
   })
 
-  ipcMain.handle('app:setWorkspacePath', (event, payload: { path: string }) => {
+  // Both handlers grant the calling window access to a directory by adding it
+  // to the workspacePaths set used by validatePathAccess. We require the path
+  // to resolve to a real directory so a compromised renderer cannot pass
+  // arbitrary strings (e.g. '/etc') to widen its filesystem trust boundary.
+  async function assertExistingDirectory(targetPath: string): Promise<void> {
+    if (typeof targetPath !== 'string' || targetPath.length === 0) {
+      throw new Error('Invalid path')
+    }
+    const resolved = await fs.promises.realpath(targetPath)
+    const stat = await fs.promises.stat(resolved)
+    if (!stat.isDirectory()) throw new Error('Path is not a directory')
+  }
+
+  ipcMain.handle('app:setWorkspacePath', async (event, payload: { path: string }) => {
+    await assertExistingDirectory(payload.path)
     windowManager.addWorkspacePath(event.sender.id, payload.path)
     persistWindowConfigs()
   })
 
-  ipcMain.handle('app:setActiveWorktree', (event, payload: { path: string }) => {
+  ipcMain.handle('app:setActiveWorktree', async (event, payload: { path: string }) => {
+    await assertExistingDirectory(payload.path)
     windowManager.setActiveWorktree(event.sender.id, payload.path)
     persistWindowConfigs()
   })
@@ -3067,6 +3082,10 @@ export function registerIpcHandlers(
       _event,
       payload: { id: string; agent: string; enabled: boolean; workspacePath?: string },
     ) => {
+      if (!isSkillAgentTarget(payload.agent)) {
+        throw new Error(`Invalid skill agent target: ${String(payload.agent)}`)
+      }
+      const agent: SkillAgentTarget = payload.agent
       const skill = unwrapOrThrow(
         skillRegistry.get(payload.id)
           ? ok(skillRegistry.get(payload.id)!)
@@ -3074,12 +3093,12 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
       const enabledAgents: SkillAgentTarget[] = payload.enabled
-        ? ([...new Set([...skill.enabledAgents, payload.agent])] as SkillAgentTarget[])
-        : skill.enabledAgents.filter((a) => a !== payload.agent)
+        ? [...new Set<SkillAgentTarget>([...skill.enabledAgents, agent])]
+        : skill.enabledAgents.filter((a) => a !== agent)
 
       // Deploy or undeploy files BEFORE updating DB
       // Global skills use transformer's globalDir(); project skills need workspacePath
-      const transformer = getTransformer(payload.agent as SkillAgentTarget)
+      const transformer = getTransformer(agent)
       if (transformer) {
         if (skill.scope === 'project' && !payload.workspacePath) {
           unwrapOrThrow(

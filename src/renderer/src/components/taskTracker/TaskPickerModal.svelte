@@ -207,6 +207,8 @@
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
       closeDialog()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()

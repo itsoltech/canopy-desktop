@@ -586,8 +586,10 @@
 <main class="flex flex-row flex-1 min-h-0 overflow-hidden">
   {#if workspaceState.sidebarOpen && projects.length > 0}
     <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
       class="w-1 cursor-col-resize bg-transparent flex-shrink-0 transition-colors duration-base hover:bg-accent-muted"
       class:bg-accent-muted={sidebarDragging}
       onpointerdown={handleSidebarPointerDown}
@@ -636,8 +638,10 @@
       </div>
 
       {#if workspaceState.rightPanelOpen && workspaceState.selectedWorktreePath}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize right panel"
           class="w-px cursor-col-resize bg-transparent flex-shrink-0 relative after:content-empty after:absolute after:inset-y-0 after:-inset-x-1 after:cursor-col-resize hover:bg-accent-muted"
           class:bg-accent-muted={rpDragging}
           onpointerdown={handleRpPointerDown}

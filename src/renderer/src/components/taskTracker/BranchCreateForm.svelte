@@ -86,7 +86,8 @@
 
   async function updateBranchPreview(): Promise<void> {
     try {
-      const plain = JSON.parse(JSON.stringify(task)) as Task
+      // Strip Svelte proxies before sending across IPC.
+      const plain = $state.snapshot(task) as Task
       resolvedBranchName = await window.api.taskTrackerResolveBranchName(
         connectionId,
         plain,
@@ -155,7 +156,8 @@
       if (selectedAgentId) {
         const agentId = selectedAgentId
         const connId = connectionId
-        const taskSnapshot = JSON.parse(JSON.stringify(fullTask)) as typeof fullTask
+        // Strip Svelte proxies before passing to async work.
+        const taskSnapshot = $state.snapshot(fullTask) as typeof fullTask
 
         try {
           const tab = await openTool(agentId, worktreePath)
