@@ -56,6 +56,13 @@
   let pendingData = ''
   let writeScheduled = false
   let writeRafId: number | null = null
+  let cursorHiddenForBurst = false
+  let cursorRestoreTimer: ReturnType<typeof setTimeout> | null = null
+  const isWindows = window.api.platform === 'win32'
+  // ConPTY repaints arrive as a stream of CUP+char runs, so the cursor visibly
+  // traces the path of every redraw. Bracket each batch with DECTCEM hide/show
+  // and debounce restoration so it reappears once output settles.
+  const CURSOR_RESTORE_MS = 80
   let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null
   let receivedChars = 0
   let startTerminal: (() => void) | null = null
@@ -164,6 +171,42 @@
     }
   }
 
+  function writeBurst(term: Terminal, data: string): void {
+    if (!isWindows) {
+      scrollPreservingWrite(term, data)
+      return
+    }
+    // Honor the TUI's last DECTCEM intent: if the burst itself ended with
+    // `\x1b[?25l`, the TUI wants the cursor hidden (e.g. claude while
+    // thinking, vim during paste). Restoring would override that intent
+    // and leave a stray xterm caret.
+    // eslint-disable-next-line no-control-regex
+    const lastDectcem = data.match(/\x1b\[\?25[lh](?!.*\x1b\[\?25[lh])/s)
+    const tuiWantsHidden = lastDectcem?.[0].endsWith('l') ?? false
+    const prefixed = cursorHiddenForBurst ? data : '\x1b[?25l' + data
+    cursorHiddenForBurst = true
+    scrollPreservingWrite(term, prefixed)
+    if (cursorRestoreTimer !== null) clearTimeout(cursorRestoreTimer)
+    if (tuiWantsHidden) return
+    cursorRestoreTimer = setTimeout(() => {
+      cursorRestoreTimer = null
+      if (!cursorHiddenForBurst) return
+      cursorHiddenForBurst = false
+      if (termRef) termRef.write('\x1b[?25h')
+    }, CURSOR_RESTORE_MS)
+  }
+
+  function restoreCursorImmediately(): void {
+    if (cursorRestoreTimer !== null) {
+      clearTimeout(cursorRestoreTimer)
+      cursorRestoreTimer = null
+    }
+    if (cursorHiddenForBurst) {
+      cursorHiddenForBurst = false
+      if (termRef) termRef.write('\x1b[?25h')
+    }
+  }
+
   function disconnectWs(options: { suppressStatus?: boolean } = {}): void {
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
@@ -205,7 +248,7 @@
       const frameData = pendingData
       pendingData = ''
       writeScheduled = false
-      scrollPreservingWrite(term, frameData)
+      writeBurst(term, frameData)
     })
   }
 
@@ -261,7 +304,7 @@
           const frameData = pendingData
           pendingData = ''
           writeScheduled = false
-          scrollPreservingWrite(term, frameData)
+          writeBurst(term, frameData)
         })
       }
     }
@@ -380,6 +423,7 @@
         allowProposedApi: true,
         theme: currentTheme,
         scrollback: 5000,
+        ...(isWindows ? { windowsPty: { backend: 'conpty' as const } } : {}),
       })
 
       const fitAddon = new FitAddon()
@@ -625,6 +669,7 @@
       cleanupSession(sessionId)
       cleanupKeystrokeSession(sessionId)
       if (keystrokeHandler) containerEl.removeEventListener('keydown', keystrokeHandler, true)
+      restoreCursorImmediately()
       disconnectWs({ suppressStatus: true })
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
