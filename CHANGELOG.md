@@ -1,3 +1,9 @@
+## [0.13.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.3...v0.13.0-next.4) (2026-05-01)
+
+### Bug Fixes
+
+* **terminal:** hide cursor during conpty redraws on windows ([#199](https://github.com/itsoltech/canopy-desktop/issues/199)) ([18c3dd1](https://github.com/itsoltech/canopy-desktop/commit/18c3dd129c97a292b5c3e34b1155225c295aac3e))
+
 ## [0.13.0-next.3](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.2...v0.13.0-next.3) (2026-04-29)
 
 ### Bug Fixes
