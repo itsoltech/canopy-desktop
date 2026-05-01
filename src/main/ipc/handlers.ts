@@ -52,6 +52,8 @@ import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
+import { Effect } from 'effect'
+import { runIpcEffect } from './effectRunner'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -579,15 +581,28 @@ export function registerIpcHandlers(
 
   // --- Preferences ---
 
-  ipcMain.handle('db:prefs:get', (_event, payload: { key: string }) => {
-    // Encrypted keys (API keys, tracker tokens) are main-process-only —
-    // returning their plaintext to the renderer would let any compromised
-    // page or webview script extract credentials. The renderer reads
-    // non-secret prefs only; secrets reach agent processes via env vars
-    // built inside the main process.
-    if (preferencesStore.isEncrypted(payload.key)) return null
-    return preferencesStore.get(payload.key)
-  })
+  ipcMain.handle(
+    'db:prefs:get',
+    runIpcEffect(
+      'db:prefs:get',
+      (_event, payload: { key: string }) =>
+        Effect.try({
+          try: () => {
+            if (!payload || typeof payload.key !== 'string') return null
+
+            // Encrypted keys (API keys, tracker tokens) are main-process-only —
+            // returning their plaintext to the renderer would let any compromised
+            // page or webview script extract credentials. The renderer reads
+            // non-secret prefs only; secrets reach agent processes via env vars
+            // built inside the main process.
+            if (preferencesStore.isEncrypted(payload.key)) return null
+            return preferencesStore.get(payload.key)
+          },
+          catch: (cause) => new Error(errorMessage(cause)),
+        }),
+      { fallback: () => null },
+    ),
+  )
 
   ipcMain.handle('db:prefs:set', (_event, payload: { key: string; value: string }) => {
     preferencesStore.set(payload.key, payload.value)

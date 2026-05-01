@@ -55,6 +55,7 @@
     "better-sqlite3": "^12.8.0",
     "codemirror": "^6.0.2",
     "dompurify": "^3.4.0",
+    "effect": "^3.21.2",
     "electron-updater": "^6.3.9",
     "fuzzysort": "^3.1.0",
     "lucide-svelte": "^1.0.1",
