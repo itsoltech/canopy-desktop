@@ -580,6 +580,12 @@ export function registerIpcHandlers(
   // --- Preferences ---
 
   ipcMain.handle('db:prefs:get', (_event, payload: { key: string }) => {
+    // Encrypted keys (API keys, tracker tokens) are main-process-only —
+    // returning their plaintext to the renderer would let any compromised
+    // page or webview script extract credentials. The renderer reads
+    // non-secret prefs only; secrets reach agent processes via env vars
+    // built inside the main process.
+    if (preferencesStore.isEncrypted(payload.key)) return null
     return preferencesStore.get(payload.key)
   })
 

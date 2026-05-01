@@ -55,6 +55,10 @@ export class PreferencesStore {
     return row.value
   }
 
+  isEncrypted(key: string): boolean {
+    return isEncryptedKey(key)
+  }
+
   set(key: string, value: string): void {
     const stored =
       isEncryptedKey(key) && safeStorage.isEncryptionAvailable()
