@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match, P } from 'ts-pattern'
   import {
     File,
     FileCode,
@@ -35,50 +36,29 @@
     }
 
     const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : ''
-    switch (ext) {
-      case 'ts':
-      case 'tsx':
-      case 'cts':
-      case 'mts':
-        return { Icon: FileCode, tone: 'text-accent-text' }
-      case 'js':
-      case 'jsx':
-      case 'cjs':
-      case 'mjs':
-        return { Icon: FileCode, tone: 'text-warning-text' }
-      case 'svelte':
-      case 'vue':
-        return { Icon: FileCode, tone: 'text-danger-text' }
-      case 'json':
-      case 'jsonc':
-        return { Icon: FileJson, tone: 'text-warning-text' }
-      case 'yaml':
-      case 'yml':
-      case 'toml':
-        return { Icon: FileCog, tone: 'text-text-muted' }
-      case 'css':
-      case 'scss':
-      case 'sass':
-      case 'less':
-        return { Icon: FileType, tone: 'text-accent-text' }
-      case 'md':
-      case 'mdx':
-        return { Icon: FileText, tone: 'text-success-text' }
-      case 'txt':
-      case 'log':
-        return { Icon: FileText, tone: 'text-text-muted' }
-      case 'rs':
-      case 'go':
-      case 'py':
-      case 'rb':
-      case 'sh':
-      case 'fish':
-      case 'zsh':
-      case 'bash':
-        return { Icon: FileCode, tone: 'text-text-muted' }
-      default:
-        return { Icon: File, tone: 'text-text-muted' }
-    }
+    return match(ext)
+      .with(P.union('ts', 'tsx', 'cts', 'mts'), () => ({
+        Icon: FileCode,
+        tone: 'text-accent-text',
+      }))
+      .with(P.union('js', 'jsx', 'cjs', 'mjs'), () => ({
+        Icon: FileCode,
+        tone: 'text-warning-text',
+      }))
+      .with(P.union('svelte', 'vue'), () => ({ Icon: FileCode, tone: 'text-danger-text' }))
+      .with(P.union('json', 'jsonc'), () => ({ Icon: FileJson, tone: 'text-warning-text' }))
+      .with(P.union('yaml', 'yml', 'toml'), () => ({ Icon: FileCog, tone: 'text-text-muted' }))
+      .with(P.union('css', 'scss', 'sass', 'less'), () => ({
+        Icon: FileType,
+        tone: 'text-accent-text',
+      }))
+      .with(P.union('md', 'mdx'), () => ({ Icon: FileText, tone: 'text-success-text' }))
+      .with(P.union('txt', 'log'), () => ({ Icon: FileText, tone: 'text-text-muted' }))
+      .with(P.union('rs', 'go', 'py', 'rb', 'sh', 'fish', 'zsh', 'bash'), () => ({
+        Icon: FileCode,
+        tone: 'text-text-muted',
+      }))
+      .otherwise(() => ({ Icon: File, tone: 'text-text-muted' }))
   }
 
   let resolved = $derived(resolve(name))
