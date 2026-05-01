@@ -52,7 +52,7 @@ import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
-import { Effect } from 'effect'
+import { Effect, Scope } from 'effect'
 import { handleIpcEffect } from './effectRunner'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
@@ -165,6 +165,299 @@ async function runCredentialOsAuth(event: IpcMainInvokeEvent, domain: string): P
 function resolveShellArgs(): string[] {
   if (os.platform() === 'win32') return []
   return ['--login']
+}
+
+export interface ToolSpawnPayload {
+  toolId: string
+  worktreePath: string
+  cols?: number
+  rows?: number
+  workspaceName?: string
+  branch?: string
+  resumeSessionId?: string
+  profileId?: string
+}
+
+export interface ToolSpawnResult {
+  sessionId: string
+  wsUrl: string
+  toolId: string
+  toolName: string
+  tmuxSessionName?: string
+}
+
+export interface ToolSpawnEffectDeps {
+  ptyManager: PtyManager
+  wsBridge: WsBridge
+  workspaceStore: WorkspaceStore
+  preferencesStore: PreferencesStore
+  toolRegistry: ToolRegistry
+  agentSessionManager: AgentSessionManager
+  windowManager: WindowManager
+  tmuxManager: TmuxManager
+  profileStore: ProfileStore
+}
+
+interface ToolSpawnState {
+  command: string
+  args: string[]
+  env?: Record<string, string>
+  agentTempId?: string
+  tmuxSessionName?: string
+}
+
+interface AgentSessionResource {
+  args: string[]
+  env: Record<string, string>
+  agentTempId: string
+  rekeyTo: (sessionId: string) => void
+  commit: () => void
+}
+
+function createAgentSessionResource(
+  deps: ToolSpawnEffectDeps,
+  toolId: AgentType,
+  payload: ToolSpawnPayload,
+  senderWindow: BrowserWindow,
+  initialArgs: string[],
+): Effect.Effect<AgentSessionResource, unknown, Scope.Scope> {
+  let committed = false
+  let sessionId: string | undefined
+
+  const acquire = Effect.promise(async (): Promise<AgentSessionResource> => {
+    // Resolve preferences reader: profile shim if profileId is set,
+    // otherwise the global preferencesStore (legacy path).
+    let prefsReader: PreferencesReader = deps.preferencesStore
+    if (payload.profileId) {
+      const profileResult = await deps.profileStore.getInternal(payload.profileId)
+      if (profileResult.isErr()) {
+        throw new Error(profileErrorMessage(profileResult.error))
+      }
+      const profile = profileResult.value
+      if (profile.agentType !== toolId) {
+        throw new Error(`Profile ${profile.name} is for ${profile.agentType}, not ${toolId}`)
+      }
+      prefsReader = profileToReader(profile, deps.preferencesStore)
+    }
+
+    // Parse settings.json overrides from prefs (via shim when profile-bound)
+    let settingsOverrides: Record<string, unknown> | undefined
+    const settingsJsonRaw = prefsReader.get(`${toolId}.settingsJson`)
+    if (settingsJsonRaw) {
+      try {
+        settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
+      } catch {
+        // Invalid JSON
+      }
+    }
+
+    const agentSession = await deps.agentSessionManager.createSession(
+      toolId,
+      payload.worktreePath,
+      payload.workspaceName ?? '',
+      payload.branch ?? null,
+      senderWindow,
+      settingsOverrides,
+    )
+    sessionId = agentSession.tempId
+
+    const args = [...agentSession.settingsArgs, ...initialArgs]
+    if (payload.resumeSessionId) {
+      args.push(...deps.agentSessionManager.getResumeArgs(toolId, payload.resumeSessionId))
+    }
+    args.push(...deps.agentSessionManager.getCliArgs(toolId, prefsReader))
+
+    return {
+      args,
+      env: {
+        CANOPY_HOOK_PORT: String(agentSession.hookPort),
+        CANOPY_HOOK_PATH: agentSession.hookPath,
+        CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
+        ...agentSession.settingsEnv,
+        ...deps.agentSessionManager.getEnvVars(toolId, prefsReader),
+      },
+      agentTempId: agentSession.tempId,
+      rekeyTo: (nextSessionId: string) => {
+        sessionId = nextSessionId
+      },
+      commit: () => {
+        committed = true
+      },
+    }
+  })
+
+  return Effect.acquireRelease(acquire, () =>
+    Effect.sync(() => {
+      if (!committed && sessionId) deps.agentSessionManager.destroySession(sessionId)
+    }),
+  )
+}
+
+interface TmuxSessionResource {
+  name?: string
+  commit: () => void
+}
+
+function createTmuxSessionResource(
+  deps: ToolSpawnEffectDeps,
+  payload: ToolSpawnPayload,
+  state: ToolSpawnState,
+): Effect.Effect<TmuxSessionResource, unknown, Scope.Scope> {
+  let committed = false
+  let sessionName: string | undefined
+
+  const acquire = Effect.promise(async (): Promise<TmuxSessionResource> => {
+    const tmuxEnabled = deps.preferencesStore.get('tmux.enabled') === 'true'
+    if (!tmuxEnabled || !(await deps.tmuxManager.isAvailable())) {
+      return { commit: () => undefined }
+    }
+
+    const ws = deps.workspaceStore.getByPath(payload.worktreePath)
+    const wsId = ws?.id ?? 'default'
+    sessionName = TmuxManager.sessionName(wsId)
+    const tmuxMouse = deps.preferencesStore.get('tmux.mouse') === 'true'
+    await deps.tmuxManager.newSession({
+      name: sessionName,
+      cwd: payload.worktreePath,
+      shell: state.command,
+      shellArgs: state.args,
+      cols: payload.cols,
+      rows: payload.rows,
+      mouse: tmuxMouse,
+      env: state.env,
+    })
+    return {
+      name: sessionName,
+      commit: () => {
+        committed = true
+      },
+    }
+  })
+
+  return Effect.acquireRelease(acquire, () =>
+    Effect.promise(async () => {
+      if (!committed && sessionName && TmuxManager.isCanopySession(sessionName)) {
+        await deps.tmuxManager.killSession(sessionName).catch(() => undefined)
+      }
+    }),
+  )
+}
+
+export function createToolSpawnEffect(
+  deps: ToolSpawnEffectDeps,
+  event: IpcMainInvokeEvent,
+  payload: ToolSpawnPayload,
+): Effect.Effect<ToolSpawnResult, unknown, never> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const sender = event.sender
+      const tool = deps.toolRegistry.get(payload.toolId)
+      if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
+
+      const isShell = tool.id === 'shell' || tool.command === 'shell'
+      const isAgent = deps.agentSessionManager.isAgentTool(tool.id)
+      const state: ToolSpawnState = {
+        command: deps.toolRegistry.resolveCommand(tool),
+        args: isShell ? resolveShellArgs() : [...tool.args],
+      }
+
+      let agentResource: AgentSessionResource | undefined
+      if (isAgent) {
+        const senderWindow = BrowserWindow.fromWebContents(sender)
+        if (!senderWindow) throw new Error('No window for agent session')
+
+        agentResource = yield* createAgentSessionResource(
+          deps,
+          tool.id as AgentType,
+          payload,
+          senderWindow,
+          state.args,
+        )
+        state.args = agentResource.args
+        state.env = agentResource.env
+        state.agentTempId = agentResource.agentTempId
+      }
+
+      const tmuxResource = yield* createTmuxSessionResource(deps, payload, state)
+      state.tmuxSessionName = tmuxResource.name
+      if (state.tmuxSessionName) {
+        const attach = deps.tmuxManager.attachArgs(state.tmuxSessionName)
+        state.command = attach.command
+        state.args = attach.args
+      }
+
+      let ptyCommitted = false
+      const session = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          deps.ptyManager.spawn({
+            command: state.command,
+            args: state.args,
+            cwd: payload.worktreePath,
+            cols: payload.cols,
+            rows: payload.rows,
+            env: state.env,
+            tmuxSessionName: state.tmuxSessionName,
+          }),
+        ),
+        (session) =>
+          Effect.sync(() => {
+            if (!ptyCommitted) deps.ptyManager.kill(session.id)
+          }),
+      )
+
+      if (isAgent && state.agentTempId) {
+        deps.agentSessionManager.rekey(state.agentTempId, session.id)
+        agentResource?.rekeyTo(session.id)
+      }
+
+      let wsCommitted = false
+      const wsUrl = yield* Effect.acquireRelease(
+        Effect.promise(() => deps.wsBridge.create(session.id, session.pty)),
+        () =>
+          Effect.sync(() => {
+            if (!wsCommitted) deps.wsBridge.destroy(session.id)
+          }),
+      )
+
+      let trackingCommitted = false
+      yield* Effect.acquireRelease(
+        Effect.sync(() => deps.windowManager.trackPtySession(sender.id, session.id)),
+        () =>
+          Effect.sync(() => {
+            if (!trackingCommitted) deps.windowManager.untrackPtySession(sender.id, session.id)
+          }),
+      )
+
+      session.pty.onExit(({ exitCode, signal }) => {
+        if (!sender.isDestroyed()) {
+          sender.send('pty:exit', {
+            sessionId: session.id,
+            exitCode,
+            signal,
+            tmuxSessionName: session.tmuxSessionName,
+          })
+        }
+        deps.windowManager.untrackPtySession(sender.id, session.id)
+        if (isAgent) {
+          deps.agentSessionManager.destroySession(session.id)
+        }
+      })
+
+      ptyCommitted = true
+      wsCommitted = true
+      trackingCommitted = true
+      agentResource?.commit()
+      tmuxResource.commit()
+
+      return {
+        sessionId: session.id,
+        wsUrl,
+        toolId: tool.id,
+        toolName: tool.name,
+        tmuxSessionName: state.tmuxSessionName,
+      }
+    }),
+  )
 }
 
 export function registerIpcHandlers(
@@ -401,149 +694,22 @@ export function registerIpcHandlers(
 
   // --- Tool Spawning ---
 
-  ipcMain.handle(
-    'tool:spawn',
-    async (
-      event,
-      payload: {
-        toolId: string
-        worktreePath: string
-        cols?: number
-        rows?: number
-        workspaceName?: string
-        branch?: string
-        resumeSessionId?: string
-        profileId?: string
+  handleIpcEffect(ipcMain, 'tool:spawn', (event, payload: ToolSpawnPayload) =>
+    createToolSpawnEffect(
+      {
+        ptyManager,
+        wsBridge,
+        workspaceStore,
+        preferencesStore,
+        toolRegistry,
+        agentSessionManager,
+        windowManager,
+        tmuxManager,
+        profileStore,
       },
-    ) => {
-      const sender = event.sender
-      const tool = toolRegistry.get(payload.toolId)
-      if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
-
-      let command = toolRegistry.resolveCommand(tool)
-      const isShell = tool.id === 'shell' || tool.command === 'shell'
-      const isAgent = agentSessionManager.isAgentTool(tool.id)
-      let args = isShell ? resolveShellArgs() : [...tool.args]
-      let env: Record<string, string> | undefined
-
-      let agentTempId: string | undefined
-      if (isAgent) {
-        const senderWindow = BrowserWindow.fromWebContents(sender)
-        if (!senderWindow) throw new Error('No window for agent session')
-
-        // Resolve preferences reader: profile shim if profileId is set,
-        // otherwise the global preferencesStore (legacy path).
-        let prefsReader: PreferencesReader = preferencesStore
-        if (payload.profileId) {
-          const profileResult = await profileStore.getInternal(payload.profileId)
-          if (profileResult.isErr()) {
-            throw new Error(profileErrorMessage(profileResult.error))
-          }
-          const profile = profileResult.value
-          if (profile.agentType !== tool.id) {
-            throw new Error(`Profile ${profile.name} is for ${profile.agentType}, not ${tool.id}`)
-          }
-          prefsReader = profileToReader(profile, preferencesStore)
-        }
-
-        // Parse settings.json overrides from prefs (via shim when profile-bound)
-        let settingsOverrides: Record<string, unknown> | undefined
-        const settingsJsonRaw = prefsReader.get(`${tool.id}.settingsJson`)
-        if (settingsJsonRaw) {
-          try {
-            settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
-          } catch {
-            // Invalid JSON
-          }
-        }
-
-        const agentSession = await agentSessionManager.createSession(
-          tool.id,
-          payload.worktreePath,
-          payload.workspaceName ?? '',
-          payload.branch ?? null,
-          senderWindow,
-          settingsOverrides,
-        )
-        args = [...agentSession.settingsArgs, ...args]
-        if (payload.resumeSessionId) {
-          args.push(...agentSessionManager.getResumeArgs(tool.id, payload.resumeSessionId))
-        }
-        args.push(...agentSessionManager.getCliArgs(tool.id, prefsReader))
-        env = {
-          CANOPY_HOOK_PORT: String(agentSession.hookPort),
-          CANOPY_HOOK_PATH: agentSession.hookPath,
-          CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
-          ...agentSession.settingsEnv,
-          ...agentSessionManager.getEnvVars(tool.id, prefsReader),
-        }
-        agentTempId = agentSession.tempId
-      }
-
-      // Tmux integration for all tool sessions
-      let tmuxSessionName: string | undefined
-      const tmuxEnabled = preferencesStore.get('tmux.enabled') === 'true'
-      if (tmuxEnabled && (await tmuxManager.isAvailable())) {
-        const ws = workspaceStore.getByPath(payload.worktreePath)
-        const wsId = ws?.id ?? 'default'
-        tmuxSessionName = TmuxManager.sessionName(wsId)
-        const tmuxMouse = preferencesStore.get('tmux.mouse') === 'true'
-        await tmuxManager.newSession({
-          name: tmuxSessionName,
-          cwd: payload.worktreePath,
-          shell: command,
-          shellArgs: args,
-          cols: payload.cols,
-          rows: payload.rows,
-          mouse: tmuxMouse,
-          env,
-        })
-        const attach = tmuxManager.attachArgs(tmuxSessionName)
-        command = attach.command
-        args = attach.args
-      }
-
-      const session = ptyManager.spawn({
-        command,
-        args,
-        cwd: payload.worktreePath,
-        cols: payload.cols,
-        rows: payload.rows,
-        env,
-        tmuxSessionName,
-      })
-
-      if (isAgent && agentTempId) {
-        agentSessionManager.rekey(agentTempId, session.id)
-      }
-
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-
-      windowManager.trackPtySession(sender.id, session.id)
-
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', {
-            sessionId: session.id,
-            exitCode,
-            signal,
-            tmuxSessionName: session.tmuxSessionName,
-          })
-        }
-        windowManager.untrackPtySession(sender.id, session.id)
-        if (isAgent) {
-          agentSessionManager.destroySession(session.id)
-        }
-      })
-
-      return {
-        sessionId: session.id,
-        wsUrl,
-        toolId: tool.id,
-        toolName: tool.name,
-        tmuxSessionName,
-      }
-    },
+      event,
+      payload,
+    ),
   )
 
   ipcMain.handle('agent:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
