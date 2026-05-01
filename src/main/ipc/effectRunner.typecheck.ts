@@ -1,6 +1,6 @@
-import type { IpcMainInvokeEvent } from 'electron'
+import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { Effect } from 'effect'
-import { runIpcEffect, type IpcEffectFailure } from './effectRunner'
+import { handleIpcEffect, runIpcEffect, type IpcEffectFailure } from './effectRunner'
 
 const ipcEvent = {} as IpcMainInvokeEvent
 
@@ -20,5 +20,23 @@ const fallbackHandler = runIpcEffect(
 )
 
 const fallbackResult: Promise<string> = fallbackHandler(ipcEvent)
+
+const registeredHandlers: Array<{
+  channel: string
+  listener: (event: IpcMainInvokeEvent, payload: { key: string }) => Promise<string>
+}> = []
+
+const ipcMain = {
+  handle: (
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, payload: { key: string }) => Promise<string>,
+  ) => {
+    registeredHandlers.push({ channel, listener })
+  },
+} as IpcMain
+
+handleIpcEffect(ipcMain, 'db:prefs:get:typecheck-register', (_event, payload: { key: string }) =>
+  Effect.succeed(payload.key),
+)
 
 void Promise.all([prefsGetResult, fallbackResult])

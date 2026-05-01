@@ -1,4 +1,4 @@
-import type { IpcMainInvokeEvent } from 'electron'
+import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { Cause, Effect } from 'effect'
 
 export interface IpcEffectFailure {
@@ -10,6 +10,15 @@ export interface IpcEffectFailure {
 
 export interface IpcEffectOptions<A> {
   fallback?: (failure: IpcEffectFailure) => A
+}
+
+export function handleIpcEffect<Args extends unknown[], A>(
+  ipcMain: IpcMain,
+  channel: string,
+  buildEffect: (event: IpcMainInvokeEvent, ...args: Args) => Effect.Effect<A, unknown, never>,
+  options: IpcEffectOptions<A> = {},
+): void {
+  ipcMain.handle(channel, runIpcEffect(channel, buildEffect, options))
 }
 
 export function runIpcEffect<Args extends unknown[], A>(
