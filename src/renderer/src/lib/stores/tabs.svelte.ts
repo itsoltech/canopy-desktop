@@ -2075,6 +2075,7 @@ async function restoreSplitNode(
         branch?: string
         resumeSessionId?: string
         profileId?: string
+        tmuxSessionName?: string
       } = {}
       if (AI_TOOL_IDS.has(node.toolId)) {
         const project = getProjectForWorktree(worktreePath)
@@ -2083,6 +2084,7 @@ async function restoreSplitNode(
         options.resumeSessionId = node.agentSessionId ?? node.claudeSessionId
         if (node.profileId) options.profileId = node.profileId
       }
+      if (node.tmuxSessionName) options.tmuxSessionName = node.tmuxSessionName
       const result = await window.api.spawnTool(node.toolId, worktreePath, options)
       const restoredProfile = node.profileId ? getProfileById(node.profileId) : undefined
       pane = {

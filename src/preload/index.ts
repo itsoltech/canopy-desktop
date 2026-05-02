@@ -86,6 +86,7 @@ const api = {
       branch?: string
       resumeSessionId?: string
       profileId?: string
+      tmuxSessionName?: string
     },
   ) => ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
   addCustomTool: (tool: {

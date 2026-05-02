@@ -29,6 +29,7 @@ export interface ToolSpawnPayload {
   branch?: string
   resumeSessionId?: string
   profileId?: string
+  tmuxSessionName?: string
 }
 
 export interface ToolSpawnResult {
@@ -225,6 +226,16 @@ function createTmuxSessionResource(
       catch: (cause) => toolSpawnCause('tmux-availability', cause),
     })
     if (!tmuxAvailable) return { commit: () => undefined }
+
+    // If the renderer passed back a saved session name, check if it's still alive.
+    // When it is, attach without taking ownership — no finalizer, no newSession.
+    if (payload.tmuxSessionName != null) {
+      const alive = yield* Effect.tryPromise({
+        try: () => deps.tmuxManager.hasSession(payload.tmuxSessionName!),
+        catch: (cause) => toolSpawnCause('tmux-session', cause),
+      })
+      if (alive) return { name: payload.tmuxSessionName!, commit: () => undefined }
+    }
 
     const sessionInfo = yield* Effect.try({
       try: () => {
