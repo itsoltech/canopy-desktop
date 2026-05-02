@@ -285,9 +285,11 @@
   <div
     class="w-[600px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
     onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
     aria-label="Task Picker"
+    tabindex={-1}
   >
     {#if selectedTask}
       <BranchCreateForm

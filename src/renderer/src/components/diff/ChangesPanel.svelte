@@ -233,49 +233,54 @@
       {#each filteredFiles as file (file.path)}
         {@const isVisibleFile = visibleFilePath === file.path}
         <li
-          class="flex items-center gap-1.5 py-1 cursor-pointer text-xs leading-snug relative hover:bg-hover"
-          class:bg-border-subtle={isVisibleFile}
-          class:border-l-2={isVisibleFile}
-          class:border-accent={isVisibleFile}
-          class:pl-2={isVisibleFile}
-          class:pr-2.5={true}
-          class:pl-2.5={!isVisibleFile}
-          role="button"
-          tabindex="0"
-          onclick={() => handleClick(file)}
-          onkeydown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              handleClick(file)
-            }
-          }}
+          class="relative"
           onpointerenter={() => (hoveredPath = file.path)}
           onpointerleave={() => (hoveredPath = null)}
         >
-          <span
-            class="flex-shrink-0 w-4 text-center font-semibold text-xs font-mono {statusClass(
-              file.status,
-            )}">{statusIcon(file.status)}</span
+          <button
+            type="button"
+            class="w-full flex items-center gap-1.5 py-1 cursor-pointer text-xs leading-snug bg-transparent border-0 font-inherit text-left hover:bg-hover"
+            class:bg-border-subtle={isVisibleFile}
+            class:border-l-2={isVisibleFile}
+            class:border-accent={isVisibleFile}
+            class:pl-2={isVisibleFile}
+            class:pr-2.5={true}
+            class:pl-2.5={!isVisibleFile}
+            onclick={() => handleClick(file)}
           >
-          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-            <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
-              >{basename(file.path)}</span
+            <span
+              class="flex-shrink-0 w-4 text-center font-semibold text-xs font-mono {statusClass(
+                file.status,
+              )}">{statusIcon(file.status)}</span
             >
-          </span>
-          <span class="flex-shrink-0 text-xs font-mono flex gap-1">
-            {#if file.additions > 0}<span class="text-diff-add-fg">+{file.additions}</span>{/if}
-            {#if file.deletions > 0}<span class="text-diff-delete-fg">&minus;{file.deletions}</span
-              >{/if}
-          </span>
+            <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+              <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
+                >{basename(file.path)}</span
+              >
+            </span>
+            <span class="flex-shrink-0 text-xs font-mono flex gap-1">
+              {#if file.additions > 0}<span class="text-diff-add-fg">+{file.additions}</span>{/if}
+              {#if file.deletions > 0}<span class="text-diff-delete-fg"
+                  >&minus;{file.deletions}</span
+                >{/if}
+            </span>
+            {#if hoveredPath === file.path}
+              <span class="flex-shrink-0 w-11"></span>
+            {/if}
+          </button>
           {#if hoveredPath === file.path}
-            <span class="flex gap-0.5 flex-shrink-0 w-11 justify-end">
+            <span
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 flex gap-0.5 flex-shrink-0 justify-end"
+            >
               <button
+                type="button"
                 class="bg-transparent border-0 cursor-pointer px-0.5 py-px rounded-sm flex items-center justify-center text-success hover:bg-diff-add-bg"
                 onclick={(e) => handleStage(e, file.path)}
                 title="Stage"
                 aria-label="Stage file"><Check size={12} /></button
               >
               <button
+                type="button"
                 class="bg-transparent border-0 cursor-pointer px-0.5 py-px rounded-sm flex items-center justify-center text-danger hover:bg-diff-delete-bg"
                 onclick={(e) => handleRevert(e, file.path)}
                 title="Revert"

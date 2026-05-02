@@ -31,6 +31,10 @@
 
   let contextMenu: { x: number; y: number; path: string } | null = $state(null)
 
+  function focusOnMount(node: HTMLElement): void {
+    node.focus()
+  }
+
   $effect(() => {
     const wt = workspaceState.selectedWorktreePath
     if (wt !== fileTree.rootPath) {
@@ -369,18 +373,18 @@
       if (e.key === 'Escape') closeContextMenu()
     }}
   >
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="fixed min-w-45 bg-bg-overlay border border-border rounded-md p-1 shadow-menu backdrop-blur-md z-popover"
       role="menu"
+      tabindex={-1}
       style="left: {contextMenu.x}px; top: {contextMenu.y}px"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
-      <!-- eslint-disable-next-line svelte/no-autofocus -->
       <button
         class="block w-full px-2.5 py-1.5 text-sm text-text bg-transparent border-0 rounded-sm cursor-pointer text-left font-inherit transition-colors duration-fast hover:bg-hover"
         role="menuitem"
-        autofocus
+        use:focusOnMount
         onclick={contextRevealInFileManager}
       >
         {fileManagerLabel()}

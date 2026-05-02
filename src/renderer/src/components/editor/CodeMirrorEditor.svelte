@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { EditorView, keymap } from '@codemirror/view'
   import { EditorState, Compartment, type Extension } from '@codemirror/state'
   import { indentUnit } from '@codemirror/language'
@@ -33,10 +33,10 @@
   const readOnlyCompartment = new Compartment()
   const indentCompartment = new Compartment()
 
-  const mountValue = initialValue
-  const mountReadOnly = readOnly
-  const mountFilePath = filePath
-  const mountIndentUnit = initialIndentUnit
+  const mountValue = untrack(() => initialValue)
+  const mountReadOnly = untrack(() => readOnly)
+  const mountFilePath = untrack(() => filePath)
+  const mountIndentUnit = untrack(() => initialIndentUnit)
 
   // Per-file EditorStates so each sub-tab has its own undo history + cursor.
   // Not reactive — only accessed imperatively from exported methods.

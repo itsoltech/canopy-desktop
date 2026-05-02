@@ -1432,12 +1432,6 @@
     color: var(--color-success);
   }
 
-  .pane-title code {
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 12px;
-    color: var(--color-text-secondary);
-  }
-
   /* ============ MOBILE "+ NEW TOOL" BUTTON + BOTTOM SHEET ============ */
 
   .new-tool-btn {

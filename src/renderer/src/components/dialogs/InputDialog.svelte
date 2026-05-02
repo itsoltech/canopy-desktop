@@ -98,6 +98,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="input-dialog-title"
+    tabindex={-1}
     onmousedown={(e) => e.stopPropagation()}
   >
     <h3 id="input-dialog-title" class="m-0 text-base font-semibold text-text">{title}</h3>

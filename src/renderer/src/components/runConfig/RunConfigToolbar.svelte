@@ -201,6 +201,7 @@
         onclick={(e) => e.stopPropagation()}
         role="listbox"
         aria-label="Run configurations"
+        tabindex={-1}
       >
         {#each dropdownGroups as group (group.label)}
           <div

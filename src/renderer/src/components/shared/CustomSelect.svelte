@@ -200,6 +200,7 @@
             class:text-text={item.value !== value}
             role="option"
             aria-selected={item.value === value}
+            tabindex={-1}
             onclick={() => select(item.value!)}
             onpointerenter={() => (focusedIndex = i)}
           >

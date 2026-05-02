@@ -142,6 +142,7 @@
   role="dialog"
   aria-modal="true"
   aria-label="Run Configurations"
+  tabindex={-1}
   onkeydown={handleKeydown}
 >
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->

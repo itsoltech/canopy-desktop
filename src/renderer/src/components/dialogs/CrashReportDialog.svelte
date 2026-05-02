@@ -56,6 +56,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="crash-dialog-title"
+    tabindex={-1}
     onmousedown={(e) => e.stopPropagation()}
   >
     <h3

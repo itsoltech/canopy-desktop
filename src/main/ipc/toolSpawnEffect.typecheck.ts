@@ -5,7 +5,7 @@ import {
   type ToolSpawnError,
   type ToolSpawnPayload,
   type ToolSpawnResult,
-} from './handlers'
+} from './toolSpawnEffect'
 
 declare const event: IpcMainInvokeEvent
 declare const payload: ToolSpawnPayload

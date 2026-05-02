@@ -519,6 +519,7 @@
     <div
       class="sub-tabs"
       class:drop-target={externalDragOver || mainTabDragActive}
+      tabindex={-1}
       ondragover={handleStripDragOver}
       ondrop={handleStripDrop}
       ondragleave={handleStripDragLeave}

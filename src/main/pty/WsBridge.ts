@@ -67,7 +67,14 @@ export class WsBridge {
     })
 
     bridge.cleanup = () => {
-      onData.dispose()
+      try {
+        onData.dispose()
+      } catch {
+        // node-pty disposables are documented as idempotent, but native
+        // backends can throw if the underlying fd is already gone (EBADF on
+        // unix, closed handle on Windows). Cleanup must not propagate; the
+        // caller path (destroy/disposeAll) has no recovery surface.
+      }
     }
 
     this.bridges.set(sessionId, bridge)

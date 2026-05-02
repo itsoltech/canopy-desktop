@@ -189,6 +189,7 @@
     role="dialog"
     aria-modal="true"
     aria-label="Quick Open"
+    tabindex={-1}
   >
     <div class="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-border-subtle">
       <input

@@ -10,6 +10,7 @@
     getSources,
   } from '../../lib/stores/runConfig.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { untrack } from 'svelte'
 
   let {
     configDir: initialConfigDir,
@@ -19,7 +20,7 @@
     configName?: string
   } = $props()
 
-  let selectedConfigDir = $state(initialConfigDir)
+  let selectedConfigDir = $state(untrack(() => initialConfigDir))
   let saving = $state(false)
   let error = $state('')
 
@@ -110,6 +111,7 @@
   role="dialog"
   aria-modal="true"
   aria-label="Run Configuration Editor"
+  tabindex={-1}
   onkeydown={handleKeydown}
 >
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->

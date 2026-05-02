@@ -637,6 +637,7 @@
     role="dialog"
     aria-modal="true"
     aria-label="Command palette"
+    tabindex={-1}
     onclick={(e) => e.stopPropagation()}
   >
     <div class="h-12 px-3 flex items-center gap-2 border-b border-border-subtle flex-shrink-0">

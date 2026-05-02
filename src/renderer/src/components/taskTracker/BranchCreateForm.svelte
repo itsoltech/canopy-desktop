@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { X, ExternalLink, ArrowLeft } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
@@ -46,7 +46,7 @@
   let creatingWorktree = $state(false)
   let templateHasBranchType = $state(false)
   let initialized = $state(false)
-  let fullTask = $state<Task>(task)
+  let fullTask = $state<Task>(untrack(() => task))
   let selectedAgentId = $state(getPref('taskTracker.lastAgent', ''))
 
   let availableAgents = $derived.by(() => {

@@ -76,76 +76,86 @@
     e.preventDefault()
     install()
   }}
-  onkeydown={(e) => {
-    if (e.key === 'Escape') cancel()
-  }}
 >
-  <input
-    class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-    name="installSource"
-    aria-label="Skill source"
-    bind:value={source}
-    placeholder="github:owner/repo/path, local path, or URL"
-    spellcheck="false"
-    autocomplete="off"
-  />
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="contents"
+    onkeydown={(e) => {
+      if (e.key === 'Escape') cancel()
+    }}
+  >
+    <input
+      class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+      name="installSource"
+      aria-label="Skill source"
+      bind:value={source}
+      placeholder="github:owner/repo/path, local path, or URL"
+      spellcheck="false"
+      autocomplete="off"
+    />
 
-  <div class="flex flex-col gap-1.5">
-    <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">Agents</span>
-    <div class="flex gap-3 flex-wrap">
-      {#each Object.entries(agentLabels) as [key, label] (key)}
+    <div class="flex flex-col gap-1.5">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+        >Agents</span
+      >
+      <div class="flex gap-3 flex-wrap">
+        {#each Object.entries(agentLabels) as [key, label] (key)}
+          <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
+            <CustomCheckbox checked={agents.includes(key)} onchange={() => toggleAgent(key)} />
+            <span>{label}</span>
+          </label>
+        {/each}
+      </div>
+    </div>
+
+    <div class="flex flex-col gap-1.5">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">Scope</span
+      >
+      <div class="flex gap-3 flex-wrap">
         <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
-          <CustomCheckbox checked={agents.includes(key)} onchange={() => toggleAgent(key)} />
-          <span>{label}</span>
+          <CustomRadio checked={scope === 'project'} onchange={() => (scope = 'project')} />
+          <span>Project</span>
         </label>
-      {/each}
+        <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
+          <CustomRadio checked={scope === 'global'} onchange={() => (scope = 'global')} />
+          <span>Global</span>
+        </label>
+      </div>
     </div>
-  </div>
 
-  <div class="flex flex-col gap-1.5">
-    <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">Scope</span>
-    <div class="flex gap-3 flex-wrap">
-      <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
-        <CustomRadio checked={scope === 'project'} onchange={() => (scope = 'project')} />
-        <span>Project</span>
-      </label>
-      <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
-        <CustomRadio checked={scope === 'global'} onchange={() => (scope = 'global')} />
-        <span>Global</span>
-      </label>
+    <div class="flex flex-col gap-1.5">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+        >Method</span
+      >
+      <div class="flex gap-3 flex-wrap">
+        <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
+          <CustomRadio checked={method === 'copy'} onchange={() => (method = 'copy')} />
+          <span>Copy</span>
+        </label>
+        <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
+          <CustomRadio checked={method === 'symlink'} onchange={() => (method = 'symlink')} />
+          <span>Symlink</span>
+        </label>
+      </div>
     </div>
-  </div>
 
-  <div class="flex flex-col gap-1.5">
-    <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">Method</span>
-    <div class="flex gap-3 flex-wrap">
-      <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
-        <CustomRadio checked={method === 'copy'} onchange={() => (method = 'copy')} />
-        <span>Copy</span>
-      </label>
-      <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
-        <CustomRadio checked={method === 'symlink'} onchange={() => (method = 'symlink')} />
-        <span>Symlink</span>
-      </label>
+    {#if error}
+      <p class="text-sm text-danger-text m-0">{error}</p>
+    {/if}
+
+    <div class="flex justify-end gap-2">
+      <button
+        type="button"
+        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
+        onclick={cancel}>Cancel</button
+      >
+      <button
+        type="submit"
+        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text disabled:opacity-60 disabled:cursor-default hover:bg-accent-bg-hover"
+        disabled={installing}
+      >
+        {installing ? 'Installing…' : 'Install'}
+      </button>
     </div>
-  </div>
-
-  {#if error}
-    <p class="text-sm text-danger-text m-0">{error}</p>
-  {/if}
-
-  <div class="flex justify-end gap-2">
-    <button
-      type="button"
-      class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-      onclick={cancel}>Cancel</button
-    >
-    <button
-      type="submit"
-      class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text disabled:opacity-60 disabled:cursor-default hover:bg-accent-bg-hover"
-      disabled={installing}
-    >
-      {installing ? 'Installing…' : 'Install'}
-    </button>
   </div>
 </form>

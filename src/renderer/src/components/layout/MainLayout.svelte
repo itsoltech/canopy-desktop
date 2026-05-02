@@ -16,6 +16,7 @@
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
   import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
+  import { initOnboarding, onboardingState } from '../../lib/stores/onboarding.svelte'
   import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
   import CreatePRModal from '../github/CreatePRModal.svelte'
   import RemoteConnectionModal from '../dialogs/RemoteConnectionModal.svelte'
@@ -292,7 +293,6 @@
   // Subscribe to onboarding push event
   $effect(() => {
     return window.api.onShowOnboarding(async (data) => {
-      const { initOnboarding, onboardingState } = await import('../../lib/stores/onboarding.svelte')
       await initOnboarding(data.mode, data.fromVersion)
       if (onboardingState.mode === 'none' && data.fromVersion) {
         // No onboarding steps to show, fall back to changelog

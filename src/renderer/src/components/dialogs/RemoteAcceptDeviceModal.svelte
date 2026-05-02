@@ -22,7 +22,7 @@
   let actionError: string | null = $state(null)
   let countdown: ReturnType<typeof setInterval> | null = null
 
-  const devLogId = deviceId
+  const devLogId = $derived(deviceId)
 
   onMount(() => {
     rejectBtn?.focus()
@@ -84,6 +84,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="remote-accept-title"
+    tabindex={-1}
     onmousedown={(e) => e.stopPropagation()}
   >
     <h3 id="remote-accept-title" class="m-0 mb-2 text-[15px] font-semibold text-text">

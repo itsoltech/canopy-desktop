@@ -57,6 +57,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="confirm-dialog-title"
+    tabindex={-1}
     onmousedown={(e) => e.stopPropagation()}
   >
     <h3 id="confirm-dialog-title" class="m-0 mb-2 text-base font-semibold text-text">{title}</h3>

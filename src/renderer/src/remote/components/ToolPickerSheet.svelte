@@ -33,6 +33,7 @@
   role="dialog"
   aria-modal="true"
   aria-labelledby="tool-sheet-title"
+  tabindex={-1}
   onclick={(e) => e.stopPropagation()}
 >
   <header

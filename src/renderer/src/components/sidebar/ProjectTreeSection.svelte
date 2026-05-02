@@ -514,16 +514,25 @@
                 {#if prMap[wt.branch]}
                   {@const pr = prMap[wt.branch]}
                   {@const badge = formatPrBadge(pr)}
-                  <button
+                  <span
                     class={badge.className}
+                    role="button"
+                    tabindex="0"
                     title={`${pr.title} — click to open`}
                     onclick={(e) => {
                       e.stopPropagation()
                       window.api.openExternal(pr.url)
                     }}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        window.api.openExternal(pr.url)
+                      }
+                    }}
                   >
                     {badge.label}
-                  </button>
+                  </span>
                 {/if}
                 {#if wtActive}
                   <!-- svelte-ignore a11y_click_events_have_key_events -->

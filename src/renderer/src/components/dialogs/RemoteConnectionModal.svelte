@@ -184,6 +184,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="remote-connection-title"
+    tabindex={-1}
     onmousedown={(e) => e.stopPropagation()}
   >
     <h2

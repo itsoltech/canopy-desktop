@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { closeDialog, confirm, prompt } from '../../lib/stores/dialogs.svelte'
-  import { updateTmuxSessionName } from '../../lib/stores/tabs.svelte'
+  import { openTmuxTab, updateTmuxSessionName } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
 
   interface TmuxSession {
@@ -48,7 +48,6 @@
     busy = true
     try {
       const result = await window.api.tmuxAttach(name)
-      const { openTmuxTab } = await import('../../lib/stores/tabs.svelte')
       openTmuxTab(name, result.sessionId, result.wsUrl, worktreePath)
       closeDialog()
     } catch (err) {

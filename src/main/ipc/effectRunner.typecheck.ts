@@ -16,10 +16,36 @@ prefsGetHandler(ipcEvent, { value: 'missing-key' })
 const fallbackHandler = runIpcEffect(
   'db:prefs:get:fallback-typecheck',
   () => Effect.fail(new Error('boom')),
-  { fallback: (failure: IpcEffectFailure) => failure.message },
+  { fallback: (failure: IpcEffectFailure) => `${failure.tag ?? 'untagged'}:${failure.message}` },
 )
 
 const fallbackResult: Promise<string> = fallbackHandler(ipcEvent)
+
+// IpcEffectFailure must remain transport-safe: only channel, optional tag,
+// and message. Adding `cause`, stack traces, or other internals would leak
+// renderer-bound failures.
+const _safeFailure: IpcEffectFailure = {
+  channel: 'db:prefs:get:shape-check',
+  tag: 'BoomError',
+  message: 'boom',
+}
+void _safeFailure
+
+const _failureWithLeakedCause: IpcEffectFailure = {
+  channel: 'db:prefs:get:shape-check',
+  message: 'boom',
+  // @ts-expect-error - cause/stack/instance details must never be exposed over IPC.
+  cause: new Error('leaked'),
+}
+void _failureWithLeakedCause
+
+const _failureWithLegacyTag: IpcEffectFailure = {
+  channel: 'db:prefs:get:shape-check',
+  message: 'boom',
+  // @ts-expect-error - the field is `tag`, not `errorTag`.
+  errorTag: 'BoomError',
+}
+void _failureWithLegacyTag
 
 const registeredHandlers: Array<{
   channel: string

@@ -10,3 +10,4 @@ perf/results/*.json
 perf/results/*.cpuprofile
 *.tsbuildinfo
 .codex/
+.hermes/
