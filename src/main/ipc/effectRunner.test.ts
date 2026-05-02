@@ -1,8 +1,40 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { afterEach, beforeEach, test, vi } from 'vitest'
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { Data, Effect } from 'effect'
 import { handleIpcEffect, runIpcEffect, type IpcEffectFailure } from './effectRunner'
+
+let expectedConsoleErrors = 0
+let consoleErrorCalls: unknown[][] = []
+
+// Failure-path tests intentionally trigger effectRunner.ts console.error output
+// (that logging is part of its contract). Capture it at the test boundary so
+// Vitest output stays readable, but assert the exact expected count/shape so an
+// unexpected console.error in a success test cannot be silently hidden.
+beforeEach(() => {
+  expectedConsoleErrors = 0
+  consoleErrorCalls = []
+  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    consoleErrorCalls.push(args)
+  })
+})
+
+afterEach(() => {
+  try {
+    assert.equal(consoleErrorCalls.length, expectedConsoleErrors)
+    for (const args of consoleErrorCalls) {
+      assert.equal(typeof args[0], 'string')
+      assert.match(args[0] as string, /^\[ipc:.+\] handler failed$/)
+      payloadIsTransportSafe(args[1])
+    }
+  } finally {
+    vi.restoreAllMocks()
+  }
+})
+
+function expectIpcFailureLog(count = 1): void {
+  expectedConsoleErrors += count
+}
 
 class TaggedFailure extends Data.TaggedError('TaggedFailure')<{
   readonly message: string
@@ -54,6 +86,7 @@ function payloadIsTransportSafe(value: unknown): void {
 }
 
 test('handleIpcEffect returns fallback for expected typed failure without leaking cause', async () => {
+  expectIpcFailureLog()
   const { handlers, ipcMain } = fakeIpcMain()
   const captured: IpcEffectFailure[] = []
 
@@ -99,6 +132,7 @@ test('handleIpcEffect returns fallback for expected typed failure without leakin
 })
 
 test('runIpcEffect throws sanitized message for expected failure', async () => {
+  expectIpcFailureLog()
   const handler = runIpcEffect('test:throw', () =>
     Effect.fail(new TaggedFailure({ message: 'boundary fail', cause: 'internal-stack-here' })),
   )
@@ -119,61 +153,45 @@ test('runIpcEffect throws sanitized message for expected failure', async () => {
 })
 
 test('handleIpcEffect maps defects to a generic fallback message', async () => {
+  expectIpcFailureLog()
   const { handlers, ipcMain } = fakeIpcMain()
 
-  // Silence the expected console.error noise for this case.
-  const origError = console.error
-  const errorLog: unknown[][] = []
-  console.error = (...args: unknown[]) => {
-    errorLog.push(args)
-  }
+  handleIpcEffect(
+    ipcMain,
+    'test:die',
+    () => Effect.die(new Error('SECRET INTERNAL DEFECT')) as Effect.Effect<unknown, never>,
+    {
+      fallback: (failure) => ({ ok: false as const, message: failure.message }),
+    },
+  )
 
-  try {
-    handleIpcEffect(
-      ipcMain,
-      'test:die',
-      () => Effect.die(new Error('SECRET INTERNAL DEFECT')) as Effect.Effect<unknown, never>,
-      {
-        fallback: (failure) => ({ ok: false as const, message: failure.message }),
-      },
-    )
+  const handler = handlers.get('test:die')
+  assert.ok(handler)
+  const result = (await handler!(fakeEvent())) as { ok: false; message: string }
 
-    const handler = handlers.get('test:die')
-    assert.ok(handler)
-    const result = (await handler!(fakeEvent())) as { ok: false; message: string }
-
-    // Generic fallback message, internal defect string must not be exposed.
-    assert.equal(result.message, 'IPC handler failed')
-    assert.equal(result.message.includes('SECRET INTERNAL DEFECT'), false)
-    payloadIsTransportSafe(result)
-  } finally {
-    console.error = origError
-  }
+  // Generic fallback message, internal defect string must not be exposed.
+  assert.equal(result.message, 'IPC handler failed')
+  assert.equal(result.message.includes('SECRET INTERNAL DEFECT'), false)
+  payloadIsTransportSafe(result)
 })
 
 test('runIpcEffect throws generic message for defect without leaking internals', async () => {
+  expectIpcFailureLog()
   const handler = runIpcEffect(
     'test:die-throw',
     () => Effect.die(new Error('SECRET DEFECT')) as Effect.Effect<unknown, never>,
   )
 
-  // Silence expected console.error for defect logging
-  const origError = console.error
-  console.error = () => undefined
+  let caught: unknown
   try {
-    let caught: unknown
-    try {
-      await handler(fakeEvent())
-    } catch (e) {
-      caught = e
-    }
-    assert.ok(caught instanceof Error)
-    const err = caught as Error
-    assert.equal(err.message, '[ipc:test:die-throw] IPC handler failed')
-    assert.equal(err.message.includes('SECRET DEFECT'), false)
-  } finally {
-    console.error = origError
+    await handler(fakeEvent())
+  } catch (e) {
+    caught = e
   }
+  assert.ok(caught instanceof Error)
+  const err = caught as Error
+  assert.equal(err.message, '[ipc:test:die-throw] IPC handler failed')
+  assert.equal(err.message.includes('SECRET DEFECT'), false)
 })
 
 test('handleIpcEffect success path preserves successful value', async () => {
@@ -189,6 +207,7 @@ test('handleIpcEffect success path preserves successful value', async () => {
 })
 
 test('runIpcEffect rejection has empty stack so main-process frames do not cross IPC', async () => {
+  expectIpcFailureLog()
   // The thrown Error's `.stack` is part of Electron's IPC error serialization
   // surface area. Even though the message is sanitized, a v8-generated stack
   // would expose internal main-process file paths to the renderer. We strip
@@ -213,6 +232,7 @@ test('runIpcEffect rejection has empty stack so main-process frames do not cross
 })
 
 test('runIpcEffect rejection .stack is locked so it cannot be re-attached after the fact', async () => {
+  expectIpcFailureLog()
   // Defense-in-depth: it is not enough to clear .stack at throw time. Any
   // code that later mutates the rejection (Electron serializer, devtools,
   // a global error listener) could re-attach a stack-like string. The
@@ -253,27 +273,22 @@ test('runIpcEffect rejection .stack is locked so it cannot be re-attached after 
 })
 
 test('runIpcEffect rejection for defect has empty stack and generic message', async () => {
-  const origError = console.error
-  console.error = () => undefined
-  try {
-    const handler = runIpcEffect(
-      'test:die-stack',
-      () => Effect.die(new Error('SECRET')) as Effect.Effect<unknown, never>,
-    )
+  expectIpcFailureLog()
+  const handler = runIpcEffect(
+    'test:die-stack',
+    () => Effect.die(new Error('SECRET')) as Effect.Effect<unknown, never>,
+  )
 
-    let caught: unknown
-    try {
-      await handler(fakeEvent())
-    } catch (e) {
-      caught = e
-    }
-    assert.ok(caught instanceof Error)
-    const err = caught as Error
-    assert.equal(err.message, '[ipc:test:die-stack] IPC handler failed')
-    assert.equal(err.stack ?? '', '')
-  } finally {
-    console.error = origError
+  let caught: unknown
+  try {
+    await handler(fakeEvent())
+  } catch (e) {
+    caught = e
   }
+  assert.ok(caught instanceof Error)
+  const err = caught as Error
+  assert.equal(err.message, '[ipc:test:die-stack] IPC handler failed')
+  assert.equal(err.stack ?? '', '')
 })
 
 test('runIpcEffect passes args through to the effect builder', async () => {

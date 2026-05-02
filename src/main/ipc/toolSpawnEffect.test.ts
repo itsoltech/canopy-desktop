@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 import type { IpcMainInvokeEvent } from 'electron'
 import { Effect, Exit } from 'effect'
 import {

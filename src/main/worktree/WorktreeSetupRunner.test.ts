@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 import { Effect } from 'effect'
 import type { IDisposable, IPty, IPtyForkOptions } from 'node-pty'
 import type { WorktreeSetupAction, WorktreeSetupProgress } from '../db/types'

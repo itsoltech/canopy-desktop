@@ -21,7 +21,7 @@
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
     "release": "npm run build && electron-builder --publish always",
-    "test:unit:main": "node --import tsx --test src/main/ipc/effectRunner.test.ts src/main/ipc/toolSpawnEffect.test.ts src/main/worktree/WorktreeSetupRunner.test.ts",
+    "test:unit:main": "vitest run --config vitest.main.config.ts",
     "test:e2e": "playwright test",
     "perf:startup": "CANOPY_PERF=1 npx playwright test perf/startup-bench.ts --config perf/playwright.perf.config.ts",
     "perf:memory": "CANOPY_PERF=1 npx playwright test perf/memory-leak.ts --config perf/playwright.perf.config.ts",
@@ -97,9 +97,9 @@
     "prettier-plugin-svelte": "^3.4.0",
     "svelte": "^5.45.6",
     "svelte-check": "^4.3.4",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "vitest": "^4.1.5"
   },
   "volta": {
     "node": "24.14.0"
