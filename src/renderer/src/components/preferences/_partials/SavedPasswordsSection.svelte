@@ -78,13 +78,15 @@
         class:opacity-30={!visible(cred)}
       >
         <div class="flex items-baseline gap-2 min-w-0">
-          <span class="text-md text-text truncate">{cred.domain}</span>
+          <span class="text-md text-text truncate" title={cred.domain}>{cred.domain}</span>
           {#if cred.title}
-            <span class="text-xs text-text-faint truncate">{cred.title}</span>
+            <span class="text-xs text-text-faint truncate" title={cred.title}>{cred.title}</span>
           {/if}
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-sm text-text-secondary truncate flex-1">{cred.username}</span>
+          <span class="text-sm text-text-secondary truncate flex-1" title={cred.username}
+            >{cred.username}</span
+          >
           <span class="shrink-0">
             {#if revealedId === cred.id}
               <code class="text-xs text-text bg-bg px-1 py-px rounded-sm font-mono"

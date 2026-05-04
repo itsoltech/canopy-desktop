@@ -287,6 +287,7 @@
                 style:padding-left="{12 + depth * 12}px"
                 onclick={() => fileTree.toggleDir(absPath)}
                 oncontextmenu={(e) => handleContextMenu(e, absPath)}
+                title={entry.name}
               >
                 <span
                   class="inline-flex items-center justify-center size-3 flex-shrink-0 text-text-faint transition-transform duration-fast ease-std"
@@ -332,6 +333,7 @@
               style:padding-left="{12 + depth * 12 + 12}px"
               onclick={() => handleFileClick(absPath)}
               oncontextmenu={(e) => handleContextMenu(e, absPath)}
+              title={entry.name}
             >
               <FileTypeIcon name={entry.name} size={13} />
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">

@@ -153,7 +153,7 @@
         >
           <FolderGit2 size={14} class="shrink-0 text-accent mt-0.5" />
           <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-            <span class="text-md text-text truncate">{workspace.name}</span>
+            <span class="text-md text-text truncate" title={workspace.name}>{workspace.name}</span>
             {#if workspaceState.repoRoot}
               <span
                 class="text-2xs text-text-faint font-mono truncate"
