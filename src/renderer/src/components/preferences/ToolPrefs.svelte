@@ -148,8 +148,9 @@
             class:opacity-30={!visible(tool)}
           >
             <ToolIcon icon={tool.icon} size={16} />
-            <span class="text-md text-text min-w-30 truncate">{tool.name}</span>
-            <code class="text-sm text-text-secondary font-mono flex-1 truncate">{tool.command}</code
+            <span class="text-md text-text min-w-30 truncate" title={tool.name}>{tool.name}</span>
+            <code class="text-sm text-text-secondary font-mono flex-1 truncate" title={tool.command}
+              >{tool.command}</code
             >
             <span class="text-2xs uppercase tracking-caps-tight text-text-muted shrink-0"
               >{tool.category}</span

@@ -163,7 +163,9 @@
           class="flex items-center gap-2 px-2.5 py-1 rounded-md bg-bg-input border border-border-subtle text-md"
         >
           <code class="text-accent-text font-mono text-sm shrink-0">{'{' + key + '}'}</code>
-          <span class="text-text-secondary font-mono text-sm flex-1 truncate">{value}</span>
+          <span class="text-text-secondary font-mono text-sm flex-1 truncate" title={value}
+            >{value}</span
+          >
           <button
             type="button"
             class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer shrink-0 hover:bg-danger-bg hover:text-danger-text"

@@ -177,7 +177,7 @@
             class="flex items-center justify-between gap-3 px-3 py-2 bg-bg-input border border-border-subtle rounded-md"
           >
             <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-md text-text truncate">{device.name}</span>
+              <span class="text-md text-text truncate" title={device.name}>{device.name}</span>
               <span class="text-2xs text-text-muted">
                 <code class="font-mono text-text-secondary">{device.deviceId.slice(0, 12)}…</code>
                 · added {formatRelative(device.addedAt)} · last seen {formatRelative(

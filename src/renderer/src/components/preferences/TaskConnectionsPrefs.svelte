@@ -221,7 +221,9 @@
                 class="text-2xs font-semibold uppercase tracking-caps-tight text-accent-text bg-accent-bg px-1.5 py-px rounded-sm shrink-0"
                 >{providerLabel(tracker.provider)}</span
               >
-              <span class="flex-1 text-text-secondary truncate"
+              <span
+                class="flex-1 text-text-secondary truncate"
+                title={tracker.baseUrl || 'Not configured'}
                 >{tracker.baseUrl || 'Not configured'}</span
               >
               {#if tracker.projectKey}

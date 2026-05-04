@@ -66,7 +66,7 @@
           class="flex items-center gap-3 py-2 border-t border-border-subtle first:border-t-0 first:pt-0 transition-opacity duration-fast"
           class:opacity-30={!viewportVisible(name, preset)}
         >
-          <span class="text-md text-text min-w-35 truncate">{name}</span>
+          <span class="text-md text-text min-w-35 truncate" title={name}>{name}</span>
           <span class="text-sm text-text-secondary font-mono min-w-20"
             >{preset.width}×{preset.height}</span
           >
@@ -92,7 +92,7 @@
           class="flex items-center gap-3 py-2 border-t border-border-subtle first:border-t-0 first:pt-0 transition-opacity duration-fast"
           class:opacity-30={!viewportVisible(name, preset)}
         >
-          <span class="text-md text-text min-w-35 truncate">{name}</span>
+          <span class="text-md text-text min-w-35 truncate" title={name}>{name}</span>
           <span class="text-sm text-text-secondary font-mono min-w-20"
             >{preset.width}×{preset.height}</span
           >

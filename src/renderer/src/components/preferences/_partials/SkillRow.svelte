@@ -34,8 +34,8 @@
     {:else}
       <ChevronRight size={13} class="shrink-0 text-text-muted" />
     {/if}
-    <span class="text-md text-text min-w-30 truncate">{name}</span>
-    <span class="text-xs text-text-muted truncate flex-1">{agentDisplay}</span>
+    <span class="text-md text-text min-w-30 truncate" title={name}>{name}</span>
+    <span class="text-xs text-text-muted truncate flex-1" title={agentDisplay}>{agentDisplay}</span>
   </button>
   {#if expanded}
     <div class="pl-6 pr-1 pb-3 flex flex-col gap-2.5">
