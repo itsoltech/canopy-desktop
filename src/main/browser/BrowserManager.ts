@@ -1,7 +1,7 @@
 import { webContents, WebContentsView, Menu, dialog, session, type BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
 import { join } from 'path'
-import { writeFileSync } from 'fs'
+import { writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import os from 'os'
 
@@ -417,9 +417,9 @@ export class BrowserManager {
     entry.devToolsView.setBounds(bounds)
   }
 
-  saveCaptureFile(pngBuffer: Buffer): string {
+  async saveCaptureFile(pngBuffer: Buffer): Promise<string> {
     const filePath = join(os.tmpdir(), `canopy-capture-${randomUUID()}.png`)
-    writeFileSync(filePath, pngBuffer)
+    await writeFile(filePath, pngBuffer)
     return filePath
   }
 

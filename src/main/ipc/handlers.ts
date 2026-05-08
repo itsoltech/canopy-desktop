@@ -2931,11 +2931,18 @@ export function registerIpcHandlers(
       // Pre-run hook (30s timeout)
       if (config.pre_run) {
         const PRE_RUN_TIMEOUT = 30_000
+        // Cap captured output so a noisy pre_run can't balloon main-process
+        // memory before the timer fires. We only surface the last ~5 lines on
+        // failure, so trimming the head is safe.
+        const PRE_RUN_OUTPUT_CAP = 32_768
         const pre = shellExecArgs(config.pre_run)
         const preSession = ptyManager.spawn({ command: pre.command, args: pre.args, cwd, env })
         let preOutput = ''
         preSession.pty.onData((data) => {
           preOutput += data
+          if (preOutput.length > PRE_RUN_OUTPUT_CAP) {
+            preOutput = preOutput.slice(-PRE_RUN_OUTPUT_CAP / 2)
+          }
         })
         await new Promise<void>((resolve, reject) => {
           let done = false
