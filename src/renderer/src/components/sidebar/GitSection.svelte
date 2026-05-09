@@ -133,8 +133,9 @@
 <CollapsibleSection title="GIT" sectionKey="git" borderTop>
   {#snippet headerExtra()}
     <span class="flex items-center gap-1 overflow-hidden">
-      <span class="text-2xs font-mono text-text-faint truncate max-w-30"
-        >{workspaceState.branch ?? ''}</span
+      <span
+        class="text-2xs font-mono text-text-faint truncate max-w-30"
+        title={workspaceState.branch ?? ''}>{workspaceState.branch ?? ''}</span
       >
       {#if workspaceState.isDirty}
         <span

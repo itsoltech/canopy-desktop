@@ -416,7 +416,7 @@
           </span>
           <span
             class="text-sm font-medium text-text-secondary group-hover:text-text overflow-hidden text-ellipsis whitespace-nowrap"
-            >{project.workspace.name}</span
+            title={project.workspace.name}>{project.workspace.name}</span
           >
         </button>
         <div class="flex items-center gap-0.5 flex-shrink-0">
