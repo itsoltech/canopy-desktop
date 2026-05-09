@@ -271,7 +271,7 @@
     setActiveEditorFile(paneId, path)
   }
 
-  async function handleSubTabClose(evt: MouseEvent, path: string): Promise<void> {
+  async function handleSubTabClose(evt: Event, path: string): Promise<void> {
     evt.stopPropagation()
     const state = editorFiles.find((f) => f.filePath === path)
     if (state?.dirty) {
@@ -567,7 +567,7 @@
             onkeydown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
-                void handleSubTabClose(e as unknown as MouseEvent, file.filePath)
+                void handleSubTabClose(e, file.filePath)
               }
             }}
           >

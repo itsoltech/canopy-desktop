@@ -15,6 +15,7 @@
   let displayValue = $derived(String(value))
   let repeatTimer: ReturnType<typeof setTimeout> | null = null
   let repeatInterval: ReturnType<typeof setInterval> | null = null
+  let cancelNextBlur = false
 
   function clamp(n: number): number {
     return Math.min(max, Math.max(min, n))
@@ -69,8 +70,26 @@
     } else if (e.key === 'Enter') {
       e.preventDefault()
       commit(editValue)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelNextBlur = true
+      editing = false
+      ;(e.currentTarget as HTMLInputElement).blur()
     }
   }
+
+  function handleBlur(): void {
+    if (cancelNextBlur) {
+      cancelNextBlur = false
+      return
+    }
+    commit(editValue)
+  }
+
+  // Pointer events that normally clear the repeat timer (pointerup, pointerleave)
+  // never fire if the component unmounts mid-hold — the timer would otherwise
+  // keep firing onchange against a destroyed component.
+  $effect(() => stopRepeat)
 </script>
 
 <div
@@ -97,7 +116,7 @@
       editValue = e.currentTarget.value
     }}
     oninput={(e) => (editValue = e.currentTarget.value)}
-    onblur={() => commit(editValue)}
+    onblur={handleBlur}
     onkeydown={handleKeydown}
   />
   <button
