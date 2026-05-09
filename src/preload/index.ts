@@ -17,8 +17,6 @@ const api = {
     ipcRenderer.invoke('pty:write', { sessionId, data }),
   hasChildProcess: (sessionId: string) =>
     ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
-  hasChildProcesses: (sessionIds: string[]) =>
-    ipcRenderer.invoke('pty:hasChildProcesses', { sessionIds }) as Promise<Record<string, boolean>>,
   getPtyDimensions: (sessionId: string) =>
     ipcRenderer.invoke('pty:getDimensions', { sessionId }) as Promise<{
       cols: number

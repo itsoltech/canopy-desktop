@@ -299,21 +299,6 @@ export function registerIpcHandlers(
     return ptyManager.hasChildProcess(payload.sessionId)
   })
 
-  ipcMain.handle(
-    'pty:hasChildProcesses',
-    (_event, payload: { sessionIds: string[] }): Record<string, boolean> => {
-      const result: Record<string, boolean> = {}
-      for (const sid of payload.sessionIds) {
-        try {
-          result[sid] = ptyManager.hasChildProcess(sid)
-        } catch {
-          result[sid] = false
-        }
-      }
-      return result
-    },
-  )
-
   ipcMain.handle('pty:getDimensions', (_event, payload: { sessionId: string }) => {
     return ptyManager.getDimensions(payload.sessionId)
   })

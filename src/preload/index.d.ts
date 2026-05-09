@@ -262,7 +262,6 @@ interface CanopyAPI {
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   hasChildProcess: (sessionId: string) => Promise<boolean>
-  hasChildProcesses: (sessionIds: string[]) => Promise<Record<string, boolean>>
   getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
 
   // Tmux
