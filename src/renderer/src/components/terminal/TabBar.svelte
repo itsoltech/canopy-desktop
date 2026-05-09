@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import {
     tabsByWorktree,
     activeTabId,
@@ -25,37 +24,11 @@
     connectionStatus,
     type ConnectionStatus,
   } from '../../lib/terminal/connectionState.svelte'
-  onMount(() => {
-    async function pollShellBusy(): Promise<void> {
-      const sessionIds = tabs
-        .flatMap((tab) => allPanes(tab.rootSplit))
-        .filter((p) => !agentSessions[p.sessionId] && p.isRunning)
-        .map((p) => p.sessionId)
-
-      if (sessionIds.length === 0) {
-        shellBusyState = {}
-        return
-      }
-
-      try {
-        shellBusyState = await window.api.hasChildProcesses(sessionIds)
-      } catch {
-        shellBusyState = {}
-      }
-    }
-
-    void pollShellBusy()
-    shellPollTimer = setInterval(() => void pollShellBusy(), 2000)
-  })
-
-  // Cleanup returned from an async onMount is silently dropped by Svelte,
-  // so register the drag listener teardown via $effect instead. If the
-  // tab bar unmounts mid-drag (window close, workspace switch), this runs
-  // and detaches the window-level pointermove/pointerup handlers that
-  // would otherwise leak with their closures.
+  // If the tab bar unmounts mid-drag (window close, workspace switch),
+  // detach the window-level pointermove/pointerup handlers that would
+  // otherwise leak with their closures.
   $effect(() => {
     return () => {
-      clearInterval(shellPollTimer)
       window.removeEventListener('pointermove', handleDragMove)
       window.removeEventListener('pointerup', handleDragEnd)
     }
@@ -86,37 +59,25 @@
     if (badge === 'unread')
       return { color: 'var(--color-accent)', pulse: true, label: 'Unread activity' }
 
-    const panes = allPanes(tab.rootSplit)
-
-    // If every pane has exited, surface that instead of falling through to an
-    // "idle" state — keeps the dot in sync with the `.tab.exited` text color.
-    if (panes.length > 0 && panes.every((p) => !p.isRunning)) {
-      return { color: 'var(--color-blazing)', pulse: false, label: 'Exited' }
-    }
-
     let priority = 0
 
-    for (const p of panes) {
+    for (const p of allPanes(tab.rootSplit)) {
       if (!p.isRunning) continue
       const session = agentSessions[p.sessionId]
-      if (session) {
-        const t = session.status.type
-        if (t === 'waitingPermission')
-          return { color: 'var(--color-warning)', pulse: true, label: 'Permission required' }
-        if (t === 'error') priority = Math.max(priority, 5)
-        else if (t === 'thinking' || t === 'toolCalling' || t === 'compacting' || t === 'starting')
-          priority = Math.max(priority, 4)
-        else if (t === 'idle' || t === 'ended') priority = Math.max(priority, 3)
-      } else {
-        priority = Math.max(priority, shellBusyState[p.sessionId] ? 2 : 1)
-      }
+      if (!session) continue
+
+      const t = session.status.type
+      if (t === 'waitingPermission')
+        return { color: 'var(--color-warning)', pulse: true, label: 'Permission required' }
+      if (t === 'error') priority = Math.max(priority, 5)
+      else if (t === 'thinking' || t === 'toolCalling' || t === 'compacting' || t === 'starting')
+        priority = Math.max(priority, 4)
+      else if (t === 'idle' || t === 'ended') priority = Math.max(priority, 3)
     }
 
     if (priority === 5) return { color: 'var(--color-danger)', pulse: false, label: 'Agent error' }
     if (priority === 4) return { color: 'var(--color-accent)', pulse: true, label: 'Agent working' }
     if (priority === 3) return { color: 'var(--color-success)', pulse: false, label: 'Agent idle' }
-    if (priority === 2) return { color: 'var(--color-accent)', pulse: true, label: 'Shell running' }
-    if (priority === 1) return { color: 'var(--color-success)', pulse: false, label: 'Shell idle' }
     return null
   }
 
@@ -134,8 +95,6 @@
 
   let tabs = $derived(tabsByWorktree[worktreePath] ?? [])
 
-  let shellBusyState: Record<string, boolean> = $state({})
-  let shellPollTimer: ReturnType<typeof setInterval> | undefined
   let currentActiveId = $derived(activeTabId[worktreePath])
 
   let showOverflow = $state(false)
@@ -346,6 +305,7 @@
       {#each visibleTabs as tab (tab.id)}
         {@const connState = getConnectionState(tab)}
         {@const favicon = getTabFavicon(tab)}
+        {@const statusDot = getTabStatusDot(tab)}
         {@const isActiveTab = tab.id === currentActiveId}
         {@const isExited = !tab.suspended && allPanes(tab.rootSplit).some((p) => !p.isRunning)}
         {@const isDragging = dragActive && dragTabId === tab.id}
@@ -379,15 +339,14 @@
         >
           {#if favicon}
             <img class="flex-shrink-0 rounded-xs" src={favicon} alt="" width="12" height="12" />
-          {:else}
-            {@const dot = getTabStatusDot(tab)}
+          {:else if statusDot}
             <span
               class="w-2 h-2 rounded-full flex-shrink-0 motion-reduce:animate-none"
-              class:animate-badge-pulse={dot?.pulse ?? false}
-              style:background={dot?.color ?? 'var(--color-text-faint)'}
-              role={dot ? 'status' : undefined}
-              aria-label={dot?.label ?? undefined}
-              title={dot?.label ?? undefined}
+              class:animate-badge-pulse={statusDot.pulse}
+              style:background={statusDot.color}
+              role="status"
+              aria-label={statusDot.label}
+              title={statusDot.label}
             ></span>
           {/if}
           {#if isTabDirty(tab)}
