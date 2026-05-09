@@ -1,3 +1,9 @@
+## [0.13.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.4...v0.13.0-next.5) (2026-05-09)
+
+### Bug Fixes
+
+* limit tab status dots to agents ([#208](https://github.com/itsoltech/canopy-desktop/issues/208)) ([b1560a4](https://github.com/itsoltech/canopy-desktop/commit/b1560a4620652800089c0f77e9933d4b1f6ae752))
+
 ## [0.13.0-next.4](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.3...v0.13.0-next.4) (2026-05-01)
 
 ### Bug Fixes
