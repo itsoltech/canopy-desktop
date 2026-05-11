@@ -1674,13 +1674,13 @@ export function registerIpcHandlers(
     }
   }
 
-  function touchWorkspaceFiles(key: string): string[] | null {
+  function touchWorkspaceFiles(key: string): { files: string[]; fetchedAt: number } | null {
     const entry = workspaceFileCache.get(key)
     if (!entry) return null
     // Refresh LRU position on read.
     workspaceFileCache.delete(key)
     workspaceFileCache.set(key, entry)
-    return entry.files
+    return entry
   }
 
   async function listWorkspaceFilesViaGit(repoRoot: string): Promise<string[] | null> {
@@ -1726,9 +1726,8 @@ export function registerIpcHandlers(
       const resolved = await validatePathAccess(event.sender.id, payload.worktreePath)
       if (!payload.force) {
         const cached = touchWorkspaceFiles(resolved)
-        const entry = workspaceFileCache.get(resolved)
-        if (cached && entry && Date.now() - entry.fetchedAt < WORKSPACE_FILE_CACHE_MAX_AGE_MS) {
-          return cached
+        if (cached && Date.now() - cached.fetchedAt < WORKSPACE_FILE_CACHE_MAX_AGE_MS) {
+          return cached.files
         }
       }
       const viaGit = await listWorkspaceFilesViaGit(resolved)

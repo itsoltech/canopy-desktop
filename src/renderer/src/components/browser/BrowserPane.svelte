@@ -1,6 +1,6 @@
 <script lang="ts">
   import { match, P } from 'ts-pattern'
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import BrowserToolbar from './BrowserToolbar.svelte'
   import BrowserError from './BrowserError.svelte'
   import {
@@ -203,6 +203,14 @@
   let favDragIndex: number | null = $state(null)
   let favDropIndex: number | null = $state(null)
   let starDropdownOpen = $state(false)
+  let favNameInputEl: HTMLInputElement | undefined = $state()
+
+  // Focus the first input each time the favorites modal opens so Escape bubbles to the backdrop.
+  $effect(() => {
+    if (favModalOpen) {
+      tick().then(() => favNameInputEl?.focus())
+    }
+  })
 
   function handleToggleFavorite(): void {
     const url = session?.url
@@ -307,6 +315,14 @@
   let savePrompt: { domain: string; username: string; password: string; title: string } | null =
     $state(null)
   let pageHasPasswordField = $state(false)
+  let savePromptUsernameEl: HTMLInputElement | undefined = $state()
+
+  // Focus the first input each time the save-password modal opens so Escape bubbles to the backdrop.
+  $effect(() => {
+    if (savePrompt) {
+      tick().then(() => savePromptUsernameEl?.focus())
+    }
+  })
   let lastCapturedCreds: {
     domain: string
     username: string
@@ -1189,14 +1205,30 @@
     {#if favModalOpen}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="fav-modal-backdrop" onclick={() => (favModalOpen = false)}>
-        <div class="fav-modal" onclick={(e) => e.stopPropagation()}>
-          <h3 class="fav-modal-title">
+      <div
+        class="fav-modal-backdrop"
+        onclick={() => (favModalOpen = false)}
+        onkeydown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            favModalOpen = false
+          }
+        }}
+      >
+        <div
+          class="fav-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fav-modal-title"
+          onclick={(e) => e.stopPropagation()}
+        >
+          <h3 id="fav-modal-title" class="fav-modal-title">
             {favModalMode === 'edit' ? 'Edit Favorite' : 'Add Favorite'}
           </h3>
           <label class="fav-modal-label">
             Name
-            <input class="fav-modal-input" bind:value={favName} />
+            <input class="fav-modal-input" bind:this={favNameInputEl} bind:value={favName} />
           </label>
           <label class="fav-modal-label">
             URL
@@ -1280,13 +1312,33 @@
 {#if savePrompt}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="save-modal-backdrop" onclick={handleDismissSavePrompt}>
-    <div class="save-modal" onclick={(e) => e.stopPropagation()}>
-      <h3 class="save-modal-title">Save Password</h3>
+  <div
+    class="save-modal-backdrop"
+    onclick={handleDismissSavePrompt}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        handleDismissSavePrompt()
+      }
+    }}
+  >
+    <div
+      class="save-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="save-modal-title"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <h3 id="save-modal-title" class="save-modal-title">Save Password</h3>
       <p class="save-modal-domain">{savePrompt.domain}</p>
       <label class="save-modal-label">
         Username / Email
-        <input class="save-modal-input" bind:value={savePrompt.username} />
+        <input
+          class="save-modal-input"
+          bind:this={savePromptUsernameEl}
+          bind:value={savePrompt.username}
+        />
       </label>
       <label class="save-modal-label">
         Password
