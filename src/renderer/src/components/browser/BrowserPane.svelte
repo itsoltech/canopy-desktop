@@ -1189,9 +1189,25 @@
     {#if favModalOpen}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="fav-modal-backdrop" onclick={() => (favModalOpen = false)}>
-        <div class="fav-modal" onclick={(e) => e.stopPropagation()}>
-          <h3 class="fav-modal-title">
+      <div
+        class="fav-modal-backdrop"
+        onclick={() => (favModalOpen = false)}
+        onkeydown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            favModalOpen = false
+          }
+        }}
+      >
+        <div
+          class="fav-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fav-modal-title"
+          onclick={(e) => e.stopPropagation()}
+        >
+          <h3 id="fav-modal-title" class="fav-modal-title">
             {favModalMode === 'edit' ? 'Edit Favorite' : 'Add Favorite'}
           </h3>
           <label class="fav-modal-label">
@@ -1280,9 +1296,25 @@
 {#if savePrompt}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="save-modal-backdrop" onclick={handleDismissSavePrompt}>
-    <div class="save-modal" onclick={(e) => e.stopPropagation()}>
-      <h3 class="save-modal-title">Save Password</h3>
+  <div
+    class="save-modal-backdrop"
+    onclick={handleDismissSavePrompt}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        handleDismissSavePrompt()
+      }
+    }}
+  >
+    <div
+      class="save-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="save-modal-title"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <h3 id="save-modal-title" class="save-modal-title">Save Password</h3>
       <p class="save-modal-domain">{savePrompt.domain}</p>
       <label class="save-modal-label">
         Username / Email
