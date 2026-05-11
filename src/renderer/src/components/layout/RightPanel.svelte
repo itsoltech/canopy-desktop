@@ -19,6 +19,23 @@
   $effect(() => {
     workspaceState.changesCount = changesFileCount
   })
+
+  const tabOrder = ['session', 'changes'] as const
+  type TabId = (typeof tabOrder)[number]
+
+  function handleTabKeydown(e: KeyboardEvent, current: TabId): void {
+    const idx = tabOrder.indexOf(current)
+    let target: TabId | null = null
+    if (e.key === 'ArrowRight') target = tabOrder[(idx + 1) % tabOrder.length]
+    else if (e.key === 'ArrowLeft') target = tabOrder[(idx - 1 + tabOrder.length) % tabOrder.length]
+    else if (e.key === 'Home') target = tabOrder[0]
+    else if (e.key === 'End') target = tabOrder[tabOrder.length - 1]
+    if (!target) return
+    e.preventDefault()
+    workspaceState.rightPanelTab = target
+    const el = document.getElementById(`right-panel-tab-${target}`)
+    el?.focus()
+  }
 </script>
 
 <aside
@@ -39,7 +56,9 @@
       id="right-panel-tab-session"
       aria-controls="right-panel-panel-session"
       aria-selected={workspaceState.rightPanelTab === 'session'}
+      tabindex={workspaceState.rightPanelTab === 'session' ? 0 : -1}
       onclick={() => (workspaceState.rightPanelTab = 'session')}
+      onkeydown={(e) => handleTabKeydown(e, 'session')}
     >
       Session
       {#if workspaceState.rightPanelTab === 'session'}
@@ -55,7 +74,9 @@
       id="right-panel-tab-changes"
       aria-controls="right-panel-panel-changes"
       aria-selected={workspaceState.rightPanelTab === 'changes'}
+      tabindex={workspaceState.rightPanelTab === 'changes' ? 0 : -1}
       onclick={() => (workspaceState.rightPanelTab = 'changes')}
+      onkeydown={(e) => handleTabKeydown(e, 'changes')}
     >
       Changes
       {#if workspaceState.changesCount > 0}

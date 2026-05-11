@@ -1,6 +1,6 @@
 <script lang="ts">
   import { match, P } from 'ts-pattern'
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import BrowserToolbar from './BrowserToolbar.svelte'
   import BrowserError from './BrowserError.svelte'
   import {
@@ -203,6 +203,14 @@
   let favDragIndex: number | null = $state(null)
   let favDropIndex: number | null = $state(null)
   let starDropdownOpen = $state(false)
+  let favNameInputEl: HTMLInputElement | undefined = $state()
+
+  // Focus the first input each time the favorites modal opens so Escape bubbles to the backdrop.
+  $effect(() => {
+    if (favModalOpen) {
+      tick().then(() => favNameInputEl?.focus())
+    }
+  })
 
   function handleToggleFavorite(): void {
     const url = session?.url
@@ -307,6 +315,14 @@
   let savePrompt: { domain: string; username: string; password: string; title: string } | null =
     $state(null)
   let pageHasPasswordField = $state(false)
+  let savePromptUsernameEl: HTMLInputElement | undefined = $state()
+
+  // Focus the first input each time the save-password modal opens so Escape bubbles to the backdrop.
+  $effect(() => {
+    if (savePrompt) {
+      tick().then(() => savePromptUsernameEl?.focus())
+    }
+  })
   let lastCapturedCreds: {
     domain: string
     username: string
@@ -1212,7 +1228,7 @@
           </h3>
           <label class="fav-modal-label">
             Name
-            <input class="fav-modal-input" bind:value={favName} />
+            <input class="fav-modal-input" bind:this={favNameInputEl} bind:value={favName} />
           </label>
           <label class="fav-modal-label">
             URL
@@ -1318,7 +1334,11 @@
       <p class="save-modal-domain">{savePrompt.domain}</p>
       <label class="save-modal-label">
         Username / Email
-        <input class="save-modal-input" bind:value={savePrompt.username} />
+        <input
+          class="save-modal-input"
+          bind:this={savePromptUsernameEl}
+          bind:value={savePrompt.username}
+        />
       </label>
       <label class="save-modal-label">
         Password
