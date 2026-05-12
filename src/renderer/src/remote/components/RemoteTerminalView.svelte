@@ -272,6 +272,8 @@
     }
 
     const { fontSize, lineHeight } = resolveMobileFontSize()
+    const isCoarsePointer =
+      typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
 
     term = new Terminal({
       cols,
@@ -280,15 +282,28 @@
       lineHeight,
       cursorBlink: true,
       scrollback: 5000,
-      // Disable line wrap at the xterm level — the PTY already lays out
-      // content for `cols` characters and any additional wrap here would
-      // just undo that layout. If the host writes a 120-char line and the
-      // viewer's xterm is also 120 cols, no wrap is needed.
-      // (xterm.js doesn't have an explicit "no wrap" option; keeping cols
-      // in sync with the host is the right fix.)
+      screenReaderMode: isCoarsePointer,
       theme: resolveXtermTheme(),
     })
     term.open(containerEl)
+
+    if (isCoarsePointer) {
+      const a11y = containerEl.querySelector<HTMLElement>('.xterm-accessibility')
+      if (a11y) {
+        a11y.addEventListener('pointerdown', () => {
+          const start = Date.now()
+          const ac = new AbortController()
+          const onEnd = (e: PointerEvent): void => {
+            ac.abort()
+            if (e.type === 'pointerup' && Date.now() - start < 400) {
+              term?.textarea?.focus()
+            }
+          }
+          a11y.addEventListener('pointerup', onEnd, { signal: ac.signal })
+          a11y.addEventListener('pointercancel', onEnd, { signal: ac.signal })
+        })
+      }
+    }
 
     // Measure the real character width once xterm has painted its first
     // frame — before that, `scrollWidth` is 0 and our auto-follow math

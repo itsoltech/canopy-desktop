@@ -130,6 +130,11 @@
 .terminal-wrap .xterm-screen {
   width: fit-content;
 }
+@media (pointer: coarse) {
+  .terminal-wrap .xterm-accessibility {
+    pointer-events: auto;
+  }
+}
 
 /* ============ CodeMirror — CodeMirrorEditor ============ */
 .cm-root .cm-editor {
