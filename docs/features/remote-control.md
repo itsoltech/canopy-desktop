@@ -88,6 +88,10 @@ Listen mode keeps the signaling server bound on `0.0.0.0` in the background for 
 
 While paired, an idle timer of 15 minutes runs. Each signaling message (SDP, ICE, or data-channel relay) resets the timer. If no activity occurs for 15 minutes, the same listen-mode calculus from the disconnect reaper applies: when eligible, the session drops back to `listening` and keeps the port bound for trusted reconnects; otherwise it fully tears down to `idle`. QR expiry (the 10-minute `waiting` deadline) follows the same rule — it drops back to `listening` when eligible.
 
+### Mobile terminal text selection
+
+On touch devices (detected via `pointer: coarse` media query), the remote terminal enables xterm's `screenReaderMode` to create a DOM-based accessibility tree overlay. This overlay has `pointer-events: auto`, allowing native long-press → drag → copy text selection. Short taps (< 400 ms) still focus the hidden textarea to open the soft keyboard. Both `pointerup` and `pointercancel` are handled via a shared `AbortController` to avoid listener accumulation during long-press gestures.
+
 ## Configuration
 
 | Preference key          | Values                | Default   | Notes                                                                     |
