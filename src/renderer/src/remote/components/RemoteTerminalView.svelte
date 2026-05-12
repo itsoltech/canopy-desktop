@@ -292,13 +292,15 @@
       if (a11y) {
         a11y.addEventListener('pointerdown', () => {
           const start = Date.now()
-          const onUp = (): void => {
-            a11y.removeEventListener('pointerup', onUp)
-            if (Date.now() - start < 400) {
+          const ac = new AbortController()
+          const onEnd = (e: PointerEvent): void => {
+            ac.abort()
+            if (e.type === 'pointerup' && Date.now() - start < 400) {
               term?.textarea?.focus()
             }
           }
-          a11y.addEventListener('pointerup', onUp, { once: true })
+          a11y.addEventListener('pointerup', onEnd, { signal: ac.signal })
+          a11y.addEventListener('pointercancel', onEnd, { signal: ac.signal })
         })
       }
     }
