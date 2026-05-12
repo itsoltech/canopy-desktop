@@ -199,6 +199,7 @@ export default function TerminalView({
         convertEol: true,
         cursorBlink: true,
         allowProposedApi: true,
+        screenReaderMode: true,
         theme: initialPalette,
       })
 
@@ -206,6 +207,11 @@ export default function TerminalView({
       term.loadAddon(fit)
       term.open(host)
       termRef.current = term
+
+      const a11y = host.querySelector<HTMLElement>('.xterm-accessibility')
+      if (a11y) {
+        a11y.style.pointerEvents = 'auto'
+      }
 
       // Forward every keystroke to the native side. No local echo — the
       // remote PTY will echo back through the stream channel.
@@ -237,20 +243,19 @@ export default function TerminalView({
         void onInputRef.current(out)
       })
 
-      // Tap-vs-scroll gesture detector.
+      // Tap / scroll / long-press gesture detector.
       //
-      // - A brief, near-stationary touch focuses the terminal (and pops the
-      //   soft keyboard). Anything further than TAP_SLOP pixels or longer
-      //   than TAP_MAX_MS counts as a scroll instead and never focuses.
-      // - Vertical finger movement is forwarded to xterm's scrollback via
-      //   `term.scrollLines()`. We convert accumulated pixel deltas into
-      //   whole rows using the current host height / term.rows ratio, so
-      //   the scroll speed matches the visible row height regardless of
-      //   devicePixelRatio. Swiping DOWN (finger moves toward bottom)
-      //   reveals older content — same direction as pull-to-scroll on
-      //   native iOS lists.
+      // Three distinct gestures on the terminal surface:
+      //   tap   (< TAP_MAX_MS, < TAP_SLOP movement) → focus terminal, pop keyboard
+      //   scroll (movement > TAP_SLOP before long-press threshold) → xterm scrollback
+      //   long-press (stationary > LONG_PRESS_MS) → native text selection via a11y tree
+      //
+      // Vertical finger movement during scroll is forwarded to xterm's
+      // scrollback via `term.scrollLines()`. Swiping DOWN reveals older
+      // content — same direction as pull-to-scroll on native iOS lists.
       const TAP_SLOP = 8
       const TAP_MAX_MS = 500
+      const LONG_PRESS_MS = 400
 
       let touchActive = false
       let touchStartX = 0
@@ -259,6 +264,7 @@ export default function TerminalView({
       let touchLastY = 0
       let scrollAccumulator = 0
       let didScroll = false
+      let isLongPress = false
 
       const onTouchStart = (ev: TouchEvent): void => {
         if (ev.touches.length !== 1) {
@@ -273,21 +279,26 @@ export default function TerminalView({
         touchLastY = t.clientY
         scrollAccumulator = 0
         didScroll = false
+        isLongPress = false
       }
 
       const onTouchMove = (ev: TouchEvent): void => {
         if (!touchActive || ev.touches.length !== 1) return
+        if (isLongPress) return
+
         const t = ev.touches[0]
         const dx = t.clientX - touchStartX
         const dy = t.clientY - touchStartY
         if (!didScroll && Math.hypot(dx, dy) > TAP_SLOP) {
+          const elapsed = Date.now() - touchStartTime
+          if (elapsed >= LONG_PRESS_MS) {
+            isLongPress = true
+            return
+          }
           didScroll = true
         }
         if (!didScroll) return
 
-        // Block any default behaviour (rubber-band, text selection) now
-        // that we're claiming this gesture for scrolling. touchmove is
-        // registered with passive:false so preventDefault is honoured.
         ev.preventDefault()
 
         const moveDelta = t.clientY - touchLastY
@@ -299,8 +310,6 @@ export default function TerminalView({
 
         const lines = Math.trunc(scrollAccumulator / pixelsPerRow)
         if (lines !== 0) {
-          // Finger down (positive dy) → scroll UP in the buffer (older
-          // content). xterm's scrollLines uses the opposite sign.
           term.scrollLines(-lines)
           scrollAccumulator -= lines * pixelsPerRow
         }
@@ -309,7 +318,7 @@ export default function TerminalView({
       const onTouchEnd = (): void => {
         if (!touchActive) return
         const elapsed = Date.now() - touchStartTime
-        const wasTap = !didScroll && elapsed <= TAP_MAX_MS
+        const wasTap = !didScroll && !isLongPress && elapsed <= TAP_MAX_MS
         touchActive = false
         if (wasTap) {
           term.focus()
@@ -319,6 +328,7 @@ export default function TerminalView({
       const onTouchCancel = (): void => {
         touchActive = false
         didScroll = false
+        isLongPress = false
         scrollAccumulator = 0
       }
 

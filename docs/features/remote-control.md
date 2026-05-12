@@ -90,7 +90,7 @@ While paired, an idle timer of 15 minutes runs. Each signaling message (SDP, ICE
 
 ### Mobile terminal text selection
 
-On touch devices (detected via `pointer: coarse` media query), the remote terminal enables xterm's `screenReaderMode` to create a DOM-based accessibility tree overlay. This overlay has `pointer-events: auto`, allowing native long-press → drag → copy text selection. Short taps (< 400 ms) still focus the hidden textarea to open the soft keyboard. Both `pointerup` and `pointercancel` are handled via a shared `AbortController` to avoid listener accumulation during long-press gestures.
+The native mobile app (`mobile/src/components/terminal/terminal-view.tsx`) enables xterm's `screenReaderMode`, which creates a DOM-based accessibility tree with selectable text overlaying the canvas. The overlay has `pointer-events: auto` so touch events reach it. The gesture detector distinguishes three interactions: short tap (< 500 ms) focuses the terminal and opens the soft keyboard, swipe scrolls the terminal buffer, and long-press (> 400 ms stationary) yields to the browser's native text selection flow.
 
 ## Configuration
 
