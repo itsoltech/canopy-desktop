@@ -98,6 +98,9 @@ export class DataChannelRpc {
         this.pending.delete(id)
         reject(new Error(`RPC_TIMEOUT: ${method}`))
       }, this.timeoutMs)
+      // `resolve` accepts `R`; widening to `unknown` is safe because the
+      // single resolver site below (`handleResponse`) returns the peer's
+      // result frame and the caller's generic `R` is opaque to us.
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer })
       const ok = this.sendFrame({ kind: 'request', id, method, params })
       if (!ok) {
@@ -173,6 +176,8 @@ export class DataChannelRpc {
     }
     let parsed: RpcMessage
     try {
+      // Cast is narrowed below by the exhaustive `match` on `parsed.kind`;
+      // unknown shapes fall into `.otherwise()` and are logged + dropped.
       parsed = JSON.parse(text) as RpcMessage
     } catch {
       console.warn(`[${this.label}] bad JSON frame`)
