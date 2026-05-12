@@ -1,3 +1,9 @@
+## [0.13.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.5...v0.13.0-next.6) (2026-05-12)
+
+### Bug Fixes
+
+* **remote:** enable text selection on mobile terminals ([#212](https://github.com/itsoltech/canopy-desktop/issues/212)) ([22bf184](https://github.com/itsoltech/canopy-desktop/commit/22bf184bc5c8351a2aaa7e2d33b8f9907fbe6c2c))
+
 ## [0.13.0-next.5](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.4...v0.13.0-next.5) (2026-05-09)
 
 ### Bug Fixes
