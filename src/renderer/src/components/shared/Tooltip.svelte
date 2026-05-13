@@ -35,6 +35,7 @@
     portalEl = document.createElement('div')
     portalEl.className = tooltipClasses
     portalEl.style.visibility = 'hidden'
+    portalEl.setAttribute('role', 'tooltip')
     portalEl.textContent = text
     document.body.appendChild(portalEl)
 

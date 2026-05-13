@@ -178,7 +178,14 @@ export class SignalingServer {
   ): Promise<{ server: http.Server; wss: WebSocketServer; port: number }> {
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => this.handleHttpRequest(req, res))
-      const wss = new WebSocketServer({ server, path: '/signaling' })
+      // maxPayload enforces the per-frame size limit inside `ws` BEFORE our
+      // handler runs. Without it the default 100 MB cap lets a LAN peer
+      // allocate huge frames before we reject them at line 335.
+      const wss = new WebSocketServer({
+        server,
+        path: '/signaling',
+        maxPayload: MAX_MESSAGE_BYTES,
+      })
       wss.on('connection', (ws) => this.handleWsConnection(ws))
 
       const cleanup = (): void => {
