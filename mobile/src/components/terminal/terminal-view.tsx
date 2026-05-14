@@ -265,6 +265,7 @@ export default function TerminalView({
       let scrollAccumulator = 0
       let didScroll = false
       let isLongPress = false
+      let longPressTimer: ReturnType<typeof setTimeout> | null = null
 
       const onTouchStart = (ev: TouchEvent): void => {
         if (ev.touches.length !== 1) {
@@ -280,20 +281,38 @@ export default function TerminalView({
         scrollAccumulator = 0
         didScroll = false
         isLongPress = false
+
+        if (longPressTimer) clearTimeout(longPressTimer)
+        longPressTimer = setTimeout(() => {
+          longPressTimer = null
+          if (!didScroll) {
+            isLongPress = true
+            term.textarea?.blur()
+          }
+        }, LONG_PRESS_MS)
       }
 
       const onTouchMove = (ev: TouchEvent): void => {
         if (!touchActive || ev.touches.length !== 1) return
         if (isLongPress) return
 
+        const sel = document.getSelection()
+        if (sel && !sel.isCollapsed) {
+          isLongPress = true
+          if (longPressTimer) {
+            clearTimeout(longPressTimer)
+            longPressTimer = null
+          }
+          return
+        }
+
         const t = ev.touches[0]
         const dx = t.clientX - touchStartX
         const dy = t.clientY - touchStartY
         if (!didScroll && Math.hypot(dx, dy) > TAP_SLOP) {
-          const elapsed = Date.now() - touchStartTime
-          if (elapsed >= LONG_PRESS_MS) {
-            isLongPress = true
-            return
+          if (longPressTimer) {
+            clearTimeout(longPressTimer)
+            longPressTimer = null
           }
           didScroll = true
         }
@@ -316,6 +335,10 @@ export default function TerminalView({
       }
 
       const onTouchEnd = (): void => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer)
+          longPressTimer = null
+        }
         if (!touchActive) return
         const elapsed = Date.now() - touchStartTime
         const wasTap = !didScroll && !isLongPress && elapsed <= TAP_MAX_MS
@@ -326,6 +349,10 @@ export default function TerminalView({
       }
 
       const onTouchCancel = (): void => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer)
+          longPressTimer = null
+        }
         touchActive = false
         didScroll = false
         isLongPress = false
@@ -425,6 +452,7 @@ export default function TerminalView({
         host.removeEventListener('touchmove', onTouchMove)
         host.removeEventListener('touchend', onTouchEnd)
         host.removeEventListener('touchcancel', onTouchCancel)
+        if (longPressTimer) clearTimeout(longPressTimer)
         resizeObserver?.disconnect()
         if (fitDebounce !== null) {
           clearTimeout(fitDebounce)
