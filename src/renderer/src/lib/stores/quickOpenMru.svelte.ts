@@ -13,3 +13,7 @@ export function recordFileOpen(worktreePath: string, relPath: string): void {
 export function getMru(worktreePath: string): string[] {
   return mruByWorktree[worktreePath] ?? []
 }
+
+export function clearMru(worktreePath: string): void {
+  delete mruByWorktree[worktreePath]
+}

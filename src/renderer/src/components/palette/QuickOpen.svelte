@@ -30,37 +30,33 @@
     fromMru: boolean
   }
 
-  let matchedResults: Result[] = $state([])
-
   onMount(() => {
     inputEl?.focus()
     void forceReload(worktreePath)
   })
 
-  $effect(() => {
-    void query
-    void files
-    selectedIndex = 0
-    if (query.length === 0 || files.length === 0) {
-      matchedResults = []
-      return
-    }
+  const matchedResults: Result[] = $derived.by(() => {
+    if (query.length === 0 || files.length === 0) return []
     const mru = getMru(worktreePath)
     const mruBoost: Record<string, number> = {}
     mru.forEach((p, idx) => (mruBoost[p] = (mru.length - idx) * 0.5))
     const matches = fuzzysort.go(query, files, { limit: MAX_RESULTS, threshold: -10000 })
-    const scored = matches.map((m) => {
-      const rank = mruBoost[m.target] ?? 0
-      return {
-        target: m.target,
-        path: m.target,
-        score: m.score + rank,
-        indexes: [...m.indexes],
-        fromMru: rank > 0,
-      }
-    })
+    const scored = matches.map((m) => ({
+      target: m.target,
+      path: m.target,
+      score: m.score + (mruBoost[m.target] ?? 0),
+      indexes: [...m.indexes],
+      fromMru: (mruBoost[m.target] ?? 0) > 0,
+    }))
     scored.sort((a, b) => b.score - a.score)
-    matchedResults = scored
+    return scored
+  })
+
+  // Reset selection when the query changes — keep this as a narrow effect
+  // since `selectedIndex` is mutable user state, not a pure derivation.
+  $effect(() => {
+    void query
+    selectedIndex = 0
   })
 
   const emptyResults: Result[] = $derived.by(() => {
