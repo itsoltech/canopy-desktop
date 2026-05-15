@@ -410,8 +410,9 @@
               onmouseenter={() => (selectedIndex = i)}
             >
               <span class="flex-shrink-0 font-semibold text-accent-text min-w-20">{task.key}</span>
-              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                >{task.summary}</span
+              <span
+                class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                title={task.summary}>{task.summary}</span
               >
               <span class="flex-shrink-0 px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
                 >{task.status}</span
