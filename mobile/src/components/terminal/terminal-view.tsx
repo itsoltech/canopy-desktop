@@ -361,10 +361,125 @@ export default function TerminalView({
         scrollAccumulator = 0
       }
 
+      // Selection-edge auto-scroll: when the user drags a selection
+      // handle to the top/bottom edge of the terminal, scroll the xterm
+      // buffer and programmatically restore the DOM selection on the
+      // refreshed accessibility tree nodes via setBaseAndExtent().
+      const EDGE_ZONE = 30
+      const AUTO_SCROLL_MS = 150
+      let autoScrollInterval: ReturnType<typeof setInterval> | null = null
+      let isAutoScrolling = false
+
+      const stopAutoScroll = (): void => {
+        if (autoScrollInterval) {
+          clearInterval(autoScrollInterval)
+          autoScrollInterval = null
+        }
+      }
+
+      const findRowIndex = (node: Node | null, tree: Element): number => {
+        if (!node) return -1
+        const rows = tree.children
+        for (let i = 0; i < rows.length; i++) {
+          if (rows[i] === node || rows[i].contains(node)) return i
+        }
+        return -1
+      }
+
+      const doAutoScrollStep = (direction: number): void => {
+        const sel = document.getSelection()
+        if (!sel || sel.isCollapsed || !sel.rangeCount) {
+          stopAutoScroll()
+          return
+        }
+        const a11yTree = host.querySelector('.xterm-accessibility-tree')
+        if (!a11yTree) {
+          stopAutoScroll()
+          return
+        }
+
+        const anchorRowIdx = findRowIndex(sel.anchorNode, a11yTree)
+        if (anchorRowIdx === -1) {
+          stopAutoScroll()
+          return
+        }
+
+        const anchorBufferRow = term.buffer.active.viewportY + anchorRowIdx
+        const anchorOffset = sel.anchorOffset
+
+        isAutoScrolling = true
+        term.scrollLines(direction)
+
+        setTimeout(() => {
+          const newAnchorRow = anchorBufferRow - term.buffer.active.viewportY
+          const rows = a11yTree.children
+          if (newAnchorRow < 0 || newAnchorRow >= rows.length) {
+            isAutoScrolling = false
+            stopAutoScroll()
+            return
+          }
+          const anchorEl = rows[newAnchorRow]
+          const edgeIdx = direction > 0 ? rows.length - 1 : 0
+          const edgeEl = rows[edgeIdx]
+          if (!anchorEl?.firstChild || !edgeEl?.firstChild) {
+            isAutoScrolling = false
+            return
+          }
+          const newSel = document.getSelection()
+          if (!newSel) {
+            isAutoScrolling = false
+            return
+          }
+          try {
+            const edgeLen = edgeEl.textContent?.length ?? 0
+            if (direction > 0) {
+              newSel.setBaseAndExtent(anchorEl.firstChild, anchorOffset, edgeEl.firstChild, edgeLen)
+            } else {
+              newSel.setBaseAndExtent(edgeEl.firstChild, 0, anchorEl.firstChild, anchorOffset)
+            }
+          } catch {
+            /* nodes may be detached */
+          }
+          isAutoScrolling = false
+        }, 50)
+      }
+
+      const onSelectionChange = (): void => {
+        if (isAutoScrolling) return
+        const sel = document.getSelection()
+        if (!sel || sel.isCollapsed) {
+          stopAutoScroll()
+          return
+        }
+        try {
+          const range = sel.getRangeAt(0)
+          const rects = range.getClientRects()
+          if (rects.length === 0) {
+            stopAutoScroll()
+            return
+          }
+          const hostRect = host.getBoundingClientRect()
+          const last = rects[rects.length - 1]
+          const first = rects[0]
+          if (last.bottom > hostRect.bottom - EDGE_ZONE) {
+            if (!autoScrollInterval)
+              autoScrollInterval = setInterval(() => doAutoScrollStep(1), AUTO_SCROLL_MS)
+          } else if (first.top < hostRect.top + EDGE_ZONE) {
+            if (!autoScrollInterval)
+              autoScrollInterval = setInterval(() => doAutoScrollStep(-1), AUTO_SCROLL_MS)
+          } else {
+            stopAutoScroll()
+          }
+        } catch {
+          stopAutoScroll()
+        }
+      }
+
       host.addEventListener('touchstart', onTouchStart, { passive: true })
       host.addEventListener('touchmove', onTouchMove, { passive: false })
       host.addEventListener('touchend', onTouchEnd, { passive: true })
       host.addEventListener('touchcancel', onTouchCancel, { passive: true })
+      document.addEventListener('selectionchange', onSelectionChange)
 
       const tryFit = (): void => {
         try {
@@ -454,7 +569,9 @@ export default function TerminalView({
         host.removeEventListener('touchmove', onTouchMove)
         host.removeEventListener('touchend', onTouchEnd)
         host.removeEventListener('touchcancel', onTouchCancel)
+        document.removeEventListener('selectionchange', onSelectionChange)
         if (longPressTimer) clearTimeout(longPressTimer)
+        stopAutoScroll()
         resizeObserver?.disconnect()
         if (fitDebounce !== null) {
           clearTimeout(fitDebounce)
