@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { GitInfo } from '../main/git/GitRepository'
+import type { GitRefreshFlags } from '../main/git/GitWatcher'
+import type { ToolDefinition } from '../main/db/types'
+import type { CanopySkill } from '../main/skills/types'
 import type { RemoteSessionStatus } from '../main/remote/types'
 import type { AgentProfileMasked, ProfileInput } from '../main/profiles/types'
 import type { AgentType } from '../main/agents/types'
@@ -535,8 +538,13 @@ const api = {
     }
   },
 
-  onGitChanged: (callback: (info: unknown) => void) => {
-    const handler = (_event: IpcRendererEvent, info: unknown): void => callback(info)
+  onGitChanged: (
+    callback: (info: GitInfo & { repoRoot: string; changes: GitRefreshFlags }) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      info: GitInfo & { repoRoot: string; changes: GitRefreshFlags },
+    ): void => callback(info)
     ipcRenderer.on('git:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('git:changed', handler)
@@ -560,15 +568,15 @@ const api = {
       ipcRenderer.removeListener('files:changed', handler)
     }
   },
-  onToolsChanged: (callback: (tools: unknown[]) => void) => {
-    const handler = (_event: IpcRendererEvent, tools: unknown[]): void => callback(tools)
+  onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => {
+    const handler = (_event: IpcRendererEvent, tools: ToolDefinition[]): void => callback(tools)
     ipcRenderer.on('tools:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('tools:changed', handler)
     }
   },
-  onSkillsChanged: (callback: (skills: unknown[]) => void) => {
-    const handler = (_event: IpcRendererEvent, skills: unknown[]): void => callback(skills)
+  onSkillsChanged: (callback: (skills: CanopySkill[]) => void) => {
+    const handler = (_event: IpcRendererEvent, skills: CanopySkill[]): void => callback(skills)
     ipcRenderer.on('skills:changed', handler)
     return (): void => {
       ipcRenderer.removeListener('skills:changed', handler)
