@@ -109,10 +109,12 @@
   {/snippet}
   <ul class="list-none p-0 m-0">
     {#each workspaceState.worktrees as wt (wt.path)}
-      <li class="flex items-center">
+      <li
+        class="flex items-center hover:bg-hover"
+        class:bg-active={wt.path === workspaceState.selectedWorktreePath}
+      >
         <button
-          class="flex items-center gap-2 flex-1 min-w-0 h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left hover:bg-hover"
-          class:bg-active={wt.path === workspaceState.selectedWorktreePath}
+          class="flex items-center gap-2 flex-1 min-w-0 h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left"
           onclick={() => selectWorktree(wt.path)}
         >
           <span class="font-mono text-xs text-text-secondary w-2.5 flex-shrink-0"
@@ -132,21 +134,21 @@
               title="Merged">merged</span
             >
           {/if}
-          {#if prMap[wt.branch]}
-            {@const pr = prMap[wt.branch]}
-            {@const badge = formatPrBadge(pr)}
-            <button
-              class={badge.className}
-              title={`${pr.title} — click to open`}
-              onclick={(e) => {
-                e.stopPropagation()
-                window.api.openExternal(pr.url)
-              }}
-            >
-              {badge.label}
-            </button>
-          {/if}
         </button>
+        {#if prMap[wt.branch]}
+          {@const pr = prMap[wt.branch]}
+          {@const badge = formatPrBadge(pr)}
+          <button
+            class="{badge.className} flex-shrink-0 mr-1"
+            title={`${pr.title} — click to open`}
+            onclick={(e) => {
+              e.stopPropagation()
+              window.api.openExternal(pr.url)
+            }}
+          >
+            {badge.label}
+          </button>
+        {/if}
         {#if !wt.isMain && mergedBranches.has(wt.branch)}
           <button
             class="inline-flex items-center justify-center size-6 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-md mr-1 transition-colors duration-fast hover:text-danger-text hover:bg-danger-bg"
