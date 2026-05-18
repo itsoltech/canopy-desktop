@@ -452,13 +452,13 @@
             {@const wtBadge = worktreeBadges[wt.path] ?? 'none'}
             {@const isRemoving = removingPaths.has(wt.path)}
             <li
-              class="flex items-center"
+              class="flex items-center mx-1 rounded-sm hover:bg-hover"
+              class:bg-active={wt.path === workspaceState.selectedWorktreePath}
               class:opacity-45={isRemoving}
               class:pointer-events-none={isRemoving}
             >
               <button
-                class="flex items-center gap-1.5 flex-1 min-w-0 h-7 pr-2 pl-6 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left rounded-sm mx-1 hover:bg-hover hover:text-text"
-                class:bg-active={wt.path === workspaceState.selectedWorktreePath}
+                class="flex items-center gap-1.5 flex-1 min-w-0 h-7 pr-2 pl-6 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left hover:text-text"
                 class:text-text={wt.path === workspaceState.selectedWorktreePath}
                 onclick={() => selectWorktree(wt.path)}
                 oncontextmenu={(e) => handleWorktreeContextMenu(e, project, wt)}
@@ -511,36 +511,35 @@
                     title="Merged">merged</span
                   >
                 {/if}
-                {#if prMap[wt.branch]}
-                  {@const pr = prMap[wt.branch]}
-                  {@const badge = formatPrBadge(pr)}
-                  <button
-                    class={badge.className}
-                    title={`${pr.title} — click to open`}
-                    onclick={(e) => {
-                      e.stopPropagation()
-                      window.api.openExternal(pr.url)
-                    }}
-                  >
-                    {badge.label}
-                  </button>
-                {/if}
-                {#if wtActive}
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <span
-                    role="button"
-                    tabindex="-1"
-                    class="inline-flex items-center justify-center size-5 p-0 border-0 bg-transparent text-danger-text cursor-pointer flex-shrink-0 rounded-sm transition-colors duration-fast hover:bg-danger-bg"
-                    title="Stop all terminals in this worktree"
-                    onclick={(e) => {
-                      e.stopPropagation()
-                      stopWorktree(e, wt.path)
-                    }}
-                  >
-                    <Square size={10} fill="currentColor" />
-                  </span>
-                {/if}
               </button>
+              {#if prMap[wt.branch]}
+                {@const pr = prMap[wt.branch]}
+                {@const badge = formatPrBadge(pr)}
+                <button
+                  class="{badge.className} flex-shrink-0 mr-1"
+                  title={`${pr.title} — click to open`}
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    window.api.openExternal(pr.url)
+                  }}
+                >
+                  {badge.label}
+                </button>
+              {/if}
+              {#if wtActive}
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center size-5 p-0 border-0 bg-transparent text-danger-text cursor-pointer flex-shrink-0 rounded-sm mr-2 transition-colors duration-fast hover:bg-danger-bg"
+                  title="Stop all terminals in this worktree"
+                  aria-label="Stop all terminals in this worktree"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    stopWorktree(e, wt.path)
+                  }}
+                >
+                  <Square size={10} fill="currentColor" />
+                </button>
+              {/if}
               {#if !wtActive && !wt.isMain && merged.has(wt.branch) && !isRemoving}
                 <button
                   class="inline-flex items-center justify-center size-5 p-0 border-0 bg-transparent text-text-faint cursor-pointer flex-shrink-0 rounded-sm mr-3 transition-colors duration-fast hover:text-danger-text hover:bg-danger-bg"

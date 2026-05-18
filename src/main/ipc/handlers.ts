@@ -575,6 +575,14 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('db:prefs:set', (_event, payload: { key: string; value: string }) => {
+    // Renderer must not be able to overwrite encrypted pref keys (API keys,
+    // tracker tokens) — `preferencesStore.set` auto-encrypts via safeStorage,
+    // so a write here would silently replace the user's stored credential
+    // with an attacker-controlled value, redirecting agent calls. Secret
+    // writes go through `profile:save` / `keychain:setCredentials`.
+    if (preferencesStore.isEncrypted(payload.key)) {
+      throw new Error(`Refusing to set encrypted preference key "${payload.key}" via db:prefs:set`)
+    }
     preferencesStore.set(payload.key, payload.value)
     if (payload.key === 'remote.enabled' && payload.value === 'false') {
       void remoteSessionService.stop()
@@ -1104,14 +1112,16 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:worktreeAdd',
     async (
-      _event,
+      event,
       payload: { repoRoot: string; path: string; branch: string; baseBranch: string },
     ) => {
-      const resolvedPath = payload.path.startsWith('~/')
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
+      const resolvedPath = await validateCreationPath(event.sender.id, expanded)
       const result = await GitRepository.worktreeAdd(
-        payload.repoRoot,
+        resolvedRepo,
         resolvedPath,
         payload.branch,
         payload.baseBranch,
@@ -1123,7 +1133,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:worktreeCheckout',
     async (
-      _event,
+      event,
       payload: {
         repoRoot: string
         path: string
@@ -1131,11 +1141,13 @@ export function registerIpcHandlers(
         createLocalTracking: boolean
       },
     ) => {
-      const resolvedPath = payload.path.startsWith('~/')
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
+      const resolvedPath = await validateCreationPath(event.sender.id, expanded)
       const result = await GitRepository.worktreeAddCheckout(
-        payload.repoRoot,
+        resolvedRepo,
         resolvedPath,
         payload.branch,
         payload.createLocalTracking,
@@ -1146,12 +1158,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'git:worktreeRemove',
-    async (_event, payload: { repoRoot: string; path: string; force: boolean }) => {
-      const result = await GitRepository.worktreeRemove(
-        payload.repoRoot,
-        payload.path,
-        payload.force,
-      )
+    async (event, payload: { repoRoot: string; path: string; force: boolean }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedTarget = await validatePathAccess(event.sender.id, payload.path)
+      const result = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, payload.force)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
@@ -1217,7 +1227,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:createPR',
     async (
-      _event,
+      event,
       payload: {
         repoRoot: string
         title: string
@@ -1226,12 +1236,16 @@ export function registerIpcHandlers(
         draft: boolean
       },
     ) => {
-      const pushResult = await GitRepository.push(payload.repoRoot)
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      if (typeof payload.baseRefName !== 'string' || payload.baseRefName.startsWith('-')) {
+        throw new Error('Invalid baseRefName')
+      }
+      const pushResult = await GitRepository.push(resolvedRepo)
       if (pushResult.isErr()) {
         throw new Error(`Failed to push branch: ${gitErrorMessage(pushResult.error)}`)
       }
 
-      const branch = await GitRepository.getBranch(payload.repoRoot).unwrapOr(null)
+      const branch = await GitRepository.getBranch(resolvedRepo).unwrapOr(null)
       if (!branch) throw new Error('Could not determine current branch')
 
       const args = [
@@ -1249,7 +1263,7 @@ export function registerIpcHandlers(
       if (payload.draft) args.push('--draft')
 
       try {
-        const { stdout } = await execFileAsync('gh', args, { cwd: payload.repoRoot })
+        const { stdout } = await execFileAsync('gh', args, { cwd: resolvedRepo })
         return { url: stdout.trim() }
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -1262,12 +1276,18 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('git:getDefaultBranch', async (_event, payload: { repoRoot: string }) => {
+  ipcMain.handle('git:getDefaultBranch', async (event, payload: { repoRoot: string }) => {
+    let resolvedRepo: string
+    try {
+      resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    } catch {
+      return 'main'
+    }
     try {
       const { stdout } = await execFileAsync(
         'gh',
         ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-        { cwd: payload.repoRoot },
+        { cwd: resolvedRepo },
       )
       return stdout.trim() || 'main'
     } catch (err) {
@@ -1448,7 +1468,15 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('browser:saveCaptureFile', (_event, payload: { buffer: Buffer }) => {
-    return browserManager.saveCaptureFile(Buffer.from(payload.buffer))
+    // Cap renderer-supplied buffers so a hostile webview-driven save can't
+    // exhaust /tmp. 25 MB comfortably covers a full-page PNG of any sane
+    // viewport while bounding worst-case disk pressure.
+    const MAX_CAPTURE_BYTES = 25 * 1024 * 1024
+    const buf = Buffer.from(payload.buffer)
+    if (buf.length > MAX_CAPTURE_BYTES) {
+      throw new Error(`Capture buffer exceeds ${MAX_CAPTURE_BYTES} bytes`)
+    }
+    return browserManager.saveCaptureFile(buf)
   })
 
   // --- Credentials ---
@@ -2681,12 +2709,13 @@ export function registerIpcHandlers(
 
   // ── GitHub PR features ──────────────────────────────────────────────
 
-  ipcMain.handle('github:fetchBranchPRs', async (_event, payload: { repoRoot: string }) => {
-    const found = await gitHubService.findGitHubConnection(payload.repoRoot)
+  ipcMain.handle('github:fetchBranchPRs', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const found = await gitHubService.findGitHubConnection(resolvedRepo)
     // No connection configured — silent empty return (expected for non-GitHub repos)
     if (found.isErr() || !found.value) return {}
     const { token, repo } = found.value
-    const worktrees = await GitRepository.listWorktrees(payload.repoRoot).unwrapOr([])
+    const worktrees = await GitRepository.listWorktrees(resolvedRepo).unwrapOr([])
     const branches = worktrees.map((w) => w.branch).filter((b) => b && b !== '(detached)')
     if (branches.length === 0) return {}
     const result = await gitHubService.fetchOpenPRsForBranches(
@@ -2699,8 +2728,9 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, gitHubErrorMessage)
   })
 
-  ipcMain.handle('github:getRepoInfo', async (_event, payload: { repoRoot: string }) => {
-    const found = await gitHubService.findGitHubConnection(payload.repoRoot)
+  ipcMain.handle('github:getRepoInfo', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const found = await gitHubService.findGitHubConnection(resolvedRepo)
     if (found.isErr() || !found.value) return null
     const { token, repo } = found.value
     const result = await gitHubService.getRepoInfo(repo.apiUrl, token, repo.owner, repo.repo)
@@ -2710,7 +2740,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'github:createPR',
     async (
-      _event,
+      event,
       payload: {
         repoRoot: string
         title: string
@@ -2719,13 +2749,17 @@ export function registerIpcHandlers(
         draft: boolean
       },
     ) => {
-      const found = await gitHubService.findGitHubConnection(payload.repoRoot)
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      if (typeof payload.baseRefName !== 'string' || payload.baseRefName.startsWith('-')) {
+        throw new Error('Invalid baseRefName')
+      }
+      const found = await gitHubService.findGitHubConnection(resolvedRepo)
       if (found.isErr() || !found.value) {
         throw new Error('No GitHub connection found for this repository')
       }
       const { token, repo } = found.value
 
-      const pushResult = await GitRepository.push(payload.repoRoot)
+      const pushResult = await GitRepository.push(resolvedRepo)
       if (pushResult.isErr()) {
         throw new Error(`Failed to push branch: ${gitErrorMessage(pushResult.error)}`)
       }
@@ -2733,7 +2767,7 @@ export function registerIpcHandlers(
       const repoInfo = await gitHubService.getRepoInfo(repo.apiUrl, token, repo.owner, repo.repo)
       const repoInfoValue = unwrapOrThrow(repoInfo, gitHubErrorMessage)
 
-      const branch = await GitRepository.getBranch(payload.repoRoot).unwrapOr(null)
+      const branch = await GitRepository.getBranch(resolvedRepo).unwrapOr(null)
       if (!branch) throw new Error('Could not determine current branch')
 
       const result = await gitHubService.createPR(repo.apiUrl, token, {
@@ -2748,8 +2782,9 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('github:getRepoIdentifier', async (_event, payload: { repoRoot: string }) => {
-    const result = await gitHubService.getRepoIdentifier(payload.repoRoot)
+  ipcMain.handle('github:getRepoIdentifier', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await gitHubService.getRepoIdentifier(resolvedRepo)
     return result.unwrapOr(null)
   })
 
@@ -3148,7 +3183,24 @@ export function registerIpcHandlers(
     // the window's workspace paths (project-scoped skills). The regex check
     // above alone is too permissive — a path like `/tmp/evil/.claude/skills/x`
     // also contains the segment and would otherwise pass.
-    const resolvedTarget = await fs.promises.realpath(filePath).catch(() => filePath)
+    // Refuse if realpath fails for the target: a dangling-symlink fallback to
+    // the unresolved path would let a non-existent target slip past the
+    // home/workspace check and reach unlink (which would then fail anyway,
+    // but the precondition has to hold before we touch the filesystem).
+    let resolvedTarget: string
+    try {
+      resolvedTarget = await fs.promises.realpath(filePath)
+    } catch {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill file does not exist or cannot be resolved',
+        } as SkillError),
+        skillErrorMessage,
+      )
+      return { success: false }
+    }
     const homeReal = await fs.promises.realpath(os.homedir()).catch(() => os.homedir())
     const withinHome = resolvedTarget === homeReal || resolvedTarget.startsWith(homeReal + path.sep)
     let withinWorkspace = false
@@ -3172,7 +3224,7 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
     }
-    await fs.promises.unlink(filePath)
+    await fs.promises.unlink(resolvedTarget)
     return { success: true }
   })
 }
