@@ -30,21 +30,13 @@
     fromMru: boolean
   }
 
-  let matchedResults: Result[] = $state([])
-
   onMount(() => {
     inputEl?.focus()
     void forceReload(worktreePath)
   })
 
-  $effect(() => {
-    void query
-    void files
-    selectedIndex = 0
-    if (query.length === 0 || files.length === 0) {
-      matchedResults = []
-      return
-    }
+  const matchedResults: Result[] = $derived.by(() => {
+    if (query.length === 0 || files.length === 0) return []
     const mru = getMru(worktreePath)
     const mruBoost: Record<string, number> = {}
     mru.forEach((p, idx) => (mruBoost[p] = (mru.length - idx) * 0.5))
@@ -60,7 +52,14 @@
       }
     })
     scored.sort((a, b) => b.score - a.score)
-    matchedResults = scored
+    return scored
+  })
+
+  // Reset the highlighted row whenever the query or file set changes.
+  $effect(() => {
+    void query
+    void files
+    selectedIndex = 0
   })
 
   const emptyResults: Result[] = $derived.by(() => {

@@ -109,13 +109,14 @@ export class AgentHookRouter {
       return
     }
 
-    // Validate per-session auth token
+    // Validate per-session auth token. Compare buffer byte-lengths (not string
+    // char-lengths) before timingSafeEqual: a malicious client controls this
+    // header and a multibyte value with a matching char-length would otherwise
+    // make timingSafeEqual throw a RangeError on unequal buffers.
     const provided = req.headers['x-canopy-auth']
-    if (
-      typeof provided !== 'string' ||
-      provided.length !== session.authToken.length ||
-      !timingSafeEqual(Buffer.from(provided), Buffer.from(session.authToken))
-    ) {
+    const providedBuf = typeof provided === 'string' ? Buffer.from(provided) : Buffer.alloc(0)
+    const expectedBuf = Buffer.from(session.authToken)
+    if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
       res.writeHead(403)
       res.end()
       return

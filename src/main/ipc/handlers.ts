@@ -3172,7 +3172,10 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
     }
-    await fs.promises.unlink(filePath)
+    // Delete the realpath that was containment-checked above, not the
+    // pre-realpath path, so a symlink swap between the check and the unlink
+    // cannot redirect the deletion outside home/workspace (TOCTOU).
+    await fs.promises.unlink(resolvedTarget)
     return { success: true }
   })
 }

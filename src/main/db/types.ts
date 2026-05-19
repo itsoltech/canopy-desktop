@@ -150,6 +150,18 @@ export interface ClosedTabEntry {
 
 // --- Conversion helpers ---
 
+// A corrupt or hand-edited SQLite column would otherwise throw synchronously
+// from JSON.parse and crash whatever load path (workspace/tool/skill) invoked
+// the converter. JSON.parse on stored input is an allowed try/catch boundary
+// (CLAUDE.md); fall back to a safe default instead of propagating the throw.
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
+}
+
 export function workspaceFromRow(row: WorkspaceRow): Workspace {
   return {
     id: row.id,
@@ -169,7 +181,7 @@ export function toolFromRow(row: ToolDefinitionRow): ToolDefinition {
     id: row.id,
     name: row.name,
     command: row.command,
-    args: JSON.parse(row.args_json) as string[],
+    args: safeJsonParse<string[]>(row.args_json, []),
     icon: row.icon,
     category: row.category as ToolCategory,
     isCustom: row.is_custom === 1,
@@ -183,14 +195,14 @@ export function skillFromRow(row: SkillDefinitionRow): SkillDefinition {
     description: row.description,
     version: row.version,
     prompt: row.prompt,
-    agents: JSON.parse(row.agents_json) as SkillAgentTarget[],
-    metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+    agents: safeJsonParse<SkillAgentTarget[]>(row.agents_json, []),
+    metadata: safeJsonParse<Record<string, unknown>>(row.metadata_json, {}),
     sourceType: row.source_type,
     sourceUri: row.source_uri,
     installMethod: row.install_method,
     scope: row.scope,
     workspaceId: row.workspace_id,
-    enabledAgents: JSON.parse(row.enabled_agents_json) as SkillAgentTarget[],
+    enabledAgents: safeJsonParse<SkillAgentTarget[]>(row.enabled_agents_json, []),
     installedAt: row.installed_at,
   }
 }
