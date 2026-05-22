@@ -74,6 +74,7 @@
   {#snippet headerExtra()}
     <button
       class="inline-flex items-center justify-center size-5 -my-1 border-0 bg-transparent text-text-faint cursor-pointer rounded-sm transition-colors duration-fast hover:bg-hover hover:text-text"
+      aria-label="Add configuration"
       title="Add configuration"
       onclick={() => showRunConfigManager()}
     >

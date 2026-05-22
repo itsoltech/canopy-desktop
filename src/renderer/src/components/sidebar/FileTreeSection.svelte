@@ -101,11 +101,7 @@
 
   function folderHasChanges(relPath: string): boolean {
     if (!relPath) return fileTree.gitFileStatus.size > 0
-    const prefix = relPath + '/'
-    for (const key of fileTree.gitFileStatus.keys()) {
-      if (key.startsWith(prefix)) return true
-    }
-    return false
+    return fileTree.gitChangedDirs.has(relPath)
   }
 
   function isIgnored(status: string | null): boolean {

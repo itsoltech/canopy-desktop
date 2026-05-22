@@ -64,7 +64,23 @@ function createFileTreeStore() {
   let selectedFilePath: string | null = $state(null)
   let rootPath: string | null = $state(null)
   const gitFileStatus = new SvelteMap<string, string>()
+  // Rel paths of directories that contain at least one changed file. Kept in
+  // sync with gitFileStatus so FileTreeSection can check folder-has-changes
+  // in O(1) instead of scanning the whole status map per directory render.
+  const gitChangedDirs = new SvelteSet<string>()
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+  function recomputeChangedDirs(): void {
+    gitChangedDirs.clear()
+    for (const filePath of gitFileStatus.keys()) {
+      const segments = filePath.split('/')
+      let dir = ''
+      for (let i = 0; i < segments.length - 1; i++) {
+        dir = dir === '' ? segments[i] : `${dir}/${segments[i]}`
+        gitChangedDirs.add(dir)
+      }
+    }
+  }
 
   async function expandDir(dirPath: string): Promise<void> {
     try {
@@ -125,6 +141,7 @@ function createFileTreeStore() {
         gitFileStatus.set(fp, normalizedStatus)
         collectPaths(fp)
       }
+      recomputeChangedDirs()
 
       for (const prevPath of previousPaths) {
         if (!(prevPath in nextStatuses)) {
@@ -206,6 +223,7 @@ function createFileTreeStore() {
     expandedDirs = {}
     selectedFilePath = null
     gitFileStatus.clear()
+    gitChangedDirs.clear()
     rootPath = newRoot
   }
 
@@ -221,6 +239,9 @@ function createFileTreeStore() {
     },
     get gitFileStatus() {
       return gitFileStatus
+    },
+    get gitChangedDirs() {
+      return gitChangedDirs
     },
     expandDir,
     collapseDir,
