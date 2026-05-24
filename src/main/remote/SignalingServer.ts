@@ -81,10 +81,12 @@ export type PairResponse =
  *      pairing + WebRTC SDP/ICE messages to the orchestrator
  *
  * **Bind address.** Unlike `WsBridge` and `AgentHookServer` (both `127.0.0.1`),
- * this server binds on `0.0.0.0` so a phone on the same WiFi can reach it via
- * the host's LAN address. This is an *intentional* widening of the listening
- * surface — the server is only started while the user explicitly has a remote
- * session open, and only accepts WS peers that present a valid one-shot token.
+ * this server binds on `0.0.0.0` (default) so a phone on the same WiFi can
+ * reach it via the host's LAN address. This is an *intentional* widening of
+ * the listening surface — the server is only started while the user explicitly
+ * has a remote session open, and only accepts WS peers that present a valid
+ * one-shot token. Users may further narrow the bind to a single interface IP
+ * by selecting a network interface in Settings → Remote Control.
  *
  * Lazy lifecycle: nothing is bound until {@link start} is called, and
  * {@link stop} releases the port. Re-using a single instance across multiple
@@ -94,6 +96,7 @@ export class SignalingServer {
   private server: http.Server | null = null
   private wss: WebSocketServer | null = null
   private port = 0
+  private boundHost = '0.0.0.0'
   private bundleHost: RemoteClientHost | null = null
   private activePeer: WsWebSocket | null = null
   private handlers: SignalingServerHandlers | null = null
@@ -104,6 +107,10 @@ export class SignalingServer {
 
   get listeningPort(): number {
     return this.port
+  }
+
+  get listeningHost(): string {
+    return this.boundHost
   }
 
   start(opts: {
@@ -118,6 +125,13 @@ export class SignalingServer {
      * the peer origin (`http://ip:PORT`) stays the same.
      */
     preferredPort?: number
+    /**
+     * Host/IP to bind to. Defaults to `0.0.0.0` (all interfaces). When the
+     * user picks a specific network interface in Settings, the caller passes
+     * that interface's IPv4 address here so the server is only reachable on
+     * that one adapter — narrowing the LAN exposure surface.
+     */
+    bindHost?: string
   }): ResultAsync<{ port: number }, RemoteServerError> {
     if (this.server) {
       return errAsync({ _tag: 'AlreadyRunning' })
@@ -126,6 +140,7 @@ export class SignalingServer {
     this.bundleHost = new RemoteClientHost(opts.bundleRoot)
     this.handlers = opts.handlers
     const preferredPort = opts.preferredPort && opts.preferredPort > 0 ? opts.preferredPort : 0
+    const bindHost = opts.bindHost ?? '0.0.0.0'
 
     return fromExternalCall(
       (async () => {
@@ -137,7 +152,7 @@ export class SignalingServer {
         // shutdown. A fresh instance per attempt is the only thing we've
         // found to always work.
         try {
-          return await this.attemptListen(preferredPort)
+          return await this.attemptListen(preferredPort, bindHost)
         } catch (e) {
           const isAddrInUse =
             typeof e === 'object' &&
@@ -151,7 +166,7 @@ export class SignalingServer {
           // Give the kernel a tick to release any half-closed state, then
           // retry on an ephemeral port with a brand-new server instance.
           await new Promise((resolve) => setTimeout(resolve, 50))
-          return await this.attemptListen(0)
+          return await this.attemptListen(0, bindHost)
         }
       })(),
       (e): RemoteServerError => ({ _tag: 'PortBindFailed', message: errorMessage(e) }),
@@ -159,6 +174,7 @@ export class SignalingServer {
       this.server = server
       this.wss = wss
       this.port = port
+      this.boundHost = bindHost
       return { port }
     })
   }
@@ -175,6 +191,7 @@ export class SignalingServer {
    */
   private attemptListen(
     port: number,
+    bindHost: string,
   ): Promise<{ server: http.Server; wss: WebSocketServer; port: number }> {
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => this.handleHttpRequest(req, res))
@@ -211,11 +228,13 @@ export class SignalingServer {
       }
       server.once('error', onError)
       server.once('listening', onListening)
-      // INTENTIONAL: bind on 0.0.0.0 so LAN peers can reach this. Other
-      // local servers in this codebase (WsBridge, AgentHookServer) bind
-      // on 127.0.0.1; this one is different on purpose. Only listens
-      // while a remote session is active.
-      server.listen(port, '0.0.0.0')
+      // Bind host comes from the caller. Default is 0.0.0.0 so LAN peers
+      // on any interface can reach this; other local servers in this
+      // codebase (WsBridge, AgentHookServer) bind on 127.0.0.1 — this one
+      // is different on purpose. When the user picks a specific interface
+      // in Settings, the caller passes that interface's IPv4 so the bind
+      // is narrowed to one adapter.
+      server.listen(port, bindHost)
     })
   }
 

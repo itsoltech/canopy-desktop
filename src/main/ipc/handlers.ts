@@ -72,6 +72,7 @@ import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
+import { listAllInterfaces } from '../remote/discovery'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
 import type { SkillRegistry } from '../skills/SkillRegistry'
@@ -577,6 +578,12 @@ export function registerIpcHandlers(
   ipcMain.handle('db:prefs:set', (_event, payload: { key: string; value: string }) => {
     preferencesStore.set(payload.key, payload.value)
     if (payload.key === 'remote.enabled' && payload.value === 'false') {
+      void remoteSessionService.stop()
+    }
+    // Changing the bound interface requires rebinding the signaling server.
+    // Stop the current session; the next ensureListening() / start() picks
+    // up the new pref. Mirrors the enabled=false teardown above.
+    if (payload.key === 'remote.selectedInterface') {
       void remoteSessionService.stop()
     }
   })
@@ -2815,6 +2822,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle('remote:listTrustedDevices', () => {
     return remoteSessionService.listTrustedDevices()
+  })
+
+  ipcMain.handle('remote:listNetworkInterfaces', () => {
+    return listAllInterfaces()
   })
 
   ipcMain.handle('remote:removeTrustedDevice', (_event, payload: { deviceId: string }) => {
