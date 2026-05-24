@@ -847,6 +847,12 @@ interface RemoteTrustedDevice {
   publicKeyJwk: unknown
 }
 
+interface RemoteNetworkInterface {
+  name: string
+  address: string
+  virtual: boolean
+}
+
 interface RemoteAPI {
   start: () => Promise<{ pairingUrl: string }>
   ensureListening: () => Promise<void>
@@ -857,6 +863,7 @@ interface RemoteAPI {
   sendSignal: (msg: unknown) => Promise<void>
   listTrustedDevices: () => Promise<RemoteTrustedDevice[]>
   removeTrustedDevice: (deviceId: string) => Promise<void>
+  listNetworkInterfaces: () => Promise<RemoteNetworkInterface[]>
   onStatusChange: (callback: (status: RemoteSessionStatus) => void) => () => void
   onSignal: (callback: (msg: unknown) => void) => () => void
 }

@@ -41,9 +41,9 @@ Listen mode keeps the signaling server bound on `0.0.0.0` in the background for 
 
 1. Open the command palette and select "Remote Connection."
 2. Canopy calls `remote:start`, which triggers `RemoteSessionService.start()`. The session transitions to `starting`.
-3. The service detects a usable LAN IPv4 interface by enumerating non-virtual network adapters. On macOS, interfaces named `en0`/`en1` (WiFi) are preferred. Virtual adapters (docker, vmnet, tailscale, utun, awdl, bridge, etc.) are filtered out.
+3. The service detects a usable LAN IPv4 interface. When `remote.selectedInterface` is set, the named interface is used as-is (including normally-filtered virtual adapters like Tailscale — the user opted in explicitly); if that interface is no longer present, the service returns `NoNetworkInterface`. When the preference is empty, the service auto-detects by enumerating non-virtual adapters; on macOS, interfaces named `en0`/`en1` (WiFi) are preferred, and virtual adapters (docker, vmnet, tailscale, utun, awdl, bridge, etc.) are filtered out.
 4. A 32-byte random hex token is generated.
-5. The `SignalingServer` starts an HTTP server bound on `0.0.0.0` with a preferred port (persisted in `remote.lastPort` preference). If the preferred port is taken, it falls back to an ephemeral port. Reusing the same port keeps the peer-client origin stable so that the peer's localStorage (device ID, trust flag) survives Canopy restarts.
+5. The `SignalingServer` starts an HTTP server with a preferred port (persisted in `remote.lastPort` preference). The bind host depends on `remote.selectedInterface`: empty / auto → bound on `0.0.0.0` (all interfaces); set → bound only on the selected interface's IPv4 address. If the preferred port is taken, it falls back to an ephemeral port. Reusing the same port keeps the peer-client origin stable so that the peer's localStorage (device ID, trust flag) survives Canopy restarts.
 6. The pairing URL is built as `http://<lan-ip>:<port>/remote/?v=<cache-buster>#t=<token>&h=<hostname>`.
 7. The session transitions to `waiting` state with a 10-minute expiry. The QR code is displayed in the connection modal.
 8. If no device connects within 10 minutes, the session auto-stops and returns to `idle`.
@@ -94,11 +94,12 @@ On touch devices (detected via `pointer: coarse` media query), the remote termin
 
 ## Configuration
 
-| Preference key          | Values                | Default   | Notes                                                                     |
-| ----------------------- | --------------------- | --------- | ------------------------------------------------------------------------- |
-| `remote.enabled`        | `"true"` / `"false"`  | `"false"` | Must be `true` for the command palette entry to appear                    |
-| `remote.lastPort`       | port number as string | none      | Persisted automatically after first bind; keeps peer-client origin stable |
-| `remote.trustedDevices` | JSON array            | `[]`      | Managed by TrustedDeviceStore; not user-editable                          |
+| Preference key             | Values                 | Default   | Notes                                                                                                                                                |
+| -------------------------- | ---------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `remote.enabled`           | `"true"` / `"false"`   | `"false"` | Must be `true` for the command palette entry to appear                                                                                               |
+| `remote.lastPort`          | port number as string  | none      | Persisted automatically after first bind; keeps peer-client origin stable                                                                            |
+| `remote.selectedInterface` | interface name or `""` | `""`      | Empty = auto-detect. Otherwise the signaling server binds only on the named interface's IPv4 address; missing interface yields `NoNetworkInterface`. |
+| `remote.trustedDevices`    | JSON array             | `[]`      | Managed by TrustedDeviceStore; not user-editable                                                                                                     |
 
 Trusted devices can be viewed and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
 
@@ -118,7 +119,7 @@ Trusted devices can be viewed and removed in Settings. Each entry stores `device
 
 ## Security and privacy
 
-The signaling server binds on `0.0.0.0`, making it reachable from any device on the local network. It shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. With **listen mode** (feature enabled and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user opening a modal first — see "Listen mode" under Behavior. In this mode the server accepts only trusted `deviceId`s; any other pair attempt is rejected before reaching the accept prompt.
+The signaling server binds on `0.0.0.0` by default, making it reachable from any device on the local network. When the user picks a specific interface in Settings → Remote Control (`remote.selectedInterface`), the server binds only on that interface's IPv4 address — narrowing the LAN exposure to one adapter. It shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. Changing `remote.selectedInterface` stops any in-flight session so the new bind takes effect on the next pairing or trusted reconnect. With **listen mode** (feature enabled and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user opening a modal first — see "Listen mode" under Behavior. In this mode the server accepts only trusted `deviceId`s; any other pair attempt is rejected before reaching the accept prompt.
 
 Pairing tokens are 32 random bytes (hex-encoded, 64 characters). Token comparison uses Node.js `timingSafeEqual` to prevent timing attacks. Tokens are single-use per session.
 

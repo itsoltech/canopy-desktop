@@ -5,6 +5,7 @@
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomRadio from '../shared/CustomRadio.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import PrefsRow from './_partials/PrefsRow.svelte'
 
@@ -14,6 +15,7 @@
   let guardProfile: GuardProfile = $derived(
     (prefs['remote.actionGuard'] as GuardProfile) ?? 'destructive',
   )
+  let selectedInterface = $derived(prefs['remote.selectedInterface'] ?? '')
 
   type TrustedDevice = {
     deviceId: string
@@ -23,8 +25,36 @@
     publicKeyJwk: unknown
   }
 
+  type NetworkInterface = { name: string; address: string; virtual: boolean }
+
   let trustedDevices = $state<TrustedDevice[]>([])
   let loading = $state(false)
+  let interfaces = $state<NetworkInterface[]>([])
+
+  const interfaceGroups = $derived.by(() => {
+    const auto = [{ value: '', label: 'Auto (detect at start)' }]
+    const physical = interfaces
+      .filter((i) => !i.virtual)
+      .map((i) => ({ value: i.name, label: `${i.name} (${i.address})` }))
+    const virtual = interfaces
+      .filter((i) => i.virtual)
+      .map((i) => ({ value: i.name, label: `${i.name} (${i.address}) — virtual` }))
+    const groups: Array<{ label: string; options: typeof auto }> = [
+      { label: 'Auto', options: auto },
+    ]
+    if (physical.length) groups.push({ label: 'Physical', options: physical })
+    if (virtual.length) groups.push({ label: 'Virtual', options: virtual })
+    // If the user previously picked an interface that is no longer present,
+    // surface it so they can see what's selected (and switch away) instead
+    // of the dropdown silently snapping back to "Auto".
+    if (selectedInterface && !interfaces.some((i) => i.name === selectedInterface)) {
+      groups.push({
+        label: 'Unavailable',
+        options: [{ value: selectedInterface, label: `${selectedInterface} (not found)` }],
+      })
+    }
+    return groups
+  })
 
   function toggleEnabled(): void {
     setPref('remote.enabled', enabled ? 'false' : 'true')
@@ -34,6 +64,10 @@
     setPref('remote.actionGuard', profile)
   }
 
+  function setInterface(name: string): void {
+    setPref('remote.selectedInterface', name)
+  }
+
   async function loadTrustedDevices(): Promise<void> {
     loading = true
     try {
@@ -41,6 +75,10 @@
     } finally {
       loading = false
     }
+  }
+
+  async function loadInterfaces(): Promise<void> {
+    interfaces = await window.api.remote.listNetworkInterfaces()
   }
 
   async function removeDevice(deviceId: string, name: string): Promise<void> {
@@ -74,6 +112,7 @@
 
   onMount(() => {
     void loadTrustedDevices()
+    void loadInterfaces()
   })
 </script>
 
@@ -109,6 +148,18 @@
       badge={{ text: 'Beta', tone: 'warning' }}
     >
       <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
+    </PrefsRow>
+    <PrefsRow
+      label="Network interface"
+      help="Which LAN interface the signaling server binds to. The QR code uses this interface's IPv4 address, and the server only listens on that one adapter. 'Auto' picks the first physical Wi-Fi/Ethernet adapter at start. Changing this stops any active session — the next pairing or trusted reconnect picks up the new interface."
+      search="remote interface network adapter wifi ethernet bind ip"
+    >
+      <CustomSelect
+        value={selectedInterface}
+        groups={interfaceGroups}
+        onchange={setInterface}
+        maxWidth="280px"
+      />
     </PrefsRow>
   </PrefsSection>
 

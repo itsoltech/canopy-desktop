@@ -933,6 +933,10 @@ const api = {
       >,
     removeTrustedDevice: (deviceId: string) =>
       ipcRenderer.invoke('remote:removeTrustedDevice', { deviceId }) as Promise<void>,
+    listNetworkInterfaces: () =>
+      ipcRenderer.invoke('remote:listNetworkInterfaces') as Promise<
+        Array<{ name: string; address: string; virtual: boolean }>
+      >,
     onStatusChange: (callback: (status: RemoteSessionStatus) => void) => {
       const handler = (_event: IpcRendererEvent, status: RemoteSessionStatus): void =>
         callback(status)
