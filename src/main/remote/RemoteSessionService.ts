@@ -175,7 +175,10 @@ export class RemoteSessionService {
       .start({
         bundleRoot,
         preferredPort: savedPort,
-        bindHost: iface.address,
+        // Auto-detect keeps the historical 0.0.0.0 bind so any LAN
+        // interface can reach the server; only an explicit user choice
+        // narrows the bind to one adapter.
+        bindHost: preferredIfaceName ? iface.address : '0.0.0.0',
         handlers: {
           onPairAttempt: (msg) => this.handlePairAttempt(msg),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),
@@ -257,7 +260,8 @@ export class RemoteSessionService {
       .start({
         bundleRoot,
         preferredPort: savedPort,
-        bindHost: iface.address,
+        // See start() — auto stays on 0.0.0.0, explicit pick narrows.
+        bindHost: preferredIfaceName ? iface.address : '0.0.0.0',
         handlers: {
           onPairAttempt: (msg) => this.handlePairAttempt(msg),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),
