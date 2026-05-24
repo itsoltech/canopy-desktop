@@ -1,3 +1,9 @@
+## [0.13.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.6...v0.13.0-next.7) (2026-05-24)
+
+### Features
+
+* **remote:** allow manual selection of LAN network interface ([#223](https://github.com/itsoltech/canopy-desktop/issues/223)) ([8f45976](https://github.com/itsoltech/canopy-desktop/commit/8f45976ba67ea195ed002e50d26f96518ff019ec))
+
 ## [0.13.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.5...v0.13.0-next.6) (2026-05-12)
 
 ### Bug Fixes
