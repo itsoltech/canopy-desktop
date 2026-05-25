@@ -6784,12 +6784,14 @@ The following npm packages may be included in this product:
 
  - @esbuild/darwin-arm64@0.27.4
  - @rollup/rollup-darwin-arm64@4.60.0
+ - @simple-git/args-pathspec@1.0.3
+ - @simple-git/argv-parser@1.1.1
  - is-reference@3.0.3
  - keyv@4.5.4
  - lazy-val@1.0.5
  - locate-character@3.0.0
  - qrcode-generator@1.5.2
- - simple-git@3.33.0
+ - simple-git@3.36.0
 
 These packages each contain the following license:
 

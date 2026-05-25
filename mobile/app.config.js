@@ -24,7 +24,7 @@ const base = {
         dark: './assets/images/icon-ios-dark.png',
         tinted: './assets/images/icon-ios-tinted.png',
       },
-      bundleIdentifier: 'tech.itsol.canopy',
+      bundleIdentifier: 'tech.itsol.canopy-remote',
       supportsTablet: true,
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,

@@ -199,6 +199,7 @@ export default function TerminalView({
         convertEol: true,
         cursorBlink: true,
         allowProposedApi: true,
+        screenReaderMode: true,
         theme: initialPalette,
       })
 
@@ -206,6 +207,11 @@ export default function TerminalView({
       term.loadAddon(fit)
       term.open(host)
       termRef.current = term
+
+      const a11y = host.querySelector<HTMLElement>('.xterm-accessibility')
+      if (a11y) {
+        a11y.style.pointerEvents = 'auto'
+      }
 
       // Forward every keystroke to the native side. No local echo — the
       // remote PTY will echo back through the stream channel.
@@ -237,20 +243,19 @@ export default function TerminalView({
         void onInputRef.current(out)
       })
 
-      // Tap-vs-scroll gesture detector.
+      // Tap / scroll / long-press gesture detector.
       //
-      // - A brief, near-stationary touch focuses the terminal (and pops the
-      //   soft keyboard). Anything further than TAP_SLOP pixels or longer
-      //   than TAP_MAX_MS counts as a scroll instead and never focuses.
-      // - Vertical finger movement is forwarded to xterm's scrollback via
-      //   `term.scrollLines()`. We convert accumulated pixel deltas into
-      //   whole rows using the current host height / term.rows ratio, so
-      //   the scroll speed matches the visible row height regardless of
-      //   devicePixelRatio. Swiping DOWN (finger moves toward bottom)
-      //   reveals older content — same direction as pull-to-scroll on
-      //   native iOS lists.
+      // Three distinct gestures on the terminal surface:
+      //   tap   (< TAP_MAX_MS, < TAP_SLOP movement) → focus terminal, pop keyboard
+      //   scroll (movement > TAP_SLOP before long-press threshold) → xterm scrollback
+      //   long-press (stationary > LONG_PRESS_MS) → native text selection via a11y tree
+      //
+      // Vertical finger movement during scroll is forwarded to xterm's
+      // scrollback via `term.scrollLines()`. Swiping DOWN reveals older
+      // content — same direction as pull-to-scroll on native iOS lists.
       const TAP_SLOP = 8
       const TAP_MAX_MS = 500
+      const LONG_PRESS_MS = 400
 
       let touchActive = false
       let touchStartX = 0
@@ -259,6 +264,8 @@ export default function TerminalView({
       let touchLastY = 0
       let scrollAccumulator = 0
       let didScroll = false
+      let isLongPress = false
+      let longPressTimer: ReturnType<typeof setTimeout> | null = null
 
       const onTouchStart = (ev: TouchEvent): void => {
         if (ev.touches.length !== 1) {
@@ -273,21 +280,44 @@ export default function TerminalView({
         touchLastY = t.clientY
         scrollAccumulator = 0
         didScroll = false
+        isLongPress = false
+
+        if (longPressTimer) clearTimeout(longPressTimer)
+        longPressTimer = setTimeout(() => {
+          longPressTimer = null
+          if (!didScroll) {
+            isLongPress = true
+            term.textarea?.blur()
+          }
+        }, LONG_PRESS_MS)
       }
 
       const onTouchMove = (ev: TouchEvent): void => {
         if (!touchActive || ev.touches.length !== 1) return
+        if (isLongPress) return
+
+        const sel = document.getSelection()
+        if (sel && !sel.isCollapsed) {
+          isLongPress = true
+          if (longPressTimer) {
+            clearTimeout(longPressTimer)
+            longPressTimer = null
+          }
+          return
+        }
+
         const t = ev.touches[0]
         const dx = t.clientX - touchStartX
         const dy = t.clientY - touchStartY
         if (!didScroll && Math.hypot(dx, dy) > TAP_SLOP) {
+          if (longPressTimer) {
+            clearTimeout(longPressTimer)
+            longPressTimer = null
+          }
           didScroll = true
         }
         if (!didScroll) return
 
-        // Block any default behaviour (rubber-band, text selection) now
-        // that we're claiming this gesture for scrolling. touchmove is
-        // registered with passive:false so preventDefault is honoured.
         ev.preventDefault()
 
         const moveDelta = t.clientY - touchLastY
@@ -299,33 +329,157 @@ export default function TerminalView({
 
         const lines = Math.trunc(scrollAccumulator / pixelsPerRow)
         if (lines !== 0) {
-          // Finger down (positive dy) → scroll UP in the buffer (older
-          // content). xterm's scrollLines uses the opposite sign.
           term.scrollLines(-lines)
           scrollAccumulator -= lines * pixelsPerRow
         }
       }
 
       const onTouchEnd = (): void => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer)
+          longPressTimer = null
+        }
         if (!touchActive) return
-        const elapsed = Date.now() - touchStartTime
-        const wasTap = !didScroll && elapsed <= TAP_MAX_MS
         touchActive = false
-        if (wasTap) {
-          term.focus()
+        const elapsed = Date.now() - touchStartTime
+        if (!didScroll && !isLongPress && elapsed <= TAP_MAX_MS) {
+          const sel = document.getSelection()
+          if (!sel || sel.isCollapsed) {
+            term.focus()
+          }
         }
       }
 
       const onTouchCancel = (): void => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer)
+          longPressTimer = null
+        }
         touchActive = false
         didScroll = false
+        isLongPress = false
         scrollAccumulator = 0
+      }
+
+      // Selection-edge auto-scroll: when the user drags a selection
+      // handle to the top/bottom edge of the terminal, scroll the xterm
+      // buffer and programmatically restore the DOM selection on the
+      // refreshed accessibility tree nodes via setBaseAndExtent().
+      const EDGE_ZONE = 30
+      const AUTO_SCROLL_MS = 150
+      let autoScrollInterval: ReturnType<typeof setInterval> | null = null
+      let isAutoScrolling = false
+
+      const stopAutoScroll = (): void => {
+        if (autoScrollInterval) {
+          clearInterval(autoScrollInterval)
+          autoScrollInterval = null
+        }
+      }
+
+      const findRowIndex = (node: Node | null, tree: Element): number => {
+        if (!node) return -1
+        const rows = tree.children
+        for (let i = 0; i < rows.length; i++) {
+          if (rows[i] === node || rows[i].contains(node)) return i
+        }
+        return -1
+      }
+
+      const doAutoScrollStep = (direction: number): void => {
+        const sel = document.getSelection()
+        if (!sel || sel.isCollapsed || !sel.rangeCount) {
+          stopAutoScroll()
+          return
+        }
+        const a11yTree = host.querySelector('.xterm-accessibility-tree')
+        if (!a11yTree) {
+          stopAutoScroll()
+          return
+        }
+
+        const anchorRowIdx = findRowIndex(sel.anchorNode, a11yTree)
+        if (anchorRowIdx === -1) {
+          stopAutoScroll()
+          return
+        }
+
+        const anchorBufferRow = term.buffer.active.viewportY + anchorRowIdx
+        const anchorOffset = sel.anchorOffset
+
+        isAutoScrolling = true
+        term.scrollLines(direction)
+
+        setTimeout(() => {
+          const newAnchorRow = anchorBufferRow - term.buffer.active.viewportY
+          const rows = a11yTree.children
+          if (newAnchorRow < 0 || newAnchorRow >= rows.length) {
+            isAutoScrolling = false
+            stopAutoScroll()
+            return
+          }
+          const anchorEl = rows[newAnchorRow]
+          const edgeIdx = direction > 0 ? rows.length - 1 : 0
+          const edgeEl = rows[edgeIdx]
+          if (!anchorEl?.firstChild || !edgeEl?.firstChild) {
+            isAutoScrolling = false
+            return
+          }
+          const newSel = document.getSelection()
+          if (!newSel) {
+            isAutoScrolling = false
+            return
+          }
+          try {
+            const edgeLen = edgeEl.textContent?.length ?? 0
+            if (direction > 0) {
+              newSel.setBaseAndExtent(anchorEl.firstChild, anchorOffset, edgeEl.firstChild, edgeLen)
+            } else {
+              newSel.setBaseAndExtent(edgeEl.firstChild, 0, anchorEl.firstChild, anchorOffset)
+            }
+          } catch {
+            /* nodes may be detached */
+          }
+          isAutoScrolling = false
+        }, 50)
+      }
+
+      const onSelectionChange = (): void => {
+        if (isAutoScrolling) return
+        const sel = document.getSelection()
+        if (!sel || sel.isCollapsed) {
+          stopAutoScroll()
+          return
+        }
+        try {
+          const range = sel.getRangeAt(0)
+          const rects = range.getClientRects()
+          if (rects.length === 0) {
+            stopAutoScroll()
+            return
+          }
+          const hostRect = host.getBoundingClientRect()
+          const last = rects[rects.length - 1]
+          const first = rects[0]
+          if (last.bottom > hostRect.bottom - EDGE_ZONE) {
+            if (!autoScrollInterval)
+              autoScrollInterval = setInterval(() => doAutoScrollStep(1), AUTO_SCROLL_MS)
+          } else if (first.top < hostRect.top + EDGE_ZONE) {
+            if (!autoScrollInterval)
+              autoScrollInterval = setInterval(() => doAutoScrollStep(-1), AUTO_SCROLL_MS)
+          } else {
+            stopAutoScroll()
+          }
+        } catch {
+          stopAutoScroll()
+        }
       }
 
       host.addEventListener('touchstart', onTouchStart, { passive: true })
       host.addEventListener('touchmove', onTouchMove, { passive: false })
       host.addEventListener('touchend', onTouchEnd, { passive: true })
       host.addEventListener('touchcancel', onTouchCancel, { passive: true })
+      document.addEventListener('selectionchange', onSelectionChange)
 
       const tryFit = (): void => {
         try {
@@ -415,6 +569,9 @@ export default function TerminalView({
         host.removeEventListener('touchmove', onTouchMove)
         host.removeEventListener('touchend', onTouchEnd)
         host.removeEventListener('touchcancel', onTouchCancel)
+        document.removeEventListener('selectionchange', onSelectionChange)
+        if (longPressTimer) clearTimeout(longPressTimer)
+        stopAutoScroll()
         resizeObserver?.disconnect()
         if (fitDebounce !== null) {
           clearTimeout(fitDebounce)
