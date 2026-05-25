@@ -207,12 +207,19 @@ export const codexAdapter: AgentAdapter = {
     const approvalMode = prefs.get('codex.approvalMode')
     const sandbox = prefs.get('codex.sandbox')
     const fullAuto = prefs.get('codex.fullAuto')
+    const dangerouslyBypassApprovalsAndSandbox = prefs.get(
+      'codex.dangerouslyBypassApprovalsAndSandbox',
+    )
     const profile = prefs.get('codex.profile')
 
     if (model) args.push('--model', model)
-    if (approvalMode) args.push('--ask-for-approval', approvalMode)
-    if (sandbox) args.push('--sandbox', sandbox)
-    if (fullAuto === 'true') args.push('--full-auto')
+    if (dangerouslyBypassApprovalsAndSandbox === 'true') {
+      args.push('--dangerously-bypass-approvals-and-sandbox')
+    } else {
+      if (approvalMode) args.push('--ask-for-approval', approvalMode)
+      if (sandbox) args.push('--sandbox', sandbox)
+      if (fullAuto === 'true') args.push('--full-auto')
+    }
     if (profile) args.push('--profile', profile)
 
     return args
