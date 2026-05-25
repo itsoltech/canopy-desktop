@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard'
+import { useKeepAwake } from 'expo-keep-awake'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -27,6 +28,8 @@ import { useTheme } from '@/hooks/use-theme'
 import { wrapAsBracketedPaste } from '@/lib/pty/paste'
 
 export default function TerminalScreen(): React.ReactElement {
+  useKeepAwake()
+
   const { instanceId, worktreePath: encodedPath } = useLocalSearchParams<{
     instanceId: string
     worktreePath: string
