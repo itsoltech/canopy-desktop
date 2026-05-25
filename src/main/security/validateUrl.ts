@@ -13,9 +13,19 @@ export function isSafeExternalUrl(url: string): boolean {
 }
 
 function isPrivateIp(ip: string): boolean {
-  // Unwrap IPv4-mapped IPv6 (e.g. ::ffff:169.254.169.254)
-  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
-  const addr = mapped ? mapped[1] : ip
+  // Unwrap IPv4-mapped IPv6. URL.hostname serializes embedded IPv4 as two
+  // hex hextets (e.g. ::ffff:a9fe:a9fe), so handle both forms.
+  const lowerIp = ip.toLowerCase()
+  let addr = ip
+  const dotted = lowerIp.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+  const hex = lowerIp.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (dotted) {
+    addr = dotted[1]
+  } else if (hex) {
+    const hi = parseInt(hex[1], 16)
+    const lo = parseInt(hex[2], 16)
+    addr = `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`
+  }
 
   if (isIPv4(addr)) {
     const [a, b] = addr.split('.').map(Number)
@@ -27,7 +37,7 @@ function isPrivateIp(ip: string): boolean {
     return false
   }
 
-  const lower = ip.toLowerCase()
+  const lower = lowerIp
   if (lower === '::1' || lower === '::') return true // loopback / unspecified
   if (lower.startsWith('fc') || lower.startsWith('fd')) return true // unique-local fc00::/7
   if (/^fe[89ab]/.test(lower)) return true // link-local fe80::/10
