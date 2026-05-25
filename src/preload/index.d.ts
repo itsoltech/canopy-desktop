@@ -503,7 +503,9 @@ interface CanopyAPI {
     }) => void,
   ) => () => void
   onToolsChanged: (callback: (tools: ToolDefinition[]) => void) => () => void
-  onSkillsChanged: (callback: (skills: unknown[]) => void) => () => void
+  onSkillsChanged: (
+    callback: (skills: import('../main/skills/types').CanopySkill[]) => void,
+  ) => () => void
 
   // Skills
   listSkills: (opts?: {
