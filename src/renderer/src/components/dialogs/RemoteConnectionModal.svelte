@@ -77,6 +77,12 @@
   onDestroy(() => {
     if (tick) clearInterval(tick)
     if (copiedTimer) clearTimeout(copiedTimer)
+    // qr-code-styling appends SVG/canvas nodes to qrEl outside of Svelte's
+    // rendering pipeline; drop them and the instance reference so the modal
+    // can be GC'd between open/close cycles.
+    // eslint-disable-next-line svelte/no-dom-manipulating
+    if (qrEl) qrEl.replaceChildren()
+    qrInstance = null
     // Note: we deliberately do NOT tear the session down here. The modal can
     // be unmounted for many reasons (Svelte reactive cascade, parent
     // re-render, navigation) and tearing the session down on every unmount
