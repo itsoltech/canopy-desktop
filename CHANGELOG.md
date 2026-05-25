@@ -1,3 +1,14 @@
+## [0.13.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.8...v0.13.0-next.9) (2026-05-25)
+
+### Features
+
+* **mobile:** keep terminal awake ([35e2364](https://github.com/itsoltech/canopy-desktop/commit/35e2364d874ea950fbc22eec17345f7d91f87308))
+* move mobile terminal actions into keyboard toolbar ([618dc4b](https://github.com/itsoltech/canopy-desktop/commit/618dc4b290c59ba99f3a67ffa878a3cec87b01aa))
+
+### Bug Fixes
+
+* **security:** patch vulnerable npm dependencies ([8e2c96f](https://github.com/itsoltech/canopy-desktop/commit/8e2c96fb586524a6b017f1a9f033d7db469afaa7))
+
 ## [0.13.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.7...v0.13.0-next.8) (2026-05-25)
 
 ### Features
