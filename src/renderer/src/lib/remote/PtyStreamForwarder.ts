@@ -48,6 +48,14 @@ export class PtyStreamForwarder {
 
     entry.ws.onerror = () => {
       console.warn(`[pty-forwarder] WS error for session ${sessionId}`)
+      // Force the socket closed so a connection that errors while still
+      // CONNECTING (and never fires `close` on its own) can't pin its entry
+      // in `sockets` forever. `onclose` performs the actual map cleanup.
+      try {
+        entry.ws.close()
+      } catch {
+        /* ignore */
+      }
     }
 
     entry.ws.onclose = () => {

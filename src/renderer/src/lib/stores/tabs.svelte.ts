@@ -50,6 +50,7 @@ function disposeEphemeralPaneState(pane: PaneSession): void {
   if (pane.paneType === 'drawing' && !hasRemainingDrawingPanes(pane.id)) {
     for (const key of Object.keys(drawingsState)) delete drawingsState[key]
   }
+  delete pendingEditorJumps[pane.id]
 }
 
 // --- Active process detection ---

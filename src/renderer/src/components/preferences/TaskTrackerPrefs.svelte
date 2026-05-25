@@ -99,7 +99,7 @@
 
   async function toggleAssignedToMe(): Promise<void> {
     if (!config) return
-    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    const updated = $state.snapshot(config) as typeof config
     updated.filters = { ...updated.filters, assignedToMe: !updated.filters.assignedToMe }
     if (scope === 'global') {
       await saveGlobalConfig(updated)
@@ -117,7 +117,7 @@
     } else {
       current.push(status)
     }
-    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    const updated = $state.snapshot(config) as typeof config
     updated.filters = { ...updated.filters, statuses: current }
     if (scope === 'global') {
       await saveGlobalConfig(updated)

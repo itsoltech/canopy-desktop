@@ -6,6 +6,8 @@ import {
   loadActiveTask,
 } from './taskTracker.svelte'
 import { addToast } from './toast.svelte'
+import { clearQuickOpenCache } from './quickOpenStore.svelte'
+import { clearMru } from './quickOpenMru.svelte'
 
 function basename(p: string): string {
   return p.split('/').pop() || p
@@ -374,6 +376,8 @@ export async function detachProject(path: string): Promise<void> {
   }
   for (const wtPath of ownedPaths) {
     await closeAllTabsForWorktree(wtPath)
+    clearQuickOpenCache(wtPath)
+    clearMru(wtPath)
   }
 
   // Unwatch git

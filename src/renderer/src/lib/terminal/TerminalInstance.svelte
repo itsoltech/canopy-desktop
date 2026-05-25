@@ -405,8 +405,8 @@
     let fontsReady = false
     let initScheduled = false
     let keystrokeHandler: ((e: KeyboardEvent) => void) | null = null
-    let reclaimPty: (() => void) | null = null
-    let reclaimPtyTextarea: HTMLTextAreaElement | null = null
+    let reclaimPtyHandler: (() => void) | null = null
+    let reclaimTextarea: HTMLTextAreaElement | null = null
 
     function initTerminal(): void {
       if (disposed) return
@@ -631,14 +631,14 @@
       // PTY snap back to the desktop layout on every interaction. The
       // IPC call is cheap and node-pty's internal resize is a no-op
       // when dims match, so there's no cost when nothing changed.
-      reclaimPty = (): void => {
+      reclaimPtyHandler = (): void => {
         if (term.cols > 0 && term.rows > 0) {
           window.api.resizePty(sessionId, term.cols, term.rows)
         }
       }
-      containerEl.addEventListener('pointerdown', reclaimPty)
-      reclaimPtyTextarea = term.textarea ?? null
-      reclaimPtyTextarea?.addEventListener('focus', reclaimPty)
+      reclaimTextarea = term.textarea ?? null
+      containerEl.addEventListener('pointerdown', reclaimPtyHandler)
+      reclaimTextarea?.addEventListener('focus', reclaimPtyHandler)
 
       term.focus()
     }
@@ -672,11 +672,11 @@
       cleanupSession(sessionId)
       cleanupKeystrokeSession(sessionId)
       if (keystrokeHandler) containerEl.removeEventListener('keydown', keystrokeHandler, true)
-      if (reclaimPty) {
-        containerEl.removeEventListener('pointerdown', reclaimPty)
-        reclaimPtyTextarea?.removeEventListener('focus', reclaimPty)
-        reclaimPty = null
-        reclaimPtyTextarea = null
+      if (reclaimPtyHandler) {
+        containerEl.removeEventListener('pointerdown', reclaimPtyHandler)
+        reclaimTextarea?.removeEventListener('focus', reclaimPtyHandler)
+        reclaimPtyHandler = null
+        reclaimTextarea = null
       }
       restoreCursorImmediately()
       disconnectWs({ suppressStatus: true })

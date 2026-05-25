@@ -45,7 +45,7 @@
         onclick={dismissUpdate}>Later</button
       >
     {:else if state === 'error'}
-      <span class="truncate">Update failed: {errorMessage}</span>
+      <span class="truncate" title={errorMessage}>Update failed: {errorMessage}</span>
     {/if}
   </div>
 {/if}

@@ -424,10 +424,16 @@ export class BrowserManager {
   }
 
   teardownAllForWindow(win: BrowserWindow): void {
+    // Run the full teardown (close DevTools, detach debugger, remove the
+    // devToolsView) for each entry rather than just dropping the map key —
+    // otherwise an open DevTools session / attached debugger leaks when the
+    // owning window closes. Collect ids first since teardown() mutates the map.
+    const ids: string[] = []
     for (const [id, entry] of this.entries) {
-      if (entry.win === win) {
-        this.entries.delete(id)
-      }
+      if (entry.win === win) ids.push(id)
+    }
+    for (const id of ids) {
+      this.teardown(id)
     }
   }
 

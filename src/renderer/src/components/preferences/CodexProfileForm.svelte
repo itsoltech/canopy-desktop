@@ -36,6 +36,14 @@
   function toggleFullAuto(): void {
     set('fullAuto', fullAuto ? '' : 'true')
   }
+
+  let dangerouslyBypassApprovalsAndSandbox = $derived(
+    prefs.dangerouslyBypassApprovalsAndSandbox === 'true',
+  )
+
+  function toggleDangerouslyBypassApprovalsAndSandbox(): void {
+    set('dangerouslyBypassApprovalsAndSandbox', dangerouslyBypassApprovalsAndSandbox ? '' : 'true')
+  }
 </script>
 
 <div class="flex flex-col gap-7">
@@ -103,6 +111,17 @@
       search="codex full auto autonomous"
     >
       <CustomCheckbox checked={fullAuto} onchange={toggleFullAuto} />
+    </PrefsRow>
+
+    <PrefsRow
+      label="Bypass approvals and sandbox"
+      help="Runs Codex without approval prompts or sandbox restrictions"
+      search="codex dangerous bypass approvals sandbox full access"
+    >
+      <CustomCheckbox
+        checked={dangerouslyBypassApprovalsAndSandbox}
+        onchange={toggleDangerouslyBypassApprovalsAndSandbox}
+      />
     </PrefsRow>
 
     <PrefsRow

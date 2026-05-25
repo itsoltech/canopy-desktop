@@ -74,7 +74,7 @@
 
   async function savePRField(field: string, value: string): Promise<void> {
     if (!config) return
-    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    const updated = $state.snapshot(config) as typeof config
     if (prScope === 'default') {
       updated.prTemplate = { ...(updated.prTemplate ?? {}), [field]: value }
     } else {

@@ -26,6 +26,7 @@ export interface ProfilePrefs {
   // Codex
   sandbox?: string
   fullAuto?: string // 'true' | 'false'
+  dangerouslyBypassApprovalsAndSandbox?: string // 'true' | 'false'
   profile?: string
 }
 
@@ -100,6 +101,7 @@ export const LEGACY_PREF_FIELDS: Record<AgentType, readonly (keyof ProfilePrefs)
     'approvalMode',
     'sandbox',
     'fullAuto',
+    'dangerouslyBypassApprovalsAndSandbox',
     'profile',
     'baseUrl',
     'customEnv',

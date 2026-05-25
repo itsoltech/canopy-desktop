@@ -195,13 +195,17 @@
         onclick={runCheck}
         disabled={checking}
       >
-        <RefreshCw size={14} class={checking ? 'animate-spin' : ''} />
+        <RefreshCw size={14} class={checking ? 'animate-spin motion-reduce:animate-none' : ''} />
         Re-check
       </button>
     {/if}
   {:else}
     <div class="p-6 flex justify-center">
-      <RefreshCw size={20} class="animate-spin" color="var(--color-text-faint)" />
+      <RefreshCw
+        size={20}
+        class="animate-spin motion-reduce:animate-none"
+        color="var(--color-text-faint)"
+      />
     </div>
   {/if}
 </div>

@@ -92,7 +92,7 @@ export async function loadRepoConfig(repoRoot: string): Promise<void> {
 }
 
 export async function saveRepoConfig(repoRoot: string, config: RepoConfig): Promise<void> {
-  const plain = JSON.parse(JSON.stringify(config)) as RepoConfig
+  const plain = $state.snapshot(config) as RepoConfig
   await window.api.repoConfigSave(repoRoot, plain)
   repoConfig = plain
   resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
@@ -129,7 +129,7 @@ export async function loadGlobalConfig(): Promise<void> {
 }
 
 export async function saveGlobalConfig(config: RepoConfig): Promise<void> {
-  const plain = JSON.parse(JSON.stringify(config)) as RepoConfig
+  const plain = $state.snapshot(config) as RepoConfig
   await window.api.globalConfigSave(plain)
   globalConfig = plain
   // Re-resolve merged config so sidebar reflects the change

@@ -58,7 +58,7 @@
 
   async function saveBranchTemplate(): Promise<void> {
     if (!config) return
-    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    const updated = $state.snapshot(config) as typeof config
     if (templateScope === 'default') {
       updated.branchTemplate = {
         ...updated.branchTemplate,
@@ -91,7 +91,7 @@
   async function addCustomVar(): Promise<void> {
     if (!newVarKey.trim() || !config) return
     const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
-    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    const updated = $state.snapshot(config) as typeof config
     updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
     await persistConfig(updated)
     newVarKey = ''
@@ -104,7 +104,7 @@
     if (!config) return
     const vars = { ...branchTemplate.customVars }
     delete vars[key]
-    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    const updated = $state.snapshot(config) as typeof config
     updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
     await persistConfig(updated)
     updatePreview()

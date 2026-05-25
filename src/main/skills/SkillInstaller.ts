@@ -9,6 +9,7 @@ import type { CanopySkill, SkillInstallOptions, SkillAgentTarget } from './types
 import { parseSkillContent } from './SkillParser'
 import { SkillStore } from './SkillStore'
 import { getTransformer } from './SkillTransformer'
+import { isPublicHttpUrl } from '../security/validateUrl'
 
 interface SourceResolution {
   content: string
@@ -248,8 +249,20 @@ export class SkillInstaller {
   }
 
   private async fetchFromUrl(url: string): Promise<Result<SourceResolution, SkillError>> {
+    // The source URL arrives from the (untrusted) renderer via `skills:install`.
+    // Block SSRF to private/loopback/link-local/metadata hosts before fetching,
+    // and forbid redirects so a 3xx cannot bounce past the check.
+    if (!(await isPublicHttpUrl(url))) {
+      return err({
+        _tag: 'InvalidSource',
+        source: url,
+        reason:
+          'URL must be a public http(s) address (private, loopback, and link-local hosts are blocked)',
+      })
+    }
+
     const fetchResult = await fromExternalCall(
-      fetch(url),
+      fetch(url, { redirect: 'error' }),
       (e): SkillError => ({
         _tag: 'FetchFailed',
         source: url,
