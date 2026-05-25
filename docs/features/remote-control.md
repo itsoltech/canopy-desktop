@@ -92,6 +92,12 @@ While paired, an idle timer of 15 minutes runs. Each signaling message (SDP, ICE
 
 The native mobile app (`mobile/src/components/terminal/terminal-view.tsx`) enables xterm's `screenReaderMode`, which creates a DOM-based accessibility tree with selectable text overlaying the canvas. The overlay has `pointer-events: auto` so touch events reach it. The gesture detector distinguishes three interactions: short tap (< 500 ms) focuses the terminal and opens the soft keyboard, swipe scrolls the terminal buffer, and long-press (> 400 ms stationary) yields to the browser's native text selection flow. Selection-edge auto-scroll keeps extending the selection when the drag handle reaches the top or bottom of the terminal viewport.
 
+### Mobile terminal keyboard toolbar
+
+When the mobile soft keyboard is open, the terminal renders its action toolbar inside the WebView instead of using a separate native action bar. Keeping the toolbar in the WebView preserves xterm focus and selected terminal text while the user taps toolbar controls. The toolbar includes Hide, Copy, Paste, Esc, Tab, Shift+Tab, Ctrl, Alt, Left, Right, Up, Down, Home, End, and Enter.
+
+Hide blurs xterm's hidden textarea to dismiss the soft keyboard. Copy sends only the current DOM terminal selection to the native app for clipboard writing; if there is no selection, the terminal shows a short transient notice and does not change the clipboard. Paste reads text from the native clipboard, sanitizes it with the mobile PTY paste wrapper, wraps it in bracketed-paste markers, and writes it to the active PTY without submitting Enter. The old native paste action bar below the terminal tabs is no longer shown.
+
 ## Configuration
 
 | Preference key             | Values                 | Default   | Notes                                                                                                                                                |

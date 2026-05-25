@@ -63,6 +63,9 @@ type Props = {
   terminalThemeId: TerminalThemeId
   onInput: (data: string) => Promise<void>
   onResize: (cols: number, rows: number) => Promise<void>
+  onCopyRequest: (text: string) => Promise<void>
+  onPasteRequest: () => Promise<void>
+  onToolbarNotice: (message: string) => void
   /**
    * `ref` is intentionally part of Props rather than a `forwardRef` argument:
    * Expo DOM components auto-generate a wrapper on the native side that
@@ -79,6 +82,9 @@ export default function TerminalView({
   terminalThemeId,
   onInput,
   onResize,
+  onCopyRequest,
+  onPasteRequest,
+  onToolbarNotice,
 }: Props): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
@@ -117,6 +123,12 @@ export default function TerminalView({
   onInputRef.current = onInput
   const onResizeRef = useRef(onResize)
   onResizeRef.current = onResize
+  const onCopyRequestRef = useRef(onCopyRequest)
+  onCopyRequestRef.current = onCopyRequest
+  const onPasteRequestRef = useRef(onPasteRequest)
+  onPasteRequestRef.current = onPasteRequest
+  const onToolbarNoticeRef = useRef(onToolbarNotice)
+  onToolbarNoticeRef.current = onToolbarNotice
 
   // `tryFit` is defined inside the init effect so it closes over the local
   // `fit`/`term`. Stash it in a ref so the imperative `refit()` method can
@@ -124,6 +136,23 @@ export default function TerminalView({
   // tab switches when the visible host height (e.g. keyboard-adjusted) is
   // unchanged but the xterm was clobbered by a pty.resized replay event.
   const tryFitRef = useRef<(() => void) | null>(null)
+
+  const blurTerminal = useCallback((): void => {
+    try {
+      termRef.current?.blur()
+      termRef.current?.textarea?.blur()
+    } catch {
+      /* ignore — xterm might already be disposed */
+    }
+    try {
+      if (typeof document !== 'undefined') {
+        const active = document.activeElement as HTMLElement | null
+        active?.blur?.()
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   // Expo's DOM-component-aware variant of useImperativeHandle. Methods must
   // be serializable (JSON args, void return) because they cross the native
@@ -147,30 +176,12 @@ export default function TerminalView({
       focus: () => {
         termRef.current?.focus()
       },
-      blur: () => {
-        // xterm's own blur unfocuses its internal textarea. We also blur
-        // whatever document.activeElement currently is as a belt-and-braces
-        // measure: iOS WKWebView dismisses the soft keyboard when no
-        // element inside the document holds focus.
-        try {
-          termRef.current?.blur()
-        } catch {
-          /* ignore — xterm might already be disposed */
-        }
-        try {
-          if (typeof document !== 'undefined') {
-            const active = document.activeElement as HTMLElement | null
-            active?.blur?.()
-          }
-        } catch {
-          /* ignore */
-        }
-      },
+      blur: blurTerminal,
       refit: () => {
         tryFitRef.current?.()
       },
     }),
-    [],
+    [blurTerminal],
   )
 
   useEffect(() => {
@@ -614,6 +625,19 @@ export default function TerminalView({
     void onInputRef.current(seq)
   }, [])
 
+  const pasteFromClipboard = useCallback((): void => {
+    void onPasteRequestRef.current()
+  }, [])
+
+  const copySelection = useCallback((): void => {
+    const selectedText = document.getSelection()?.toString() ?? ''
+    if (!selectedText) {
+      void onToolbarNoticeRef.current('No terminal selection to copy')
+      return
+    }
+    void onCopyRequestRef.current(selectedText)
+  }, [])
+
   const toggleCtrl = useCallback((): void => {
     const next = !ctrlArmedRef.current
     ctrlArmedRef.current = next
@@ -658,15 +682,21 @@ export default function TerminalView({
         // otherwise the iOS soft keyboard dismisses on every tap gap.
         onMouseDown={(e): void => e.preventDefault()}
       >
+        <ToolbarKey label="Hide" onPress={blurTerminal} palette={palette} />
+        <ToolbarKey label="Copy" onPress={copySelection} palette={palette} />
+        <ToolbarKey label="Paste" onPress={pasteFromClipboard} palette={palette} />
         <ToolbarKey label="Esc" onPress={(): void => emit('\x1b')} palette={palette} />
         <ToolbarKey label="Tab" onPress={(): void => emit('\t')} palette={palette} />
-        <ToolbarKey label="⇧Tab" onPress={(): void => emit('\x1b[Z')} palette={palette} />
+        <ToolbarKey label="Shift+Tab" onPress={(): void => emit('\x1b[Z')} palette={palette} />
         <ToolbarKey label="Ctrl" onPress={toggleCtrl} palette={palette} active={ctrlArmed} />
         <ToolbarKey label="Alt" onPress={toggleAlt} palette={palette} active={altArmed} />
-        <ToolbarKey label="←" onPress={(): void => emit('\x1b[D')} palette={palette} />
-        <ToolbarKey label="→" onPress={(): void => emit('\x1b[C')} palette={palette} />
-        <ToolbarKey label="↑" onPress={(): void => emit('\x1b[A')} palette={palette} />
-        <ToolbarKey label="↓" onPress={(): void => emit('\x1b[B')} palette={palette} />
+        <ToolbarKey label="Left" onPress={(): void => emit('\x1b[D')} palette={palette} />
+        <ToolbarKey label="Right" onPress={(): void => emit('\x1b[C')} palette={palette} />
+        <ToolbarKey label="Up" onPress={(): void => emit('\x1b[A')} palette={palette} />
+        <ToolbarKey label="Down" onPress={(): void => emit('\x1b[B')} palette={palette} />
+        <ToolbarKey label="Home" onPress={(): void => emit('\x1b[H')} palette={palette} />
+        <ToolbarKey label="End" onPress={(): void => emit('\x1b[F')} palette={palette} />
+        <ToolbarKey label="Enter" onPress={(): void => emit('\r')} palette={palette} />
       </div>
     </div>
   )
