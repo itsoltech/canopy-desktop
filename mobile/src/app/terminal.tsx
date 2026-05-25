@@ -3,7 +3,7 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Keyboard, Pressable, StyleSheet, View } from 'react-native'
+import { Alert, Pressable, StyleSheet, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { TerminalTabBar } from '@/components/terminal/tab-bar'
@@ -247,7 +247,23 @@ export default function TerminalScreen(): React.ReactElement {
     }
   }, [handleWriteError])
 
-  const pasteDisabled = !api || !sessionId
+  const handleCopySelection = useCallback(async (text: string) => {
+    if (!text) {
+      setStreamError('No terminal selection to copy')
+      return
+    }
+    try {
+      await Clipboard.setStringAsync(text)
+      setStreamError(null)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setStreamError(`Could not copy selection: ${msg}`)
+    }
+  }, [])
+
+  const handleToolbarNotice = useCallback(async (message: string) => {
+    setStreamError(message)
+  }, [])
 
   const handleTabSelect = useCallback(
     (tabId: string) => {
@@ -305,34 +321,10 @@ export default function TerminalScreen(): React.ReactElement {
     [api, tabs],
   )
 
-  // Dismiss the soft keyboard when the user taps anywhere in the header
-  // (back button area, title, or empty space around them). We try two
-  // paths: Keyboard.dismiss() resigns the native WKWebView's first
-  // responder, and the DOM handle's blur() unfocuses xterm's textarea
-  // from inside the webview. Either one alone is usually enough, but
-  // combining them is resilient to iOS quirks where the webview keeps
-  // the keyboard up until both sides agree focus is gone.
-  const dismissKeyboard = useCallback((): void => {
-    Keyboard.dismiss()
-    const blur = terminalRef.current?.blur
-    if (typeof blur === 'function') blur()
-  }, [])
-
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safeArea}>
-        <View
-          style={styles.header}
-          // Observe touches without stealing the responder from the back
-          // button. Returning false keeps children (the Pressable) eligible
-          // to claim the gesture, but the capture callback still runs —
-          // which is where we dismiss the keyboard on every tap inside the
-          // header strip (back button, title area, or the gap between).
-          onStartShouldSetResponderCapture={(): boolean => {
-            dismissKeyboard()
-            return false
-          }}
-        >
+        <View style={styles.header}>
           <Pressable
             onPress={() => router.back()}
             style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
@@ -363,34 +355,6 @@ export default function TerminalScreen(): React.ReactElement {
           onLongPress={api ? handleTabLongPress : undefined}
           onNewTab={api ? () => setPickerVisible(true) : undefined}
         />
-        <View style={[styles.actionBar, { borderTopColor: theme.backgroundElement }]}>
-          <Pressable
-            onPress={handlePaste}
-            disabled={pasteDisabled}
-            style={({ pressed }) => [
-              styles.actionButton,
-              { backgroundColor: theme.backgroundElement },
-              pressed && styles.pressed,
-              pasteDisabled && styles.actionButtonDisabled,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Paste from clipboard"
-          >
-            <SymbolView
-              name={{
-                ios: 'doc.on.clipboard',
-                android: 'content_paste',
-                web: 'content_paste',
-              }}
-              size={14}
-              weight="semibold"
-              tintColor={theme.textSecondary}
-            />
-            <ThemedText type="small" themeColor="textSecondary">
-              Paste
-            </ThemedText>
-          </Pressable>
-        </View>
         {streamError ? (
           <View style={styles.banner}>
             <ThemedText type="small" themeColor="textSecondary">
@@ -423,6 +387,9 @@ export default function TerminalScreen(): React.ReactElement {
           terminalThemeId={terminalThemeId}
           onInput={onInput}
           onResize={onResize}
+          onCopyRequest={handleCopySelection}
+          onPasteRequest={handlePaste}
+          onToolbarNotice={handleToolbarNotice}
           dom={{
             style: { flex: 1 },
             matchContents: false,
@@ -510,25 +477,6 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
-  },
-  actionBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.three,
-  },
-  actionButtonDisabled: {
-    opacity: 0.4,
   },
   banner: {
     paddingHorizontal: Spacing.four,
