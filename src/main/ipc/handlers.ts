@@ -34,6 +34,10 @@ import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 
 const execFileAsync = promisify(execFile)
+
+export interface IpcCommandBridge {
+  grantAttachPath(webContentsId: number, targetPath: string): void
+}
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
@@ -92,6 +96,7 @@ import type { SettingsExportService } from '../settings/SettingsExport'
 import { settingsExportErrorMessage } from '../settings/errors'
 import type { AgentType, PreferencesReader } from '../agents/types'
 import { resolveShell } from '../pty/PtyManager'
+import { WorkspaceCommandService } from '../commands/workspaceCommands'
 
 function shellExecArgs(command: string): { command: string; args: string[] } {
   const shell = resolveShell()
@@ -191,7 +196,7 @@ export function registerIpcHandlers(
   skillStore: SkillStore,
   profileStore: ProfileStore,
   settingsExportService: SettingsExportService,
-): void {
+): IpcCommandBridge {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
     for (const win of BrowserWindow.getAllWindows()) {
@@ -222,21 +227,35 @@ export function registerIpcHandlers(
     }
   }
 
-  ipcMain.handle('workspace:command:restoreWindow', () => {
-    throw new Error('workspace restore command service is not registered')
+  const workspaceCommandService = new WorkspaceCommandService({
+    workspaceStore,
+    layoutStore,
+    windowManager,
+    persistWindowConfigs,
+    validatePathAccess: (webContentsId, targetPath) =>
+      validatePathAccess(webContentsId, targetPath),
+    clearWorkspaceFileCache: (workspacePath) => {
+      workspaceFileCache.delete(workspacePath)
+    },
   })
-  ipcMain.handle('workspace:command:attachProject', () => {
-    throw new Error('workspace attach command service is not registered')
-  })
-  ipcMain.handle('workspace:command:detachProject', () => {
-    throw new Error('workspace detach command service is not registered')
-  })
-  ipcMain.handle('workspace:command:selectWorktree', () => {
-    throw new Error('workspace select command service is not registered')
-  })
-  ipcMain.handle('workspace:command:initGitRepo', () => {
-    throw new Error('workspace init git command service is not registered')
-  })
+
+  ipcMain.handle(
+    'workspace:command:restoreWindow',
+    (event, payload: { paths: string[]; activeWorktreePath?: string; removedPaths?: string[] }) =>
+      workspaceCommandService.restoreWindow(event.sender, payload),
+  )
+  ipcMain.handle('workspace:command:attachProject', (event, payload: { path: string }) =>
+    workspaceCommandService.attachProject(event.sender, payload.path),
+  )
+  ipcMain.handle('workspace:command:detachProject', (event, payload: { path: string }) =>
+    workspaceCommandService.detachProject(event.sender, payload.path),
+  )
+  ipcMain.handle('workspace:command:selectWorktree', (event, payload: { path: string }) =>
+    workspaceCommandService.selectWorktree(event.sender, payload.path),
+  )
+  ipcMain.handle('workspace:command:initGitRepo', (event, payload: { path: string }) =>
+    workspaceCommandService.initGitRepo(event.sender, payload.path),
+  )
   ipcMain.handle('tab:command:openTool', () => {
     throw new Error('tab open command service is not registered')
   })
@@ -594,19 +613,8 @@ export function registerIpcHandlers(
     return workspaceStore.getByPath(payload.path) ?? null
   })
 
-  ipcMain.handle(
-    'db:workspace:upsert',
-    (_event, payload: { path: string; name: string; isGitRepo: boolean }) => {
-      return workspaceStore.upsert(payload)
-    },
-  )
-
   ipcMain.handle('db:workspace:remove', (_event, payload: { id: string }) => {
     workspaceStore.remove(payload.id)
-  })
-
-  ipcMain.handle('db:workspace:touch', (_event, payload: { id: string }) => {
-    workspaceStore.touch(payload.id)
   })
 
   // --- Preferences ---
@@ -844,44 +852,12 @@ export function registerIpcHandlers(
     })
   })
 
-  ipcMain.handle('app:setWorkspacePath', (event, payload: { path: string }) => {
-    windowManager.addWorkspacePath(event.sender.id, payload.path)
-    persistWindowConfigs()
-  })
-
-  ipcMain.handle('app:setActiveWorktree', (event, payload: { path: string }) => {
-    windowManager.setActiveWorktree(event.sender.id, payload.path)
-    persistWindowConfigs()
-  })
-
   ipcMain.handle(
     'app:setFocusedAgentSession',
     (event, payload: { ptySessionId: string | null }) => {
       windowManager.setFocusedAgentSession(event.sender.id, payload.ptySessionId)
     },
   )
-
-  ipcMain.handle('app:detachProject', (event, payload: { path: string }) => {
-    const senderId = event.sender.id
-    windowManager.removeWorkspacePath(senderId, payload.path)
-    windowManager.disposeGitWatcher(senderId, payload.path)
-    // Delete layouts so this workspace won't restore on next launch
-    const ws = workspaceStore.getByPath(payload.path)
-    if (ws) layoutStore.deleteAll(ws.id)
-    // Release the Quick Open file list cached for this workspace.
-    workspaceFileCache.delete(payload.path)
-    persistWindowConfigs()
-  })
-
-  ipcMain.handle('app:focusWindowForPath', (event, payload: { path: string }) => {
-    const existing = windowManager.getWindowForPath(payload.path)
-    if (existing && existing.webContents.id !== event.sender.id) {
-      if (existing.isMinimized()) existing.restore()
-      existing.focus()
-      return true
-    }
-    return false
-  })
 
   ipcMain.handle('app:focusRendererWebContents', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -899,7 +875,40 @@ export function registerIpcHandlers(
       properties: ['openDirectory', 'createDirectory'],
       ...(payload?.defaultPath ? { defaultPath: payload.defaultPath } : {}),
     })
-    return result.canceled ? null : result.filePaths[0]
+    if (result.canceled) return null
+    const selectedPath = result.filePaths[0]
+    if (selectedPath) workspaceCommandService.grantAttachPath(event.sender.id, selectedPath)
+    return selectedPath
+  })
+
+  ipcMain.handle('dialog:confirmOpenPath', async (event, payload: { path: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+
+    let resolved: string
+    let home: string
+    try {
+      resolved = await fs.promises.realpath(path.resolve(payload.path))
+      home = await fs.promises.realpath(os.homedir())
+    } catch {
+      throw new Error('Path does not exist')
+    }
+    if (resolved !== home && !resolved.startsWith(home + path.sep)) {
+      throw new Error('Path must be inside your home directory')
+    }
+
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: ['Open', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: 'Open workspace?',
+      detail: `Open this path as a workspace?\n${resolved}`,
+    })
+    if (response !== 0) return null
+
+    workspaceCommandService.grantAttachPath(event.sender.id, resolved)
+    return resolved
   })
 
   // --- Git ---
@@ -3287,4 +3296,9 @@ export function registerIpcHandlers(
     await fs.promises.unlink(resolvedTarget)
     return { success: true }
   })
+  return {
+    grantAttachPath(webContentsId: number, targetPath: string): void {
+      workspaceCommandService.grantAttachPath(webContentsId, targetPath)
+    },
+  }
 }

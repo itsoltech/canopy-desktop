@@ -52,10 +52,7 @@ const api = {
   listWorkspaces: (limit?: number) => ipcRenderer.invoke('db:workspace:list', { limit }),
   getWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:get', { id }),
   getWorkspaceByPath: (path: string) => ipcRenderer.invoke('db:workspace:getByPath', { path }),
-  upsertWorkspace: (workspace: { path: string; name: string; isGitRepo: boolean }) =>
-    ipcRenderer.invoke('db:workspace:upsert', workspace),
   removeWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:remove', { id }),
-  touchWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:touch', { id }),
   workspaceRestoreWindow: (payload: {
     paths: string[]
     activeWorktreePath?: string
@@ -308,18 +305,14 @@ const api = {
   getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
   newWindow: () => ipcRenderer.invoke('app:newWindow'),
-  setWorkspacePath: (path: string) => ipcRenderer.invoke('app:setWorkspacePath', { path }),
-  setActiveWorktree: (path: string) => ipcRenderer.invoke('app:setActiveWorktree', { path }),
   setFocusedAgentSession: (ptySessionId: string | null) =>
     ipcRenderer.invoke('app:setFocusedAgentSession', { ptySessionId }),
-  detachProject: (path: string) => ipcRenderer.invoke('app:detachProject', { path }),
-  focusWindowForPath: (path: string) =>
-    ipcRenderer.invoke('app:focusWindowForPath', { path }) as Promise<boolean>,
   focusRendererWebContents: () => ipcRenderer.invoke('app:focusRendererWebContents'),
 
   // Dialog
   openFolder: (defaultPath?: string) =>
     ipcRenderer.invoke('dialog:openFolder', defaultPath ? { defaultPath } : undefined),
+  confirmOpenPath: (path: string) => ipcRenderer.invoke('dialog:confirmOpenPath', { path }),
 
   // Settings export / import
   exportSettings: () =>

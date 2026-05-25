@@ -289,13 +289,7 @@ interface CanopyAPI {
   listWorkspaces: (limit?: number) => Promise<WorkspaceRow[]>
   getWorkspace: (id: string) => Promise<WorkspaceRow | null>
   getWorkspaceByPath: (path: string) => Promise<WorkspaceRow | null>
-  upsertWorkspace: (workspace: {
-    path: string
-    name: string
-    isGitRepo: boolean
-  }) => Promise<WorkspaceRow>
   removeWorkspace: (id: string) => Promise<void>
-  touchWorkspace: (id: string) => Promise<void>
   workspaceRestoreWindow: (payload: {
     paths: string[]
     activeWorktreePath?: string
@@ -355,11 +349,7 @@ interface CanopyAPI {
     worktreePath: string,
     options?: { initialUrl?: string; profileId?: string },
   ) => Promise<TabCommandResult>
-  tabRestartPane: (
-    worktreePath: string,
-    tabId: string,
-    paneId: string,
-  ) => Promise<TabCommandResult>
+  tabRestartPane: (worktreePath: string, tabId: string, paneId: string) => Promise<TabCommandResult>
   tabCloseTab: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
   tabSaveLayout: (worktreePath: string, layoutJson: string) => Promise<void>
   tabRestoreLayout: (worktreePath: string, layoutJson: string) => Promise<TabCommandResult>
@@ -380,14 +370,12 @@ interface CanopyAPI {
   // App / Shell
   showInFolder: (path: string) => Promise<void>
   newWindow: () => Promise<void>
-  setWorkspacePath: (path: string) => Promise<void>
-  detachProject: (path: string) => Promise<void>
-  focusWindowForPath: (path: string) => Promise<boolean>
   focusRendererWebContents: () => Promise<void>
   setFocusedAgentSession: (ptySessionId: string | null) => Promise<void>
 
   // Dialog
   openFolder: (defaultPath?: string) => Promise<string | null>
+  confirmOpenPath: (path: string) => Promise<string | null>
 
   // Settings export / import
   exportSettings: () => Promise<{

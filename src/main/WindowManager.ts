@@ -174,7 +174,7 @@ export class WindowManager {
 
   getWindowForPath(path: string): BrowserWindow | null {
     for (const [wcId, paths] of this.workspacePaths) {
-      if (paths.has(path)) {
+      if (paths.has(path) || this.activeWorktreePaths.get(wcId) === path) {
         const win = this.windows.get(wcId)
         if (win && !win.isDestroyed()) return win
       }
@@ -198,6 +198,10 @@ export class WindowManager {
 
   setActiveWorktree(wcId: number, path: string): void {
     this.activeWorktreePaths.set(wcId, path)
+  }
+
+  clearActiveWorktree(wcId: number): void {
+    this.activeWorktreePaths.delete(wcId)
   }
 
   setFocusedAgentSession(wcId: number, ptySessionId: string | null): void {
