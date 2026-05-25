@@ -222,6 +222,52 @@ export function registerIpcHandlers(
     }
   }
 
+  ipcMain.handle('workspace:command:restoreWindow', () => {
+    throw new Error('workspace restore command service is not registered')
+  })
+  ipcMain.handle('workspace:command:attachProject', () => {
+    throw new Error('workspace attach command service is not registered')
+  })
+  ipcMain.handle('workspace:command:detachProject', () => {
+    throw new Error('workspace detach command service is not registered')
+  })
+  ipcMain.handle('workspace:command:selectWorktree', () => {
+    throw new Error('workspace select command service is not registered')
+  })
+  ipcMain.handle('workspace:command:initGitRepo', () => {
+    throw new Error('workspace init git command service is not registered')
+  })
+  ipcMain.handle('tab:command:openTool', () => {
+    throw new Error('tab open command service is not registered')
+  })
+  ipcMain.handle('tab:command:restartPane', () => {
+    throw new Error('tab restart command service is not registered')
+  })
+  ipcMain.handle('tab:command:closeTab', () => {
+    throw new Error('tab close command service is not registered')
+  })
+  ipcMain.handle('tab:command:saveLayout', () => {
+    throw new Error('tab save layout command service is not registered')
+  })
+  ipcMain.handle('tab:command:restoreLayout', () => {
+    throw new Error('tab restore layout command service is not registered')
+  })
+  ipcMain.handle('agent:command:sendTaskContext', () => {
+    throw new Error('agent task command service is not registered')
+  })
+  ipcMain.handle('agent:command:sendReviewContext', () => {
+    throw new Error('agent review command service is not registered')
+  })
+  ipcMain.handle('agent:command:sendDrawing', () => {
+    throw new Error('agent drawing command service is not registered')
+  })
+  ipcMain.handle('runConfig:command:execute', () => {
+    throw new Error('run config command service is not registered')
+  })
+  ipcMain.handle('runConfig:command:listRunning', () => {
+    throw new Error('run config command service is not registered')
+  })
+
   // --- PTY ---
 
   ipcMain.handle(

@@ -1,3 +1,11 @@
+import type {
+  AgentCommandResult,
+  RunConfigCommandResult,
+  RunConfigProcessSnapshot,
+  TabCommandResult,
+  WorkspaceCommandResult,
+} from '../main/commands/types'
+
 interface PtySpawnResult {
   sessionId: string
   wsUrl: string
@@ -288,6 +296,15 @@ interface CanopyAPI {
   }) => Promise<WorkspaceRow>
   removeWorkspace: (id: string) => Promise<void>
   touchWorkspace: (id: string) => Promise<void>
+  workspaceRestoreWindow: (payload: {
+    paths: string[]
+    activeWorktreePath?: string
+    removedPaths?: string[]
+  }) => Promise<WorkspaceCommandResult>
+  workspaceAttachProject: (path: string) => Promise<WorkspaceCommandResult>
+  workspaceDetachProject: (path: string) => Promise<WorkspaceCommandResult>
+  workspaceSelectWorktree: (path: string) => Promise<WorkspaceCommandResult>
+  workspaceInitGitRepo: (path: string) => Promise<WorkspaceCommandResult>
 
   // Preferences
   getPref: (key: string) => Promise<string | null>
@@ -333,6 +350,33 @@ interface CanopyAPI {
       category?: string
     },
   ) => Promise<ToolDefinition[]>
+  tabOpenTool: (
+    toolId: string,
+    worktreePath: string,
+    options?: { initialUrl?: string; profileId?: string },
+  ) => Promise<TabCommandResult>
+  tabRestartPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+  ) => Promise<TabCommandResult>
+  tabCloseTab: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
+  tabSaveLayout: (worktreePath: string, layoutJson: string) => Promise<void>
+  tabRestoreLayout: (worktreePath: string, layoutJson: string) => Promise<TabCommandResult>
+
+  agentSendTaskContext: (payload: {
+    text: string
+    worktreePath?: string
+  }) => Promise<AgentCommandResult>
+  agentSendReviewContext: (payload: {
+    text: string
+    worktreePath?: string
+  }) => Promise<AgentCommandResult>
+  agentSendDrawing: (payload: {
+    pngBase64: string
+    worktreePath?: string
+  }) => Promise<AgentCommandResult>
+
   // App / Shell
   showInFolder: (path: string) => Promise<void>
   newWindow: () => Promise<void>
@@ -808,6 +852,12 @@ interface CanopyAPI {
     name: string,
     cwd?: string,
   ) => Promise<{ sessionId: string; wsUrl: string }>
+  runConfigExecuteCommand: (
+    configDir: string,
+    name: string,
+    cwd: string,
+  ) => Promise<RunConfigCommandResult>
+  runConfigListRunning: () => Promise<RunConfigProcessSnapshot[]>
   onRunConfigPostRunResult: (
     callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
   ) => () => void

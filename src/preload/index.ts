@@ -56,6 +56,19 @@ const api = {
     ipcRenderer.invoke('db:workspace:upsert', workspace),
   removeWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:remove', { id }),
   touchWorkspace: (id: string) => ipcRenderer.invoke('db:workspace:touch', { id }),
+  workspaceRestoreWindow: (payload: {
+    paths: string[]
+    activeWorktreePath?: string
+    removedPaths?: string[]
+  }) => ipcRenderer.invoke('workspace:command:restoreWindow', payload),
+  workspaceAttachProject: (path: string) =>
+    ipcRenderer.invoke('workspace:command:attachProject', { path }),
+  workspaceDetachProject: (path: string) =>
+    ipcRenderer.invoke('workspace:command:detachProject', { path }),
+  workspaceSelectWorktree: (path: string) =>
+    ipcRenderer.invoke('workspace:command:selectWorktree', { path }),
+  workspaceInitGitRepo: (path: string) =>
+    ipcRenderer.invoke('workspace:command:initGitRepo', { path }),
 
   // Preferences
   getPref: (key: string) => ipcRenderer.invoke('db:prefs:get', { key }),
@@ -108,6 +121,26 @@ const api = {
       category?: string
     },
   ) => ipcRenderer.invoke('tools:updateCustom', { id, changes }),
+  tabOpenTool: (
+    toolId: string,
+    worktreePath: string,
+    options?: { initialUrl?: string; profileId?: string },
+  ) => ipcRenderer.invoke('tab:command:openTool', { toolId, worktreePath, options }),
+  tabRestartPane: (worktreePath: string, tabId: string, paneId: string) =>
+    ipcRenderer.invoke('tab:command:restartPane', { worktreePath, tabId, paneId }),
+  tabCloseTab: (worktreePath: string, tabId: string) =>
+    ipcRenderer.invoke('tab:command:closeTab', { worktreePath, tabId }),
+  tabSaveLayout: (worktreePath: string, layoutJson: string) =>
+    ipcRenderer.invoke('tab:command:saveLayout', { worktreePath, layoutJson }),
+  tabRestoreLayout: (worktreePath: string, layoutJson: string) =>
+    ipcRenderer.invoke('tab:command:restoreLayout', { worktreePath, layoutJson }),
+
+  agentSendTaskContext: (payload: { text: string; worktreePath?: string }) =>
+    ipcRenderer.invoke('agent:command:sendTaskContext', payload),
+  agentSendReviewContext: (payload: { text: string; worktreePath?: string }) =>
+    ipcRenderer.invoke('agent:command:sendReviewContext', payload),
+  agentSendDrawing: (payload: { pngBase64: string; worktreePath?: string }) =>
+    ipcRenderer.invoke('agent:command:sendDrawing', payload),
 
   // Skills
   listSkills: (opts?: { scope?: string; agent?: string; workspaceId?: string | null }) =>
@@ -1019,6 +1052,9 @@ const api = {
       sessionId: string
       wsUrl: string
     }>,
+  runConfigExecuteCommand: (configDir: string, name: string, cwd: string) =>
+    ipcRenderer.invoke('runConfig:command:execute', { configDir, name, cwd }),
+  runConfigListRunning: () => ipcRenderer.invoke('runConfig:command:listRunning'),
   onRunConfigPostRunResult: (
     callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
   ) => {
