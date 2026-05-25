@@ -14,27 +14,39 @@ import { networkInterfaces } from 'node:os'
 export interface NetworkInterfaceInfo {
   name: string
   address: string
+  virtual: boolean
 }
 
 const VIRTUAL_INTERFACE_PATTERN =
   /^(vboxnet|vmnet|docker|br-|lo|utun|tun|tap|tailscale|zerotier|wg|cni|virbr|awdl|llw|anpi|bridge)/i
 
-export function listLanInterfaces(): NetworkInterfaceInfo[] {
+export function listAllInterfaces(): NetworkInterfaceInfo[] {
   const ifaces = networkInterfaces()
   const result: NetworkInterfaceInfo[] = []
   for (const [name, addrs] of Object.entries(ifaces)) {
     if (!addrs) continue
-    if (VIRTUAL_INTERFACE_PATTERN.test(name)) continue
+    const virtual = VIRTUAL_INTERFACE_PATTERN.test(name)
     for (const addr of addrs) {
       if (addr.family === 'IPv4' && !addr.internal) {
-        result.push({ name, address: addr.address })
+        result.push({ name, address: addr.address, virtual })
       }
     }
   }
   return result
 }
 
-export function selectPrimaryInterface(): NetworkInterfaceInfo | null {
+export function listLanInterfaces(): NetworkInterfaceInfo[] {
+  return listAllInterfaces().filter((i) => !i.virtual)
+}
+
+export function selectPrimaryInterface(preferredName?: string): NetworkInterfaceInfo | null {
+  // Explicit user choice: match by interface name across ALL interfaces
+  // (including virtual ones like Tailscale/WireGuard — the user opted in).
+  // No match means the named interface is gone (DHCP renew, adapter unplug,
+  // VPN down). Caller treats null as NoNetworkInterface — no silent fallback.
+  if (preferredName) {
+    return listAllInterfaces().find((i) => i.name === preferredName) ?? null
+  }
   const ifaces = listLanInterfaces()
   // Prefer interfaces named like WiFi on macOS (`en0`, `en1`) since that's
   // usually where a phone will be. Ethernet has higher numeric priority

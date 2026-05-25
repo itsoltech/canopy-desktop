@@ -1,3 +1,27 @@
+## [0.13.0-next.8](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.7...v0.13.0-next.8) (2026-05-25)
+
+### Features
+
+* **agents:** add codex dangerous bypass option ([e161fb7](https://github.com/itsoltech/canopy-desktop/commit/e161fb79e01922bbde82204616672e86c4db4089))
+
+### Bug Fixes
+
+* **agents:** observe codex compact hooks ([76159ea](https://github.com/itsoltech/canopy-desktop/commit/76159ea56492cf53304756a7a0c8095d5c2dbbf7))
+* handle pointercancel in touch selection tap handler ([eb51712](https://github.com/itsoltech/canopy-desktop/commit/eb51712839eafe11d9a669cbf953656c58a732c8))
+* **mobile:** auto-scroll during selection and allow pan with selection ([b0ba3aa](https://github.com/itsoltech/canopy-desktop/commit/b0ba3aa041b3522c1223483edf1b6780faa679c3))
+* **mobile:** auto-scroll terminal when selection reaches viewport edge ([67368c7](https://github.com/itsoltech/canopy-desktop/commit/67368c7ee6a4c1495b79c38d7712b55fbc8aed38))
+* **mobile:** enable text selection via long-press in terminal ([a1f2161](https://github.com/itsoltech/canopy-desktop/commit/a1f2161f6b2907157a3e8dda4547faf1e28723f9))
+* **mobile:** prevent scroll during text selection and enable long-press with keyboard open ([ca8e831](https://github.com/itsoltech/canopy-desktop/commit/ca8e831918e72390f3d9715ee7499526b10762b5))
+* **mobile:** revert auto-scroll, fix keyboard re-focus after selection ([dc25fb8](https://github.com/itsoltech/canopy-desktop/commit/dc25fb83bca30be159bc8981a874bce46a7df9d5))
+* **remote:** enable screenReaderMode on touch for text selection ([fd2c620](https://github.com/itsoltech/canopy-desktop/commit/fd2c620648c6422f2e6ea9cf6140c3446ce4dd68))
+* **remote:** enable text selection on mobile terminals ([29e8f11](https://github.com/itsoltech/canopy-desktop/commit/29e8f1117e4da27e80475436251fe306d1d6d26a))
+
+## [0.13.0-next.7](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.6...v0.13.0-next.7) (2026-05-24)
+
+### Features
+
+* **remote:** allow manual selection of LAN network interface ([#223](https://github.com/itsoltech/canopy-desktop/issues/223)) ([8f45976](https://github.com/itsoltech/canopy-desktop/commit/8f45976ba67ea195ed002e50d26f96518ff019ec))
+
 ## [0.13.0-next.6](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.5...v0.13.0-next.6) (2026-05-12)
 
 ### Bug Fixes

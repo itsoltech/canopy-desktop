@@ -33,6 +33,7 @@
   let unsubData: (() => void) | null = null
   let unsubClosed: (() => void) | null = null
   let unsubResized: (() => void) | null = null
+  let lifecycleAc: AbortController | null = null
 
   // ===== Smart auto-follow cursor state =====
   //
@@ -247,6 +248,9 @@
   onMount(async () => {
     if (!containerEl) return
 
+    lifecycleAc = new AbortController()
+    const lifecycleSignal = lifecycleAc.signal
+
     // Fetch the host PTY's current dimensions BEFORE creating the xterm.
     // Without this, our local xterm defaults to 80×24 and wraps any host
     // output that used a wider window — shell prompts, Claude/Gemini CLI
@@ -290,18 +294,22 @@
     if (isCoarsePointer) {
       const a11y = containerEl.querySelector<HTMLElement>('.xterm-accessibility')
       if (a11y) {
-        a11y.addEventListener('pointerdown', () => {
-          const start = Date.now()
-          const ac = new AbortController()
-          const onEnd = (e: PointerEvent): void => {
-            ac.abort()
-            if (e.type === 'pointerup' && Date.now() - start < 400) {
-              term?.textarea?.focus()
+        a11y.addEventListener(
+          'pointerdown',
+          () => {
+            const start = Date.now()
+            const ac = new AbortController()
+            const onEnd = (e: PointerEvent): void => {
+              ac.abort()
+              if (e.type === 'pointerup' && Date.now() - start < 400) {
+                term?.textarea?.focus()
+              }
             }
-          }
-          a11y.addEventListener('pointerup', onEnd, { signal: ac.signal })
-          a11y.addEventListener('pointercancel', onEnd, { signal: ac.signal })
-        })
+            a11y.addEventListener('pointerup', onEnd, { signal: ac.signal })
+            a11y.addEventListener('pointercancel', onEnd, { signal: ac.signal })
+          },
+          { signal: lifecycleSignal },
+        )
       }
     }
 
@@ -346,10 +354,14 @@
     // in just the top portion of an otherwise-empty scroll area. The
     // keyboard-close branch below handles re-fitting for the new
     // (larger) size once the keyboard is actually gone.
-    containerEl.addEventListener('pointerdown', () => {
-      if (keyboardOpen) return
-      void requestPeerFit()
-    })
+    containerEl.addEventListener(
+      'pointerdown',
+      () => {
+        if (keyboardOpen) return
+        void requestPeerFit()
+      },
+      { signal: lifecycleSignal },
+    )
 
     // Input: peer keyboard → PTY write. The xterm itself handles cursor
     // echo / line editing; we just proxy bytes to the host.
@@ -446,6 +458,7 @@
     unsubData?.()
     unsubClosed?.()
     unsubResized?.()
+    lifecycleAc?.abort()
     scrollEl?.removeEventListener('scroll', onScrollEvent)
     api.pty.unsubscribe(sessionId).catch(() => {})
     term?.dispose()

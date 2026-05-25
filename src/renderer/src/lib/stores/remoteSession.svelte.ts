@@ -126,16 +126,25 @@ function applyStatus(status: RemoteSessionStatus): void {
 }
 
 export function initRemoteSessionListeners(): () => void {
+  // If the caller has already torn down listeners, drop late-arriving status
+  // pushes — otherwise `getStatus()` resolving post-teardown would resurrect
+  // the host controller via `applyStatus`.
+  let disposed = false
+
   // Seed the store with the current main-process state so first render isn't
   // stuck on 'idle' if the user opened a window while a session was active.
   window.api.remote
     .getStatus()
-    .then((status) => applyStatus(status))
+    .then((status) => {
+      if (!disposed) applyStatus(status)
+    })
     .catch(() => {
       // Ignore — status change listener will update on the next event.
     })
 
-  const unsubStatus = window.api.remote.onStatusChange((status) => applyStatus(status))
+  const unsubStatus = window.api.remote.onStatusChange((status) => {
+    if (!disposed) applyStatus(status)
+  })
 
   // Best-effort: ask the main process to bring the signaling server up in
   // passive listen mode so a previously trusted phone can reconnect without
@@ -147,6 +156,7 @@ export function initRemoteSessionListeners(): () => void {
     // Never surfaces errors — listen mode is opportunistic.
   })
   const unsubSignal = window.api.remote.onSignal((msg) => {
+    if (disposed) return
     // Signals from the main process only reach this renderer if it's the
     // designated host window (see `RemoteSessionService.handlePeerSignal`), so
     // we can safely hand them to the controller without any cross-window
@@ -172,6 +182,7 @@ export function initRemoteSessionListeners(): () => void {
   })
 
   return () => {
+    disposed = true
     unsubStatus()
     unsubSignal()
     teardownHostController()

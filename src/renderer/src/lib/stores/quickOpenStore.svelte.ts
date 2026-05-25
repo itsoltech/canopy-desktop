@@ -54,6 +54,10 @@ export async function forceReload(worktreePath: string): Promise<string[]> {
   }
 }
 
+export function clearQuickOpenCache(worktreePath: string): void {
+  delete state[worktreePath]
+}
+
 export function prefetchOnIdle(worktreePath: string): void {
   if (!worktreePath) return
   if (state[worktreePath]?.files.length) return

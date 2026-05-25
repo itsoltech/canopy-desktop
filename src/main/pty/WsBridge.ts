@@ -104,7 +104,10 @@ export class WsBridge {
   private async ensureServer(): Promise<number> {
     if (this.serverReady) return this.serverReady
 
-    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+    // maxPayload caps per-frame buffering inside `ws` before our handler runs.
+    // Without it, the default 100 MB cap lets any local process feed the server
+    // huge frames that are buffered to RAM before being relayed to the PTY.
+    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1', maxPayload: MAX_BUFFER_BYTES })
     this.wss = wss
 
     wss.on('connection', (ws, req) => {
