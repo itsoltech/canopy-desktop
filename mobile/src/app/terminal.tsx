@@ -72,6 +72,7 @@ export default function TerminalScreen(): React.ReactElement {
   const writeQueueRef = useRef<string[]>([])
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [toolbarNotice, setToolbarNotice] = useState<string | null>(null)
 
   // Mirror latest api/sessionId into refs so the onInput/onResize callbacks
   // passed to the DOM component can stay referentially stable forever. If
@@ -182,6 +183,12 @@ export default function TerminalScreen(): React.ReactElement {
     }
   }, [api, sessionId, scheduleFlush])
 
+  useEffect(() => {
+    if (!toolbarNotice) return
+    const timer = setTimeout(() => setToolbarNotice(null), 2500)
+    return () => clearTimeout(timer)
+  }, [toolbarNotice])
+
   // Translate a thrown api.pty.write error into a user-facing banner.
   // Keyboard strokes, paste, and any future write path (drag-and-drop,
   // shortcut macros) funnel through here so the brittle regex-against-
@@ -248,21 +255,17 @@ export default function TerminalScreen(): React.ReactElement {
   }, [handleWriteError])
 
   const handleCopySelection = useCallback(async (text: string) => {
-    if (!text) {
-      setStreamError('No terminal selection to copy')
-      return
-    }
     try {
       await Clipboard.setStringAsync(text)
-      setStreamError(null)
+      setToolbarNotice(null)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setStreamError(`Could not copy selection: ${msg}`)
     }
   }, [])
 
-  const handleToolbarNotice = useCallback(async (message: string) => {
-    setStreamError(message)
+  const handleToolbarNotice = useCallback((message: string) => {
+    setToolbarNotice(message)
   }, [])
 
   const handleTabSelect = useCallback(
@@ -355,10 +358,10 @@ export default function TerminalScreen(): React.ReactElement {
           onLongPress={api ? handleTabLongPress : undefined}
           onNewTab={api ? () => setPickerVisible(true) : undefined}
         />
-        {streamError ? (
+        {streamError || toolbarNotice ? (
           <View style={styles.banner}>
             <ThemedText type="small" themeColor="textSecondary">
-              {streamError}
+              {streamError ?? toolbarNotice}
             </ThemedText>
           </View>
         ) : null}

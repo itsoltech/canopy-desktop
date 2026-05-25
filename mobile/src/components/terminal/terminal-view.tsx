@@ -65,7 +65,7 @@ type Props = {
   onResize: (cols: number, rows: number) => Promise<void>
   onCopyRequest: (text: string) => Promise<void>
   onPasteRequest: () => Promise<void>
-  onToolbarNotice: (message: string) => Promise<void>
+  onToolbarNotice: (message: string) => void
   /**
    * `ref` is intentionally part of Props rather than a `forwardRef` argument:
    * Expo DOM components auto-generate a wrapper on the native side that
