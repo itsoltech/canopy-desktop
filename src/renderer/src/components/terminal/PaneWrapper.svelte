@@ -153,9 +153,10 @@
   // Attach capture-phase listener to intercept Alt+click before terminal content
   $effect(() => {
     if (!wrapperEl) return
-    wrapperEl.addEventListener('pointerdown', handlePaneDragPointerDown, { capture: true })
+    const el = wrapperEl
+    el.addEventListener('pointerdown', handlePaneDragPointerDown, { capture: true })
     return () => {
-      wrapperEl!.removeEventListener('pointerdown', handlePaneDragPointerDown, { capture: true })
+      el.removeEventListener('pointerdown', handlePaneDragPointerDown, { capture: true })
       // Safety: clean up window listeners if component unmounts mid-drag
       window.removeEventListener('pointermove', handlePaneDragMove)
       window.removeEventListener('pointerup', handlePaneDragEnd)

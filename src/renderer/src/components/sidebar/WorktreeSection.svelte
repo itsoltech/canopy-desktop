@@ -36,8 +36,13 @@
   }
 
   $effect(() => {
+    // Track length so the effect re-runs when worktrees are added/removed,
+    // not on every nested mutation (PR badge updates etc.). The previous
+    // `length >= 0` guard was always true and triggered a full IPC
+    // refresh on every reactive read of the array.
+    void workspaceState.worktrees.length
     const ac = new AbortController()
-    if (workspaceState.worktrees.length >= 0) checkMergedStatus(ac.signal)
+    checkMergedStatus(ac.signal)
     return () => ac.abort()
   })
 
