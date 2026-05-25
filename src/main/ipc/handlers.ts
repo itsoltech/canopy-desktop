@@ -94,16 +94,10 @@ import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
 import type { SettingsExportService } from '../settings/SettingsExport'
 import { settingsExportErrorMessage } from '../settings/errors'
 import type { AgentType } from '../agents/types'
-import { resolveShell } from '../pty/PtyManager'
 import { WorkspaceCommandService } from '../commands/workspaceCommands'
 import { TabCommandService, ToolSessionService } from '../commands/tabCommands'
 import { AgentCommandService } from '../commands/agentCommands'
-
-function shellExecArgs(command: string): { command: string; args: string[] } {
-  const shell = resolveShell()
-  const flag = os.platform() === 'win32' ? '-Command' : '-lc'
-  return { command: shell.command, args: [flag, command] }
-}
+import { RunConfigCommandService } from '../commands/runConfigCommands'
 
 // Session-level flag: once the user has successfully authenticated to reveal
 // a saved credential in the current app session, subsequent autofills reuse
@@ -257,6 +251,14 @@ export function registerIpcHandlers(
     agentSessionManager,
     windowManager,
   })
+  const runConfigCommandService = new RunConfigCommandService({
+    ptyManager,
+    wsBridge,
+    windowManager,
+    runConfigManager,
+    validatePathAccess: (webContentsId, targetPath) =>
+      validatePathAccess(webContentsId, targetPath),
+  })
 
   ipcMain.handle(
     'workspace:command:restoreWindow',
@@ -299,12 +301,12 @@ export function registerIpcHandlers(
   ipcMain.handle('agent:command:sendDrawing', (event, payload) =>
     agentCommandService.sendDrawing(event.sender, payload),
   )
-  ipcMain.handle('runConfig:command:execute', () => {
-    throw new Error('run config command service is not registered')
-  })
-  ipcMain.handle('runConfig:command:listRunning', () => {
-    throw new Error('run config command service is not registered')
-  })
+  ipcMain.handle('runConfig:command:execute', (event, payload) =>
+    runConfigCommandService.execute(event.sender, payload),
+  )
+  ipcMain.handle('runConfig:command:listRunning', (event) =>
+    runConfigCommandService.listRunning(event.sender),
+  )
 
   // --- PTY ---
 
@@ -2786,8 +2788,6 @@ export function registerIpcHandlers(
 
   // --- Run Configurations ---
 
-  const runConfigInstances = new Map<string, number>()
-
   ipcMain.handle('runConfig:discover', async (event, payload: { repoRoot: string }) => {
     const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
     const result = await runConfigManager.discover(resolved)
@@ -2850,130 +2850,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'runConfig:execute',
     async (event, payload: { configDir: string; name: string; cwd?: string }) => {
-      const resolvedConfigDir = await validatePathAccess(event.sender.id, payload.configDir)
-      const fileResult = await runConfigManager.loadFile(resolvedConfigDir)
-      const file = unwrapOrThrow(fileResult, runConfigErrorMessage)
-      const config = file.configurations.find((c) => c.name === payload.name)
-      if (!config) throw new Error(`Configuration "${payload.name}" not found`)
-
-      if (config.max_instances && config.max_instances > 0) {
-        const current = runConfigInstances.get(`${resolvedConfigDir}::${payload.name}`) ?? 0
-        if (current >= config.max_instances) {
-          throw new Error(`"${payload.name}" is already running (max ${config.max_instances})`)
-        }
-      }
-
-      if (!payload.cwd) throw new Error('No worktree selected')
-      const worktreeRoot = await validatePathAccess(event.sender.id, payload.cwd)
-      const cwd = config.cwd ? path.resolve(worktreeRoot, config.cwd) : worktreeRoot
-      if (config.cwd && cwd !== worktreeRoot && !cwd.startsWith(worktreeRoot + path.sep)) {
-        throw new Error('config.cwd must not escape the worktree directory')
-      }
-      const env = config.env
-      const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
-
-      // Pre-run hook (30s timeout)
-      if (config.pre_run) {
-        const PRE_RUN_TIMEOUT = 30_000
-        // Cap captured output so a noisy pre_run can't balloon main-process
-        // memory before the timer fires. We only surface the last ~5 lines on
-        // failure, so trimming the head is safe.
-        const PRE_RUN_OUTPUT_CAP = 32_768
-        const pre = shellExecArgs(config.pre_run)
-        const preSession = ptyManager.spawn({ command: pre.command, args: pre.args, cwd, env })
-        let preOutput = ''
-        preSession.pty.onData((data) => {
-          preOutput += data
-          if (preOutput.length > PRE_RUN_OUTPUT_CAP) {
-            preOutput = preOutput.slice(-PRE_RUN_OUTPUT_CAP / 2)
-          }
-        })
-        await new Promise<void>((resolve, reject) => {
-          let done = false
-          const timer = setTimeout(() => {
-            if (!done) {
-              done = true
-              ptyManager.kill(preSession.id)
-              reject(new Error(`pre_run "${config.pre_run}" timed out after 30s`))
-            }
-          }, PRE_RUN_TIMEOUT)
-          preSession.pty.onExit(({ exitCode }) => {
-            if (done) return
-            done = true
-            clearTimeout(timer)
-            ptyManager.kill(preSession.id)
-            if (exitCode !== 0) {
-              const lastLines = preOutput.trim().split('\n').slice(-5).join('\n')
-              reject(
-                new Error(`pre_run "${config.pre_run}" failed (exit ${exitCode}):\n${lastLines}`),
-              )
-            } else resolve()
-          })
-        })
-      }
-
-      // Run main command through shell so PATH is resolved
-      const main = shellExecArgs(fullCommand)
-      const session = ptyManager.spawn({ command: main.command, args: main.args, cwd, env })
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-      const senderId = event.sender.id
-      windowManager.trackPtySession(senderId, session.id)
-      const instanceKey = `${resolvedConfigDir}::${payload.name}`
-      runConfigInstances.set(instanceKey, (runConfigInstances.get(instanceKey) ?? 0) + 1)
-
-      const sender = event.sender
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
-        }
-        windowManager.untrackPtySession(senderId, session.id)
-        const count = (runConfigInstances.get(instanceKey) ?? 1) - 1
-        if (count <= 0) runConfigInstances.delete(instanceKey)
-        else runConfigInstances.set(instanceKey, count)
-
-        // Post-run hook
-        if (config.post_run) {
-          const postCmd = config.post_run
-          const post = shellExecArgs(postCmd)
-          const postSession = ptyManager.spawn({
-            command: post.command,
-            args: post.args,
-            cwd,
-            env,
-          })
-          const POST_RUN_TIMEOUT = 30_000
-          let postDone = false
-          const postTimer = setTimeout(() => {
-            if (!postDone) {
-              postDone = true
-              ptyManager.kill(postSession.id)
-              if (!sender.isDestroyed()) {
-                sender.send('runConfig:postRunResult', {
-                  success: false,
-                  command: postCmd,
-                  exitCode: -1,
-                })
-              }
-            }
-          }, POST_RUN_TIMEOUT)
-          postSession.pty.onExit(({ exitCode: postExit }) => {
-            if (postDone) return
-            postDone = true
-            clearTimeout(postTimer)
-            if (!sender.isDestroyed()) {
-              sender.send(
-                'runConfig:postRunResult',
-                postExit === 0
-                  ? { success: true, command: postCmd }
-                  : { success: false, command: postCmd, exitCode: postExit },
-              )
-            }
-            ptyManager.kill(postSession.id)
-          })
-        }
-      })
-
-      return { sessionId: session.id, wsUrl }
+      const result = await runConfigCommandService.execute(event.sender, payload)
+      return { sessionId: result.sessionId, wsUrl: result.wsUrl }
     },
   )
 
