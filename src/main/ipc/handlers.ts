@@ -22,7 +22,7 @@ import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { BrowserManager } from '../browser/BrowserManager'
 import type { CredentialStore, Credential } from '../db/CredentialStore'
-import { TmuxManager } from '../pty/TmuxManager'
+import type { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { GitRepository, type GitInfo } from '../git/GitRepository'
@@ -89,14 +89,14 @@ import { getTransformer } from '../skills/SkillTransformer'
 import { scanSkills } from '../skills/SkillScanner'
 import type { SkillAgentTarget } from '../skills/types'
 import type { ProfileStore } from '../profiles/ProfileStore'
-import { profileToReader } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
 import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
 import type { SettingsExportService } from '../settings/SettingsExport'
 import { settingsExportErrorMessage } from '../settings/errors'
-import type { AgentType, PreferencesReader } from '../agents/types'
+import type { AgentType } from '../agents/types'
 import { resolveShell } from '../pty/PtyManager'
 import { WorkspaceCommandService } from '../commands/workspaceCommands'
+import { TabCommandService, ToolSessionService } from '../commands/tabCommands'
 
 function shellExecArgs(command: string): { command: string; args: string[] } {
   const shell = resolveShell()
@@ -166,11 +166,6 @@ async function runCredentialOsAuth(event: IpcMainInvokeEvent, domain: string): P
     })
 }
 
-function resolveShellArgs(): string[] {
-  if (os.platform() === 'win32') return []
-  return ['--login']
-}
-
 export function registerIpcHandlers(
   ptyManager: PtyManager,
   wsBridge: WsBridge,
@@ -238,6 +233,24 @@ export function registerIpcHandlers(
       workspaceFileCache.delete(workspacePath)
     },
   })
+  const toolSessionService = new ToolSessionService({
+    ptyManager,
+    wsBridge,
+    workspaceStore,
+    preferencesStore,
+    toolRegistry,
+    agentSessionManager,
+    windowManager,
+    tmuxManager,
+    profileStore,
+  })
+  const tabCommandService = new TabCommandService({
+    toolSessions: toolSessionService,
+    layoutStore,
+    workspaceStore,
+    browserManager,
+    windowManager,
+  })
 
   ipcMain.handle(
     'workspace:command:restoreWindow',
@@ -256,21 +269,21 @@ export function registerIpcHandlers(
   ipcMain.handle('workspace:command:initGitRepo', (event, payload: { path: string }) =>
     workspaceCommandService.initGitRepo(event.sender, payload.path),
   )
-  ipcMain.handle('tab:command:openTool', () => {
-    throw new Error('tab open command service is not registered')
-  })
-  ipcMain.handle('tab:command:restartPane', () => {
-    throw new Error('tab restart command service is not registered')
-  })
-  ipcMain.handle('tab:command:closeTab', () => {
-    throw new Error('tab close command service is not registered')
-  })
-  ipcMain.handle('tab:command:saveLayout', () => {
-    throw new Error('tab save layout command service is not registered')
-  })
-  ipcMain.handle('tab:command:restoreLayout', () => {
-    throw new Error('tab restore layout command service is not registered')
-  })
+  ipcMain.handle('tab:command:openTool', (event, payload) =>
+    tabCommandService.openTool(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:restartPane', (event, payload) =>
+    tabCommandService.restartPane(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:closeTab', (event, payload) =>
+    tabCommandService.closeTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:saveLayout', (_event, payload) =>
+    tabCommandService.saveLayout(payload),
+  )
+  ipcMain.handle('tab:command:restoreLayout', (_event, payload) =>
+    tabCommandService.restoreLayout(payload),
+  )
   ipcMain.handle('agent:command:sendTaskContext', () => {
     throw new Error('agent task command service is not registered')
   })
@@ -343,18 +356,7 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('pty:kill', async (_event, payload: { sessionId: string; killTmux?: boolean }) => {
-    const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
-    // Kill tmux BEFORE PTY so the pty:exit handler sees the session as dead
-    // (otherwise handlePtyExit checks tmuxHasSession while it's still alive)
-    if (payload.killTmux && tmuxName && TmuxManager.isCanopySession(tmuxName)) {
-      try {
-        await tmuxManager.killSession(tmuxName)
-      } catch {
-        // Session may already be gone
-      }
-    }
-    wsBridge.destroy(payload.sessionId)
-    ptyManager.kill(payload.sessionId)
+    await toolSessionService.killPty(payload.sessionId, payload.killTmux)
   })
 
   ipcMain.handle('pty:write', (_event, payload: { sessionId: string; data: string }) => {
@@ -397,33 +399,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'tmux:attach',
     async (event, payload: { tmuxSessionName: string; cols?: number; rows?: number }) => {
-      validateTmuxName(payload.tmuxSessionName)
-      const sender = event.sender
-      const attach = tmuxManager.attachArgs(payload.tmuxSessionName)
-      const session = ptyManager.spawn({
-        command: attach.command,
-        args: attach.args,
-        cols: payload.cols,
-        rows: payload.rows,
-        tmuxSessionName: payload.tmuxSessionName,
-      })
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-
-      windowManager.trackPtySession(sender.id, session.id)
-
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', {
-            sessionId: session.id,
-            exitCode,
-            signal,
-            tmuxSessionName: payload.tmuxSessionName,
-          })
-        }
-        windowManager.untrackPtySession(sender.id, session.id)
-      })
-
-      return { sessionId: session.id, wsUrl }
+      return toolSessionService.attachTmux(event.sender, payload)
     },
   )
 
@@ -465,133 +441,7 @@ export function registerIpcHandlers(
         profileId?: string
       },
     ) => {
-      const sender = event.sender
-      const tool = toolRegistry.get(payload.toolId)
-      if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
-
-      let command = toolRegistry.resolveCommand(tool)
-      const isShell = tool.id === 'shell' || tool.command === 'shell'
-      const isAgent = agentSessionManager.isAgentTool(tool.id)
-      let args = isShell ? resolveShellArgs() : [...tool.args]
-      let env: Record<string, string> | undefined
-
-      let agentTempId: string | undefined
-      if (isAgent) {
-        const senderWindow = BrowserWindow.fromWebContents(sender)
-        if (!senderWindow) throw new Error('No window for agent session')
-
-        // Resolve preferences reader: profile shim if profileId is set,
-        // otherwise the global preferencesStore (legacy path).
-        let prefsReader: PreferencesReader = preferencesStore
-        if (payload.profileId) {
-          const profileResult = await profileStore.getInternal(payload.profileId)
-          if (profileResult.isErr()) {
-            throw new Error(profileErrorMessage(profileResult.error))
-          }
-          const profile = profileResult.value
-          if (profile.agentType !== tool.id) {
-            throw new Error(`Profile ${profile.name} is for ${profile.agentType}, not ${tool.id}`)
-          }
-          prefsReader = profileToReader(profile, preferencesStore)
-        }
-
-        // Parse settings.json overrides from prefs (via shim when profile-bound)
-        let settingsOverrides: Record<string, unknown> | undefined
-        const settingsJsonRaw = prefsReader.get(`${tool.id}.settingsJson`)
-        if (settingsJsonRaw) {
-          try {
-            settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
-          } catch {
-            // Invalid JSON
-          }
-        }
-
-        const agentSession = await agentSessionManager.createSession(
-          tool.id,
-          payload.worktreePath,
-          payload.workspaceName ?? '',
-          payload.branch ?? null,
-          senderWindow,
-          settingsOverrides,
-        )
-        args = [...agentSession.settingsArgs, ...args]
-        if (payload.resumeSessionId) {
-          args.push(...agentSessionManager.getResumeArgs(tool.id, payload.resumeSessionId))
-        }
-        args.push(...agentSessionManager.getCliArgs(tool.id, prefsReader))
-        env = {
-          CANOPY_HOOK_PORT: String(agentSession.hookPort),
-          CANOPY_HOOK_PATH: agentSession.hookPath,
-          CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
-          ...agentSession.settingsEnv,
-          ...agentSessionManager.getEnvVars(tool.id, prefsReader),
-        }
-        agentTempId = agentSession.tempId
-      }
-
-      // Tmux integration for all tool sessions
-      let tmuxSessionName: string | undefined
-      const tmuxEnabled = preferencesStore.get('tmux.enabled') === 'true'
-      if (tmuxEnabled && (await tmuxManager.isAvailable())) {
-        const ws = workspaceStore.getByPath(payload.worktreePath)
-        const wsId = ws?.id ?? 'default'
-        tmuxSessionName = TmuxManager.sessionName(wsId)
-        const tmuxMouse = preferencesStore.get('tmux.mouse') === 'true'
-        await tmuxManager.newSession({
-          name: tmuxSessionName,
-          cwd: payload.worktreePath,
-          shell: command,
-          shellArgs: args,
-          cols: payload.cols,
-          rows: payload.rows,
-          mouse: tmuxMouse,
-          env,
-        })
-        const attach = tmuxManager.attachArgs(tmuxSessionName)
-        command = attach.command
-        args = attach.args
-      }
-
-      const session = ptyManager.spawn({
-        command,
-        args,
-        cwd: payload.worktreePath,
-        cols: payload.cols,
-        rows: payload.rows,
-        env,
-        tmuxSessionName,
-      })
-
-      if (isAgent && agentTempId) {
-        agentSessionManager.rekey(agentTempId, session.id)
-      }
-
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-
-      windowManager.trackPtySession(sender.id, session.id)
-
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', {
-            sessionId: session.id,
-            exitCode,
-            signal,
-            tmuxSessionName: session.tmuxSessionName,
-          })
-        }
-        windowManager.untrackPtySession(sender.id, session.id)
-        if (isAgent) {
-          agentSessionManager.destroySession(session.id)
-        }
-      })
-
-      return {
-        sessionId: session.id,
-        wsUrl,
-        toolId: tool.id,
-        toolName: tool.name,
-        tmuxSessionName,
-      }
+      return toolSessionService.spawnTool(event.sender, payload)
     },
   )
 

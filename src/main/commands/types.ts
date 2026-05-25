@@ -47,7 +47,7 @@ export interface WorkspaceCommandResult {
   warnings: CommandWarning[]
 }
 
-export type PaneKind = 'terminal' | 'browser' | 'notes' | 'drawing' | 'editor'
+export type PaneKind = 'terminal' | 'browser' | 'notes' | 'drawing' | 'editor' | 'diff'
 
 export interface PaneSnapshot {
   id: string
@@ -93,6 +93,9 @@ export interface TabCommandResult {
   worktreePath: string
   tabs: TabSnapshot[]
   activeTabId: string | null
+  openedTab?: TabSnapshot
+  restartedPane?: PaneSnapshot
+  closedTabId?: string
 }
 
 export interface AgentCommandResult {

@@ -2,6 +2,7 @@ import type {
   AgentCommandResult,
   RunConfigCommandResult,
   RunConfigProcessSnapshot,
+  TabSnapshot,
   TabCommandResult,
   WorkspaceCommandResult,
 } from '../main/commands/types'
@@ -347,12 +348,37 @@ interface CanopyAPI {
   tabOpenTool: (
     toolId: string,
     worktreePath: string,
-    options?: { initialUrl?: string; profileId?: string },
+    options?: {
+      initialUrl?: string
+      profileId?: string
+      workspaceName?: string
+      branch?: string
+      tabs?: TabSnapshot[]
+      activeTabId?: string | null
+    },
   ) => Promise<TabCommandResult>
-  tabRestartPane: (worktreePath: string, tabId: string, paneId: string) => Promise<TabCommandResult>
-  tabCloseTab: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
-  tabSaveLayout: (worktreePath: string, layoutJson: string) => Promise<void>
-  tabRestoreLayout: (worktreePath: string, layoutJson: string) => Promise<TabCommandResult>
+  tabRestartPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+      tabs?: TabSnapshot[]
+      activeTabId?: string | null
+    },
+  ) => Promise<TabCommandResult>
+  tabCloseTab: (
+    worktreePath: string,
+    tabId: string,
+    options?: { tabs?: TabSnapshot[]; activeTabId?: string | null },
+  ) => Promise<TabCommandResult>
+  tabSaveLayout: (worktreePath: string, layoutJson: string, workspaceId?: string) => Promise<void>
+  tabRestoreLayout: (
+    worktreePath: string,
+    layoutJson: string,
+    options?: { tabs?: TabSnapshot[]; activeTabId?: string | null },
+  ) => Promise<TabCommandResult>
 
   agentSendTaskContext: (payload: {
     text: string

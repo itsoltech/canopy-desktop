@@ -256,6 +256,10 @@ export class WindowManager {
     if (set) set.delete(sessionId)
   }
 
+  ownsPtySession(wcId: number, sessionId: string): boolean {
+    return this.ptySessions.get(wcId)?.has(sessionId) ?? false
+  }
+
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
     let watchers = this.gitWatchers.get(wcId)
     if (!watchers) {

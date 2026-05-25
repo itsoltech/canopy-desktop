@@ -121,16 +121,69 @@ const api = {
   tabOpenTool: (
     toolId: string,
     worktreePath: string,
-    options?: { initialUrl?: string; profileId?: string },
-  ) => ipcRenderer.invoke('tab:command:openTool', { toolId, worktreePath, options }),
-  tabRestartPane: (worktreePath: string, tabId: string, paneId: string) =>
-    ipcRenderer.invoke('tab:command:restartPane', { worktreePath, tabId, paneId }),
-  tabCloseTab: (worktreePath: string, tabId: string) =>
-    ipcRenderer.invoke('tab:command:closeTab', { worktreePath, tabId }),
-  tabSaveLayout: (worktreePath: string, layoutJson: string) =>
-    ipcRenderer.invoke('tab:command:saveLayout', { worktreePath, layoutJson }),
-  tabRestoreLayout: (worktreePath: string, layoutJson: string) =>
-    ipcRenderer.invoke('tab:command:restoreLayout', { worktreePath, layoutJson }),
+    options?: {
+      initialUrl?: string
+      profileId?: string
+      workspaceName?: string
+      branch?: string
+      tabs?: unknown
+      activeTabId?: string | null
+    },
+  ) => {
+    const { tabs, activeTabId, ...commandOptions } = options ?? {}
+    return ipcRenderer.invoke('tab:command:openTool', {
+      toolId,
+      worktreePath,
+      options: commandOptions,
+      tabs,
+      activeTabId,
+    })
+  },
+  tabRestartPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+      tabs?: unknown
+      activeTabId?: string | null
+    },
+  ) => {
+    const { tabs, activeTabId, ...commandOptions } = options ?? {}
+    return ipcRenderer.invoke('tab:command:restartPane', {
+      worktreePath,
+      tabId,
+      paneId,
+      options: commandOptions,
+      tabs,
+      activeTabId,
+    })
+  },
+  tabCloseTab: (
+    worktreePath: string,
+    tabId: string,
+    options?: { tabs?: unknown; activeTabId?: string | null },
+  ) =>
+    ipcRenderer.invoke('tab:command:closeTab', {
+      worktreePath,
+      tabId,
+      tabs: options?.tabs,
+      activeTabId: options?.activeTabId,
+    }),
+  tabSaveLayout: (worktreePath: string, layoutJson: string, workspaceId?: string) =>
+    ipcRenderer.invoke('tab:command:saveLayout', { worktreePath, layoutJson, workspaceId }),
+  tabRestoreLayout: (
+    worktreePath: string,
+    layoutJson: string,
+    options?: { tabs?: unknown; activeTabId?: string | null },
+  ) =>
+    ipcRenderer.invoke('tab:command:restoreLayout', {
+      worktreePath,
+      layoutJson,
+      tabs: options?.tabs,
+      activeTabId: options?.activeTabId,
+    }),
 
   agentSendTaskContext: (payload: { text: string; worktreePath?: string }) =>
     ipcRenderer.invoke('agent:command:sendTaskContext', payload),
