@@ -159,7 +159,13 @@
 
   <div class={sectionLabelCls}>
     <span>Environment Variables</span>
-    <button class={addBtnCls} onclick={addEnvPair} aria-label="Add environment variable">
+    <button
+      type="button"
+      class={addBtnCls}
+      onclick={addEnvPair}
+      aria-label="Add environment variable"
+      title="Add environment variable"
+    >
       <Plus size={14} />
     </button>
   </div>
@@ -175,9 +181,11 @@
         class="flex-[2] {envInputCls}"
       />
       <button
+        type="button"
         class={addBtnCls}
         onclick={() => removeEnvPair(i)}
         aria-label="Remove environment variable"
+        title="Remove environment variable"
       >
         <Trash2 size={12} />
       </button>
