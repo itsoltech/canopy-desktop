@@ -41,6 +41,17 @@ const REMOTE_SIGNAL_CHANNEL = 'remote:signal'
 const LAST_PORT_PREF_KEY = 'remote.lastPort'
 
 /**
+ * Preference key holding the user's chosen LAN interface name (e.g. `Wi-Fi`
+ * on Windows, `en0` on macOS). Empty / unset means "auto-detect" — the
+ * service falls back to the historical `selectPrimaryInterface()` heuristic.
+ * When set, the named interface is used as-is (no virtual filter — the user
+ * may deliberately pick Tailscale/WireGuard), and the signaling server binds
+ * only on that interface's IPv4 address. A named interface that is no longer
+ * present yields `NoNetworkInterface` rather than silently falling back.
+ */
+const SELECTED_INTERFACE_PREF_KEY = 'remote.selectedInterface'
+
+/**
  * State machine + lifecycle owner for the WebRTC remote-control feature.
  *
  * Responsibilities:
@@ -141,7 +152,8 @@ export class RemoteSessionService {
       return errAsync({ _tag: 'AlreadyRunning' })
     }
 
-    const iface = selectPrimaryInterface()
+    const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
+    const iface = selectPrimaryInterface(preferredIfaceName)
     if (!iface) {
       const err: RemoteServerError = { _tag: 'NoNetworkInterface' }
       this.setStatus({ kind: 'error', message: 'No usable network interface found' })
@@ -163,6 +175,10 @@ export class RemoteSessionService {
       .start({
         bundleRoot,
         preferredPort: savedPort,
+        // Auto-detect keeps the historical 0.0.0.0 bind so any LAN
+        // interface can reach the server; only an explicit user choice
+        // narrows the bind to one adapter.
+        bindHost: preferredIfaceName ? iface.address : '0.0.0.0',
         handlers: {
           onPairAttempt: (msg) => this.handlePairAttempt(msg),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),
@@ -227,7 +243,12 @@ export class RemoteSessionService {
     if (!this.isEnabledInPreferences()) return okAsync(undefined)
     if (this.trustedDevices.list().length === 0) return okAsync(undefined)
 
-    const iface = selectPrimaryInterface()
+    const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
+    const iface = selectPrimaryInterface(preferredIfaceName)
+    // Silent no-op for listen mode: any failure (no interface at all, or
+    // the user-named interface currently unavailable) leaves the session
+    // idle. Listen mode never surfaces errors to the user — the next manual
+    // `start()` will return NoNetworkInterface with a visible message.
     if (!iface) return okAsync(undefined)
 
     this.hostWcId = hostWcId
@@ -239,6 +260,8 @@ export class RemoteSessionService {
       .start({
         bundleRoot,
         preferredPort: savedPort,
+        // See start() — auto stays on 0.0.0.0, explicit pick narrows.
+        bindHost: preferredIfaceName ? iface.address : '0.0.0.0',
         handlers: {
           onPairAttempt: (msg) => this.handlePairAttempt(msg),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),

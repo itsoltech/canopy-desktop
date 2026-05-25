@@ -109,6 +109,9 @@ export class SignalingClient {
 
 function narrowHostSignal(raw: unknown): HostSignal | null {
   if (typeof raw !== 'object' || raw === null) return null
+  // Cast widens object access; each branch below validates the fields it
+  // reads (e.g. `typeof v.sessionId === 'string'`), and RTC SDP/ICE shapes
+  // are validated by the browser when handed to `RTCPeerConnection`.
   const v = raw as {
     type?: unknown
     sessionId?: unknown

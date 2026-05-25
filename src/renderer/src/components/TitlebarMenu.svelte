@@ -45,6 +45,8 @@
     onclick={toggle}
     title="Menu"
     aria-label="Application menu"
+    aria-haspopup="menu"
+    aria-expanded={open}
   >
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
       <rect x="2" y="3" width="12" height="1.5" rx="0.5" />
@@ -64,10 +66,13 @@
       class="fixed min-w-55 p-1 bg-bg-overlay border border-border rounded-lg shadow-popover z-popover"
       style="top: {dropdownTop}px; left: {dropdownLeft}px;"
       onclick={(e) => e.stopPropagation()}
+      role="menu"
+      aria-label="Application menu"
     >
       <button
         class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() => handleAction(() => window.api.newWindow())}
+        role="menuitem"
       >
         <span class="flex-1">New Window</span>
         <span class="text-text-muted text-xs">Ctrl+Shift+N</span>
@@ -78,6 +83,7 @@
       <button
         class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() => handleAction(showPreferences)}
+        role="menuitem"
       >
         <span class="flex-1">Settings…</span>
         <span class="text-text-muted text-xs">Ctrl+,</span>
@@ -88,12 +94,14 @@
       <button
         class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() => handleAction(() => window.api.checkForUpdates())}
+        role="menuitem"
       >
         <span class="flex-1">Check for Updates…</span>
       </button>
       <button
         class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() => handleAction(showAbout)}
+        role="menuitem"
       >
         <span class="flex-1">About Canopy</span>
       </button>
@@ -101,12 +109,14 @@
         class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() =>
           handleAction(() => window.api.openExternal('https://canopy.itsol.tech/privacy-policy'))}
+        role="menuitem"
       >
         <span class="flex-1">Privacy Policy</span>
       </button>
       <button
         class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() => handleAction(() => window.api.openThirdPartyNotices())}
+        role="menuitem"
       >
         <span class="flex-1">Third-Party Licenses</span>
       </button>
@@ -116,6 +126,7 @@
       <button
         class="flex items-center justify-between gap-4 w-full px-2.5 py-1.5 border-0 rounded-md bg-transparent text-text text-sm font-inherit cursor-pointer text-left whitespace-nowrap transition-colors duration-fast hover:bg-hover-strong"
         onclick={() => handleAction(() => window.api.quit())}
+        role="menuitem"
       >
         <span class="flex-1">Quit</span>
       </button>

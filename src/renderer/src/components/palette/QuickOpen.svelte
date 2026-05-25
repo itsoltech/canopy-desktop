@@ -41,16 +41,13 @@
     const mruBoost: Record<string, number> = {}
     mru.forEach((p, idx) => (mruBoost[p] = (mru.length - idx) * 0.5))
     const matches = fuzzysort.go(query, files, { limit: MAX_RESULTS, threshold: -10000 })
-    const scored = matches.map((m) => {
-      const rank = mruBoost[m.target] ?? 0
-      return {
-        target: m.target,
-        path: m.target,
-        score: m.score + rank,
-        indexes: [...m.indexes],
-        fromMru: rank > 0,
-      }
-    })
+    const scored = matches.map((m) => ({
+      target: m.target,
+      path: m.target,
+      score: m.score + (mruBoost[m.target] ?? 0),
+      indexes: [...m.indexes],
+      fromMru: (mruBoost[m.target] ?? 0) > 0,
+    }))
     scored.sort((a, b) => b.score - a.score)
     return scored
   })

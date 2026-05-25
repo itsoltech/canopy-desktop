@@ -1,4 +1,5 @@
 import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
+import { match } from 'ts-pattern'
 import type { TaskTrackerError } from '../errors'
 import { fromExternalCall, errorMessage } from '../../errors'
 import type {
@@ -96,16 +97,21 @@ function normalizeTrackerText(text: string): string {
 function adfToPlainText(node: unknown): string {
   if (!node || typeof node !== 'object') return typeof node === 'string' ? node : ''
   const n = node as { type?: string; text?: string; content?: unknown[] }
-  if (n.type === 'text') return n.text ?? ''
-  if (n.type === 'hardBreak') return '\n'
-  if (Array.isArray(n.content)) {
-    const parts = n.content.map(adfToPlainText)
-    if (n.type === 'paragraph' || n.type === 'heading') return parts.join('').trimEnd() + '\n\n'
-    if (n.type === 'listItem') return '• ' + parts.join('').trim() + '\n'
-    if (n.type === 'bulletList' || n.type === 'orderedList') return parts.join('') + '\n'
-    return parts.join('')
-  }
-  return ''
+  return match(n)
+    .with({ type: 'text' }, (x) => x.text ?? '')
+    .with({ type: 'hardBreak' }, () => '\n')
+    .when(
+      (x) => Array.isArray(x.content),
+      (x) => {
+        const parts = (x.content as unknown[]).map(adfToPlainText)
+        return match(x.type)
+          .with('paragraph', 'heading', () => parts.join('').trimEnd() + '\n\n')
+          .with('listItem', () => '• ' + parts.join('').trim() + '\n')
+          .with('bulletList', 'orderedList', () => parts.join('') + '\n')
+          .otherwise(() => parts.join(''))
+      },
+    )
+    .otherwise(() => '')
 }
 
 function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {

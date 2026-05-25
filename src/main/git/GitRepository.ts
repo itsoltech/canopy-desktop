@@ -1,6 +1,6 @@
 import { ok, err, okAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
-import { readFileSync } from 'fs'
+import { readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
@@ -20,6 +20,11 @@ function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitErr
   return fromExternalCall(promise, (e) => gitErr(command, e))
 }
 
+// Cap untracked-file size to keep the main thread responsive when a large
+// binary or build artifact slips into a working copy before .gitignore catches
+// it. Above this, return an empty hunk list rather than block on a huge read.
+const UNTRACKED_MAX_BYTES = 5 * 1024 * 1024
+
 // Sync read instead of fs.promises.readFile: this function is called in a
 // hot loop (ChangesPanel/DiffPane refresh on every files:changed event,
 // debounced 200 ms), once per untracked file in parallel. The async
@@ -27,9 +32,20 @@ function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitErr
 // crash in #150. Untracked files in a working copy are typically small and
 // few, so a synchronous read is cheap and removes the crash surface.
 function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<DiffFile, GitError> {
+  const absPath = join(repoRoot, filePath)
   let content: string
   try {
-    content = readFileSync(join(repoRoot, filePath), 'utf-8')
+    const sz = statSync(absPath).size
+    if (sz > UNTRACKED_MAX_BYTES) {
+      return ok({
+        path: filePath,
+        status: 'added' as const,
+        hunks: [],
+        additions: 0,
+        deletions: 0,
+      })
+    }
+    content = readFileSync(absPath, 'utf-8')
   } catch (e) {
     return err(gitErr('readFile', e))
   }
