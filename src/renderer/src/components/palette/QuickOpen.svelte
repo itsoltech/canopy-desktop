@@ -52,10 +52,10 @@
     return scored
   })
 
-  // Reset selection when the query changes — keep this as a narrow effect
-  // since `selectedIndex` is mutable user state, not a pure derivation.
+  // Reset the highlighted row whenever the query or file set changes.
   $effect(() => {
     void query
+    void files
     selectedIndex = 0
   })
 

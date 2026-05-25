@@ -503,7 +503,9 @@ export class GitRepository {
 
   static stageFile(repoRoot: string, filePath: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('add', git.add(filePath)).map(() => undefined)
+    // Pass the path after `--` so a filename beginning with `-` can't be
+    // parsed as a git option, mirroring revertFile's `['--', filePath]`.
+    return gitCall('add', git.raw(['add', '--', filePath])).map(() => undefined)
   }
 
   static revertFile(repoRoot: string, filePath: string): ResultAsync<void, GitError> {

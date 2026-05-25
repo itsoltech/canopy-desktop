@@ -10,7 +10,9 @@
  * Invalid URLs are returned unchanged so callers don't have to add another
  * try/catch layer.
  */
-const LOCALHOST_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1'])
+// `new URL('http://[::1]').hostname` returns the bracketed form `[::1]`, so the
+// bracketed variant must be in the set for the IPv6 loopback case to match.
+const LOCALHOST_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'])
 
 export function substituteLocalhost(rawUrl: string, hostLanIp: string): string {
   if (!hostLanIp) return rawUrl
