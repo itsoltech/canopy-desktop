@@ -3,7 +3,6 @@ import os from 'os'
 import { randomUUID } from 'crypto'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
-import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
@@ -46,13 +45,13 @@ interface TmuxAttachPayload {
 interface ToolSessionServiceDeps {
   ptyManager: PtyManager
   wsBridge: WsBridge
-  workspaceStore: WorkspaceStore
   preferencesStore: PreferencesStore
   toolRegistry: ToolRegistry
   agentSessionManager: AgentSessionManager
   windowManager: WindowManager
   tmuxManager: TmuxManager
   profileStore: ProfileStore
+  resolveWorkspaceIdForWorktree: (webContentsId: number, worktreePath: string) => string | null
 }
 
 function resolveShellArgs(): string[] {
@@ -70,6 +69,11 @@ export class ToolSessionService {
   constructor(private deps: ToolSessionServiceDeps) {}
 
   async spawnTool(sender: WebContents, payload: ToolSpawnPayload): Promise<ToolSpawnResult> {
+    const workspaceId = this.deps.resolveWorkspaceIdForWorktree(sender.id, payload.worktreePath)
+    if (!workspaceId) {
+      throw new Error(`Worktree is not attached to this window: ${payload.worktreePath}`)
+    }
+
     const tool = this.deps.toolRegistry.get(payload.toolId)
     if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
 
@@ -103,7 +107,7 @@ export class ToolSessionService {
         try {
           settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
         } catch {
-          // Invalid JSON is ignored, matching the legacy tool:spawn path.
+          // Invalid JSON is ignored, matching the previous spawn behavior.
         }
       }
 
@@ -133,9 +137,7 @@ export class ToolSessionService {
     let tmuxSessionName: string | undefined
     const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
     if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
-      const ws = this.deps.workspaceStore.getByPath(payload.worktreePath)
-      const wsId = ws?.id ?? 'default'
-      tmuxSessionName = TmuxManagerStatics.sessionName(wsId)
+      tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
       const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
       await this.deps.tmuxManager.newSession({
         name: tmuxSessionName,
@@ -268,9 +270,9 @@ export class ToolSessionService {
 interface TabCommandServiceDeps {
   toolSessions: ToolSessionService
   layoutStore: LayoutStore
-  workspaceStore: WorkspaceStore
   browserManager: BrowserManager
   windowManager: WindowManager
+  resolveWorkspaceIdForWorktree: (webContentsId: number, worktreePath: string) => string | null
 }
 
 interface TabCommandPayloadBase {
@@ -302,10 +304,24 @@ interface CloseTabPayload extends TabCommandPayloadBase {
   tabId: string
 }
 
+interface SpawnPanePayload extends TabCommandPayloadBase {
+  toolId: string
+  options?: {
+    initialUrl?: string
+    profileId?: string
+    workspaceName?: string
+    branch?: string
+    resumeSessionId?: string
+  }
+}
+
 interface SaveLayoutPayload {
   worktreePath: string
   layoutJson: string
-  workspaceId?: string
+}
+
+interface DeleteLayoutPayload {
+  worktreePath: string
 }
 
 function allPaneSnapshots(split: SplitSnapshot): PaneSnapshot[] {
@@ -443,6 +459,7 @@ export class TabCommandService {
   constructor(private deps: TabCommandServiceDeps) {}
 
   async openTool(sender: WebContents, payload: OpenToolPayload): Promise<TabCommandResult> {
+    this.assertSenderOwnsWorktree(sender, payload.worktreePath)
     const tabs = [...validateTabSnapshots(payload.tabs)]
     const pane = await this.createPane(sender, payload.toolId, payload.worktreePath, {
       ...payload.options,
@@ -474,6 +491,7 @@ export class TabCommandService {
   }
 
   async restartPane(sender: WebContents, payload: RestartPanePayload): Promise<TabCommandResult> {
+    this.assertSenderOwnsWorktree(sender, payload.worktreePath)
     const tabs = [...validateTabSnapshots(payload.tabs)]
     const tabIndex = tabs.findIndex((tab) => tab.id === payload.tabId)
     if (tabIndex < 0) {
@@ -505,6 +523,7 @@ export class TabCommandService {
   }
 
   async closeTab(sender: WebContents, payload: CloseTabPayload): Promise<TabCommandResult> {
+    this.assertSenderOwnsWorktree(sender, payload.worktreePath)
     const tabs = [...validateTabSnapshots(payload.tabs)]
     const idx = tabs.findIndex((tab) => tab.id === payload.tabId)
     if (idx < 0) return emptyResult(payload.worktreePath, tabs, payload.activeTabId ?? null)
@@ -525,10 +544,13 @@ export class TabCommandService {
     }
   }
 
-  saveLayout(payload: SaveLayoutPayload): void {
-    const workspaceId =
-      payload.workspaceId ?? this.deps.workspaceStore.getByPath(payload.worktreePath)?.id
-    if (!workspaceId) return
+  async spawnPane(sender: WebContents, payload: SpawnPanePayload): Promise<PaneSnapshot> {
+    this.assertSenderOwnsWorktree(sender, payload.worktreePath)
+    return this.createPane(sender, payload.toolId, payload.worktreePath, payload.options)
+  }
+
+  saveLayout(sender: WebContents, payload: SaveLayoutPayload): void {
+    const workspaceId = this.assertSenderOwnsWorktree(sender, payload.worktreePath)
 
     try {
       this.deps.layoutStore.save(workspaceId, payload.worktreePath, payload.layoutJson)
@@ -538,13 +560,37 @@ export class TabCommandService {
     }
   }
 
-  restoreLayout(payload: TabCommandPayloadBase & { layoutJson: string }): TabCommandResult {
+  deleteLayout(sender: WebContents, payload: DeleteLayoutPayload): void {
+    const workspaceId = this.assertSenderOwnsWorktree(sender, payload.worktreePath)
+
+    try {
+      this.deps.layoutStore.delete(workspaceId, payload.worktreePath)
+    } catch (error) {
+      if (this.deps.layoutStore.isClosed()) return
+      console.error('Failed to delete layout:', error)
+      throw error
+    }
+  }
+
+  restoreLayout(
+    sender: WebContents,
+    payload: TabCommandPayloadBase & { layoutJson: string },
+  ): TabCommandResult {
+    this.assertSenderOwnsWorktree(sender, payload.worktreePath)
     try {
       JSON.parse(payload.layoutJson)
     } catch {
       return emptyResult(payload.worktreePath, payload.tabs ?? [], payload.activeTabId ?? null)
     }
     return emptyResult(payload.worktreePath, payload.tabs ?? [], payload.activeTabId ?? null)
+  }
+
+  private assertSenderOwnsWorktree(sender: WebContents, worktreePath: string): string {
+    const workspaceId = this.deps.resolveWorkspaceIdForWorktree(sender.id, worktreePath)
+    if (!workspaceId) {
+      throw new Error(`Worktree is not attached to this window: ${worktreePath}`)
+    }
+    return workspaceId
   }
 
   private async createPane(

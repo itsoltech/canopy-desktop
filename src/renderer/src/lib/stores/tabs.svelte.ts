@@ -1216,7 +1216,7 @@ export async function reattachTmuxPane(
     }))
   } else {
     // Tmux session gone, spawn fresh
-    const result = await window.api.spawnTool(pane.toolId, worktreePath)
+    const result = await window.api.tabSpawnPane(pane.toolId, worktreePath)
     tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
       ...p,
       sessionId: result.sessionId,
@@ -1322,7 +1322,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
 
   const wsId = getProjectForWorktree(worktreePath)?.workspace.id
   if (wsId) {
-    window.api.deleteLayout(wsId, worktreePath).catch(() => {})
+    window.api.tabDeleteLayout(worktreePath).catch(() => {})
   }
 }
 
@@ -1546,7 +1546,7 @@ export async function splitFocusedPane(
   if (NO_SPLIT_TOOLS.has(tab.toolId)) return
 
   // Spawn a new shell session in the same worktree
-  const result = await window.api.spawnTool('shell', worktreePath)
+  const result = await window.api.tabSpawnPane('shell', worktreePath)
   const paneId = nextPaneId()
 
   const newPane: PaneSession = {
@@ -1966,7 +1966,7 @@ function saveLayoutForWorktree(worktreePath: string): void {
   }
 
   if (serializedTabs.length === 0) {
-    window.api.deleteLayout(wsId, worktreePath).catch(() => {
+    window.api.tabDeleteLayout(worktreePath).catch(() => {
       // Ignore delete errors silently
     })
     return
@@ -1977,7 +1977,7 @@ function saveLayoutForWorktree(worktreePath: string): void {
     activeTabIndex: adjustedActiveIndex,
   }
 
-  window.api.tabSaveLayout(worktreePath, JSON.stringify(layout), wsId).catch(() => {
+  window.api.tabSaveLayout(worktreePath, JSON.stringify(layout)).catch(() => {
     // Ignore save errors silently
   })
 }
@@ -2065,7 +2065,7 @@ async function restoreSplitNode(
         options.resumeSessionId = node.agentSessionId ?? node.claudeSessionId
         if (node.profileId) options.profileId = node.profileId
       }
-      const result = await window.api.spawnTool(node.toolId, worktreePath, options)
+      const result = await window.api.tabSpawnPane(node.toolId, worktreePath, options)
       const restoredProfile = node.profileId ? getProfileById(node.profileId) : undefined
       pane = {
         id: paneId,

@@ -117,8 +117,9 @@ test('capture IPC traffic with project open', async ({ electronApp, page, testPr
 
   console.log(`\n--- IPC Traffic Capture (${CAPTURE_MS / 1000}s with project) ---`)
 
-  const ptyResult = await page.evaluate(() =>
-    (window as unknown as BrowserApi).api.spawnPty({ cols: 80, rows: 24 }),
+  const ptyResult = await page.evaluate(
+    (worktreePath) => (window as unknown as BrowserApi).api.tabSpawnPane('shell', worktreePath),
+    testProjectPath,
   )
 
   await page.waitForTimeout(1000)

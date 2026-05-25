@@ -740,6 +740,12 @@ app.whenReady().then(async () => {
       ipcLog!.length = 0
       return snapshot
     })
+
+    ipcMain.handle('perf:openProject', (event, payload: { path: string }) => {
+      const resolved = realpathSync(resolve(payload.path))
+      ipcCommandBridge?.grantAttachPath(event.sender.id, resolved)
+      event.sender.send('url:action', { action: 'open', path: resolved })
+    })
   }
 
   // Status-bar perf HUD (always available, gated by user preference in renderer)

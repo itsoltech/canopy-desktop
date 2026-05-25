@@ -18,6 +18,14 @@ The preload exposes dedicated typed functions per domain, not a generic `invoke(
 
 IPC handlers validate input from the renderer (the renderer is untrusted). Write operations unwrap Results with `unwrapOrThrow()`. Read operations use `.unwrapOr(defaultValue)` for safe fallbacks.
 
+Renderer code should prefer main-owned command IPC for domain mutations. Low-level IPC primitives
+are reserved for UI-native operations or command-service internals; renderer stores should not
+compose privileged primitives into workspace, session, layout, agent, or run-config workflows.
+Layout persistence uses main-owned save/delete commands that derive workspace identity from the
+sender's attached workspace state. Full saved-layout interpretation is still renderer-assisted:
+the renderer parses the persisted split tree and requests main-owned pane/tmux commands for each
+session. Moving full layout hydration into main is a follow-up boundary-tightening step.
+
 ## Error handling
 
 Business logic uses `neverthrow` (`Result<T, E>`, `ResultAsync<T, E>`) instead of `try/catch`. Each domain defines a typed error union with `_tag` discriminants in a dedicated `errors.ts` file (e.g., `src/main/git/errors.ts`, `src/main/taskTracker/errors.ts`).

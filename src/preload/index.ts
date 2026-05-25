@@ -10,8 +10,6 @@ import type { AgentType } from '../main/agents/types'
 
 const api = {
   // PTY
-  spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) =>
-    ipcRenderer.invoke('pty:spawn', options),
   resizePty: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', { sessionId, cols, rows }),
   killPty: (sessionId: string, killTmux?: boolean) =>
@@ -87,18 +85,6 @@ const api = {
   listTools: () => ipcRenderer.invoke('tools:list'),
   getTool: (id: string) => ipcRenderer.invoke('tools:get', { id }),
   checkToolAvailability: () => ipcRenderer.invoke('tools:checkAvailability'),
-  spawnTool: (
-    toolId: string,
-    worktreePath: string,
-    options?: {
-      cols?: number
-      rows?: number
-      workspaceName?: string
-      branch?: string
-      resumeSessionId?: string
-      profileId?: string
-    },
-  ) => ipcRenderer.invoke('tool:spawn', { toolId, worktreePath, ...options }),
   addCustomTool: (tool: {
     id: string
     name: string
@@ -171,8 +157,21 @@ const api = {
       tabs: options?.tabs,
       activeTabId: options?.activeTabId,
     }),
-  tabSaveLayout: (worktreePath: string, layoutJson: string, workspaceId?: string) =>
-    ipcRenderer.invoke('tab:command:saveLayout', { worktreePath, layoutJson, workspaceId }),
+  tabSpawnPane: (
+    toolId: string,
+    worktreePath: string,
+    options?: {
+      initialUrl?: string
+      profileId?: string
+      workspaceName?: string
+      branch?: string
+      resumeSessionId?: string
+    },
+  ) => ipcRenderer.invoke('tab:command:spawnPane', { toolId, worktreePath, options }),
+  tabSaveLayout: (worktreePath: string, layoutJson: string) =>
+    ipcRenderer.invoke('tab:command:saveLayout', { worktreePath, layoutJson }),
+  tabDeleteLayout: (worktreePath: string) =>
+    ipcRenderer.invoke('tab:command:deleteLayout', { worktreePath }),
   tabRestoreLayout: (
     worktreePath: string,
     layoutJson: string,
@@ -563,15 +562,6 @@ const api = {
   runWorktreeSetup: (workspaceId: string, repoRoot: string, newWorktreePath: string) =>
     ipcRenderer.invoke('worktree:runSetup', { workspaceId, repoRoot, newWorktreePath }),
   abortWorktreeSetup: () => ipcRenderer.send('worktree:abortSetup'),
-
-  // Layouts
-  saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) =>
-    ipcRenderer.invoke('layout:save', { workspaceId, worktreePath, layoutJson }),
-  getLayout: (workspaceId: string, worktreePath: string) =>
-    ipcRenderer.invoke('layout:get', { workspaceId, worktreePath }),
-  getAllLayouts: (workspaceId: string) => ipcRenderer.invoke('layout:getAll', { workspaceId }),
-  deleteLayout: (workspaceId: string, worktreePath: string) =>
-    ipcRenderer.invoke('layout:delete', { workspaceId, worktreePath }),
 
   // Push events (main → renderer)
   onAgentHookEvent: (
@@ -1046,6 +1036,7 @@ const api = {
     ? {
         perfDiagnostics: () => ipcRenderer.invoke('perf:diagnostics'),
         perfIpcLog: () => ipcRenderer.invoke('perf:ipcLog'),
+        perfOpenProject: (path: string) => ipcRenderer.invoke('perf:openProject', { path }),
       }
     : {}),
 

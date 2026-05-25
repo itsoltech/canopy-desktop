@@ -161,6 +161,10 @@ export class WorkspaceCommandService {
     return this.result(sender.id, [], [])
   }
 
+  getWorkspaceIdForWorktree(webContentsId: number, worktreePath: string): string | null {
+    return this.getProjectForWorktree(webContentsId, worktreePath)?.workspace.id ?? null
+  }
+
   grantAttachPath(webContentsId: number, targetPath: string): void {
     let paths = this.grantedAttachPathsByWindow.get(webContentsId)
     if (!paths) {

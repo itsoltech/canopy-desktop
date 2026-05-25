@@ -80,9 +80,12 @@ test('CPU profile: project open', async ({ cdp, electronApp, page, testProjectPa
   expect(profile).toBeTruthy()
 })
 
-test('CPU profile: terminal activity', async ({ cdp, page }) => {
-  const result = await page.evaluate(() =>
-    (window as unknown as BrowserApi).api.spawnPty({ cols: 80, rows: 24 }),
+test('CPU profile: terminal activity', async ({ cdp, electronApp, page, testProjectPath }) => {
+  await openProject(electronApp, page, testProjectPath)
+
+  const result = await page.evaluate(
+    (worktreePath) => (window as unknown as BrowserApi).api.tabSpawnPane('shell', worktreePath),
+    testProjectPath,
   )
   await new Promise((r) => setTimeout(r, 1000))
 

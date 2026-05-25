@@ -7,19 +7,6 @@ import type {
   WorkspaceCommandResult,
 } from '../main/commands/types'
 
-interface PtySpawnResult {
-  sessionId: string
-  wsUrl: string
-}
-
-interface ToolSpawnResult {
-  sessionId: string
-  wsUrl: string
-  toolId: string
-  toolName: string
-  tmuxSessionName?: string
-}
-
 interface PtyExitData {
   sessionId: string
   exitCode: number
@@ -266,7 +253,6 @@ interface CanopyAPI {
   ) => () => void
 
   // PTY
-  spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
@@ -314,18 +300,6 @@ interface CanopyAPI {
   listTools: () => Promise<ToolDefinition[]>
   getTool: (id: string) => Promise<ToolDefinition | null>
   checkToolAvailability: () => Promise<Record<string, boolean>>
-  spawnTool: (
-    toolId: string,
-    worktreePath: string,
-    options?: {
-      cols?: number
-      rows?: number
-      workspaceName?: string
-      branch?: string
-      resumeSessionId?: string
-      profileId?: string
-    },
-  ) => Promise<ToolSpawnResult>
   addCustomTool: (tool: {
     id: string
     name: string
@@ -373,7 +347,19 @@ interface CanopyAPI {
     tabId: string,
     options?: { tabs?: TabSnapshot[]; activeTabId?: string | null },
   ) => Promise<TabCommandResult>
-  tabSaveLayout: (worktreePath: string, layoutJson: string, workspaceId?: string) => Promise<void>
+  tabSpawnPane: (
+    toolId: string,
+    worktreePath: string,
+    options?: {
+      initialUrl?: string
+      profileId?: string
+      workspaceName?: string
+      branch?: string
+      resumeSessionId?: string
+    },
+  ) => Promise<PaneSnapshot>
+  tabSaveLayout: (worktreePath: string, layoutJson: string) => Promise<void>
+  tabDeleteLayout: (worktreePath: string) => Promise<void>
   tabRestoreLayout: (
     worktreePath: string,
     layoutJson: string,
@@ -539,11 +525,6 @@ interface CanopyAPI {
     newWorktreePath: string,
   ) => Promise<{ success: boolean; errors: string[] }>
   abortWorktreeSetup: () => void
-
-  // Layouts
-  saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) => Promise<void>
-  getLayout: (workspaceId: string, worktreePath: string) => Promise<string | null>
-  getAllLayouts: (workspaceId: string) => Promise<{ worktree_path: string; layout_json: string }[]>
 
   // Push events (main → renderer)
   onAgentHookEvent: (callback: (data: AgentHookEventData) => void) => () => void
@@ -830,6 +811,7 @@ interface CanopyAPI {
     ts: number
     dir: string
   }> | null>
+  perfOpenProject?: (path: string) => Promise<void>
 
   // Status-bar perf HUD (always present)
   perfHud: {

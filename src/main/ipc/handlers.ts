@@ -13,6 +13,7 @@ import path from 'path'
 import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
+import { TmuxManager as TmuxManagerStatics } from '../pty/TmuxManager'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
@@ -231,20 +232,22 @@ export function registerIpcHandlers(
   const toolSessionService = new ToolSessionService({
     ptyManager,
     wsBridge,
-    workspaceStore,
     preferencesStore,
     toolRegistry,
     agentSessionManager,
     windowManager,
     tmuxManager,
     profileStore,
+    resolveWorkspaceIdForWorktree: (webContentsId, worktreePath) =>
+      workspaceCommandService.getWorkspaceIdForWorktree(webContentsId, worktreePath),
   })
   const tabCommandService = new TabCommandService({
     toolSessions: toolSessionService,
     layoutStore,
-    workspaceStore,
     browserManager,
     windowManager,
+    resolveWorkspaceIdForWorktree: (webContentsId, worktreePath) =>
+      workspaceCommandService.getWorkspaceIdForWorktree(webContentsId, worktreePath),
   })
   const agentCommandService = new AgentCommandService({
     ptyManager,
@@ -286,11 +289,17 @@ export function registerIpcHandlers(
   ipcMain.handle('tab:command:closeTab', (event, payload) =>
     tabCommandService.closeTab(event.sender, payload),
   )
-  ipcMain.handle('tab:command:saveLayout', (_event, payload) =>
-    tabCommandService.saveLayout(payload),
+  ipcMain.handle('tab:command:spawnPane', (event, payload) =>
+    tabCommandService.spawnPane(event.sender, payload),
   )
-  ipcMain.handle('tab:command:restoreLayout', (_event, payload) =>
-    tabCommandService.restoreLayout(payload),
+  ipcMain.handle('tab:command:saveLayout', (event, payload) =>
+    tabCommandService.saveLayout(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:deleteLayout', (event, payload) =>
+    tabCommandService.deleteLayout(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:restoreLayout', (event, payload) =>
+    tabCommandService.restoreLayout(event.sender, payload),
   )
   ipcMain.handle('agent:command:sendTaskContext', (event, payload) =>
     agentCommandService.sendTaskContext(event.sender, payload),
@@ -311,28 +320,11 @@ export function registerIpcHandlers(
   // --- PTY ---
 
   ipcMain.handle(
-    'pty:spawn',
-    async (event, options?: { cols?: number; rows?: number; cwd?: string }) => {
-      const sender = event.sender
-      const session = ptyManager.spawn(options)
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-
-      windowManager.trackPtySession(sender.id, session.id)
-
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
-        }
-        windowManager.untrackPtySession(sender.id, session.id)
-      })
-
-      return { sessionId: session.id, wsUrl }
-    },
-  )
-
-  ipcMain.handle(
     'pty:resize',
-    (_event, payload: { sessionId: string; cols: number; rows: number }) => {
+    (event, payload: { sessionId: string; cols: number; rows: number }) => {
+      if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+        throw new Error('PTY session is not owned by this window')
+      }
       // Validate dimensions: positive integers within sane terminal bounds.
       // node-pty will otherwise throw on NaN / negative / huge values and
       // a malformed payload would be broadcast to every window as-is.
@@ -363,7 +355,10 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('pty:kill', async (_event, payload: { sessionId: string; killTmux?: boolean }) => {
+  ipcMain.handle('pty:kill', async (event, payload: { sessionId: string; killTmux?: boolean }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     await toolSessionService.killPty(payload.sessionId, payload.killTmux)
   })
 
@@ -374,11 +369,17 @@ export function registerIpcHandlers(
     ptyManager.write(payload.sessionId, payload.data)
   })
 
-  ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
+  ipcMain.handle('pty:hasChildProcess', (event, payload: { sessionId: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     return ptyManager.hasChildProcess(payload.sessionId)
   })
 
-  ipcMain.handle('pty:getDimensions', (_event, payload: { sessionId: string }) => {
+  ipcMain.handle('pty:getDimensions', (event, payload: { sessionId: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     return ptyManager.getDimensions(payload.sessionId)
   })
 
@@ -414,48 +415,49 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('tmux:detach', (_event, payload: { sessionId: string }) => {
+  ipcMain.handle('tmux:detach', (event, payload: { sessionId: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
     wsBridge.destroy(payload.sessionId)
     ptyManager.kill(payload.sessionId)
     return { tmuxSessionName: tmuxName }
   })
 
-  ipcMain.handle('tmux:killSession', async (_event, payload: { name: string }) => {
+  function senderOwnsTmuxSession(webContentsId: number, name: string): boolean {
+    return ptyManager
+      .getSessionIdsForTmuxSession(name)
+      .some((sessionId) => windowManager.ownsPtySession(webContentsId, sessionId))
+  }
+
+  async function assertCanManageTmuxSession(webContentsId: number, name: string): Promise<void> {
+    if (senderOwnsTmuxSession(webContentsId, name)) return
+
+    // Detached tmux sessions may survive an app restart without an in-memory
+    // PTY owner. Only allow names generated by Canopy on its private socket.
+    if (TmuxManagerStatics.isCanopySession(name) && (await tmuxManager.hasSession(name))) {
+      return
+    }
+    throw new Error('tmux session is not managed by Canopy')
+  }
+
+  ipcMain.handle('tmux:killSession', async (event, payload: { name: string }) => {
     validateTmuxName(payload.name)
+    await assertCanManageTmuxSession(event.sender.id, payload.name)
     await tmuxManager.killSession(payload.name)
   })
 
   ipcMain.handle(
     'tmux:renameSession',
-    async (_event, payload: { oldName: string; newName: string }) => {
+    async (event, payload: { oldName: string; newName: string }) => {
       validateTmuxName(payload.oldName)
       validateTmuxName(payload.newName)
+      await assertCanManageTmuxSession(event.sender.id, payload.oldName)
       await tmuxManager.renameSession(payload.oldName, payload.newName)
+      ptyManager.updateTmuxSessionName(payload.oldName, payload.newName)
     },
   )
-
-  // --- Tool Spawning ---
-
-  ipcMain.handle(
-    'tool:spawn',
-    async (
-      event,
-      payload: {
-        toolId: string
-        worktreePath: string
-        cols?: number
-        rows?: number
-        workspaceName?: string
-        branch?: string
-        resumeSessionId?: string
-        profileId?: string
-      },
-    ) => {
-      return toolSessionService.spawnTool(event.sender, payload)
-    },
-  )
-
   ipcMain.handle('agent:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
     agentSessionManager.updateProcessTitle(payload.sessionId, payload.title)
   })
@@ -1220,65 +1222,6 @@ export function registerIpcHandlers(
       return 'main'
     }
   })
-
-  // --- Layouts ---
-
-  ipcMain.handle(
-    'layout:save',
-    (_event, payload: { workspaceId: string; worktreePath: string; layoutJson: string }) => {
-      try {
-        layoutStore.save(payload.workspaceId, payload.worktreePath, payload.layoutJson)
-      } catch (error) {
-        if (layoutStore.isClosed()) {
-          // DB may already be closed during shutdown
-          return
-        }
-        console.error('Failed to save layout:', error)
-      }
-    },
-  )
-
-  ipcMain.handle('layout:get', (_event, payload: { workspaceId: string; worktreePath: string }) => {
-    try {
-      return layoutStore.get(payload.workspaceId, payload.worktreePath)
-    } catch (error) {
-      if (layoutStore.isClosed()) {
-        // DB may already be closed during shutdown
-        return null
-      }
-      console.error('Failed to load layout:', error)
-      throw error
-    }
-  })
-
-  ipcMain.handle('layout:getAll', (_event, payload: { workspaceId: string }) => {
-    try {
-      return layoutStore.getAll(payload.workspaceId)
-    } catch (error) {
-      if (layoutStore.isClosed()) {
-        // DB may already be closed during shutdown
-        return []
-      }
-      console.error('Failed to load layouts:', error)
-      throw error
-    }
-  })
-
-  ipcMain.handle(
-    'layout:delete',
-    (_event, payload: { workspaceId: string; worktreePath: string }) => {
-      try {
-        layoutStore.delete(payload.workspaceId, payload.worktreePath)
-      } catch (error) {
-        if (layoutStore.isClosed()) {
-          // DB may already be closed during shutdown
-          return
-        }
-        console.error('Failed to delete layout:', error)
-        throw error
-      }
-    },
-  )
 
   // --- Custom Tools ---
 
