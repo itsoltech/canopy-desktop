@@ -13,13 +13,25 @@ import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
 import { deepMerge, summarizeToolInput } from '../utils'
 
-const CODEX_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']
+const CODEX_HOOK_EVENTS = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'PreCompact',
+  'PostCompact',
+  'SubagentStop',
+  'Stop',
+]
 
 const EVENT_MAP: Record<string, NormalizedEventName> = {
   SessionStart: 'SessionStart',
   UserPromptSubmit: 'PromptSubmit',
   PreToolUse: 'BeforeToolUse',
   PostToolUse: 'AfterToolUse',
+  PreCompact: 'BeforeCompact',
+  PostCompact: 'AfterCompact',
+  SubagentStop: 'SubagentStop',
   Stop: 'Idle',
 }
 
@@ -40,8 +52,8 @@ export const codexAdapter: AgentAdapter = {
   agentType: 'codex',
   toolId: 'codex',
 
-  busyEvents: new Set(['UserPromptSubmit', 'PreToolUse']),
-  idleEvents: new Set(['Stop']),
+  busyEvents: new Set(['UserPromptSubmit', 'PreToolUse', 'PreCompact']),
+  idleEvents: new Set(['PostCompact', 'Stop']),
 
   setupSettings(
     _settingsPath: string,
@@ -110,7 +122,7 @@ export const codexAdapter: AgentAdapter = {
     writeFileSync(hooksPath, JSON.stringify(merged, null, 2), 'utf-8')
 
     return {
-      args: ['--enable', 'codex_hooks'],
+      args: ['--enable', 'hooks'],
       cleanup: () => {
         const r = worktreeRefs.get(worktreePath)
         if (!r) return
@@ -158,6 +170,9 @@ export const codexAdapter: AgentAdapter = {
     if (raw.turn_id) extra.turnId = raw.turn_id
     if (raw.last_assistant_message) extra.lastAssistantMessage = raw.last_assistant_message
     if (raw.source) extra.source = raw.source
+    if (raw.trigger) extra.trigger = raw.trigger
+    if (raw.agent_transcript_path) extra.agentTranscriptPath = raw.agent_transcript_path
+    if (typeof raw.stop_hook_active === 'boolean') extra.stopHookActive = raw.stop_hook_active
 
     return {
       agentType: 'codex',
@@ -171,6 +186,8 @@ export const codexAdapter: AgentAdapter = {
       errorDetails: raw.error_details as string | undefined,
       message: raw.message as string | undefined,
       title: raw.title as string | undefined,
+      agentId: raw.agent_id as string | undefined,
+      agentSubtype: raw.agent_type as string | undefined,
       model: raw.model as string | undefined,
       permissionMode: raw.permission_mode as string | undefined,
       prompt: raw.prompt as string | undefined,
@@ -257,8 +274,12 @@ export const codexAdapter: AgentAdapter = {
 
     return match(event.event)
       .with(P.union('SessionStart', 'Idle'), () => ({ status: 'idle' as const }))
-      .with(P.union('PromptSubmit', 'AfterToolUse'), () => ({ status: 'thinking' as const }))
+      .with(P.union('PromptSubmit', 'AfterToolUse'), () => ({
+        status: 'thinking' as const,
+      }))
+      .with('AfterCompact', () => ({ status: 'thinking' as const }))
       .with('BeforeToolUse', () => ({ status: 'toolCalling' as const, detail: toolDetail }))
+      .with('BeforeCompact', () => ({ status: 'compacting' as const }))
       .otherwise(() => null)
   },
 }

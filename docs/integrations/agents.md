@@ -30,7 +30,7 @@ Session state is tracked in the renderer via `agentSessions`, a reactive record 
 
 **Claude Code:** Writes a temporary `settings.json` at `{userData}/canopy/agent-hooks/session-{uuid}.json` with hooks for 16 event types and an optional `statusLine` command. Passes `--settings {path}` to the CLI. Supports `--model`, `--permission-mode`, `--effort`, `--append-system-prompt` from preferences. Env vars: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, provider flags (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`), and arbitrary custom env vars (with blocklist filtering).
 
-**Codex:** Writes hooks to `.codex/hooks.json` inside the worktree directory. Adds `.codex/` to `.gitignore` if not already present. Uses refcounting for concurrent sessions sharing the same worktree. On cleanup, restores the original `hooks.json` content (or removes the file/directory if Canopy created it). Passes `--enable codex_hooks` plus `--model`, `--ask-for-approval`, `--sandbox`, `--full-auto`, `--profile` from preferences. Env vars: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, custom env.
+**Codex:** Writes hooks to `.codex/hooks.json` inside the worktree directory. Adds `.codex/` to `.gitignore` if not already present. Uses refcounting for concurrent sessions sharing the same worktree. On cleanup, restores the original `hooks.json` content (or removes the file/directory if Canopy created it). Passes `--enable hooks` plus `--model`, `--ask-for-approval`, `--sandbox`, `--full-auto`, `--profile` from preferences. Observes prompt, tool, compact, subagent-stop, and idle lifecycle hooks without returning hook decisions. Env vars: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, custom env.
 
 **Gemini CLI:** Creates an isolated home directory (`gemini-home-{uuid}`) with a `.gemini/` subdirectory. Symlinks user config files from `~/.gemini/` (except `settings.json`). Deep-merges Canopy hooks into the user's settings. Sets `GEMINI_CLI_HOME` to the isolated directory. Passes `--model`, `--approval-mode` from preferences. Env vars: `GEMINI_API_KEY`, custom env.
 
@@ -50,12 +50,12 @@ Each agent emits events in its own protocol. Adapters map these to a common set 
 | `PermissionRequest`   | `PermissionRequest`  | -                  | `Notification(ToolPermission)` | `PermissionAsked`   |
 | `Idle`                | `Stop`               | `Stop`             | `AfterAgent`                   | `SessionStatusIdle` |
 | `IdleFailure`         | `StopFailure`        | -                  | -                              | `SessionError`      |
-| `BeforeCompact`       | `PreCompact`         | -                  | `PreCompress`                  | `SessionCompacting` |
-| `AfterCompact`        | `PostCompact`        | -                  | -                              | `SessionCompacted`  |
+| `BeforeCompact`       | `PreCompact`         | `PreCompact`      | `PreCompress`                  | `SessionCompacting` |
+| `AfterCompact`        | `PostCompact`        | `PostCompact`     | -                              | `SessionCompacted`  |
 | `Notification`        | `Notification`       | -                  | `Notification`                 | `TodoUpdated`       |
 | `AfterToolUseFailure` | `PostToolUseFailure` | -                  | -                              | -                   |
 | `SubagentStart`       | `SubagentStart`      | -                  | -                              | -                   |
-| `SubagentStop`        | `SubagentStop`       | -                  | -                              | -                   |
+| `SubagentStop`        | `SubagentStop`       | `SubagentStop`    | -                              | -                   |
 | `TaskCompleted`       | `TaskCompleted`      | -                  | -                              | -                   |
 | `TeammateIdle`        | `TeammateIdle`       | -                  | -                              | -                   |
 
@@ -71,7 +71,7 @@ The renderer maintains per-session state in `agentSessions[ptySessionId]`:
 - `costUsd` / `durationMs` / `linesAdded` / `linesRemoved`: Cost tracking (Claude only via status line).
 - `tasks`: Task list populated from `TaskCreate`/`TaskUpdate` tool calls (Claude, Codex) or `TodoUpdated` events (OpenCode). Capped at 50 tasks; oldest completed tasks are evicted first.
 - `notifications`: Rolling buffer of 20 notification events.
-- `activeSubagents`: Tracked via `SubagentStart`/`SubagentStop` events (Claude).
+- `activeSubagents`: Tracked via `SubagentStart`/`SubagentStop` events where available. Claude emits both start and stop; Codex currently contributes stop metadata when provided by its hook payload.
 - `compactCount` / `toolCallCount`: Counters incremented on relevant events.
 - `extra`: Agent-specific data (Claude rate limits, Codex `cwd`/`transcriptPath`/`turnId`, OpenCode pending questions).
 
@@ -182,6 +182,7 @@ Agent errors surface through the normalized event system rather than a dedicated
 - The hook server binds to `127.0.0.1` only (no network exposure).
 - Each session has a unique 256-bit auth token validated with `timingSafeEqual`.
 - Hook request bodies are capped at 1 MB.
+- Codex hook integration is observational except for `SessionStart` context injection; Canopy does not return Codex hook decisions, permission decisions, or tool-input rewrites.
 - API keys set via preferences are injected as environment variables, not written to settings files.
 - Custom env vars are filtered against a blocklist that includes sensitive Electron internals.
 - Codex's `.codex/hooks.json` (which contains local filesystem paths) is automatically added to `.gitignore`.
