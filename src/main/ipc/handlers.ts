@@ -298,9 +298,6 @@ export function registerIpcHandlers(
   ipcMain.handle('tab:command:deleteLayout', (event, payload) =>
     tabCommandService.deleteLayout(event.sender, payload),
   )
-  ipcMain.handle('tab:command:restoreLayout', (event, payload) =>
-    tabCommandService.restoreLayout(event.sender, payload),
-  )
   ipcMain.handle('agent:command:sendTaskContext', (event, payload) =>
     agentCommandService.sendTaskContext(event.sender, payload),
   )
@@ -2787,14 +2784,6 @@ export function registerIpcHandlers(
       const resolved = await validatePathAccess(event.sender.id, payload.configDir)
       const result = await runConfigManager.deleteConfiguration(resolved, payload.name)
       unwrapOrThrow(result, runConfigErrorMessage)
-    },
-  )
-
-  ipcMain.handle(
-    'runConfig:execute',
-    async (event, payload: { configDir: string; name: string; cwd?: string }) => {
-      const result = await runConfigCommandService.execute(event.sender, payload)
-      return { sessionId: result.sessionId, wsUrl: result.wsUrl }
     },
   )
 

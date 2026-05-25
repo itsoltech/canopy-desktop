@@ -172,23 +172,12 @@ const api = {
     ipcRenderer.invoke('tab:command:saveLayout', { worktreePath, layoutJson }),
   tabDeleteLayout: (worktreePath: string) =>
     ipcRenderer.invoke('tab:command:deleteLayout', { worktreePath }),
-  tabRestoreLayout: (
-    worktreePath: string,
-    layoutJson: string,
-    options?: { tabs?: unknown; activeTabId?: string | null },
-  ) =>
-    ipcRenderer.invoke('tab:command:restoreLayout', {
-      worktreePath,
-      layoutJson,
-      tabs: options?.tabs,
-      activeTabId: options?.activeTabId,
-    }),
 
   agentSendTaskContext: (payload: { text: string; worktreePath?: string; sessionId?: string }) =>
     ipcRenderer.invoke('agent:command:sendTaskContext', payload),
   agentSendReviewContext: (payload: { text: string; worktreePath?: string; sessionId?: string }) =>
     ipcRenderer.invoke('agent:command:sendReviewContext', payload),
-  agentSendDrawing: (payload: { pngBase64?: string; worktreePath?: string; sessionId?: string }) =>
+  agentSendDrawing: (payload: { worktreePath?: string; sessionId?: string }) =>
     ipcRenderer.invoke('agent:command:sendDrawing', payload),
 
   // Skills
@@ -1084,11 +1073,6 @@ const api = {
     ipcRenderer.invoke('runConfig:updateConfig', { configDir, name, configuration }),
   runConfigDeleteConfig: (configDir: string, name: string) =>
     ipcRenderer.invoke('runConfig:deleteConfig', { configDir, name }),
-  runConfigExecute: (configDir: string, name: string, cwd?: string) =>
-    ipcRenderer.invoke('runConfig:execute', { configDir, name, cwd }) as Promise<{
-      sessionId: string
-      wsUrl: string
-    }>,
   runConfigExecuteCommand: (configDir: string, name: string, cwd: string) =>
     ipcRenderer.invoke('runConfig:command:execute', { configDir, name, cwd }),
   runConfigListRunning: () => ipcRenderer.invoke('runConfig:command:listRunning'),

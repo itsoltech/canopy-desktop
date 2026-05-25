@@ -179,8 +179,16 @@ export class WorkspaceCommandService {
     const resolved = await this.deps.validatePathAccess(sender.id, projectPath)
     await execFileAsync('git', ['init'], { cwd: resolved })
 
-    const info = await GitRepository.detect(resolved).unwrapOr(defaultGitInfo)
-    const projectRoot = info.repoRoot ?? resolved
+    const detectedInfo = await GitRepository.detect(resolved).unwrapOr(defaultGitInfo)
+    const detectedProjectRoot = detectedInfo.repoRoot ?? resolved
+    const projectRoot = await this.deps.validatePathAccess(sender.id, detectedProjectRoot)
+    const info: GitInfo = {
+      ...detectedInfo,
+      repoRoot: detectedInfo.repoRoot ? projectRoot : detectedInfo.repoRoot,
+      worktrees: detectedInfo.worktrees.map((worktree) =>
+        worktree.path === detectedProjectRoot ? { ...worktree, path: projectRoot } : worktree,
+      ),
+    }
     const projects = this.getProjects(sender.id)
     const projectIndex = projects.findIndex(
       (project) =>

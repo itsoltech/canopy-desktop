@@ -1,7 +1,6 @@
 import { BrowserWindow, type WebContents } from 'electron'
-import os from 'os'
 import { randomUUID } from 'crypto'
-import type { PtyManager } from '../pty/PtyManager'
+import { resolveShell, type PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
@@ -54,11 +53,6 @@ interface ToolSessionServiceDeps {
   resolveWorkspaceIdForWorktree: (webContentsId: number, worktreePath: string) => string | null
 }
 
-function resolveShellArgs(): string[] {
-  if (os.platform() === 'win32') return []
-  return ['--login']
-}
-
 function validateTmuxName(name: string): void {
   if (!/^[\w-]+$/.test(name)) {
     throw new Error('Invalid tmux session name: only letters, digits, underscores, and dashes')
@@ -80,7 +74,7 @@ export class ToolSessionService {
     let command = this.deps.toolRegistry.resolveCommand(tool)
     const isShell = tool.id === 'shell' || tool.command === 'shell'
     const isAgent = this.deps.agentSessionManager.isAgentTool(tool.id)
-    let args = isShell ? resolveShellArgs() : [...tool.args]
+    let args = isShell ? resolveShell().args : [...tool.args]
     let env: Record<string, string> | undefined
 
     let agentTempId: string | undefined
@@ -570,19 +564,6 @@ export class TabCommandService {
       console.error('Failed to delete layout:', error)
       throw error
     }
-  }
-
-  restoreLayout(
-    sender: WebContents,
-    payload: TabCommandPayloadBase & { layoutJson: string },
-  ): TabCommandResult {
-    this.assertSenderOwnsWorktree(sender, payload.worktreePath)
-    try {
-      JSON.parse(payload.layoutJson)
-    } catch {
-      return emptyResult(payload.worktreePath, payload.tabs ?? [], payload.activeTabId ?? null)
-    }
-    return emptyResult(payload.worktreePath, payload.tabs ?? [], payload.activeTabId ?? null)
   }
 
   private assertSenderOwnsWorktree(sender: WebContents, worktreePath: string): string {

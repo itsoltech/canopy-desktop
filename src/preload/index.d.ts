@@ -360,11 +360,6 @@ interface CanopyAPI {
   ) => Promise<PaneSnapshot>
   tabSaveLayout: (worktreePath: string, layoutJson: string) => Promise<void>
   tabDeleteLayout: (worktreePath: string) => Promise<void>
-  tabRestoreLayout: (
-    worktreePath: string,
-    layoutJson: string,
-    options?: { tabs?: TabSnapshot[]; activeTabId?: string | null },
-  ) => Promise<TabCommandResult>
 
   agentSendTaskContext: (payload: {
     text: string
@@ -377,7 +372,6 @@ interface CanopyAPI {
     sessionId?: string
   }) => Promise<AgentCommandResult>
   agentSendDrawing: (payload: {
-    pngBase64?: string
     worktreePath?: string
     sessionId?: string
   }) => Promise<AgentCommandResult>
@@ -846,11 +840,6 @@ interface CanopyAPI {
     configuration: RunConfiguration,
   ) => Promise<void>
   runConfigDeleteConfig: (configDir: string, name: string) => Promise<void>
-  runConfigExecute: (
-    configDir: string,
-    name: string,
-    cwd?: string,
-  ) => Promise<{ sessionId: string; wsUrl: string }>
   runConfigExecuteCommand: (
     configDir: string,
     name: string,

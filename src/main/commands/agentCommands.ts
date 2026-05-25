@@ -17,7 +17,6 @@ export interface AgentContextPayload {
 }
 
 export interface AgentDrawingPayload {
-  pngBase64?: string
   worktreePath?: string
   sessionId?: string
 }
