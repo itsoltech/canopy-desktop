@@ -86,7 +86,7 @@
 
   async function saveTracker(): Promise<void> {
     if (!config) return
-    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    const updated = $state.snapshot(config) as typeof config
     const normalizedUrl = editBaseUrl.replace(/\/$/, '')
 
     let newTrackerId: string | null = null
@@ -172,7 +172,7 @@
         }
       }
     }
-    const updated = JSON.parse(JSON.stringify(config)) as typeof config
+    const updated = $state.snapshot(config) as typeof config
     updated.trackers = updated.trackers.filter((t) => t.id !== trackerId)
     try {
       if (scope === 'global') {

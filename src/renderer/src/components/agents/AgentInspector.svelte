@@ -35,7 +35,8 @@
       .with('error', () => 'error')
       .with(P.union('toolCalling', 'thinking', 'compacting'), () => 'active')
       .with('idle', () => 'idle')
-      .otherwise(() => 'dim'),
+      .with(P.union('inactive', 'starting', 'ended'), () => 'dim')
+      .exhaustive(),
   )
 
   let statusDotTone = $derived(

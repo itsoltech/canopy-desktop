@@ -107,6 +107,7 @@
 
   function agentStatusLabel(s: AgentSessionState): string {
     return match(s.status)
+      .with({ type: 'inactive' }, () => '')
       .with({ type: 'idle' }, () => 'Idle')
       .with({ type: 'thinking' }, () => 'Thinking')
       .with({ type: 'compacting' }, () => 'Compacting')
@@ -115,7 +116,7 @@
       .with({ type: 'error' }, () => 'Error')
       .with({ type: 'starting' }, () => 'Starting')
       .with({ type: 'ended' }, () => 'Ended')
-      .otherwise(() => '')
+      .exhaustive()
   }
 
   function contextColor(pct: number): string {
