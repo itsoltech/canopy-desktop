@@ -97,6 +97,7 @@ import type { AgentType } from '../agents/types'
 import { resolveShell } from '../pty/PtyManager'
 import { WorkspaceCommandService } from '../commands/workspaceCommands'
 import { TabCommandService, ToolSessionService } from '../commands/tabCommands'
+import { AgentCommandService } from '../commands/agentCommands'
 
 function shellExecArgs(command: string): { command: string; args: string[] } {
   const shell = resolveShell()
@@ -251,6 +252,11 @@ export function registerIpcHandlers(
     browserManager,
     windowManager,
   })
+  const agentCommandService = new AgentCommandService({
+    ptyManager,
+    agentSessionManager,
+    windowManager,
+  })
 
   ipcMain.handle(
     'workspace:command:restoreWindow',
@@ -284,15 +290,15 @@ export function registerIpcHandlers(
   ipcMain.handle('tab:command:restoreLayout', (_event, payload) =>
     tabCommandService.restoreLayout(payload),
   )
-  ipcMain.handle('agent:command:sendTaskContext', () => {
-    throw new Error('agent task command service is not registered')
-  })
-  ipcMain.handle('agent:command:sendReviewContext', () => {
-    throw new Error('agent review command service is not registered')
-  })
-  ipcMain.handle('agent:command:sendDrawing', () => {
-    throw new Error('agent drawing command service is not registered')
-  })
+  ipcMain.handle('agent:command:sendTaskContext', (event, payload) =>
+    agentCommandService.sendTaskContext(event.sender, payload),
+  )
+  ipcMain.handle('agent:command:sendReviewContext', (event, payload) =>
+    agentCommandService.sendReviewContext(event.sender, payload),
+  )
+  ipcMain.handle('agent:command:sendDrawing', (event, payload) =>
+    agentCommandService.sendDrawing(event.sender, payload),
+  )
   ipcMain.handle('runConfig:command:execute', () => {
     throw new Error('run config command service is not registered')
   })
@@ -359,7 +365,10 @@ export function registerIpcHandlers(
     await toolSessionService.killPty(payload.sessionId, payload.killTmux)
   })
 
-  ipcMain.handle('pty:write', (_event, payload: { sessionId: string; data: string }) => {
+  ipcMain.handle('pty:write', (event, payload: { sessionId: string; data: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     ptyManager.write(payload.sessionId, payload.data)
   })
 

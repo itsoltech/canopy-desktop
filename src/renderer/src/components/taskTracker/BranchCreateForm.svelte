@@ -12,7 +12,6 @@
   import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
   import { setActiveTask } from '../../lib/stores/taskTracker.svelte'
   import { safeDirName } from '../../lib/sanitize'
-  import { wrapAsBracketedPaste } from '../../lib/pty/paste'
 
   interface Task {
     key: string
@@ -170,7 +169,11 @@
                 taskSnapshot,
                 workspaceState.repoRoot ?? undefined,
               )
-              await window.api.writePty(sessionId, wrapAsBracketedPaste(context) + '\r')
+              await window.api.agentSendTaskContext({
+                text: context,
+                worktreePath,
+                sessionId,
+              })
             }
           }
         } catch {

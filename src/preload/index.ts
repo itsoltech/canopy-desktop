@@ -185,11 +185,11 @@ const api = {
       activeTabId: options?.activeTabId,
     }),
 
-  agentSendTaskContext: (payload: { text: string; worktreePath?: string }) =>
+  agentSendTaskContext: (payload: { text: string; worktreePath?: string; sessionId?: string }) =>
     ipcRenderer.invoke('agent:command:sendTaskContext', payload),
-  agentSendReviewContext: (payload: { text: string; worktreePath?: string }) =>
+  agentSendReviewContext: (payload: { text: string; worktreePath?: string; sessionId?: string }) =>
     ipcRenderer.invoke('agent:command:sendReviewContext', payload),
-  agentSendDrawing: (payload: { pngBase64: string; worktreePath?: string }) =>
+  agentSendDrawing: (payload: { pngBase64?: string; worktreePath?: string; sessionId?: string }) =>
     ipcRenderer.invoke('agent:command:sendDrawing', payload),
 
   // Skills

@@ -383,14 +383,17 @@ interface CanopyAPI {
   agentSendTaskContext: (payload: {
     text: string
     worktreePath?: string
+    sessionId?: string
   }) => Promise<AgentCommandResult>
   agentSendReviewContext: (payload: {
     text: string
     worktreePath?: string
+    sessionId?: string
   }) => Promise<AgentCommandResult>
   agentSendDrawing: (payload: {
-    pngBase64: string
+    pngBase64?: string
     worktreePath?: string
+    sessionId?: string
   }) => Promise<AgentCommandResult>
 
   // App / Shell
