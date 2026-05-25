@@ -71,7 +71,7 @@
     "tailwindcss": "^4.2.4",
     "ts-pattern": "^5.9.0",
     "turndown": "^7.2.4",
-    "ws": "^8.20.0"
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
@@ -93,7 +93,7 @@
     "generate-license-file": "^4.1.1",
     "prettier": "^3.7.4",
     "prettier-plugin-svelte": "^3.4.0",
-    "svelte": "^5.45.6",
+    "svelte": "^5.55.9",
     "svelte-check": "^4.3.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.2"
