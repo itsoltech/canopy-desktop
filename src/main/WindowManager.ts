@@ -84,6 +84,10 @@ export class WindowManager {
         // Browser <webview> tags use sandbox: true via webpreferences attribute.
         sandbox: false,
         webviewTag: true,
+        // SECURITY: Electron 41 defaults are secure, but set explicitly as defense-in-depth
+        // so renderer cannot access Node.js APIs even if defaults change.
+        nodeIntegration: false,
+        contextIsolation: true,
       },
     })
 

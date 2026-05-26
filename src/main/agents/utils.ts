@@ -31,12 +31,12 @@ export function summarizeToolInput(input?: Record<string, unknown>): string {
     return truncate(input.command, 80)
   }
   if (typeof input.file_path === 'string') {
-    return input.file_path as string
+    return input.file_path
   }
   if (Array.isArray(input.questions) && input.questions.length > 0) {
     const first = input.questions[0] as Record<string, unknown> | undefined
     if (first && typeof first.question === 'string') {
-      return truncate(first.question as string, 80)
+      return truncate(first.question, 80)
     }
   }
   if (typeof input.query === 'string') {
@@ -46,7 +46,7 @@ export function summarizeToolInput(input?: Record<string, unknown>): string {
     return truncate(input.url, 80)
   }
   if (typeof input.pattern === 'string') {
-    let summary = input.pattern as string
+    let summary = input.pattern
     if (typeof input.path === 'string') {
       summary += ` in ${input.path}`
     }
@@ -59,7 +59,7 @@ export function summarizeToolInput(input?: Record<string, unknown>): string {
     return truncate(input.description, 80)
   }
   if (typeof input.skill === 'string') {
-    return input.skill as string
+    return input.skill
   }
 
   for (const val of Object.values(input)) {
