@@ -233,6 +233,8 @@
                 class="size-1.5 rounded-full shrink-0"
                 class:bg-success={trackerCreds[tracker.id]?.hasToken}
                 class:bg-warning-text={!trackerCreds[tracker.id]?.hasToken}
+                role="img"
+                aria-label={trackerCreds[tracker.id]?.hasToken ? 'Has token' : 'Missing token'}
                 title={trackerCreds[tracker.id]?.hasToken ? 'Has token' : 'Missing token'}
               ></span>
             </button>

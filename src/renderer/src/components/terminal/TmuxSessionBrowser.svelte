@@ -162,6 +162,9 @@
                   class="w-1.5 h-1.5 rounded-full flex-shrink-0"
                   class:bg-text-faint={!session.attached}
                   class:bg-success={session.attached}
+                  role="img"
+                  aria-label={session.attached ? 'Attached' : 'Detached'}
+                  title={session.attached ? 'Attached' : 'Detached'}
                 ></span>
                 {session.name}
               </div>
