@@ -1126,7 +1126,7 @@ export function registerIpcHandlers(
       const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
-      const resolvedPath = await validateCreationPath(event.sender.id, expanded)
+      const resolvedPath = await validateWorktreeCreationPath(event.sender.id, expanded)
       const result = await GitRepository.worktreeAdd(
         resolvedRepo,
         resolvedPath,
@@ -1152,7 +1152,7 @@ export function registerIpcHandlers(
       const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
-      const resolvedPath = await validateCreationPath(event.sender.id, expanded)
+      const resolvedPath = await validateWorktreeCreationPath(event.sender.id, expanded)
       const result = await GitRepository.worktreeAddCheckout(
         resolvedRepo,
         resolvedPath,
@@ -1167,7 +1167,7 @@ export function registerIpcHandlers(
     'git:worktreeRemove',
     async (event, payload: { repoRoot: string; path: string; force: boolean }) => {
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      const resolvedTarget = await validatePathAccess(event.sender.id, payload.path)
+      const resolvedTarget = await validateWorktreeExistingPath(event.sender.id, payload.path)
       const result = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, payload.force)
       return unwrapOrThrow(result, gitErrorMessage)
     },
@@ -1839,6 +1839,85 @@ export function registerIpcHandlers(
       throw new Error('Access denied: path escapes workspace')
     }
     return finalPath
+  }
+
+  // Containment check shared by worktree validators: a resolved (realpath'd)
+  // path is acceptable if it lives under the user's home directory OR any
+  // workspace path registered to this window. Windows paths compare
+  // case-insensitively to match validatePathAccess.
+  async function isUnderHomeOrWorkspace(wcId: number, resolved: string): Promise<boolean> {
+    const homeReal = path.normalize(
+      await fs.promises.realpath(os.homedir()).catch(() => os.homedir()),
+    )
+    const allowed = windowManager.getWorkspacePaths(wcId)
+    const resolvedAllowed = await Promise.all(
+      allowed.map(async (wp) => {
+        try {
+          return path.normalize(await fs.promises.realpath(wp))
+        } catch {
+          return path.normalize(wp)
+        }
+      }),
+    )
+    const bases = [homeReal, ...resolvedAllowed]
+    const isWin = process.platform === 'win32'
+    return bases.some((base) => {
+      const target = isWin ? resolved.toLowerCase() : resolved
+      const b = isWin ? base.toLowerCase() : base
+      return target === b || target.startsWith(b + path.sep)
+    })
+  }
+
+  // Worktrees are intentionally created OUTSIDE the workspace by design (the
+  // default `worktrees.baseDir` pref is `~/canopy/worktrees`), so the strict
+  // workspace-only containment used by validateCreationPath wrongly blocks
+  // them — most visibly on Windows where the home dir is never a workspace
+  // ancestor. This validator applies the same TOCTOU-safe ancestor walk and
+  // escape-via-`..` rejection, but relaxes containment to "under home OR
+  // workspace", which still prevents writes to system locations like /etc or
+  // C:\Program Files while permitting the documented worktree layout.
+  async function validateWorktreeCreationPath(wcId: number, targetPath: string): Promise<string> {
+    if (!path.isAbsolute(targetPath)) {
+      throw new Error('Worktree path must be absolute')
+    }
+    const normalized = path.normalize(targetPath)
+    let ancestor = normalized
+    const tail: string[] = []
+    while (true) {
+      try {
+        await fs.promises.access(ancestor)
+        break
+      } catch {
+        const parent = path.dirname(ancestor)
+        if (parent === ancestor) throw new Error('Access denied: no existing ancestor')
+        tail.unshift(path.basename(ancestor))
+        ancestor = parent
+      }
+    }
+    const resolvedAncestor = path.normalize(await fs.promises.realpath(ancestor))
+    if (!(await isUnderHomeOrWorkspace(wcId, resolvedAncestor))) {
+      throw new Error('Access denied: worktree path outside home or workspace')
+    }
+    const finalPath = path.join(resolvedAncestor, ...tail)
+    const rel = path.relative(resolvedAncestor, finalPath)
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error('Access denied: worktree path escapes ancestor')
+    }
+    return finalPath
+  }
+
+  // Same relaxed containment for existing worktree paths (remove). Removing
+  // an inactive worktree under ~/canopy/worktrees would otherwise fail
+  // because only the *active* worktree is in WindowManager's allow-list.
+  async function validateWorktreeExistingPath(wcId: number, targetPath: string): Promise<string> {
+    if (!path.isAbsolute(targetPath)) {
+      throw new Error('Worktree path must be absolute')
+    }
+    const resolved = path.normalize(await fs.promises.realpath(targetPath))
+    if (!(await isUnderHomeOrWorkspace(wcId, resolved))) {
+      throw new Error('Access denied: worktree path outside home or workspace')
+    }
+    return resolved
   }
 
   ipcMain.handle('fs:createFile', async (event, payload: { filePath: string }): Promise<void> => {
