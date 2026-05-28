@@ -1910,6 +1910,9 @@ export function registerIpcHandlers(
   // an inactive worktree under ~/canopy/worktrees would otherwise fail
   // because only the *active* worktree is in WindowManager's allow-list.
   async function validateWorktreeExistingPath(wcId: number, targetPath: string): Promise<string> {
+    if (!path.isAbsolute(targetPath)) {
+      throw new Error('Worktree path must be absolute')
+    }
     const resolved = path.normalize(await fs.promises.realpath(targetPath))
     if (!(await isUnderHomeOrWorkspace(wcId, resolved))) {
       throw new Error('Access denied: worktree path outside home or workspace')
