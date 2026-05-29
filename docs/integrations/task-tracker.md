@@ -59,10 +59,9 @@ Jira maps `issuetype.subtask = true` to `subtask`, and normalizes type names (`U
 
 1. User clicks "Create Branch" on a task.
 2. Canopy resolves the branch name using the configured `branchTemplate`. The default template is `{branchType}/{taskKey}-{taskTitle}`.
-3. A confirmation dialog shows the proposed branch name.
-4. If the working tree has uncommitted changes, Canopy prompts to stash them. If the user declines or the stash fails, the operation is cancelled.
-5. Canopy creates and checks out the new branch from the current branch via `gitBranchCreate`.
-6. On failure, an error dialog is shown with the Git error message.
+3. The create form shows the proposed branch name, an optional branch-type select, an optional agent to launch, and a **base branch** picker (grouped local/remote, populated from `gitBranches`). The base defaults to the currently active branch but can be changed to any local or remote branch.
+4. Canopy creates a worktree for the new branch off the selected base via `gitWorktreeAdd`, then runs any configured worktree setup actions and optionally launches the selected agent with the task context.
+5. On failure, an error dialog is shown with the Git error message.
 
 ### Branch template system
 
