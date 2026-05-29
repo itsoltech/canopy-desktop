@@ -1,3 +1,9 @@
+## [0.13.0-next.11](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.10...v0.13.0-next.11) (2026-05-29)
+
+### Features
+
+* **taskTracker:** pick base branch for worktree from task ([#233](https://github.com/itsoltech/canopy-desktop/issues/233)) ([c7bbf85](https://github.com/itsoltech/canopy-desktop/commit/c7bbf853f7c8ed5b6d44a37cb32e011196835e22))
+
 ## [0.13.0-next.10](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.9...v0.13.0-next.10) (2026-05-28)
 
 ### Bug Fixes
