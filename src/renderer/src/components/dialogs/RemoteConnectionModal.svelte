@@ -204,7 +204,7 @@
     </h2>
 
     {#if errorMsg}
-      <div class="p-4 bg-danger-bg border border-danger rounded-md mb-4">
+      <div role="alert" class="p-4 bg-danger-bg border border-danger rounded-md mb-4">
         <p class="m-0 mb-1 text-md text-danger-text">Failed to start remote control:</p>
         <code class="text-xs text-danger-text font-mono break-all">{errorMsg}</code>
       </div>
@@ -325,7 +325,7 @@
           <span>Remember this device</span>
         </label>
         {#if actionError}
-          <p class="my-1 mb-2 text-xs text-danger-text">{actionError}</p>
+          <p role="alert" class="my-1 mb-2 text-xs text-danger-text">{actionError}</p>
         {/if}
         <div class="flex justify-end gap-2">
           <button
