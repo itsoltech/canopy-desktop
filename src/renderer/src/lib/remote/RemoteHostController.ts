@@ -157,18 +157,26 @@ export class RemoteHostController {
   }
 
   private wireChannel(ch: RTCDataChannel): void {
-    if (ch.label === CHANNEL_COMMANDS) {
-      this.channels.commands = ch
-    } else if (ch.label === CHANNEL_STATE) {
-      this.channels.state = ch
-    } else if (ch.label === CHANNEL_STREAM) {
-      this.channels.stream = ch
-    } else {
-      console.warn('[remote-host] unknown channel label:', ch.label)
-      // Keep the reference around so the channel isn't GC'd mid-open, but do
-      // not expose it through `channels`.
-      return
-    }
+    const matched = match(ch.label)
+      .with(CHANNEL_COMMANDS, () => {
+        this.channels.commands = ch
+        return true
+      })
+      .with(CHANNEL_STATE, () => {
+        this.channels.state = ch
+        return true
+      })
+      .with(CHANNEL_STREAM, () => {
+        this.channels.stream = ch
+        return true
+      })
+      .otherwise(() => {
+        console.warn('[remote-host] unknown channel label:', ch.label)
+        // Keep the reference around so the channel isn't GC'd mid-open, but do
+        // not expose it through `channels`.
+        return false
+      })
+    if (!matched) return
 
     ch.onopen = () => {
       if (ch.label === CHANNEL_COMMANDS) {
