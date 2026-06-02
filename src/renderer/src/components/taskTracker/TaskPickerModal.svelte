@@ -405,7 +405,10 @@
               tabindex="0"
               onclick={() => selectTask(task)}
               onkeydown={(e) => {
-                if (e.key === 'Enter') selectTask(task)
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  selectTask(task)
+                }
               }}
               onmouseenter={() => (selectedIndex = i)}
             >
