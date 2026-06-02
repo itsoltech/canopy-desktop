@@ -93,6 +93,7 @@ Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`.
 5. If no existing PR, Canopy runs `gh pr create` with the rendered title, body, base branch, head branch, and `--assignee @me`.
 6. PR title and body are rendered from the `prTemplate` config using `{taskKey}`, `{taskTitle}`, `{taskType}`, `{parentKey}`, `{boardKey}`, `{taskUrl}`, and `{taskDescription}` placeholders.
 7. The target branch is resolved from `targetRules`: if a rule matches the task's type, the rule's `targetPattern` is used (with placeholder substitution and optional lookup against existing branches). Otherwise, `defaultTargetBranch` is used.
+8. The source branch and resolved target branch are rejected if they start with `-`, so renderer-provided branch names or repository PR config cannot be interpreted as `gh` CLI flags.
 
 ### Sending task context to an AI agent
 

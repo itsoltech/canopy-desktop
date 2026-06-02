@@ -52,6 +52,7 @@ import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
+import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -3034,7 +3035,18 @@ export function registerIpcHandlers(
       if (config.cwd && cwd !== worktreeRoot && !cwd.startsWith(worktreeRoot + path.sep)) {
         throw new Error('config.cwd must not escape the worktree directory')
       }
-      const env = config.env
+      // Run config files can be committed to repos; a cloned repo's `.canopy/run.toml`
+      // could set LD_PRELOAD, NODE_OPTIONS, PATH, GIT_SSH_COMMAND, etc. to hijack the
+      // child shell. Apply the shared blocklist so a hostile config cannot override
+      // system or runtime-loader variables — agent adapters already do the same for
+      // their customEnv inputs.
+      const env: Record<string, string> | undefined = config.env
+        ? Object.fromEntries(
+            Object.entries(config.env).filter(
+              ([k, v]) => typeof v === 'string' && !BLOCKED_ENV_VARS.has(k.toUpperCase()),
+            ),
+          )
+        : undefined
       const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
 
       // Pre-run hook (30s timeout)
