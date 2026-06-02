@@ -119,7 +119,11 @@
 
 <div class="flex flex-col items-center text-center gap-4">
   <h2 class="m-0 text-lg font-semibold text-text">Environment check</h2>
-  <p class="m-0 text-md text-text-secondary max-w-[380px] leading-normal">
+  <p
+    class="m-0 text-md text-text-secondary max-w-[380px] leading-normal"
+    aria-live="polite"
+    aria-busy={checking}
+  >
     {#if checking}Checking installed tools...{:else if allFound}All selected tools are installed.{:else}{missingCount}
       missing -- install now or skip and do it later.{/if}
   </p>

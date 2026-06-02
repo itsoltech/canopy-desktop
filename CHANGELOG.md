@@ -1,3 +1,15 @@
+## [0.13.0-next.11](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.10...v0.13.0-next.11) (2026-05-29)
+
+### Features
+
+* **taskTracker:** pick base branch for worktree from task ([#233](https://github.com/itsoltech/canopy-desktop/issues/233)) ([c7bbf85](https://github.com/itsoltech/canopy-desktop/commit/c7bbf853f7c8ed5b6d44a37cb32e011196835e22))
+
+## [0.13.0-next.10](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.9...v0.13.0-next.10) (2026-05-28)
+
+### Bug Fixes
+
+* **worktree:** allow creation paths under home dir on Windows ([#231](https://github.com/itsoltech/canopy-desktop/issues/231)) ([f7af5cf](https://github.com/itsoltech/canopy-desktop/commit/f7af5cfbe1572e6f46e55ea577f0e4f364ebb126))
+
 ## [0.13.0-next.9](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.8...v0.13.0-next.9) (2026-05-25)
 
 ### Features

@@ -177,8 +177,10 @@ export class GitWatcher {
       const info = await this.refreshInfo(changes)
       if (this.stopped) return
       this.onChange(info, changes)
-    } catch {
-      // Ignore errors from git commands during refresh
+    } catch (e) {
+      // Refresh failures are best-effort (renderer can re-query on demand),
+      // but surface them so a misconfigured repo doesn't fail silently.
+      console.warn(`[GitWatcher] refresh failed for ${this.repoRoot}:`, errorMessage(e))
     } finally {
       this.lastRefreshCompletedAt = Date.now()
       this.refreshInFlight = false
