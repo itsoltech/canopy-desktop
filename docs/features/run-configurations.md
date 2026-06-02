@@ -96,12 +96,6 @@ Running processes are stored in a reactive `SvelteMap` keyed by PTY session ID. 
 
 The file path is always `<dir>/.canopy/run.toml` and is not configurable. Discovery starts from `repoRoot` (the Git root of the opened workspace).
 
-## Security and privacy
-
-Run configuration files can be committed with the repository, so their `env` table is treated as untrusted input. Before spawning `pre_run`, the main command, or `post_run`, Canopy filters environment overrides through the shared `BLOCKED_ENV_VARS` list. Blocked keys such as `PATH`, `HOME`, dynamic linker variables, `NODE_OPTIONS`, Git/SSH helpers, proxy/TLS variables, and compiler flags are ignored so a cloned `.canopy/run.toml` cannot hijack the child shell or runtime. Non-string TOML values are also ignored.
-
-Filtered variables fall back to the inherited login environment used by `PtyManager.spawn`; the run does not fail just because a blocked override was present.
-
 ## Error states
 
 | Error                      | User sees                                            | Cause                                                                                                                        |
@@ -111,6 +105,12 @@ Filtered variables fall back to the inherited login environment used by `PtyMana
 | `RunConfigWriteError`      | "Failed to write run config at \<path\>: \<reason\>" | File system error writing the TOML (permissions, disk full)                                                                  |
 | `RunConfigValidationError` | "Invalid configuration \"\<name\>\": \<reason\>"     | Duplicate name on add, or other validation failure                                                                           |
 | `RunConfigExecutionError`  | "Failed to execute \"\<name\>\": \<reason\>"         | PTY spawn failure, pre_run failure, or timeout                                                                               |
+
+## Security and privacy
+
+Run configuration files can be committed with the repository, so their `env` table is treated as untrusted input. Before spawning `pre_run`, the main command, or `post_run`, Canopy filters environment overrides through the shared `BLOCKED_ENV_VARS` list. Blocked keys such as `PATH`, `HOME`, dynamic linker variables, `NODE_OPTIONS`, Git/SSH helpers, proxy/TLS variables, and compiler flags are ignored so a cloned `.canopy/run.toml` cannot hijack the child shell or runtime. Non-string TOML values are also ignored.
+
+Filtered variables fall back to the inherited login environment used by `PtyManager.spawn`; the run does not fail just because a blocked override was present.
 
 ## Source files
 
