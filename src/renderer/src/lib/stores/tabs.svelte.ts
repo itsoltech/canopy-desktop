@@ -1,4 +1,4 @@
-import { match } from 'ts-pattern'
+import { match, P } from 'ts-pattern'
 import {
   type PaneSession,
   type SplitNode,
@@ -1605,18 +1605,17 @@ export async function closePane(
   disposeEphemeralPaneState(result.removed)
 
   // Kill the removed pane's PTY or destroy browser view (editor/notes/drawing panes have no session)
-  if (
-    result.removed.paneType === 'editor' ||
-    result.removed.paneType === 'notes' ||
-    result.removed.paneType === 'drawing'
-  ) {
-    // No-op — ephemeral or filesystem-backed only
-  } else if (result.removed.paneType === 'browser') {
-    delete browserSessions[result.removed.sessionId]
-    await window.api.teardownBrowserWebview(result.removed.sessionId)
-  } else {
-    await window.api.killPty(result.removed.sessionId, !!result.removed.tmuxSessionName)
-  }
+  await match(result.removed)
+    .with({ paneType: P.union('editor', 'notes', 'drawing') }, () => {
+      // No-op — ephemeral or filesystem-backed only
+    })
+    .with({ paneType: 'browser' }, async (p) => {
+      delete browserSessions[p.sessionId]
+      await window.api.teardownBrowserWebview(p.sessionId)
+    })
+    .otherwise(async (p) => {
+      await window.api.killPty(p.sessionId, !!p.tmuxSessionName)
+    })
 
   if (!result.tree) {
     // Last pane — close the tab entirely

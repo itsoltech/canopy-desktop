@@ -56,6 +56,12 @@ Before removing a worktree or deleting a branch, the app can check for work that
 2. `GitRepository.getStatusPorcelain()` runs `git status --porcelain` in the specified worktree directory.
 3. Returns raw porcelain output. A non-empty result means the worktree has uncommitted changes.
 
+### Worktree path validation
+
+Worktrees are intentionally created OUTSIDE the workspace (default `worktrees.baseDir` is `~/canopy/worktrees`), so the strict workspace-only containment used by other create operations does not apply. Both creation (`gitWorktreeAdd`, `gitWorktreeCheckout`) and removal (`gitWorktreeRemove`) accept any absolute path that resolves under either the user's home directory or any workspace path registered to the window. System locations like `/etc` or `C:\Program Files` remain blocked.
+
+Creation paths additionally walk up to the closest existing ancestor before realpath-normalizing, so a non-existent leaf is OK; the tail is then rechecked to reject escapes via `..`. The same TOCTOU-safe pattern as `validateCreationPath` is used.
+
 ### Post-creation setup
 
 Worktree setup actions are configured per workspace and stored in the preferences database under the key `workspace:<workspaceId>:worktreeSetup` as a JSON array.
@@ -103,14 +109,18 @@ Example configuration (JSON):
 
 ## Error states
 
-| Error                                | User sees                                   | Cause                                                                  |
-| ------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------- |
-| `GitCommandFailed` (worktree add)    | "Git worktree add failed: \<message\>"      | Branch already checked out in another worktree, or path already exists |
-| `GitCommandFailed` (worktree remove) | "Git worktree remove failed: \<message\>"   | Worktree has uncommitted changes and force was not set                 |
-| `InvalidRef`                         | "Invalid git ref: \<ref\>"                  | Branch name starts with `-`                                            |
-| Setup command timeout                | "Command timed out after 5 minutes"         | A setup action's shell command did not exit within 300 seconds         |
-| Setup command failure                | "\<label\>: Command exited with code \<N\>" | A setup action's shell command returned non-zero                       |
-| Setup aborted                        | "Setup aborted"                             | User cancelled the setup while it was running                          |
+| Error                                | User sees                                                | Cause                                                                                |
+| ------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `GitCommandFailed` (worktree add)    | "Git worktree add failed: \<message\>"                   | Branch already checked out in another worktree, or path already exists               |
+| `GitCommandFailed` (worktree remove) | "Git worktree remove failed: \<message\>"                | Worktree has uncommitted changes and force was not set                               |
+| `InvalidRef`                         | "Invalid git ref: \<ref\>"                               | Branch name starts with `-`                                                          |
+| Path not absolute                    | "Worktree path must be absolute"                         | Renderer passed a relative path to create or remove                                  |
+| No existing ancestor                 | "Access denied: no existing ancestor"                    | Creation path walks up past the filesystem root without finding an existing ancestor |
+| Path outside allowed roots           | "Access denied: worktree path outside home or workspace" | Resolved path is not under `$HOME` or a registered workspace                         |
+| Path escapes ancestor                | "Access denied: worktree path escapes ancestor"          | Non-existent tail of the creation path escapes its ancestor via `..` or absolute ref |
+| Setup command timeout                | "Command timed out after 5 minutes"                      | A setup action's shell command did not exit within 300 seconds                       |
+| Setup command failure                | "\<label\>: Command exited with code \<N\>"              | A setup action's shell command returned non-zero                                     |
+| Setup aborted                        | "Setup aborted"                                          | User cancelled the setup while it was running                                        |
 
 ## Source files
 

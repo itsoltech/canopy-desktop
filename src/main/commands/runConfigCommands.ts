@@ -7,6 +7,7 @@ import type { WsBridge } from '../pty/WsBridge'
 import type { WindowManager } from '../WindowManager'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
+import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 import type { RunConfigCommandResult, RunConfigProcessSnapshot } from './types'
 import type { Result } from 'neverthrow'
 
@@ -33,6 +34,18 @@ function shellExecArgs(command: string): { command: string; args: string[] } {
   const shell = resolveShell()
   const flag = os.platform() === 'win32' ? '-Command' : '-lc'
   return { command: shell.command, args: [flag, command] }
+}
+
+function filterRunConfigEnv(env?: Record<string, string>): Record<string, string> | undefined {
+  if (!env) return undefined
+
+  const filtered: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string' && !BLOCKED_ENV_VARS.has(key.toUpperCase())) {
+      filtered[key] = value
+    }
+  }
+  return filtered
 }
 
 export class RunConfigCommandService {
@@ -69,7 +82,8 @@ export class RunConfigCommandService {
       if (config.cwd && cwd !== worktreeRoot && !cwd.startsWith(worktreeRoot + path.sep)) {
         throw new Error('config.cwd must not escape the worktree directory')
       }
-      const env = config.env
+      // `.canopy/run.toml` can be committed, so treat env overrides as untrusted.
+      const env = filterRunConfigEnv(config.env)
       const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
 
       // Pre-run hook (30s timeout)

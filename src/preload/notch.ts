@@ -37,6 +37,7 @@ const notchApi = {
 if (process.contextIsolated) {
   contextBridge.exposeInMainWorld('notchApi', notchApi)
 } else {
-  // @ts-ignore -- fallback for non-isolated context
-  window.notchApi = notchApi
+  // SECURITY: refuse to expose the bridge directly on `window` — context
+  // isolation is required to keep the IPC surface out of page-script reach.
+  throw new Error('Canopy notch preload requires contextIsolation:true')
 }

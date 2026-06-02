@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { okAsync, type ResultAsync } from 'neverthrow'
+import { errAsync, okAsync, type ResultAsync } from 'neverthrow'
 import type { TrackerTask, PRTemplateConfig, PRTargetRule } from './types'
 import type { TaskTrackerError } from './errors'
 import { renderPRTitle, renderPRBody, resolveTargetBranch } from './prTemplate'
@@ -56,6 +56,13 @@ export function createPullRequest(
 ): ResultAsync<CreatePRResult, TaskTrackerError> {
   const { repoRoot, task, sourceBranch, prConfig, existingBranches } = params
 
+  // Reject branch names that could be consumed as a gh CLI flag. sourceBranch is
+  // passed as the value to `--head` below; `--` separators don't help in that
+  // position. findExistingPR already performs the same check.
+  if (typeof sourceBranch !== 'string' || sourceBranch.startsWith('-')) {
+    return errAsync(prErr('Invalid source branch name'))
+  }
+
   const title = renderPRTitle(prConfig.titleTemplate, task)
   const body = renderPRBody(prConfig.bodyTemplate, task)
   const targetBranch = resolveTargetBranch(
@@ -64,6 +71,12 @@ export function createPullRequest(
     prConfig.targetRules,
     existingBranches,
   )
+
+  // Same defense for the resolved target branch — it comes from the PR config
+  // (defaultTargetBranch / targetRules) which a renderer or repo file can set.
+  if (targetBranch.startsWith('-')) {
+    return errAsync(prErr('Invalid target branch name'))
+  }
 
   return (
     GitRepository.push(repoRoot)

@@ -47,6 +47,15 @@
   let initialized = $state(false)
   let fullTask = $state<Task>(task)
   let selectedAgentId = $state(getPref('taskTracker.lastAgent', ''))
+  let branches = $state<{ local: string[]; remote: string[] }>({ local: [], remote: [] })
+  let selectedBaseBranch = $state('')
+
+  let baseBranchGroups = $derived(
+    [
+      { label: 'Local', options: branches.local.map((b) => ({ value: b, label: b })) },
+      { label: 'Remote', options: branches.remote.map((b) => ({ value: b, label: b })) },
+    ].filter((g) => g.options.length > 0),
+  )
 
   let availableAgents = $derived.by(() => {
     const tools = getTools()
@@ -55,19 +64,30 @@
   })
 
   async function init(): Promise<void> {
-    const [typeInfo, foundTask] = await Promise.all([
+    const repoRoot = workspaceState.repoRoot
+    const [typeInfo, foundTask, branchList] = await Promise.all([
       window.api
         .taskTrackerResolveBranchType(
           task.type,
           connectionId,
           selectedBoardId || undefined,
-          workspaceState.repoRoot || undefined,
+          repoRoot || undefined,
         )
         .catch(() => null),
       window.api.taskTrackerFindTaskByKey(task.key).catch(() => null),
+      repoRoot ? window.api.gitBranches(repoRoot).catch(() => null) : Promise.resolve(null),
     ])
 
     if (foundTask) fullTask = foundTask as Task
+
+    if (branchList) {
+      branches = { local: branchList.local, remote: branchList.remote }
+    }
+    // Default the base to the currently active branch (the prior hard-coded
+    // behaviour), but fall back to the repo's reported current branch, then
+    // to the first available local branch so the picker is never empty.
+    selectedBaseBranch =
+      workspaceState.branch ?? branchList?.current ?? branches.local[0] ?? branches.remote[0] ?? ''
 
     if (typeInfo) {
       branchTypeOptions = typeInfo.options
@@ -117,8 +137,8 @@
 
   async function confirmBranchCreation(): Promise<void> {
     const repoRoot = workspaceState.repoRoot
-    const currentBranch = workspaceState.branch
-    if (!repoRoot || !currentBranch || !resolvedBranchName) return
+    const baseBranch = selectedBaseBranch
+    if (!repoRoot || !baseBranch || !resolvedBranchName) return
 
     const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
     const projectName = repoRoot.split(/[/\\]/).pop() || 'project'
@@ -132,7 +152,7 @@
     creatingWorktree = true
     setPref('taskTracker.lastAgent', selectedAgentId)
     try {
-      await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, currentBranch)
+      await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, baseBranch)
       await setActiveTask(worktreePath, {
         taskKey: fullTask.key,
         summary: fullTask.summary,
@@ -268,6 +288,19 @@
         />
       </div>
     {/if}
+    {#if baseBranchGroups.length > 0}
+      <div class="flex items-center gap-2.5">
+        <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Base</span>
+        <CustomSelect
+          value={selectedBaseBranch}
+          groups={baseBranchGroups}
+          onchange={(v) => {
+            selectedBaseBranch = v
+          }}
+          maxWidth="none"
+        />
+      </div>
+    {/if}
     <div class="flex items-center gap-2.5">
       <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Branch</span>
       <code class="text-sm text-accent-text bg-bg-input px-2.5 py-[5px] rounded-lg flex-1"
@@ -298,7 +331,7 @@
       <button
         class="px-3.5 py-1.5 border-0 rounded-lg bg-accent-bg text-accent-text text-sm font-inherit cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
         onclick={confirmBranchCreation}
-        disabled={creatingWorktree || !resolvedBranchName}
+        disabled={creatingWorktree || !resolvedBranchName || !selectedBaseBranch}
       >
         {#if creatingWorktree}Creating...{:else if selectedAgentId}Create & Start Agent{:else}Create
           & Switch{/if}
