@@ -123,20 +123,11 @@ export async function deleteRunConfig(configDir: string, name: string): Promise<
   await discoverConfigs()
 }
 
-function getGlobalRunningCount(configDir: string, name: string): number {
-  let count = 0
-  for (const proc of runningProcesses.values()) {
-    if (proc.configDir === configDir && proc.name === name) count++
+function hydrateRunningProcesses(snapshots: RunningProcess[]): void {
+  runningProcesses.clear()
+  for (const snapshot of snapshots) {
+    runningProcesses.set(snapshot.sessionId, snapshot)
   }
-  return count
-}
-
-function findConfigEntry(configDir: string, name: string): RunConfiguration | undefined {
-  for (const source of sources) {
-    if (source.configDir !== configDir) continue
-    return source.file.configurations.find((c) => c.name === name)
-  }
-  return undefined
 }
 
 export async function executeRunConfig(
@@ -144,25 +135,11 @@ export async function executeRunConfig(
   name: string,
 ): Promise<{ sessionId: string; wsUrl: string } | null> {
   try {
-    const config = findConfigEntry(configDir, name)
-    const maxInstances = config?.max_instances ?? 0
-    if (maxInstances > 0) {
-      const current = getGlobalRunningCount(configDir, name)
-      if (current >= maxInstances) {
-        addToast(`"${name}" is already running (max ${maxInstances})`)
-        return null
-      }
-    }
     const cwd = workspaceState.selectedWorktreePath
     if (!cwd) return null
-    const result = await window.api.runConfigExecute(configDir, name, cwd)
-    runningProcesses.set(result.sessionId, {
-      sessionId: result.sessionId,
-      name,
-      configDir,
-      worktreePath: cwd,
-    })
-    return result
+    const result = await window.api.runConfigExecuteCommand(configDir, name, cwd)
+    hydrateRunningProcesses(await window.api.runConfigListRunning())
+    return { sessionId: result.sessionId, wsUrl: result.wsUrl }
   } catch (e) {
     addToast(`Failed to run "${name}": ${e instanceof Error ? e.message : String(e)}`)
     return null
@@ -187,6 +164,10 @@ export function initBackgroundListener(): void {
     cleanupPty()
     cleanupPostRun()
   }
+  void window.api
+    .runConfigListRunning()
+    .then((snapshots) => hydrateRunningProcesses(snapshots))
+    .catch((e) => console.warn('Failed to list running run configs:', e))
 }
 
 export function cleanupBackgroundListener(): void {

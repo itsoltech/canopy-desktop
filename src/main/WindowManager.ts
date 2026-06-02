@@ -184,7 +184,7 @@ export class WindowManager {
 
   getWindowForPath(path: string): BrowserWindow | null {
     for (const [wcId, paths] of this.workspacePaths) {
-      if (paths.has(path)) {
+      if (paths.has(path) || this.activeWorktreePaths.get(wcId) === path) {
         const win = this.windows.get(wcId)
         if (win && !win.isDestroyed()) return win
       }
@@ -208,6 +208,10 @@ export class WindowManager {
 
   setActiveWorktree(wcId: number, path: string): void {
     this.activeWorktreePaths.set(wcId, path)
+  }
+
+  clearActiveWorktree(wcId: number): void {
+    this.activeWorktreePaths.delete(wcId)
   }
 
   setFocusedAgentSession(wcId: number, ptySessionId: string | null): void {
@@ -260,6 +264,10 @@ export class WindowManager {
   untrackPtySession(wcId: number, sessionId: string): void {
     const set = this.ptySessions.get(wcId)
     if (set) set.delete(sessionId)
+  }
+
+  ownsPtySession(wcId: number, sessionId: string): boolean {
+    return this.ptySessions.get(wcId)?.has(sessionId) ?? false
   }
 
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {

@@ -101,7 +101,13 @@
       placeholder: '/path/to/project',
       submitLabel: 'Open',
     })
-    if (result) openWorkspace(result.value)
+    if (!result) return
+    try {
+      const path = await window.api.confirmOpenPath(result.value)
+      if (path) openWorkspace(path)
+    } catch (err) {
+      addToast(`Failed to open path: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   function handleContextMenu(e: MouseEvent, ws: WorkspaceRow): void {

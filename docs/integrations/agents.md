@@ -50,12 +50,12 @@ Each agent emits events in its own protocol. Adapters map these to a common set 
 | `PermissionRequest`   | `PermissionRequest`  | -                  | `Notification(ToolPermission)` | `PermissionAsked`   |
 | `Idle`                | `Stop`               | `Stop`             | `AfterAgent`                   | `SessionStatusIdle` |
 | `IdleFailure`         | `StopFailure`        | -                  | -                              | `SessionError`      |
-| `BeforeCompact`       | `PreCompact`         | `PreCompact`      | `PreCompress`                  | `SessionCompacting` |
-| `AfterCompact`        | `PostCompact`        | `PostCompact`     | -                              | `SessionCompacted`  |
+| `BeforeCompact`       | `PreCompact`         | `PreCompact`       | `PreCompress`                  | `SessionCompacting` |
+| `AfterCompact`        | `PostCompact`        | `PostCompact`      | -                              | `SessionCompacted`  |
 | `Notification`        | `Notification`       | -                  | `Notification`                 | `TodoUpdated`       |
 | `AfterToolUseFailure` | `PostToolUseFailure` | -                  | -                              | -                   |
 | `SubagentStart`       | `SubagentStart`      | -                  | -                              | -                   |
-| `SubagentStop`        | `SubagentStop`       | `SubagentStop`    | -                              | -                   |
+| `SubagentStop`        | `SubagentStop`       | `SubagentStop`     | -                              | -                   |
 | `TaskCompleted`       | `TaskCompleted`      | -                  | -                              | -                   |
 | `TeammateIdle`        | `TeammateIdle`       | -                  | -                              | -                   |
 
@@ -115,9 +115,9 @@ On session destroy, the adapter's `cleanup()` function removes temporary setting
 
 Each agent can have multiple named **profiles**, each holding a complete configuration snapshot (model, API key, base URL, provider, env vars, settings JSON override). Profiles let users switch between providers — e.g. a `Default` profile using Anthropic, an `Ollama` profile pointing at a local endpoint, a `GLM` or `MinMax` profile targeting alternative gateways — without rewriting global preferences each time.
 
-**Launching a profile.** The Tools sidebar renders each AI agent as a collapsible group when it has two or more profiles. Expanding the group lists the profiles; clicking one spawns the agent using that profile's configuration. When an agent has only a single profile (typically the `Default`), it renders as a flat launcher with no chevron — one click launches directly. If `profileId` is omitted from the `tool:spawn` payload, the spawn handler falls back to reading global preferences (legacy behaviour).
+**Launching a profile.** The Tools sidebar renders each AI agent as a collapsible group when it has two or more profiles. Expanding the group lists the profiles; clicking one spawns the agent using that profile's configuration. When an agent has only a single profile (typically the `Default`), it renders as a flat launcher with no chevron — one click launches directly. If `profileId` is omitted from the tab command payload, the spawn handler falls back to reading global preferences (legacy behaviour).
 
-**Profile → adapter seam.** Adapters are profile-agnostic: they take a `PreferencesReader` interface (`{ get(key): string | null }`). When `tool:spawn` receives a `profileId`, it wraps the profile in a `profileToReader()` shim that returns the profile's values for `${agentType}.*` keys and delegates all other keys to the global `preferencesStore`. This means adding profile support required zero changes to `AgentSessionManager` or any of the four adapter files. All three reader call sites in `tool:spawn` (settingsJson parsing, `getCliArgs`, `getEnvVars`) swap to the shim together.
+**Profile -> adapter seam.** Adapters are profile-agnostic: they take a `PreferencesReader` interface (`{ get(key): string | null }`). When the tab command spawn path receives a `profileId`, it wraps the profile in a `profileToReader()` shim that returns the profile's values for `${agentType}.*` keys and delegates all other keys to the global `preferencesStore`. This means adding profile support required zero changes to `AgentSessionManager` or any of the four adapter files. All three reader call sites in the spawn path (settingsJson parsing, `getCliArgs`, `getEnvVars`) swap to the shim together.
 
 **Storage.** Profiles live in the `agent_profiles` SQLite table with columns `id`, `agent_type`, `name`, `is_default`, `sort_index`, `prefs_json`, `api_key_enc`, `created_at`, `updated_at`. `api_key_enc` is encrypted with Electron's `safeStorage` (identical pattern to `CredentialStore`; falls back to plain base64 on Linux without a keyring). The name is unique per agent type. Only a single profile per agent type may be deleted down to — the store returns `ProfileLastDeletion` if the user tries to remove the last profile.
 
@@ -133,36 +133,36 @@ Preferences for each agent are organized into **profiles** (see the Profiles sec
 
 The fields below describe the keys stored inside each profile's `prefs_json` (non-secret) and the separately encrypted `api_key_enc` column. Adapters read them via `${agentType}.<field>` lookups on the `PreferencesReader` shim.
 
-| Profile field          | Agent    | Purpose                                           |
-| ---------------------- | -------- | ------------------------------------------------- |
-| `model`                | Claude   | `--model` argument                                |
-| `permissionMode`       | Claude   | `--permission-mode` argument                      |
-| `effortLevel`          | Claude   | `--effort` argument                               |
-| `appendSystemPrompt`   | Claude   | `--append-system-prompt` argument                 |
-| `apiKey` _(encrypted)_ | Claude   | `ANTHROPIC_API_KEY` env var                       |
-| `baseUrl`              | Claude   | `ANTHROPIC_BASE_URL` env var                      |
-| `provider`             | Claude   | Sets `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY` |
-| `customEnv`            | Claude   | JSON object of additional env vars                |
-| `settingsJson`         | Claude   | Merged into per-session `settings.json`           |
-| `model`                | Codex    | `--model` argument                                |
-| `approvalMode`         | Codex    | `--ask-for-approval` argument                     |
-| `sandbox`              | Codex    | `--sandbox` argument                              |
-| `fullAuto`             | Codex    | `--full-auto` flag (when `"true"`)                |
+| Profile field                          | Agent    | Purpose                                                                                                        |
+| -------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `model`                                | Claude   | `--model` argument                                                                                             |
+| `permissionMode`                       | Claude   | `--permission-mode` argument                                                                                   |
+| `effortLevel`                          | Claude   | `--effort` argument                                                                                            |
+| `appendSystemPrompt`                   | Claude   | `--append-system-prompt` argument                                                                              |
+| `apiKey` _(encrypted)_                 | Claude   | `ANTHROPIC_API_KEY` env var                                                                                    |
+| `baseUrl`                              | Claude   | `ANTHROPIC_BASE_URL` env var                                                                                   |
+| `provider`                             | Claude   | Sets `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY`                                                              |
+| `customEnv`                            | Claude   | JSON object of additional env vars                                                                             |
+| `settingsJson`                         | Claude   | Merged into per-session `settings.json`                                                                        |
+| `model`                                | Codex    | `--model` argument                                                                                             |
+| `approvalMode`                         | Codex    | `--ask-for-approval` argument                                                                                  |
+| `sandbox`                              | Codex    | `--sandbox` argument                                                                                           |
+| `fullAuto`                             | Codex    | `--full-auto` flag (when `"true"`)                                                                             |
 | `dangerouslyBypassApprovalsAndSandbox` | Codex    | `--dangerously-bypass-approvals-and-sandbox` flag; takes precedence over approval mode, sandbox, and full auto |
-| `profile`              | Codex    | `--profile` argument                              |
-| `apiKey` _(encrypted)_ | Codex    | `OPENAI_API_KEY` env var                          |
-| `baseUrl`              | Codex    | `OPENAI_BASE_URL` env var                         |
-| `customEnv`            | Codex    | JSON object of additional env vars                |
-| `settingsJson`         | Codex    | Merged into per-session `.codex/hooks.json`       |
-| `model`                | Gemini   | `--model` argument                                |
-| `approvalMode`         | Gemini   | `--approval-mode` argument                        |
-| `apiKey` _(encrypted)_ | Gemini   | `GEMINI_API_KEY` env var                          |
-| `customEnv`            | Gemini   | JSON object of additional env vars                |
-| `settingsJson`         | Gemini   | Merged into per-session `.gemini/settings.json`   |
-| `model`                | OpenCode | `--model` argument                                |
-| `apiKey` _(encrypted)_ | OpenCode | `ANTHROPIC_API_KEY` env var                       |
-| `settingsJson`         | OpenCode | `OPENCODE_CONFIG_CONTENT` env var                 |
-| `customEnv`            | OpenCode | JSON object of additional env vars                |
+| `profile`                              | Codex    | `--profile` argument                                                                                           |
+| `apiKey` _(encrypted)_                 | Codex    | `OPENAI_API_KEY` env var                                                                                       |
+| `baseUrl`                              | Codex    | `OPENAI_BASE_URL` env var                                                                                      |
+| `customEnv`                            | Codex    | JSON object of additional env vars                                                                             |
+| `settingsJson`                         | Codex    | Merged into per-session `.codex/hooks.json`                                                                    |
+| `model`                                | Gemini   | `--model` argument                                                                                             |
+| `approvalMode`                         | Gemini   | `--approval-mode` argument                                                                                     |
+| `apiKey` _(encrypted)_                 | Gemini   | `GEMINI_API_KEY` env var                                                                                       |
+| `customEnv`                            | Gemini   | JSON object of additional env vars                                                                             |
+| `settingsJson`                         | Gemini   | Merged into per-session `.gemini/settings.json`                                                                |
+| `model`                                | OpenCode | `--model` argument                                                                                             |
+| `apiKey` _(encrypted)_                 | OpenCode | `ANTHROPIC_API_KEY` env var                                                                                    |
+| `settingsJson`                         | OpenCode | `OPENCODE_CONFIG_CONTENT` env var                                                                              |
+| `customEnv`                            | OpenCode | JSON object of additional env vars                                                                             |
 
 Custom env vars are filtered against a blocklist (`BLOCKED_ENV_VARS` from `security/envBlocklist`) and internal vars (`CANOPY_HOOK_PORT`, `CANOPY_HOOK_TOKEN`, `ELECTRON_RUN_AS_NODE`).
 

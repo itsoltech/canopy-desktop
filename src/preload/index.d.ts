@@ -1,15 +1,11 @@
-interface PtySpawnResult {
-  sessionId: string
-  wsUrl: string
-}
-
-interface ToolSpawnResult {
-  sessionId: string
-  wsUrl: string
-  toolId: string
-  toolName: string
-  tmuxSessionName?: string
-}
+import type {
+  AgentCommandResult,
+  RunConfigCommandResult,
+  RunConfigProcessSnapshot,
+  TabSnapshot,
+  TabCommandResult,
+  WorkspaceCommandResult,
+} from '../main/commands/types'
 
 interface PtyExitData {
   sessionId: string
@@ -257,7 +253,6 @@ interface CanopyAPI {
   ) => () => void
 
   // PTY
-  spawnPty: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<PtySpawnResult>
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
@@ -281,13 +276,16 @@ interface CanopyAPI {
   listWorkspaces: (limit?: number) => Promise<WorkspaceRow[]>
   getWorkspace: (id: string) => Promise<WorkspaceRow | null>
   getWorkspaceByPath: (path: string) => Promise<WorkspaceRow | null>
-  upsertWorkspace: (workspace: {
-    path: string
-    name: string
-    isGitRepo: boolean
-  }) => Promise<WorkspaceRow>
   removeWorkspace: (id: string) => Promise<void>
-  touchWorkspace: (id: string) => Promise<void>
+  workspaceRestoreWindow: (payload: {
+    paths: string[]
+    activeWorktreePath?: string
+    removedPaths?: string[]
+  }) => Promise<WorkspaceCommandResult>
+  workspaceAttachProject: (path: string) => Promise<WorkspaceCommandResult>
+  workspaceDetachProject: (path: string) => Promise<WorkspaceCommandResult>
+  workspaceSelectWorktree: (path: string) => Promise<WorkspaceCommandResult>
+  workspaceInitGitRepo: (path: string) => Promise<WorkspaceCommandResult>
 
   // Preferences
   getPref: (key: string) => Promise<string | null>
@@ -302,18 +300,6 @@ interface CanopyAPI {
   listTools: () => Promise<ToolDefinition[]>
   getTool: (id: string) => Promise<ToolDefinition | null>
   checkToolAvailability: () => Promise<Record<string, boolean>>
-  spawnTool: (
-    toolId: string,
-    worktreePath: string,
-    options?: {
-      cols?: number
-      rows?: number
-      workspaceName?: string
-      branch?: string
-      resumeSessionId?: string
-      profileId?: string
-    },
-  ) => Promise<ToolSpawnResult>
   addCustomTool: (tool: {
     id: string
     name: string
@@ -333,17 +319,72 @@ interface CanopyAPI {
       category?: string
     },
   ) => Promise<ToolDefinition[]>
+  tabOpenTool: (
+    toolId: string,
+    worktreePath: string,
+    options?: {
+      initialUrl?: string
+      profileId?: string
+      workspaceName?: string
+      branch?: string
+      tabs?: TabSnapshot[]
+      activeTabId?: string | null
+    },
+  ) => Promise<TabCommandResult>
+  tabRestartPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+      tabs?: TabSnapshot[]
+      activeTabId?: string | null
+    },
+  ) => Promise<TabCommandResult>
+  tabCloseTab: (
+    worktreePath: string,
+    tabId: string,
+    options?: { tabs?: TabSnapshot[]; activeTabId?: string | null },
+  ) => Promise<TabCommandResult>
+  tabSpawnPane: (
+    toolId: string,
+    worktreePath: string,
+    options?: {
+      initialUrl?: string
+      profileId?: string
+      workspaceName?: string
+      branch?: string
+      resumeSessionId?: string
+    },
+  ) => Promise<PaneSnapshot>
+  tabSaveLayout: (worktreePath: string, layoutJson: string) => Promise<void>
+  tabDeleteLayout: (worktreePath: string) => Promise<void>
+
+  agentSendTaskContext: (payload: {
+    text: string
+    worktreePath?: string
+    sessionId?: string
+  }) => Promise<AgentCommandResult>
+  agentSendReviewContext: (payload: {
+    text: string
+    worktreePath?: string
+    sessionId?: string
+  }) => Promise<AgentCommandResult>
+  agentSendDrawing: (payload: {
+    worktreePath?: string
+    sessionId?: string
+  }) => Promise<AgentCommandResult>
+
   // App / Shell
   showInFolder: (path: string) => Promise<void>
   newWindow: () => Promise<void>
-  setWorkspacePath: (path: string) => Promise<void>
-  detachProject: (path: string) => Promise<void>
-  focusWindowForPath: (path: string) => Promise<boolean>
   focusRendererWebContents: () => Promise<void>
   setFocusedAgentSession: (ptySessionId: string | null) => Promise<void>
 
   // Dialog
   openFolder: (defaultPath?: string) => Promise<string | null>
+  confirmOpenPath: (path: string) => Promise<string | null>
 
   // Settings export / import
   exportSettings: () => Promise<{
@@ -478,11 +519,6 @@ interface CanopyAPI {
     newWorktreePath: string,
   ) => Promise<{ success: boolean; errors: string[] }>
   abortWorktreeSetup: () => void
-
-  // Layouts
-  saveLayout: (workspaceId: string, worktreePath: string, layoutJson: string) => Promise<void>
-  getLayout: (workspaceId: string, worktreePath: string) => Promise<string | null>
-  getAllLayouts: (workspaceId: string) => Promise<{ worktree_path: string; layout_json: string }[]>
 
   // Push events (main → renderer)
   onAgentHookEvent: (callback: (data: AgentHookEventData) => void) => () => void
@@ -769,6 +805,7 @@ interface CanopyAPI {
     ts: number
     dir: string
   }> | null>
+  perfOpenProject?: (path: string) => Promise<void>
 
   // Status-bar perf HUD (always present)
   perfHud: {
@@ -803,11 +840,12 @@ interface CanopyAPI {
     configuration: RunConfiguration,
   ) => Promise<void>
   runConfigDeleteConfig: (configDir: string, name: string) => Promise<void>
-  runConfigExecute: (
+  runConfigExecuteCommand: (
     configDir: string,
     name: string,
-    cwd?: string,
-  ) => Promise<{ sessionId: string; wsUrl: string }>
+    cwd: string,
+  ) => Promise<RunConfigCommandResult>
+  runConfigListRunning: () => Promise<RunConfigProcessSnapshot[]>
   onRunConfigPostRunResult: (
     callback: (data: { success: boolean; command: string; exitCode?: number }) => void,
   ) => () => void

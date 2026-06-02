@@ -76,6 +76,24 @@ export class PtyManager {
     return this.sessions.get(id)?.tmuxSessionName
   }
 
+  getSessionIdsForTmuxSession(name: string): string[] {
+    const ids: string[] = []
+    for (const [id, session] of this.sessions) {
+      if (session.tmuxSessionName === name) {
+        ids.push(id)
+      }
+    }
+    return ids
+  }
+
+  updateTmuxSessionName(oldName: string, newName: string): void {
+    for (const session of this.sessions.values()) {
+      if (session.tmuxSessionName === oldName) {
+        session.tmuxSessionName = newName
+      }
+    }
+  }
+
   isTmuxSession(id: string): boolean {
     return !!this.sessions.get(id)?.tmuxSessionName
   }

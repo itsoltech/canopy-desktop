@@ -175,10 +175,11 @@ export interface BrowserApi {
     getPref: (k: string) => Promise<string | null>
     perfDiagnostics: () => Promise<PerfDiagnostics | null>
     perfIpcLog: () => Promise<Array<{ channel: string; size: number; ts: number; dir: string }>>
-    spawnPty: (o: { cols: number; rows: number }) => Promise<{ sessionId: string }>
+    perfOpenProject?: (path: string) => Promise<void>
+    tabSpawnPane: (toolId: string, worktreePath: string) => Promise<{ sessionId: string }>
     writePty: (sid: string, data: string) => Promise<void>
     killPty: (sid: string) => Promise<void>
-    detachProject: (path: string) => Promise<void>
+    workspaceDetachProject: (path: string) => Promise<void>
   }
 }
 
@@ -193,10 +194,10 @@ export async function openProject(
       !!(window as unknown as BrowserApi).api &&
       typeof (window as unknown as BrowserApi).api.getPref === 'function',
   )
-  await electronApp.evaluate(({ BrowserWindow }, path) => {
-    const win = BrowserWindow.getAllWindows()[0]
-    win.webContents.send('url:action', { action: 'open', path })
-  }, projectPath)
+  await page.evaluate(
+    (path) => (window as unknown as BrowserApi).api.perfOpenProject?.(path),
+    projectPath,
+  )
   // Wait for workspace to load
   await page.waitForTimeout(2000)
 }

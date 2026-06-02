@@ -30,6 +30,12 @@ import { browserSessions } from '../browser/browserState.svelte'
 import { notesUiScope } from './notes.svelte'
 import { getProfileById } from './profiles.svelte'
 import { drawingsState } from './drawings.svelte'
+import type {
+  PaneSnapshot,
+  SplitSnapshot,
+  TabCommandResult,
+  TabSnapshot,
+} from '../../../../main/commands/types'
 
 function hasRemainingDrawingPanes(excludeId: string): boolean {
   for (const tabs of Object.values(tabsByWorktree)) {
@@ -173,6 +179,122 @@ function computeDisplayName(
   return `${baseLabel} #${sameLabelCount + 1}`
 }
 
+function paneToSnapshot(pane: PaneSession): PaneSnapshot {
+  return {
+    id: pane.id,
+    sessionId: pane.sessionId,
+    wsUrl: pane.wsUrl,
+    toolId: pane.toolId,
+    toolName: pane.toolName,
+    isRunning: pane.isRunning,
+    exitCode: pane.exitCode,
+    title: pane.title,
+    paneType: pane.paneType,
+    tmuxSessionName: pane.tmuxSessionName,
+    detached: pane.detached,
+    url: pane.url,
+    filePath: pane.filePath,
+    editorFiles: pane.editorFiles?.map((file) => ({ filePath: file.filePath })),
+    editorActiveFile: pane.editorActiveFile,
+    profileId: pane.profileId,
+    profileName: pane.profileName,
+  }
+}
+
+function splitToSnapshot(node: SplitNode): SplitSnapshot {
+  if (node.type === 'leaf') return { type: 'leaf', pane: paneToSnapshot(node.pane) }
+  return {
+    type: 'split',
+    direction: node.type === 'hsplit' ? 'horizontal' : 'vertical',
+    ratio: node.ratio,
+    first: splitToSnapshot(node.first),
+    second: splitToSnapshot(node.second),
+  }
+}
+
+function tabToSnapshot(tab: TabInfo): TabSnapshot {
+  return {
+    id: tab.id,
+    toolId: tab.toolId,
+    toolName: tab.toolName,
+    name: tab.name,
+    worktreePath: tab.worktreePath,
+    rootSplit: splitToSnapshot(tab.rootSplit),
+    focusedPaneId: tab.focusedPaneId,
+  }
+}
+
+function snapshotsForCommand(worktreePath: string): TabSnapshot[] {
+  return (tabsByWorktree[worktreePath] ?? []).map((tab) => tabToSnapshot(tab))
+}
+
+function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneSession {
+  return {
+    ...previous,
+    id: snapshot.id,
+    sessionId: snapshot.sessionId,
+    wsUrl: snapshot.wsUrl,
+    toolId: snapshot.toolId,
+    toolName: snapshot.toolName,
+    isRunning: snapshot.isRunning,
+    exitCode: snapshot.exitCode,
+    title: snapshot.title,
+    paneType: snapshot.paneType,
+    filePath: snapshot.filePath ?? previous?.filePath,
+    url: snapshot.url,
+    tmuxSessionName: snapshot.tmuxSessionName,
+    detached: snapshot.detached,
+    profileId: snapshot.profileId,
+    profileName: snapshot.profileName,
+    editorFiles:
+      previous?.editorFiles ??
+      snapshot.editorFiles?.map((file) => ({
+        filePath: file.filePath,
+      })),
+    editorActiveFile: snapshot.editorActiveFile ?? previous?.editorActiveFile,
+  }
+}
+
+function splitFromSnapshot(snapshot: SplitSnapshot): SplitNode {
+  if (snapshot.type === 'leaf') return createLeaf(paneFromSnapshot(snapshot.pane))
+  return {
+    type: snapshot.direction === 'horizontal' ? 'hsplit' : 'vsplit',
+    id: `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    ratio: snapshot.ratio,
+    first: splitFromSnapshot(snapshot.first),
+    second: splitFromSnapshot(snapshot.second),
+  }
+}
+
+function tabFromSnapshot(snapshot: TabSnapshot): TabInfo {
+  return {
+    id: snapshot.id,
+    toolId: snapshot.toolId,
+    toolName: snapshot.toolName,
+    name: snapshot.name,
+    worktreePath: snapshot.worktreePath,
+    rootSplit: splitFromSnapshot(snapshot.rootSplit),
+    focusedPaneId: snapshot.focusedPaneId,
+  }
+}
+
+function initPaneRuntimeState(pane: PaneSession): void {
+  if (isAiToolId(pane.toolId) && pane.isRunning) {
+    initAgentSession(pane.sessionId, pane.toolId as AgentType)
+  }
+}
+
+function applyOpenedTabResult(result: TabCommandResult): TabInfo | null {
+  const snapshot = result.openedTab
+  if (!snapshot) return null
+  const tab = tabFromSnapshot(snapshot)
+  if (!tabsByWorktree[result.worktreePath]) tabsByWorktree[result.worktreePath] = []
+  tabsByWorktree[result.worktreePath].push(tab)
+  activeTabId[result.worktreePath] = result.activeTabId ?? tab.id
+  for (const pane of allPanes(tab.rootSplit)) initPaneRuntimeState(pane)
+  return tab
+}
+
 export function getActiveAgentPane(): { pane: PaneSession; tabId: string } | null {
   const path = workspaceState.selectedWorktreePath
   if (!path) return null
@@ -205,92 +327,17 @@ export async function openTool(
   worktreePath: string,
   options?: { initialUrl?: string; profileId?: string },
 ): Promise<TabInfo> {
-  let pane: PaneSession
-  const paneId = nextPaneId()
-  let toolName: string
-  let profileName: string | undefined
-
-  if (toolId === 'browser') {
-    const browserId = crypto.randomUUID()
-    toolName = 'Browser'
-    pane = {
-      id: paneId,
-      sessionId: browserId,
-      wsUrl: '',
-      toolId,
-      toolName,
-      isRunning: true,
-      exitCode: null,
-      title: null,
-      paneType: 'browser',
-      url: options?.initialUrl,
-    }
-  } else if (toolId === 'notes' || toolId === 'drawing') {
-    toolName = toolId === 'notes' ? 'Notes' : 'Drawing'
-    pane = {
-      id: paneId,
-      sessionId: crypto.randomUUID(),
-      wsUrl: '',
-      toolId,
-      toolName,
-      isRunning: true,
-      exitCode: null,
-      title: null,
-      paneType: toolId,
-    }
-  } else {
-    const spawnOptions: {
-      workspaceName?: string
-      branch?: string
-      profileId?: string
-    } = {}
-    if (AI_TOOL_IDS.has(toolId)) {
-      const project = getProjectForWorktree(worktreePath)
-      spawnOptions.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
-      spawnOptions.branch = workspaceState.branch ?? undefined
-      if (options?.profileId) {
-        spawnOptions.profileId = options.profileId
-        profileName = getProfileById(options.profileId)?.name
-      }
-    }
-    const result = await window.api.spawnTool(toolId, worktreePath, spawnOptions)
-    toolName = result.toolName
-    pane = {
-      id: paneId,
-      sessionId: result.sessionId,
-      wsUrl: result.wsUrl,
-      toolId,
-      toolName,
-      isRunning: true,
-      exitCode: null,
-      title: null,
-      tmuxSessionName: result.tmuxSessionName,
-      profileId: options?.profileId,
-      profileName,
-    }
-    if (AI_TOOL_IDS.has(toolId)) {
-      initAgentSession(result.sessionId, toolId as AgentType)
-    }
-  }
-
-  const id = nextTabId()
-  const name = computeDisplayName(toolName, worktreePath, toolId, profileName)
-
-  const tab: TabInfo = {
-    id,
-    toolId,
-    toolName,
-    name,
-    worktreePath,
-    rootSplit: createLeaf(pane),
-    focusedPaneId: paneId,
-  }
-
-  if (!tabsByWorktree[worktreePath]) {
-    tabsByWorktree[worktreePath] = []
-  }
-  tabsByWorktree[worktreePath].push(tab)
-  activeTabId[worktreePath] = id
+  const project = getProjectForWorktree(worktreePath)
+  const result = await window.api.tabOpenTool(toolId, worktreePath, {
+    initialUrl: options?.initialUrl,
+    profileId: options?.profileId,
+    workspaceName: project?.workspace.name ?? workspaceState.workspace?.name ?? '',
+    branch: workspaceState.branch ?? undefined,
+    tabs: snapshotsForCommand(worktreePath),
+    activeTabId: activeTabId[worktreePath] ?? null,
+  })
+  const tab = applyOpenedTabResult(result)
+  if (!tab) throw new Error('tab:command:openTool did not return an opened tab')
 
   scheduleSave(worktreePath)
   return tab
@@ -507,16 +554,10 @@ export async function closeTab(tabId: string): Promise<void> {
       }
       disposeEphemeralPaneState(p)
     }
-    await Promise.all(
-      panes
-        .filter(
-          (p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing',
-        )
-        .map((p) => {
-          if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-          return window.api.killPty(p.sessionId, !!p.tmuxSessionName)
-        }),
-    )
+    await window.api.tabCloseTab(path, tabId, {
+      tabs: snapshotsForCommand(path),
+      activeTabId: activeTabId[path] ?? null,
+    })
 
     // Remove tab
     tabsByWorktree[path].splice(idx, 1)
@@ -1124,87 +1165,27 @@ export async function restartPane(
   const pane = panes.find((p) => p.id === paneId)
   if (!pane) return
 
-  await match(pane)
-    .with({ paneType: 'editor' }, () => {
-      // Editor panes have no session to restart. The component re-reads on mount.
-    })
-    .with({ paneType: 'browser' }, async (p) => {
-      const oldUrl = p.url
-      try {
-        await window.api.teardownBrowserWebview(p.sessionId)
-      } catch {
-        // Already destroyed
-      }
-      const newBrowserId = crypto.randomUUID()
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
-        ...prev,
-        sessionId: newBrowserId,
-        url: oldUrl,
-        isRunning: true,
-        exitCode: null,
-        title: null,
-      }))
-    })
-    .when(
-      (p) => !!(p.tmuxSessionName && p.detached),
-      async (p) => {
-        const exists = await window.api.tmuxHasSession(p.tmuxSessionName!)
-        if (exists) {
-          const result = await window.api.tmuxAttach(p.tmuxSessionName!)
-          tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
-            ...prev,
-            sessionId: result.sessionId,
-            wsUrl: result.wsUrl,
-            isRunning: true,
-            exitCode: null,
-            detached: false,
-          }))
-        } else {
-          const result = await window.api.spawnTool(p.toolId, worktreePath)
-          tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
-            ...prev,
-            sessionId: result.sessionId,
-            wsUrl: result.wsUrl,
-            isRunning: true,
-            exitCode: null,
-            detached: false,
-            tmuxSessionName: result.tmuxSessionName,
-          }))
-        }
-      },
-    )
-    .otherwise(async (p) => {
-      try {
-        await window.api.killPty(p.sessionId)
-      } catch {
-        // Already exited or cleaned up
-      }
+  const project = getProjectForWorktree(worktreePath)
+  const result = await window.api.tabRestartPane(worktreePath, tabId, paneId, {
+    workspaceName: project?.workspace.name ?? workspaceState.workspace?.name ?? '',
+    branch: workspaceState.branch ?? undefined,
+    tabs: snapshotsForCommand(worktreePath),
+    activeTabId: activeTabId[worktreePath] ?? null,
+  })
+  if (!result.restartedPane) return
 
-      if (AI_TOOL_IDS.has(p.toolId)) {
-        removeAgentSession(p.sessionId)
-      }
+  if (AI_TOOL_IDS.has(pane.toolId) && pane.sessionId !== result.restartedPane.sessionId) {
+    removeAgentSession(pane.sessionId)
+  }
+  if (pane.paneType === 'browser' && pane.sessionId !== result.restartedPane.sessionId) {
+    delete browserSessions[pane.sessionId]
+  }
 
-      const options: { workspaceName?: string; branch?: string } = {}
-      if (AI_TOOL_IDS.has(p.toolId)) {
-        options.workspaceName = workspaceState.workspace?.name ?? ''
-        options.branch = workspaceState.branch ?? undefined
-      }
-      const result = await window.api.spawnTool(p.toolId, worktreePath, options)
-
-      if (AI_TOOL_IDS.has(p.toolId)) {
-        initAgentSession(result.sessionId, p.toolId as AgentType)
-      }
-
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => ({
-        ...prev,
-        sessionId: result.sessionId,
-        wsUrl: result.wsUrl,
-        isRunning: true,
-        exitCode: null,
-        title: null,
-        tmuxSessionName: result.tmuxSessionName,
-      }))
-    })
+  tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => {
+    const next = paneFromSnapshot(result.restartedPane!, prev)
+    initPaneRuntimeState(next)
+    return next
+  })
 
   scheduleSave(worktreePath)
 }
@@ -1235,7 +1216,7 @@ export async function reattachTmuxPane(
     }))
   } else {
     // Tmux session gone, spawn fresh
-    const result = await window.api.spawnTool(pane.toolId, worktreePath)
+    const result = await window.api.tabSpawnPane(pane.toolId, worktreePath)
     tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
       ...p,
       sessionId: result.sessionId,
@@ -1341,7 +1322,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
 
   const wsId = getProjectForWorktree(worktreePath)?.workspace.id
   if (wsId) {
-    window.api.deleteLayout(wsId, worktreePath).catch(() => {})
+    window.api.tabDeleteLayout(worktreePath).catch(() => {})
   }
 }
 
@@ -1565,7 +1546,7 @@ export async function splitFocusedPane(
   if (NO_SPLIT_TOOLS.has(tab.toolId)) return
 
   // Spawn a new shell session in the same worktree
-  const result = await window.api.spawnTool('shell', worktreePath)
+  const result = await window.api.tabSpawnPane('shell', worktreePath)
   const paneId = nextPaneId()
 
   const newPane: PaneSession = {
@@ -1984,7 +1965,7 @@ function saveLayoutForWorktree(worktreePath: string): void {
   }
 
   if (serializedTabs.length === 0) {
-    window.api.deleteLayout(wsId, worktreePath).catch(() => {
+    window.api.tabDeleteLayout(worktreePath).catch(() => {
       // Ignore delete errors silently
     })
     return
@@ -1995,7 +1976,7 @@ function saveLayoutForWorktree(worktreePath: string): void {
     activeTabIndex: adjustedActiveIndex,
   }
 
-  window.api.saveLayout(wsId, worktreePath, JSON.stringify(layout)).catch(() => {
+  window.api.tabSaveLayout(worktreePath, JSON.stringify(layout)).catch(() => {
     // Ignore save errors silently
   })
 }
@@ -2083,7 +2064,7 @@ async function restoreSplitNode(
         options.resumeSessionId = node.agentSessionId ?? node.claudeSessionId
         if (node.profileId) options.profileId = node.profileId
       }
-      const result = await window.api.spawnTool(node.toolId, worktreePath, options)
+      const result = await window.api.tabSpawnPane(node.toolId, worktreePath, options)
       const restoredProfile = node.profileId ? getProfileById(node.profileId) : undefined
       pane = {
         id: paneId,

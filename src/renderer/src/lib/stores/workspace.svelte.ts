@@ -8,10 +8,11 @@ import {
 import { addToast } from './toast.svelte'
 import { clearQuickOpenCache } from './quickOpenStore.svelte'
 import { clearMru } from './quickOpenMru.svelte'
-
-function basename(p: string): string {
-  return p.split('/').pop() || p
-}
+import type {
+  ProjectSnapshot,
+  WorkspaceCommandResult,
+  WorkspaceStateSnapshot,
+} from '../../../../main/commands/types'
 
 // --- Types ---
 
@@ -49,17 +50,6 @@ export interface ProjectState {
   isGitRepo: boolean
   repoRoot: string | null
   worktrees: GitWorktreeInfo[]
-}
-
-interface AttachProjectOptions {
-  selectIfEmpty?: boolean
-  batchOrder?: Map<string, number>
-  restoreIndex?: number
-}
-
-interface AttachProjectResult {
-  projectPath: string
-  defaultWorktreePath: string
 }
 
 interface WorkspaceState {
@@ -110,7 +100,13 @@ export const projects: ProjectState[] = $state([])
 let attachQueue: Promise<void> = Promise.resolve()
 
 export async function attachProject(path: string): Promise<void> {
-  const result = attachQueue.then(() => attachProjectImpl(path))
+  const result = attachQueue.then(async () => {
+    const commandResult = await window.api.workspaceAttachProject(path)
+    await applyWorkspaceCommandResult(commandResult)
+    if (commandResult.workspaceState.selectedWorktreePath) {
+      await hydrateSelectedWorktree(commandResult.workspaceState.selectedWorktreePath)
+    }
+  })
   attachQueue = result
     .then(() => undefined)
     .catch((err) => {
@@ -124,9 +120,17 @@ export async function restoreProjects(
   activeWorktreePath?: string,
   removedPaths?: string[],
 ): Promise<void> {
-  const result = attachQueue.then(() =>
-    restoreProjectsImpl(paths, activeWorktreePath, removedPaths),
-  )
+  const result = attachQueue.then(async () => {
+    const commandResult = await window.api.workspaceRestoreWindow({
+      paths,
+      activeWorktreePath,
+      removedPaths,
+    })
+    await applyWorkspaceCommandResult(commandResult)
+    if (commandResult.workspaceState.selectedWorktreePath) {
+      await hydrateSelectedWorktree(commandResult.workspaceState.selectedWorktreePath)
+    }
+  })
   attachQueue = result
     .then(() => undefined)
     .catch((err) => {
@@ -139,213 +143,88 @@ function getProjectKey(project: ProjectState): string {
   return project.repoRoot ?? project.workspace.path
 }
 
-function getDefaultWorktreePath(project: ProjectState): string {
-  if (!project.isGitRepo) return project.workspace.path
-  const main = project.worktrees.find((wt) => wt.isMain)
-  return main?.path ?? project.repoRoot ?? project.workspace.path
-}
-
-function reorderProjects(batchOrder: Map<string, number>): void {
-  const before = projects.length
-  const ordered = [...projects]
-    .map((project, index) => ({
-      project,
-      index,
-      order: batchOrder.get(getProjectKey(project)),
-    }))
-    .sort((a, b) => {
-      if (a.order === undefined && b.order === undefined) return a.index - b.index
-      if (a.order === undefined) return 1
-      if (b.order === undefined) return -1
-      if (a.order !== b.order) return a.order - b.order
-      return a.index - b.index
-    })
-    .map((entry) => entry.project)
-
-  projects.splice(0, projects.length, ...ordered)
-  if (projects.length !== before) {
-    console.error(
-      `[workspace] reorder lost projects: ${before} -> ${projects.length}`,
-      ordered.map(getProjectKey),
-    )
+function projectFromSnapshot(project: ProjectSnapshot): ProjectState {
+  return {
+    workspace: project.workspace,
+    isGitRepo: project.isGitRepo,
+    repoRoot: project.repoRoot,
+    worktrees: project.worktrees,
   }
 }
 
-async function restoreProjectsImpl(
-  paths: string[],
-  activeWorktreePath?: string,
-  removedPaths?: string[],
-): Promise<void> {
-  if (removedPaths && removedPaths.length > 0) {
-    // Show basename when unique, otherwise include parent dir so colliding
-    // names stay distinguishable (e.g. "src/foo/project" vs "home/bar/project").
-    const basenames = removedPaths.map(basename)
-    const hasCollision = new Set(basenames).size !== basenames.length
-    const labels = hasCollision
-      ? removedPaths.map((p) => {
-          const parts = p.split('/').filter(Boolean)
-          return parts.slice(-2).join('/') || p
-        })
-      : basenames
-    const plural = removedPaths.length === 1 ? 'project' : 'projects'
-    addToast(
-      `Removed ${removedPaths.length} stale ${plural} (folder missing): ${labels.join(', ')}`,
-    )
-  }
-
-  const uniquePaths = [...new Set(paths)]
-  if (uniquePaths.length === 0) {
-    if (activeWorktreePath) await selectWorktree(activeWorktreePath)
+function applyWorkspaceStateSnapshot(snapshot: WorkspaceStateSnapshot): void {
+  if (!snapshot.project) {
+    workspaceState.workspace = null
+    workspaceState.isGitRepo = false
+    workspaceState.repoRoot = null
+    workspaceState.worktrees = []
+    workspaceState.selectedWorktreePath = snapshot.selectedWorktreePath
+    workspaceState.branch = snapshot.branch
+    workspaceState.isDirty = snapshot.isDirty
+    workspaceState.aheadBehind = snapshot.aheadBehind
     return
   }
 
-  const batchOrder = new Map<string, number>()
-  const settled = await Promise.allSettled(
-    uniquePaths.map((path, index) =>
-      attachProjectImpl(path, {
-        selectIfEmpty: false,
-        batchOrder,
-        restoreIndex: index,
-      }),
-    ),
-  )
-  const results = settled.map((s) => (s.status === 'fulfilled' ? s.value : undefined))
-  const failures: string[] = []
-  const skipped: string[] = []
-  for (let i = 0; i < settled.length; i++) {
-    const s = settled[i]
-    if (s.status === 'rejected') {
-      console.error(`[workspace] failed to restore project "${uniquePaths[i]}":`, s.reason)
-      failures.push(uniquePaths[i].split('/').pop() || uniquePaths[i])
-    } else if (!s.value) {
-      skipped.push(uniquePaths[i])
+  const key = snapshot.project.repoRoot ?? snapshot.project.workspace.path
+  const project = projects.find((candidate) => getProjectKey(candidate) === key)
+
+  workspaceState.workspace = project?.workspace ?? snapshot.project.workspace
+  workspaceState.isGitRepo = project?.isGitRepo ?? snapshot.project.isGitRepo
+  workspaceState.repoRoot = project?.repoRoot ?? snapshot.project.repoRoot
+  workspaceState.worktrees = project?.worktrees ?? snapshot.project.worktrees
+  workspaceState.selectedWorktreePath = snapshot.selectedWorktreePath
+  workspaceState.branch = snapshot.branch
+  workspaceState.isDirty = snapshot.isDirty
+  workspaceState.aheadBehind = snapshot.aheadBehind
+}
+
+async function loadRepoConfigsForNewProjects(existingKeys: Set<string>): Promise<void> {
+  for (const project of projects) {
+    const projectKey = getProjectKey(project)
+    if (existingKeys.has(projectKey) || !project.repoRoot) continue
+
+    try {
+      await loadRepoConfig(project.repoRoot)
+      if (getRepoConfig()?.trackers.length && !hasAnyCredentials()) {
+        addToast('Tracker requires authentication - configure token in Preferences')
+      }
+    } catch (err) {
+      console.error(`[workspace] loadRepoConfig failed for "${projectKey}":`, err)
     }
-  }
-  if (skipped.length > 0) {
-    console.warn('[workspace] restore skipped (dedup/focus):', skipped)
-  }
-  console.debug(
-    `[workspace] restore done: ${results.filter(Boolean).length} ok, ${failures.length} failed, ${skipped.length} skipped, ${projects.length} in sidebar`,
-  )
-  if (failures.length > 0) {
-    addToast(`Failed to restore: ${failures.join(', ')}`)
-  }
-
-  let targetPath = activeWorktreePath
-  if (!targetPath || !getProjectForWorktree(targetPath)) {
-    targetPath = results.find((result) => result)?.defaultWorktreePath
-  }
-
-  if (targetPath) {
-    await selectWorktree(targetPath)
   }
 }
 
-async function attachProjectImpl(
-  path: string,
-  options: AttachProjectOptions = {},
-): Promise<AttachProjectResult | undefined> {
-  const { selectIfEmpty = true, batchOrder, restoreIndex } = options
-  // Dedupe: if another window already has this path, focus it instead
-  const focused = await window.api.focusWindowForPath(path)
-  if (focused) return
-
-  // Detect git info
-  const info: GitInfo = await window.api.gitDetect(path)
-  const projectPath = info.repoRoot ?? path
-
-  // Already attached in this window?
-  if (projects.some((p) => (p.repoRoot ?? p.workspace.path) === projectPath)) {
-    const existing = projects.find((p) => (p.repoRoot ?? p.workspace.path) === projectPath)
-    if (!existing) return
-    return {
-      projectPath,
-      defaultWorktreePath: getDefaultWorktreePath(existing),
+async function restoreCommandLayouts(result: WorkspaceCommandResult): Promise<void> {
+  for (const entry of result.restoredLayouts ?? []) {
+    try {
+      await restoreLayout(entry.worktreePath, entry.layoutJson)
+    } catch {
+      // Layout restore failed, will fall back to ensureDefaultTab.
     }
   }
+}
 
-  // Upsert workspace in DB
-  const name = basename(projectPath)
-  const ws = await window.api.upsertWorkspace({
-    path: projectPath,
-    name,
-    isGitRepo: info.isGitRepo,
-  })
-  await window.api.touchWorkspace(ws.id)
+async function applyWorkspaceCommandResult(
+  result: WorkspaceCommandResult,
+  options: { restoreLayouts?: boolean; loadNewProjectConfigs?: boolean } = {},
+): Promise<void> {
+  const { restoreLayouts = true, loadNewProjectConfigs = true } = options
+  const existingKeys = new Set(projects.map(getProjectKey))
 
-  // Register with main process for dedup + config persistence
-  await window.api.setWorkspacePath(projectPath)
-
-  // Add to projects
-  const project: ProjectState = {
-    workspace: ws,
-    isGitRepo: info.isGitRepo,
-    repoRoot: info.repoRoot,
-    worktrees: info.worktrees,
-  }
-  projects.push(project)
-  console.debug(`[workspace] attached "${name}" (${projectPath}), total: ${projects.length}`)
-  if (batchOrder && restoreIndex !== undefined) {
-    batchOrder.set(projectPath, restoreIndex)
-    reorderProjects(batchOrder)
+  for (const warning of result.warnings) {
+    addToast(warning.message)
   }
 
-  // Start git watcher if git repo
-  try {
-    if (info.isGitRepo && info.repoRoot) {
-      await window.api.gitWatch(info.repoRoot, info)
-    }
-  } catch (err) {
-    console.error(`[workspace] gitWatch failed for "${projectPath}":`, err)
-    addToast(`Git watcher failed for ${name} — status may not update`)
+  projects.splice(0, projects.length, ...result.projects.map(projectFromSnapshot))
+
+  if (restoreLayouts) {
+    await restoreCommandLayouts(result)
   }
 
-  // Auto-detect .canopy/config.json for task tracker
-  try {
-    if (info.repoRoot) {
-      await loadRepoConfig(info.repoRoot)
-      if (getRepoConfig()?.trackers.length && !hasAnyCredentials()) {
-        addToast('Tracker requires authentication — configure token in Preferences')
-      }
-    }
-  } catch (err) {
-    console.error(`[workspace] loadRepoConfig failed for "${projectPath}":`, err)
-  }
+  applyWorkspaceStateSnapshot(result.workspaceState)
 
-  // Restore saved layouts BEFORE selecting worktree so that ensureDefaultTab
-  // (triggered by selectWorktree) finds existing tabs and doesn't spawn extras
-  try {
-    const layouts = await window.api.getAllLayouts(ws.id)
-    if (layouts.length > 0) {
-      // Only restore layouts whose worktree_path belongs to this project
-      const ownedPaths = new Set(
-        info.isGitRepo ? info.worktrees.map((wt) => wt.path) : [projectPath],
-      )
-      for (const entry of layouts) {
-        if (ownedPaths.has(entry.worktree_path)) {
-          await restoreLayout(entry.worktree_path, entry.layout_json)
-        }
-      }
-      // Clean up cross-contaminated entries saved under wrong workspace ID
-      const stale = layouts.filter((e) => !ownedPaths.has(e.worktree_path))
-      for (const entry of stale) {
-        window.api.deleteLayout(ws.id, entry.worktree_path).catch(() => {})
-      }
-    }
-  } catch {
-    // Layout restore failed, will fall back to ensureDefaultTab
-  }
-
-  // Auto-select if this is the first project or no active selection
-  const defaultWorktreePath = getDefaultWorktreePath(project)
-
-  if (selectIfEmpty && !workspaceState.selectedWorktreePath) {
-    await selectWorktree(defaultWorktreePath)
-  }
-
-  return {
-    projectPath,
-    defaultWorktreePath,
+  if (loadNewProjectConfigs) {
+    await loadRepoConfigsForNewProjects(existingKeys)
   }
 }
 
@@ -380,30 +259,22 @@ export async function detachProject(path: string): Promise<void> {
     clearMru(wtPath)
   }
 
-  // Unwatch git
-  if (project.isGitRepo && project.repoRoot) {
-    await window.api.gitUnwatch(project.repoRoot)
-  }
-
-  // Unregister from main process
-  await window.api.detachProject(path)
+  const wasActive =
+    workspaceState.repoRoot === project.repoRoot ||
+    workspaceState.workspace?.id === project.workspace.id
+  const commandResult = await window.api.workspaceDetachProject(path)
 
   // Remove from array
   projects.splice(idx, 1)
+  await applyWorkspaceCommandResult(commandResult, {
+    restoreLayouts: false,
+    loadNewProjectConfigs: false,
+  })
 
-  // If active selection was in this project, fall back
-  if (
-    workspaceState.repoRoot === project.repoRoot ||
-    workspaceState.workspace?.id === project.workspace.id
-  ) {
-    if (projects.length > 0) {
-      const next = projects[0]
-      if (next.isGitRepo) {
-        const main = next.worktrees.find((wt) => wt.isMain)
-        await selectWorktree(main?.path ?? next.repoRoot ?? next.workspace.path)
-      } else {
-        await selectWorktree(next.workspace.path)
-      }
+  // Main owns fallback selection; renderer performs UI-only side effects for the returned selection.
+  if (wasActive) {
+    if (workspaceState.selectedWorktreePath) {
+      await hydrateSelectedWorktree(workspaceState.selectedWorktreePath)
     } else {
       workspaceState.workspace = null
       workspaceState.isGitRepo = false
@@ -430,30 +301,13 @@ export async function initGitRepo(projectPath: string): Promise<void> {
   const project = projects.find((p) => p.workspace.path === projectPath)
   if (!project || project.isGitRepo) return
 
-  const info: GitInfo = await window.api.gitInit(projectPath)
-  project.isGitRepo = info.isGitRepo
-  project.repoRoot = info.repoRoot
-  project.worktrees = info.worktrees
-
-  // Update workspace in DB
-  const ws = await window.api.upsertWorkspace({
-    path: info.repoRoot ?? projectPath,
-    name: project.workspace.name,
-    isGitRepo: info.isGitRepo,
+  const commandResult = await window.api.workspaceInitGitRepo(projectPath)
+  await applyWorkspaceCommandResult(commandResult, {
+    restoreLayouts: false,
+    loadNewProjectConfigs: false,
   })
-  project.workspace = ws
-
-  // Start git watcher
-  if (info.isGitRepo && info.repoRoot) {
-    await window.api.gitWatch(info.repoRoot, info)
-  }
-
-  // If this project is the active selection, update workspaceState
-  if (workspaceState.workspace?.id === ws.id) {
-    workspaceState.isGitRepo = info.isGitRepo
-    workspaceState.repoRoot = info.repoRoot
-    workspaceState.worktrees = info.worktrees
-    workspaceState.branch = info.branch
+  if (commandResult.workspaceState.selectedWorktreePath) {
+    await hydrateSelectedWorktree(commandResult.workspaceState.selectedWorktreePath)
   }
 }
 
@@ -461,7 +315,9 @@ export async function initGitRepo(projectPath: string): Promise<void> {
 export function getProjectForWorktree(wtPath: string): ProjectState | undefined {
   return projects.find(
     (p) =>
-      p.worktrees.some((wt) => wt.path === wtPath) || (!p.isGitRepo && p.workspace.path === wtPath),
+      p.worktrees.some((wt) => wt.path === wtPath) ||
+      p.repoRoot === wtPath ||
+      p.workspace.path === wtPath,
   )
 }
 
@@ -518,17 +374,15 @@ export async function openWorkspace(path: string): Promise<void> {
 }
 
 export async function selectWorktree(path: string): Promise<void> {
-  // Find which project owns this worktree
-  const project = getProjectForWorktree(path)
-  if (project) {
-    workspaceState.workspace = project.workspace
-    workspaceState.isGitRepo = project.isGitRepo
-    workspaceState.repoRoot = project.repoRoot
-    workspaceState.worktrees = project.worktrees
-  }
+  const commandResult = await window.api.workspaceSelectWorktree(path)
+  await applyWorkspaceCommandResult(commandResult, {
+    restoreLayouts: false,
+    loadNewProjectConfigs: false,
+  })
+  await hydrateSelectedWorktree(path)
+}
 
-  window.api.setActiveWorktree(path)
-  workspaceState.selectedWorktreePath = path
+async function hydrateSelectedWorktree(path: string): Promise<void> {
   await loadActiveTask(path)
 
   // Start (or restart) the file tree watcher for the newly active worktree.
@@ -540,6 +394,7 @@ export async function selectWorktree(path: string): Promise<void> {
     console.error(`[workspace] watchFiles failed for "${path}":`, err)
   }
 
+  const project = getProjectForWorktree(path)
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)
     if (wt) {

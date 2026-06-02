@@ -74,7 +74,7 @@ export async function sendToAgent(
 
   // OS pasteboard write is async on macOS; fast follow-up Ctrl+V can race it
   await new Promise((resolve) => setTimeout(resolve, 250))
-  await window.api.writePty(result.pane.sessionId, '\x16')
+  await window.api.agentSendDrawing({ sessionId: result.pane.sessionId })
   addToast(`Sent to ${result.pane.toolName}`)
 }
 

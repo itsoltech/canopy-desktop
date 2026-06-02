@@ -21,8 +21,9 @@ Tmux integration (dev builds only) allows creating new tmux sessions or attachin
 ### Opening a new shell tab
 
 1. User presses the new-tab shortcut or clicks the add button.
-2. Renderer calls `window.api.spawnPty({ cols, rows, cwd })`.
-3. Main process spawns a PTY via `PtyManager.spawn()`, assigns a UUID session ID.
+2. Renderer asks the main-owned tab command API to open the shell for the selected worktree.
+3. Main process validates the sender owns that worktree, then spawns a PTY via `PtyManager.spawn()`
+   and assigns a UUID session ID.
 4. `WsBridge.create()` attaches to the PTY data stream and returns a `ws://` URL.
 5. Renderer receives `{ sessionId, wsUrl }` and creates a `TerminalInstance` component.
 6. `TerminalInstance` waits for fonts to load, creates an xterm.js `Terminal`, then connects to the WebSocket URL.
