@@ -13,6 +13,7 @@ import path from 'path'
 import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
+import { TmuxManager as TmuxManagerStatics } from '../pty/TmuxManager'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
@@ -22,7 +23,7 @@ import type { AgentSessionManager } from '../agents/AgentSessionManager'
 import type { WindowManager } from '../WindowManager'
 import type { BrowserManager } from '../browser/BrowserManager'
 import type { CredentialStore, Credential } from '../db/CredentialStore'
-import { TmuxManager } from '../pty/TmuxManager'
+import type { TmuxManager } from '../pty/TmuxManager'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { GitRepository, type GitInfo } from '../git/GitRepository'
@@ -34,6 +35,10 @@ import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 
 const execFileAsync = promisify(execFile)
+
+export interface IpcCommandBridge {
+  grantAttachPath(webContentsId: number, targetPath: string): void
+}
 import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
@@ -85,19 +90,15 @@ import { getTransformer } from '../skills/SkillTransformer'
 import { scanSkills } from '../skills/SkillScanner'
 import type { SkillAgentTarget } from '../skills/types'
 import type { ProfileStore } from '../profiles/ProfileStore'
-import { profileToReader } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
 import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
 import type { SettingsExportService } from '../settings/SettingsExport'
 import { settingsExportErrorMessage } from '../settings/errors'
-import type { AgentType, PreferencesReader } from '../agents/types'
-import { resolveShell } from '../pty/PtyManager'
-
-function shellExecArgs(command: string): { command: string; args: string[] } {
-  const shell = resolveShell()
-  const flag = os.platform() === 'win32' ? '-Command' : '-lc'
-  return { command: shell.command, args: [flag, command] }
-}
+import type { AgentType } from '../agents/types'
+import { WorkspaceCommandService } from '../commands/workspaceCommands'
+import { TabCommandService, ToolSessionService } from '../commands/tabCommands'
+import { AgentCommandService } from '../commands/agentCommands'
+import { RunConfigCommandService } from '../commands/runConfigCommands'
 
 // Session-level flag: once the user has successfully authenticated to reveal
 // a saved credential in the current app session, subsequent autofills reuse
@@ -161,11 +162,6 @@ async function runCredentialOsAuth(event: IpcMainInvokeEvent, domain: string): P
     })
 }
 
-function resolveShellArgs(): string[] {
-  if (os.platform() === 'win32') return []
-  return ['--login']
-}
-
 export function registerIpcHandlers(
   ptyManager: PtyManager,
   wsBridge: WsBridge,
@@ -191,7 +187,7 @@ export function registerIpcHandlers(
   skillStore: SkillStore,
   profileStore: ProfileStore,
   settingsExportService: SettingsExportService,
-): void {
+): IpcCommandBridge {
   function broadcastToolsChanged(): void {
     const tools = toolRegistry.getAll()
     for (const win of BrowserWindow.getAllWindows()) {
@@ -222,31 +218,110 @@ export function registerIpcHandlers(
     }
   }
 
+  const workspaceCommandService = new WorkspaceCommandService({
+    workspaceStore,
+    layoutStore,
+    windowManager,
+    persistWindowConfigs,
+    validatePathAccess: (webContentsId, targetPath) =>
+      validatePathAccess(webContentsId, targetPath),
+    clearWorkspaceFileCache: (workspacePath) => {
+      workspaceFileCache.delete(workspacePath)
+    },
+  })
+  const toolSessionService = new ToolSessionService({
+    ptyManager,
+    wsBridge,
+    preferencesStore,
+    toolRegistry,
+    agentSessionManager,
+    windowManager,
+    tmuxManager,
+    profileStore,
+    resolveWorkspaceIdForWorktree: (webContentsId, worktreePath) =>
+      workspaceCommandService.getWorkspaceIdForWorktree(webContentsId, worktreePath),
+  })
+  const tabCommandService = new TabCommandService({
+    toolSessions: toolSessionService,
+    layoutStore,
+    browserManager,
+    windowManager,
+    resolveWorkspaceIdForWorktree: (webContentsId, worktreePath) =>
+      workspaceCommandService.getWorkspaceIdForWorktree(webContentsId, worktreePath),
+  })
+  const agentCommandService = new AgentCommandService({
+    ptyManager,
+    agentSessionManager,
+    windowManager,
+  })
+  const runConfigCommandService = new RunConfigCommandService({
+    ptyManager,
+    wsBridge,
+    windowManager,
+    runConfigManager,
+    validatePathAccess: (webContentsId, targetPath) =>
+      validatePathAccess(webContentsId, targetPath),
+  })
+
+  ipcMain.handle(
+    'workspace:command:restoreWindow',
+    (event, payload: { paths: string[]; activeWorktreePath?: string; removedPaths?: string[] }) =>
+      workspaceCommandService.restoreWindow(event.sender, payload),
+  )
+  ipcMain.handle('workspace:command:attachProject', (event, payload: { path: string }) =>
+    workspaceCommandService.attachProject(event.sender, payload.path),
+  )
+  ipcMain.handle('workspace:command:detachProject', (event, payload: { path: string }) =>
+    workspaceCommandService.detachProject(event.sender, payload.path),
+  )
+  ipcMain.handle('workspace:command:selectWorktree', (event, payload: { path: string }) =>
+    workspaceCommandService.selectWorktree(event.sender, payload.path),
+  )
+  ipcMain.handle('workspace:command:initGitRepo', (event, payload: { path: string }) =>
+    workspaceCommandService.initGitRepo(event.sender, payload.path),
+  )
+  ipcMain.handle('tab:command:openTool', (event, payload) =>
+    tabCommandService.openTool(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:restartPane', (event, payload) =>
+    tabCommandService.restartPane(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:closeTab', (event, payload) =>
+    tabCommandService.closeTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:spawnPane', (event, payload) =>
+    tabCommandService.spawnPane(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:saveLayout', (event, payload) =>
+    tabCommandService.saveLayout(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:deleteLayout', (event, payload) =>
+    tabCommandService.deleteLayout(event.sender, payload),
+  )
+  ipcMain.handle('agent:command:sendTaskContext', (event, payload) =>
+    agentCommandService.sendTaskContext(event.sender, payload),
+  )
+  ipcMain.handle('agent:command:sendReviewContext', (event, payload) =>
+    agentCommandService.sendReviewContext(event.sender, payload),
+  )
+  ipcMain.handle('agent:command:sendDrawing', (event, payload) =>
+    agentCommandService.sendDrawing(event.sender, payload),
+  )
+  ipcMain.handle('runConfig:command:execute', (event, payload) =>
+    runConfigCommandService.execute(event.sender, payload),
+  )
+  ipcMain.handle('runConfig:command:listRunning', (event) =>
+    runConfigCommandService.listRunning(event.sender),
+  )
+
   // --- PTY ---
 
   ipcMain.handle(
-    'pty:spawn',
-    async (event, options?: { cols?: number; rows?: number; cwd?: string }) => {
-      const sender = event.sender
-      const session = ptyManager.spawn(options)
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-
-      windowManager.trackPtySession(sender.id, session.id)
-
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
-        }
-        windowManager.untrackPtySession(sender.id, session.id)
-      })
-
-      return { sessionId: session.id, wsUrl }
-    },
-  )
-
-  ipcMain.handle(
     'pty:resize',
-    (_event, payload: { sessionId: string; cols: number; rows: number }) => {
+    (event, payload: { sessionId: string; cols: number; rows: number }) => {
+      if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+        throw new Error('PTY session is not owned by this window')
+      }
       // Validate dimensions: positive integers within sane terminal bounds.
       // node-pty will otherwise throw on NaN / negative / huge values and
       // a malformed payload would be broadcast to every window as-is.
@@ -277,30 +352,31 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('pty:kill', async (_event, payload: { sessionId: string; killTmux?: boolean }) => {
-    const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
-    // Kill tmux BEFORE PTY so the pty:exit handler sees the session as dead
-    // (otherwise handlePtyExit checks tmuxHasSession while it's still alive)
-    if (payload.killTmux && tmuxName && TmuxManager.isCanopySession(tmuxName)) {
-      try {
-        await tmuxManager.killSession(tmuxName)
-      } catch {
-        // Session may already be gone
-      }
+  ipcMain.handle('pty:kill', async (event, payload: { sessionId: string; killTmux?: boolean }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
     }
-    wsBridge.destroy(payload.sessionId)
-    ptyManager.kill(payload.sessionId)
+    await toolSessionService.killPty(payload.sessionId, payload.killTmux)
   })
 
-  ipcMain.handle('pty:write', (_event, payload: { sessionId: string; data: string }) => {
+  ipcMain.handle('pty:write', (event, payload: { sessionId: string; data: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     ptyManager.write(payload.sessionId, payload.data)
   })
 
-  ipcMain.handle('pty:hasChildProcess', (_event, payload: { sessionId: string }) => {
+  ipcMain.handle('pty:hasChildProcess', (event, payload: { sessionId: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     return ptyManager.hasChildProcess(payload.sessionId)
   })
 
-  ipcMain.handle('pty:getDimensions', (_event, payload: { sessionId: string }) => {
+  ipcMain.handle('pty:getDimensions', (event, payload: { sessionId: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     return ptyManager.getDimensions(payload.sessionId)
   })
 
@@ -332,204 +408,53 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'tmux:attach',
     async (event, payload: { tmuxSessionName: string; cols?: number; rows?: number }) => {
-      validateTmuxName(payload.tmuxSessionName)
-      const sender = event.sender
-      const attach = tmuxManager.attachArgs(payload.tmuxSessionName)
-      const session = ptyManager.spawn({
-        command: attach.command,
-        args: attach.args,
-        cols: payload.cols,
-        rows: payload.rows,
-        tmuxSessionName: payload.tmuxSessionName,
-      })
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-
-      windowManager.trackPtySession(sender.id, session.id)
-
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', {
-            sessionId: session.id,
-            exitCode,
-            signal,
-            tmuxSessionName: payload.tmuxSessionName,
-          })
-        }
-        windowManager.untrackPtySession(sender.id, session.id)
-      })
-
-      return { sessionId: session.id, wsUrl }
+      return toolSessionService.attachTmux(event.sender, payload)
     },
   )
 
-  ipcMain.handle('tmux:detach', (_event, payload: { sessionId: string }) => {
+  ipcMain.handle('tmux:detach', (event, payload: { sessionId: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('PTY session is not owned by this window')
+    }
     const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
     wsBridge.destroy(payload.sessionId)
     ptyManager.kill(payload.sessionId)
     return { tmuxSessionName: tmuxName }
   })
 
-  ipcMain.handle('tmux:killSession', async (_event, payload: { name: string }) => {
+  function senderOwnsTmuxSession(webContentsId: number, name: string): boolean {
+    return ptyManager
+      .getSessionIdsForTmuxSession(name)
+      .some((sessionId) => windowManager.ownsPtySession(webContentsId, sessionId))
+  }
+
+  async function assertCanManageTmuxSession(webContentsId: number, name: string): Promise<void> {
+    if (senderOwnsTmuxSession(webContentsId, name)) return
+
+    // Detached tmux sessions may survive an app restart without an in-memory
+    // PTY owner. Only allow names generated by Canopy on its private socket.
+    if (TmuxManagerStatics.isCanopySession(name) && (await tmuxManager.hasSession(name))) {
+      return
+    }
+    throw new Error('tmux session is not managed by Canopy')
+  }
+
+  ipcMain.handle('tmux:killSession', async (event, payload: { name: string }) => {
     validateTmuxName(payload.name)
+    await assertCanManageTmuxSession(event.sender.id, payload.name)
     await tmuxManager.killSession(payload.name)
   })
 
   ipcMain.handle(
     'tmux:renameSession',
-    async (_event, payload: { oldName: string; newName: string }) => {
+    async (event, payload: { oldName: string; newName: string }) => {
       validateTmuxName(payload.oldName)
       validateTmuxName(payload.newName)
+      await assertCanManageTmuxSession(event.sender.id, payload.oldName)
       await tmuxManager.renameSession(payload.oldName, payload.newName)
+      ptyManager.updateTmuxSessionName(payload.oldName, payload.newName)
     },
   )
-
-  // --- Tool Spawning ---
-
-  ipcMain.handle(
-    'tool:spawn',
-    async (
-      event,
-      payload: {
-        toolId: string
-        worktreePath: string
-        cols?: number
-        rows?: number
-        workspaceName?: string
-        branch?: string
-        resumeSessionId?: string
-        profileId?: string
-      },
-    ) => {
-      const sender = event.sender
-      const tool = toolRegistry.get(payload.toolId)
-      if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
-
-      let command = toolRegistry.resolveCommand(tool)
-      const isShell = tool.id === 'shell' || tool.command === 'shell'
-      const isAgent = agentSessionManager.isAgentTool(tool.id)
-      let args = isShell ? resolveShellArgs() : [...tool.args]
-      let env: Record<string, string> | undefined
-
-      let agentTempId: string | undefined
-      if (isAgent) {
-        const senderWindow = BrowserWindow.fromWebContents(sender)
-        if (!senderWindow) throw new Error('No window for agent session')
-
-        // Resolve preferences reader: profile shim if profileId is set,
-        // otherwise the global preferencesStore (legacy path).
-        let prefsReader: PreferencesReader = preferencesStore
-        if (payload.profileId) {
-          const profileResult = await profileStore.getInternal(payload.profileId)
-          if (profileResult.isErr()) {
-            throw new Error(profileErrorMessage(profileResult.error))
-          }
-          const profile = profileResult.value
-          if (profile.agentType !== tool.id) {
-            throw new Error(`Profile ${profile.name} is for ${profile.agentType}, not ${tool.id}`)
-          }
-          prefsReader = profileToReader(profile, preferencesStore)
-        }
-
-        // Parse settings.json overrides from prefs (via shim when profile-bound)
-        let settingsOverrides: Record<string, unknown> | undefined
-        const settingsJsonRaw = prefsReader.get(`${tool.id}.settingsJson`)
-        if (settingsJsonRaw) {
-          try {
-            settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
-          } catch {
-            // Invalid JSON
-          }
-        }
-
-        const agentSession = await agentSessionManager.createSession(
-          tool.id,
-          payload.worktreePath,
-          payload.workspaceName ?? '',
-          payload.branch ?? null,
-          senderWindow,
-          settingsOverrides,
-        )
-        args = [...agentSession.settingsArgs, ...args]
-        if (payload.resumeSessionId) {
-          args.push(...agentSessionManager.getResumeArgs(tool.id, payload.resumeSessionId))
-        }
-        args.push(...agentSessionManager.getCliArgs(tool.id, prefsReader))
-        env = {
-          CANOPY_HOOK_PORT: String(agentSession.hookPort),
-          CANOPY_HOOK_PATH: agentSession.hookPath,
-          CANOPY_HOOK_TOKEN: agentSession.hookAuthToken,
-          ...agentSession.settingsEnv,
-          ...agentSessionManager.getEnvVars(tool.id, prefsReader),
-        }
-        agentTempId = agentSession.tempId
-      }
-
-      // Tmux integration for all tool sessions
-      let tmuxSessionName: string | undefined
-      const tmuxEnabled = preferencesStore.get('tmux.enabled') === 'true'
-      if (tmuxEnabled && (await tmuxManager.isAvailable())) {
-        const ws = workspaceStore.getByPath(payload.worktreePath)
-        const wsId = ws?.id ?? 'default'
-        tmuxSessionName = TmuxManager.sessionName(wsId)
-        const tmuxMouse = preferencesStore.get('tmux.mouse') === 'true'
-        await tmuxManager.newSession({
-          name: tmuxSessionName,
-          cwd: payload.worktreePath,
-          shell: command,
-          shellArgs: args,
-          cols: payload.cols,
-          rows: payload.rows,
-          mouse: tmuxMouse,
-          env,
-        })
-        const attach = tmuxManager.attachArgs(tmuxSessionName)
-        command = attach.command
-        args = attach.args
-      }
-
-      const session = ptyManager.spawn({
-        command,
-        args,
-        cwd: payload.worktreePath,
-        cols: payload.cols,
-        rows: payload.rows,
-        env,
-        tmuxSessionName,
-      })
-
-      if (isAgent && agentTempId) {
-        agentSessionManager.rekey(agentTempId, session.id)
-      }
-
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-
-      windowManager.trackPtySession(sender.id, session.id)
-
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', {
-            sessionId: session.id,
-            exitCode,
-            signal,
-            tmuxSessionName: session.tmuxSessionName,
-          })
-        }
-        windowManager.untrackPtySession(sender.id, session.id)
-        if (isAgent) {
-          agentSessionManager.destroySession(session.id)
-        }
-      })
-
-      return {
-        sessionId: session.id,
-        wsUrl,
-        toolId: tool.id,
-        toolName: tool.name,
-        tmuxSessionName,
-      }
-    },
-  )
-
   ipcMain.handle('agent:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
     agentSessionManager.updateProcessTitle(payload.sessionId, payload.title)
   })
@@ -548,19 +473,8 @@ export function registerIpcHandlers(
     return workspaceStore.getByPath(payload.path) ?? null
   })
 
-  ipcMain.handle(
-    'db:workspace:upsert',
-    (_event, payload: { path: string; name: string; isGitRepo: boolean }) => {
-      return workspaceStore.upsert(payload)
-    },
-  )
-
   ipcMain.handle('db:workspace:remove', (_event, payload: { id: string }) => {
     workspaceStore.remove(payload.id)
-  })
-
-  ipcMain.handle('db:workspace:touch', (_event, payload: { id: string }) => {
-    workspaceStore.touch(payload.id)
   })
 
   // --- Preferences ---
@@ -798,44 +712,12 @@ export function registerIpcHandlers(
     })
   })
 
-  ipcMain.handle('app:setWorkspacePath', (event, payload: { path: string }) => {
-    windowManager.addWorkspacePath(event.sender.id, payload.path)
-    persistWindowConfigs()
-  })
-
-  ipcMain.handle('app:setActiveWorktree', (event, payload: { path: string }) => {
-    windowManager.setActiveWorktree(event.sender.id, payload.path)
-    persistWindowConfigs()
-  })
-
   ipcMain.handle(
     'app:setFocusedAgentSession',
     (event, payload: { ptySessionId: string | null }) => {
       windowManager.setFocusedAgentSession(event.sender.id, payload.ptySessionId)
     },
   )
-
-  ipcMain.handle('app:detachProject', (event, payload: { path: string }) => {
-    const senderId = event.sender.id
-    windowManager.removeWorkspacePath(senderId, payload.path)
-    windowManager.disposeGitWatcher(senderId, payload.path)
-    // Delete layouts so this workspace won't restore on next launch
-    const ws = workspaceStore.getByPath(payload.path)
-    if (ws) layoutStore.deleteAll(ws.id)
-    // Release the Quick Open file list cached for this workspace.
-    workspaceFileCache.delete(payload.path)
-    persistWindowConfigs()
-  })
-
-  ipcMain.handle('app:focusWindowForPath', (event, payload: { path: string }) => {
-    const existing = windowManager.getWindowForPath(payload.path)
-    if (existing && existing.webContents.id !== event.sender.id) {
-      if (existing.isMinimized()) existing.restore()
-      existing.focus()
-      return true
-    }
-    return false
-  })
 
   ipcMain.handle('app:focusRendererWebContents', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -853,7 +735,40 @@ export function registerIpcHandlers(
       properties: ['openDirectory', 'createDirectory'],
       ...(payload?.defaultPath ? { defaultPath: payload.defaultPath } : {}),
     })
-    return result.canceled ? null : result.filePaths[0]
+    if (result.canceled) return null
+    const selectedPath = result.filePaths[0]
+    if (selectedPath) workspaceCommandService.grantAttachPath(event.sender.id, selectedPath)
+    return selectedPath
+  })
+
+  ipcMain.handle('dialog:confirmOpenPath', async (event, payload: { path: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+
+    let resolved: string
+    let home: string
+    try {
+      resolved = await fs.promises.realpath(path.resolve(payload.path))
+      home = await fs.promises.realpath(os.homedir())
+    } catch {
+      throw new Error('Path does not exist')
+    }
+    if (resolved !== home && !resolved.startsWith(home + path.sep)) {
+      throw new Error('Path must be inside your home directory')
+    }
+
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: ['Open', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: 'Open workspace?',
+      detail: `Open this path as a workspace?\n${resolved}`,
+    })
+    if (response !== 0) return null
+
+    workspaceCommandService.grantAttachPath(event.sender.id, resolved)
+    return resolved
   })
 
   // --- Git ---
@@ -1304,65 +1219,6 @@ export function registerIpcHandlers(
       return 'main'
     }
   })
-
-  // --- Layouts ---
-
-  ipcMain.handle(
-    'layout:save',
-    (_event, payload: { workspaceId: string; worktreePath: string; layoutJson: string }) => {
-      try {
-        layoutStore.save(payload.workspaceId, payload.worktreePath, payload.layoutJson)
-      } catch (error) {
-        if (layoutStore.isClosed()) {
-          // DB may already be closed during shutdown
-          return
-        }
-        console.error('Failed to save layout:', error)
-      }
-    },
-  )
-
-  ipcMain.handle('layout:get', (_event, payload: { workspaceId: string; worktreePath: string }) => {
-    try {
-      return layoutStore.get(payload.workspaceId, payload.worktreePath)
-    } catch (error) {
-      if (layoutStore.isClosed()) {
-        // DB may already be closed during shutdown
-        return null
-      }
-      console.error('Failed to load layout:', error)
-      throw error
-    }
-  })
-
-  ipcMain.handle('layout:getAll', (_event, payload: { workspaceId: string }) => {
-    try {
-      return layoutStore.getAll(payload.workspaceId)
-    } catch (error) {
-      if (layoutStore.isClosed()) {
-        // DB may already be closed during shutdown
-        return []
-      }
-      console.error('Failed to load layouts:', error)
-      throw error
-    }
-  })
-
-  ipcMain.handle(
-    'layout:delete',
-    (_event, payload: { workspaceId: string; worktreePath: string }) => {
-      try {
-        layoutStore.delete(payload.workspaceId, payload.worktreePath)
-      } catch (error) {
-        if (layoutStore.isClosed()) {
-          // DB may already be closed during shutdown
-          return
-        }
-        console.error('Failed to delete layout:', error)
-        throw error
-      }
-    },
-  )
 
   // --- Custom Tools ---
 
@@ -2951,8 +2807,6 @@ export function registerIpcHandlers(
 
   // --- Run Configurations ---
 
-  const runConfigInstances = new Map<string, number>()
-
   ipcMain.handle('runConfig:discover', async (event, payload: { repoRoot: string }) => {
     const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
     const result = await runConfigManager.discover(resolved)
@@ -3009,136 +2863,6 @@ export function registerIpcHandlers(
       const resolved = await validatePathAccess(event.sender.id, payload.configDir)
       const result = await runConfigManager.deleteConfiguration(resolved, payload.name)
       unwrapOrThrow(result, runConfigErrorMessage)
-    },
-  )
-
-  ipcMain.handle(
-    'runConfig:execute',
-    async (event, payload: { configDir: string; name: string; cwd?: string }) => {
-      const resolvedConfigDir = await validatePathAccess(event.sender.id, payload.configDir)
-      const fileResult = await runConfigManager.loadFile(resolvedConfigDir)
-      const file = unwrapOrThrow(fileResult, runConfigErrorMessage)
-      const config = file.configurations.find((c) => c.name === payload.name)
-      if (!config) throw new Error(`Configuration "${payload.name}" not found`)
-
-      if (config.max_instances && config.max_instances > 0) {
-        const current = runConfigInstances.get(`${resolvedConfigDir}::${payload.name}`) ?? 0
-        if (current >= config.max_instances) {
-          throw new Error(`"${payload.name}" is already running (max ${config.max_instances})`)
-        }
-      }
-
-      if (!payload.cwd) throw new Error('No worktree selected')
-      const worktreeRoot = await validatePathAccess(event.sender.id, payload.cwd)
-      const cwd = config.cwd ? path.resolve(worktreeRoot, config.cwd) : worktreeRoot
-      if (config.cwd && cwd !== worktreeRoot && !cwd.startsWith(worktreeRoot + path.sep)) {
-        throw new Error('config.cwd must not escape the worktree directory')
-      }
-      const env = config.env
-      const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
-
-      // Pre-run hook (30s timeout)
-      if (config.pre_run) {
-        const PRE_RUN_TIMEOUT = 30_000
-        // Cap captured output so a noisy pre_run can't balloon main-process
-        // memory before the timer fires. We only surface the last ~5 lines on
-        // failure, so trimming the head is safe.
-        const PRE_RUN_OUTPUT_CAP = 32_768
-        const pre = shellExecArgs(config.pre_run)
-        const preSession = ptyManager.spawn({ command: pre.command, args: pre.args, cwd, env })
-        let preOutput = ''
-        preSession.pty.onData((data) => {
-          preOutput += data
-          if (preOutput.length > PRE_RUN_OUTPUT_CAP) {
-            preOutput = preOutput.slice(-PRE_RUN_OUTPUT_CAP / 2)
-          }
-        })
-        await new Promise<void>((resolve, reject) => {
-          let done = false
-          const timer = setTimeout(() => {
-            if (!done) {
-              done = true
-              ptyManager.kill(preSession.id)
-              reject(new Error(`pre_run "${config.pre_run}" timed out after 30s`))
-            }
-          }, PRE_RUN_TIMEOUT)
-          preSession.pty.onExit(({ exitCode }) => {
-            if (done) return
-            done = true
-            clearTimeout(timer)
-            ptyManager.kill(preSession.id)
-            if (exitCode !== 0) {
-              const lastLines = preOutput.trim().split('\n').slice(-5).join('\n')
-              reject(
-                new Error(`pre_run "${config.pre_run}" failed (exit ${exitCode}):\n${lastLines}`),
-              )
-            } else resolve()
-          })
-        })
-      }
-
-      // Run main command through shell so PATH is resolved
-      const main = shellExecArgs(fullCommand)
-      const session = ptyManager.spawn({ command: main.command, args: main.args, cwd, env })
-      const wsUrl = await wsBridge.create(session.id, session.pty)
-      const senderId = event.sender.id
-      windowManager.trackPtySession(senderId, session.id)
-      const instanceKey = `${resolvedConfigDir}::${payload.name}`
-      runConfigInstances.set(instanceKey, (runConfigInstances.get(instanceKey) ?? 0) + 1)
-
-      const sender = event.sender
-      session.pty.onExit(({ exitCode, signal }) => {
-        if (!sender.isDestroyed()) {
-          sender.send('pty:exit', { sessionId: session.id, exitCode, signal })
-        }
-        windowManager.untrackPtySession(senderId, session.id)
-        const count = (runConfigInstances.get(instanceKey) ?? 1) - 1
-        if (count <= 0) runConfigInstances.delete(instanceKey)
-        else runConfigInstances.set(instanceKey, count)
-
-        // Post-run hook
-        if (config.post_run) {
-          const postCmd = config.post_run
-          const post = shellExecArgs(postCmd)
-          const postSession = ptyManager.spawn({
-            command: post.command,
-            args: post.args,
-            cwd,
-            env,
-          })
-          const POST_RUN_TIMEOUT = 30_000
-          let postDone = false
-          const postTimer = setTimeout(() => {
-            if (!postDone) {
-              postDone = true
-              ptyManager.kill(postSession.id)
-              if (!sender.isDestroyed()) {
-                sender.send('runConfig:postRunResult', {
-                  success: false,
-                  command: postCmd,
-                  exitCode: -1,
-                })
-              }
-            }
-          }, POST_RUN_TIMEOUT)
-          postSession.pty.onExit(({ exitCode: postExit }) => {
-            if (postDone) return
-            postDone = true
-            clearTimeout(postTimer)
-            if (!sender.isDestroyed()) {
-              sender.send(
-                'runConfig:postRunResult',
-                postExit === 0
-                  ? { success: true, command: postCmd }
-                  : { success: false, command: postCmd, exitCode: postExit },
-              )
-            }
-            ptyManager.kill(postSession.id)
-          })
-        }
-      })
-
-      return { sessionId: session.id, wsUrl }
     },
   )
 
@@ -3320,4 +3044,9 @@ export function registerIpcHandlers(
     await fs.promises.unlink(resolvedTarget)
     return { success: true }
   })
+  return {
+    grantAttachPath(webContentsId: number, targetPath: string): void {
+      workspaceCommandService.grantAttachPath(webContentsId, targetPath)
+    },
+  }
 }

@@ -18,9 +18,14 @@ import {
 } from './fixtures'
 import type { BrowserApi } from './fixtures'
 
-test('terminal open/close should not leak PTY sessions', async ({ page }) => {
+test('terminal open/close should not leak PTY sessions', async ({
+  electronApp,
+  page,
+  testProjectPath,
+}) => {
   const CYCLES = 8
 
+  await openProject(electronApp, page, testProjectPath)
   await forceGC(await page.context().newCDPSession(page))
   const baseline = await getDiagnostics(page)
   expect(baseline).toBeTruthy()
@@ -32,8 +37,9 @@ test('terminal open/close should not leak PTY sessions', async ({ page }) => {
   console.log(`Baseline PTY: ${baselinePty}, WS bridges: ${baselineBridge}`)
 
   for (let i = 0; i < CYCLES; i++) {
-    const result = await page.evaluate(() =>
-      (window as unknown as BrowserApi).api.spawnPty({ cols: 80, rows: 24 }),
+    const result = await page.evaluate(
+      (worktreePath) => (window as unknown as BrowserApi).api.tabSpawnPane('shell', worktreePath),
+      testProjectPath,
     )
 
     expect(result).toBeTruthy()
@@ -89,7 +95,7 @@ test('workspace open should not leak git watchers', async ({
     }
 
     await page.evaluate(
-      (path) => (window as unknown as BrowserApi).api.detachProject(path),
+      (path) => (window as unknown as BrowserApi).api.workspaceDetachProject(path),
       testProjectPath,
     )
 
@@ -118,8 +124,9 @@ test('heap snapshot comparison', async ({ page, electronApp, testProjectPath, cd
   await page.waitForTimeout(2000)
 
   for (let i = 0; i < 3; i++) {
-    const result = await page.evaluate(() =>
-      (window as unknown as BrowserApi).api.spawnPty({ cols: 80, rows: 24 }),
+    const result = await page.evaluate(
+      (worktreePath) => (window as unknown as BrowserApi).api.tabSpawnPane('shell', worktreePath),
+      testProjectPath,
     )
     await page.waitForTimeout(300)
     await page.evaluate(
@@ -129,7 +136,7 @@ test('heap snapshot comparison', async ({ page, electronApp, testProjectPath, cd
   }
 
   await page.evaluate(
-    (path) => (window as unknown as BrowserApi).api.detachProject(path),
+    (path) => (window as unknown as BrowserApi).api.workspaceDetachProject(path),
     testProjectPath,
   )
 

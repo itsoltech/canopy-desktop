@@ -1,7 +1,7 @@
 import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import { randomUUID } from 'crypto'
-import { execFileSync } from 'child_process'
+import { execFile } from 'child_process'
 import os from 'os'
 import { getLoginEnv } from '../shell/loginEnv'
 
@@ -76,6 +76,24 @@ export class PtyManager {
     return this.sessions.get(id)?.tmuxSessionName
   }
 
+  getSessionIdsForTmuxSession(name: string): string[] {
+    const ids: string[] = []
+    for (const [id, session] of this.sessions) {
+      if (session.tmuxSessionName === name) {
+        ids.push(id)
+      }
+    }
+    return ids
+  }
+
+  updateTmuxSessionName(oldName: string, newName: string): void {
+    for (const session of this.sessions.values()) {
+      if (session.tmuxSessionName === oldName) {
+        session.tmuxSessionName = newName
+      }
+    }
+  }
+
   isTmuxSession(id: string): boolean {
     return !!this.sessions.get(id)?.tmuxSessionName
   }
@@ -127,24 +145,24 @@ export class PtyManager {
     }
   }
 
-  hasChildProcess(id: string): boolean {
+  hasChildProcess(id: string): Promise<boolean> {
     const session = this.sessions.get(id)
-    if (!session) return false
-    try {
-      const pid = String(session.pty.pid)
-      if (process.platform === 'win32') {
-        const out = execFileSync(
-          'wmic',
-          ['process', 'where', `(ParentProcessId=${pid})`, 'get', 'ProcessId', '/FORMAT:CSV'],
-          { encoding: 'utf-8', timeout: 2000 },
-        )
-        return out.trim().split('\n').length > 1
-      }
-      execFileSync('pgrep', ['-P', pid], { timeout: 2000 })
-      return true
-    } catch {
-      return false
-    }
+    if (!session) return Promise.resolve(false)
+    const pid = String(session.pty.pid)
+    const isWin = process.platform === 'win32'
+    const cmd = isWin ? 'wmic' : 'pgrep'
+    const args = isWin
+      ? ['process', 'where', `(ParentProcessId=${pid})`, 'get', 'ProcessId', '/FORMAT:CSV']
+      : ['-P', pid]
+    return new Promise<boolean>((resolve) => {
+      execFile(cmd, args, { encoding: 'utf-8', timeout: 2000 }, (err, stdout) => {
+        if (isWin) {
+          resolve(!err && stdout.trim().split('\n').length > 1)
+        } else {
+          resolve(!err)
+        }
+      })
+    })
   }
 
   get sessionCount(): number {

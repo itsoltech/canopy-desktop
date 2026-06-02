@@ -8,7 +8,6 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
   import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
-  import { wrapAsBracketedPaste } from '../../lib/pty/paste'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
@@ -260,7 +259,11 @@
       workspaceState.repoRoot ?? undefined,
     )
     await switchTab(result.tabId)
-    await window.api.writePty(result.pane.sessionId, wrapAsBracketedPaste(context) + '\r')
+    await window.api.agentSendTaskContext({
+      text: context,
+      worktreePath: workspaceState.selectedWorktreePath ?? undefined,
+      sessionId: result.pane.sessionId,
+    })
     addToast('Task sent to agent')
     closeDialog()
   }
@@ -405,7 +408,10 @@
               tabindex="0"
               onclick={() => selectTask(task)}
               onkeydown={(e) => {
-                if (e.key === 'Enter') selectTask(task)
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  selectTask(task)
+                }
               }}
               onmouseenter={() => (selectedIndex = i)}
             >

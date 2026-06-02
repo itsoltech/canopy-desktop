@@ -5,7 +5,6 @@
   import { Search, RotateCw, ChevronRight, Copy } from 'lucide-svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { wrapAsBracketedPaste } from '../../lib/pty/paste'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
 
   let {
@@ -322,7 +321,7 @@
     return ''
   }
 
-  function sendComment(): void {
+  async function sendComment(): Promise<void> {
     if (!commentText.trim()) return
     const sessions = getAiSessions(worktreePath)
     if (sessions.length === 0) return
@@ -340,11 +339,12 @@
       '---',
     ].join('\n')
 
-    window.api.writePty(sessions[0].sessionId, wrapAsBracketedPaste(message) + '\r')
-    focusSessionByPtyId(sessions[0].sessionId)
+    const sessionId = sessions[0].sessionId
+    await window.api.agentSendReviewContext({ text: message, worktreePath, sessionId })
+    focusSessionByPtyId(sessionId)
     window.dispatchEvent(
       new CustomEvent('canopy:focus-terminal', {
-        detail: { sessionId: sessions[0].sessionId },
+        detail: { sessionId },
       }),
     )
     closeComment()

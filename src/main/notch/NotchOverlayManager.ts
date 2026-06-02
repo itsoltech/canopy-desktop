@@ -139,6 +139,9 @@ export class NotchOverlayManager {
         preload: join(__dirname, '../preload/notch.js'),
         sandbox: true,
         backgroundThrottling: false,
+        // SECURITY: Electron 41 defaults are secure, but set explicitly as defense-in-depth.
+        nodeIntegration: false,
+        contextIsolation: true,
       },
     })
 

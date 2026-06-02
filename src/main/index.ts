@@ -16,7 +16,7 @@ import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { initSkills } from './skills'
 import { ProfileStore } from './profiles/ProfileStore'
-import { registerIpcHandlers } from './ipc/handlers'
+import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
@@ -40,6 +40,7 @@ import { PerfHudService } from './perf/PerfHudService'
 import { CrashReporter } from './crash/CrashReporter'
 import type { WindowConfig } from './windowBounds'
 import { performance } from 'perf_hooks'
+import { GitRepository } from './git/GitRepository'
 
 const PERF = process.env.CANOPY_PERF === '1'
 if (PERF) performance.mark('app:init')
@@ -195,6 +196,7 @@ const scheduleRecurringUpdateCheck = (): void => {
 let agentSessionManager: AgentSessionManager | null = null
 let notchOverlay: NotchOverlayManager | null = null
 let crashReporter: CrashReporter | null = null
+let ipcCommandBridge: IpcCommandBridge | null = null
 
 // Register canopy:// URL scheme
 if (process.defaultApp) {
@@ -232,9 +234,22 @@ async function handleCanopyUrl(url: string): Promise<void> {
     const worktree = parsed.searchParams.get('worktree') ?? undefined
     const action = parsed.hostname === 'run' ? 'run' : 'open'
 
+    const gitInfo = await GitRepository.detect(resolved).unwrapOr({
+      isGitRepo: false,
+      repoRoot: null,
+      branch: null,
+      worktrees: [],
+      isDirty: false,
+      aheadBehind: null,
+    })
+    const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
+
     // Dedupe: focus existing window for this path (no confirmation needed)
-    const existing = windowManager.getWindowForPath(resolved)
+    const existing = dedupePaths
+      .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
+      .find((win) => win !== null)
     if (existing) {
+      ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
       existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
       existing.focus()
@@ -254,6 +269,7 @@ async function handleCanopyUrl(url: string): Promise<void> {
 
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
+      ipcCommandBridge?.grantAttachPath(win.webContents.id, resolved)
       win.webContents.send('url:action', { action, path: resolved, tool, worktree })
     })
   } catch {
@@ -641,7 +657,7 @@ app.whenReady().then(async () => {
 
   if (PERF) performance.mark('app:managersReady')
 
-  registerIpcHandlers(
+  ipcCommandBridge = registerIpcHandlers(
     ptyManager,
     wsBridge,
     workspaceStore,
@@ -723,6 +739,12 @@ app.whenReady().then(async () => {
       const snapshot = [...ipcLog!]
       ipcLog!.length = 0
       return snapshot
+    })
+
+    ipcMain.handle('perf:openProject', (event, payload: { path: string }) => {
+      const resolved = realpathSync(resolve(payload.path))
+      ipcCommandBridge?.grantAttachPath(event.sender.id, resolved)
+      event.sender.send('url:action', { action: 'open', path: resolved })
     })
   }
 
@@ -969,16 +991,26 @@ app.on('before-quit', (event) => {
     return
   }
 
-  if (!windowManager.isQuitting) {
-    const activeInfo = windowManager.hasAnyActiveSession()
-    if (activeInfo) {
+  // hasAnyActiveSession() is async (spawns `pgrep`/`wmic` per shell), but
+  // event.preventDefault() must be called synchronously. preventDefault
+  // when any tracked PTY exists, then re-decide async — if nothing is
+  // actually busy, re-enter via app.quit().
+  if (!windowManager.isQuitting && windowManager.getAllWindows().some((w) => !w.isDestroyed())) {
+    const anyTracked = windowManager.getAllWindows().some((w) => {
+      const id = w.webContents.id
+      return windowManager.hasTrackedPtySessions(id)
+    })
+    if (anyTracked) {
       event.preventDefault()
-
-      const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
-      if (!focusedWin || focusedWin.isDestroyed()) return
-
-      dialog
-        .showMessageBox(focusedWin, {
+      void windowManager.hasAnyActiveSession().then(async (activeInfo) => {
+        if (!activeInfo) {
+          windowManager.isQuitting = true
+          app.quit()
+          return
+        }
+        const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
+        if (!focusedWin || focusedWin.isDestroyed()) return
+        const { response } = await dialog.showMessageBox(focusedWin, {
           type: 'warning',
           buttons: ['Quit', 'Cancel'],
           defaultId: 1,
@@ -987,12 +1019,11 @@ app.on('before-quit', (event) => {
           message: 'There are active sessions running',
           detail: activeInfo,
         })
-        .then(({ response }) => {
-          if (response === 0) {
-            windowManager.isQuitting = true
-            app.quit()
-          }
-        })
+        if (response === 0) {
+          windowManager.isQuitting = true
+          app.quit()
+        }
+      })
       return
     }
   }
