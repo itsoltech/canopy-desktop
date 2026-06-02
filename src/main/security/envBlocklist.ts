@@ -32,6 +32,8 @@ export const BLOCKED_ENV_VARS = new Set([
   'RUBYLIB',
   'PERL5LIB',
   'CLASSPATH',
+  'JAVA_TOOL_OPTIONS',
+  '_JAVA_OPTIONS',
 
   // Git / SSH
   'GIT_SSH_COMMAND',

@@ -108,7 +108,7 @@ The file path is always `<dir>/.canopy/run.toml` and is not configurable. Discov
 
 ## Security and privacy
 
-Run configuration files can be committed with the repository, so their `env` table is treated as untrusted input. Before spawning `pre_run`, the main command, or `post_run`, Canopy filters environment overrides through the shared `BLOCKED_ENV_VARS` list. Blocked keys such as `PATH`, `HOME`, dynamic linker variables, `NODE_OPTIONS`, Git/SSH helpers, proxy/TLS variables, and compiler flags are ignored so a cloned `.canopy/run.toml` cannot hijack the child shell or runtime. Non-string TOML values are also ignored.
+Run configuration files can be committed with the repository, so their `env` table is treated as untrusted input. Before spawning `pre_run`, the main command, or `post_run`, Canopy filters environment overrides through the shared `BLOCKED_ENV_VARS` list. Blocked keys such as `PATH`, `HOME`, dynamic linker variables, runtime option hooks (`NODE_OPTIONS`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`), Git/SSH helpers, proxy/TLS variables, and compiler flags are ignored so a cloned `.canopy/run.toml` cannot hijack the child shell or runtime. Non-string TOML values are also ignored.
 
 Filtered variables fall back to the inherited login environment used by `PtyManager.spawn`; the run does not fail just because a blocked override was present.
 
