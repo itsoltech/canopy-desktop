@@ -1036,6 +1036,8 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.api = api
+  // SECURITY: refuse to expose the bridge directly on `window` — that would let
+  // any page script reach IPC handlers (filesystem, PTY, credentials) without
+  // isolation. Context isolation is required.
+  throw new Error('Canopy preload requires contextIsolation:true')
 }
