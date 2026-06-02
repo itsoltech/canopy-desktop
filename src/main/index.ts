@@ -969,16 +969,26 @@ app.on('before-quit', (event) => {
     return
   }
 
-  if (!windowManager.isQuitting) {
-    const activeInfo = windowManager.hasAnyActiveSession()
-    if (activeInfo) {
+  // hasAnyActiveSession() is async (spawns `pgrep`/`wmic` per shell), but
+  // event.preventDefault() must be called synchronously. preventDefault
+  // when any tracked PTY exists, then re-decide async — if nothing is
+  // actually busy, re-enter via app.quit().
+  if (!windowManager.isQuitting && windowManager.getAllWindows().some((w) => !w.isDestroyed())) {
+    const anyTracked = windowManager.getAllWindows().some((w) => {
+      const id = w.webContents.id
+      return windowManager.hasTrackedPtySessions(id)
+    })
+    if (anyTracked) {
       event.preventDefault()
-
-      const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
-      if (!focusedWin || focusedWin.isDestroyed()) return
-
-      dialog
-        .showMessageBox(focusedWin, {
+      void windowManager.hasAnyActiveSession().then(async (activeInfo) => {
+        if (!activeInfo) {
+          windowManager.isQuitting = true
+          app.quit()
+          return
+        }
+        const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
+        if (!focusedWin || focusedWin.isDestroyed()) return
+        const { response } = await dialog.showMessageBox(focusedWin, {
           type: 'warning',
           buttons: ['Quit', 'Cancel'],
           defaultId: 1,
@@ -987,12 +997,11 @@ app.on('before-quit', (event) => {
           message: 'There are active sessions running',
           detail: activeInfo,
         })
-        .then(({ response }) => {
-          if (response === 0) {
-            windowManager.isQuitting = true
-            app.quit()
-          }
-        })
+        if (response === 0) {
+          windowManager.isQuitting = true
+          app.quit()
+        }
+      })
       return
     }
   }

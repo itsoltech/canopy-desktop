@@ -118,13 +118,20 @@ export class WindowManager {
         return
       }
 
-      const detail = this.getActiveSessionInfo(wcId)
-      if (!detail) return
+      // Fast sync check: nothing tracked → allow the close to proceed without
+      // spawning helper processes. Only when this window owns PTY sessions do
+      // we preventDefault and run the (async) busy-check + confirmation dialog.
+      if (!this.hasTrackedPtySessions(wcId)) return
 
       event.preventDefault()
 
-      dialog
-        .showMessageBox(win, {
+      void this.getActiveSessionInfo(wcId).then(async (detail) => {
+        if (!detail) {
+          this.forceClosing.add(wcId)
+          win.close()
+          return
+        }
+        const { response } = await dialog.showMessageBox(win, {
           type: 'warning',
           buttons: ['Close Window', 'Cancel'],
           defaultId: 1,
@@ -133,12 +140,11 @@ export class WindowManager {
           message: 'This window has active sessions',
           detail,
         })
-        .then(({ response }) => {
-          if (response === 0) {
-            this.forceClosing.add(wcId)
-            win.close()
-          }
-        })
+        if (response === 0) {
+          this.forceClosing.add(wcId)
+          win.close()
+        }
+      })
     })
 
     win.on('closed', () => {
@@ -329,23 +335,32 @@ export class WindowManager {
     return this.windows.size
   }
 
-  getActiveSessionInfo(wcId: number): string | null {
+  /** True when this window owns at least one PTY session — cheap sync check. */
+  hasTrackedPtySessions(wcId: number): boolean {
+    const sessionIds = this.ptySessions.get(wcId)
+    return !!sessionIds && sessionIds.size > 0
+  }
+
+  async getActiveSessionInfo(wcId: number): Promise<string | null> {
     const sessionIds = this.ptySessions.get(wcId)
     if (!sessionIds || sessionIds.size === 0) return null
 
     let busyAgentCount = 0
     let activeShellCount = 0
 
+    const shellChecks: Promise<boolean>[] = []
     for (const sid of sessionIds) {
       if (this.agentSessionManager?.isAgentSession(sid)) {
         if (this.agentSessionManager.isBusy(sid)) {
           busyAgentCount++
         }
       } else {
-        if (this.ptyManager.hasChildProcess(sid)) {
-          activeShellCount++
-        }
+        shellChecks.push(this.ptyManager.hasChildProcess(sid))
       }
+    }
+    const shellResults = await Promise.all(shellChecks)
+    for (const has of shellResults) {
+      if (has) activeShellCount++
     }
 
     if (busyAgentCount === 0 && activeShellCount === 0) return null
@@ -360,9 +375,9 @@ export class WindowManager {
     return parts.join(' and ') + ' will be terminated.'
   }
 
-  hasAnyActiveSession(): string | null {
+  async hasAnyActiveSession(): Promise<string | null> {
     for (const [wcId] of this.windows) {
-      const info = this.getActiveSessionInfo(wcId)
+      const info = await this.getActiveSessionInfo(wcId)
       if (info) return info
     }
     return null
