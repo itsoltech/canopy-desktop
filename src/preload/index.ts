@@ -13,6 +13,7 @@ import type {
   CloseWarningTarget,
   EditorFileLoadResult,
   EditorFileSaveResult,
+  TabCloseAllPreflightResult,
   TabClosePreflightResult,
 } from '../main/commands/types'
 
@@ -328,6 +329,14 @@ const api = {
       worktreePath,
       tabId,
     }) as Promise<TabClosePreflightResult>,
+  tabPrepareCloseAllForWorktree: (
+    worktreePath: string,
+    options?: { confirmedActiveProcesses?: boolean },
+  ) =>
+    ipcRenderer.invoke('tab:command:prepareCloseAllForWorktree', {
+      worktreePath,
+      confirmedActiveProcesses: options?.confirmedActiveProcesses,
+    }) as Promise<TabCloseAllPreflightResult>,
   tabGetCloseWarning: (worktreePath: string, target: CloseWarningTarget) =>
     ipcRenderer.invoke('tab:command:getCloseWarning', {
       worktreePath,

@@ -117,6 +117,19 @@ interface AppStateApi {
     | { ok: false; reason: 'cancelled' }
     | { ok: false; reason: 'save-failed'; failedCount: number }
   >
+  tabPrepareCloseAllForWorktree?: (
+    worktreePath: string,
+    options?: { confirmedActiveProcesses?: boolean },
+  ) => Promise<
+    | { ok: true }
+    | { ok: false; reason: 'cancelled' }
+    | { ok: false; reason: 'save-failed'; failedCount: number }
+    | {
+        ok: false
+        reason: 'active-processes'
+        warnings: Array<{ tabName: string; description: string }>
+      }
+  >
   tabGetCloseWarning?: (
     worktreePath: string,
     target: { kind: 'tab'; tabId: string } | { kind: 'pane'; tabId: string; paneId: string },
@@ -556,6 +569,7 @@ test('main process exposes and publishes app state snapshots', async ({ electron
       tabOpenTool: typeof api.tabOpenTool,
       tabSaveCurrentLayout: typeof api.tabSaveCurrentLayout,
       tabPrepareCloseTab: typeof api.tabPrepareCloseTab,
+      tabPrepareCloseAllForWorktree: typeof api.tabPrepareCloseAllForWorktree,
       tabGetCloseWarning: typeof api.tabGetCloseWarning,
       tabSaveEditorFile: typeof api.tabSaveEditorFile,
       tabPrepareCloseEditorFile: typeof api.tabPrepareCloseEditorFile,
@@ -606,6 +620,7 @@ test('main process exposes and publishes app state snapshots', async ({ electron
   expect(apiShape.tabOpenTool).toBe('function')
   expect(apiShape.tabSaveCurrentLayout).toBe('function')
   expect(apiShape.tabPrepareCloseTab).toBe('function')
+  expect(apiShape.tabPrepareCloseAllForWorktree).toBe('function')
   expect(apiShape.tabGetCloseWarning).toBe('function')
   expect(apiShape.tabSaveEditorFile).toBe('function')
   expect(apiShape.tabPrepareCloseEditorFile).toBe('function')
@@ -2414,6 +2429,25 @@ test('main process exposes and publishes app state snapshots', async ({ electron
       paneId: expect.any(String),
       paneSessionId: runConfigTab.sessionId,
     })
+
+  const closeAllPreflight = await workspacePage.evaluate((projectPath) => {
+    const api = (window as unknown as { api: Required<AppStateApi> }).api
+    if (typeof api.tabPrepareCloseAllForWorktree !== 'function') {
+      throw new Error('Missing tabPrepareCloseAllForWorktree API')
+    }
+    return api.tabPrepareCloseAllForWorktree(projectPath)
+  }, tmpDir)
+  expect(closeAllPreflight).toEqual({
+    ok: false,
+    reason: 'active-processes',
+    warnings: [{ tabName: 'E2E Command', description: '1 running process' }],
+  })
+
+  const confirmedCloseAllPreflight = await workspacePage.evaluate((projectPath) => {
+    const api = (window as unknown as { api: Required<AppStateApi> }).api
+    return api.tabPrepareCloseAllForWorktree(projectPath, { confirmedActiveProcesses: true })
+  }, tmpDir)
+  expect(confirmedCloseAllPreflight).toEqual({ ok: true })
 
   const closeAllResult = await workspacePage.evaluate((projectPath) => {
     const api = (window as unknown as { api: Required<AppStateApi> }).api

@@ -8,6 +8,7 @@ import type {
   EditorFileSnapshot,
   RunConfigCommandResult,
   RunConfigProcessSnapshot,
+  TabCloseAllPreflightResult,
   TabClosePreflightResult,
   TabCommandResult,
   TabStateSnapshot,
@@ -542,6 +543,10 @@ interface CanopyAPI {
   ) => Promise<TabCommandResult>
   tabCloseTab: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
   tabPrepareCloseTab: (worktreePath: string, tabId: string) => Promise<TabClosePreflightResult>
+  tabPrepareCloseAllForWorktree: (
+    worktreePath: string,
+    options?: { confirmedActiveProcesses?: boolean },
+  ) => Promise<TabCloseAllPreflightResult>
   tabGetCloseWarning: (
     worktreePath: string,
     target: CloseWarningTarget,

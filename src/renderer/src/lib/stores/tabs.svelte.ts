@@ -25,6 +25,7 @@ import type {
   EditorFileSaveResult,
   PaneSnapshot,
   SplitSnapshot,
+  TabCloseAllPreflightResult,
   TabClosePreflightResult,
   TabCommandResult,
   TabSnapshot,
@@ -91,6 +92,19 @@ export const tabsByWorktree: Record<string, TabInfo[]> = $state({})
 export const activeTabId: Record<string, string> = $state({})
 const EMPTY_TABS: TabInfo[] = []
 
+function editorFilesFromSnapshot(
+  snapshotFiles: PaneSnapshot['editorFiles'],
+  previousFiles: EditorFileState[] | undefined,
+): EditorFileState[] | undefined {
+  if (!snapshotFiles) return previousFiles?.map((file) => ({ ...file }))
+
+  const previousByPath = new Map(previousFiles?.map((file) => [file.filePath, file]) ?? [])
+  return snapshotFiles.map((file) => {
+    const previous = previousByPath.get(file.filePath)
+    return previous ? { ...file, ...previous, filePath: file.filePath } : { ...file }
+  })
+}
+
 function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneSession {
   return {
     ...previous,
@@ -110,30 +124,41 @@ function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneS
     inspectorOpen: snapshot.inspectorOpen,
     profileId: snapshot.profileId,
     profileName: snapshot.profileName,
-    editorFiles: previous?.editorFiles ?? snapshot.editorFiles?.map((file) => ({ ...file })),
+    editorFiles: editorFilesFromSnapshot(snapshot.editorFiles, previous?.editorFiles),
     editorActiveFile: snapshot.editorActiveFile ?? previous?.editorActiveFile,
   }
 }
 
-function splitFromSnapshot(snapshot: SplitSnapshot): SplitNode {
-  if (snapshot.type === 'leaf') return createLeaf(paneFromSnapshot(snapshot.pane))
+function previousPaneFromSplit(
+  previous: SplitNode | undefined,
+  paneId: string,
+): PaneSession | undefined {
+  return previous ? allPanes(previous).find((pane) => pane.id === paneId) : undefined
+}
+
+function splitFromSnapshot(snapshot: SplitSnapshot, previous?: SplitNode): SplitNode {
+  if (snapshot.type === 'leaf') {
+    return createLeaf(
+      paneFromSnapshot(snapshot.pane, previousPaneFromSplit(previous, snapshot.pane.id)),
+    )
+  }
   return {
     type: snapshot.direction === 'horizontal' ? 'hsplit' : 'vsplit',
     id: snapshot.id,
     ratio: snapshot.ratio,
-    first: splitFromSnapshot(snapshot.first),
-    second: splitFromSnapshot(snapshot.second),
+    first: splitFromSnapshot(snapshot.first, previous),
+    second: splitFromSnapshot(snapshot.second, previous),
   }
 }
 
-function tabFromSnapshot(snapshot: TabSnapshot): TabInfo {
+function tabFromSnapshot(snapshot: TabSnapshot, previous?: TabInfo): TabInfo {
   return {
     id: snapshot.id,
     toolId: snapshot.toolId,
     toolName: snapshot.toolName,
     name: snapshot.name,
     worktreePath: snapshot.worktreePath,
-    rootSplit: splitFromSnapshot(snapshot.rootSplit),
+    rootSplit: splitFromSnapshot(snapshot.rootSplit, previous?.rootSplit),
     focusedPaneId: snapshot.focusedPaneId,
     suspended: snapshot.suspended,
   }
@@ -141,7 +166,7 @@ function tabFromSnapshot(snapshot: TabSnapshot): TabInfo {
 
 export function applyTabsSnapshot(
   snapshot: TabStateSnapshot,
-  options: { force?: boolean; replaceAll?: boolean } = {},
+  options: { replaceAll?: boolean } = {},
 ): void {
   if (options.replaceAll) {
     const incomingWorktrees = Object.keys(snapshot.tabsByWorktree)
@@ -155,21 +180,15 @@ export function applyTabsSnapshot(
   }
 
   for (const [worktreePath, tabSnapshots] of Object.entries(snapshot.tabsByWorktree)) {
-    const currentTabs = tabsByWorktree[worktreePath] ?? []
-    const currentIds = currentTabs.map((tab) => tab.id).join('\0')
-    const snapshotIds = tabSnapshots.map((tab) => tab.id).join('\0')
+    const previousTabs = tabsByWorktree[worktreePath] ?? []
     const incomingActiveTabId = snapshot.activeTabIdByWorktree[worktreePath] ?? null
 
-    if (
-      !options.force &&
-      currentTabs.length > 0 &&
-      currentIds === snapshotIds &&
-      (activeTabId[worktreePath] ?? null) === incomingActiveTabId
-    ) {
-      continue
-    }
-
-    tabsByWorktree[worktreePath] = tabSnapshots.map(tabFromSnapshot)
+    tabsByWorktree[worktreePath] = tabSnapshots.map((tab) =>
+      tabFromSnapshot(
+        tab,
+        previousTabs.find((previous) => previous.id === tab.id),
+      ),
+    )
     for (const tab of tabsByWorktree[worktreePath]) {
       for (const pane of allPanes(tab.rootSplit)) initPaneRuntimeState(pane)
     }
@@ -189,13 +208,10 @@ function initPaneRuntimeState(pane: PaneSession): void {
 }
 
 function applyTabCommandResult(result: TabCommandResult): void {
-  applyTabsSnapshot(
-    {
-      tabsByWorktree: { [result.worktreePath]: result.tabs },
-      activeTabIdByWorktree: { [result.worktreePath]: result.activeTabId },
-    },
-    { force: true },
-  )
+  applyTabsSnapshot({
+    tabsByWorktree: { [result.worktreePath]: result.tabs },
+    activeTabIdByWorktree: { [result.worktreePath]: result.activeTabId },
+  })
 }
 
 function applyOpenedTabResult(result: TabCommandResult): TabInfo | null {
@@ -299,47 +315,41 @@ async function handleClosePreflightFailure(
   return false
 }
 
+async function handleCloseAllPreflightFailure(
+  preflight: TabCloseAllPreflightResult,
+  cancelledMessage: string,
+): Promise<boolean> {
+  if (!preflight.ok && preflight.reason === 'active-processes') return false
+  return handleClosePreflightFailure(preflight, cancelledMessage)
+}
+
 async function prepareCloseAllTabsForWorktree(
   worktreePath: string,
   tabs: TabInfo[],
 ): Promise<boolean> {
-  const openTabs = tabs.filter((tab) => !tab.suspended)
+  let preflight = await window.api.tabPrepareCloseAllForWorktree(worktreePath)
 
-  const closeWarnings = (
-    await Promise.all(
-      openTabs.map(async (tab) => {
-        const { description } = await window.api.tabGetCloseWarning(worktreePath, {
-          kind: 'tab',
-          tabId: tab.id,
-        })
-        return description ? { tabName: getTabDisplayName(tab), description } : null
-      }),
-    )
-  ).filter((entry): entry is { tabName: string; description: string } => entry !== null)
-
-  if (closeWarnings.length > 0) {
+  if (!preflight.ok && preflight.reason === 'active-processes') {
     const confirmed = await confirm({
       title: tabs.length === 1 ? 'Close tab?' : 'Close all tabs?',
       message:
-        closeWarnings.length === 1
-          ? `A tab has ${closeWarnings[0].description} that will be terminated.`
-          : `${closeWarnings.length} tabs have active processes that will be terminated.`,
-      details: closeWarnings
+        preflight.warnings.length === 1
+          ? `A tab has ${preflight.warnings[0].description} that will be terminated.`
+          : `${preflight.warnings.length} tabs have active processes that will be terminated.`,
+      details: preflight.warnings
         .map((warning) => `${warning.tabName}: ${warning.description}`)
         .join('\n'),
       confirmLabel: tabs.length === 1 ? 'Close Tab' : 'Close All Tabs',
       destructive: true,
     })
     if (!confirmed) return false
+
+    preflight = await window.api.tabPrepareCloseAllForWorktree(worktreePath, {
+      confirmedActiveProcesses: true,
+    })
   }
 
-  for (const tab of openTabs) {
-    const closePreflight = await window.api.tabPrepareCloseTab(worktreePath, tab.id)
-    const ok = await handleClosePreflightFailure(closePreflight, 'Close all tabs cancelled.')
-    if (!ok) return false
-  }
-
-  return true
+  return handleCloseAllPreflightFailure(preflight, 'Close all tabs cancelled.')
 }
 
 export async function closeTab(tabId: string): Promise<void> {
@@ -971,7 +981,7 @@ export async function killAllTabs(): Promise<void> {
   const allSessions = allTabsList.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
   for (const p of allSessions) disposeEphemeralPaneState(p)
   const result = await window.api.tabKillAll()
-  applyTabsSnapshot(result, { force: true, replaceAll: true })
+  applyTabsSnapshot(result, { replaceAll: true })
 }
 
 export function focusSessionByPtyId(ptySessionId: string): void {

@@ -159,10 +159,19 @@ export interface CloseWarningResult {
   description: string | null
 }
 
+export interface CloseWarningEntry {
+  tabName: string
+  description: string
+}
+
 export type TabClosePreflightResult =
   | { ok: true }
   | { ok: false; reason: 'cancelled' }
   | { ok: false; reason: 'save-failed'; failedCount: number }
+
+export type TabCloseAllPreflightResult =
+  | TabClosePreflightResult
+  | { ok: false; reason: 'active-processes'; warnings: CloseWarningEntry[] }
 
 export type EditorFileSaveResult =
   | { ok: true; mtimeMs: number; size: number; result: TabCommandResult }

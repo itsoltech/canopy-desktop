@@ -25,6 +25,7 @@ import type {
   SerializedLayout,
   SerializedSplitNode,
   SplitSnapshot,
+  TabCloseAllPreflightResult,
   TabClosePreflightResult,
   TabCommandResult,
   TabSnapshot,
@@ -473,6 +474,10 @@ interface CloseTabPayload extends TabCommandPayloadBase {
 
 interface PrepareCloseTabPayload extends TabCommandPayloadBase {
   tabId: string
+}
+
+interface PrepareCloseAllForWorktreePayload extends TabCommandPayloadBase {
+  confirmedActiveProcesses?: boolean
 }
 
 interface GetCloseWarningPayload extends TabCommandPayloadBase {
@@ -1243,6 +1248,11 @@ function emptyResult(
   return { worktreePath, tabs, activeTabId }
 }
 
+function getTabDisplayName(tab: TabSnapshot): string {
+  const focused = allPaneSnapshots(tab.rootSplit).find((pane) => pane.id === tab.focusedPaneId)
+  return focused?.title || tab.name
+}
+
 function reconcileTabSnapshotIdentity(tab: TabSnapshot, tabs: TabSnapshot[]): TabSnapshot {
   const focused = allPaneSnapshots(tab.rootSplit).find((pane) => pane.id === tab.focusedPaneId)
   if (!focused || tab.toolId === focused.toolId) return tab
@@ -1486,12 +1496,12 @@ export class TabCommandService {
     this.trackSender(sender)
     this.assertSenderOwnsWorktree(sender, payload.worktreePath)
     const tabs = this.getCommandTabs(sender.id, payload)
+    const activeId = this.getCommandActiveTabId(sender.id, payload)
     const tabIndex = tabs.findIndex((tab) =>
       allPaneSnapshots(tab.rootSplit).some(
         (pane) => pane.id === payload.paneId && paneHasEditorFile(pane, payload.filePath),
       ),
     )
-    const activeId = this.getCommandActiveTabId(sender.id, payload)
     if (tabIndex < 0) return emptyResult(payload.worktreePath, tabs, activeId)
 
     const tab = tabs[tabIndex]
@@ -1831,7 +1841,6 @@ export class TabCommandService {
     this.trackSender(sender)
     this.assertSenderOwnsWorktree(sender, payload.worktreePath)
     const tabs = this.getCommandTabs(sender.id, payload)
-    const activeId = this.getCommandActiveTabId(sender.id, payload)
     const tabIndex = tabs.findIndex((tab) =>
       allPaneSnapshots(tab.rootSplit).some(
         (pane) => pane.id === payload.paneId && paneHasEditorFile(pane, payload.filePath),
@@ -1840,12 +1849,6 @@ export class TabCommandService {
     if (tabIndex < 0) {
       return { ok: false, tag: 'ReadFailed', message: 'Editor file is not open' }
     }
-
-    const tab = tabs[tabIndex]
-    const pane = allPaneSnapshots(tab.rootSplit).find(
-      (candidate) => candidate.id === payload.paneId,
-    )
-    if (!pane) return { ok: false, tag: 'ReadFailed', message: 'Editor pane is not open' }
 
     const loadResult = await this.deps.loadEditorFile(
       sender,
@@ -1872,21 +1875,38 @@ export class TabCommandService {
           externalChangeDetected: false,
         }
 
-    const updatedPane = paneWithUpdatedEditorFileState(pane, payload.filePath, patch)
+    const currentTabs = this.getCommandTabs(sender.id, payload)
+    const currentActiveId = this.getCommandActiveTabId(sender.id, payload)
+    const currentTabIndex = currentTabs.findIndex((tab) =>
+      allPaneSnapshots(tab.rootSplit).some(
+        (pane) => pane.id === payload.paneId && paneHasEditorFile(pane, payload.filePath),
+      ),
+    )
+    if (currentTabIndex < 0) {
+      return { ok: false, tag: 'ReadFailed', message: 'Editor file is not open' }
+    }
+
+    const currentTab = currentTabs[currentTabIndex]
+    const currentPane = allPaneSnapshots(currentTab.rootSplit).find(
+      (candidate) => candidate.id === payload.paneId,
+    )
+    if (!currentPane) return { ok: false, tag: 'ReadFailed', message: 'Editor pane is not open' }
+
+    const updatedPane = paneWithUpdatedEditorFileState(currentPane, payload.filePath, patch)
     if (!updatedPane) {
       return { ok: false, tag: 'ReadFailed', message: 'Editor file is not open' }
     }
 
-    tabs[tabIndex] = {
-      ...tab,
-      rootSplit: updatePaneSnapshot(tab.rootSplit, payload.paneId, () => updatedPane),
+    currentTabs[currentTabIndex] = {
+      ...currentTab,
+      rootSplit: updatePaneSnapshot(currentTab.rootSplit, payload.paneId, () => updatedPane),
     }
     const result = {
       worktreePath: payload.worktreePath,
-      tabs,
-      activeTabId: activeId,
+      tabs: currentTabs,
+      activeTabId: currentActiveId,
     }
-    this.setTabState(sender, payload.worktreePath, tabs, activeId)
+    this.setTabState(sender, payload.worktreePath, currentTabs, currentActiveId)
     return { ...loadResult, result }
   }
 
@@ -1897,7 +1917,6 @@ export class TabCommandService {
     this.trackSender(sender)
     this.assertSenderOwnsWorktree(sender, payload.worktreePath)
     const tabs = this.getCommandTabs(sender.id, payload)
-    const activeId = this.getCommandActiveTabId(sender.id, payload)
     const tabIndex = tabs.findIndex((tab) =>
       allPaneSnapshots(tab.rootSplit).some(
         (pane) => pane.id === payload.paneId && paneHasEditorFile(pane, payload.filePath),
@@ -1906,12 +1925,6 @@ export class TabCommandService {
     if (tabIndex < 0) {
       return { ok: false, tag: 'WriteFailed', message: 'Editor file is not open' }
     }
-
-    const tab = tabs[tabIndex]
-    const pane = allPaneSnapshots(tab.rootSplit).find(
-      (candidate) => candidate.id === payload.paneId,
-    )
-    if (!pane) return { ok: false, tag: 'WriteFailed', message: 'Editor pane is not open' }
 
     const content = payload.options.content
     const normalized =
@@ -1924,7 +1937,24 @@ export class TabCommandService {
     )
     if (!writeResult.ok) return writeResult
 
-    const updatedPane = paneWithUpdatedEditorFileState(pane, payload.filePath, {
+    const currentTabs = this.getCommandTabs(sender.id, payload)
+    const currentActiveId = this.getCommandActiveTabId(sender.id, payload)
+    const currentTabIndex = currentTabs.findIndex((tab) =>
+      allPaneSnapshots(tab.rootSplit).some(
+        (pane) => pane.id === payload.paneId && paneHasEditorFile(pane, payload.filePath),
+      ),
+    )
+    if (currentTabIndex < 0) {
+      return { ok: false, tag: 'WriteFailed', message: 'Editor file is not open' }
+    }
+
+    const currentTab = currentTabs[currentTabIndex]
+    const currentPane = allPaneSnapshots(currentTab.rootSplit).find(
+      (candidate) => candidate.id === payload.paneId,
+    )
+    if (!currentPane) return { ok: false, tag: 'WriteFailed', message: 'Editor pane is not open' }
+
+    const updatedPane = paneWithUpdatedEditorFileState(currentPane, payload.filePath, {
       dirty: false,
       originalContent: content,
       currentContent: content,
@@ -1935,16 +1965,16 @@ export class TabCommandService {
       return { ok: false, tag: 'WriteFailed', message: 'Editor file is not open' }
     }
 
-    tabs[tabIndex] = {
-      ...tab,
-      rootSplit: updatePaneSnapshot(tab.rootSplit, payload.paneId, () => updatedPane),
+    currentTabs[currentTabIndex] = {
+      ...currentTab,
+      rootSplit: updatePaneSnapshot(currentTab.rootSplit, payload.paneId, () => updatedPane),
     }
     const result = {
       worktreePath: payload.worktreePath,
-      tabs,
-      activeTabId: activeId,
+      tabs: currentTabs,
+      activeTabId: currentActiveId,
     }
-    this.setTabState(sender, payload.worktreePath, tabs, activeId)
+    this.setTabState(sender, payload.worktreePath, currentTabs, currentActiveId)
     return { ok: true, mtimeMs: writeResult.mtimeMs, size: writeResult.size, result }
   }
 
@@ -2314,6 +2344,65 @@ export class TabCommandService {
     if (!tab || tab.suspended) return { ok: true }
 
     const dirtyFiles = this.dirtyEditorFiles(tab)
+    if (dirtyFiles.length === 0) return { ok: true }
+
+    const choice = await this.deps.confirmUnsavedChanges(
+      sender,
+      dirtyFiles.map((file) => file.filePath),
+    )
+    if (choice === 'cancel') return { ok: false, reason: 'cancelled' }
+    if (choice === 'discard') return { ok: true }
+
+    let failedCount = 0
+    for (const file of dirtyFiles) {
+      try {
+        const result = await this.saveEditorFile(sender, {
+          worktreePath: payload.worktreePath,
+          paneId: file.paneId,
+          filePath: file.filePath,
+          options: {
+            content: file.currentContent ?? '',
+            fileLineEnding: file.fileLineEnding,
+            expectedMtimeMs: file.fileMtimeMs,
+          },
+        })
+        if (!result.ok) failedCount += 1
+      } catch {
+        failedCount += 1
+      }
+    }
+    if (failedCount > 0) return { ok: false, reason: 'save-failed', failedCount }
+
+    return { ok: true }
+  }
+
+  async prepareCloseAllForWorktree(
+    sender: WebContents,
+    payload: PrepareCloseAllForWorktreePayload,
+  ): Promise<TabCloseAllPreflightResult> {
+    this.trackSender(sender)
+    this.assertSenderOwnsWorktree(sender, payload.worktreePath)
+    const tabs = this.getCommandTabs(sender.id, payload)
+    const openTabs = tabs.filter((tab) => !tab.suspended)
+
+    if (!payload.confirmedActiveProcesses) {
+      const warnings = (
+        await Promise.all(
+          openTabs.map(async (tab) => {
+            const description = await this.getActiveProcessDescription(
+              allPaneSnapshots(tab.rootSplit),
+            )
+            return description ? { tabName: getTabDisplayName(tab), description } : null
+          }),
+        )
+      ).filter((entry): entry is { tabName: string; description: string } => entry !== null)
+
+      if (warnings.length > 0) {
+        return { ok: false, reason: 'active-processes', warnings }
+      }
+    }
+
+    const dirtyFiles = openTabs.flatMap((tab) => this.dirtyEditorFiles(tab))
     if (dirtyFiles.length === 0) return { ok: true }
 
     const choice = await this.deps.confirmUnsavedChanges(

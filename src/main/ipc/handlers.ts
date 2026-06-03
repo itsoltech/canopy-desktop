@@ -428,22 +428,22 @@ export function registerIpcHandlers(
     const readLimit = Math.min(maxBytes ?? 1_048_576, 10_485_760)
     let stat: fs.Stats
     try {
-      stat = fs.statSync(resolved)
+      stat = await fs.promises.stat(resolved)
     } catch (e) {
       return { ok: false, tag: 'StatFailed', message: errorMessage(e) }
     }
 
     let canWrite = true
     try {
-      fs.accessSync(resolved, fs.constants.W_OK)
+      await fs.promises.access(resolved, fs.constants.W_OK)
     } catch {
       canWrite = false
     }
 
     const readSize = Math.min(stat.size, readLimit)
-    let fd: number
+    let fileHandle: Awaited<ReturnType<typeof fs.promises.open>>
     try {
-      fd = fs.openSync(resolved, 'r')
+      fileHandle = await fs.promises.open(resolved, 'r')
     } catch (e) {
       return { ok: false, tag: 'ReadFailed', message: errorMessage(e) }
     }
@@ -452,7 +452,7 @@ export function registerIpcHandlers(
       const buf = Buffer.alloc(readSize)
       let offset = 0
       while (offset < readSize) {
-        const bytesRead = fs.readSync(fd, buf, offset, readSize - offset, offset)
+        const { bytesRead } = await fileHandle.read(buf, offset, readSize - offset, offset)
         if (bytesRead === 0) break
         offset += bytesRead
       }
@@ -484,7 +484,7 @@ export function registerIpcHandlers(
     } catch (e) {
       return { ok: false, tag: 'ReadFailed', message: errorMessage(e) }
     } finally {
-      fs.closeSync(fd)
+      await fileHandle.close().catch(() => undefined)
     }
   }
 
@@ -632,6 +632,9 @@ export function registerIpcHandlers(
   )
   ipcMain.handle('tab:command:prepareCloseTab', (event, payload) =>
     tabCommandService.prepareCloseTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:prepareCloseAllForWorktree', (event, payload) =>
+    tabCommandService.prepareCloseAllForWorktree(event.sender, payload),
   )
   ipcMain.handle('tab:command:getCloseWarning', (event, payload) =>
     tabCommandService.getCloseWarning(event.sender, payload),
@@ -3165,8 +3168,18 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:buildTaskContext',
-    async (_event, payload: TaskTrackerBuildTaskContextPayload) => {
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+    async (event, payload: TaskTrackerBuildTaskContextPayload) => {
+      if (
+        !payload?.task ||
+        typeof payload.task.key !== 'string' ||
+        !TASK_KEY_RE.test(payload.task.key)
+      ) {
+        throw new Error('Invalid task key')
+      }
+      const repoRoot = payload.repoRoot
+        ? await validatePathAccess(event.sender.id, payload.repoRoot)
+        : undefined
+      const resolved = await resolveEffectiveConfig(repoRoot)
       const hasConfigTracker = Boolean(resolved?.config.trackers.length)
 
       let fullTask: TrackerTask | null = null
@@ -3175,7 +3188,7 @@ export function registerIpcHandlers(
           resolved.config,
           payload.task.key,
           payload.trackerId,
-          payload.repoRoot,
+          repoRoot,
         )
         if (result.isOk()) fullTask = result.value
       }
@@ -3189,7 +3202,7 @@ export function registerIpcHandlers(
           resolved.config,
           payload.task.key,
           payload.trackerId,
-          payload.repoRoot,
+          repoRoot,
         )
         if (result.isOk()) comments = result.value
       }
@@ -3197,7 +3210,7 @@ export function registerIpcHandlers(
         const result = await taskTrackerManager.fetchTaskComments(
           payload.connectionId,
           payload.task.key,
-          payload.repoRoot,
+          repoRoot,
         )
         comments = result.unwrapOr([])
       }
@@ -3208,7 +3221,7 @@ export function registerIpcHandlers(
           resolved.config,
           payload.task.key,
           payload.trackerId,
-          payload.repoRoot,
+          repoRoot,
         )
         if (result.isOk()) rawAttachments = result.value
       }
@@ -3230,7 +3243,7 @@ export function registerIpcHandlers(
               attachment.url,
               attachment.name,
               payload.trackerId,
-              payload.repoRoot,
+              repoRoot,
             )
             if (configResult.isOk()) {
               return { name: attachment.name, localPath: configResult.value }
