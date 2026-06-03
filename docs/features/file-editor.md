@@ -38,14 +38,16 @@ properties derived from the xterm ANSI palette.
 
 ### Loading content
 
-1. `EditorPane` calls `window.api.readFile(filePath, 2 MB)` and
-   `window.api.statFile(filePath)` in sequence.
-2. Files above 2 MB or with null bytes in the first 8 KB are treated as
+1. `EditorPane` calls the renderer tab store's `loadEditorFile(...)` helper.
+2. The helper invokes `tab:command:loadEditorFile`; the main process validates
+   the sender/worktree/pane, reads the file, returns stat metadata, and updates
+   the main-owned editor file snapshot.
+3. Files above 2 MB or with null bytes in the first 8 KB are treated as
    read-only (binary / truncated). A banner explains why.
-3. If the user has no write permission (`statFile.canWrite === false`), the
-   editor is shown read-only with a banner.
-4. The file's line ending is detected (LF vs CRLF) and preserved on save.
-5. `detectIndent` inspects up to 1000 leading-whitespace samples and picks
+4. If the user has no write permission (`canWrite === false`), the editor is
+   shown read-only with a banner.
+5. The file's line ending is detected (LF vs CRLF) and preserved on save.
+6. `detectIndent` inspects up to 1000 leading-whitespace samples and picks
    the indent unit (tabs or N spaces, snapped to {2, 4, 8}) based on the
    most common positive step between consecutive indent levels. Users can
    override via the status bar dropdowns.
@@ -57,8 +59,8 @@ properties derived from the xterm ANSI palette.
 2. A dirty sub-tab shows a gray dot; the hosting top-level tab also shows a
    gray dot if any of its editor sub-tabs are dirty.
 3. `Cmd/Ctrl+S` (or clicking the Save button) writes the buffer via
-   `window.api.writeFile`. Line endings are normalized to match the file's
-   original style.
+   `tab:command:saveEditorFile`. Line endings are normalized in the main
+   command to match the file's original style.
 4. Right before writing, `skipNextWatcherEvent = true` is set. When the
    parcel file-tree watcher reports the self-generated change event within
    1500 ms, the editor skips the reload — preserving cursor position and
@@ -66,10 +68,11 @@ properties derived from the xterm ANSI palette.
 
 ### Stale-write detection
 
-1. `writeFile` includes the last-known `mtimeMs` as `expectedMtimeMs`.
-2. If the main process detects the on-disk mtime has changed since load,
-   the write is rejected with `StaleWrite` and the editor shows the
-   conflict banner.
+1. `tab:command:saveEditorFile` includes the last-known `mtimeMs` as
+   `expectedMtimeMs`.
+2. If the main process detects the on-disk mtime has changed since load, the
+   write is rejected with `StaleWrite`, the main-owned editor snapshot is left
+   unchanged, and the editor shows the conflict banner.
 
 ### External change detection
 
@@ -157,25 +160,34 @@ A pane with zero files after a merge/detach is not restored.
 
 ## IPC surface
 
-| Handler                        | Purpose                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `fs:readFile`                  | Bounded read (up to 10 MB hard cap), binary detection, truncation flag.                    |
-| `fs:writeFile`                 | Writes UTF-8, optionally gated by `expectedMtimeMs` to detect stale saves.                 |
-| `fs:stat`                      | Returns `{ mtimeMs, size, canWrite }`.                                                     |
-| `fs:createFile`                | Creates an empty file (`wx` flag), creating parent dirs as needed. Used by file tree.      |
-| `fs:mkdir`                     | Recursively creates a directory. Used by file tree.                                        |
-| `dialog:confirmUnsavedChanges` | Native 3-way dialog (Save / Don't Save / Cancel) used by tab and worktree close preflight. |
+| Handler                                  | Purpose                                                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `tab:command:openEditorFile`             | Opens/focuses an editor file in the main-owned tab snapshot.                                          |
+| `tab:command:loadEditorFile`             | Bounded read (up to 10 MB hard cap), binary detection, truncation flag, stat, and snapshot update.    |
+| `tab:command:saveEditorFile`             | Writes UTF-8, optionally gated by `expectedMtimeMs` to detect stale saves, then updates the snapshot. |
+| `tab:command:updateEditorFileState`      | Stores dirty/current/original content metadata for an open editor sub-tab.                            |
+| `tab:command:setActiveEditorFile`        | Changes the active editor sub-tab in a pane.                                                          |
+| `tab:command:moveEditorFile`             | Reorders editor sub-tabs within a pane.                                                               |
+| `tab:command:moveEditorFileBetweenPanes` | Moves an editor sub-tab between editor panes.                                                         |
+| `tab:command:detachEditorFile`           | Detaches an editor sub-tab into its own top-level editor tab.                                         |
+| `tab:command:closeEditorFile`            | Closes one editor sub-tab and collapses empty panes/tabs.                                             |
+| `tab:command:prepareCloseEditorFile`     | Dirty-file Save / Don't Save / Cancel preflight for one editor sub-tab.                               |
+| `tab:command:prepareCloseTab`            | Dirty-file Save / Don't Save / Cancel preflight before closing a tab.                                 |
+| `tab:command:prepareCloseAllForWorktree` | Batched dirty-file and active-process preflight before closing all tabs in a worktree.                |
+| `fs:createFile`                          | Creates an empty file (`wx` flag), creating parent dirs as needed. Used by file tree.                 |
+| `fs:mkdir`                               | Recursively creates a directory. Used by file tree.                                                   |
+| `dialog:confirmUnsavedChanges`           | Native 3-way dialog (Save / Don't Save / Cancel) used by tab and worktree close preflight.            |
 
-Tab close and close-all worktree flows use main-owned `tab:command:prepareCloseTab` before
-destroying panes. Dirty files are saved through the same validated write path as manual saves.
-If any save fails, the close is cancelled and no PTY/browser/editor cleanup runs.
+Tab close and close-all worktree flows use main-owned preflight commands before destroying
+panes. Dirty files are saved through the same validated `tab:command:saveEditorFile` path
+as manual saves. If any save fails, the close is cancelled and no PTY/browser/editor
+cleanup runs.
 
-Read/write/stat handlers validate `filePath` through `validatePathAccess`,
-which calls `fs.realpath` on the target and rejects anything outside the
-renderer's workspace roots. Create handlers (`fs:createFile`, `fs:mkdir`)
-use `validateCreationPath`, which walks up to the closest existing ancestor,
-runs `validatePathAccess` against it, and rejects tails that escape via
-`..` or absolute references — needed because the target itself does not
+Editor load/save commands validate `filePath` through `validatePathAccess`, which calls
+`fs.realpath` on the target and rejects anything outside the renderer's workspace roots.
+Create handlers (`fs:createFile`, `fs:mkdir`) use `validateCreationPath`, which walks up
+to the closest existing ancestor, runs `validatePathAccess` against it, and rejects tails
+that escape via `..` or absolute references — needed because the target itself does not
 yet exist and `realpath` would fail with `ENOENT`.
 
 ## Keyboard shortcuts
@@ -208,8 +220,9 @@ yet exist and `realpath` would fail with `ENOENT`.
 - Extensions / theme / language: `src/renderer/src/components/editor/cm/`
 - Indent detection: `src/renderer/src/components/editor/cm/detectIndent.ts`
 - State + sub-tab operations: `src/renderer/src/lib/stores/tabs.svelte.ts`
+- Main-owned editor/tab commands: `src/main/commands/tabCommands.ts`
 - Pane routing: `src/renderer/src/components/terminal/PaneWrapper.svelte`
-- IPC handlers: `src/main/ipc/handlers.ts` (`fs:readFile`, `fs:writeFile`, `fs:stat`, `dialog:confirmUnsavedChanges`)
+- IPC handlers: `src/main/ipc/handlers.ts` (`tab:command:*EditorFile`, `dialog:confirmUnsavedChanges`)
 - IPC error type: `src/main/ipc/fsErrors.ts`
 - Path detection: `src/renderer/src/lib/pathDetection/linkify.ts`
 - Theme CSS vars: `src/renderer/src/lib/theme/appTheme.ts`
