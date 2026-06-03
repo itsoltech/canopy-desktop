@@ -126,6 +126,15 @@ const tmuxManager = new TmuxManager(app.getPath('userData'))
 const remoteSessionService = new RemoteSessionService(preferencesStore)
 const perfHudService = new PerfHudService()
 windowManager.setTmuxManager(tmuxManager)
+let lastClosedWindowConfigs: WindowConfig[] | null = null
+windowManager.setOnWindowCloseSnapshot(({ configs, isLastWindow }) => {
+  if (!isLastWindow || !windowManager.shouldQuitOnLastWindowClose()) return
+  lastClosedWindowConfigs = configs
+  persistOpenWindowConfigs(configs)
+})
+windowManager.setOnWindowConfigChanged((configs) => {
+  persistOpenWindowConfigs(configs)
+})
 windowManager.setOnWindowDispose((paths) => {
   for (const path of paths) {
     const ws = workspaceStore.getByPath(path)
@@ -136,8 +145,29 @@ let manualCheckInProgress = false
 let updateInstalling = false
 let updateCheckInFlight = false
 let updateCheckIntervalTimer: ReturnType<typeof setInterval> | null = null
+let forceExitTimer: ReturnType<typeof setTimeout> | null = null
 
 type UpdateCheckFrequency = 'never' | 'hourly' | 'daily' | 'weekly'
+
+async function readLicenseText(): Promise<string> {
+  const candidates = app.isPackaged
+    ? [join(app.getAppPath(), 'LICENSE.md'), resolve(process.resourcesPath, 'LICENSE.md')]
+    : [
+        join(app.getAppPath(), 'LICENSE.md'),
+        resolve(app.getAppPath(), '..', '..', 'LICENSE.md'),
+        resolve('LICENSE.md'),
+      ]
+
+  for (const candidate of candidates) {
+    try {
+      return await readFile(candidate, 'utf-8')
+    } catch {
+      // Try the next dev/packaged location.
+    }
+  }
+
+  return ''
+}
 
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
@@ -198,6 +228,64 @@ let notchOverlay: NotchOverlayManager | null = null
 let crashReporter: CrashReporter | null = null
 let ipcCommandBridge: IpcCommandBridge | null = null
 
+function canCreateApplicationWindow(): boolean {
+  return !windowManager.isQuitting && !database.isClosed()
+}
+
+function scheduleForceExit(reason: string, timeoutMs = 5000): void {
+  if (forceExitTimer) return
+  forceExitTimer = setTimeout(() => {
+    console.error(`[quit] ${reason}; forcing exit`)
+    app.exit(0)
+  }, timeoutMs)
+  forceExitTimer.unref?.()
+}
+
+function disposeRuntimeForQuit(options: { disposeWindows: boolean; forceExit?: boolean }): void {
+  windowManager.isQuitting = true
+
+  if (updateCheckIntervalTimer) {
+    clearInterval(updateCheckIntervalTimer)
+    updateCheckIntervalTimer = null
+  }
+
+  crashReporter?.clearSentinel()
+  notchOverlay?.dispose()
+  agentSessionManager?.dispose()
+  remoteSessionService.dispose()
+  perfHudService.shutdown()
+
+  if (options.disposeWindows) {
+    windowManager.disposeAll()
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.destroy()
+    }
+  }
+
+  wsBridge.disposeAll()
+  ptyManager.dispose()
+  database.close()
+  if (options.forceExit !== false) {
+    scheduleForceExit('shutdown did not complete within 5s')
+  }
+}
+
+function persistOpenWindowConfigs(configs?: WindowConfig[]): void {
+  const currentConfigs = configs ?? windowManager.getAllWindowConfigs()
+  const nextConfigs =
+    currentConfigs.length > 0 ? currentConfigs : (lastClosedWindowConfigs ?? currentConfigs)
+
+  if (!configs && currentConfigs.length > 0) {
+    lastClosedWindowConfigs = null
+  }
+
+  if (nextConfigs.length > 0) {
+    preferencesStore.set('openWindowConfigs', JSON.stringify(nextConfigs))
+  } else {
+    preferencesStore.delete('openWindowConfigs')
+  }
+}
+
 // Register canopy:// URL scheme
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
@@ -214,6 +302,8 @@ if (!gotTheLock) {
 }
 
 async function handleCanopyUrl(url: string): Promise<void> {
+  if (!canCreateApplicationWindow()) return
+
   try {
     const parsed = new URL(url)
     const path = parsed.searchParams.get('path')
@@ -333,10 +423,12 @@ function buildAppMenu(): void {
         {
           label: 'New Window',
           accelerator: 'CmdOrCtrl+Shift+N',
-          click: () =>
+          click: () => {
+            if (!canCreateApplicationWindow()) return
             windowManager.createWindow({
               bounds: cascadeBounds(windowManager.getLastFocusedBounds()),
-            }),
+            })
+          },
         },
         { type: 'separator' },
         ...(!isMac
@@ -777,7 +869,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:getAboutInfo', async () => ({
     version: app.getVersion(),
     homepage: 'https://canopy.itsol.tech',
-    license: await readFile(join(app.getAppPath(), 'LICENSE.md'), 'utf-8'),
+    license: await readLicenseText(),
   }))
 
   ipcMain.handle(
@@ -888,6 +980,7 @@ app.whenReady().then(async () => {
         const win = windowManager.createWindow({
           bounds,
           windowState: config.windowState,
+          startupRestore: true,
         })
         // Only surface the stale-cleanup toast in one window to avoid duplicates
         const removedPaths =
@@ -960,6 +1053,8 @@ app.whenReady().then(async () => {
 
   // Handle URL scheme on Windows/Linux (second instance) — also create new window if no URL
   app.on('second-instance', (_event, argv) => {
+    if (!canCreateApplicationWindow()) return
+
     const url = argv.find((a) => a.startsWith('canopy://'))
     if (url) {
       handleCanopyUrl(url)
@@ -969,27 +1064,26 @@ app.whenReady().then(async () => {
   })
 
   app.on('activate', function () {
+    if (!canCreateApplicationWindow()) return
+
     if (BrowserWindow.getAllWindows().length === 0)
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
   })
 })
 
 app.on('before-quit', (event) => {
+  if (database.isClosed()) return
+
   // During update install, skip cleanup that could interfere with Squirrel.
   // Window configs already saved; windows already destroyed.
   if (updateInstalling) {
-    if (updateCheckIntervalTimer) {
-      clearInterval(updateCheckIntervalTimer)
-      updateCheckIntervalTimer = null
-    }
-    crashReporter?.clearSentinel()
-    notchOverlay?.dispose()
-    agentSessionManager?.dispose()
-    remoteSessionService.dispose()
-    perfHudService.shutdown()
-    database.close()
+    disposeRuntimeForQuit({ disposeWindows: false, forceExit: false })
     return
   }
+
+  // Persist the exact window/project grouping before any async quit path can
+  // re-enter or tear down windows.
+  persistOpenWindowConfigs()
 
   // hasAnyActiveSession() is async (spawns `pgrep`/`wmic` per shell), but
   // event.preventDefault() must be called synchronously. preventDefault
@@ -1009,7 +1103,11 @@ app.on('before-quit', (event) => {
           return
         }
         const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
-        if (!focusedWin || focusedWin.isDestroyed()) return
+        if (!focusedWin || focusedWin.isDestroyed()) {
+          windowManager.isQuitting = true
+          app.quit()
+          return
+        }
         const { response } = await dialog.showMessageBox(focusedWin, {
           type: 'warning',
           buttons: ['Quit', 'Cancel'],
@@ -1026,16 +1124,6 @@ app.on('before-quit', (event) => {
       })
       return
     }
-  }
-
-  // Always save window configs before any async quit path.
-  // The tmux-ask branch below returns early and re-enters via app.quit(),
-  // so this is the only reliable place to persist.
-  const configs = windowManager.getAllWindowConfigs()
-  if (configs.length > 0) {
-    preferencesStore.set('openWindowConfigs', JSON.stringify(configs))
-  } else {
-    preferencesStore.delete('openWindowConfigs')
   }
 
   // Handle tmux close policy synchronously before any async work
@@ -1078,23 +1166,10 @@ app.on('before-quit', (event) => {
   // From this point onward we are intentionally shutting down the app.
   // Window teardown should detach tmux-backed PTYs unless the policy above
   // explicitly killed the tmux server.
-  windowManager.isQuitting = true
-
-  if (updateCheckIntervalTimer) {
-    clearInterval(updateCheckIntervalTimer)
-    updateCheckIntervalTimer = null
-  }
-  crashReporter?.clearSentinel()
-  notchOverlay?.dispose()
-  agentSessionManager?.dispose()
-  remoteSessionService.dispose()
-  perfHudService.shutdown()
-  windowManager.disposeAll()
-  database.close()
+  disposeRuntimeForQuit({ disposeWindows: true })
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  if (windowManager.isQuitting || database.isClosed()) return
+  if (windowManager.shouldQuitOnLastWindowClose()) app.quit()
 })

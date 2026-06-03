@@ -46,7 +46,7 @@
   async function refresh(): Promise<void> {
     loading = true
     try {
-      const result = await window.api.gitDiff(worktreePath)
+      const result = await window.api.changesGetDiff({ worktreePath })
       files = result.files
     } catch {
       files = []

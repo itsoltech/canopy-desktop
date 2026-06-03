@@ -74,6 +74,11 @@ export class WsBridge {
     return `ws://127.0.0.1:${port}/${encodeURIComponent(sessionId)}`
   }
 
+  getUrl(sessionId: string): string | null {
+    if (!this.bridges.has(sessionId) || this.port <= 0) return null
+    return `ws://127.0.0.1:${this.port}/${encodeURIComponent(sessionId)}`
+  }
+
   /** Terminate all WS clients across all bridges (triggers renderer reconnection) */
   disconnectAllClients(): void {
     for (const bridge of this.bridges.values()) {

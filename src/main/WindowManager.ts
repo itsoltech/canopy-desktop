@@ -12,10 +12,22 @@ import { TmuxManager } from './pty/TmuxManager'
 import { isSafeExternalUrl } from './security/validateUrl'
 import type { WindowBounds, WindowConfig, WindowState } from './windowBounds'
 
+interface CreateWindowOptions {
+  bounds?: WindowBounds
+  windowState?: WindowState
+  startupRestore?: boolean
+}
+
+interface WindowCloseSnapshot {
+  configs: WindowConfig[]
+  isLastWindow: boolean
+}
+
 export class WindowManager {
   private windows = new Map<number, BrowserWindow>()
   private workspacePaths = new Map<number, Set<string>>()
   private activeWorktreePaths = new Map<number, string>()
+  private startupRestoreWindows = new Map<number, boolean>()
   private gitWatchers = new Map<number, Map<string, GitWatcher>>()
   private fileWatchers = new Map<number, FileTreeWatcher>()
   private ptySessions = new Map<number, Set<string>>()
@@ -26,6 +38,8 @@ export class WindowManager {
   private tmuxManager: TmuxManager | null = null
   private allWindowsClosedCallback: (() => void) | null = null
   private windowDisposeCallback: ((paths: string[]) => void) | null = null
+  private windowCloseSnapshotCallback: ((snapshot: WindowCloseSnapshot) => void) | null = null
+  private windowConfigChangedCallback: ((configs: WindowConfig[]) => void) | null = null
 
   private ptyManager: PtyManager
   private wsBridge: WsBridge
@@ -52,7 +66,15 @@ export class WindowManager {
     this.windowDisposeCallback = cb
   }
 
-  createWindow(options?: { bounds?: WindowBounds; windowState?: WindowState }): BrowserWindow {
+  setOnWindowCloseSnapshot(cb: (snapshot: WindowCloseSnapshot) => void): void {
+    this.windowCloseSnapshotCallback = cb
+  }
+
+  setOnWindowConfigChanged(cb: (configs: WindowConfig[]) => void): void {
+    this.windowConfigChangedCallback = cb
+  }
+
+  createWindow(options?: CreateWindowOptions): BrowserWindow {
     const sizeDefaults = { width: 1200, height: 800 }
     const boundsOpts = options?.bounds
       ? {
@@ -94,6 +116,7 @@ export class WindowManager {
     const wcId = win.webContents.id
     this.windows.set(wcId, win)
     this.ptySessions.set(wcId, new Set())
+    this.startupRestoreWindows.set(wcId, options?.startupRestore === true)
 
     // Track webview guest webContents for keyboard interception + DevTools
     if (this.browserManager) {
@@ -119,13 +142,17 @@ export class WindowManager {
     win.on('close', (event) => {
       if (this.isQuitting || this.forceClosing.has(wcId)) {
         this.forceClosing.delete(wcId)
+        this.captureWindowCloseSnapshot()
         return
       }
 
       // Fast sync check: nothing tracked → allow the close to proceed without
       // spawning helper processes. Only when this window owns PTY sessions do
       // we preventDefault and run the (async) busy-check + confirmation dialog.
-      if (!this.hasTrackedPtySessions(wcId)) return
+      if (!this.hasTrackedPtySessions(wcId)) {
+        this.captureWindowCloseSnapshot()
+        return
+      }
 
       event.preventDefault()
 
@@ -212,6 +239,10 @@ export class WindowManager {
 
   clearActiveWorktree(wcId: number): void {
     this.activeWorktreePaths.delete(wcId)
+  }
+
+  shouldQuitOnLastWindowClose(): boolean {
+    return process.platform !== 'darwin' || process.env.CANOPY_E2E_CLOSE_LAST_WINDOW_QUITS === '1'
   }
 
   setFocusedAgentSession(wcId: number, ptySessionId: string | null): void {
@@ -331,6 +362,14 @@ export class WindowManager {
     return result
   }
 
+  hasStartupRestore(wcId: number): boolean {
+    return this.startupRestoreWindows.get(wcId) ?? false
+  }
+
+  completeStartupRestore(wcId: number): void {
+    this.startupRestoreWindows.set(wcId, false)
+  }
+
   getLastFocusedBounds(): WindowBounds | null {
     const focused = BrowserWindow.getFocusedWindow()
     if (focused && !focused.isDestroyed()) return focused.getBounds()
@@ -396,6 +435,10 @@ export class WindowManager {
   }
 
   private disposeWindow(wcId: number): void {
+    const closesApplication =
+      !this.isQuitting && this.shouldQuitOnLastWindowClose() && this.windows.size === 1
+    const shouldPersistWindowConfigs = !this.isQuitting && !closesApplication
+
     // Stop all git watchers for this window
     this.disposeAllGitWatchers(wcId)
     this.gitWatchers.delete(wcId)
@@ -420,12 +463,14 @@ export class WindowManager {
           }
         }
         this.wsBridge.destroy(sid)
-        this.ptyManager.kill(sid)
+        this.ptyManager.kill(sid, { killProcessTree: this.isQuitting })
       }
     }
 
-    // Delete workspace layouts when window is manually closed (not during quit)
-    if (!this.isQuitting && this.windowDisposeCallback) {
+    // Delete workspace layouts when a non-quitting window is manually closed.
+    // Closing the last window quits the app on Windows/Linux, so keep layouts
+    // for startup restore in that path.
+    if (!this.isQuitting && !closesApplication && this.windowDisposeCallback) {
       const paths = this.workspacePaths.get(wcId)
       if (paths && paths.size > 0) {
         this.windowDisposeCallback([...paths])
@@ -435,8 +480,25 @@ export class WindowManager {
     this.windows.delete(wcId)
     this.workspacePaths.delete(wcId)
     this.activeWorktreePaths.delete(wcId)
+    this.startupRestoreWindows.delete(wcId)
     this.focusedAgentSessions.delete(wcId)
     this.ptySessions.delete(wcId)
+
+    if (shouldPersistWindowConfigs && this.windowConfigChangedCallback) {
+      this.windowConfigChangedCallback(this.getAllWindowConfigs())
+    }
+  }
+
+  private captureWindowCloseSnapshot(): void {
+    if (this.isQuitting || !this.windowCloseSnapshotCallback) return
+
+    const configs = this.getAllWindowConfigs()
+    if (configs.length === 0) return
+
+    this.windowCloseSnapshotCallback({
+      configs,
+      isLastWindow: this.windows.size === 1,
+    })
   }
 
   disposeAll(): void {

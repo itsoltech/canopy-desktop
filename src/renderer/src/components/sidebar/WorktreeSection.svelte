@@ -19,18 +19,17 @@
     const repoRoot = workspaceState.repoRoot
     if (!repoRoot) return
 
-    const checks = workspaceState.worktrees
-      .filter((wt) => !wt.isMain)
-      .map(async (wt) => {
-        const merged = await window.api.gitBranchMerged(repoRoot, wt.branch)
-        return { branch: wt.branch, merged }
-      })
-
-    const results = await Promise.all(checks)
+    const branches = workspaceState.worktrees
+      .filter((wt) => !wt.isMain && wt.branch !== '(detached)')
+      .map((wt) => wt.branch)
+    const result =
+      branches.length > 0
+        ? await window.api.worktreeGetMergedBranches({ repoRoot, branches })
+        : { mergedBranches: [] }
     if (signal.aborted) return
     const next = new SvelteSet<string>()
-    for (const r of results) {
-      if (r.merged) next.add(r.branch)
+    for (const branch of result.mergedBranches) {
+      next.add(branch)
     }
     mergedBranches = next
   }
@@ -83,18 +82,18 @@
     })
     if (!ok) return
 
-    await closeAllTabsForWorktree(wt.path)
+    if (!(await closeAllTabsForWorktree(wt.path))) return
 
     try {
-      await window.api.gitWorktreeRemove(repoRoot, wt.path, false)
-      if (!isDetached) await window.api.gitBranchDelete(repoRoot, wt.branch, false)
+      await window.api.worktreeRemoveWithBranch({
+        repoRoot,
+        worktreePath: wt.path,
+        branch: wt.branch,
+        deleteBranch: !isDetached,
+        forceOnFailure: true,
+      })
     } catch {
-      try {
-        await window.api.gitWorktreeRemove(repoRoot, wt.path, true)
-        if (!isDetached) await window.api.gitBranchDelete(repoRoot, wt.branch, true)
-      } catch {
-        // Ignore — watcher will update the list
-      }
+      // Ignore — watcher will update the list
     }
 
     if (workspaceState.selectedWorktreePath === wt.path) {

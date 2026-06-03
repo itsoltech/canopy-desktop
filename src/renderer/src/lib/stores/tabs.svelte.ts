@@ -1,19 +1,11 @@
-import { match, P } from 'ts-pattern'
+import { match } from 'ts-pattern'
 import {
   type PaneSession,
   type SplitNode,
   type EditorFileState,
   createLeaf,
-  nextPaneId,
   allPanes,
   findLeaf,
-  splitPane as treeSplitPane,
-  removePane as treeRemovePane,
-  updatePane as treeUpdatePane,
-  updateRatio as treeUpdateRatio,
-  firstLeaf,
-  navigateFrom,
-  graftSubtree,
 } from './splitTree'
 import type { DropZone } from './dragState.svelte'
 import { recordFileOpen } from './quickOpenMru.svelte'
@@ -25,16 +17,19 @@ import {
   type AgentType,
 } from '../agents/agentState.svelte'
 import { confirm } from './dialogs.svelte'
-import { getPref } from './preferences.svelte'
 import { browserSessions } from '../browser/browserState.svelte'
 import { notesUiScope } from './notes.svelte'
-import { getProfileById } from './profiles.svelte'
 import { drawingsState } from './drawings.svelte'
 import type {
+  EditorFileLoadResult,
+  EditorFileSaveResult,
   PaneSnapshot,
   SplitSnapshot,
+  TabCloseAllPreflightResult,
+  TabClosePreflightResult,
   TabCommandResult,
   TabSnapshot,
+  TabStateSnapshot,
 } from '../../../../main/commands/types'
 
 function hasRemainingDrawingPanes(excludeId: string): boolean {
@@ -63,58 +58,6 @@ function disposeEphemeralPaneState(pane: PaneSession): void {
 
 const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 export const isAiToolId = (id: string): boolean => AI_TOOL_IDS.has(id)
-
-const ACTIVE_CLAUDE_STATUSES = new Set([
-  'thinking',
-  'toolCalling',
-  'compacting',
-  'waitingPermission',
-])
-
-async function getActiveProcessDescription(panes: PaneSession[]): Promise<string | null> {
-  let busyClaude = 0
-  let activeShell = 0
-
-  await Promise.all(
-    panes.map(async (p) => {
-      if (!p.isRunning) return
-      if (AI_TOOL_IDS.has(p.toolId)) {
-        const s = agentSessions[p.sessionId]
-        if (s && ACTIVE_CLAUDE_STATUSES.has(s.status.type)) busyClaude++
-      } else {
-        try {
-          if (await window.api.hasChildProcess(p.sessionId)) activeShell++
-        } catch {
-          // Ignore — PTY may already be gone
-        }
-      }
-    }),
-  )
-
-  if (busyClaude === 0 && activeShell === 0) return null
-
-  const parts: string[] = []
-  if (busyClaude > 0) {
-    parts.push(`${busyClaude} active Claude session${busyClaude > 1 ? 's' : ''}`)
-  }
-  if (activeShell > 0) {
-    parts.push(`${activeShell} running process${activeShell > 1 ? 'es' : ''}`)
-  }
-  return parts.join(' and ')
-}
-
-// --- Layout serialization types ---
-
-interface SerializedLayout {
-  tabs: SerializedTab[]
-  activeTabIndex: number
-}
-
-interface SerializedTab {
-  toolId: string
-  toolName: string
-  rootSplit: SerializedSplitNode
-}
 
 type SerializedSplitNode =
   | {
@@ -145,87 +88,21 @@ export interface TabInfo {
   suspended?: SerializedSplitNode
 }
 
-interface ClosedTab {
-  toolId: string
-  toolName: string
-  worktreePath: string
-  closedAt: number
-}
-
-const MAX_CLOSED_TABS = 20
-
 export const tabsByWorktree: Record<string, TabInfo[]> = $state({})
 export const activeTabId: Record<string, string> = $state({})
-const closedTabs: Record<string, ClosedTab[]> = $state({})
+const EMPTY_TABS: TabInfo[] = []
 
-let tabCounter = 0
-function nextTabId(): string {
-  return `tab-${++tabCounter}`
-}
+function editorFilesFromSnapshot(
+  snapshotFiles: PaneSnapshot['editorFiles'],
+  previousFiles: EditorFileState[] | undefined,
+): EditorFileState[] | undefined {
+  if (!snapshotFiles) return previousFiles?.map((file) => ({ ...file }))
 
-function computeDisplayName(
-  toolName: string,
-  worktreePath: string,
-  toolId: string,
-  profileName?: string,
-): string {
-  const baseLabel =
-    profileName && profileName !== 'Default' ? `${toolName} (${profileName})` : toolName
-  const existing = tabsByWorktree[worktreePath] ?? []
-  const sameLabelCount = existing.filter(
-    (t) => t.name === baseLabel || t.name.startsWith(`${baseLabel} #`),
-  ).length
-  if (sameLabelCount === 0) return baseLabel
-  return `${baseLabel} #${sameLabelCount + 1}`
-}
-
-function paneToSnapshot(pane: PaneSession): PaneSnapshot {
-  return {
-    id: pane.id,
-    sessionId: pane.sessionId,
-    wsUrl: pane.wsUrl,
-    toolId: pane.toolId,
-    toolName: pane.toolName,
-    isRunning: pane.isRunning,
-    exitCode: pane.exitCode,
-    title: pane.title,
-    paneType: pane.paneType,
-    tmuxSessionName: pane.tmuxSessionName,
-    detached: pane.detached,
-    url: pane.url,
-    filePath: pane.filePath,
-    editorFiles: pane.editorFiles?.map((file) => ({ filePath: file.filePath })),
-    editorActiveFile: pane.editorActiveFile,
-    profileId: pane.profileId,
-    profileName: pane.profileName,
-  }
-}
-
-function splitToSnapshot(node: SplitNode): SplitSnapshot {
-  if (node.type === 'leaf') return { type: 'leaf', pane: paneToSnapshot(node.pane) }
-  return {
-    type: 'split',
-    direction: node.type === 'hsplit' ? 'horizontal' : 'vertical',
-    ratio: node.ratio,
-    first: splitToSnapshot(node.first),
-    second: splitToSnapshot(node.second),
-  }
-}
-
-function tabToSnapshot(tab: TabInfo): TabSnapshot {
-  return {
-    id: tab.id,
-    toolId: tab.toolId,
-    toolName: tab.toolName,
-    name: tab.name,
-    worktreePath: tab.worktreePath,
-    rootSplit: splitToSnapshot(tab.rootSplit),
-    focusedPaneId: tab.focusedPaneId,
-  }
-}
-
-function snapshotsForCommand(worktreePath: string): TabSnapshot[] {
-  return (tabsByWorktree[worktreePath] ?? []).map((tab) => tabToSnapshot(tab))
+  const previousByPath = new Map(previousFiles?.map((file) => [file.filePath, file]) ?? [])
+  return snapshotFiles.map((file) => {
+    const previous = previousByPath.get(file.filePath)
+    return previous ? { ...file, ...previous, filePath: file.filePath } : { ...file }
+  })
 }
 
 function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneSession {
@@ -244,37 +121,83 @@ function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneS
     url: snapshot.url,
     tmuxSessionName: snapshot.tmuxSessionName,
     detached: snapshot.detached,
+    inspectorOpen: snapshot.inspectorOpen,
     profileId: snapshot.profileId,
     profileName: snapshot.profileName,
-    editorFiles:
-      previous?.editorFiles ??
-      snapshot.editorFiles?.map((file) => ({
-        filePath: file.filePath,
-      })),
+    editorFiles: editorFilesFromSnapshot(snapshot.editorFiles, previous?.editorFiles),
     editorActiveFile: snapshot.editorActiveFile ?? previous?.editorActiveFile,
   }
 }
 
-function splitFromSnapshot(snapshot: SplitSnapshot): SplitNode {
-  if (snapshot.type === 'leaf') return createLeaf(paneFromSnapshot(snapshot.pane))
+function previousPaneFromSplit(
+  previous: SplitNode | undefined,
+  paneId: string,
+): PaneSession | undefined {
+  return previous ? allPanes(previous).find((pane) => pane.id === paneId) : undefined
+}
+
+function splitFromSnapshot(snapshot: SplitSnapshot, previous?: SplitNode): SplitNode {
+  if (snapshot.type === 'leaf') {
+    return createLeaf(
+      paneFromSnapshot(snapshot.pane, previousPaneFromSplit(previous, snapshot.pane.id)),
+    )
+  }
   return {
     type: snapshot.direction === 'horizontal' ? 'hsplit' : 'vsplit',
-    id: `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: snapshot.id,
     ratio: snapshot.ratio,
-    first: splitFromSnapshot(snapshot.first),
-    second: splitFromSnapshot(snapshot.second),
+    first: splitFromSnapshot(snapshot.first, previous),
+    second: splitFromSnapshot(snapshot.second, previous),
   }
 }
 
-function tabFromSnapshot(snapshot: TabSnapshot): TabInfo {
+function tabFromSnapshot(snapshot: TabSnapshot, previous?: TabInfo): TabInfo {
   return {
     id: snapshot.id,
     toolId: snapshot.toolId,
     toolName: snapshot.toolName,
     name: snapshot.name,
     worktreePath: snapshot.worktreePath,
-    rootSplit: splitFromSnapshot(snapshot.rootSplit),
+    rootSplit: splitFromSnapshot(snapshot.rootSplit, previous?.rootSplit),
     focusedPaneId: snapshot.focusedPaneId,
+    suspended: snapshot.suspended,
+  }
+}
+
+export function applyTabsSnapshot(
+  snapshot: TabStateSnapshot,
+  options: { replaceAll?: boolean } = {},
+): void {
+  if (options.replaceAll) {
+    const incomingWorktrees = Object.keys(snapshot.tabsByWorktree)
+    for (const worktreePath of Object.keys(tabsByWorktree)) {
+      if (!incomingWorktrees.includes(worktreePath)) delete tabsByWorktree[worktreePath]
+    }
+    const incomingActiveWorktrees = Object.keys(snapshot.activeTabIdByWorktree)
+    for (const worktreePath of Object.keys(activeTabId)) {
+      if (!incomingActiveWorktrees.includes(worktreePath)) delete activeTabId[worktreePath]
+    }
+  }
+
+  for (const [worktreePath, tabSnapshots] of Object.entries(snapshot.tabsByWorktree)) {
+    const previousTabs = tabsByWorktree[worktreePath] ?? []
+    const incomingActiveTabId = snapshot.activeTabIdByWorktree[worktreePath] ?? null
+
+    tabsByWorktree[worktreePath] = tabSnapshots.map((tab) =>
+      tabFromSnapshot(
+        tab,
+        previousTabs.find((previous) => previous.id === tab.id),
+      ),
+    )
+    for (const tab of tabsByWorktree[worktreePath]) {
+      for (const pane of allPanes(tab.rootSplit)) initPaneRuntimeState(pane)
+    }
+
+    if (incomingActiveTabId) {
+      activeTabId[worktreePath] = incomingActiveTabId
+    } else {
+      delete activeTabId[worktreePath]
+    }
   }
 }
 
@@ -284,15 +207,18 @@ function initPaneRuntimeState(pane: PaneSession): void {
   }
 }
 
+function applyTabCommandResult(result: TabCommandResult): void {
+  applyTabsSnapshot({
+    tabsByWorktree: { [result.worktreePath]: result.tabs },
+    activeTabIdByWorktree: { [result.worktreePath]: result.activeTabId },
+  })
+}
+
 function applyOpenedTabResult(result: TabCommandResult): TabInfo | null {
   const snapshot = result.openedTab
   if (!snapshot) return null
-  const tab = tabFromSnapshot(snapshot)
-  if (!tabsByWorktree[result.worktreePath]) tabsByWorktree[result.worktreePath] = []
-  tabsByWorktree[result.worktreePath].push(tab)
-  activeTabId[result.worktreePath] = result.activeTabId ?? tab.id
-  for (const pane of allPanes(tab.rootSplit)) initPaneRuntimeState(pane)
-  return tab
+  applyTabCommandResult(result)
+  return tabsByWorktree[result.worktreePath]?.find((tab) => tab.id === snapshot.id) ?? null
 }
 
 export function getActiveAgentPane(): { pane: PaneSession; tabId: string } | null {
@@ -333,8 +259,6 @@ export async function openTool(
     profileId: options?.profileId,
     workspaceName: project?.workspace.name ?? workspaceState.workspace?.name ?? '',
     branch: workspaceState.branch ?? undefined,
-    tabs: snapshotsForCommand(worktreePath),
-    activeTabId: activeTabId[worktreePath] ?? null,
   })
   const tab = applyOpenedTabResult(result)
   if (!tab) throw new Error('tab:command:openTool did not return an opened tab')
@@ -344,86 +268,88 @@ export async function openTool(
 }
 
 export function openTmuxTab(
-  tmuxSessionName: string,
+  _tmuxSessionName: string,
   sessionId: string,
-  wsUrl: string,
+  _wsUrl: string,
   worktreePath: string,
-): TabInfo {
-  const paneId = nextPaneId()
-  const pane: PaneSession = {
-    id: paneId,
-    sessionId,
-    wsUrl,
-    toolId: 'shell',
-    toolName: 'Shell',
-    isRunning: true,
-    exitCode: null,
-    title: null,
-    tmuxSessionName,
-  }
-
-  const id = nextTabId()
-  const name = computeDisplayName('Shell', worktreePath, 'shell')
-
-  const tab: TabInfo = {
-    id,
-    toolId: 'shell',
-    toolName: 'Shell',
-    name,
-    worktreePath,
-    rootSplit: createLeaf(pane),
-    focusedPaneId: paneId,
-  }
-
-  if (!tabsByWorktree[worktreePath]) {
-    tabsByWorktree[worktreePath] = []
-  }
-  tabsByWorktree[worktreePath].push(tab)
-  activeTabId[worktreePath] = id
-
-  scheduleSave(worktreePath)
-  return tab
+): void {
+  void openSessionTabInMain('Shell', sessionId, worktreePath).catch((err) => {
+    console.error(`[tabs] tabOpenSessionTab failed for "${worktreePath}":`, err)
+  })
 }
 
 export function openRunConfigTab(
   configName: string,
   sessionId: string,
-  wsUrl: string,
+  _wsUrl: string,
   worktreePath: string,
-): TabInfo {
-  const paneId = nextPaneId()
-  const pane: PaneSession = {
-    id: paneId,
-    sessionId,
-    wsUrl,
-    toolId: 'shell',
-    toolName: 'Shell',
-    isRunning: true,
-    exitCode: null,
-    title: null,
-  }
+): void {
+  void openSessionTabInMain(configName, sessionId, worktreePath).catch((err) => {
+    console.error(`[tabs] tabOpenSessionTab failed for "${worktreePath}":`, err)
+  })
+}
 
-  const id = nextTabId()
-  const name = computeDisplayName(configName, worktreePath, 'shell')
-
-  const tab: TabInfo = {
-    id,
-    toolId: 'shell',
-    toolName: configName,
-    name,
-    worktreePath,
-    rootSplit: createLeaf(pane),
-    focusedPaneId: paneId,
-  }
-
-  if (!tabsByWorktree[worktreePath]) {
-    tabsByWorktree[worktreePath] = []
-  }
-  tabsByWorktree[worktreePath].push(tab)
-  activeTabId[worktreePath] = id
-
-  scheduleSave(worktreePath)
+async function openSessionTabInMain(
+  name: string,
+  sessionId: string,
+  worktreePath: string,
+): Promise<TabInfo | null> {
+  const result = await window.api.tabOpenSessionTab(worktreePath, name, sessionId)
+  const tab = applyOpenedTabResult(result)
+  if (tab) scheduleSave(worktreePath)
   return tab
+}
+
+async function handleClosePreflightFailure(
+  preflight: TabClosePreflightResult,
+  cancelledMessage: string,
+): Promise<boolean> {
+  if (preflight.ok) return true
+  if (preflight.reason === 'save-failed') {
+    await confirm({
+      title: 'Save failed',
+      message: `Could not save ${preflight.failedCount} file(s). ${cancelledMessage}`,
+      confirmLabel: 'OK',
+    })
+  }
+  return false
+}
+
+async function handleCloseAllPreflightFailure(
+  preflight: TabCloseAllPreflightResult,
+  cancelledMessage: string,
+): Promise<boolean> {
+  if (!preflight.ok && preflight.reason === 'active-processes') return false
+  return handleClosePreflightFailure(preflight, cancelledMessage)
+}
+
+async function prepareCloseAllTabsForWorktree(
+  worktreePath: string,
+  tabs: TabInfo[],
+): Promise<boolean> {
+  let preflight = await window.api.tabPrepareCloseAllForWorktree(worktreePath)
+
+  if (!preflight.ok && preflight.reason === 'active-processes') {
+    const confirmed = await confirm({
+      title: tabs.length === 1 ? 'Close tab?' : 'Close all tabs?',
+      message:
+        preflight.warnings.length === 1
+          ? `A tab has ${preflight.warnings[0].description} that will be terminated.`
+          : `${preflight.warnings.length} tabs have active processes that will be terminated.`,
+      details: preflight.warnings
+        .map((warning) => `${warning.tabName}: ${warning.description}`)
+        .join('\n'),
+      confirmLabel: tabs.length === 1 ? 'Close Tab' : 'Close All Tabs',
+      destructive: true,
+    })
+    if (!confirmed) return false
+
+    preflight = await window.api.tabPrepareCloseAllForWorktree(worktreePath, {
+      confirmedActiveProcesses: true,
+    })
+  }
+
+  return handleCloseAllPreflightFailure(preflight, 'Close all tabs cancelled.')
 }
 
 export async function closeTab(tabId: string): Promise<void> {
@@ -434,94 +360,24 @@ export async function closeTab(tabId: string): Promise<void> {
     const tab = tabs[idx]
 
     if (tab.suspended) {
-      // Suspended tab: no live resources to clean up
-      if (!closedTabs[path]) closedTabs[path] = []
-      closedTabs[path].push({
-        toolId: tab.toolId,
-        toolName: tab.toolName,
-        worktreePath: path,
-        closedAt: Date.now(),
-      })
-      if (closedTabs[path].length > MAX_CLOSED_TABS) closedTabs[path].shift()
+      const result = await window.api.tabCloseTab(path, tabId)
 
-      tabsByWorktree[path].splice(idx, 1)
-
-      if (activeTabId[path] === tabId) {
-        const remaining = tabsByWorktree[path]
-        if (remaining.length > 0) {
-          const newIdx = Math.min(idx, remaining.length - 1)
-          const newActive = remaining[newIdx]
-          if (newActive.suspended && !(await resumeTab(newActive))) {
-            tabsByWorktree[path].splice(newIdx, 1)
-            const fallback = tabsByWorktree[path]
-            if (fallback.length > 0) {
-              activeTabId[path] = fallback[Math.min(newIdx, fallback.length - 1)].id
-            } else {
-              delete activeTabId[path]
-            }
-            scheduleSave(path)
-            return
-          }
-          activeTabId[path] = newActive.id
-        } else {
-          delete activeTabId[path]
-        }
-      }
-
+      applyTabCommandResult(result)
       scheduleSave(path)
       return
     }
 
-    // Check for active processes before closing
     const panes = allPanes(tab.rootSplit)
 
-    // Check for unsaved editor changes first
-    const dirtyFiles: Array<{ pane: PaneSession; file: EditorFileState }> = []
-    for (const p of panes) {
-      if (p.paneType !== 'editor') continue
-      for (const f of p.editorFiles ?? []) {
-        if (f.dirty === true) dirtyFiles.push({ pane: p, file: f })
-      }
-    }
-    if (dirtyFiles.length > 0) {
-      const choice = await window.api.confirmUnsavedChanges(dirtyFiles.map((d) => d.file.filePath))
-      if (choice === 'cancel') return
-      if (choice === 'save') {
-        const saveResults = await Promise.all(
-          dirtyFiles.map(async ({ file }) => {
-            try {
-              const content = file.currentContent ?? ''
-              const normalized =
-                file.fileLineEnding === 'CRLF' ? content.replace(/\r?\n/g, '\r\n') : content
-              const result = await window.api.writeFile(file.filePath, normalized, file.fileMtimeMs)
-              if (result.ok) return { ok: true as const }
-              const message =
-                result.tag === 'StaleWrite'
-                  ? 'File changed on disk — reload before saving'
-                  : result.message
-              return { ok: false as const, filePath: file.filePath, message }
-            } catch (e) {
-              return {
-                ok: false as const,
-                filePath: file.filePath,
-                message: e instanceof Error ? e.message : String(e),
-              }
-            }
-          }),
-        )
-        const failed = saveResults.filter((r) => !r.ok)
-        if (failed.length > 0) {
-          await confirm({
-            title: 'Save failed',
-            message: `Could not save ${failed.length} file(s). Tab close cancelled.`,
-            confirmLabel: 'OK',
-          })
-          return
-        }
-      }
+    const closePreflight = await window.api.tabPrepareCloseTab(path, tabId)
+    if (!(await handleClosePreflightFailure(closePreflight, 'Tab close cancelled.'))) {
+      return
     }
 
-    const description = await getActiveProcessDescription(panes)
+    const { description } = await window.api.tabGetCloseWarning(path, {
+      kind: 'tab',
+      tabId,
+    })
     if (description) {
       const confirmed = await confirm({
         title: 'Close tab?',
@@ -530,18 +386,6 @@ export async function closeTab(tabId: string): Promise<void> {
         destructive: true,
       })
       if (!confirmed) return
-    }
-
-    // Push to closed tabs stack
-    if (!closedTabs[path]) closedTabs[path] = []
-    closedTabs[path].push({
-      toolId: tab.toolId,
-      toolName: tab.toolName,
-      worktreePath: path,
-      closedAt: Date.now(),
-    })
-    if (closedTabs[path].length > MAX_CLOSED_TABS) {
-      closedTabs[path].shift()
     }
 
     // Kill all PTYs / destroy browser views and cleanup sessions
@@ -554,37 +398,9 @@ export async function closeTab(tabId: string): Promise<void> {
       }
       disposeEphemeralPaneState(p)
     }
-    await window.api.tabCloseTab(path, tabId, {
-      tabs: snapshotsForCommand(path),
-      activeTabId: activeTabId[path] ?? null,
-    })
+    const result = await window.api.tabCloseTab(path, tabId)
 
-    // Remove tab
-    tabsByWorktree[path].splice(idx, 1)
-
-    // If this was the active tab, switch to another
-    if (activeTabId[path] === tabId) {
-      const remaining = tabsByWorktree[path]
-      if (remaining.length > 0) {
-        const newIdx = Math.min(idx, remaining.length - 1)
-        const newActive = remaining[newIdx]
-        if (newActive.suspended && !(await resumeTab(newActive))) {
-          tabsByWorktree[path].splice(newIdx, 1)
-          const fallback = tabsByWorktree[path]
-          if (fallback.length > 0) {
-            activeTabId[path] = fallback[Math.min(newIdx, fallback.length - 1)].id
-          } else {
-            delete activeTabId[path]
-          }
-          scheduleSave(path)
-          return
-        }
-        activeTabId[path] = newActive.id
-      } else {
-        delete activeTabId[path]
-      }
-    }
-
+    applyTabCommandResult(result)
     scheduleSave(path)
     return
   }
@@ -595,20 +411,30 @@ export async function switchTab(tabId: string): Promise<void> {
     const tab = tabs.find((t) => t.id === tabId)
     if (tab) {
       if (tab.suspended && !(await resumeTab(tab))) return
-      activeTabId[path] = tabId
-      scheduleSave(path)
+      await setActiveTabInMain(path, tabId)
       return
     }
   }
 }
 
 export function moveTab(worktreePath: string, fromIndex: number, toIndex: number): void {
+  void moveTabInMain(worktreePath, fromIndex, toIndex).catch((err) => {
+    console.error(`[tabs] tabMoveTab failed for "${worktreePath}":`, err)
+  })
+}
+
+async function moveTabInMain(
+  worktreePath: string,
+  fromIndex: number,
+  toIndex: number,
+): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs || fromIndex === toIndex) return
   if (fromIndex < 0 || fromIndex >= tabs.length) return
   if (toIndex < 0 || toIndex >= tabs.length) return
-  const [tab] = tabs.splice(fromIndex, 1)
-  tabs.splice(toIndex, 0, tab)
+
+  const result = await window.api.tabMoveTab(worktreePath, fromIndex, toIndex)
+  applyTabCommandResult(result)
   scheduleSave(worktreePath)
 }
 
@@ -617,7 +443,7 @@ export async function switchTabByIndex(worktreePath: string, index: number): Pro
   if (tabs && index >= 0 && index < tabs.length) {
     const tab = tabs[index]
     if (tab.suspended && !(await resumeTab(tab))) return
-    activeTabId[worktreePath] = tab.id
+    await setActiveTabInMain(worktreePath, tab.id)
   }
 }
 
@@ -630,7 +456,7 @@ export async function nextTab(worktreePath: string): Promise<void> {
   const nextIdx = (idx + 1) % tabs.length
   const tab = tabs[nextIdx]
   if (tab.suspended && !(await resumeTab(tab))) return
-  activeTabId[worktreePath] = tab.id
+  await setActiveTabInMain(worktreePath, tab.id)
 }
 
 export async function prevTab(worktreePath: string): Promise<void> {
@@ -642,119 +468,52 @@ export async function prevTab(worktreePath: string): Promise<void> {
   const prevIdx = (idx - 1 + tabs.length) % tabs.length
   const tab = tabs[prevIdx]
   if (tab.suspended && !(await resumeTab(tab))) return
-  activeTabId[worktreePath] = tab.id
+  await setActiveTabInMain(worktreePath, tab.id)
+}
+
+async function setActiveTabInMain(worktreePath: string, tabId: string): Promise<void> {
+  const result = await window.api.tabSetActiveTab(worktreePath, tabId)
+  applyTabCommandResult(result)
+  if (result.activeTabId === tabId) scheduleSave(worktreePath)
 }
 
 export async function reopenClosedTab(worktreePath: string): Promise<void> {
-  const stack = closedTabs[worktreePath]
-  if (!stack || stack.length === 0) return
-
-  const entry = stack.pop()!
-  await openTool(entry.toolId, worktreePath)
+  const project = getProjectForWorktree(worktreePath)
+  const result = await window.api.tabReopenClosedTab(worktreePath, {
+    workspaceName: project?.workspace.name ?? workspaceState.workspace?.name ?? '',
+    branch: workspaceState.branch ?? undefined,
+  })
+  if (!result.openedTab) return
+  applyTabCommandResult(result)
+  scheduleSave(worktreePath)
 }
 
 export const pendingEditorJumps = $state<Record<string, number>>({})
 
 export function openFile(filePath: string, worktreePath: string, opts?: { line?: number }): void {
-  // Record MRU entry as a relative path (matches what Quick Open shows)
   const relPath = filePath.startsWith(worktreePath + '/')
     ? filePath.slice(worktreePath.length + 1)
     : filePath
   recordFileOpen(worktreePath, relPath)
-  const tabs = (tabsByWorktree[worktreePath] ?? []).filter((t) => !t.suspended)
 
-  // 1. File already open somewhere in a live tab — focus it
-  for (const tab of tabs) {
-    const panes = allPanes(tab.rootSplit)
-    const existing = panes.find(
-      (p) =>
-        p.paneType === 'editor' &&
-        (p.filePath === filePath || p.editorFiles?.some((f) => f.filePath === filePath)),
-    )
-    if (existing) {
-      activeTabId[worktreePath] = tab.id
-      tab.focusedPaneId = existing.id
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, existing.id, (p) => ({
-        ...p,
-        editorActiveFile: filePath,
-        editorFiles: ensureFileInList(p.editorFiles, filePath, p.filePath),
-        filePath,
-      }))
-      if (opts?.line) pendingEditorJumps[existing.id] = opts.line
-      return
-    }
-  }
-
-  // 2. Active tab in this worktree has an editor pane — add as sub-tab
-  const activeId = activeTabId[worktreePath]
-  const activeTab = tabs.find((t) => t.id === activeId)
-  if (activeTab) {
-    const panes = allPanes(activeTab.rootSplit)
-    const focusedEditor =
-      panes.find((p) => p.id === activeTab.focusedPaneId && p.paneType === 'editor') ??
-      panes.find((p) => p.paneType === 'editor')
-    if (focusedEditor) {
-      activeTab.rootSplit = treeUpdatePane(activeTab.rootSplit, focusedEditor.id, (p) => ({
-        ...p,
-        editorActiveFile: filePath,
-        editorFiles: ensureFileInList(p.editorFiles, filePath, p.filePath),
-        filePath,
-      }))
-      activeTab.focusedPaneId = focusedEditor.id
-      if (opts?.line) pendingEditorJumps[focusedEditor.id] = opts.line
-      scheduleSave(worktreePath)
-      return
-    }
-  }
-
-  // 3. Otherwise — create a new editor tab
-  const paneId = nextPaneId()
-  const EDITOR_LABEL = 'Editor'
-  const pane: PaneSession = {
-    id: paneId,
-    sessionId: '',
-    wsUrl: '',
-    toolId: 'editor',
-    toolName: EDITOR_LABEL,
-    isRunning: true,
-    exitCode: null,
-    title: null,
-    paneType: 'editor',
-    filePath,
-    editorFiles: [{ filePath }],
-    editorActiveFile: filePath,
-  }
-
-  const id = nextTabId()
-  const name = computeDisplayName(EDITOR_LABEL, worktreePath, 'editor')
-
-  const tab: TabInfo = {
-    id,
-    toolId: 'editor',
-    toolName: EDITOR_LABEL,
-    name,
-    worktreePath,
-    rootSplit: createLeaf(pane),
-    focusedPaneId: paneId,
-  }
-
-  if (!tabsByWorktree[worktreePath]) {
-    tabsByWorktree[worktreePath] = []
-  }
-  tabsByWorktree[worktreePath].push(tab)
-  activeTabId[worktreePath] = id
-  if (opts?.line) pendingEditorJumps[paneId] = opts.line
-  scheduleSave(worktreePath)
+  void openFileInMain(filePath, worktreePath, opts).catch((err) => {
+    console.error(`[tabs] tabOpenEditorFile failed for "${worktreePath}":`, err)
+  })
 }
 
-function ensureFileInList(
-  list: EditorFileState[] | undefined,
+async function openFileInMain(
   filePath: string,
-  legacySingle: string | undefined,
-): EditorFileState[] {
-  const base = list ?? (legacySingle ? [{ filePath: legacySingle }] : [])
-  if (base.some((f) => f.filePath === filePath)) return base
-  return [...base, { filePath }]
+  worktreePath: string,
+  opts?: { line?: number },
+): Promise<void> {
+  const result = await window.api.tabOpenEditorFile(worktreePath, filePath)
+
+  applyTabCommandResult(result)
+  const active = result.tabs.find((tab) => tab.id === result.activeTabId)
+  if (opts?.line && active) {
+    pendingEditorJumps[active.focusedPaneId] = opts.line
+  }
+  scheduleSave(worktreePath)
 }
 
 export function moveEditorFileBetweenPanes(
@@ -767,84 +526,43 @@ export function moveEditorFileBetweenPanes(
     moveEditorFile(targetPaneId, filePath, toIndex)
     return
   }
-  // Locate both panes and capture the file state from the source
-  let sourceTab: TabInfo | null = null
-  let sourcePane: PaneSession | null = null
+
+  void moveEditorFileBetweenPanesInMain(sourcePaneId, targetPaneId, filePath, toIndex).catch(
+    (err) => {
+      console.error(`[tabs] tabMoveEditorFileBetweenPanes failed for pane "${sourcePaneId}":`, err)
+    },
+  )
+}
+
+async function moveEditorFileBetweenPanesInMain(
+  sourcePaneId: string,
+  targetPaneId: string,
+  filePath: string,
+  toIndex: number,
+): Promise<void> {
   let sourceWorktree: string | null = null
-  let targetTab: TabInfo | null = null
   let targetWorktree: string | null = null
   for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const pane = findLeaf(tab.rootSplit, sourcePaneId)
-      if (pane) {
-        sourceTab = tab
-        sourcePane = pane
+      if (pane?.editorFiles?.some((file) => file.filePath === filePath)) {
         sourceWorktree = worktreePath
       }
       if (findLeaf(tab.rootSplit, targetPaneId)) {
-        targetTab = tab
         targetWorktree = worktreePath
       }
     }
   }
-  if (!sourcePane || !sourceTab || !targetTab || !sourceWorktree || !targetWorktree) return
-  const movingFile = (sourcePane.editorFiles ?? []).find((f) => f.filePath === filePath)
-  if (!movingFile) return
+  if (!sourceWorktree || !targetWorktree || sourceWorktree !== targetWorktree) return
 
-  // Remove file from source pane; if empty, collapse the pane (or close the tab)
-  const remaining = (sourcePane.editorFiles ?? []).filter((f) => f.filePath !== filePath)
-  if (remaining.length === 0) {
-    const removed = treeRemovePane(sourceTab.rootSplit, sourcePaneId)
-    if (removed) {
-      if (removed.tree === null) {
-        void closeTab(sourceTab.id)
-      } else {
-        sourceTab.rootSplit = removed.tree
-        if (sourceTab.focusedPaneId === sourcePaneId) {
-          sourceTab.focusedPaneId = firstLeaf(removed.tree).id
-        }
-        scheduleSave(sourceWorktree)
-      }
-    }
-  } else {
-    const newActive =
-      sourcePane.editorActiveFile === filePath
-        ? remaining[Math.max(0, remaining.length - 1)].filePath
-        : sourcePane.editorActiveFile
-    sourceTab.rootSplit = treeUpdatePane(sourceTab.rootSplit, sourcePaneId, (p) => ({
-      ...p,
-      editorFiles: remaining,
-      editorActiveFile: newActive,
-      filePath: newActive,
-    }))
-    scheduleSave(sourceWorktree)
-  }
-
-  // Add file to target pane at toIndex
-  const targetPane = findLeaf(targetTab.rootSplit, targetPaneId)
-  if (!targetPane) return
-  const targetFiles = targetPane.editorFiles ?? []
-  const clamped = Math.max(0, Math.min(toIndex, targetFiles.length))
-  const next = [...targetFiles]
-  // Deduplicate — if file already exists in target, just focus it
-  const existingIdx = next.findIndex((f) => f.filePath === filePath)
-  if (existingIdx >= 0) {
-    targetTab.rootSplit = treeUpdatePane(targetTab.rootSplit, targetPaneId, (p) => ({
-      ...p,
-      editorActiveFile: filePath,
-      filePath,
-    }))
-  } else {
-    next.splice(clamped, 0, movingFile)
-    targetTab.rootSplit = treeUpdatePane(targetTab.rootSplit, targetPaneId, (p) => ({
-      ...p,
-      editorFiles: next,
-      editorActiveFile: filePath,
-      filePath,
-    }))
-  }
-  targetTab.focusedPaneId = targetPaneId
-  activeTabId[targetWorktree] = targetTab.id
+  const result = await window.api.tabMoveEditorFileBetweenPanes(
+    targetWorktree,
+    sourcePaneId,
+    targetPaneId,
+    filePath,
+    toIndex,
+  )
+  applyTabCommandResult(result)
   scheduleSave(targetWorktree)
 }
 
@@ -883,23 +601,25 @@ export function mergeTabIntoEditorPane(
 }
 
 export function moveEditorFile(paneId: string, filePath: string, toIndex: number): void {
+  void moveEditorFileInMain(paneId, filePath, toIndex).catch((err) => {
+    console.error(`[tabs] tabMoveEditorFile failed for pane "${paneId}":`, err)
+  })
+}
+
+async function moveEditorFileInMain(
+  paneId: string,
+  filePath: string,
+  toIndex: number,
+): Promise<void> {
   for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const existing = findLeaf(tab.rootSplit, paneId)
       if (!existing) continue
       const files = existing.editorFiles ?? []
-      const fromIndex = files.findIndex((f) => f.filePath === filePath)
-      if (fromIndex === -1) continue
-      const clamped = Math.max(0, Math.min(toIndex, files.length))
-      if (clamped === fromIndex || clamped === fromIndex + 1) return
-      const next = [...files]
-      const [moved] = next.splice(fromIndex, 1)
-      const insertAt = clamped > fromIndex ? clamped - 1 : clamped
-      next.splice(insertAt, 0, moved)
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-        ...p,
-        editorFiles: next,
-      }))
+      if (!files.some((f) => f.filePath === filePath)) continue
+
+      const result = await window.api.tabMoveEditorFile(worktreePath, paneId, filePath, toIndex)
+      applyTabCommandResult(result)
       scheduleSave(worktreePath)
       return
     }
@@ -907,16 +627,20 @@ export function moveEditorFile(paneId: string, filePath: string, toIndex: number
 }
 
 export function setActiveEditorFile(paneId: string, filePath: string): void {
-  for (const tabs of Object.values(tabsByWorktree)) {
+  void setActiveEditorFileInMain(paneId, filePath).catch((err) => {
+    console.error(`[tabs] tabSetActiveEditorFile failed for pane "${paneId}":`, err)
+  })
+}
+
+async function setActiveEditorFileInMain(paneId: string, filePath: string): Promise<void> {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const existing = findLeaf(tab.rootSplit, paneId)
       if (!existing) continue
       if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-        ...p,
-        editorActiveFile: filePath,
-        filePath,
-      }))
+
+      const result = await window.api.tabSetActiveEditorFile(worktreePath, paneId, filePath)
+      applyTabCommandResult(result)
       return
     }
   }
@@ -927,174 +651,151 @@ export function updateEditorFileState(
   filePath: string,
   patch: Partial<EditorFileState>,
 ): void {
-  for (const tabs of Object.values(tabsByWorktree)) {
-    for (const tab of tabs) {
-      const existing = findLeaf(tab.rootSplit, paneId)
-      if (!existing) continue
-      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-        ...p,
-        editorFiles: (p.editorFiles ?? []).map((f) =>
-          f.filePath === filePath ? { ...f, ...patch } : f,
-        ),
-      }))
-      return
-    }
-  }
+  void updateEditorFileStateInMain(paneId, filePath, patch).catch((err) => {
+    console.error(`[tabs] tabUpdateEditorFileState failed for pane "${paneId}":`, err)
+  })
 }
 
-export function closeEditorFile(paneId: string, filePath: string): void {
+async function updateEditorFileStateInMain(
+  paneId: string,
+  filePath: string,
+  patch: Partial<EditorFileState>,
+): Promise<void> {
   for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const existing = findLeaf(tab.rootSplit, paneId)
       if (!existing) continue
       if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
-      const remaining = (existing.editorFiles ?? []).filter((f) => f.filePath !== filePath)
-      if (remaining.length === 0) {
-        // No files left — close the pane (or the tab if this was the only pane)
-        const removed = treeRemovePane(tab.rootSplit, paneId)
-        if (removed) {
-          if (removed.tree === null) {
-            // Tab now empty — close it
-            void closeTab(tab.id)
-          } else {
-            tab.rootSplit = removed.tree
-            if (tab.focusedPaneId === paneId) {
-              tab.focusedPaneId = firstLeaf(removed.tree).id
-            }
-            scheduleSave(worktreePath)
-          }
-        }
-        return
-      }
-      const newActive =
-        existing.editorActiveFile === filePath
-          ? remaining[Math.max(0, remaining.length - 1)].filePath
-          : existing.editorActiveFile
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-        ...p,
-        editorFiles: remaining,
-        editorActiveFile: newActive,
-        filePath: newActive,
-      }))
-      scheduleSave(worktreePath)
+
+      const result = await window.api.tabUpdateEditorFileState(
+        worktreePath,
+        paneId,
+        filePath,
+        patch,
+      )
+      applyTabCommandResult(result)
+      return
+    }
+  }
+}
+
+export async function loadEditorFile(
+  paneId: string,
+  filePath: string,
+  maxBytes?: number,
+): Promise<EditorFileLoadResult> {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
+
+      const result = await window.api.tabLoadEditorFile(worktreePath, paneId, filePath, {
+        maxBytes,
+      })
+      if (result.ok) applyTabCommandResult(result.result)
+      return result
+    }
+  }
+  return { ok: false, tag: 'ReadFailed', message: 'Editor file is not open' }
+}
+
+export async function saveEditorFile(
+  paneId: string,
+  filePath: string,
+  content: string,
+  fileLineEnding: 'LF' | 'CRLF',
+  expectedMtimeMs?: number,
+): Promise<EditorFileSaveResult> {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
+
+      const result = await window.api.tabSaveEditorFile(worktreePath, paneId, filePath, {
+        content,
+        fileLineEnding,
+        expectedMtimeMs,
+      })
+      if (result.ok) applyTabCommandResult(result.result)
+      return result
+    }
+  }
+  return { ok: false, tag: 'WriteFailed', message: 'Editor file is not open' }
+}
+
+export async function prepareCloseEditorFile(
+  paneId: string,
+  filePath: string,
+): Promise<TabClosePreflightResult> {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
+      return window.api.tabPrepareCloseEditorFile(worktreePath, paneId, filePath)
+    }
+  }
+  return { ok: true }
+}
+
+export function closeEditorFile(paneId: string, filePath: string): void {
+  void closeEditorFileInMain(paneId, filePath).catch((err) => {
+    console.error(`[tabs] tabCloseEditorFile failed for pane "${paneId}":`, err)
+  })
+}
+
+async function closeEditorFileInMain(paneId: string, filePath: string): Promise<void> {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
+    for (const tab of tabs) {
+      const existing = findLeaf(tab.rootSplit, paneId)
+      if (!existing) continue
+      if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
+
+      const result = await window.api.tabCloseEditorFile(worktreePath, paneId, filePath)
+      applyTabCommandResult(result)
+      if (result.closedPaneId) scheduleSave(worktreePath)
       return
     }
   }
 }
 
 export function detachEditorFile(paneId: string, filePath: string): void {
+  void detachEditorFileInMain(paneId, filePath).catch((err) => {
+    console.error(`[tabs] tabDetachEditorFile failed for pane "${paneId}":`, err)
+  })
+}
+
+async function detachEditorFileInMain(paneId: string, filePath: string): Promise<void> {
   for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const existing = findLeaf(tab.rootSplit, paneId)
       if (!existing) continue
       if (!existing.editorFiles?.some((f) => f.filePath === filePath)) continue
-      // Remove from this pane first
-      const remaining = (existing.editorFiles ?? []).filter((f) => f.filePath !== filePath)
-      if (remaining.length === 0) {
-        // Only file — no-op (already in its own pane/tab)
-        return
-      }
-      const newActive =
-        existing.editorActiveFile === filePath
-          ? remaining[Math.max(0, remaining.length - 1)].filePath
-          : existing.editorActiveFile
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-        ...p,
-        editorFiles: remaining,
-        editorActiveFile: newActive,
-        filePath: newActive,
-      }))
 
-      // Create new editor tab for the detached file
-      const newPaneId = nextPaneId()
-      const EDITOR_LABEL = 'Editor'
-      const newPane: PaneSession = {
-        id: newPaneId,
-        sessionId: '',
-        wsUrl: '',
-        toolId: 'editor',
-        toolName: EDITOR_LABEL,
-        isRunning: true,
-        exitCode: null,
-        title: null,
-        paneType: 'editor',
-        filePath,
-        editorFiles: [{ filePath }],
-        editorActiveFile: filePath,
-      }
-      const newTabId = nextTabId()
-      const name = computeDisplayName(EDITOR_LABEL, worktreePath, 'editor')
-      const newTab: TabInfo = {
-        id: newTabId,
-        toolId: 'editor',
-        toolName: EDITOR_LABEL,
-        name,
-        worktreePath,
-        rootSplit: createLeaf(newPane),
-        focusedPaneId: newPaneId,
-      }
-      tabsByWorktree[worktreePath].push(newTab)
-      activeTabId[worktreePath] = newTabId
-      scheduleSave(worktreePath)
+      const result = await window.api.tabDetachEditorFile(worktreePath, paneId, filePath)
+      applyTabCommandResult(result)
+      if (result.openedTab) scheduleSave(worktreePath)
       return
     }
   }
 }
 
 export function openDiffTab(worktreePath: string, scrollToFile?: string): void {
-  // Check if a diff tab already exists — focus it
-  const tabs = (tabsByWorktree[worktreePath] ?? []).filter((t) => !t.suspended)
-  for (const tab of tabs) {
-    const panes = allPanes(tab.rootSplit)
-    const existing = panes.find((p) => p.paneType === 'diff')
-    if (existing) {
-      activeTabId[worktreePath] = tab.id
-      tab.focusedPaneId = existing.id
-      if (scrollToFile) {
-        workspaceState.diffScrollTarget = { path: scrollToFile, ts: Date.now() }
-      }
-      return
-    }
-  }
+  void openDiffTabInMain(worktreePath, scrollToFile).catch((err) => {
+    console.error(`[tabs] tabOpenDiff failed for "${worktreePath}":`, err)
+  })
+}
 
-  // Create single diff tab for all changes
-  const paneId = nextPaneId()
-  const pane: PaneSession = {
-    id: paneId,
-    sessionId: '',
-    wsUrl: '',
-    toolId: 'diff',
-    toolName: 'Diff',
-    isRunning: false,
-    exitCode: null,
-    title: null,
-    paneType: 'diff',
-  }
-
-  const id = nextTabId()
-  const name = computeDisplayName('Diff', worktreePath, 'diff')
-
-  const tab: TabInfo = {
-    id,
-    toolId: 'diff',
-    toolName: 'Diff',
-    name,
-    worktreePath,
-    rootSplit: createLeaf(pane),
-    focusedPaneId: paneId,
-  }
-
-  if (!tabsByWorktree[worktreePath]) {
-    tabsByWorktree[worktreePath] = []
-  }
-  tabsByWorktree[worktreePath].push(tab)
-  activeTabId[worktreePath] = id
-  scheduleSave(worktreePath)
+async function openDiffTabInMain(worktreePath: string, scrollToFile?: string): Promise<void> {
+  const result = await window.api.tabOpenDiff(worktreePath)
+  applyTabCommandResult(result)
 
   if (scrollToFile) {
     workspaceState.diffScrollTarget = { path: scrollToFile, ts: Date.now() }
   }
+  if (result.openedTab) scheduleSave(worktreePath)
 }
 
 export function getActiveTab(worktreePath: string): TabInfo | null {
@@ -1105,7 +806,7 @@ export function getActiveTab(worktreePath: string): TabInfo | null {
 }
 
 export function getTabsForWorktree(worktreePath: string): TabInfo[] {
-  return tabsByWorktree[worktreePath] ?? []
+  return tabsByWorktree[worktreePath] ?? EMPTY_TABS
 }
 
 export function getRunningCountByTool(worktreePath: string, toolId: string): number {
@@ -1129,19 +830,13 @@ export async function handlePtyExit(
       const panes = allPanes(tab.rootSplit)
       const pane = panes.find((p) => p.sessionId === sessionId)
       if (pane) {
-        const tmuxName = tmuxSessionName || pane.tmuxSessionName
-        // Check if the tmux session is actually still alive before marking detached
-        let detached = false
-        if (tmuxName) {
-          detached = await window.api.tmuxHasSession(tmuxName).catch(() => false)
-        }
-        tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
-          ...p,
-          isRunning: false,
+        const result = await window.api.tabHandlePtyExit(
+          worktreePath,
+          sessionId,
           exitCode,
-          detached,
-          tmuxSessionName: detached ? p.tmuxSessionName : undefined,
-        }))
+          tmuxSessionName,
+        )
+        applyTabCommandResult(result)
         // Persist updated state so dead tabs are excluded from saved layout
         scheduleSave(worktreePath)
         return
@@ -1169,8 +864,6 @@ export async function restartPane(
   const result = await window.api.tabRestartPane(worktreePath, tabId, paneId, {
     workspaceName: project?.workspace.name ?? workspaceState.workspace?.name ?? '',
     branch: workspaceState.branch ?? undefined,
-    tabs: snapshotsForCommand(worktreePath),
-    activeTabId: activeTabId[worktreePath] ?? null,
   })
   if (!result.restartedPane) return
 
@@ -1181,12 +874,7 @@ export async function restartPane(
     delete browserSessions[pane.sessionId]
   }
 
-  tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (prev) => {
-    const next = paneFromSnapshot(result.restartedPane!, prev)
-    initPaneRuntimeState(next)
-    return next
-  })
-
+  applyTabCommandResult(result)
   scheduleSave(worktreePath)
 }
 
@@ -1203,30 +891,12 @@ export async function reattachTmuxPane(
   const pane = panes.find((p) => p.id === paneId)
   if (!pane?.tmuxSessionName) return
 
-  const exists = await window.api.tmuxHasSession(pane.tmuxSessionName)
-  if (exists) {
-    const result = await window.api.tmuxAttach(pane.tmuxSessionName)
-    tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-      ...p,
-      sessionId: result.sessionId,
-      wsUrl: result.wsUrl,
-      isRunning: true,
-      exitCode: null,
-      detached: false,
-    }))
-  } else {
-    // Tmux session gone, spawn fresh
-    const result = await window.api.tabSpawnPane(pane.toolId, worktreePath)
-    tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-      ...p,
-      sessionId: result.sessionId,
-      wsUrl: result.wsUrl,
-      isRunning: true,
-      exitCode: null,
-      detached: false,
-      tmuxSessionName: result.tmuxSessionName,
-    }))
-  }
+  const project = getProjectForWorktree(worktreePath)
+  const result = await window.api.tabReattachTmuxPane(worktreePath, tabId, paneId, {
+    workspaceName: project?.workspace.name ?? workspaceState.workspace?.name ?? '',
+    branch: workspaceState.branch ?? undefined,
+  })
+  applyTabCommandResult(result)
   scheduleSave(worktreePath)
 }
 
@@ -1243,17 +913,8 @@ export async function killTmuxPane(
   const pane = panes.find((p) => p.id === paneId)
   if (!pane?.tmuxSessionName) return
 
-  try {
-    await window.api.tmuxKillSession(pane.tmuxSessionName)
-  } catch {
-    // Session may already be gone
-  }
-  tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({
-    ...p,
-    isRunning: false,
-    detached: false,
-    tmuxSessionName: undefined,
-  }))
+  const result = await window.api.tabKillTmuxPane(worktreePath, tabId, paneId)
+  applyTabCommandResult(result)
   scheduleSave(worktreePath)
 }
 
@@ -1273,20 +934,17 @@ export async function restartTab(tabId: string): Promise<void> {
   }
 }
 
-export async function ensureDefaultTab(worktreePath: string): Promise<void> {
-  const tabs = tabsByWorktree[worktreePath]
-  if (tabs && tabs.length > 0) return
-  await openTool(getPref('newTab.toolId', 'shell'), worktreePath)
-}
-
 async function resumeTab(tab: TabInfo): Promise<boolean> {
   if (!tab.suspended) return true
-  const serialized = tab.suspended
   try {
-    const rootSplit = await restoreSplitNode(serialized, tab.worktreePath)
-    tab.rootSplit = rootSplit
-    tab.focusedPaneId = firstLeaf(rootSplit).id
-    tab.suspended = undefined
+    const project = getProjectForWorktree(tab.worktreePath)
+    const result = await window.api.tabResumeSuspendedTab(tab.worktreePath, tab.id, {
+      workspaceName: project?.workspace.name ?? workspaceState.workspace?.name ?? '',
+      branch: workspaceState.branch ?? undefined,
+    })
+    const resumed = result.tabs.find((candidate) => candidate.id === tab.id)
+    if (resumed?.suspended) return false
+    applyTabCommandResult(result)
     return true
   } catch (err) {
     console.error('Failed to resume suspended tab:', err)
@@ -1294,77 +952,65 @@ async function resumeTab(tab: TabInfo): Promise<boolean> {
   }
 }
 
-export async function closeAllTabsForWorktree(worktreePath: string): Promise<void> {
+export async function closeAllTabsForWorktree(worktreePath: string): Promise<boolean> {
   const tabs = tabsByWorktree[worktreePath]
-  if (!tabs || tabs.length === 0) return
+  if (!tabs || tabs.length === 0) return true
 
-  const allSessions = tabs.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
+  if (!(await prepareCloseAllTabsForWorktree(worktreePath, [...tabs]))) return false
+
+  const currentTabs = tabsByWorktree[worktreePath] ?? []
+  const allSessions = currentTabs.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
   for (const p of allSessions) {
     if (agentSessions[p.sessionId]) removeAgentSession(p.sessionId)
     if (p.paneType === 'browser') delete browserSessions[p.sessionId]
     disposeEphemeralPaneState(p)
   }
-  await Promise.allSettled(
-    allSessions
-      .filter((p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing')
-      .map((p) => {
-        if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-        return window.api.killPty(p.sessionId, true)
-      }),
-  )
+
+  const result = await window.api.tabCloseAllForWorktree(worktreePath)
 
   if (saveTimers[worktreePath]) {
     clearTimeout(saveTimers[worktreePath])
     delete saveTimers[worktreePath]
   }
-  delete tabsByWorktree[worktreePath]
-  delete activeTabId[worktreePath]
-
-  const wsId = getProjectForWorktree(worktreePath)?.workspace.id
-  if (wsId) {
-    window.api.tabDeleteLayout(worktreePath).catch(() => {})
-  }
+  applyTabCommandResult(result)
+  return true
 }
 
 export async function killAllTabs(): Promise<void> {
   const allTabsList = Object.values(tabsByWorktree).flat()
   const allSessions = allTabsList.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
   for (const p of allSessions) disposeEphemeralPaneState(p)
-  await Promise.all(
-    allSessions
-      .filter((p) => p.paneType !== 'editor' && p.paneType !== 'notes' && p.paneType !== 'drawing')
-      .map((p) => {
-        if (p.paneType === 'browser') return window.api.teardownBrowserWebview(p.sessionId)
-        return window.api.killPty(p.sessionId, true)
-      }),
-  )
-  for (const path of Object.keys(tabsByWorktree)) {
-    delete tabsByWorktree[path]
-    delete activeTabId[path]
-  }
+  const result = await window.api.tabKillAll()
+  applyTabsSnapshot(result, { replaceAll: true })
 }
 
-export function focusSessionByPtyId(ptySessionId: string): boolean {
-  for (const [path, tabs] of Object.entries(tabsByWorktree)) {
-    for (const tab of tabs) {
-      const panes = allPanes(tab.rootSplit)
-      const pane = panes.find((p) => p.sessionId === ptySessionId)
-      if (pane) {
-        // Use selectWorktree to fully update project context (sidebar, git info, etc.)
-        selectWorktree(path).catch((err) => {
-          console.error('[tabs] selectWorktree failed after focusSession:', err)
-        })
-        activeTabId[path] = tab.id
-        tab.focusedPaneId = pane.id
-        return true
-      }
-    }
-  }
-  return false
+export function focusSessionByPtyId(ptySessionId: string): void {
+  void focusSessionByPtyIdInMain(ptySessionId).catch((err) => {
+    console.error(`[tabs] tabFocusSession failed for "${ptySessionId}":`, err)
+  })
+}
+
+async function focusSessionByPtyIdInMain(ptySessionId: string): Promise<void> {
+  const result = await window.api.tabFocusSession(ptySessionId)
+  if (!result) return
+
+  // Use selectWorktree to fully update project context (sidebar, git info, etc.)
+  await selectWorktree(result.worktreePath).catch((err) => {
+    console.error('[tabs] selectWorktree failed after focusSession:', err)
+  })
+  applyTabCommandResult(result)
 }
 
 export function getAllTabs(): TabInfo[] {
-  return Object.values(tabsByWorktree).flat()
+  const groups = Object.values(tabsByWorktree)
+  if (groups.length === 0) return EMPTY_TABS
+  if (groups.length === 1) return groups[0] ?? EMPTY_TABS
+
+  let count = 0
+  for (const group of groups) count += group.length
+  if (count === 0) return EMPTY_TABS
+
+  return groups.flat()
 }
 
 export function findWorktreeForSession(sessionId: string): string | null {
@@ -1432,24 +1078,32 @@ export function toggleFocusedInspector(): void {
   if (!tab) return
   const pane = findLeaf(tab.rootSplit, tab.focusedPaneId)
   if (pane && AI_TOOL_IDS.has(pane.toolId)) {
-    tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
-      ...p,
-      inspectorOpen: p.inspectorOpen === false,
-    }))
+    void toggleFocusedInspectorInMain(path, tab.id).catch((err) => {
+      console.error(`[tabs] tabToggleFocusedInspector failed for tab "${tab.id}":`, err)
+    })
   }
 }
 
+async function toggleFocusedInspectorInMain(worktreePath: string, tabId: string): Promise<void> {
+  const result = await window.api.tabToggleFocusedInspector(worktreePath, tabId)
+  applyTabCommandResult(result)
+}
+
 export function updateTmuxSessionName(oldName: string, newName: string): void {
-  for (const tabs of Object.values(tabsByWorktree)) {
+  void updateTmuxSessionNameInMain(oldName, newName).catch((err) => {
+    console.error(`[tabs] tabUpdateTmuxSessionName failed for "${oldName}":`, err)
+  })
+}
+
+async function updateTmuxSessionNameInMain(oldName: string, newName: string): Promise<void> {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const panes = allPanes(tab.rootSplit)
       const pane = panes.find((p) => p.tmuxSessionName === oldName)
       if (pane) {
-        tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
-          ...p,
-          tmuxSessionName: newName,
-        }))
-        scheduleSave(tab.worktreePath)
+        const result = await window.api.tabUpdateTmuxSessionName(worktreePath, oldName, newName)
+        applyTabCommandResult(result)
+        scheduleSave(worktreePath)
         return
       }
     }
@@ -1458,15 +1112,19 @@ export function updateTmuxSessionName(oldName: string, newName: string): void {
 
 export function updatePaneTitle(sessionId: string, title: string): void {
   if (!title) return
-  for (const tabs of Object.values(tabsByWorktree)) {
+  void updatePaneTitleInMain(sessionId, title).catch((err) => {
+    console.error(`[tabs] tabUpdatePaneTitle failed for session "${sessionId}":`, err)
+  })
+}
+
+async function updatePaneTitleInMain(sessionId: string, title: string): Promise<void> {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const panes = allPanes(tab.rootSplit)
       const pane = panes.find((p) => p.sessionId === sessionId)
       if (pane) {
-        tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
-          ...p,
-          title,
-        }))
+        const result = await window.api.tabUpdatePaneTitle(worktreePath, sessionId, title)
+        applyTabCommandResult(result)
         // Forward title to main process for the notch overlay
         if (agentSessions[pane.sessionId]) {
           window.api.updateAgentTitle(sessionId, title)
@@ -1478,29 +1136,22 @@ export function updatePaneTitle(sessionId: string, title: string): void {
 }
 
 export function updateBrowserPaneUrl(sessionId: string, url: string): void {
-  for (const tabs of Object.values(tabsByWorktree)) {
+  void updateBrowserPaneUrlInMain(sessionId, url).catch((err) => {
+    console.error(`[tabs] tabUpdatePaneUrl failed for session "${sessionId}":`, err)
+  })
+}
+
+async function updateBrowserPaneUrlInMain(sessionId: string, url: string): Promise<void> {
+  for (const [worktreePath, tabs] of Object.entries(tabsByWorktree)) {
     for (const tab of tabs) {
       const panes = allPanes(tab.rootSplit)
       const pane = panes.find((p) => p.sessionId === sessionId)
       if (pane) {
-        tab.rootSplit = treeUpdatePane(tab.rootSplit, pane.id, (p) => ({
-          ...p,
-          url,
-        }))
-        scheduleSave(tab.worktreePath)
+        const result = await window.api.tabUpdatePaneUrl(worktreePath, sessionId, url)
+        applyTabCommandResult(result)
+        scheduleSave(worktreePath)
         return
       }
-    }
-  }
-}
-
-export function updateEditorPaneState(paneId: string, patch: Partial<PaneSession>): void {
-  for (const tabs of Object.values(tabsByWorktree)) {
-    for (const tab of tabs) {
-      const existing = findLeaf(tab.rootSplit, paneId)
-      if (!existing) continue
-      tab.rootSplit = treeUpdatePane(tab.rootSplit, paneId, (p) => ({ ...p, ...patch }))
-      return
     }
   }
 }
@@ -1515,21 +1166,7 @@ export function findEditorPane(paneId: string): PaneSession | null {
   return null
 }
 
-// --- Tab identity reconciliation ---
-
-function reconcileTabIdentity(tab: TabInfo): void {
-  const focused = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (!focused || tab.toolId === focused.toolId) return
-  tab.toolId = focused.toolId
-  tab.toolName = focused.toolName
-  const tabs = tabsByWorktree[tab.worktreePath] ?? []
-  const sameCount = tabs.filter((t) => t !== tab && t.toolId === focused.toolId).length
-  tab.name = sameCount === 0 ? focused.toolName : `${focused.toolName} #${sameCount + 1}`
-}
-
 // --- Split pane operations ---
-
-const NO_SPLIT_TOOLS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
 export async function splitFocusedPane(
   worktreePath: string,
@@ -1542,33 +1179,13 @@ export async function splitFocusedPane(
   const tab = tabs.find((t) => t.id === tabId)
   if (!tab) return
 
-  // AI tools don't support splitting
-  if (NO_SPLIT_TOOLS.has(tab.toolId)) return
-
-  // Spawn a new shell session in the same worktree
-  const result = await window.api.tabSpawnPane('shell', worktreePath)
-  const paneId = nextPaneId()
-
-  const newPane: PaneSession = {
-    id: paneId,
-    sessionId: result.sessionId,
-    wsUrl: result.wsUrl,
-    toolId: 'shell',
-    toolName: result.toolName,
-    isRunning: true,
-    exitCode: null,
-    title: null,
-  }
-
-  const newTree = treeSplitPane(tab.rootSplit, tab.focusedPaneId, direction, newPane)
-  if (!newTree) {
-    // Max depth reached — kill the spawned PTY
-    await window.api.killPty(result.sessionId)
-    return
-  }
-
-  tab.rootSplit = newTree
-  tab.focusedPaneId = paneId
+  const result = await window.api.tabSplitPane(
+    worktreePath,
+    tab.id,
+    tab.focusedPaneId,
+    direction === 'hsplit' ? 'horizontal' : 'vertical',
+  )
+  applyTabCommandResult(result)
   scheduleSave(worktreePath)
 }
 
@@ -1586,67 +1203,29 @@ export async function closePane(
   const pane = findLeaf(tab.rootSplit, paneId)
   if (!pane) return
 
-  // Check if this pane has active process before closing
-  if (pane.isRunning) {
-    const description = await getActiveProcessDescription([pane])
-    if (description) {
-      const confirmed = await confirm({
-        title: 'Close pane?',
-        message: `This pane has ${description} that will be terminated.`,
-        confirmLabel: 'Close Pane',
-        destructive: true,
-      })
-      if (!confirmed) return
-    }
+  const { description } = await window.api.tabGetCloseWarning(worktreePath, {
+    kind: 'pane',
+    tabId,
+    paneId,
+  })
+  if (description) {
+    const confirmed = await confirm({
+      title: 'Close pane?',
+      message: `This pane has ${description} that will be terminated.`,
+      confirmLabel: 'Close Pane',
+      destructive: true,
+    })
+    if (!confirmed) return
   }
 
-  const result = treeRemovePane(tab.rootSplit, paneId)
-  if (!result) return
-  disposeEphemeralPaneState(result.removed)
+  const result = await window.api.tabClosePane(worktreePath, tabId, paneId)
+  if (!result.closedPaneId) return
 
-  // Kill the removed pane's PTY or destroy browser view (editor/notes/drawing panes have no session)
-  await match(result.removed)
-    .with({ paneType: P.union('editor', 'notes', 'drawing') }, () => {
-      // No-op — ephemeral or filesystem-backed only
-    })
-    .with({ paneType: 'browser' }, async (p) => {
-      delete browserSessions[p.sessionId]
-      await window.api.teardownBrowserWebview(p.sessionId)
-    })
-    .otherwise(async (p) => {
-      await window.api.killPty(p.sessionId, !!p.tmuxSessionName)
-    })
+  if (agentSessions[pane.sessionId]) removeAgentSession(pane.sessionId)
+  if (pane.paneType === 'browser') delete browserSessions[pane.sessionId]
+  disposeEphemeralPaneState(pane)
 
-  if (!result.tree) {
-    // Last pane — close the tab entirely
-    if (!closedTabs[worktreePath]) closedTabs[worktreePath] = []
-    closedTabs[worktreePath].push({
-      toolId: tab.toolId,
-      toolName: tab.toolName,
-      worktreePath,
-      closedAt: Date.now(),
-    })
-    if (closedTabs[worktreePath].length > MAX_CLOSED_TABS) {
-      closedTabs[worktreePath].shift()
-    }
-
-    const idx = tabs.findIndex((t) => t.id === tabId)
-    tabsByWorktree[worktreePath].splice(idx, 1)
-
-    const remaining = tabsByWorktree[worktreePath]
-    if (remaining.length > 0) {
-      const newIdx = Math.min(idx, remaining.length - 1)
-      activeTabId[worktreePath] = remaining[newIdx].id
-    } else {
-      delete activeTabId[worktreePath]
-    }
-  } else {
-    tab.rootSplit = result.tree
-    // Focus the first leaf in the remaining tree
-    tab.focusedPaneId = firstLeaf(result.tree).id
-    // Update tab identity to match focused pane (e.g., after closing Claude, only Shell remains)
-    reconcileTabIdentity(tab)
-  }
+  applyTabCommandResult(result)
   scheduleSave(worktreePath)
 }
 
@@ -1665,6 +1244,15 @@ export function navigatePaneFocus(
   worktreePath: string,
   direction: 'left' | 'right' | 'up' | 'down',
 ): void {
+  void navigatePaneFocusInMain(worktreePath, direction).catch((err) => {
+    console.error(`[tabs] tabNavigatePaneFocus failed for "${worktreePath}":`, err)
+  })
+}
+
+async function navigatePaneFocusInMain(
+  worktreePath: string,
+  direction: 'left' | 'right' | 'up' | 'down',
+): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs) return
 
@@ -1672,35 +1260,63 @@ export function navigatePaneFocus(
   const tab = tabs.find((t) => t.id === tabId)
   if (!tab) return
 
-  const target = navigateFrom(tab.rootSplit, tab.focusedPaneId, direction)
-  if (target) {
-    tab.focusedPaneId = target
+  const result = await window.api.tabNavigatePaneFocus(worktreePath, tab.id, direction)
+  applyTabCommandResult(result)
+  if (
+    result.tabs.some(
+      (candidate) => candidate.id === tab.id && candidate.focusedPaneId !== tab.focusedPaneId,
+    )
+  ) {
+    scheduleSave(worktreePath)
   }
 }
 
-export function focusPane(_worktreePath: string, tabId: string, paneId: string): void {
-  for (const tabs of Object.values(tabsByWorktree)) {
-    const tab = tabs.find((t) => t.id === tabId)
-    if (tab) {
-      tab.focusedPaneId = paneId
-      return
-    }
+export function focusPane(worktreePath: string, tabId: string, paneId: string): void {
+  void focusPaneInMain(worktreePath, tabId, paneId).catch((err) => {
+    console.error(`[tabs] tabFocusPane failed for "${worktreePath}":`, err)
+  })
+}
+
+async function focusPaneInMain(worktreePath: string, tabId: string, paneId: string): Promise<void> {
+  const result = await window.api.tabFocusPane(worktreePath, tabId, paneId)
+  applyTabCommandResult(result)
+  if (result.tabs.some((tab) => tab.id === tabId && tab.focusedPaneId === paneId)) {
+    scheduleSave(worktreePath)
   }
 }
 
 export function updateSplitRatio(
-  _worktreePath: string,
+  worktreePath: string,
   tabId: string,
   splitId: string,
   ratio: number,
 ): void {
-  for (const tabs of Object.values(tabsByWorktree)) {
-    const tab = tabs.find((t) => t.id === tabId)
-    if (tab) {
-      tab.rootSplit = treeUpdateRatio(tab.rootSplit, splitId, ratio)
-      scheduleSave(tab.worktreePath)
-      return
-    }
+  void updateSplitRatioInMain(worktreePath, tabId, splitId, ratio).catch((err) => {
+    console.error(`[tabs] tabUpdateSplitRatio failed for "${worktreePath}":`, err)
+  })
+}
+
+async function updateSplitRatioInMain(
+  worktreePath: string,
+  tabId: string,
+  splitId: string,
+  ratio: number,
+): Promise<void> {
+  const tabs = tabsByWorktree[worktreePath]
+  if (!tabs?.some((tab) => tab.id === tabId)) return
+
+  const result = await window.api.tabUpdateSplitRatio(worktreePath, tabId, splitId, ratio)
+  applyTabCommandResult(result)
+  if (
+    result.tabs.some(
+      (tab) =>
+        tab.id === tabId &&
+        tab.rootSplit.type === 'split' &&
+        tab.rootSplit.id === splitId &&
+        tab.rootSplit.ratio === ratio,
+    )
+  ) {
+    scheduleSave(worktreePath)
   }
 }
 
@@ -1733,30 +1349,19 @@ export async function moveTabToSplit(
   if (targetTab.suspended && !(await resumeTab(targetTab))) return false
 
   const { direction, position } = mapZone(zone)
-  const newTree = graftSubtree(
-    targetTab.rootSplit,
+  const result = await window.api.tabMoveTabToSplit(
+    worktreePath,
+    sourceTabId,
+    targetTabId,
     targetPaneId,
-    direction,
-    sourceTab.rootSplit,
+    direction === 'hsplit' ? 'horizontal' : 'vertical',
     position,
   )
-  if (!newTree) return false
 
-  // Update target tab with grafted tree
-  targetTab.rootSplit = newTree
-  targetTab.focusedPaneId = firstLeaf(sourceTab.rootSplit).id
-
-  // Remove source tab WITHOUT killing sessions — they are relocated, not closed
-  const sourceIdx = tabs.findIndex((t) => t.id === sourceTabId)
-  tabs.splice(sourceIdx, 1)
-
-  // If source was active, switch to target
-  if (activeTabId[worktreePath] === sourceTabId) {
-    activeTabId[worktreePath] = targetTabId
-  }
-
-  scheduleSave(worktreePath)
-  return true
+  const moved = !result.tabs.some((tab) => tab.id === sourceTabId)
+  applyTabCommandResult(result)
+  if (moved) scheduleSave(worktreePath)
+  return moved
 }
 
 // --- Move pane within or across tabs ---
@@ -1768,101 +1373,77 @@ export function movePaneToTarget(
   targetTabId: string,
   targetPaneId: string,
   zone: DropZone,
-): boolean {
+): void {
+  void movePaneToTargetInMain(
+    worktreePath,
+    sourceTabId,
+    sourcePaneId,
+    targetTabId,
+    targetPaneId,
+    zone,
+  ).catch((err) => {
+    console.error(`[tabs] tabMovePaneToTarget failed for "${worktreePath}":`, err)
+  })
+}
+
+async function movePaneToTargetInMain(
+  worktreePath: string,
+  sourceTabId: string,
+  sourcePaneId: string,
+  targetTabId: string,
+  targetPaneId: string,
+  zone: DropZone,
+): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
-  if (!tabs) return false
+  if (!tabs) return
 
   const sourceTab = tabs.find((t) => t.id === sourceTabId)
   const targetTab = tabs.find((t) => t.id === targetTabId)
-  if (!sourceTab || !targetTab) return false
+  if (!sourceTab || !targetTab) return
 
-  // Extract the source pane from its tree
-  const removeResult = treeRemovePane(sourceTab.rootSplit, sourcePaneId)
-  if (!removeResult) return false
-
-  const leaf = createLeaf(removeResult.removed)
   const { direction, position } = mapZone(zone)
+  const result = await window.api.tabMovePaneToTarget(
+    worktreePath,
+    sourceTabId,
+    sourcePaneId,
+    targetTabId,
+    targetPaneId,
+    direction === 'hsplit' ? 'horizontal' : 'vertical',
+    position,
+  )
 
-  if (sourceTabId === targetTabId) {
-    // Same-tab reorder: removeResult.tree is the tree without the source pane
-    if (!removeResult.tree) return false // was the only pane — should not happen
-    const newTree = graftSubtree(removeResult.tree, targetPaneId, direction, leaf, position)
-    if (!newTree) {
-      return false
-    }
-    sourceTab.rootSplit = newTree
-    sourceTab.focusedPaneId = sourcePaneId
-    reconcileTabIdentity(sourceTab)
-  } else {
-    // Cross-tab move: graft into target tab
-    const newTargetTree = graftSubtree(targetTab.rootSplit, targetPaneId, direction, leaf, position)
-    if (!newTargetTree) {
-      return false
-    }
-
-    targetTab.rootSplit = newTargetTree
-    targetTab.focusedPaneId = sourcePaneId
-    reconcileTabIdentity(targetTab)
-
-    if (!removeResult.tree) {
-      // Source tab had only this pane — remove the tab
-      const sourceIdx = tabs.findIndex((t) => t.id === sourceTabId)
-      tabs.splice(sourceIdx, 1)
-      if (activeTabId[worktreePath] === sourceTabId) {
-        activeTabId[worktreePath] = targetTabId
-      }
-    } else {
-      sourceTab.rootSplit = removeResult.tree
-      sourceTab.focusedPaneId = firstLeaf(removeResult.tree).id
-      reconcileTabIdentity(sourceTab)
-    }
-
-    activeTabId[worktreePath] = targetTabId
-  }
-
-  scheduleSave(worktreePath)
-  return true
+  const moved = result.tabs.some((tab) => tab.focusedPaneId === sourcePaneId)
+  applyTabCommandResult(result)
+  if (moved) scheduleSave(worktreePath)
 }
 
 export function detachPaneToTab(
   worktreePath: string,
   sourceTabId: string,
   sourcePaneId: string,
-): boolean {
+): void {
+  void detachPaneToTabInMain(worktreePath, sourceTabId, sourcePaneId).catch((err) => {
+    console.error(`[tabs] tabDetachPaneToTab failed for "${worktreePath}":`, err)
+  })
+}
+
+async function detachPaneToTabInMain(
+  worktreePath: string,
+  sourceTabId: string,
+  sourcePaneId: string,
+): Promise<void> {
   const tabs = tabsByWorktree[worktreePath]
-  if (!tabs) return false
+  if (!tabs) return
 
   const sourceTab = tabs.find((t) => t.id === sourceTabId)
-  if (!sourceTab) return false
+  if (!sourceTab) return
 
   // Already a standalone tab — nothing to detach
-  if (sourceTab.rootSplit.type === 'leaf') return false
+  if (sourceTab.rootSplit.type === 'leaf') return
 
-  const removeResult = treeRemovePane(sourceTab.rootSplit, sourcePaneId)
-  if (!removeResult || !removeResult.tree) return false
-
-  // Update source tab
-  sourceTab.rootSplit = removeResult.tree
-  sourceTab.focusedPaneId = firstLeaf(removeResult.tree).id
-  reconcileTabIdentity(sourceTab)
-
-  // Create new tab for the detached pane
-  const removed = removeResult.removed
-  const newTab: TabInfo = {
-    id: nextTabId(),
-    toolId: removed.toolId,
-    toolName: removed.toolName,
-    name: computeDisplayName(removed.toolName, worktreePath, removed.toolId),
-    worktreePath,
-    rootSplit: createLeaf(removed),
-    focusedPaneId: removed.id,
-  }
-
-  tabs.push(newTab)
-  activeTabId[worktreePath] = newTab.id
-
-  scheduleSave(worktreePath)
-  return true
+  const result = await window.api.tabDetachPaneToTab(worktreePath, sourceTabId, sourcePaneId)
+  applyTabCommandResult(result)
+  if (result.openedTab) scheduleSave(worktreePath)
 }
 
 // --- Layout persistence ---
@@ -1873,112 +1454,10 @@ function scheduleSave(worktreePath: string): void {
   if (saveTimers[worktreePath]) clearTimeout(saveTimers[worktreePath])
   saveTimers[worktreePath] = setTimeout(() => {
     delete saveTimers[worktreePath]
-    saveLayoutForWorktree(worktreePath)
-  }, 500)
-}
-
-function serializeSplitNode(node: SplitNode): SerializedSplitNode | null {
-  if (node.type === 'leaf') {
-    // Notes and drawing panes are inherently ephemeral — never persist
-    if (node.pane.paneType === 'notes' || node.pane.paneType === 'drawing') {
-      return null
-    }
-    // Skip dead terminal panes — they would respawn as new sessions on restore
-    if (
-      node.pane.paneType !== 'editor' &&
-      node.pane.paneType !== 'browser' &&
-      !node.pane.isRunning &&
-      !node.pane.tmuxSessionName
-    ) {
-      return null
-    }
-    const leaf: SerializedSplitNode = {
-      type: 'leaf',
-      toolId: node.pane.toolId,
-      toolName: node.pane.toolName,
-    }
-    if (agentSessions[node.pane.sessionId]) {
-      const csid = agentSessions[node.pane.sessionId]?.agentSessionId
-      if (csid) leaf.agentSessionId = csid
-      // Backward compat: also write claudeSessionId for claude agents
-      if (node.pane.toolId === 'claude' && csid) leaf.claudeSessionId = csid
-    }
-    if (node.pane.paneType === 'browser') {
-      leaf.browserUrl = node.pane.url ?? ''
-      const bs = browserSessions[node.pane.sessionId]
-      if (bs) leaf.browserDevToolsMode = bs.devToolsMode
-    }
-    if (node.pane.paneType === 'editor') {
-      leaf.filePath = node.pane.filePath
-      const files = node.pane.editorFiles ?? []
-      if (files.length > 0) {
-        leaf.editorFiles = files.map((f) => f.filePath)
-        leaf.editorActiveFile = node.pane.editorActiveFile ?? files[0].filePath
-      } else if (node.pane.filePath) {
-        leaf.editorFiles = [node.pane.filePath]
-        leaf.editorActiveFile = node.pane.filePath
-      }
-    }
-    if (node.pane.tmuxSessionName) {
-      leaf.tmuxSessionName = node.pane.tmuxSessionName
-    }
-    if (node.pane.profileId) {
-      leaf.profileId = node.pane.profileId
-    }
-    return leaf
-  }
-  // Collapse splits when one or both children are dead
-  const first = serializeSplitNode(node.first)
-  const second = serializeSplitNode(node.second)
-  if (!first && !second) return null
-  if (!first) return second
-  if (!second) return first
-  return {
-    type: node.type,
-    first,
-    second,
-    ratio: node.ratio,
-  }
-}
-
-function saveLayoutForWorktree(worktreePath: string): void {
-  const tabs = tabsByWorktree[worktreePath]
-  const wsId = getProjectForWorktree(worktreePath)?.workspace.id
-  if (!tabs || !wsId) return
-
-  const activeId = activeTabId[worktreePath]
-  const activeIndex = tabs.findIndex((t) => t.id === activeId)
-
-  // Filter out tabs where all panes are dead (stopped processes, no tmux session)
-  const serializedTabs: Array<{
-    toolId: string
-    toolName: string
-    rootSplit: SerializedSplitNode
-  }> = []
-  let adjustedActiveIndex = 0
-  for (let i = 0; i < tabs.length; i++) {
-    const tab = tabs[i]
-    const rootSplit = tab.suspended ? tab.suspended : serializeSplitNode(tab.rootSplit)
-    if (!rootSplit) continue
-    if (i === activeIndex) adjustedActiveIndex = serializedTabs.length
-    serializedTabs.push({ toolId: tab.toolId, toolName: tab.toolName, rootSplit })
-  }
-
-  if (serializedTabs.length === 0) {
-    window.api.tabDeleteLayout(worktreePath).catch(() => {
-      // Ignore delete errors silently
+    window.api.tabSaveCurrentLayout(worktreePath).catch(() => {
+      // Ignore save errors silently
     })
-    return
-  }
-
-  const layout: SerializedLayout = {
-    tabs: serializedTabs,
-    activeTabIndex: adjustedActiveIndex,
-  }
-
-  window.api.tabSaveLayout(worktreePath, JSON.stringify(layout)).catch(() => {
-    // Ignore save errors silently
-  })
+  }, 500)
 }
 
 export function saveAllLayouts(): void {
@@ -1987,210 +1466,20 @@ export function saveAllLayouts(): void {
     delete saveTimers[path]
   }
   for (const path of Object.keys(tabsByWorktree)) {
-    saveLayoutForWorktree(path)
-  }
-}
-
-async function restoreSplitNode(
-  node: SerializedSplitNode,
-  worktreePath: string,
-): Promise<SplitNode> {
-  if (node.type === 'leaf') {
-    const paneId = nextPaneId()
-    let pane: PaneSession
-
-    if (node.toolId === 'editor' && (node.filePath || (node.editorFiles?.length ?? 0) > 0)) {
-      const files = node.editorFiles ?? (node.filePath ? [node.filePath] : [])
-      const activeFile = node.editorActiveFile ?? files[0] ?? node.filePath ?? ''
-      pane = {
-        id: paneId,
-        sessionId: '',
-        wsUrl: '',
-        toolId: 'editor',
-        toolName: node.toolName,
-        isRunning: true,
-        exitCode: null,
-        title: null,
-        paneType: 'editor',
-        filePath: activeFile,
-        editorFiles: files.map((filePath) => ({ filePath })),
-        editorActiveFile: activeFile,
-      }
-    } else if (node.toolId === 'browser') {
-      const browserId = crypto.randomUUID()
-      pane = {
-        id: paneId,
-        sessionId: browserId,
-        wsUrl: '',
-        toolId: node.toolId,
-        toolName: node.toolName,
-        isRunning: true,
-        exitCode: null,
-        title: null,
-        paneType: 'browser',
-        url: node.browserUrl,
-      }
-    } else if (
-      node.tmuxSessionName &&
-      (await window.api.tmuxHasSession(node.tmuxSessionName).catch(() => false))
-    ) {
-      // Reattach to an existing tmux session
-      const result = await window.api.tmuxAttach(node.tmuxSessionName)
-      pane = {
-        id: paneId,
-        sessionId: result.sessionId,
-        wsUrl: result.wsUrl,
-        toolId: node.toolId,
-        toolName: node.toolName,
-        isRunning: true,
-        exitCode: null,
-        title: null,
-        tmuxSessionName: node.tmuxSessionName,
-      }
-      if (AI_TOOL_IDS.has(node.toolId)) {
-        initAgentSession(result.sessionId, node.toolId as AgentType)
-      }
-    } else {
-      const options: {
-        workspaceName?: string
-        branch?: string
-        resumeSessionId?: string
-        profileId?: string
-      } = {}
-      if (AI_TOOL_IDS.has(node.toolId)) {
-        const project = getProjectForWorktree(worktreePath)
-        options.workspaceName = project?.workspace.name ?? workspaceState.workspace?.name ?? ''
-        options.branch = workspaceState.branch ?? undefined
-        options.resumeSessionId = node.agentSessionId ?? node.claudeSessionId
-        if (node.profileId) options.profileId = node.profileId
-      }
-      const result = await window.api.tabSpawnPane(node.toolId, worktreePath, options)
-      const restoredProfile = node.profileId ? getProfileById(node.profileId) : undefined
-      pane = {
-        id: paneId,
-        sessionId: result.sessionId,
-        wsUrl: result.wsUrl,
-        toolId: node.toolId,
-        toolName: result.toolName,
-        isRunning: true,
-        exitCode: null,
-        title: null,
-        tmuxSessionName: result.tmuxSessionName,
-        profileId: node.profileId,
-        profileName: restoredProfile?.name,
-      }
-      if (AI_TOOL_IDS.has(node.toolId)) {
-        initAgentSession(result.sessionId, node.toolId as AgentType)
-      }
-    }
-    return createLeaf(pane)
-  }
-
-  const [first, second] = await Promise.all([
-    restoreSplitNode(node.first, worktreePath),
-    restoreSplitNode(node.second, worktreePath),
-  ])
-  return {
-    type: node.type,
-    id: `split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    first,
-    second,
-    ratio: node.ratio,
+    window.api.tabSaveCurrentLayout(path).catch(() => {
+      // Ignore save errors silently
+    })
   }
 }
 
 export async function restoreLayout(worktreePath: string, layoutJson: string): Promise<boolean> {
-  let layout: SerializedLayout
-  try {
-    layout = JSON.parse(layoutJson)
-  } catch {
-    return false
-  }
+  const project = getProjectForWorktree(worktreePath)
+  const result = await window.api.tabRestoreLayout(worktreePath, layoutJson, {
+    workspaceName: project?.workspace.name ?? workspaceState.workspace?.name ?? '',
+    branch: workspaceState.branch ?? undefined,
+  })
+  if (!result.restored) return false
 
-  if (!layout.tabs || layout.tabs.length === 0) return false
-
-  const activeIdx = Math.min(Math.max(0, layout.activeTabIndex), layout.tabs.length - 1)
-  const restoredTabs: TabInfo[] = []
-
-  for (let i = 0; i < layout.tabs.length; i++) {
-    const serializedTab = layout.tabs[i]
-
-    if (i === activeIdx) {
-      // Fully restore the active tab
-      try {
-        const rootSplit = await restoreSplitNode(serializedTab.rootSplit, worktreePath)
-        const id = nextTabId()
-        const name = computeDisplayName(serializedTab.toolName, worktreePath, serializedTab.toolId)
-        const firstPane = firstLeaf(rootSplit)
-
-        restoredTabs.push({
-          id,
-          toolId: serializedTab.toolId,
-          toolName: serializedTab.toolName,
-          name,
-          worktreePath,
-          rootSplit,
-          focusedPaneId: firstPane.id,
-        })
-      } catch {
-        // Active tab failed; create as suspended instead
-        const id = nextTabId()
-        const name = computeDisplayName(serializedTab.toolName, worktreePath, serializedTab.toolId)
-        const placeholderPaneId = nextPaneId()
-        restoredTabs.push({
-          id,
-          toolId: serializedTab.toolId,
-          toolName: serializedTab.toolName,
-          name,
-          worktreePath,
-          rootSplit: createLeaf({
-            id: placeholderPaneId,
-            sessionId: '',
-            wsUrl: '',
-            toolId: serializedTab.toolId,
-            toolName: serializedTab.toolName,
-            isRunning: false,
-            exitCode: null,
-            title: null,
-          }),
-          focusedPaneId: placeholderPaneId,
-          suspended: serializedTab.rootSplit,
-        })
-      }
-    } else {
-      // Create suspended tab with placeholder
-      const id = nextTabId()
-      const name = computeDisplayName(serializedTab.toolName, worktreePath, serializedTab.toolId)
-      const placeholderPaneId = nextPaneId()
-      restoredTabs.push({
-        id,
-        toolId: serializedTab.toolId,
-        toolName: serializedTab.toolName,
-        name,
-        worktreePath,
-        rootSplit: createLeaf({
-          id: placeholderPaneId,
-          sessionId: '',
-          wsUrl: '',
-          toolId: serializedTab.toolId,
-          toolName: serializedTab.toolName,
-          isRunning: false,
-          exitCode: null,
-          title: null,
-        }),
-        focusedPaneId: placeholderPaneId,
-        suspended: serializedTab.rootSplit,
-      })
-    }
-  }
-
-  if (restoredTabs.length === 0) return false
-
-  tabsByWorktree[worktreePath] = restoredTabs
-
-  // Prefer a non-suspended tab as active; fall back to first tab
-  const activeTab = restoredTabs.find((t) => !t.suspended) ?? restoredTabs[0]
-  activeTabId[worktreePath] = activeTab.id
-
+  applyTabCommandResult(result)
   return true
 }

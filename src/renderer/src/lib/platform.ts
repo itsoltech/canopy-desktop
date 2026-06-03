@@ -1,5 +1,10 @@
 import { match } from 'ts-pattern'
 
+export function isMacPlatform(): boolean {
+  if (window.api.platform === 'darwin') return true
+  return /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+}
+
 /** Platform-aware label for the native file manager action. */
 export function fileManagerLabel(): string {
   return match(window.api.platform)

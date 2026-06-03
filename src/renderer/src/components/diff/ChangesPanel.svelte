@@ -27,7 +27,7 @@
   async function refresh(): Promise<void> {
     loading = true
     try {
-      diff = await window.api.gitDiff(worktreePath)
+      diff = await window.api.changesGetDiff({ worktreePath })
     } catch {
       diff = null
     } finally {
@@ -130,7 +130,7 @@
   async function handleStage(e: Event, path: string): Promise<void> {
     e.stopPropagation()
     try {
-      await window.api.gitStageFile(worktreePath, path)
+      await window.api.changesStageFile({ worktreePath, filePath: path })
       await refresh()
     } catch (err) {
       console.error('Failed to stage file:', err)
@@ -147,7 +147,7 @@
     })
     if (!ok) return
     try {
-      await window.api.gitRevertFile(worktreePath, path)
+      await window.api.changesRevertFile({ worktreePath, filePath: path })
       await refresh()
     } catch (err) {
       console.error('Failed to revert file:', err)

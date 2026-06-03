@@ -70,26 +70,14 @@ function createFileTreeStore() {
   const gitChangedDirs = new SvelteSet<string>()
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
-  function recomputeChangedDirs(): void {
-    gitChangedDirs.clear()
-    for (const filePath of gitFileStatus.keys()) {
-      const segments = filePath.split('/')
-      let dir = ''
-      for (let i = 0; i < segments.length - 1; i++) {
-        dir = dir === '' ? segments[i] : `${dir}/${segments[i]}`
-        gitChangedDirs.add(dir)
-      }
-    }
-  }
-
   async function expandDir(dirPath: string): Promise<void> {
     try {
-      const entries = await window.api.readDir(dirPath)
+      const entries = await window.api.fileTreeReadDir(dirPath)
       expandedDirs[dirPath] = entries
     } catch (e) {
       // Show empty rather than leaving in collapsed state
       expandedDirs[dirPath] = []
-      console.warn('readDir failed:', dirPath, e)
+      console.warn('fileTreeReadDir failed:', dirPath, e)
     }
   }
 
@@ -118,33 +106,21 @@ function createFileTreeStore() {
     if (!rootPath) return
     try {
       const previousPaths = [...gitFileStatus.keys()]
-      const porcelain = await window.api.gitStatusPorcelain(repoRoot, rootPath)
-      const nextStatuses: Record<string, string> = {}
+      const nextStatus = await window.api.fileTreeGetGitStatus(repoRoot, rootPath)
       // eslint-disable-next-line svelte/prefer-svelte-reactivity
-      const affectedPaths = new Set<string>()
-
-      const collectPaths = (rawPath: string): void => {
-        for (const part of rawPath.split(' -> ')) {
-          const normalized = part.trim()
-          if (normalized) affectedPaths.add(normalized)
-        }
-      }
+      const affectedPaths = new Set<string>(nextStatus.affectedPaths)
 
       gitFileStatus.clear()
-      for (const line of porcelain.split('\n')) {
-        if (line.length < 4) continue
-        const xy = line.substring(0, 2)
-        const fp = line.substring(3)
-        const status = xy[0] !== ' ' && xy[0] !== '?' ? xy[0] : xy[1]
-        const normalizedStatus = status === '?' ? '?' : status
-        nextStatuses[fp] = normalizedStatus
-        gitFileStatus.set(fp, normalizedStatus)
-        collectPaths(fp)
+      for (const [filePath, status] of Object.entries(nextStatus.statuses)) {
+        gitFileStatus.set(filePath, status)
       }
-      recomputeChangedDirs()
+      gitChangedDirs.clear()
+      for (const dir of nextStatus.changedDirs) {
+        gitChangedDirs.add(dir)
+      }
 
       for (const prevPath of previousPaths) {
-        if (!(prevPath in nextStatuses)) {
+        if (!(prevPath in nextStatus.statuses)) {
           affectedPaths.add(prevPath)
         }
       }

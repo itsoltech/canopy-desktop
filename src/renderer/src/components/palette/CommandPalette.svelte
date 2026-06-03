@@ -21,9 +21,11 @@
     openTool,
     switchTab,
     getAllTabs,
+    getTabsForWorktree,
     getTabDisplayName,
     reopenClosedTab,
     splitFocusedPane,
+    closeAllTabsForWorktree,
   } from '../../lib/stores/tabs.svelte'
   import {
     confirm,
@@ -73,6 +75,10 @@
     Tabs: PanelLeft,
     App: Sliders,
     Terminal,
+  }
+
+  async function closeAllOpenTabsForWorktree(path: string): Promise<void> {
+    await closeAllTabsForWorktree(path)
   }
 
   let allItems = $derived.by((): PaletteItem[] => {
@@ -192,6 +198,8 @@
     })
 
     if (path) {
+      const currentWorktreeTabs = getTabsForWorktree(path)
+
       items.push({
         id: 'app:new-shell',
         label: 'New Shell Tab',
@@ -223,6 +231,18 @@
         shortcut: `${mod}+Shift+T`,
         action: () => reopenClosedTab(path),
       })
+
+      if (currentWorktreeTabs.length > 0) {
+        items.push({
+          id: 'app:close-worktree-tabs',
+          label: 'Close All Tabs in Worktree',
+          category: 'App',
+          description: `Close ${currentWorktreeTabs.length} open tab${
+            currentWorktreeTabs.length === 1 ? '' : 's'
+          } in the active worktree`,
+          action: () => closeAllOpenTabsForWorktree(path),
+        })
+      }
 
       items.push({
         id: 'app:split-vertical',
@@ -259,7 +279,11 @@
           })
           if (!result) return
           try {
-            await window.api.gitCommit(root, result.value, result.checked)
+            await window.api.gitCommitWorktree({
+              repoRoot: root,
+              message: result.value,
+              stageAll: result.checked,
+            })
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -276,23 +300,13 @@
         category: 'Git',
         action: async () => {
           try {
-            const info = await window.api.gitPushInfo(root)
-            if (!info) {
-              const ok = await confirm({
-                title: 'Push',
-                message: 'No upstream branch — push and set tracking to origin?',
-              })
-              if (ok) {
-                await window.api.gitPush(root)
-              }
-              return
-            }
+            const preflight = await window.api.gitPreparePush({ repoRoot: root })
             const ok = await confirm({
               title: 'Push',
-              message: `Push ${info.commitCount} commit(s) to ${info.remote}/${info.branch}?`,
+              message: preflight.confirmationMessage,
             })
             if (ok) {
-              await window.api.gitPush(root)
+              await window.api.gitPushWorktree({ repoRoot: root })
             }
           } catch (err) {
             await confirm({
@@ -310,8 +324,7 @@
         category: 'Git',
         action: async () => {
           try {
-            const rebase = (await window.api.getPref('gitPullRebase')) !== 'false'
-            await window.api.gitPull(root, rebase)
+            await window.api.gitPullWithPreferences({ repoRoot: root })
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -328,7 +341,7 @@
         category: 'Git',
         action: async () => {
           try {
-            await window.api.gitFetch(root)
+            await window.api.gitFetchWorktree({ repoRoot: root })
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -345,7 +358,7 @@
         category: 'Git',
         action: async () => {
           try {
-            await window.api.gitStash(root)
+            await window.api.gitStashWorktree({ repoRoot: root })
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -362,7 +375,7 @@
         category: 'Git',
         action: async () => {
           try {
-            await window.api.gitStashPop(root)
+            await window.api.gitStashPopWorktree({ repoRoot: root })
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -392,7 +405,7 @@
           })
           if (!result) return
           try {
-            await window.api.gitBranchCreate(root, result.value, 'HEAD')
+            await window.api.gitBranchCreateFromHead({ repoRoot: root, branch: result.value })
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -415,8 +428,11 @@
           })
           if (!result) return
           try {
-            const merged = await window.api.gitBranchMerged(root, result.value)
-            if (!merged) {
+            const preflight = await window.api.gitBranchPrepareDelete({
+              repoRoot: root,
+              branch: result.value,
+            })
+            if (preflight.forceRequired) {
               const force = await confirm({
                 title: 'Delete Unmerged Branch',
                 message: `Branch "${result.value}" has not been fully merged.\nForce delete?`,
@@ -424,10 +440,12 @@
                 destructive: true,
               })
               if (!force) return
-              await window.api.gitBranchDelete(root, result.value, true)
-            } else {
-              await window.api.gitBranchDelete(root, result.value, false)
             }
+            await window.api.gitBranchDeleteWithPreflight({
+              repoRoot: root,
+              branch: result.value,
+              forceIfUnmerged: preflight.forceRequired,
+            })
           } catch (err) {
             await confirm({
               title: 'Git Error',
@@ -457,17 +475,15 @@
             const wtPath = selectedWt.path
             const branch = selectedWt.branch
             try {
-              const status = await window.api.gitStatusPorcelain(root, wtPath)
-              const unmerged = await window.api.gitUnmergedCommits(root, branch)
-
-              const warnings: string[] = []
-              if (status.trim()) warnings.push('Has uncommitted changes.')
-              if (unmerged.length > 0)
-                warnings.push(`${unmerged.length} unmerged commit(s) not on any remote.`)
+              const preflight = await window.api.worktreePrepareRemove({
+                repoRoot: root,
+                worktreePath: wtPath,
+                branch,
+              })
 
               const msg =
-                warnings.length > 0
-                  ? warnings.join('\n') + '\n\nRemove this worktree?'
+                preflight.warnings.length > 0
+                  ? preflight.warnings.join('\n') + '\n\nRemove this worktree?'
                   : `Remove worktree "${branch}"?`
 
               const ok = await confirm({
@@ -475,23 +491,26 @@
                 message: msg,
                 details: wtPath,
                 confirmLabel: 'Remove',
-                destructive: warnings.length > 0,
+                destructive: preflight.forceRequired,
               })
               if (!ok) return
 
-              await window.api.gitWorktreeRemove(root, wtPath, warnings.length > 0)
-
-              const branchMerged = await window.api.gitBranchMerged(root, branch)
-              if (branchMerged) {
-                const del = await confirm({
+              let deleteBranch = false
+              if (preflight.canDeleteBranch) {
+                deleteBranch = await confirm({
                   title: 'Delete Branch?',
                   message: `Delete local branch "${branch}"? It has been fully merged.`,
                   confirmLabel: 'Delete Branch',
                 })
-                if (del) {
-                  await window.api.gitBranchDelete(root, branch, false)
-                }
               }
+
+              await window.api.worktreeRemoveWithBranch({
+                repoRoot: root,
+                worktreePath: wtPath,
+                branch,
+                deleteBranch,
+                forceOnFailure: preflight.forceRequired,
+              })
             } catch (err) {
               await confirm({
                 title: 'Git Error',

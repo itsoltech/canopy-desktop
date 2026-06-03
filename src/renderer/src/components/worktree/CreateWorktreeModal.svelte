@@ -77,7 +77,7 @@
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
     try {
-      const list = await window.api.gitBranches(repoRoot)
+      const list = await window.api.worktreeListBranches({ repoRoot })
       branches = { local: list.local, remote: list.remote }
       if (baseBranchProp) {
         selectedBase = baseBranchProp
@@ -92,8 +92,7 @@
   async function refreshBranches(): Promise<void> {
     refreshing = true
     try {
-      await window.api.gitFetchAll(repoRoot)
-      const list = await window.api.gitBranches(repoRoot)
+      const list = await window.api.worktreeRefreshBranches({ repoRoot })
       branches = { local: list.local, remote: list.remote }
     } catch {
       // fetch failed — keep existing branch list
@@ -175,8 +174,14 @@
     if (!newBranchName || branchNameError || !selectedBase) return
     step = 'creating'
     try {
-      await window.api.gitWorktreeAdd(repoRoot, worktreeDir, newBranchName, selectedBase)
-      createdPath = worktreeDirDisplay
+      const created = await window.api.worktreeCreate({
+        repoRoot,
+        worktreePath: worktreeDir,
+        mode: 'new',
+        branch: newBranchName,
+        baseBranch: selectedBase,
+      })
+      createdPath = created.worktreePath
 
       if (hasSetupConfig() && workspaceId) {
         step = 'setup'
@@ -195,8 +200,14 @@
     step = 'creating'
     try {
       const createLocalTracking = isRemoteOnly(selectedBase, branches)
-      await window.api.gitWorktreeCheckout(repoRoot, worktreeDir, selectedBase, createLocalTracking)
-      createdPath = worktreeDirDisplay
+      const created = await window.api.worktreeCreate({
+        repoRoot,
+        worktreePath: worktreeDir,
+        mode: 'existing',
+        branch: selectedBase,
+        createLocalTracking,
+      })
+      createdPath = created.worktreePath
 
       if (hasSetupConfig() && workspaceId) {
         step = 'setup'
@@ -224,7 +235,7 @@
     })
 
     try {
-      await window.api.runWorktreeSetup(workspaceId!, repoRoot, worktreeDirDisplay)
+      await window.api.runWorktreeSetup(workspaceId!, repoRoot, createdPath || worktreeDirDisplay)
     } catch (err) {
       setupErrors = [...setupErrors, err instanceof Error ? err.message : String(err)]
     }
@@ -241,10 +252,11 @@
     finishTimer = setTimeout(
       async () => {
         finishTimer = null
-        await openTool(getPref('newWorktree.toolId', 'shell'), worktreeDirDisplay).catch((err) => {
+        const targetPath = createdPath || worktreeDirDisplay
+        await openTool(getPref('newWorktree.toolId', 'shell'), targetPath).catch((err) => {
           console.error('Failed to launch tool after worktree creation:', err)
         })
-        selectWorktree(worktreeDirDisplay)
+        selectWorktree(targetPath)
         onClose()
       },
       setupErrors.length > 0 ? 2000 : 400,

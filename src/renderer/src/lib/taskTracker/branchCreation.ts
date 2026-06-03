@@ -9,14 +9,11 @@ export async function createBranchFromTask(
   const currentBranch = workspaceState.branch
   if (!repoRoot || !currentBranch) return false
 
-  // Resolve branch name from template
-  const branchName = await window.api.taskTrackerResolveBranchName(
+  const { branchName } = await window.api.taskTrackerPrepareBranchFromTask({
     connectionId,
     task,
-    undefined,
-    undefined,
     repoRoot,
-  )
+  })
 
   // Confirm with user
   const confirmed = await confirm({
@@ -27,30 +24,24 @@ export async function createBranchFromTask(
   })
   if (!confirmed) return false
 
-  // Check dirty state
-  if (workspaceState.isDirty) {
+  const stashBeforeCreate = workspaceState.isDirty
+  if (stashBeforeCreate) {
     const stash = await confirm({
       title: 'Uncommitted Changes',
       message: 'You have uncommitted changes. Stash them before switching?',
       confirmLabel: 'Stash & Continue',
     })
     if (!stash) return false
-
-    try {
-      await window.api.gitStash(repoRoot)
-    } catch (e) {
-      await confirm({
-        title: 'Stash Failed',
-        message: e instanceof Error ? e.message : 'Failed to stash changes',
-        confirmLabel: 'OK',
-      })
-      return false
-    }
   }
 
-  // Create and checkout branch
   try {
-    await window.api.gitBranchCreate(repoRoot, branchName, currentBranch)
+    await window.api.taskTrackerCreateBranchFromTask({
+      connectionId,
+      task,
+      repoRoot,
+      baseBranch: currentBranch,
+      stashBeforeCreate,
+    })
   } catch (e) {
     await confirm({
       title: 'Branch Creation Failed',
