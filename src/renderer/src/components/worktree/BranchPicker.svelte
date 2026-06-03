@@ -110,18 +110,23 @@
     spellcheck="false"
     autocomplete="off"
   />
-  <div class="mt-2 max-h-[260px] overflow-y-auto border border-border-subtle rounded-lg">
+  <div
+    class="mt-2 max-h-[260px] overflow-y-auto border border-border-subtle rounded-lg"
+    role="listbox"
+    aria-label="Branches"
+  >
     {#if filteredBranches.length === 0}
       <div class="px-2.5 py-4 text-center text-md text-text-faint">No branches found</div>
     {:else}
       {#each filteredBranches as branch, i (branch)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           class="flex items-baseline px-2.5 py-1.5 text-md text-text cursor-pointer transition-colors duration-fast hover:bg-active"
           class:!bg-active={i === selectedIdx}
           class:!bg-accent-bg={highlightPicked && selectedBranch === branch}
           class:!text-accent-text={highlightPicked && selectedBranch === branch}
+          role="option"
+          aria-selected={i === selectedIdx}
           data-branch-selected={i === selectedIdx}
           onclick={() => pick(branch)}
           onpointerenter={() => (selectedIdx = i)}

@@ -1319,6 +1319,9 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<voi
   }
   delete tabsByWorktree[worktreePath]
   delete activeTabId[worktreePath]
+  // Reclaim the reopen-stack for this worktree too — otherwise the key
+  // lingers for the renderer's lifetime once its tabs are gone.
+  delete closedTabs[worktreePath]
 
   const wsId = getProjectForWorktree(worktreePath)?.workspace.id
   if (wsId) {
@@ -1341,6 +1344,9 @@ export async function killAllTabs(): Promise<void> {
   for (const path of Object.keys(tabsByWorktree)) {
     delete tabsByWorktree[path]
     delete activeTabId[path]
+  }
+  for (const path of Object.keys(closedTabs)) {
+    delete closedTabs[path]
   }
 }
 

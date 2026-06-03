@@ -33,7 +33,7 @@
   let maxInstances = $state(0)
   let preRun = $state('')
   let postRun = $state('')
-  let envPairs = $state<{ key: string; value: string }[]>([])
+  let envPairs = $state<{ id: string; key: string; value: string }[]>([])
 
   export function loadConfig(c: ConfigEntry): void {
     name = c.name
@@ -43,7 +43,11 @@
     maxInstances = c.max_instances ?? 0
     preRun = c.pre_run ?? ''
     postRun = c.post_run ?? ''
-    envPairs = Object.entries(c.env ?? {}).map(([key, value]) => ({ key, value }))
+    envPairs = Object.entries(c.env ?? {}).map(([key, value]) => ({
+      id: crypto.randomUUID(),
+      key,
+      value,
+    }))
   }
 
   export function resetForm(): void {
@@ -75,7 +79,7 @@
   })
 
   function addEnvPair(): void {
-    envPairs = [...envPairs, { key: '', value: '' }]
+    envPairs = [...envPairs, { id: crypto.randomUUID(), key: '', value: '' }]
   }
 
   function removeEnvPair(index: number): void {
@@ -170,7 +174,7 @@
     </button>
   </div>
 
-  {#each envPairs as pair, i (i)}
+  {#each envPairs as pair, i (pair.id)}
     <div class="flex items-center gap-1">
       <input type="text" bind:value={pair.key} placeholder="KEY" class="flex-1 {envInputCls}" />
       <span class="text-text-muted text-sm">=</span>

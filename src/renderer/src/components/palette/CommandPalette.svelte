@@ -656,7 +656,7 @@
       />
     </div>
 
-    <div class="overflow-y-auto flex-1 py-1.5">
+    <div class="overflow-y-auto flex-1 py-1.5" role="listbox" aria-label="Results">
       {#if flatItems.length === 0}
         <div class="px-3 py-5 text-center text-text-faint text-md">No results</div>
       {:else}
@@ -673,13 +673,15 @@
               {@const isSelected = flatIndex(gi, ii) === selectedIndex}
               {@const isShortDesc = !!item.description && item.description.length <= 24}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="flex items-center gap-2 h-8 px-3 cursor-pointer text-md text-text transition-colors duration-fast"
                 class:bg-accent-bg={isSelected}
                 class:text-accent-text={isSelected}
                 class:opacity-50={item.disabled}
                 class:cursor-default={item.disabled}
+                role="option"
+                aria-selected={isSelected}
+                aria-disabled={item.disabled}
                 data-palette-selected={isSelected}
                 onclick={() => {
                   if (!item.disabled) {

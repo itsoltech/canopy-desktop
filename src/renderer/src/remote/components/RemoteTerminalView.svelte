@@ -275,6 +275,12 @@
       console.warn('[remote-terminal] getDimensions failed, using fallback:', e)
     }
 
+    // If the component was destroyed during the await above, onDestroy has
+    // already run (aborting this signal) — bail before creating the terminal
+    // and registering subscriptions, otherwise they'd never be torn down and
+    // the host would keep forwarding pty.data for an orphaned view.
+    if (lifecycleSignal.aborted) return
+
     const { fontSize, lineHeight } = resolveMobileFontSize()
     const isCoarsePointer =
       typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches

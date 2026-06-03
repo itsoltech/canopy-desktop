@@ -86,6 +86,12 @@ export class StateApplier {
         if (!Array.isArray(data)) return
         mirrorState.tools = data as ToolSnapshot[]
       })
+      // The host emits `profiles` deltas (on attach and every rebroadcast),
+      // but the peer mirror has no profiles field, so this is a deliberate
+      // no-op. It must still be an explicit branch — `.exhaustive()` throws
+      // NonExhaustiveError at runtime for any unhandled topic, which would
+      // otherwise fire on every write action the host performs.
+      .with('profiles', () => {})
       .exhaustive()
   }
 }

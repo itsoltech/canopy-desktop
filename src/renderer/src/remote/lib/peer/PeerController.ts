@@ -354,6 +354,13 @@ export class PeerController {
         this.commandsRpc?.dispose()
         this.commandsRpc = null
         this.api = null
+        // Mirror the teardown in dispose(): tearing down the RPC without
+        // disposing the applier leaves stale subscriptions bound to the dead
+        // channel and the host snapshot stuck in `mirrorState` after the peer
+        // disconnects. dispose() resets the mirror on `bye`, but a raw channel
+        // close (connection drop) never reaches it.
+        this.stateApplier?.dispose()
+        this.stateApplier = null
       }
     }
     ch.onerror = (e) => console.warn(`[peer] channel error ${ch.label}`, e)

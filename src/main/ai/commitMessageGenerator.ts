@@ -52,7 +52,10 @@ const OUTPUT_SCHEMA = {
   required: ['subject', 'body'] as const,
 }
 
-function generateCommitMessageInner(diff: string): ResultAsyncType<string | null, AiError> {
+function generateCommitMessageInner(
+  diff: string,
+  envOverrides: Record<string, string>,
+): ResultAsyncType<string | null, AiError> {
   const truncatedDiff = diff.length > MAX_DIFF_LENGTH ? diff.slice(0, MAX_DIFF_LENGTH) : diff
   const prompt = PROMPT_TEMPLATE.replace('{diff}', truncatedDiff)
 
@@ -66,6 +69,12 @@ function generateCommitMessageInner(diff: string): ResultAsyncType<string | null
           model: 'haiku',
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+          // Pass credentials only to the spawned `claude` subprocess. Mutating
+          // the main process's global `process.env` instead would (a) leak the
+          // API key into every other child process spawned during the call
+          // (PTYs, git, `which`) and (b) race with concurrent generations
+          // restoring/deleting each other's keys.
+          env: { ...process.env, ...envOverrides },
         },
       })
 
@@ -119,22 +128,5 @@ export async function generateCommitMessage(
     }
   }
 
-  const savedEnv: Record<string, string | undefined> = {}
-
-  try {
-    for (const [key, val] of Object.entries(envOverrides)) {
-      savedEnv[key] = process.env[key]
-      process.env[key] = val
-    }
-
-    return await generateCommitMessageInner(diff).unwrapOr(null)
-  } finally {
-    for (const [key, val] of Object.entries(savedEnv)) {
-      if (val !== undefined) {
-        process.env[key] = val
-      } else {
-        delete process.env[key]
-      }
-    }
-  }
+  return await generateCommitMessageInner(diff, envOverrides).unwrapOr(null)
 }
