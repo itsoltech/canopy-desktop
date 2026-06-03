@@ -161,8 +161,12 @@ export async function setActiveTask(worktreePath: string, task: ActiveTaskContex
   await setPref(`activeTask.${worktreePath}`, JSON.stringify(task))
 }
 
-export async function loadActiveTask(worktreePath: string): Promise<void> {
+export async function loadActiveTask(
+  worktreePath: string,
+  options: { shouldApply?: () => boolean } = {},
+): Promise<void> {
   const raw = await window.api.getPref(`activeTask.${worktreePath}`)
+  if (options.shouldApply && !options.shouldApply()) return
   if (raw) {
     try {
       activeTask = JSON.parse(raw) as ActiveTaskContext

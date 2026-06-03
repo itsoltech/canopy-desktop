@@ -21,10 +21,17 @@ IPC handlers validate input from the renderer (the renderer is untrusted). Write
 Renderer code should prefer main-owned command IPC for domain mutations. Low-level IPC primitives
 are reserved for UI-native operations or command-service internals; renderer stores should not
 compose privileged primitives into workspace, session, layout, agent, or run-config workflows.
-Layout persistence uses main-owned save/delete commands that derive workspace identity from the
-sender's attached workspace state. Full saved-layout interpretation is still renderer-assisted:
-the renderer parses the persisted split tree and requests main-owned pane/tmux commands for each
-session. Moving full layout hydration into main is a follow-up boundary-tightening step.
+
+The main process owns workspace and tab domain state for each window. Renderer stores mirror the
+latest `AppStateSnapshot` from `app:getState` and `app:stateChanged`, then keep only UI-ephemeral
+state locally (dialog state, transient editor jumps, browser/drawing UI state). Tab mutations go
+through `tab:command:*` handlers, which validate sender ownership, mutate main-owned state, and
+return a `TabCommandResult` snapshot for the affected worktree.
+
+Startup restore is coordinated by `app:getStartupRestoreState` and `app:completeStartupRestore`.
+If a window has a pending restore snapshot, the renderer shows the restore placeholder instead of
+the dashboard until main-owned layout hydration finishes. The dashboard is the fallback only when
+there is no restorable workspace/window state.
 
 ## Error handling
 
@@ -59,7 +66,10 @@ Renderer state uses Svelte 5 runes in `.svelte.ts` store files under `src/render
 - `$derived` for computed values
 - `$effect` for side effects (must return cleanup functions when registering listeners or timers)
 
-Main process state is mostly stateless per-request, except for long-lived managers (PTY sessions, Git watchers, file watchers, remote sessions) that maintain in-memory maps of active resources.
+Main process state includes per-window workspace/tab snapshots plus long-lived managers (PTY
+sessions, Git watchers, file watchers, remote sessions) that maintain in-memory maps of active
+resources. Window snapshots are saved on close/quit and restored with their original project-to-
+window grouping so multiple projects that lived in one window reopen in that same window.
 
 ## Data storage
 

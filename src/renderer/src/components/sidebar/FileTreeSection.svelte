@@ -186,9 +186,9 @@
 
     try {
       if (isFolder) {
-        await window.api.mkdir(target)
+        await window.api.fileTreeCreateDirectory(target)
       } else {
-        await window.api.createFile(target)
+        await window.api.fileTreeCreateFile(target)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

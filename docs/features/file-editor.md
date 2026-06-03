@@ -157,14 +157,18 @@ A pane with zero files after a merge/detach is not restored.
 
 ## IPC surface
 
-| Handler                        | Purpose                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------------------- |
-| `fs:readFile`                  | Bounded read (up to 10 MB hard cap), binary detection, truncation flag.               |
-| `fs:writeFile`                 | Writes UTF-8, optionally gated by `expectedMtimeMs` to detect stale saves.            |
-| `fs:stat`                      | Returns `{ mtimeMs, size, canWrite }`.                                                |
-| `fs:createFile`                | Creates an empty file (`wx` flag), creating parent dirs as needed. Used by file tree. |
-| `fs:mkdir`                     | Recursively creates a directory. Used by file tree.                                   |
-| `dialog:confirmUnsavedChanges` | Native 3-way dialog (Save / Don't Save / Cancel) used by `closeTab`.                  |
+| Handler                        | Purpose                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `fs:readFile`                  | Bounded read (up to 10 MB hard cap), binary detection, truncation flag.                    |
+| `fs:writeFile`                 | Writes UTF-8, optionally gated by `expectedMtimeMs` to detect stale saves.                 |
+| `fs:stat`                      | Returns `{ mtimeMs, size, canWrite }`.                                                     |
+| `fs:createFile`                | Creates an empty file (`wx` flag), creating parent dirs as needed. Used by file tree.      |
+| `fs:mkdir`                     | Recursively creates a directory. Used by file tree.                                        |
+| `dialog:confirmUnsavedChanges` | Native 3-way dialog (Save / Don't Save / Cancel) used by tab and worktree close preflight. |
+
+Tab close and close-all worktree flows use main-owned `tab:command:prepareCloseTab` before
+destroying panes. Dirty files are saved through the same validated write path as manual saves.
+If any save fails, the close is cancelled and no PTY/browser/editor cleanup runs.
 
 Read/write/stat handlers validate `filePath` through `validatePathAccess`,
 which calls `fs.realpath` on the target and rejects anything outside the

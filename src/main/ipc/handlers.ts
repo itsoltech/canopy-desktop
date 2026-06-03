@@ -6,6 +6,7 @@ import {
   BrowserWindow,
   systemPreferences,
   type IpcMainInvokeEvent,
+  type WebContents,
 } from 'electron'
 import os from 'os'
 import fs from 'fs'
@@ -72,6 +73,11 @@ import {
   BRANCH_TYPE_OPTIONS,
 } from '../taskTracker/branchTemplate'
 import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
+import {
+  formatTaskContext,
+  type TaskAttachmentPath,
+  type TaskContextInput,
+} from '../taskTracker/taskContext'
 import { getBranchTemplate, getPRTemplate } from '../taskTracker/configDefaults'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
@@ -99,6 +105,7 @@ import { WorkspaceCommandService } from '../commands/workspaceCommands'
 import { TabCommandService, ToolSessionService } from '../commands/tabCommands'
 import { AgentCommandService } from '../commands/agentCommands'
 import { RunConfigCommandService } from '../commands/runConfigCommands'
+import type { AppStateSnapshot, EditorFileReadResult } from '../commands/types'
 
 // Session-level flag: once the user has successfully authenticated to reveal
 // a saved credential in the current app session, subsequent autofills reuse
@@ -115,6 +122,129 @@ let credentialSessionAuthenticated = false
 // this cache; 'reveal' always fetches fresh. Cleared on any save/delete/import
 // so stale plaintext is never returned, and on app quit.
 const credentialSessionCache = new Map<string, Credential>()
+
+interface TaskTrackerBranchFromTaskPayload {
+  connectionId: string
+  task: TrackerTask
+  boardId?: string
+  branchType?: string
+  repoRoot?: string
+}
+
+interface TaskTrackerCreateBranchFromTaskPayload extends TaskTrackerBranchFromTaskPayload {
+  repoRoot: string
+  baseBranch: string
+  stashBeforeCreate?: boolean
+}
+
+interface TaskTrackerCreateWorktreeFromTaskPayload extends TaskTrackerBranchFromTaskPayload {
+  repoRoot: string
+  worktreePath: string
+  baseBranch: string
+}
+
+interface TaskTrackerBuildTaskContextPayload {
+  connectionId: string
+  task: TaskContextInput
+  repoRoot?: string
+  trackerId?: string
+}
+
+interface WorktreeRemoveWithBranchPayload {
+  repoRoot: string
+  worktreePath: string
+  branch?: string
+  deleteBranch?: boolean
+  forceOnFailure?: boolean
+}
+
+interface WorktreePrepareRemovePayload {
+  repoRoot: string
+  worktreePath: string
+  branch: string
+}
+
+interface WorktreePrepareRemoveResult {
+  hasUncommittedChanges: boolean
+  unmergedCommitCount: number
+  branchMerged: boolean
+  forceRequired: boolean
+  canDeleteBranch: boolean
+  warnings: string[]
+}
+
+interface WorktreeGetMergedBranchesPayload {
+  repoRoot: string
+  branches: string[]
+}
+
+interface WorktreeGetMergedBranchesResult {
+  mergedBranches: string[]
+}
+
+interface GitBranchPrepareDeletePayload {
+  repoRoot: string
+  branch: string
+}
+
+interface GitBranchPrepareDeleteResult {
+  branchMerged: boolean
+  forceRequired: boolean
+  warnings: string[]
+}
+
+interface GitBranchDeleteWithPreflightPayload {
+  repoRoot: string
+  branch: string
+  forceIfUnmerged?: boolean
+}
+
+interface GitBranchDeleteWithPreflightResult {
+  branchDeleted: boolean
+  forcedBranchDelete: boolean
+  branchMerged: boolean
+}
+
+type GitPreparePushResult =
+  | {
+      hasUpstream: false
+      confirmationMessage: string
+    }
+  | {
+      hasUpstream: true
+      branch: string
+      remote: string
+      commitCount: number
+      confirmationMessage: string
+    }
+
+type WorktreeCreatePayload =
+  | {
+      repoRoot: string
+      worktreePath: string
+      mode: 'new'
+      branch: string
+      baseBranch: string
+    }
+  | {
+      repoRoot: string
+      worktreePath: string
+      mode: 'existing'
+      branch: string
+      createLocalTracking?: boolean
+    }
+
+interface WorktreeCreateResult {
+  branch: string
+  worktreePath: string
+}
+
+interface WorktreeRemoveWithBranchResult {
+  worktreeRemoved: boolean
+  branchDeleted: boolean
+  forcedWorktreeRemove: boolean
+  forcedBranchDelete: boolean
+}
 
 // Dedupe concurrent first-use OS auth prompts for the autofill path. When two
 // autofill requests race past `credentialSessionAuthenticated === false` at
@@ -218,6 +348,146 @@ export function registerIpcHandlers(
     }
   }
 
+  function getAppStateSnapshot(webContentsId: number): AppStateSnapshot {
+    return {
+      workspace: workspaceCommandService.getSnapshot(webContentsId),
+      tabs: tabCommandService.getSnapshot(webContentsId),
+    }
+  }
+
+  function emitAppStateChanged(sender: WebContents): void {
+    if (sender.isDestroyed()) return
+    sender.send('app:stateChanged', getAppStateSnapshot(sender.id))
+  }
+
+  async function confirmUnsavedChangesDialog(
+    sender: WebContents,
+    filePaths: string[],
+  ): Promise<'save' | 'discard' | 'cancel'> {
+    const win = BrowserWindow.fromWebContents(sender) ?? BrowserWindow.getFocusedWindow()
+    if (!win) return 'cancel'
+    const fileList =
+      filePaths.length === 1 ? path.basename(filePaths[0]) : `${filePaths.length} files`
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: ['Save', "Don't Save", 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      title: 'Unsaved changes',
+      message: `You have unsaved changes in ${fileList}`,
+      detail: 'Do you want to save them before closing?',
+    })
+    return match(response)
+      .with(0, () => 'save' as const)
+      .with(1, () => 'discard' as const)
+      .otherwise(() => 'cancel' as const)
+  }
+
+  async function writeTextFileWithExpectedMtime(
+    webContentsId: number,
+    filePath: string,
+    content: string,
+    expectedMtimeMs?: number,
+  ): Promise<FsWriteFileResponse> {
+    const resolved = await validatePathAccess(webContentsId, filePath)
+    // Structured response instead of a thrown Error — keeps the typed
+    // `_tag` discriminant intact across IPC so the renderer branches on
+    // `result.tag` instead of string-matching a flattened message.
+    if (expectedMtimeMs !== undefined) {
+      const statResult = await fromExternalCall(fs.promises.stat(resolved), errorMessage)
+      if (statResult.isErr()) return { ok: false, tag: 'StatFailed', message: statResult.error }
+      const actualMtimeMs = statResult.value.mtimeMs
+      if (Math.abs(actualMtimeMs - expectedMtimeMs) > 1) {
+        return { ok: false, tag: 'StaleWrite', actualMtimeMs }
+      }
+    }
+    const writeResult = await fromExternalCall(
+      fs.promises.writeFile(resolved, content, 'utf-8'),
+      errorMessage,
+    )
+    if (writeResult.isErr()) {
+      return { ok: false, tag: 'WriteFailed', message: writeResult.error }
+    }
+    const finalStat = await fromExternalCall(fs.promises.stat(resolved), errorMessage)
+    if (finalStat.isErr()) return { ok: false, tag: 'StatFailed', message: finalStat.error }
+    return { ok: true, mtimeMs: finalStat.value.mtimeMs, size: finalStat.value.size }
+  }
+
+  async function loadEditorFileFromDisk(
+    webContentsId: number,
+    filePath: string,
+    maxBytes?: number,
+  ): Promise<EditorFileReadResult> {
+    let resolved: string
+    try {
+      resolved = await validatePathAccess(webContentsId, filePath)
+    } catch (e) {
+      return { ok: false, tag: 'ReadFailed', message: errorMessage(e) }
+    }
+
+    const readLimit = Math.min(maxBytes ?? 1_048_576, 10_485_760)
+    let stat: fs.Stats
+    try {
+      stat = fs.statSync(resolved)
+    } catch (e) {
+      return { ok: false, tag: 'StatFailed', message: errorMessage(e) }
+    }
+
+    let canWrite = true
+    try {
+      fs.accessSync(resolved, fs.constants.W_OK)
+    } catch {
+      canWrite = false
+    }
+
+    const readSize = Math.min(stat.size, readLimit)
+    let fd: number
+    try {
+      fd = fs.openSync(resolved, 'r')
+    } catch (e) {
+      return { ok: false, tag: 'ReadFailed', message: errorMessage(e) }
+    }
+
+    try {
+      const buf = Buffer.alloc(readSize)
+      let offset = 0
+      while (offset < readSize) {
+        const bytesRead = fs.readSync(fd, buf, offset, readSize - offset, offset)
+        if (bytesRead === 0) break
+        offset += bytesRead
+      }
+
+      const detectEnd = Math.min(offset, 8192)
+      for (let i = 0; i < detectEnd; i++) {
+        if (buf[i] === 0) {
+          return {
+            ok: true,
+            binary: true,
+            size: stat.size,
+            canWrite,
+            mtimeMs: stat.mtimeMs,
+          }
+        }
+      }
+
+      const content = buf.subarray(0, offset).toString('utf-8')
+      return {
+        ok: true,
+        binary: false,
+        content,
+        truncated: stat.size > readLimit,
+        size: stat.size,
+        canWrite,
+        mtimeMs: stat.mtimeMs,
+        fileLineEnding: content.includes('\r\n') ? 'CRLF' : 'LF',
+      }
+    } catch (e) {
+      return { ok: false, tag: 'ReadFailed', message: errorMessage(e) }
+    } finally {
+      fs.closeSync(fd)
+    }
+  }
+
   const workspaceCommandService = new WorkspaceCommandService({
     workspaceStore,
     layoutStore,
@@ -228,6 +498,7 @@ export function registerIpcHandlers(
     clearWorkspaceFileCache: (workspacePath) => {
       workspaceFileCache.delete(workspacePath)
     },
+    emitAppStateChanged,
   })
   const toolSessionService = new ToolSessionService({
     ptyManager,
@@ -246,8 +517,14 @@ export function registerIpcHandlers(
     layoutStore,
     browserManager,
     windowManager,
+    confirmUnsavedChanges: (sender, filePaths) => confirmUnsavedChangesDialog(sender, filePaths),
+    writeEditorFile: (sender, filePath, content, expectedMtimeMs) =>
+      writeTextFileWithExpectedMtime(sender.id, filePath, content, expectedMtimeMs),
+    loadEditorFile: (sender, filePath, maxBytes) =>
+      loadEditorFileFromDisk(sender.id, filePath, maxBytes),
     resolveWorkspaceIdForWorktree: (webContentsId, worktreePath) =>
       workspaceCommandService.getWorkspaceIdForWorktree(webContentsId, worktreePath),
+    emitAppStateChanged,
   })
   const agentCommandService = new AgentCommandService({
     ptyManager,
@@ -280,8 +557,72 @@ export function registerIpcHandlers(
   ipcMain.handle('workspace:command:initGitRepo', (event, payload: { path: string }) =>
     workspaceCommandService.initGitRepo(event.sender, payload.path),
   )
+  ipcMain.handle('app:getState', (event) => getAppStateSnapshot(event.sender.id))
+  ipcMain.handle('app:getStartupRestoreState', (event) => ({
+    restoring: windowManager.hasStartupRestore(event.sender.id),
+  }))
+  ipcMain.handle('app:completeStartupRestore', (event) => {
+    windowManager.completeStartupRestore(event.sender.id)
+  })
   ipcMain.handle('tab:command:openTool', (event, payload) =>
     tabCommandService.openTool(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:openDiff', (event, payload) =>
+    tabCommandService.openDiffTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:openSessionTab', (event, payload) =>
+    tabCommandService.openSessionTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:openEditorFile', (event, payload) =>
+    tabCommandService.openEditorFile(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:detachEditorFile', (event, payload) =>
+    tabCommandService.detachEditorFile(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:closeEditorFile', (event, payload) =>
+    tabCommandService.closeEditorFile(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:prepareCloseEditorFile', (event, payload) =>
+    tabCommandService.prepareCloseEditorFile(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:moveEditorFile', (event, payload) =>
+    tabCommandService.moveEditorFile(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:moveEditorFileBetweenPanes', (event, payload) =>
+    tabCommandService.moveEditorFileBetweenPanes(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:setActiveEditorFile', (event, payload) =>
+    tabCommandService.setActiveEditorFile(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:updateEditorFileState', (event, payload) =>
+    tabCommandService.updateEditorFileState(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:loadEditorFile', (event, payload) =>
+    tabCommandService.loadEditorFile(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:saveEditorFile', (event, payload) =>
+    tabCommandService.saveEditorFile(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:updatePaneTitle', (event, payload) =>
+    tabCommandService.updatePaneTitle(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:updatePaneUrl', (event, payload) =>
+    tabCommandService.updatePaneUrl(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:updateTmuxSessionName', (event, payload) =>
+    tabCommandService.updateTmuxSessionName(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:handlePtyExit', (event, payload) =>
+    tabCommandService.handlePtyExit(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:killTmuxPane', (event, payload) =>
+    tabCommandService.killTmuxPane(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:reattachTmuxPane', (event, payload) =>
+    tabCommandService.reattachTmuxPane(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:toggleFocusedInspector', (event, payload) =>
+    tabCommandService.toggleFocusedInspector(event.sender, payload),
   )
   ipcMain.handle('tab:command:restartPane', (event, payload) =>
     tabCommandService.restartPane(event.sender, payload),
@@ -289,14 +630,63 @@ export function registerIpcHandlers(
   ipcMain.handle('tab:command:closeTab', (event, payload) =>
     tabCommandService.closeTab(event.sender, payload),
   )
+  ipcMain.handle('tab:command:prepareCloseTab', (event, payload) =>
+    tabCommandService.prepareCloseTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:getCloseWarning', (event, payload) =>
+    tabCommandService.getCloseWarning(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:reopenClosedTab', (event, payload) =>
+    tabCommandService.reopenClosedTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:closePane', (event, payload) =>
+    tabCommandService.closePane(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:closeAllForWorktree', (event, payload) =>
+    tabCommandService.closeAllForWorktree(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:setActiveTab', (event, payload) =>
+    tabCommandService.setActiveTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:moveTab', (event, payload) =>
+    tabCommandService.moveTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:moveTabToSplit', (event, payload) =>
+    tabCommandService.moveTabToSplit(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:movePaneToTarget', (event, payload) =>
+    tabCommandService.movePaneToTarget(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:detachPaneToTab', (event, payload) =>
+    tabCommandService.detachPaneToTab(event.sender, payload),
+  )
   ipcMain.handle('tab:command:spawnPane', (event, payload) =>
     tabCommandService.spawnPane(event.sender, payload),
   )
-  ipcMain.handle('tab:command:saveLayout', (event, payload) =>
-    tabCommandService.saveLayout(event.sender, payload),
+  ipcMain.handle('tab:command:splitPane', (event, payload) =>
+    tabCommandService.splitPane(event.sender, payload),
   )
-  ipcMain.handle('tab:command:deleteLayout', (event, payload) =>
-    tabCommandService.deleteLayout(event.sender, payload),
+  ipcMain.handle('tab:command:focusPane', (event, payload) =>
+    tabCommandService.focusPane(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:navigatePaneFocus', (event, payload) =>
+    tabCommandService.navigatePaneFocus(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:updateSplitRatio', (event, payload) =>
+    tabCommandService.updateSplitRatio(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:restoreLayout', (event, payload) =>
+    tabCommandService.restoreLayout(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:resumeSuspendedTab', (event, payload) =>
+    tabCommandService.resumeSuspendedTab(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:killAll', (event) => tabCommandService.killAll(event.sender))
+  ipcMain.handle('tab:command:focusSession', (event, payload) =>
+    tabCommandService.focusSession(event.sender, payload),
+  )
+  ipcMain.handle('tab:command:saveCurrentLayout', (event, payload) =>
+    tabCommandService.saveCurrentLayout(event.sender, payload),
   )
   ipcMain.handle('agent:command:sendTaskContext', (event, payload) =>
     agentCommandService.sendTaskContext(event.sender, payload),
@@ -320,7 +710,11 @@ export function registerIpcHandlers(
     'pty:resize',
     (event, payload: { sessionId: string; cols: number; rows: number }) => {
       if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
-        throw new Error('PTY session is not owned by this window')
+        // Terminal resize can arrive late from hidden/unmounted renderer instances
+        // or another window that still has stale layout state. Resize is
+        // idempotent and carries no input data, so ignore it while keeping
+        // mutating PTY operations like write/kill strictly owned.
+        return
       }
       // Validate dimensions: positive integers within sane terminal bounds.
       // node-pty will otherwise throw on NaN / negative / huge values and
@@ -707,6 +1101,7 @@ export function registerIpcHandlers(
   // --- App: Multi-window ---
 
   ipcMain.handle('app:newWindow', () => {
+    if (windowManager.isQuitting) return
     windowManager.createWindow({
       bounds: cascadeBounds(windowManager.getLastFocusedBounds()),
     })
@@ -953,8 +1348,43 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
+  ipcMain.handle(
+    'git:commitWorktree',
+    async (
+      event,
+      payload: {
+        repoRoot: string
+        message: string
+        stageAll?: boolean
+      },
+    ) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await GitRepository.commit(resolvedRepo, payload.message, payload.stageAll)
+      return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
+
+  ipcMain.handle('git:pushWorktree', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.push(resolvedRepo)
+    return unwrapOrThrow(result, gitErrorMessage)
+  })
+
   ipcMain.handle('git:pull', async (_event, payload: { repoRoot: string; rebase: boolean }) => {
     const result = await GitRepository.pull(payload.repoRoot, payload.rebase)
+    return unwrapOrThrow(result, gitErrorMessage)
+  })
+
+  ipcMain.handle('git:pullWithPreferences', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const rebase = (preferencesStore.get('gitPullRebase') ?? 'true') !== 'false'
+    const result = unwrapOrThrow(await GitRepository.pull(resolvedRepo, rebase), gitErrorMessage)
+    return { ...result, rebase }
+  })
+
+  ipcMain.handle('git:fetchWorktree', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.fetch(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
@@ -973,8 +1403,20 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
+  ipcMain.handle('git:stashWorktree', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.stash(resolvedRepo)
+    return unwrapOrThrow(result, gitErrorMessage)
+  })
+
   ipcMain.handle('git:stashPop', async (_event, payload: { repoRoot: string }) => {
     const result = await GitRepository.stashPop(payload.repoRoot)
+    return unwrapOrThrow(result, gitErrorMessage)
+  })
+
+  ipcMain.handle('git:stashPopWorktree', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.stashPop(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
@@ -995,6 +1437,15 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle(
+    'git:branchCreateFromHead',
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await GitRepository.createBranch(resolvedRepo, payload.branch, 'HEAD')
+      return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
+
   ipcMain.handle('git:checkout', async (_event, payload: { repoRoot: string; branch: string }) => {
     const result = await GitRepository.checkout(payload.repoRoot, payload.branch)
     return unwrapOrThrow(result, gitErrorMessage)
@@ -1005,6 +1456,55 @@ export function registerIpcHandlers(
     async (_event, payload: { repoRoot: string; name: string; force: boolean }) => {
       const result = await GitRepository.deleteBranch(payload.repoRoot, payload.name, payload.force)
       return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'git:branchPrepareDelete',
+    async (
+      event,
+      payload: GitBranchPrepareDeletePayload,
+    ): Promise<GitBranchPrepareDeleteResult> => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const branchMerged = unwrapOrThrow(
+        await GitRepository.isBranchMerged(resolvedRepo, payload.branch),
+        gitErrorMessage,
+      )
+      const warnings = branchMerged ? [] : ['Branch has not been fully merged.']
+
+      return {
+        branchMerged,
+        forceRequired: !branchMerged,
+        warnings,
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'git:branchDeleteWithPreflight',
+    async (
+      event,
+      payload: GitBranchDeleteWithPreflightPayload,
+    ): Promise<GitBranchDeleteWithPreflightResult> => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const branchMerged = unwrapOrThrow(
+        await GitRepository.isBranchMerged(resolvedRepo, payload.branch),
+        gitErrorMessage,
+      )
+      const forceDelete = !branchMerged && Boolean(payload.forceIfUnmerged)
+
+      if (!branchMerged && !forceDelete) {
+        throw new Error('Branch has not been fully merged.')
+      }
+
+      const result = await GitRepository.deleteBranch(resolvedRepo, payload.branch, forceDelete)
+      unwrapOrThrow(result, gitErrorMessage)
+
+      return {
+        branchDeleted: true,
+        forcedBranchDelete: forceDelete,
+        branchMerged,
+      }
     },
   )
 
@@ -1023,6 +1523,26 @@ export function registerIpcHandlers(
   ipcMain.handle('git:pushInfo', async (_event, payload: { repoRoot: string }) => {
     return GitRepository.getPushInfo(payload.repoRoot).unwrapOr(null)
   })
+
+  ipcMain.handle(
+    'git:preparePush',
+    async (event, payload: { repoRoot: string }): Promise<GitPreparePushResult> => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const info = await GitRepository.getPushInfo(resolvedRepo).unwrapOr(null)
+      if (!info) {
+        return {
+          hasUpstream: false,
+          confirmationMessage: 'No upstream branch — push and set tracking to origin?',
+        }
+      }
+
+      return {
+        hasUpstream: true,
+        ...info,
+        confirmationMessage: `Push ${info.commitCount} commit(s) to ${info.remote}/${info.branch}?`,
+      }
+    },
+  )
 
   ipcMain.handle(
     'git:branchMerged',
@@ -1079,12 +1599,176 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle(
+    'worktree:create',
+    async (event, payload: WorktreeCreatePayload): Promise<WorktreeCreateResult> => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const expandedPath = payload.worktreePath.startsWith('~/')
+        ? os.homedir() + payload.worktreePath.slice(1)
+        : payload.worktreePath
+      const worktreePath = await validateWorktreeCreationPath(event.sender.id, expandedPath)
+
+      if (payload.mode === 'new') {
+        const result = await GitRepository.worktreeAdd(
+          resolvedRepo,
+          worktreePath,
+          payload.branch,
+          payload.baseBranch,
+        )
+        unwrapOrThrow(result, gitErrorMessage)
+      } else {
+        const result = await GitRepository.worktreeAddCheckout(
+          resolvedRepo,
+          worktreePath,
+          payload.branch,
+          payload.createLocalTracking ?? false,
+        )
+        unwrapOrThrow(result, gitErrorMessage)
+      }
+
+      return { branch: payload.branch, worktreePath }
+    },
+  )
+
+  ipcMain.handle(
     'git:worktreeRemove',
     async (event, payload: { repoRoot: string; path: string; force: boolean }) => {
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       const resolvedTarget = await validateWorktreeExistingPath(event.sender.id, payload.path)
       const result = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, payload.force)
       return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'worktree:prepareRemove',
+    async (event, payload: WorktreePrepareRemovePayload): Promise<WorktreePrepareRemoveResult> => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedTarget = await validateWorktreeExistingPath(
+        event.sender.id,
+        payload.worktreePath,
+      )
+      const isDetached = payload.branch === '(detached)'
+
+      const statusResult = await GitRepository.getStatusPorcelain(resolvedRepo, resolvedTarget)
+      const status = unwrapOrThrow(statusResult, gitErrorMessage)
+      const hasUncommittedChanges = status.trim().length > 0
+
+      const unmergedCommits = isDetached
+        ? []
+        : unwrapOrThrow(
+            await GitRepository.getUnmergedCommits(resolvedRepo, payload.branch),
+            gitErrorMessage,
+          )
+      const branchMerged = isDetached
+        ? false
+        : unwrapOrThrow(
+            await GitRepository.isBranchMerged(resolvedRepo, payload.branch),
+            gitErrorMessage,
+          )
+
+      const warnings: string[] = []
+      if (hasUncommittedChanges) warnings.push('Has uncommitted changes.')
+      if (unmergedCommits.length > 0) {
+        warnings.push(`${unmergedCommits.length} unmerged commit(s) not on any remote.`)
+      }
+
+      return {
+        hasUncommittedChanges,
+        unmergedCommitCount: unmergedCommits.length,
+        branchMerged,
+        forceRequired: warnings.length > 0,
+        canDeleteBranch: !isDetached && branchMerged,
+        warnings,
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'worktree:getMergedBranches',
+    async (
+      event,
+      payload: WorktreeGetMergedBranchesPayload,
+    ): Promise<WorktreeGetMergedBranchesResult> => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const requestedBranches = Array.from(
+        new Set(payload.branches.filter((branch) => branch && branch !== '(detached)')),
+      )
+      if (requestedBranches.length === 0) return { mergedBranches: [] }
+
+      const mergedBranches = unwrapOrThrow(
+        await GitRepository.getMergedBranches(resolvedRepo),
+        gitErrorMessage,
+      )
+      const mergedSet = new Set(mergedBranches)
+
+      return {
+        mergedBranches: requestedBranches.filter((branch) => mergedSet.has(branch)),
+      }
+    },
+  )
+
+  ipcMain.handle('worktree:listBranches', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    return unwrapOrThrow(await GitRepository.listBranches(resolvedRepo), gitErrorMessage)
+  })
+
+  ipcMain.handle('worktree:refreshBranches', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    unwrapOrThrow(await GitRepository.fetchAll(resolvedRepo), gitErrorMessage)
+    return unwrapOrThrow(await GitRepository.listBranches(resolvedRepo), gitErrorMessage)
+  })
+
+  ipcMain.handle(
+    'worktree:removeWithBranch',
+    async (
+      event,
+      payload: WorktreeRemoveWithBranchPayload,
+    ): Promise<WorktreeRemoveWithBranchResult> => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedTarget = await validateWorktreeExistingPath(
+        event.sender.id,
+        payload.worktreePath,
+      )
+      const forceOnFailure = payload.forceOnFailure ?? false
+      const shouldDeleteBranch =
+        payload.deleteBranch ?? Boolean(payload.branch && payload.branch !== '(detached)')
+
+      let forcedWorktreeRemove = false
+      try {
+        const result = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, false)
+        unwrapOrThrow(result, gitErrorMessage)
+      } catch (e) {
+        if (!forceOnFailure) throw e
+        const forcedResult = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, true)
+        unwrapOrThrow(forcedResult, gitErrorMessage)
+        forcedWorktreeRemove = true
+      }
+
+      let branchDeleted = false
+      let forcedBranchDelete = false
+      if (shouldDeleteBranch) {
+        if (!payload.branch || payload.branch === '(detached)') {
+          throw new Error('Branch name is required when deleteBranch is true')
+        }
+        try {
+          const result = await GitRepository.deleteBranch(resolvedRepo, payload.branch, false)
+          unwrapOrThrow(result, gitErrorMessage)
+          branchDeleted = true
+        } catch (e) {
+          if (!forceOnFailure) throw e
+          const forcedResult = await GitRepository.deleteBranch(resolvedRepo, payload.branch, true)
+          unwrapOrThrow(forcedResult, gitErrorMessage)
+          branchDeleted = true
+          forcedBranchDelete = true
+        }
+      }
+
+      return {
+        worktreeRemoved: true,
+        branchDeleted,
+        forcedWorktreeRemove,
+        forcedBranchDelete,
+      }
     },
   )
 
@@ -1112,6 +1796,32 @@ export function registerIpcHandlers(
     if (filePath.startsWith('/')) throw new Error('Invalid file path: must be relative')
     if (filePath.includes('..')) throw new Error('Invalid file path: must not contain ..')
   }
+
+  ipcMain.handle('changes:getDiff', async (event, payload: { worktreePath: string }) => {
+    const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+    const result = await GitRepository.getDiffParsed(resolvedWorktree)
+    return result.unwrapOr({ files: [] })
+  })
+
+  ipcMain.handle(
+    'changes:stageFile',
+    async (event, payload: { worktreePath: string; filePath: string }) => {
+      const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+      validateFilePath(payload.filePath)
+      const result = await GitRepository.stageFile(resolvedWorktree, payload.filePath)
+      return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'changes:revertFile',
+    async (event, payload: { worktreePath: string; filePath: string }) => {
+      const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+      validateFilePath(payload.filePath)
+      const result = await GitRepository.revertFile(resolvedWorktree, payload.filePath)
+      return unwrapOrThrow(result, gitErrorMessage)
+    },
+  )
 
   ipcMain.handle(
     'git:diffFile',
@@ -1475,8 +2185,11 @@ export function registerIpcHandlers(
     return resolved
   }
 
-  ipcMain.handle('fs:readDir', async (event, payload: { dirPath: string }) => {
-    const resolved = await validatePathAccess(event.sender.id, payload.dirPath)
+  async function readFileTreeDir(
+    webContentsId: number,
+    dirPath: string,
+  ): Promise<Array<{ name: string; isDirectory: boolean; size: number }>> {
+    const resolved = await validatePathAccess(webContentsId, dirPath)
     const entries = await fs.promises.readdir(resolved, { withFileTypes: true })
     const ignorePatterns = getIgnorePatterns()
     const filtered = entries.filter((e) => !isIgnoredEntry(e.name, ignorePatterns))
@@ -1501,6 +2214,69 @@ export function registerIpcHandlers(
         if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
         return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
       })
+  }
+
+  ipcMain.handle('fileTree:readDir', async (event, payload: { dirPath: string }) => {
+    return readFileTreeDir(event.sender.id, payload.dirPath)
+  })
+
+  function parseFileTreeGitStatus(porcelain: string): {
+    statuses: Record<string, string>
+    affectedPaths: string[]
+    changedDirs: string[]
+  } {
+    const statuses: Record<string, string> = {}
+    const affectedPaths = new Set<string>()
+    const changedDirs = new Set<string>()
+
+    const collectPath = (rawPath: string): void => {
+      const normalized = rawPath.trim()
+      if (!normalized) return
+      affectedPaths.add(normalized)
+
+      const segments = normalized.split('/')
+      let dir = ''
+      for (let i = 0; i < segments.length - 1; i++) {
+        dir = dir === '' ? segments[i] : `${dir}/${segments[i]}`
+        changedDirs.add(dir)
+      }
+    }
+
+    for (const line of porcelain.split('\n')) {
+      if (line.length < 4) continue
+      const xy = line.substring(0, 2)
+      const filePath = line.substring(3)
+      const status = xy[0] !== ' ' && xy[0] !== '?' ? xy[0] : xy[1]
+      statuses[filePath] = status === '?' ? '?' : status
+      for (const part of filePath.split(' -> ')) collectPath(part)
+    }
+
+    return {
+      statuses,
+      affectedPaths: [...affectedPaths].sort(),
+      changedDirs: [...changedDirs].sort(),
+    }
+  }
+
+  ipcMain.handle(
+    'fileTree:getGitStatus',
+    async (
+      event,
+      payload: { repoRoot: string; worktreePath: string },
+    ): Promise<{
+      statuses: Record<string, string>
+      affectedPaths: string[]
+      changedDirs: string[]
+    }> => {
+      const repoRoot = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const worktreePath = await validatePathAccess(event.sender.id, payload.worktreePath)
+      const porcelain = await GitRepository.getStatusPorcelain(repoRoot, worktreePath).unwrapOr('')
+      return parseFileTreeGitStatus(porcelain)
+    },
+  )
+
+  ipcMain.handle('fs:readDir', async (event, payload: { dirPath: string }) => {
+    return readFileTreeDir(event.sender.id, payload.dirPath)
   })
 
   ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
@@ -1642,28 +2418,12 @@ export function registerIpcHandlers(
       event,
       payload: { filePath: string; content: string; expectedMtimeMs?: number },
     ): Promise<FsWriteFileResponse> => {
-      const resolved = await validatePathAccess(event.sender.id, payload.filePath)
-      // Structured response instead of a thrown Error — keeps the typed
-      // `_tag` discriminant intact across IPC so the renderer branches on
-      // `result.tag` instead of string-matching a flattened message.
-      if (payload.expectedMtimeMs !== undefined) {
-        const statResult = await fromExternalCall(fs.promises.stat(resolved), errorMessage)
-        if (statResult.isErr()) return { ok: false, tag: 'StatFailed', message: statResult.error }
-        const actualMtimeMs = statResult.value.mtimeMs
-        if (Math.abs(actualMtimeMs - payload.expectedMtimeMs) > 1) {
-          return { ok: false, tag: 'StaleWrite', actualMtimeMs }
-        }
-      }
-      const writeResult = await fromExternalCall(
-        fs.promises.writeFile(resolved, payload.content, 'utf-8'),
-        errorMessage,
+      return writeTextFileWithExpectedMtime(
+        event.sender.id,
+        payload.filePath,
+        payload.content,
+        payload.expectedMtimeMs,
       )
-      if (writeResult.isErr()) {
-        return { ok: false, tag: 'WriteFailed', message: writeResult.error }
-      }
-      const finalStat = await fromExternalCall(fs.promises.stat(resolved), errorMessage)
-      if (finalStat.isErr()) return { ok: false, tag: 'StatFailed', message: finalStat.error }
-      return { ok: true, mtimeMs: finalStat.value.mtimeMs, size: finalStat.value.size }
     },
   )
 
@@ -1776,8 +2536,8 @@ export function registerIpcHandlers(
     return resolved
   }
 
-  ipcMain.handle('fs:createFile', async (event, payload: { filePath: string }): Promise<void> => {
-    const resolved = await validateCreationPath(event.sender.id, payload.filePath)
+  async function createFileTreeFile(webContentsId: number, filePath: string): Promise<void> {
+    const resolved = await validateCreationPath(webContentsId, filePath)
     // Ensure the parent dir exists (handles nested paths typed in the prompt
     // like "subdir/newfile.ts" — creates "subdir" if missing).
     await fs.promises.mkdir(path.dirname(resolved), { recursive: true })
@@ -1785,35 +2545,39 @@ export function registerIpcHandlers(
     // anything the user typed by accident.
     const handle = await fs.promises.open(resolved, 'wx')
     await handle.close()
+  }
+
+  async function createFileTreeDirectory(webContentsId: number, dirPath: string): Promise<void> {
+    const resolved = await validateCreationPath(webContentsId, dirPath)
+    await fs.promises.mkdir(resolved, { recursive: true })
+  }
+
+  ipcMain.handle(
+    'fileTree:createFile',
+    async (event, payload: { filePath: string }): Promise<void> => {
+      await createFileTreeFile(event.sender.id, payload.filePath)
+    },
+  )
+
+  ipcMain.handle(
+    'fileTree:createDirectory',
+    async (event, payload: { dirPath: string }): Promise<void> => {
+      await createFileTreeDirectory(event.sender.id, payload.dirPath)
+    },
+  )
+
+  ipcMain.handle('fs:createFile', async (event, payload: { filePath: string }): Promise<void> => {
+    await createFileTreeFile(event.sender.id, payload.filePath)
   })
 
   ipcMain.handle('fs:mkdir', async (event, payload: { dirPath: string }): Promise<void> => {
-    const resolved = await validateCreationPath(event.sender.id, payload.dirPath)
-    await fs.promises.mkdir(resolved, { recursive: true })
+    await createFileTreeDirectory(event.sender.id, payload.dirPath)
   })
 
   ipcMain.handle(
     'dialog:confirmUnsavedChanges',
     async (event, payload: { filePaths: string[] }): Promise<'save' | 'discard' | 'cancel'> => {
-      const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
-      if (!win) return 'cancel'
-      const fileList =
-        payload.filePaths.length === 1
-          ? payload.filePaths[0].split('/').pop()
-          : `${payload.filePaths.length} files`
-      const { response } = await dialog.showMessageBox(win, {
-        type: 'warning',
-        buttons: ['Save', "Don't Save", 'Cancel'],
-        defaultId: 0,
-        cancelId: 2,
-        title: 'Unsaved changes',
-        message: `You have unsaved changes in ${fileList}`,
-        detail: 'Do you want to save them before closing?',
-      })
-      return match(response)
-        .with(0, () => 'save' as const)
-        .with(1, () => 'discard' as const)
-        .otherwise(() => 'cancel' as const)
+      return confirmUnsavedChangesDialog(event.sender, payload.filePaths)
     },
   )
 
@@ -1930,6 +2694,26 @@ export function registerIpcHandlers(
       repo = result.unwrapOr(null)
     }
     return mergeConfigs(global, repo)
+  }
+
+  async function resolveTaskTrackerBranchName(
+    payload: TaskTrackerBranchFromTaskPayload,
+  ): Promise<string> {
+    const resolved = await resolveEffectiveConfig(payload.repoRoot)
+    const branchTpl = resolved
+      ? getBranchTemplate(resolved.config, payload.boardId)
+      : { template: '{taskKey}', customVars: {} }
+
+    const sprint = resolved
+      ? await taskTrackerManager
+          .getCurrentSprintFromConfig(resolved.config, payload.boardId, payload.repoRoot)
+          .unwrapOr(null)
+      : await taskTrackerManager
+          .getCurrentSprint(payload.connectionId, payload.boardId)
+          .unwrapOr(null)
+
+    const variables = buildVariables(payload.task, sprint, branchTpl.customVars, payload.branchType)
+    return renderBranchName(branchTpl.template, variables)
   }
 
   ipcMain.handle('tracker:resolvedConfig', async (_event, payload: { repoRoot?: string }) => {
@@ -2190,13 +2974,13 @@ export function registerIpcHandlers(
     'trackerConfig:fetchBoards',
     async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
-      if (!resolved) throw new Error('No tracker configured')
+      if (!resolved) return []
       const result = await taskTrackerManager.fetchBoardsFromConfig(
         resolved.config,
         payload.trackerId,
         payload.repoRoot,
       )
-      return unwrapOrThrow(result, taskTrackerErrorMessage)
+      return result.unwrapOr([])
     },
   )
 
@@ -2380,6 +3164,118 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(
+    'taskTracker:buildTaskContext',
+    async (_event, payload: TaskTrackerBuildTaskContextPayload) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const hasConfigTracker = Boolean(resolved?.config.trackers.length)
+
+      let fullTask: TrackerTask | null = null
+      if (hasConfigTracker && resolved) {
+        const result = await taskTrackerManager.findTaskByKeyFromConfig(
+          resolved.config,
+          payload.task.key,
+          payload.trackerId,
+          payload.repoRoot,
+        )
+        if (result.isOk()) fullTask = result.value
+      }
+      if (!fullTask) {
+        fullTask = await taskTrackerManager.findTaskByKey(payload.task.key).catch(() => null)
+      }
+
+      let comments: Array<{ author: string; body: string; created: string }> = []
+      if (hasConfigTracker && resolved) {
+        const result = await taskTrackerManager.fetchTaskCommentsFromConfig(
+          resolved.config,
+          payload.task.key,
+          payload.trackerId,
+          payload.repoRoot,
+        )
+        if (result.isOk()) comments = result.value
+      }
+      if (comments.length === 0) {
+        const result = await taskTrackerManager.fetchTaskComments(
+          payload.connectionId,
+          payload.task.key,
+          payload.repoRoot,
+        )
+        comments = result.unwrapOr([])
+      }
+
+      let rawAttachments: Array<{ name: string; url: string }> = []
+      if (hasConfigTracker && resolved) {
+        const result = await taskTrackerManager.fetchTaskAttachmentsFromConfig(
+          resolved.config,
+          payload.task.key,
+          payload.trackerId,
+          payload.repoRoot,
+        )
+        if (result.isOk()) rawAttachments = result.value
+      }
+      if (rawAttachments.length === 0) {
+        const result = await taskTrackerManager.fetchTaskAttachments(
+          payload.connectionId,
+          payload.task.key,
+        )
+        rawAttachments = result.unwrapOr([])
+      }
+
+      const attachments: TaskAttachmentPath[] = []
+      const failedAttachments: string[] = []
+      const downloadResults = await Promise.allSettled(
+        rawAttachments.map(async (attachment) => {
+          if (hasConfigTracker && resolved) {
+            const configResult = await taskTrackerManager.downloadAttachmentFromConfig(
+              resolved.config,
+              attachment.url,
+              attachment.name,
+              payload.trackerId,
+              payload.repoRoot,
+            )
+            if (configResult.isOk()) {
+              return { name: attachment.name, localPath: configResult.value }
+            }
+          }
+
+          const legacyResult = await taskTrackerManager.downloadAttachment(
+            payload.connectionId,
+            attachment.url,
+            attachment.name,
+          )
+          if (legacyResult.isErr()) {
+            throw new Error(taskTrackerErrorMessage(legacyResult.error))
+          }
+          return { name: attachment.name, localPath: legacyResult.value }
+        }),
+      )
+
+      for (let i = 0; i < downloadResults.length; i++) {
+        const result = downloadResults[i]
+        if (result.status === 'fulfilled') {
+          attachments.push(result.value)
+        } else {
+          failedAttachments.push(rawAttachments[i].name)
+        }
+      }
+
+      if (attachments.length > 0) {
+        const paths = attachments.map((attachment) => attachment.localPath)
+        setTimeout(() => {
+          for (const filePath of paths) {
+            taskTrackerManager.cleanupAttachmentDir(filePath)
+          }
+        }, 60_000)
+      }
+
+      const taskForContext: TaskContextInput = fullTask
+        ? { ...payload.task, description: fullTask.description || payload.task.description }
+        : payload.task
+
+      return formatTaskContext(taskForContext, comments, attachments, failedAttachments)
+    },
+  )
+
+  ipcMain.handle(
     'taskTracker:resolveBranchName',
     async (
       _event,
@@ -2391,27 +3287,59 @@ export function registerIpcHandlers(
         repoRoot?: string
       },
     ) => {
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
-      const branchTpl = resolved
-        ? getBranchTemplate(resolved.config, payload.boardId)
-        : { template: '{taskKey}', customVars: {} }
+      return resolveTaskTrackerBranchName(payload)
+    },
+  )
 
-      // Get sprint: prefer config-based, fall back to legacy
-      const sprint = resolved
-        ? await taskTrackerManager
-            .getCurrentSprintFromConfig(resolved.config, payload.boardId, payload.repoRoot)
-            .unwrapOr(null)
-        : await taskTrackerManager
-            .getCurrentSprint(payload.connectionId, payload.boardId)
-            .unwrapOr(null)
+  ipcMain.handle(
+    'taskTracker:prepareBranchFromTask',
+    async (event, payload: TaskTrackerBranchFromTaskPayload & { repoRoot: string }) => {
+      const repoRoot = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const branchName = await resolveTaskTrackerBranchName({ ...payload, repoRoot })
+      return { branchName }
+    },
+  )
 
-      const variables = buildVariables(
-        payload.task,
-        sprint,
-        branchTpl.customVars,
-        payload.branchType,
+  ipcMain.handle(
+    'taskTracker:createBranchFromTask',
+    async (event, payload: TaskTrackerCreateBranchFromTaskPayload) => {
+      const repoRoot = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const branchName = await resolveTaskTrackerBranchName({ ...payload, repoRoot })
+
+      if (payload.stashBeforeCreate) {
+        const stashResult = await GitRepository.stash(repoRoot)
+        unwrapOrThrow(stashResult, gitErrorMessage)
+      }
+
+      const createResult = await GitRepository.createBranch(
+        repoRoot,
+        branchName,
+        payload.baseBranch,
       )
-      return renderBranchName(branchTpl.template, variables)
+      unwrapOrThrow(createResult, gitErrorMessage)
+
+      return { branchName }
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:createWorktreeFromTask',
+    async (event, payload: TaskTrackerCreateWorktreeFromTaskPayload) => {
+      const repoRoot = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const expandedPath = payload.worktreePath.startsWith('~/')
+        ? os.homedir() + payload.worktreePath.slice(1)
+        : payload.worktreePath
+      const worktreePath = await validateWorktreeCreationPath(event.sender.id, expandedPath)
+      const branchName = await resolveTaskTrackerBranchName({ ...payload, repoRoot })
+      const result = await GitRepository.worktreeAdd(
+        repoRoot,
+        worktreePath,
+        branchName,
+        payload.baseBranch,
+      )
+      unwrapOrThrow(result, gitErrorMessage)
+
+      return { branchName, worktreePath }
     },
   )
 

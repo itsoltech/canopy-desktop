@@ -39,15 +39,33 @@ export interface WorkspaceStateSnapshot {
   aheadBehind: { ahead: number; behind: number } | null
 }
 
-export interface WorkspaceCommandResult {
+export interface WorkspaceSnapshot {
   projects: ProjectSnapshot[]
   workspaceState: WorkspaceStateSnapshot
+}
+
+export interface AppStateSnapshot {
+  workspace: WorkspaceSnapshot
+  tabs: TabStateSnapshot
+}
+
+export interface WorkspaceCommandResult extends WorkspaceSnapshot {
   restoredLayouts?: Array<{ worktreePath: string; layoutJson: string }>
   focusedExistingWindow?: boolean
   warnings: CommandWarning[]
 }
 
 export type PaneKind = 'terminal' | 'browser' | 'notes' | 'drawing' | 'editor' | 'diff'
+
+export interface EditorFileSnapshot {
+  filePath: string
+  dirty?: boolean
+  originalContent?: string
+  currentContent?: string
+  fileMtimeMs?: number
+  fileLineEnding?: 'LF' | 'CRLF'
+  externalChangeDetected?: boolean
+}
 
 export interface PaneSnapshot {
   id: string
@@ -61,9 +79,10 @@ export interface PaneSnapshot {
   paneType?: PaneKind
   tmuxSessionName?: string
   detached?: boolean
+  inspectorOpen?: boolean
   url?: string
   filePath?: string
-  editorFiles?: Array<{ filePath: string }>
+  editorFiles?: EditorFileSnapshot[]
   editorActiveFile?: string
   profileId?: string
   profileName?: string
@@ -73,11 +92,43 @@ export type SplitSnapshot =
   | { type: 'leaf'; pane: PaneSnapshot }
   | {
       type: 'split'
+      id: string
       direction: 'horizontal' | 'vertical'
       ratio: number
       first: SplitSnapshot
       second: SplitSnapshot
     }
+
+export type SerializedSplitNode =
+  | {
+      type: 'leaf'
+      toolId: string
+      toolName: string
+      agentSessionId?: string
+      claudeSessionId?: string
+      browserUrl?: string
+      browserDevToolsMode?: 'bottom' | 'right'
+      filePath?: string
+      editorFiles?: string[]
+      editorActiveFile?: string
+      tmuxSessionName?: string
+      profileId?: string
+    }
+  | {
+      type: 'hsplit' | 'vsplit'
+      first: SerializedSplitNode
+      second: SerializedSplitNode
+      ratio: number
+    }
+
+export interface SerializedLayout {
+  tabs: Array<{
+    toolId: string
+    toolName: string
+    rootSplit: SerializedSplitNode
+  }>
+  activeTabIndex: number
+}
 
 export interface TabSnapshot {
   id: string
@@ -87,6 +138,7 @@ export interface TabSnapshot {
   worktreePath: string
   rootSplit: SplitSnapshot
   focusedPaneId: string
+  suspended?: SerializedSplitNode
 }
 
 export interface TabCommandResult {
@@ -96,6 +148,55 @@ export interface TabCommandResult {
   openedTab?: TabSnapshot
   restartedPane?: PaneSnapshot
   closedTabId?: string
+  closedPaneId?: string
+}
+
+export type CloseWarningTarget =
+  | { kind: 'tab'; tabId: string }
+  | { kind: 'pane'; tabId: string; paneId: string }
+
+export interface CloseWarningResult {
+  description: string | null
+}
+
+export type TabClosePreflightResult =
+  | { ok: true }
+  | { ok: false; reason: 'cancelled' }
+  | { ok: false; reason: 'save-failed'; failedCount: number }
+
+export type EditorFileSaveResult =
+  | { ok: true; mtimeMs: number; size: number; result: TabCommandResult }
+  | { ok: false; tag: 'StaleWrite'; actualMtimeMs: number }
+  | { ok: false; tag: 'WriteFailed' | 'StatFailed'; message: string }
+
+export type EditorFileReadResult =
+  | {
+      ok: true
+      binary: false
+      content: string
+      truncated: boolean
+      size: number
+      canWrite: boolean
+      mtimeMs: number
+      fileLineEnding: 'LF' | 'CRLF'
+    }
+  | {
+      ok: true
+      binary: true
+      size: number
+      canWrite: boolean
+      mtimeMs: number
+    }
+  | { ok: false; tag: 'ReadFailed' | 'StatFailed'; message: string }
+
+export type EditorFileLoadResult =
+  | (Extract<EditorFileReadResult, { ok: true; binary: false }> & { result: TabCommandResult })
+  | (Extract<EditorFileReadResult, { ok: true; binary: true }> & { result: TabCommandResult })
+  | Extract<EditorFileReadResult, { ok: false }>
+
+export interface TabStateSnapshot {
+  tabsByWorktree: Record<string, TabSnapshot[]>
+  activeTabIdByWorktree: Record<string, string | null>
 }
 
 export interface AgentCommandResult {

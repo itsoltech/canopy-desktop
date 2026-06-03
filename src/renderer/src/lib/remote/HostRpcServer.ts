@@ -177,7 +177,7 @@ export class HostRpcServer {
     // reflects the new worktree list without waiting for the next delta.
     this.register('git.listBranches', async (params) => {
       const repoRoot = assertString(params, 'repoRoot', 'git.listBranches')
-      return await window.api.gitBranches(repoRoot)
+      return await window.api.worktreeListBranches({ repoRoot })
     })
 
     this.register('worktree.add', async (params) => {
@@ -185,7 +185,13 @@ export class HostRpcServer {
       const path = assertString(params, 'path', 'worktree.add')
       const branch = assertString(params, 'branch', 'worktree.add')
       const baseBranch = assertString(params, 'baseBranch', 'worktree.add')
-      await window.api.gitWorktreeAdd(repoRoot, path, branch, baseBranch)
+      await window.api.worktreeCreate({
+        repoRoot,
+        worktreePath: path,
+        mode: 'new',
+        branch,
+        baseBranch,
+      })
       provider.rebroadcast()
     })
 
@@ -198,7 +204,13 @@ export class HostRpcServer {
         'createLocalTracking',
         'worktree.addCheckout',
       )
-      await window.api.gitWorktreeCheckout(repoRoot, path, branch, createLocalTracking)
+      await window.api.worktreeCreate({
+        repoRoot,
+        worktreePath: path,
+        mode: 'existing',
+        branch,
+        createLocalTracking,
+      })
       provider.rebroadcast()
     })
 
@@ -206,7 +218,12 @@ export class HostRpcServer {
       const repoRoot = assertString(params, 'repoRoot', 'worktree.remove')
       const path = assertString(params, 'path', 'worktree.remove')
       const force = assertBoolean(params, 'force', 'worktree.remove')
-      await window.api.gitWorktreeRemove(repoRoot, path, force)
+      await window.api.worktreeRemoveWithBranch({
+        repoRoot,
+        worktreePath: path,
+        deleteBranch: false,
+        forceOnFailure: force,
+      })
       provider.rebroadcast()
     })
 

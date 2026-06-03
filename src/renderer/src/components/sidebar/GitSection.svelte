@@ -39,7 +39,11 @@
     if (!result) return
     loading = 'commit'
     try {
-      await window.api.gitCommit(worktreePath(), result.value, result.checked)
+      await window.api.gitCommitWorktree({
+        repoRoot: worktreePath(),
+        message: result.value,
+        stageAll: result.checked,
+      })
     } catch (err) {
       await gitError(err)
     } finally {
@@ -50,23 +54,14 @@
   async function doPush(): Promise<void> {
     loading = 'push'
     try {
-      const info = await window.api.gitPushInfo(worktreePath())
-      if (!info) {
-        const ok = await confirm({
-          title: 'Push',
-          message: 'No upstream branch — push and set tracking to origin?',
-        })
-        if (ok) {
-          await window.api.gitPush(worktreePath())
-        }
-        return
-      }
+      const root = worktreePath()
+      const preflight = await window.api.gitPreparePush({ repoRoot: root })
       const ok = await confirm({
         title: 'Push',
-        message: `Push ${info.commitCount} commit(s) to ${info.remote}/${info.branch}?`,
+        message: preflight.confirmationMessage,
       })
       if (ok) {
-        await window.api.gitPush(worktreePath())
+        await window.api.gitPushWorktree({ repoRoot: root })
       }
     } catch (err) {
       await gitError(err)
@@ -78,8 +73,7 @@
   async function doPull(): Promise<void> {
     loading = 'pull'
     try {
-      const rebase = (await window.api.getPref('gitPullRebase')) !== 'false'
-      await window.api.gitPull(worktreePath(), rebase)
+      await window.api.gitPullWithPreferences({ repoRoot: worktreePath() })
     } catch (err) {
       await gitError(err)
     } finally {
@@ -90,7 +84,7 @@
   async function doFetch(): Promise<void> {
     loading = 'fetch'
     try {
-      await window.api.gitFetch(worktreePath())
+      await window.api.gitFetchWorktree({ repoRoot: worktreePath() })
     } catch (err) {
       await gitError(err)
     } finally {
@@ -101,7 +95,7 @@
   async function doStash(): Promise<void> {
     loading = 'stash'
     try {
-      await window.api.gitStash(worktreePath())
+      await window.api.gitStashWorktree({ repoRoot: worktreePath() })
     } catch (err) {
       await gitError(err)
     } finally {
@@ -112,7 +106,7 @@
   async function doStashPop(): Promise<void> {
     loading = 'stashPop'
     try {
-      await window.api.gitStashPop(worktreePath())
+      await window.api.gitStashPopWorktree({ repoRoot: worktreePath() })
     } catch (err) {
       await gitError(err)
     } finally {

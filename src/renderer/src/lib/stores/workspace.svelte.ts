@@ -1,4 +1,10 @@
-import { restoreLayout, closeAllTabsForWorktree, killAllTabs, tabsByWorktree } from './tabs.svelte'
+import {
+  restoreLayout,
+  closeAllTabsForWorktree,
+  killAllTabs,
+  tabsByWorktree,
+  applyTabsSnapshot,
+} from './tabs.svelte'
 import {
   loadRepoConfig,
   getRepoConfig,
@@ -11,6 +17,7 @@ import { clearMru } from './quickOpenMru.svelte'
 import type {
   ProjectSnapshot,
   WorkspaceCommandResult,
+  WorkspaceSnapshot,
   WorkspaceStateSnapshot,
 } from '../../../../main/commands/types'
 
@@ -94,6 +101,9 @@ export const workspaceState: WorkspaceState = $state({ ...initial })
 /** All projects attached to this window */
 export const projects: ProjectState[] = $state([])
 
+let selectWorktreeRequestId = 0
+let pendingSelectedWorktreePath: string | null = null
+
 // --- Multi-project functions ---
 
 // Serialize concurrent attachProject calls to preserve project ordering
@@ -152,6 +162,76 @@ function projectFromSnapshot(project: ProjectSnapshot): ProjectState {
   }
 }
 
+function parseCachedAheadBehind(raw: string | null): { ahead: number; behind: number } | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as { ahead?: unknown }).ahead === 'number' &&
+      typeof (parsed as { behind?: unknown }).behind === 'number'
+    ) {
+      return {
+        ahead: (parsed as { ahead: number }).ahead,
+        behind: (parsed as { behind: number }).behind,
+      }
+    }
+  } catch {
+    // Fall through to the legacy "ahead/behind" cache format.
+  }
+
+  const parts = raw.split('/')
+  if (parts.length !== 2) return null
+  const ahead = parseInt(parts[0], 10)
+  const behind = parseInt(parts[1], 10)
+  if (Number.isNaN(ahead) || Number.isNaN(behind)) return null
+  return { ahead, behind }
+}
+
+function applyLocalWorktreeSelection(path: string): boolean {
+  const project = getProjectForWorktree(path)
+  if (!project) return false
+
+  const previousPath = workspaceState.selectedWorktreePath
+  const previousDirty = workspaceState.isDirty
+  const previousAheadBehind = workspaceState.aheadBehind
+  const selectedWorktree = project.worktrees.find((worktree) => worktree.path === path)
+  const mainWorktreePath =
+    project.worktrees.find((worktree) => worktree.isMain)?.path ??
+    project.repoRoot ??
+    project.workspace.path
+  const isSamePath = previousPath === path
+  const isMainWorktree = path === mainWorktreePath
+
+  workspaceState.workspace = project.workspace
+  workspaceState.isGitRepo = project.isGitRepo
+  workspaceState.repoRoot = project.repoRoot
+  workspaceState.worktrees = project.worktrees
+  workspaceState.selectedWorktreePath = path
+  workspaceState.branch = project.isGitRepo
+    ? (selectedWorktree?.branch ?? project.workspace.cached_branch ?? null)
+    : null
+  workspaceState.isDirty = isSamePath
+    ? previousDirty
+    : isMainWorktree && project.workspace.cached_dirty !== null
+      ? project.workspace.cached_dirty === 1
+      : false
+  workspaceState.aheadBehind = isSamePath
+    ? previousAheadBehind
+    : isMainWorktree
+      ? parseCachedAheadBehind(project.workspace.cached_ahead_behind)
+      : null
+
+  return true
+}
+
+function replaceProjectsFromSnapshot(snapshot: WorkspaceSnapshot): Set<string> {
+  const existingKeys = new Set(projects.map(getProjectKey))
+  projects.splice(0, projects.length, ...snapshot.projects.map(projectFromSnapshot))
+  return existingKeys
+}
+
 function applyWorkspaceStateSnapshot(snapshot: WorkspaceStateSnapshot): void {
   if (!snapshot.project) {
     workspaceState.workspace = null
@@ -178,6 +258,29 @@ function applyWorkspaceStateSnapshot(snapshot: WorkspaceStateSnapshot): void {
   workspaceState.aheadBehind = snapshot.aheadBehind
 }
 
+async function applyWorkspaceSnapshot(
+  snapshot: WorkspaceSnapshot,
+  options: { loadNewProjectConfigs?: boolean; preserveSelectedWorktreePath?: string | null } = {},
+): Promise<void> {
+  const { loadNewProjectConfigs = false } = options
+  const existingKeys = replaceProjectsFromSnapshot(snapshot)
+  if (
+    options.preserveSelectedWorktreePath &&
+    snapshot.workspaceState.selectedWorktreePath !== options.preserveSelectedWorktreePath &&
+    applyLocalWorktreeSelection(options.preserveSelectedWorktreePath)
+  ) {
+    // A slower snapshot for the previous worktree arrived while the user has
+    // already clicked a different one. Keep the optimistic selection visible;
+    // the in-flight command will later apply the authoritative main state.
+  } else {
+    applyWorkspaceStateSnapshot(snapshot.workspaceState)
+  }
+
+  if (loadNewProjectConfigs) {
+    await loadRepoConfigsForNewProjects(existingKeys)
+  }
+}
+
 async function loadRepoConfigsForNewProjects(existingKeys: Set<string>): Promise<void> {
   for (const project of projects) {
     const projectKey = getProjectKey(project)
@@ -199,7 +302,7 @@ async function restoreCommandLayouts(result: WorkspaceCommandResult): Promise<vo
     try {
       await restoreLayout(entry.worktreePath, entry.layoutJson)
     } catch {
-      // Layout restore failed, will fall back to ensureDefaultTab.
+      // Layout restore failed; leave the worktree empty so the user can open a tab manually.
     }
   }
 }
@@ -209,13 +312,11 @@ async function applyWorkspaceCommandResult(
   options: { restoreLayouts?: boolean; loadNewProjectConfigs?: boolean } = {},
 ): Promise<void> {
   const { restoreLayouts = true, loadNewProjectConfigs = true } = options
-  const existingKeys = new Set(projects.map(getProjectKey))
+  const existingKeys = replaceProjectsFromSnapshot(result)
 
   for (const warning of result.warnings) {
     addToast(warning.message)
   }
-
-  projects.splice(0, projects.length, ...result.projects.map(projectFromSnapshot))
 
   if (restoreLayouts) {
     await restoreCommandLayouts(result)
@@ -225,6 +326,39 @@ async function applyWorkspaceCommandResult(
 
   if (loadNewProjectConfigs) {
     await loadRepoConfigsForNewProjects(existingKeys)
+  }
+}
+
+let appStateCleanup: (() => void) | null = null
+
+export function initWorkspaceStateSubscription(): () => void {
+  if (appStateCleanup) return () => {}
+
+  let disposed = false
+  void window.api
+    .getAppState()
+    .then((snapshot) => {
+      if (disposed) return
+      applyTabsSnapshot(snapshot.tabs, { replaceAll: true })
+      return applyWorkspaceSnapshot(snapshot.workspace)
+    })
+    .catch((err) => {
+      console.error('[workspace] getAppState failed:', err)
+    })
+
+  appStateCleanup = window.api.onAppStateChanged((snapshot) => {
+    applyTabsSnapshot(snapshot.tabs, { replaceAll: true })
+    void applyWorkspaceSnapshot(snapshot.workspace, {
+      preserveSelectedWorktreePath: pendingSelectedWorktreePath,
+    }).catch((err) => {
+      console.error('[workspace] apply app state failed:', err)
+    })
+  })
+
+  return () => {
+    disposed = true
+    appStateCleanup?.()
+    appStateCleanup = null
   }
 }
 
@@ -254,7 +388,7 @@ export async function detachProject(path: string): Promise<void> {
     }
   }
   for (const wtPath of ownedPaths) {
-    await closeAllTabsForWorktree(wtPath)
+    if (!(await closeAllTabsForWorktree(wtPath))) return
     clearQuickOpenCache(wtPath)
     clearMru(wtPath)
   }
@@ -342,7 +476,6 @@ export async function updateGitInfoForProject(repoRoot: string, info: GitInfo): 
       }
     }
 
-    // Fetch status for the currently selected worktree
     const selectedPath = workspaceState.selectedWorktreePath
     if (selectedPath) {
       const mainWorktreePath =
@@ -353,10 +486,8 @@ export async function updateGitInfoForProject(repoRoot: string, info: GitInfo): 
         workspaceState.isDirty = info.isDirty
         workspaceState.aheadBehind = info.aheadBehind
       } else {
-        const status = await window.api.gitStatus(selectedPath)
-        workspaceState.branch = status.branch ?? workspaceState.branch
-        workspaceState.isDirty = status.isDirty
-        workspaceState.aheadBehind = status.aheadBehind
+        const selectedWorktree = info.worktrees.find((wt) => wt.path === selectedPath)
+        workspaceState.branch = selectedWorktree?.branch ?? workspaceState.branch
       }
     } else {
       workspaceState.branch = info.branch
@@ -374,16 +505,43 @@ export async function openWorkspace(path: string): Promise<void> {
 }
 
 export async function selectWorktree(path: string): Promise<void> {
-  const commandResult = await window.api.workspaceSelectWorktree(path)
-  await applyWorkspaceCommandResult(commandResult, {
-    restoreLayouts: false,
-    loadNewProjectConfigs: false,
-  })
-  await hydrateSelectedWorktree(path)
+  if (workspaceState.selectedWorktreePath === path) return
+
+  const requestId = ++selectWorktreeRequestId
+  pendingSelectedWorktreePath = path
+  const appliedOptimistically = applyLocalWorktreeSelection(path)
+
+  try {
+    const commandResult = await window.api.workspaceSelectWorktree(path)
+    if (requestId !== selectWorktreeRequestId) return
+
+    await applyWorkspaceCommandResult(commandResult, {
+      restoreLayouts: false,
+      loadNewProjectConfigs: false,
+    })
+    await hydrateSelectedWorktree(path, requestId)
+  } catch (err) {
+    if (requestId !== selectWorktreeRequestId) return
+
+    if (appliedOptimistically) {
+      const snapshot = await window.api.getAppState()
+      applyTabsSnapshot(snapshot.tabs, { replaceAll: true })
+      await applyWorkspaceSnapshot(snapshot.workspace)
+    }
+    throw err
+  } finally {
+    if (requestId === selectWorktreeRequestId) {
+      pendingSelectedWorktreePath = null
+    }
+  }
 }
 
-async function hydrateSelectedWorktree(path: string): Promise<void> {
-  await loadActiveTask(path)
+async function hydrateSelectedWorktree(path: string, requestId?: number): Promise<void> {
+  const shouldApply = (): boolean =>
+    requestId === undefined || requestId === selectWorktreeRequestId
+
+  await loadActiveTask(path, { shouldApply })
+  if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
 
   // Start (or restart) the file tree watcher for the newly active worktree.
   // The main process disposes any previous watcher for this window before
@@ -393,6 +551,7 @@ async function hydrateSelectedWorktree(path: string): Promise<void> {
   } catch (err) {
     console.error(`[workspace] watchFiles failed for "${path}":`, err)
   }
+  if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
 
   const project = getProjectForWorktree(path)
   if (project?.isGitRepo) {
@@ -400,11 +559,6 @@ async function hydrateSelectedWorktree(path: string): Promise<void> {
     if (wt) {
       workspaceState.branch = wt.branch
     }
-
-    // Fetch per-worktree git status
-    const status = await window.api.gitStatus(path)
-    workspaceState.isDirty = status.isDirty
-    workspaceState.aheadBehind = status.aheadBehind
   } else {
     workspaceState.branch = null
     workspaceState.isDirty = false

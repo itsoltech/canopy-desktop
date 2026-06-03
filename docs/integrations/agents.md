@@ -96,6 +96,12 @@ All four adapters support resuming a previous session:
 - Gemini: `--resume {sessionId}`
 - OpenCode: `--continue --session {sessionId}`
 
+Canopy stores two identifiers for each agent PTY. The hook route uses an internal `hookSessionId`
+allocated before process spawn, while `agentSessionId` is updated from normalized hook payloads
+when the CLI reports its real conversation/session ID. Resume commands always use
+`agentSessionId`; falling back to the internal hook route ID would make Claude/Codex report
+"session not found".
+
 ### Worktree-level status aggregation
 
 `getWorktreeAgentStatus()` scans all agent panes in a worktree's tabs and returns the highest-priority status: `waitingPermission` > `error` > `working` (thinking/toolCalling/compacting) > `idle` > `none`.

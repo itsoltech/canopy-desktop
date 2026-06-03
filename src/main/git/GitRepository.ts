@@ -353,14 +353,17 @@ export class GitRepository {
   }
 
   static isBranchMerged(repoRoot: string, branch: string): ResultAsync<boolean, GitError> {
+    return this.getMergedBranches(repoRoot).map((merged) => merged.includes(branch))
+  }
+
+  static getMergedBranches(repoRoot: string): ResultAsync<string[], GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('branch --merged', git.raw(['branch', '--merged'])).map((raw) => {
-      const merged = raw
+    return gitCall('branch --merged', git.raw(['branch', '--merged'])).map((raw) =>
+      raw
         .split('\n')
         .map((line) => line.replace(/^\*?\s+/, '').trim())
-        .filter(Boolean)
-      return merged.includes(branch)
-    })
+        .filter(Boolean),
+    )
   }
 
   static worktreeAdd(
