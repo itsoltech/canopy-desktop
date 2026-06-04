@@ -177,5 +177,11 @@ function describeAction(method: RpcMethodName, params: unknown): string {
     .with('agent.sendInput', () => `send prompt to agent ${p.sessionId}`)
     .with('workspace.selectWorktree', () => `switch worktree to ${p.worktreePath}`)
     .with('browser.openExternal', () => `open URL externally: ${p.url}`)
+    .with('worktree.add', () => `create a worktree at ${p.path} (branch ${p.branch})`)
+    .with(
+      'worktree.addCheckout',
+      () => `check out branch ${p.branch} into a new worktree at ${p.path}`,
+    )
+    .with('project.attach', () => `attach project directory ${p.path}`)
     .otherwise(() => `execute ${method}`)
 }

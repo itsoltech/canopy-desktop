@@ -9,8 +9,12 @@
   import { applyAppTheme } from './lib/theme/appTheme'
   import { getTheme } from './lib/terminal/themes'
 
-  onMount(async () => {
-    await loadPrefs()
+  onMount(() => {
+    // Not async on purpose: an async onMount returns a Promise, so Svelte would
+    // discard the cleanup function returned by initUpdateListeners and never
+    // tear down its update IPC listeners. loadPrefs has no ordering dependency
+    // with those listeners, so fire it independently.
+    void loadPrefs()
     return initUpdateListeners()
   })
 

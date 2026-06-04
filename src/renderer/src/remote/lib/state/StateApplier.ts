@@ -86,6 +86,12 @@ export class StateApplier {
         if (!Array.isArray(data)) return
         mirrorState.tools = data as ToolSnapshot[]
       })
+      .with('profiles', () => {
+        // The peer mirror intentionally does not track profiles (mirrorState has
+        // no profiles field), but the host still emits this topic on every
+        // profile change. Ignore it explicitly so `.exhaustive()` does not throw
+        // NonExhaustiveError when a profiles delta arrives during a session.
+      })
       .exhaustive()
   }
 }

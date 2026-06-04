@@ -3818,7 +3818,10 @@ export function registerIpcHandlers(
     return skill ? JSON.parse(JSON.stringify(skill)) : null
   })
 
-  ipcMain.handle('skills:install', async (_event, payload: SkillInstallOptions) => {
+  ipcMain.handle('skills:install', async (event, payload: SkillInstallOptions) => {
+    // The deploy target comes from the untrusted renderer; confine it to one of
+    // this window's attached workspaces before writing skill files into it.
+    if (payload.workspacePath) await validatePathAccess(event.sender.id, payload.workspacePath)
     const result = await skillInstaller.install(payload)
     const skill = unwrapOrThrow(result, skillErrorMessage)
     skillRegistry.refresh()
@@ -3828,7 +3831,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'skills:remove',
-    async (_event, payload: { id: string; workspacePath?: string }) => {
+    async (event, payload: { id: string; workspacePath?: string }) => {
+      if (payload.workspacePath) await validatePathAccess(event.sender.id, payload.workspacePath)
       const result = await skillInstaller.remove(payload.id, payload.workspacePath)
       unwrapOrThrow(result, skillErrorMessage)
       skillRegistry.refresh()
@@ -3839,7 +3843,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'skills:update',
-    async (_event, payload: { id: string; workspacePath?: string }) => {
+    async (event, payload: { id: string; workspacePath?: string }) => {
+      if (payload.workspacePath) await validatePathAccess(event.sender.id, payload.workspacePath)
       const result = await skillInstaller.update(payload.id, payload.workspacePath)
       const skill = unwrapOrThrow(result, skillErrorMessage)
       skillRegistry.refresh()
@@ -3851,9 +3856,10 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'skills:toggleAgent',
     async (
-      _event,
+      event,
       payload: { id: string; agent: string; enabled: boolean; workspacePath?: string },
     ) => {
+      if (payload.workspacePath) await validatePathAccess(event.sender.id, payload.workspacePath)
       const skill = unwrapOrThrow(
         skillRegistry.get(payload.id)
           ? ok(skillRegistry.get(payload.id)!)

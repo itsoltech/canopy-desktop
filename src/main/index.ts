@@ -834,7 +834,18 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('perf:openProject', (event, payload: { path: string }) => {
-      const resolved = realpathSync(resolve(payload.path))
+      let resolved: string
+      let home: string
+      try {
+        resolved = realpathSync(resolve(payload.path))
+        home = realpathSync(os.homedir())
+      } catch {
+        return // Path doesn't exist
+      }
+      // Constrain the renderer-supplied path to the user's home directory before
+      // granting workspace access, mirroring handleCanopyUrl. Without this a
+      // renderer could grant itself fs/git access to any path (e.g. `/`).
+      if (resolved !== home && !resolved.startsWith(home + sep)) return
       ipcCommandBridge?.grantAttachPath(event.sender.id, resolved)
       event.sender.send('url:action', { action: 'open', path: resolved })
     })

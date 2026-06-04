@@ -23,7 +23,12 @@
   let confirmBtn: HTMLButtonElement | undefined = $state()
 
   onMount(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null
     cancelBtn?.focus()
+    // Restore focus to the element that opened the dialog once it closes, so
+    // keyboard and screen-reader users aren't dropped onto <body> (ARIA dialog
+    // pattern).
+    return () => previouslyFocused?.focus()
   })
 
   function handleKeydown(e: KeyboardEvent): void {

@@ -91,6 +91,14 @@ export class BrowserManager {
     browserSession.setPermissionRequestHandler((_wc, _permission, callback) => {
       callback(false)
     })
+
+    // The async request handler above does not cover synchronous permission
+    // checks (e.g. navigator.permissions.query, media-device enumeration) or
+    // device selection (WebUSB/Serial/HID) — both default to allow. Deny them
+    // too so untrusted browser content can't pass a capability check the
+    // request handler was meant to block.
+    browserSession.setPermissionCheckHandler(() => false)
+    browserSession.setDevicePermissionHandler(() => false)
   }
 
   /**

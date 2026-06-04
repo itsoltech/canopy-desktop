@@ -153,6 +153,15 @@ export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethod
   'tabs.close',
   'pty.kill',
   'worktree.remove',
+  // Peer-initiated filesystem / process / git mutations. Each is a one-shot
+  // operation (a per-call confirm is tolerable), and without listing them here
+  // the default 'destructive' profile would auto-allow spawning host processes,
+  // creating worktrees at peer-supplied paths, and attaching arbitrary host
+  // directories into the workspace — all with no host approval.
+  'tools.spawn',
+  'worktree.add',
+  'worktree.addCheckout',
+  'project.attach',
 ])
 
 /**

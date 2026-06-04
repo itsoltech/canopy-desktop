@@ -90,6 +90,13 @@ function generateCommitMessageInner(diff: string): ResultAsyncType<string | null
   })
 }
 
+// Serializes the global `process.env` mutation below. Two concurrent calls
+// (e.g. two windows, or a rapid double-trigger) would otherwise interleave and
+// clobber each other's API key / base URL — call B could route call A's request
+// to the wrong endpoint, and B's restore in `finally` could leave A's temporary
+// values behind in the process environment.
+let commitMessageLock: Promise<unknown> = Promise.resolve()
+
 export async function generateCommitMessage(
   diff: string,
   preferencesStore: PreferencesStore,
@@ -119,22 +126,31 @@ export async function generateCommitMessage(
     }
   }
 
-  const savedEnv: Record<string, string | undefined> = {}
+  const run = commitMessageLock.then(async () => {
+    const savedEnv: Record<string, string | undefined> = {}
 
-  try {
-    for (const [key, val] of Object.entries(envOverrides)) {
-      savedEnv[key] = process.env[key]
-      process.env[key] = val
-    }
-
-    return await generateCommitMessageInner(diff).unwrapOr(null)
-  } finally {
-    for (const [key, val] of Object.entries(savedEnv)) {
-      if (val !== undefined) {
+    try {
+      for (const [key, val] of Object.entries(envOverrides)) {
+        savedEnv[key] = process.env[key]
         process.env[key] = val
-      } else {
-        delete process.env[key]
+      }
+
+      return await generateCommitMessageInner(diff).unwrapOr(null)
+    } finally {
+      for (const [key, val] of Object.entries(savedEnv)) {
+        if (val !== undefined) {
+          process.env[key] = val
+        } else {
+          delete process.env[key]
+        }
       }
     }
-  }
+  })
+  // Keep the chain alive regardless of this run's outcome so one failure does
+  // not wedge every subsequent call.
+  commitMessageLock = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
 }

@@ -241,7 +241,19 @@ export class SkillInstaller {
       if (cloneResult.isErr()) return err(cloneResult.error)
 
       const skillDir = subpath ? join(tmpDir, subpath) : tmpDir
-      return await this.readSkillDir(skillDir, `github:${ref}`, 'github')
+      // `subpath` is attacker-controlled (the source string arrives from the
+      // renderer) and, unlike owner/repo, is not validated above — a `../`
+      // segment would let readSkillDir escape the clone and read arbitrary
+      // files on disk. Confine it to the temp clone before reading.
+      const resolvedSkillDir = resolve(skillDir)
+      if (resolvedSkillDir !== tmpDir && !resolvedSkillDir.startsWith(tmpDir + sep)) {
+        return err({
+          _tag: 'InvalidSource',
+          source: `github:${ref}`,
+          reason: 'Subpath escapes the repository',
+        })
+      }
+      return await this.readSkillDir(resolvedSkillDir, `github:${ref}`, 'github')
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
