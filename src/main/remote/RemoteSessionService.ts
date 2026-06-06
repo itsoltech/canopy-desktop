@@ -27,6 +27,9 @@ const REAPER_WINDOW_MS = 30 * 1000 // 30 seconds
 /** Auto-close idle sessions after this many ms of no RPC activity. */
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
 
+/** Retry passive listen mode while the OS is still assigning an adapter IP after startup. */
+const LISTEN_RETRY_MS = 5000
+
 const REMOTE_STATUS_CHANNEL = 'remote:statusChange'
 const REMOTE_SIGNAL_CHANNEL = 'remote:signal'
 
@@ -56,8 +59,8 @@ const SELECTED_INTERFACE_PREF_KEY = 'remote.selectedInterface'
  *
  * Responsibilities:
  *   - Generate one-shot pairing tokens.
- *   - Spin the {@link SignalingServer} up/down on demand (lazy start, never
- *     listens until the user actually opens the modal).
+ *   - Spin the {@link SignalingServer} up/down on demand for manual pairing
+ *     and passive trusted-device listen mode.
  *   - Resolve a usable LAN IP via {@link selectPrimaryInterface} so the QR URL
  *     points at a host the phone can reach.
  *   - Validate pairing tokens with constant-time comparison.
@@ -65,9 +68,8 @@ const SELECTED_INTERFACE_PREF_KEY = 'remote.selectedInterface'
  *     by broadcasting `remote:statusChange` to every BrowserWindow.
  *   - Schedule pairing TTL expiry.
  *
- * Phase 2 scope: pairing handshake + status broadcast. The full peer flow
- * (accept modal, signaling routing into renderer, idle/reaper timers, trusted
- * devices) lands in Phases 3, 4, 10, 11.
+ * Owns the full peer flow: accept prompt, signaling routing into the renderer,
+ * idle/reaper timers, trusted devices, and listen-mode retries.
  */
 export class RemoteSessionService {
   private status: RemoteSessionStatus = { kind: 'idle' }
@@ -78,6 +80,7 @@ export class RemoteSessionService {
   private pairingExpiryTimer: ReturnType<typeof setTimeout> | null = null
   private reaperTimer: ReturnType<typeof setTimeout> | null = null
   private idleTimer: ReturnType<typeof setTimeout> | null = null
+  private listenRetryTimer: ReturnType<typeof setTimeout> | null = null
   private lastPairedDeviceName: string | null = null
   /**
    * Device ID of the most recently accepted peer in this session. Used to
@@ -123,6 +126,9 @@ export class RemoteSessionService {
   /** Remove a single trusted device by its ID. */
   removeTrustedDevice(deviceId: string): void {
     this.trustedDevices.remove(deviceId)
+    if (this.trustedDevices.list().length === 0) {
+      this.clearListenRetryTimer()
+    }
   }
 
   /**
@@ -137,11 +143,13 @@ export class RemoteSessionService {
    * user can retry without restarting the app.
    */
   start(hostWcId: number): ResultAsync<{ pairingUrl: string }, RemoteServerError> {
+    this.clearListenRetryTimer()
+
     // Fast path: signaling server is already bound from an auto-listen
     // pass (see `ensureListening`). Upgrade to `waiting` by generating a
     // fresh one-shot token + QR URL on the existing listener — no rebind,
     // no bundle reload. The caller becomes the host window so peer signals
-    // reach the renderer that opened the QR modal.
+    // reach the renderer that started pairing from the Remote sidebar.
     if (this.status.kind === 'listening') {
       this.hostWcId = hostWcId
       const { lanIp, port } = this.status
@@ -205,10 +213,10 @@ export class RemoteSessionService {
   /**
    * Start the signaling server in passive listen mode if the user has a
    * previously trusted device. This is how a paired phone reconnects after
-   * the desktop app is closed and reopened without the user needing to open
-   * the Remote Connection modal: the server is listening on the same saved
-   * port, and `handlePairAttempt` recognizes the trusted `deviceId` and
-   * auto-accepts without a one-shot token.
+   * the desktop app is closed and reopened without the user starting a new
+   * sidebar pairing flow: the server is listening on the same saved port,
+   * and `handlePairAttempt` recognizes the trusted `deviceId` and auto-accepts
+   * without a one-shot token.
    *
    * Called from the renderer root layout on app mount. Best-effort: any
    * failure leaves the session idle and the user can still start a QR
@@ -216,7 +224,8 @@ export class RemoteSessionService {
    *   - `remote.enabled === 'true'` (user opted in)
    *   - TrustedDeviceStore has ≥1 entry
    *   - A usable LAN interface is available
-   * Missing any of these is a silent no-op.
+   * Missing preferences/trust is a silent no-op. Missing network schedules a
+   * short retry because adapters can come up after Canopy starts.
    *
    * Idempotent: if the server is already running (either from a prior
    * listen-mode start or a manual `start()`), the method only rebinds the
@@ -240,17 +249,28 @@ export class RemoteSessionService {
       return okAsync(undefined)
     }
 
-    if (!this.isEnabledInPreferences()) return okAsync(undefined)
-    if (this.trustedDevices.list().length === 0) return okAsync(undefined)
+    if (!this.isEnabledInPreferences()) {
+      this.clearListenRetryTimer()
+      return okAsync(undefined)
+    }
+    if (this.trustedDevices.list().length === 0) {
+      this.clearListenRetryTimer()
+      return okAsync(undefined)
+    }
 
     const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
     const iface = selectPrimaryInterface(preferredIfaceName)
-    // Silent no-op for listen mode: any failure (no interface at all, or
-    // the user-named interface currently unavailable) leaves the session
-    // idle. Listen mode never surfaces errors to the user — the next manual
-    // `start()` will return NoNetworkInterface with a visible message.
-    if (!iface) return okAsync(undefined)
+    // Silent retry for listen mode: no interface at all, or the user-named
+    // interface currently unavailable, leaves the session idle and checks
+    // again shortly. Listen mode never surfaces errors to the user — the
+    // next manual `start()` will return NoNetworkInterface with a visible
+    // message.
+    if (!iface) {
+      this.scheduleListenRetry(hostWcId)
+      return okAsync(undefined)
+    }
 
+    this.clearListenRetryTimer()
     this.hostWcId = hostWcId
     const bundleRoot = this.resolveBundleRoot()
     const savedPortRaw = this.preferencesStore.get(LAST_PORT_PREF_KEY)
@@ -294,7 +314,7 @@ export class RemoteSessionService {
       .mapErr((e) => {
         // Best-effort: listen mode failing should not block the app. Log
         // and return to idle so the user can still start a session
-        // manually from the Remote Connection modal.
+        // manually from the Remote sidebar.
         console.warn('[remote] ensureListening failed:', e._tag)
         this.hostWcId = null
         return e
@@ -344,6 +364,7 @@ export class RemoteSessionService {
    * `idle`. Safe to call from any state.
    */
   stop(): ResultAsync<void, RemoteServerError> {
+    this.clearListenRetryTimer()
     if (!this.signalingServer.isRunning) {
       this.cleanupSession()
       this.hostWcId = null
@@ -443,6 +464,7 @@ export class RemoteSessionService {
 
   dispose(): void {
     this.clearExpiryTimer()
+    this.clearListenRetryTimer()
     if (this.signalingServer.isRunning) {
       // Best-effort fire-and-forget on shutdown
       this.signalingServer.stop().match(
@@ -790,6 +812,24 @@ export class RemoteSessionService {
     if (this.idleTimer) {
       clearTimeout(this.idleTimer)
       this.idleTimer = null
+    }
+  }
+
+  private scheduleListenRetry(hostWcId: number): void {
+    if (this.listenRetryTimer || this.signalingServer.isRunning) return
+    this.listenRetryTimer = setTimeout(() => {
+      this.listenRetryTimer = null
+      this.ensureListening(hostWcId).match(
+        () => {},
+        () => {},
+      )
+    }, LISTEN_RETRY_MS)
+  }
+
+  private clearListenRetryTimer(): void {
+    if (this.listenRetryTimer) {
+      clearTimeout(this.listenRetryTimer)
+      this.listenRetryTimer = null
     }
   }
 

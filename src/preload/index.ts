@@ -1365,7 +1365,7 @@ const api = {
     // Best-effort request from the renderer on app mount — brings the
     // signaling server up in passive listen mode iff the user has opted in
     // and has ≥1 trusted device, so a previously paired phone can reconnect
-    // without the user re-opening the Remote Connection modal. Never
+    // without the user starting a new sidebar pairing flow. Never
     // rejects; failures are silently no-oped on the main side.
     ensureListening: () => ipcRenderer.invoke('remote:ensureListening') as Promise<void>,
     stop: () => ipcRenderer.invoke('remote:stop') as Promise<void>,

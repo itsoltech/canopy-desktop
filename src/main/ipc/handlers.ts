@@ -83,7 +83,7 @@ import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
-import { listAllInterfaces } from '../remote/discovery'
+import { listSelectableInterfaces } from '../remote/discovery'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
 import type { SkillRegistry } from '../skills/SkillRegistry'
@@ -886,7 +886,7 @@ export function registerIpcHandlers(
     return preferencesStore.get(payload.key)
   })
 
-  ipcMain.handle('db:prefs:set', (_event, payload: { key: string; value: string }) => {
+  ipcMain.handle('db:prefs:set', (event, payload: { key: string; value: string }) => {
     // Renderer must not be able to overwrite encrypted pref keys (API keys,
     // tracker tokens) — `preferencesStore.set` auto-encrypts via safeStorage,
     // so a write here would silently replace the user's stored credential
@@ -896,14 +896,29 @@ export function registerIpcHandlers(
       throw new Error(`Refusing to set encrypted preference key "${payload.key}" via db:prefs:set`)
     }
     preferencesStore.set(payload.key, payload.value)
-    if (payload.key === 'remote.enabled' && payload.value === 'false') {
-      void remoteSessionService.stop()
+    if (payload.key === 'remote.enabled') {
+      if (payload.value === 'false') {
+        void remoteSessionService.stop()
+      } else {
+        void remoteSessionService.ensureListening(event.sender.id).match(
+          () => {},
+          () => {},
+        )
+      }
     }
     // Changing the bound interface requires rebinding the signaling server.
     // Stop the current session; the next ensureListening() / start() picks
     // up the new pref. Mirrors the enabled=false teardown above.
     if (payload.key === 'remote.selectedInterface') {
-      void remoteSessionService.stop()
+      void remoteSessionService.stop().match(
+        () => {
+          void remoteSessionService.ensureListening(event.sender.id).match(
+            () => {},
+            () => {},
+          )
+        },
+        () => {},
+      )
     }
   })
 
@@ -3685,8 +3700,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle('remote:ensureListening', async (event) => {
     // Best-effort: auto-bind the signaling server in listen mode so a
-    // previously trusted phone can reconnect without the user opening the
-    // Remote Connection modal. Silently no-ops if the user hasn't opted in,
+    // previously trusted phone can reconnect without the user starting a
+    // new sidebar pairing flow. Silently no-ops if the user hasn't opted in,
     // has no trusted devices, or the network is unavailable. Swallowed
     // errors never surface to the renderer — a failed listen should not
     // block app startup or UI rendering.
@@ -3736,7 +3751,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('remote:listNetworkInterfaces', () => {
-    return listAllInterfaces()
+    return listSelectableInterfaces()
   })
 
   ipcMain.handle('remote:removeTrustedDevice', (_event, payload: { deviceId: string }) => {

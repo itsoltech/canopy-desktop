@@ -20,6 +20,10 @@ export interface NetworkInterfaceInfo {
 const VIRTUAL_INTERFACE_PATTERN =
   /^(vboxnet|vmnet|docker|br-|lo|utun|tun|tap|tailscale|zerotier|wg|cni|virbr|awdl|llw|anpi|bridge)/i
 
+function isLinkLocalIPv4(address: string): boolean {
+  return address.startsWith('169.254.')
+}
+
 export function listAllInterfaces(): NetworkInterfaceInfo[] {
   const ifaces = networkInterfaces()
   const result: NetworkInterfaceInfo[] = []
@@ -36,7 +40,18 @@ export function listAllInterfaces(): NetworkInterfaceInfo[] {
 }
 
 export function listLanInterfaces(): NetworkInterfaceInfo[] {
-  return listAllInterfaces().filter((i) => !i.virtual)
+  return listSelectableInterfaces().filter((i) => !i.virtual)
+}
+
+export function listSelectableInterfaces(): NetworkInterfaceInfo[] {
+  const byName = new Map<string, NetworkInterfaceInfo>()
+  for (const iface of listAllInterfaces()) {
+    if (isLinkLocalIPv4(iface.address)) continue
+    if (!byName.has(iface.name)) {
+      byName.set(iface.name, iface)
+    }
+  }
+  return [...byName.values()]
 }
 
 export function selectPrimaryInterface(preferredName?: string): NetworkInterfaceInfo | null {
@@ -45,7 +60,7 @@ export function selectPrimaryInterface(preferredName?: string): NetworkInterface
   // No match means the named interface is gone (DHCP renew, adapter unplug,
   // VPN down). Caller treats null as NoNetworkInterface — no silent fallback.
   if (preferredName) {
-    return listAllInterfaces().find((i) => i.name === preferredName) ?? null
+    return listSelectableInterfaces().find((i) => i.name === preferredName) ?? null
   }
   const ifaces = listLanInterfaces()
   // Prefer interfaces named like WiFi on macOS (`en0`, `en1`) since that's

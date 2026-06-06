@@ -143,7 +143,7 @@
   >
     <PrefsRow
       label="Enable remote control"
-      help="When disabled, the command palette hides the Open Remote Connection action, the signaling server is never bound, and trusted devices cannot reconnect."
+      help="When disabled, the Remote sidebar section is hidden, the signaling server is never bound, and trusted devices cannot reconnect."
       search="remote control enable signaling pair phone tablet"
       badge={{ text: 'Beta', tone: 'warning' }}
     >
@@ -151,7 +151,7 @@
     </PrefsRow>
     <PrefsRow
       label="Network interface"
-      help="Which LAN interface the signaling server binds to. The QR code uses this interface's IPv4 address, and the server only listens on that one adapter. 'Auto' picks the first physical Wi-Fi/Ethernet adapter at start. Changing this stops any active session — the next pairing or trusted reconnect picks up the new interface."
+      help="Which LAN interface the signaling server binds to. The QR code uses this interface's routable IPv4 address, and the server only listens on that one adapter. Link-local APIPA addresses are ignored. 'Auto' picks the first physical Wi-Fi/Ethernet adapter; if the adapter is not ready after restart, trusted reconnect retries in the background."
       search="remote interface network adapter wifi ethernet bind ip"
     >
       <CustomSelect

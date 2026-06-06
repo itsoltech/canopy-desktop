@@ -102,7 +102,7 @@ export const onboardingSteps: OnboardingStep[] = [
     id: 'remote-control',
     title: 'Remote control (Beta)',
     description:
-      'Mirror and control this Canopy window from your phone, tablet, or another laptop on the same WiFi. Enable it in Settings → Remote Control, then open "Remote Connection" from the command palette to scan a QR code and pair a device. Beta — expect rough edges while we iterate.',
+      'Mirror and control this Canopy window from your phone, tablet, or another laptop on the same WiFi. Enable it in Settings → Remote Control, then use the REMOTE section in the left sidebar to scan a QR code and pair a device. Beta — expect rough edges while we iterate.',
     introducedIn: '0.10.0',
     category: 'feature',
   },
