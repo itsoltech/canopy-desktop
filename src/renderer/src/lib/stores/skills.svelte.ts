@@ -40,6 +40,8 @@ export async function initSkillStore(): Promise<void> {
   skills = await window.api.listSkills()
 
   unsubscribe = window.api.onSkillsChanged((updated) => {
+    // The skills:changed IPC payload is produced from the typed SkillStore in the
+    // main process; the preload callback surfaces it untyped, so assert the shape here.
     skills = updated as SkillDefinition[]
   })
 }

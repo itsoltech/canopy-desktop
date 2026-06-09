@@ -147,7 +147,10 @@
         },
         { root: bodyEl, rootMargin: '0px 0px -70% 0px', threshold: 0 },
       )
-      bodyEl.querySelectorAll('.file-section').forEach((el) => observer!.observe(el))
+      // Observe the per-file elements by the same attribute the callback reads
+      // (`data-filepath`). They never carried a `.file-section` class, so the
+      // previous selector matched nothing and visible-file tracking never fired.
+      bodyEl.querySelectorAll('[data-filepath]').forEach((el) => observer!.observe(el))
     }
 
     // Re-setup observer when files change

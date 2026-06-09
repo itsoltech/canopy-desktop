@@ -157,6 +157,7 @@
       <button
         class="flex items-center justify-center w-7 h-7 border-0 bg-transparent text-text-muted cursor-pointer rounded-md hover:bg-hover hover:text-text"
         onclick={closeDialog}
+        aria-label="Close"
       >
         <X size={16} />
       </button>
@@ -173,6 +174,7 @@
               <button
                 class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-text-muted cursor-pointer rounded-sm hover:bg-hover hover:text-text"
                 onclick={() => startNew(group.configDir)}
+                aria-label="Add configuration"
               >
                 <Plus size={14} />
               </button>

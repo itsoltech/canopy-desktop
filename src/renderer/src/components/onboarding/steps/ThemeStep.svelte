@@ -32,7 +32,7 @@
             class="text-xl font-semibold font-['JetBrains_Mono',monospace]"
             style:color={theme.foreground}>Aa</span
           >
-          <div class="flex gap-[3px]">
+          <div class="flex gap-[3px]" aria-hidden="true">
             <span
               class="w-1.5 h-1.5 rounded-full"
               style:background={theme.red ?? 'var(--color-danger)'}

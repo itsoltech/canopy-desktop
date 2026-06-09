@@ -92,14 +92,14 @@ export class PtyStreamForwarder {
   }
 
   dispose(): void {
-    for (const [id, entry] of this.sockets) {
+    for (const [, entry] of this.sockets) {
       entry.intentional = true
       try {
         entry.ws.close()
       } catch {
         /* ignore */
       }
-      this.sockets.delete(id)
     }
+    this.sockets.clear()
   }
 }

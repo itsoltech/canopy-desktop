@@ -115,6 +115,8 @@ export class ToolSessionService {
       const settingsJsonRaw = prefsReader.get(`${tool.id}.settingsJson`)
       if (settingsJsonRaw) {
         try {
+          // Parsed settings are an opaque override bag forwarded to the agent
+          // adapter, which validates the shape it cares about; treat as a record here.
           settingsOverrides = JSON.parse(settingsJsonRaw) as Record<string, unknown>
         } catch {
           // Invalid JSON is ignored, matching the previous spawn behavior.

@@ -90,6 +90,13 @@ function generateCommitMessageInner(diff: string): ResultAsyncType<string | null
   })
 }
 
+// Serializes the global process.env mutation below. Mutating process.env around
+// the awaited query() is not concurrency-safe: two simultaneous
+// git:generateCommitMessage calls (e.g. from two windows/repos) would interleave
+// their save/restore and could leak one window's ANTHROPIC_API_KEY/base URL into
+// the other's request, or corrupt process.env. Chaining ensures one owner at a time.
+let envCriticalSection: Promise<unknown> = Promise.resolve()
+
 export async function generateCommitMessage(
   diff: string,
   preferencesStore: PreferencesStore,
@@ -119,22 +126,28 @@ export async function generateCommitMessage(
     }
   }
 
-  const savedEnv: Record<string, string | undefined> = {}
+  const run = envCriticalSection.then(async () => {
+    const savedEnv: Record<string, string | undefined> = {}
 
-  try {
-    for (const [key, val] of Object.entries(envOverrides)) {
-      savedEnv[key] = process.env[key]
-      process.env[key] = val
-    }
-
-    return await generateCommitMessageInner(diff).unwrapOr(null)
-  } finally {
-    for (const [key, val] of Object.entries(savedEnv)) {
-      if (val !== undefined) {
+    try {
+      for (const [key, val] of Object.entries(envOverrides)) {
+        savedEnv[key] = process.env[key]
         process.env[key] = val
-      } else {
-        delete process.env[key]
+      }
+
+      return await generateCommitMessageInner(diff).unwrapOr(null)
+    } finally {
+      for (const [key, val] of Object.entries(savedEnv)) {
+        if (val !== undefined) {
+          process.env[key] = val
+        } else {
+          delete process.env[key]
+        }
       }
     }
-  }
+  })
+
+  // Keep the chain alive even if this run rejects, without swallowing the result.
+  envCriticalSection = run.catch(() => {})
+  return run
 }

@@ -7,6 +7,7 @@
   import appIconUrl from '../../assets/app-icon.png'
 
   let qrEl: HTMLDivElement | undefined = $state()
+  let containerEl: HTMLDivElement | undefined = $state()
   let qrInstance: QRCodeStyling | null = null
   let errorMsg: string | null = $state(null)
   let copied = $state(false)
@@ -63,6 +64,9 @@
   let statusKind = $derived(status.kind)
 
   onMount(async () => {
+    // Move focus into the dialog on open so keyboard and screen-reader users
+    // start inside the modal (consistent with the other dialogs).
+    containerEl?.focus()
     try {
       const existing = await window.api.remote.getStatus()
       if (existing.kind === 'idle' || existing.kind === 'error' || existing.kind === 'listening') {
@@ -190,6 +194,8 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="remote-connection-title"
+    tabindex="-1"
+    bind:this={containerEl}
     onmousedown={(e) => e.stopPropagation()}
   >
     <h2

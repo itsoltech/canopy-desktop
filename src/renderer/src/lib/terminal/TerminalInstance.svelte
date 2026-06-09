@@ -97,14 +97,16 @@
     }
   })
 
-  // Listen for imperative focus requests (e.g. after browser screenshot delivery)
+  // Listen for imperative focus requests (e.g. after browser screenshot delivery).
+  // `termRef` is a plain (non-reactive) let assigned later in initTerminal(), so we
+  // must NOT gate registration on it — doing so made this effect return early at
+  // mount and never re-run, leaving the listener unattached. Read termRef at
+  // event-fire time instead, so the handler works once the terminal is ready.
   $effect(() => {
-    if (!termRef) return
-    const term = termRef
     const handler = (e: Event): void => {
       const detail = (e as CustomEvent<{ sessionId: string }>).detail
       if (detail.sessionId === sessionId) {
-        requestAnimationFrame(() => term.focus())
+        requestAnimationFrame(() => termRef?.focus())
       }
     }
     window.addEventListener('canopy:focus-terminal', handler)

@@ -97,7 +97,7 @@
     <span>Mobile device</span>
   </label>
   {#if error}
-    <p class="text-sm text-danger-text m-0">{error}</p>
+    <p class="text-sm text-danger-text m-0" role="alert">{error}</p>
   {/if}
   <div class="flex justify-end gap-2">
     <button
