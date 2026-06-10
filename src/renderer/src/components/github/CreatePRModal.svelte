@@ -92,6 +92,7 @@
   class="fixed inset-0 flex items-center justify-center bg-scrim z-[100]"
   role="dialog"
   aria-modal="true"
+  aria-labelledby="create-pr-title"
   onkeydown={handleKeydown}
   onclick={closeDialog}
 >
@@ -101,7 +102,9 @@
     role="none"
     onclick={(e) => e.stopPropagation()}
   >
-    <h2 class="text-[15px] font-semibold text-text m-0 mb-4">Create pull request</h2>
+    <h2 id="create-pr-title" class="text-[15px] font-semibold text-text m-0 mb-4">
+      Create pull request
+    </h2>
 
     <div class="mb-2.5">
       <label class="block text-sm text-text-secondary mb-1">Title</label>

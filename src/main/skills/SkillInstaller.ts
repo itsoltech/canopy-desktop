@@ -240,7 +240,17 @@ export class SkillInstaller {
 
       if (cloneResult.isErr()) return err(cloneResult.error)
 
-      const skillDir = subpath ? join(tmpDir, subpath) : tmpDir
+      // `subpath` is renderer-supplied and unvalidated; `..` segments could
+      // escape the cloned repo and let readSkillDir read arbitrary local
+      // directories. Normalize and confirm the result stays within tmpDir.
+      const skillDir = subpath ? normalize(join(tmpDir, subpath)) : tmpDir
+      if (skillDir !== tmpDir && !skillDir.startsWith(tmpDir + sep)) {
+        return err({
+          _tag: 'InvalidSource',
+          source: `github:${ref}`,
+          reason: 'Skill subpath must not escape the repository',
+        })
+      }
       return await this.readSkillDir(skillDir, `github:${ref}`, 'github')
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
@@ -262,7 +272,9 @@ export class SkillInstaller {
     }
 
     const fetchResult = await fromExternalCall(
-      fetch(url, { redirect: 'error' }),
+      // Time out a stalled host (no hung install) and forbid redirects so a 3xx
+      // cannot bounce past the SSRF check above.
+      fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) }),
       (e): SkillError => ({
         _tag: 'FetchFailed',
         source: url,
@@ -275,6 +287,14 @@ export class SkillInstaller {
     const resp = fetchResult.value
     if (!resp.ok) {
       return err({ _tag: 'FetchFailed', source: url, cause: `HTTP ${resp.status}` })
+    }
+
+    // Cap the response size: a hostile/compromised endpoint could otherwise
+    // stream an unbounded body into resp.text() and OOM the main process.
+    const MAX_SKILL_BYTES = 5 * 1024 * 1024
+    const declaredLength = Number(resp.headers.get('content-length'))
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_SKILL_BYTES) {
+      return err({ _tag: 'FetchFailed', source: url, cause: 'Skill response exceeds 5 MB limit' })
     }
 
     const textResult = await fromExternalCall(

@@ -52,7 +52,10 @@ const OUTPUT_SCHEMA = {
   required: ['subject', 'body'] as const,
 }
 
-function generateCommitMessageInner(diff: string): ResultAsyncType<string | null, AiError> {
+function generateCommitMessageInner(
+  diff: string,
+  envOverrides: Record<string, string>,
+): ResultAsyncType<string | null, AiError> {
   const truncatedDiff = diff.length > MAX_DIFF_LENGTH ? diff.slice(0, MAX_DIFF_LENGTH) : diff
   const prompt = PROMPT_TEMPLATE.replace('{diff}', truncatedDiff)
 
@@ -66,6 +69,11 @@ function generateCommitMessageInner(diff: string): ResultAsyncType<string | null
           model: 'haiku',
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+          // Pass provider env per-call instead of mutating the global
+          // process.env: concurrent invocations (e.g. two windows) would
+          // otherwise race on the shared global and could leak one profile's
+          // ANTHROPIC_API_KEY into another's request.
+          env: { ...process.env, ...envOverrides },
         },
       })
 
@@ -119,22 +127,5 @@ export async function generateCommitMessage(
     }
   }
 
-  const savedEnv: Record<string, string | undefined> = {}
-
-  try {
-    for (const [key, val] of Object.entries(envOverrides)) {
-      savedEnv[key] = process.env[key]
-      process.env[key] = val
-    }
-
-    return await generateCommitMessageInner(diff).unwrapOr(null)
-  } finally {
-    for (const [key, val] of Object.entries(savedEnv)) {
-      if (val !== undefined) {
-        process.env[key] = val
-      } else {
-        delete process.env[key]
-      }
-    }
-  }
+  return generateCommitMessageInner(diff, envOverrides).unwrapOr(null)
 }

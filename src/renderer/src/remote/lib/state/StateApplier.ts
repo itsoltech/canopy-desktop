@@ -86,6 +86,10 @@ export class StateApplier {
         if (!Array.isArray(data)) return
         mirrorState.tools = data as ToolSnapshot[]
       })
+      // The host emits a `profiles` topic, but the peer mirror does not surface
+      // profiles yet. Accept and ignore it so the match stays exhaustive and a
+      // profiles delta can't throw past the RPC subscriber boundary.
+      .with('profiles', () => {})
       .exhaustive()
   }
 }
