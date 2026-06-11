@@ -132,7 +132,14 @@ function parseSkillMd(
   const name = (frontmatter.name as string) ?? fileName ?? 'unnamed-skill'
   const description = (frontmatter.description as string) ?? ''
   const version = (frontmatter.version as string) ?? '1.0.0'
-  const agents = (frontmatter.agents as SkillAgentTarget[]) ?? ['claude']
+  // `agents` comes from untrusted skill frontmatter — validate it is an array
+  // of strings before trusting it as agent targets (unknown agent names are
+  // ignored downstream by getTransformer).
+  const rawAgents = frontmatter.agents
+  const agents: SkillAgentTarget[] =
+    Array.isArray(rawAgents) && rawAgents.every((a) => typeof a === 'string')
+      ? (rawAgents as SkillAgentTarget[])
+      : ['claude']
   const metadata: Record<string, unknown> = {}
 
   if (frontmatter['allowed-tools']) metadata['allowed-tools'] = frontmatter['allowed-tools']
