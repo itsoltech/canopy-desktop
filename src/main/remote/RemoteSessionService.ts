@@ -169,7 +169,10 @@ export class RemoteSessionService {
     // no bundle reload. The caller becomes the host window so peer signals
     // reach the renderer that started pairing from the Remote sidebar.
     if (this.status.kind === 'listening') {
-      if (this.signalingServer.listeningHost !== iface.address) {
+      if (
+        this.signalingServer.listeningHost !== iface.address &&
+        this.signalingServer.listeningHost !== '0.0.0.0'
+      ) {
         return this.signalingServer.stop().andThen(() => {
           this.cleanupSession()
           this.hostWcId = null
@@ -178,8 +181,7 @@ export class RemoteSessionService {
         })
       }
       this.hostWcId = hostWcId
-      const { lanIp, port } = this.status
-      return okAsync(this.beginPairing(lanIp, port))
+      return okAsync(this.beginPairing(iface.address, this.status.port))
     }
 
     if (this.status.kind !== 'idle' && this.status.kind !== 'error') {
@@ -248,7 +250,10 @@ export class RemoteSessionService {
    * listen-mode start or a manual `start()`), the method only rebinds the
    * host renderer if the previous one is gone (dev reload, window closed).
    */
-  ensureListening(hostWcId: number): ResultAsync<void, RemoteServerError> {
+  ensureListening(
+    hostWcId: number,
+    opts: { allowWithoutTrusted?: boolean } = {},
+  ): ResultAsync<void, RemoteServerError> {
     // Already running — keep the server up, just adopt the caller as the
     // host renderer if the previous one is destroyed. We do NOT blindly
     // reassign: a mid-session window claiming listening should not steal
@@ -270,7 +275,7 @@ export class RemoteSessionService {
       this.clearListenRetryTimer()
       return okAsync(undefined)
     }
-    if (this.trustedDevices.list().length === 0) {
+    if (!opts.allowWithoutTrusted && this.trustedDevices.list().length === 0) {
       this.clearListenRetryTimer()
       return okAsync(undefined)
     }
@@ -753,17 +758,44 @@ export class RemoteSessionService {
   }
 
   /**
-   * Soft reset back to listening mode without releasing the signaling
-   * server port. Clears per-session state (pending token, pending device,
-   * idle/reaper timers) but keeps `currentPairing` populated with
-   * host/port so a subsequent trusted-device pair attempt can still pluck
-   * those fields from it. Caller must have verified `canReturnToListening`.
+   * Reset back to the configured listen mode. If pairing temporarily used a
+   * different QR adapter, rebind so the persisted listener setting remains the
+   * source of truth after the session ends.
    */
   private returnToListening(): void {
     const pairing = this.currentPairing
     if (!pairing) {
       this.stop().match(
         () => {},
+        () => {},
+      )
+      return
+    }
+    const listenHost = this.resolveConfiguredListenHost()
+    if (!listenHost) {
+      const hostWcId = this.hostWcId
+      this.stop().match(
+        () => {
+          if (hostWcId !== null) this.scheduleListenRetry(hostWcId)
+        },
+        () => {},
+      )
+      return
+    }
+    if (this.signalingServer.listeningHost !== listenHost) {
+      const hostWcId = this.hostWcId
+      this.signalingServer.stop().match(
+        () => {
+          this.cleanupSession()
+          this.hostWcId = null
+          this.setStatus({ kind: 'idle' })
+          if (hostWcId !== null) {
+            this.ensureListening(hostWcId).match(
+              () => {},
+              () => {},
+            )
+          }
+        },
         () => {},
       )
       return
@@ -775,18 +807,28 @@ export class RemoteSessionService {
     this.pendingDevice = null
     this.lastPairedDeviceName = null
     this.lastPairedDeviceId = null
-    const { hostname, lanIp, port } = pairing
+    const { hostname } = pairing
+    const port = this.signalingServer.listeningPort || pairing.port
     this.currentPairing = {
       pairingUrl: '',
       hostname,
-      lanIp,
+      lanIp: listenHost,
       port,
       expiresAt: Number.POSITIVE_INFINITY,
     }
-    this.setStatus({ kind: 'listening', hostname, lanIp, port })
+    this.setStatus({ kind: 'listening', hostname, lanIp: listenHost, port })
   }
 
   // ===== helpers =====
+
+  private resolveConfiguredListenHost(): string | null {
+    if (this.preferencesStore.get(LISTEN_ALL_INTERFACES_PREF_KEY) === 'true') {
+      return '0.0.0.0'
+    }
+    const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
+    if (!preferredIfaceName) return null
+    return selectPrimaryInterface(preferredIfaceName)?.address ?? null
+  }
 
   private setStatus(next: RemoteSessionStatus): void {
     const ts = new Date().toISOString().slice(11, 23)

@@ -20,10 +20,7 @@
     type NetworkInterface,
   } from '../../lib/remote/interfaceOptions'
 
-  type TrustedDevice = { deviceId: string }
-
   let interfaces = $state<NetworkInterface[]>([])
-  let trustedDeviceCount = $state(0)
   let busy = $state(false)
   let errorMsg: string | null = $state(null)
   let copied = $state(false)
@@ -36,7 +33,7 @@
   let hasListenerInterface = $derived(listenerInterface.length > 0)
   let listenAllInterfaces = $derived(prefs['remote.listenAllInterfaces'] === 'true')
   let listenerValue = $derived(listenAllInterfaces ? REMOTE_LISTEN_ALL_VALUE : listenerInterface)
-  let canListen = $derived(trustedDeviceCount > 0 && (listenAllInterfaces || hasListenerInterface))
+  let canListen = $derived(listenAllInterfaces || hasListenerInterface)
   let pairingUrl = $derived(
     status.kind === 'waiting' || status.kind === 'peerArrived' ? status.pairingUrl : null,
   )
@@ -94,7 +91,6 @@
 
   onMount(() => {
     void loadInterfaces()
-    void loadTrustedDevices()
   })
 
   onDestroy(() => {
@@ -102,26 +98,16 @@
   })
 
   $effect(() => {
-    if (status.kind === 'idle' || status.kind === 'listening' || status.kind === 'paired') {
-      void loadTrustedDevices()
-    }
+    if (status.kind === 'idle' || status.kind === 'listening' || status.kind === 'paired')
+      void loadInterfaces()
   })
 
   async function loadInterfaces(): Promise<void> {
     interfaces = await window.api.remote.listNetworkInterfaces()
   }
 
-  async function loadTrustedDevices(): Promise<void> {
-    const devices: TrustedDevice[] = await window.api.remote.listTrustedDevices()
-    trustedDeviceCount = devices.length
-  }
-
   async function startListening(): Promise<void> {
     if (busy) return
-    if (trustedDeviceCount === 0) {
-      errorMsg = 'Remember a device before starting listen mode.'
-      return
-    }
     if (!listenAllInterfaces && !hasListenerInterface) {
       errorMsg = 'Select a network adapter or listen on all adapters.'
       return
@@ -129,9 +115,8 @@
     busy = true
     errorMsg = null
     try {
-      await window.api.remote.ensureListening()
+      await window.api.remote.ensureListening({ allowWithoutTrusted: true })
       await loadInterfaces()
-      await loadTrustedDevices()
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : String(e)
     } finally {
@@ -162,7 +147,6 @@
       await window.api.remote.start(interfaceName)
       pairSetupOpen = false
       await loadInterfaces()
-      await loadTrustedDevices()
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : String(e)
     } finally {

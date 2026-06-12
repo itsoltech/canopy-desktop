@@ -138,7 +138,7 @@
     </PrefsRow>
     <PrefsRow
       label="Listening on"
-      help="Controls where trusted devices may reconnect without a new pairing QR. Choose one reachable adapter or All adapters. New QR pairing asks for a QR adapter separately."
+      help="Controls where Canopy listens for connections from trusted devices. Choose one reachable adapter or All adapters."
       search="remote interface network adapter wifi ethernet bind ip"
     >
       <CustomSelect

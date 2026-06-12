@@ -3705,18 +3705,25 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, remoteServerErrorMessage)
   })
 
-  ipcMain.handle('remote:ensureListening', async (event) => {
-    // Best-effort: auto-bind the signaling server in listen mode so a
-    // previously trusted phone can reconnect without the user starting a
-    // new sidebar pairing flow. Silently no-ops if the user hasn't opted in,
-    // has no trusted devices, or the network is unavailable. Swallowed
-    // errors never surface to the renderer — a failed listen should not
-    // block app startup or UI rendering.
-    await remoteSessionService.ensureListening(event.sender.id).match(
-      () => {},
-      () => {},
-    )
-  })
+  ipcMain.handle(
+    'remote:ensureListening',
+    async (event, payload?: { allowWithoutTrusted?: boolean }) => {
+      // Best-effort: auto-bind the signaling server in listen mode. App-mount
+      // calls silently no-op without trusted devices; explicit sidebar Listen
+      // passes allowWithoutTrusted so first-time pairing can start from the
+      // same listening state. Auto-listen errors are swallowed; manual listen
+      // returns bind failures to the sidebar.
+      const manualListen = payload?.allowWithoutTrusted === true
+      const result = await remoteSessionService.ensureListening(event.sender.id, {
+        allowWithoutTrusted: manualListen,
+      })
+      if (manualListen) return unwrapOrThrow(result, remoteServerErrorMessage)
+      result.match(
+        () => {},
+        () => {},
+      )
+    },
+  )
 
   ipcMain.handle('remote:stop', async () => {
     const result = await remoteSessionService.stop()

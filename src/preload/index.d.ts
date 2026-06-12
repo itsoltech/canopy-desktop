@@ -1206,7 +1206,7 @@ interface RemoteNetworkInterface {
 
 interface RemoteAPI {
   start: (interfaceName?: string) => Promise<{ pairingUrl: string }>
-  ensureListening: () => Promise<void>
+  ensureListening: (options?: { allowWithoutTrusted?: boolean }) => Promise<void>
   stop: () => Promise<void>
   getStatus: () => Promise<RemoteSessionStatus>
   acceptDevice: (remember: boolean) => Promise<void>

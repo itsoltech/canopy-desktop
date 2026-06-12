@@ -1368,7 +1368,8 @@ const api = {
     // and has ≥1 trusted device, so a previously paired phone can reconnect
     // without the user starting a new sidebar pairing flow. Never
     // rejects; failures are silently no-oped on the main side.
-    ensureListening: () => ipcRenderer.invoke('remote:ensureListening') as Promise<void>,
+    ensureListening: (options?: { allowWithoutTrusted?: boolean }) =>
+      ipcRenderer.invoke('remote:ensureListening', options) as Promise<void>,
     stop: () => ipcRenderer.invoke('remote:stop') as Promise<void>,
     getStatus: () => ipcRenderer.invoke('remote:getStatus') as Promise<RemoteSessionStatus>,
     acceptDevice: (remember: boolean) =>
