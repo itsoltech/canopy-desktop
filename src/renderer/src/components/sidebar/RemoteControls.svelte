@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, Square, Wifi } from '@lucide/svelte'
+  import { Play, Plus, Square } from '@lucide/svelte'
   import type { RemoteSessionStatus } from '../../../../main/remote/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
 
@@ -39,11 +39,12 @@
   <div class="grid grid-cols-2 gap-1">
     <button
       type="button"
-      class="inline-flex items-center justify-center gap-1 h-7 rounded-md border-0 bg-active text-text text-xs font-medium cursor-pointer enabled:hover:bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+      class="inline-flex items-center justify-center gap-1 h-7 rounded-md border-0 bg-success text-xs font-medium cursor-pointer enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+      style="color: var(--color-bg)"
       disabled={busy || !canListen}
       onclick={onStartListening}
     >
-      <Wifi size={13} />
+      <Play size={13} />
       Listen
     </button>
     <button
@@ -52,21 +53,12 @@
       disabled={busy || !hasSelectedInterface}
       onclick={onStartPairing}
     >
-      <Play size={13} />
-      Pair
+      <Plus size={13} />
+      New pair
     </button>
   </div>
 {:else if status.kind === 'listening'}
   <div class="grid grid-cols-2 gap-1">
-    <button
-      type="button"
-      class="inline-flex items-center justify-center gap-1 h-7 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-medium cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-      disabled={busy || !hasSelectedInterface}
-      onclick={onStartPairing}
-    >
-      <Play size={13} />
-      Pair
-    </button>
     <button
       type="button"
       class="inline-flex items-center justify-center gap-1 h-7 rounded-md border-0 bg-danger-bg text-danger-text text-xs font-medium cursor-pointer enabled:hover:bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
@@ -75,6 +67,15 @@
     >
       <Square size={12} />
       Stop
+    </button>
+    <button
+      type="button"
+      class="inline-flex items-center justify-center gap-1 h-7 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-medium cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+      disabled={busy || !hasSelectedInterface}
+      onclick={onStartPairing}
+    >
+      <Plus size={13} />
+      New pair
     </button>
   </div>
 {:else}
