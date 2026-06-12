@@ -15,9 +15,12 @@ async function resolveClaudeExecutable(): Promise<string | undefined> {
   const cmd = os.platform() === 'win32' ? 'where' : 'which'
   const env = getLoginEnv() ?? (process.env as Record<string, string>)
   return new Promise((resolve) => {
-    execFile(cmd, ['claude'], { env }, (err, stdout) => {
-      cachedClaudePath = err ? '' : stdout.trim()
-      resolve(cachedClaudePath || undefined)
+    execFile(cmd, ['claude'], { env }, (error, stdout) => {
+      const resolved = error ? '' : stdout.trim()
+      // Only cache a successful lookup so `claude` installed later in the
+      // session is still picked up instead of being pinned to "not found".
+      if (resolved) cachedClaudePath = resolved
+      resolve(resolved || undefined)
     })
   })
 }

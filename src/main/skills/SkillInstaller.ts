@@ -241,6 +241,17 @@ export class SkillInstaller {
       if (cloneResult.isErr()) return err(cloneResult.error)
 
       const skillDir = subpath ? join(tmpDir, subpath) : tmpDir
+      // `subpath` comes from the untrusted renderer; ensure `..` segments cannot
+      // escape the cloned repo into arbitrary on-disk locations before reading.
+      const resolvedTmp = resolve(tmpDir)
+      const resolvedSkillDir = resolve(skillDir)
+      if (resolvedSkillDir !== resolvedTmp && !resolvedSkillDir.startsWith(resolvedTmp + sep)) {
+        return err({
+          _tag: 'InvalidSource',
+          source: `github:${ref}`,
+          reason: 'Subpath escapes repository',
+        })
+      }
       return await this.readSkillDir(skillDir, `github:${ref}`, 'github')
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)

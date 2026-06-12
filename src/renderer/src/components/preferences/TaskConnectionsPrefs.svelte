@@ -152,6 +152,7 @@
       title: 'Remove connection',
       message: 'Remove this tracker connection?',
       confirmLabel: 'Remove',
+      destructive: true,
     })
     if (!ok) return
     const tracker = config.trackers.find((t) => t.id === trackerId)

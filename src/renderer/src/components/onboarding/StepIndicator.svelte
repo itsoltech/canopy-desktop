@@ -14,6 +14,7 @@
       class:!bg-accent={i === current}
       class:scale-125={i === current}
       class:!bg-accent-muted={i < current}
+      aria-current={i === current ? 'step' : undefined}
     ></div>
   {/each}
 </div>

@@ -97,12 +97,13 @@
   }
 
   $effect(() => {
+    // Track each project's worktree count so the effect re-runs when worktrees
+    // are added/removed, not on every nested mutation (PR badge updates etc.).
+    // The previous `deps.length >= 0` guard was always true (see WorktreeSection).
+    void projects.map((p) => p.worktrees.length)
     const ac = new AbortController()
-    const deps = projects.map((p) => p.worktrees.length)
-    if (deps.length >= 0) {
-      for (const p of projects) {
-        checkMergedStatus(p, ac.signal)
-      }
+    for (const p of projects) {
+      checkMergedStatus(p, ac.signal)
     }
     return () => ac.abort()
   })
