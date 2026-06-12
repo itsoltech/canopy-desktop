@@ -28,6 +28,9 @@ export function remoteErrorMessage(e: RemoteError): string {
     .with({ _tag: 'TimedOut' }, () => 'Operation timed out')
     .with({ _tag: 'CertificateError' }, (x) => `Certificate error: ${x.message}`)
     .with({ _tag: 'BundleNotFound' }, (x) => `Remote client bundle not found at ${x.path}`)
-    .with({ _tag: 'NoNetworkInterface' }, () => 'No usable network interface found')
+    .with(
+      { _tag: 'NoNetworkInterface' },
+      () => 'Select a usable network interface for remote control',
+    )
     .exhaustive()
 }

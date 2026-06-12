@@ -22,7 +22,8 @@ Remote control must be explicitly enabled in Settings before the Remote sidebar 
 
 1. Open Settings and navigate to Remote Control.
 2. Toggle "Enable remote control" on. This sets the `remote.enabled` preference to `true`.
-3. The Remote section appears in the left sidebar with connection status, pairing controls, and basic configuration.
+3. Select the network interface that the phone/tablet can reach. There is no auto-detect fallback because the QR code must advertise a specific, reachable adapter address.
+4. The Remote section appears in the left sidebar with connection status, pairing controls, and basic configuration.
 
 Once the feature is enabled **and** at least one trusted device exists, Canopy brings the signaling server up automatically on every app launch (see "Listen mode" below). Disabling the toggle or removing all trusted devices stops this auto-start on the next launch.
 
@@ -30,20 +31,20 @@ Once the feature is enabled **and** at least one trusted device exists, Canopy b
 
 Listen mode lets a previously trusted device — typically the mobile remote — reconnect to Canopy after a desktop restart without the user having to start pairing first.
 
-1. At app mount, the renderer calls `remote:ensureListening`. The main process silently no-ops unless `remote.enabled === 'true'` and the `TrustedDeviceStore` has at least one entry. If no usable LAN interface is available yet (for example after OS restart while the selected adapter is still coming up and has no routable IPv4), listen mode retries in the background every 5 seconds. Listen mode never surfaces errors to the user.
-2. On success, the `SignalingServer` is bound (re-using the saved `remote.lastPort` when possible so the peer client's origin stays stable) and the session transitions to `listening`. There is no pairing token in this state — only trusted devices whose `deviceId` already matches an entry in the store can pair. Untrusted pair attempts are rejected.
+1. At app mount, the renderer calls `remote:ensureListening`. The main process silently no-ops unless `remote.enabled === 'true'`, `remote.selectedInterface` is set, and the `TrustedDeviceStore` has at least one entry. If the selected adapter is not usable yet (for example after OS restart while it is still coming up and has no routable IPv4), listen mode retries in the background every 5 seconds. Listen mode never surfaces errors to the user.
+2. On success, the `SignalingServer` is bound to the selected adapter's IPv4 address (re-using the saved `remote.lastPort` when possible so the peer client's origin stays stable) and the session transitions to `listening`. There is no pairing token in this state — only trusted devices whose `deviceId` already matches an entry in the store can pair. Untrusted pair attempts are rejected.
 3. When a trusted peer connects, the service transitions directly from `listening` → `paired`, auto-accepts, and updates the `lastSeen` timestamp.
 4. Clicking Pair in the Remote sidebar while in `listening` state upgrades the session to `waiting` in place: a fresh token is generated on the already-bound port and the QR is shown.
 
-Listen mode keeps the signaling server bound on `0.0.0.0` in the background for the lifetime of the app, not just while the pairing UI is open. This is covered in "Security and privacy" below.
+Listen mode keeps the signaling server bound on the selected adapter in the background for the lifetime of the app, not just while the pairing UI is open. This is covered in "Security and privacy" below.
 
 ### Starting a pairing session
 
-1. Open the Remote section in the left sidebar and click Pair.
+1. Open the Remote section in the left sidebar, select the adapter if needed, and click Pair.
 2. Canopy calls `remote:start`, which triggers `RemoteSessionService.start()`. The session transitions to `starting`.
-3. The service detects a usable LAN IPv4 interface. Link-local APIPA addresses (`169.254.*`) are ignored. When `remote.selectedInterface` is set, the named interface is used as-is (including normally-filtered virtual adapters like Tailscale — the user opted in explicitly); if that interface is no longer present or has no routable IPv4 address, the service returns `NoNetworkInterface`. When the preference is empty, the service auto-detects by enumerating non-virtual adapters; on macOS, interfaces named `en0`/`en1` (WiFi) are preferred, and virtual adapters (docker, vmnet, tailscale, utun, awdl, bridge, etc.) are filtered out.
+3. The service requires `remote.selectedInterface` to be set. Link-local APIPA addresses (`169.254.*`) are ignored. The named interface is used as-is (including normally-filtered virtual adapters like Tailscale — the user opted in explicitly); if that interface is not selected, no longer present, or has no routable IPv4 address, the service returns `NoNetworkInterface`.
 4. A 32-byte random hex token is generated.
-5. The `SignalingServer` starts an HTTP server with a preferred port (persisted in `remote.lastPort` preference). The bind host depends on `remote.selectedInterface`: empty / auto → bound on `0.0.0.0` (all interfaces); set → bound only on the selected interface's IPv4 address. If the preferred port is taken, it falls back to an ephemeral port. Reusing the same port keeps the peer-client origin stable so that the peer's localStorage (device ID, trust flag) survives Canopy restarts.
+5. The `SignalingServer` starts an HTTP server with a preferred port (persisted in `remote.lastPort` preference), bound only on the selected interface's IPv4 address. If the preferred port is taken, it falls back to an ephemeral port. Reusing the same port keeps the peer-client origin stable so that the peer's localStorage (device ID, trust flag) survives Canopy restarts when the selected adapter address is unchanged.
 6. The pairing URL is built as `http://<lan-ip>:<port>/remote/?v=<cache-buster>#t=<token>&h=<hostname>`.
 7. The session transitions to `waiting` state with a 10-minute expiry. The QR code is displayed in the Remote sidebar section.
 8. If no device connects within 10 minutes, the session auto-stops and returns to `idle`.
@@ -100,32 +101,32 @@ Hide blurs xterm's hidden textarea to dismiss the soft keyboard. Copy sends only
 
 ## Configuration
 
-| Preference key             | Values                 | Default   | Notes                                                                                                                                                                                                                                 |
-| -------------------------- | ---------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `remote.enabled`           | `"true"` / `"false"`   | `"false"` | Must be `true` for the Remote sidebar section and trusted-device listen mode to appear                                                                                                                                                |
-| `remote.lastPort`          | port number as string  | none      | Persisted automatically after first bind; keeps peer-client origin stable                                                                                                                                                             |
-| `remote.selectedInterface` | interface name or `""` | `""`      | Empty = auto-detect. Otherwise the signaling server binds only on the named interface's routable IPv4 address; missing or APIPA-only interface yields `NoNetworkInterface` for manual pairing and background retries for listen mode. |
-| `remote.trustedDevices`    | JSON array             | `[]`      | Managed by TrustedDeviceStore; not user-editable                                                                                                                                                                                      |
+| Preference key             | Values                 | Default   | Notes                                                                                                                                                                                                                                                                              |
+| -------------------------- | ---------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `remote.enabled`           | `"true"` / `"false"`   | `"false"` | Must be `true` for the Remote sidebar section and trusted-device listen mode to appear                                                                                                                                                                                             |
+| `remote.lastPort`          | port number as string  | none      | Persisted automatically after first bind; keeps peer-client origin stable                                                                                                                                                                                                          |
+| `remote.selectedInterface` | interface name or `""` | `""`      | Required for pairing and listen mode. Empty means remote is not configured. The signaling server binds only on the named interface's routable IPv4 address; missing or APIPA-only interface yields `NoNetworkInterface` for manual pairing and background retries for listen mode. |
+| `remote.trustedDevices`    | JSON array             | `[]`      | Managed by TrustedDeviceStore; not user-editable                                                                                                                                                                                                                                   |
 
 Trusted devices can be viewed and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
 
 ## Error states
 
-| Error                | User sees                                      | Cause                                                                                                   |
-| -------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `AlreadyRunning`     | "Remote control session is already running"    | Calling `start()` when a session is already active                                                      |
-| `NotRunning`         | "Remote control session is not running"        | Calling `stop()` when no server is bound                                                                |
-| `NoNetworkInterface` | "No usable network interface found on the LAN" | All detected interfaces are loopback, virtual, APIPA/link-local, or the selected adapter is unavailable |
-| `PortBindFailed`     | "Failed to bind signaling server: \<message\>" | Both the preferred port and ephemeral fallback failed to bind                                           |
-| `BundleNotFound`     | "Remote client bundle not found at \<path\>"   | The built remote-client SPA is missing (happens in dev mode where Vite serves the renderer)             |
-| `TokenInvalid`       | "Invalid pairing token"                        | Peer presented a token that does not match the active one                                               |
-| `NoPendingPeer`      | "No peer is currently waiting to be accepted"  | Accept/reject called when no device is in the `peerArrived` state                                       |
-| `PeerLimitReached`   | "Another device is already paired"             | A second device tried to pair while one is already connected                                            |
-| `CertificateError`   | "Certificate error: \<message\>"               | Self-signed TLS certificate generation or caching failed                                                |
+| Error                | User sees                                              | Cause                                                                                       |
+| -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `AlreadyRunning`     | "Remote control session is already running"            | Calling `start()` when a session is already active                                          |
+| `NotRunning`         | "Remote control session is not running"                | Calling `stop()` when no server is bound                                                    |
+| `NoNetworkInterface` | "Select a usable network interface for remote control" | No adapter was selected, or the selected adapter is unavailable / APIPA-only                |
+| `PortBindFailed`     | "Failed to bind signaling server: \<message\>"         | Both the preferred port and ephemeral fallback failed to bind                               |
+| `BundleNotFound`     | "Remote client bundle not found at \<path\>"           | The built remote-client SPA is missing (happens in dev mode where Vite serves the renderer) |
+| `TokenInvalid`       | "Invalid pairing token"                                | Peer presented a token that does not match the active one                                   |
+| `NoPendingPeer`      | "No peer is currently waiting to be accepted"          | Accept/reject called when no device is in the `peerArrived` state                           |
+| `PeerLimitReached`   | "Another device is already paired"                     | A second device tried to pair while one is already connected                                |
+| `CertificateError`   | "Certificate error: \<message\>"                       | Self-signed TLS certificate generation or caching failed                                    |
 
 ## Security and privacy
 
-The signaling server binds on `0.0.0.0` by default, making it reachable from any device on the local network. When the user picks a specific interface in Settings → Remote Control (`remote.selectedInterface`), the server binds only on that interface's routable IPv4 address — narrowing the LAN exposure to one adapter. Link-local APIPA addresses are ignored so a restarted adapter does not advertise an unreachable host. It shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. Changing `remote.selectedInterface` stops any in-flight session so the new bind takes effect on the next pairing or trusted reconnect. With **listen mode** (feature enabled and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user starting pairing first — see "Listen mode" under Behavior. In this mode the server accepts only trusted `deviceId`s; any other pair attempt is rejected before reaching the accept prompt.
+The signaling server binds only on the explicitly selected interface's routable IPv4 address, narrowing the LAN exposure to one adapter. Link-local APIPA addresses are ignored so a restarted adapter does not advertise an unreachable host. It shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. Changing `remote.selectedInterface` stops any in-flight session so the new bind takes effect on the next pairing or trusted reconnect. With **listen mode** (feature enabled, selected interface, and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user starting pairing first — see "Listen mode" under Behavior. In this mode the server accepts only trusted `deviceId`s; any other pair attempt is rejected before reaching the accept prompt.
 
 Pairing tokens are 32 random bytes (hex-encoded, 64 characters). Token comparison uses Node.js `timingSafeEqual` to prevent timing attacks. Tokens are single-use per session.
 

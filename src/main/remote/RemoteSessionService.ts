@@ -45,12 +45,11 @@ const LAST_PORT_PREF_KEY = 'remote.lastPort'
 
 /**
  * Preference key holding the user's chosen LAN interface name (e.g. `Wi-Fi`
- * on Windows, `en0` on macOS). Empty / unset means "auto-detect" — the
- * service falls back to the historical `selectPrimaryInterface()` heuristic.
- * When set, the named interface is used as-is (no virtual filter — the user
+ * on Windows, `en0` on macOS). Empty / unset means remote pairing is not
+ * configured. The named interface is used as-is (no virtual filter — the user
  * may deliberately pick Tailscale/WireGuard), and the signaling server binds
- * only on that interface's IPv4 address. A named interface that is no longer
- * present yields `NoNetworkInterface` rather than silently falling back.
+ * only on that interface's IPv4 address. A missing or unavailable interface
+ * yields `NoNetworkInterface` rather than silently falling back.
  */
 const SELECTED_INTERFACE_PREF_KEY = 'remote.selectedInterface'
 
@@ -61,8 +60,8 @@ const SELECTED_INTERFACE_PREF_KEY = 'remote.selectedInterface'
  *   - Generate one-shot pairing tokens.
  *   - Spin the {@link SignalingServer} up/down on demand for manual pairing
  *     and passive trusted-device listen mode.
- *   - Resolve a usable LAN IP via {@link selectPrimaryInterface} so the QR URL
- *     points at a host the phone can reach.
+ *   - Resolve the explicitly selected LAN IP via {@link selectPrimaryInterface}
+ *     so the QR URL points at a host the phone can reach.
  *   - Validate pairing tokens with constant-time comparison.
  *   - Hold and surface the current {@link RemoteSessionStatus} to the renderer
  *     by broadcasting `remote:statusChange` to every BrowserWindow.
@@ -161,10 +160,15 @@ export class RemoteSessionService {
     }
 
     const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
+    if (!preferredIfaceName) {
+      const err: RemoteServerError = { _tag: 'NoNetworkInterface' }
+      this.setStatus({ kind: 'error', message: 'Select a network interface before pairing' })
+      return errAsync(err)
+    }
     const iface = selectPrimaryInterface(preferredIfaceName)
     if (!iface) {
       const err: RemoteServerError = { _tag: 'NoNetworkInterface' }
-      this.setStatus({ kind: 'error', message: 'No usable network interface found' })
+      this.setStatus({ kind: 'error', message: 'Selected network interface is unavailable' })
       return errAsync(err)
     }
 
@@ -183,10 +187,7 @@ export class RemoteSessionService {
       .start({
         bundleRoot,
         preferredPort: savedPort,
-        // Auto-detect keeps the historical 0.0.0.0 bind so any LAN
-        // interface can reach the server; only an explicit user choice
-        // narrows the bind to one adapter.
-        bindHost: preferredIfaceName ? iface.address : '0.0.0.0',
+        bindHost: iface.address,
         handlers: {
           onPairAttempt: (msg) => this.handlePairAttempt(msg),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),
@@ -223,9 +224,11 @@ export class RemoteSessionService {
    * pairing manually. Conditions:
    *   - `remote.enabled === 'true'` (user opted in)
    *   - TrustedDeviceStore has ≥1 entry
-   *   - A usable LAN interface is available
-   * Missing preferences/trust is a silent no-op. Missing network schedules a
-   * short retry because adapters can come up after Canopy starts.
+   *   - A network interface was explicitly selected
+   *   - The selected interface has a usable LAN address
+   * Missing preferences/trust/selection is a silent no-op. Missing network for
+   * a selected interface schedules a short retry because adapters can come up
+   * after Canopy starts.
    *
    * Idempotent: if the server is already running (either from a prior
    * listen-mode start or a manual `start()`), the method only rebinds the
@@ -259,6 +262,10 @@ export class RemoteSessionService {
     }
 
     const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
+    if (!preferredIfaceName) {
+      this.clearListenRetryTimer()
+      return okAsync(undefined)
+    }
     const iface = selectPrimaryInterface(preferredIfaceName)
     // Silent retry for listen mode: no interface at all, or the user-named
     // interface currently unavailable, leaves the session idle and checks
@@ -280,8 +287,7 @@ export class RemoteSessionService {
       .start({
         bundleRoot,
         preferredPort: savedPort,
-        // See start() — auto stays on 0.0.0.0, explicit pick narrows.
-        bindHost: preferredIfaceName ? iface.address : '0.0.0.0',
+        bindHost: iface.address,
         handlers: {
           onPairAttempt: (msg) => this.handlePairAttempt(msg),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),

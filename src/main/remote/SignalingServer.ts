@@ -12,9 +12,9 @@ const MAX_MESSAGE_BYTES = 256 * 1024 // 256 KB — SDP offers can be a few KB; s
 
 /**
  * How long a freshly-opened WebSocket has to send its `pair` message before we
- * forcibly close it. Because this server binds on 0.0.0.0, any LAN peer can
- * open a WebSocket; without a handshake deadline those unpaired sockets would
- * accumulate and exhaust the server's connection slots.
+ * forcibly close it. LAN peers can open a WebSocket on the selected adapter;
+ * without a handshake deadline those unpaired sockets would accumulate and
+ * exhaust the server's connection slots.
  */
 const PAIR_HANDSHAKE_TIMEOUT_MS = 15_000
 
@@ -81,12 +81,11 @@ export type PairResponse =
  *      pairing + WebRTC SDP/ICE messages to the orchestrator
  *
  * **Bind address.** Unlike `WsBridge` and `AgentHookServer` (both `127.0.0.1`),
- * this server binds on `0.0.0.0` (default) so a phone on the same WiFi can
- * reach it via the host's LAN address. This is an *intentional* widening of
- * the listening surface — the server is only started while the user explicitly
- * has a remote session open, and only accepts WS peers that present a valid
- * one-shot token. Users may further narrow the bind to a single interface IP
- * by selecting a network interface in Settings → Remote Control.
+ * the remote service passes an explicitly selected adapter IP so a phone on the
+ * same WiFi can reach it via the host's LAN address. This is an *intentional*
+ * widening beyond loopback — the server is only started for remote control and
+ * only accepts WS peers that present a valid one-shot token or trusted device
+ * ID.
  *
  * Lazy lifecycle: nothing is bound until {@link start} is called, and
  * {@link stop} releases the port. Re-using a single instance across multiple
@@ -181,7 +180,7 @@ export class SignalingServer {
 
   /**
    * Create a fresh HTTP + WebSocket server pair and try to bind them to
-   * `port` on `0.0.0.0`. Returns the bound server/wss on success and
+   * `port` on `bindHost`. Returns the bound server/wss on success and
    * rejects with the underlying error (tagged with `code` for EADDRINUSE
    * classification) on failure. The caller decides whether to retry.
    *
@@ -235,12 +234,9 @@ export class SignalingServer {
       }
       server.once('error', onError)
       server.once('listening', onListening)
-      // Bind host comes from the caller. Default is 0.0.0.0 so LAN peers
-      // on any interface can reach this; other local servers in this
-      // codebase (WsBridge, AgentHookServer) bind on 127.0.0.1 — this one
-      // is different on purpose. When the user picks a specific interface
-      // in Settings, the caller passes that interface's IPv4 so the bind
-      // is narrowed to one adapter.
+      // Bind host comes from the caller. RemoteSessionService passes the
+      // explicitly selected adapter's IPv4 so the bind is narrowed to one
+      // adapter.
       server.listen(port, bindHost)
     })
   }

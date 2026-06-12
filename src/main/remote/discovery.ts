@@ -39,10 +39,6 @@ export function listAllInterfaces(): NetworkInterfaceInfo[] {
   return result
 }
 
-export function listLanInterfaces(): NetworkInterfaceInfo[] {
-  return listSelectableInterfaces().filter((i) => !i.virtual)
-}
-
 export function listSelectableInterfaces(): NetworkInterfaceInfo[] {
   const byName = new Map<string, NetworkInterfaceInfo>()
   for (const iface of listAllInterfaces()) {
@@ -55,19 +51,13 @@ export function listSelectableInterfaces(): NetworkInterfaceInfo[] {
 }
 
 export function selectPrimaryInterface(preferredName?: string): NetworkInterfaceInfo | null {
-  // Explicit user choice: match by interface name across ALL interfaces
-  // (including virtual ones like Tailscale/WireGuard — the user opted in).
-  // No match means the named interface is gone (DHCP renew, adapter unplug,
-  // VPN down). Caller treats null as NoNetworkInterface — no silent fallback.
-  if (preferredName) {
-    return listSelectableInterfaces().find((i) => i.name === preferredName) ?? null
-  }
-  const ifaces = listLanInterfaces()
-  // Prefer interfaces named like WiFi on macOS (`en0`, `en1`) since that's
-  // usually where a phone will be. Ethernet has higher numeric priority
-  // but phones can't reach it unless they share the subnet. When nothing
-  // matches the preferred names, fall back to the first non-virtual
-  // interface in the os.networkInterfaces() order.
-  const preferred = ifaces.find((i) => /^en\d+$/i.test(i.name))
-  return preferred ?? ifaces[0] ?? null
+  // Remote QR codes must advertise a concrete address that the peer can reach.
+  // There is no safe auto-detect fallback here: the OS interface order may pick
+  // an adapter that is not on the phone's network.
+  if (!preferredName) return null
+  // Explicit user choice: match by interface name across ALL selectable
+  // interfaces (including virtual ones like Tailscale/WireGuard — the user
+  // opted in). No match means the named interface is gone (DHCP renew, adapter
+  // unplug, VPN down). Caller treats null as NoNetworkInterface.
+  return listSelectableInterfaces().find((i) => i.name === preferredName) ?? null
 }

@@ -26,27 +26,27 @@
   }
 
   type NetworkInterface = { name: string; address: string; virtual: boolean }
+  type SelectOption = { value: string; label: string }
 
   let trustedDevices = $state<TrustedDevice[]>([])
   let loading = $state(false)
   let interfaces = $state<NetworkInterface[]>([])
 
   const interfaceGroups = $derived.by(() => {
-    const auto = [{ value: '', label: 'Auto (detect at start)' }]
+    const placeholder = [{ value: '', label: 'Select adapter' }]
     const physical = interfaces
       .filter((i) => !i.virtual)
       .map((i) => ({ value: i.name, label: `${i.name} (${i.address})` }))
     const virtual = interfaces
       .filter((i) => i.virtual)
       .map((i) => ({ value: i.name, label: `${i.name} (${i.address}) — virtual` }))
-    const groups: Array<{ label: string; options: typeof auto }> = [
-      { label: 'Auto', options: auto },
+    const groups: Array<{ label: string; options: SelectOption[] }> = [
+      { label: 'Required', options: placeholder },
     ]
     if (physical.length) groups.push({ label: 'Physical', options: physical })
     if (virtual.length) groups.push({ label: 'Virtual', options: virtual })
     // If the user previously picked an interface that is no longer present,
-    // surface it so they can see what's selected (and switch away) instead
-    // of the dropdown silently snapping back to "Auto".
+    // surface it so they can see what's selected and switch away.
     if (selectedInterface && !interfaces.some((i) => i.name === selectedInterface)) {
       groups.push({
         label: 'Unavailable',
@@ -151,7 +151,7 @@
     </PrefsRow>
     <PrefsRow
       label="Network interface"
-      help="Which LAN interface the signaling server binds to. The QR code uses this interface's routable IPv4 address, and the server only listens on that one adapter. Link-local APIPA addresses are ignored. 'Auto' picks the first physical Wi-Fi/Ethernet adapter; if the adapter is not ready after restart, trusted reconnect retries in the background."
+      help="Required. The QR code uses this adapter's routable IPv4 address, and the server only listens on that one adapter. Link-local APIPA addresses are ignored; if the selected adapter is not ready after restart, trusted reconnect retries in the background."
       search="remote interface network adapter wifi ethernet bind ip"
     >
       <CustomSelect

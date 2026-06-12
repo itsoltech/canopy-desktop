@@ -12,6 +12,7 @@
 
   type GuardProfile = 'none' | 'destructive' | 'full'
   type NetworkInterface = { name: string; address: string; virtual: boolean }
+  type SelectOption = { value: string; label: string }
 
   let interfaces = $state<NetworkInterface[]>([])
   let busy = $state(false)
@@ -21,6 +22,7 @@
 
   let status = $derived(remoteSession.status)
   let selectedInterface = $derived(prefs['remote.selectedInterface'] ?? '')
+  let hasSelectedInterface = $derived(selectedInterface.length > 0)
   let guardProfile: GuardProfile = $derived(
     (prefs['remote.actionGuard'] as GuardProfile) ?? 'destructive',
   )
@@ -41,15 +43,15 @@
   })
 
   const interfaceGroups = $derived.by(() => {
-    const auto = [{ value: '', label: 'Auto' }]
+    const placeholder = [{ value: '', label: 'Select adapter' }]
     const physical = interfaces
       .filter((i) => !i.virtual)
       .map((i) => ({ value: i.name, label: `${i.name} (${i.address})` }))
     const virtual = interfaces
       .filter((i) => i.virtual)
       .map((i) => ({ value: i.name, label: `${i.name} (${i.address}) virtual` }))
-    const groups: Array<{ label: string; options: typeof auto }> = [
-      { label: 'Auto', options: auto },
+    const groups: Array<{ label: string; options: SelectOption[] }> = [
+      { label: 'Required', options: placeholder },
     ]
     if (physical.length) groups.push({ label: 'Physical', options: physical })
     if (virtual.length) groups.push({ label: 'Virtual', options: virtual })
@@ -64,12 +66,17 @@
 
   const statusTone = $derived.by(() =>
     match(status.kind)
-      .with('paired', () => 'success')
-      .with('waiting', 'peerArrived', () => 'accent')
-      .with('listening', 'reconnecting', 'starting', () => 'warning')
-      .with('error', () => 'danger')
-      .with('idle', () => 'muted')
+      .with('paired', () => 'var(--color-success)')
+      .with('waiting', 'peerArrived', () => 'var(--color-accent)')
+      .with('listening', 'reconnecting', 'starting', () => 'var(--color-warning)')
+      .with('error', () => 'var(--color-danger)')
+      .with('idle', () => 'var(--color-text-muted)')
       .exhaustive(),
+  )
+  let statusDotStyle = $derived(
+    status.kind === 'idle'
+      ? `background: ${statusTone};`
+      : `background: ${statusTone}; box-shadow: 0 0 8px ${statusTone};`,
   )
 
   const statusLabel = $derived.by(() =>
@@ -99,6 +106,10 @@
 
   async function startPairing(): Promise<void> {
     if (busy) return
+    if (!hasSelectedInterface) {
+      errorMsg = 'Select a network adapter before pairing.'
+      return
+    }
     busy = true
     errorMsg = null
     try {
@@ -163,11 +174,7 @@
 
   <div class="px-3 flex flex-col gap-3">
     <div class="flex items-center gap-2 min-w-0">
-      <span
-        class="remote-dot size-2 rounded-full shrink-0"
-        data-tone={statusTone}
-        aria-hidden="true"
-      ></span>
+      <span class="size-2 rounded-full shrink-0" style={statusDotStyle} aria-hidden="true"></span>
       <div class="min-w-0 flex-1">
         <div class="text-sm text-text truncate" title={statusLabel}>{statusLabel}</div>
         {#if hostLabel}
@@ -219,6 +226,12 @@
         <Wifi size={13} class="shrink-0 text-warning-text" />
         <span class="truncate">Trusted devices may reconnect.</span>
       </div>
+    {:else if !hasSelectedInterface}
+      <div
+        class="text-xs text-warning-text bg-bg-input border border-border-subtle rounded-md px-2.5 py-2"
+      >
+        Select an adapter before pairing.
+      </div>
     {/if}
 
     {#if errorMsg || status.kind === 'error'}
@@ -232,7 +245,7 @@
         <button
           type="button"
           class="inline-flex items-center justify-center gap-1 flex-1 h-7 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-medium cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-          disabled={busy}
+          disabled={busy || !hasSelectedInterface}
           onclick={startPairing}
         >
           <Play size={13} />
@@ -271,29 +284,3 @@
     </div>
   </div>
 </CollapsibleSection>
-
-<style>
-  .remote-dot[data-tone='success'] {
-    background: var(--color-success);
-    box-shadow: 0 0 8px var(--color-success);
-  }
-
-  .remote-dot[data-tone='accent'] {
-    background: var(--color-accent);
-    box-shadow: 0 0 8px var(--color-accent);
-  }
-
-  .remote-dot[data-tone='warning'] {
-    background: var(--color-warning);
-    box-shadow: 0 0 8px var(--color-warning);
-  }
-
-  .remote-dot[data-tone='danger'] {
-    background: var(--color-danger);
-    box-shadow: 0 0 8px var(--color-danger);
-  }
-
-  .remote-dot[data-tone='muted'] {
-    background: var(--color-text-muted);
-  }
-</style>
