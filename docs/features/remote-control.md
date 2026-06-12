@@ -22,8 +22,8 @@ Remote control must be explicitly enabled in Settings before the Remote sidebar 
 
 1. Open Settings and navigate to Remote Control.
 2. Toggle "Enable remote control" on. This sets the `remote.enabled` preference to `true`.
-3. Select the network interface that the phone/tablet can reach. There is no auto-detect fallback for pairing because the QR code must advertise a specific, reachable adapter address.
-4. The Remote section appears in the left sidebar with connection status, pairing controls, and basic configuration.
+3. The Remote section appears in the left sidebar with connection status, pairing controls, and basic configuration.
+4. The `Listening on` control at the top of the section configures where trusted devices may reconnect without a new QR pair.
 
 Once the feature is enabled **and** at least one trusted device exists, Canopy brings the signaling server up automatically on every app launch (see "Listen mode" below). Disabling the toggle or removing all trusted devices stops this auto-start on the next launch.
 
@@ -34,13 +34,13 @@ Listen mode lets a previously trusted device reconnect to Canopy after a desktop
 1. At app mount, the renderer calls `remote:ensureListening`. The main process silently no-ops unless `remote.enabled === 'true'`, the `TrustedDeviceStore` has at least one entry, and either `remote.selectedInterface` is set or `remote.listenAllInterfaces === 'true'`. If the selected-adapter listener cannot resolve its adapter yet (for example after OS restart while it is still coming up and has no routable IPv4), listen mode retries in the background every 5 seconds. Listen mode never surfaces errors to the user.
 2. On success, the `SignalingServer` is bound either to the selected adapter's IPv4 address or to `0.0.0.0` when "All adapters" is selected, re-using the saved `remote.lastPort` when possible so the peer client's origin stays stable. The session transitions to `listening`. There is no pairing token in this state; only trusted devices whose `deviceId` already matches an entry in the store can pair. Untrusted pair attempts are rejected.
 3. When a trusted peer connects, the service transitions directly from `listening` to `paired`, auto-accepts, and updates the `lastSeen` timestamp.
-4. Clicking Pair in the Remote sidebar while in `listening` state requires `remote.selectedInterface`. If the listener is already bound to that adapter, it upgrades the session to `waiting` in place; if the listener is bound to all adapters, it is stopped and rebound to the selected adapter before generating the QR URL.
+4. Clicking New pair in the Remote sidebar shows the `QR adapter` selector. Pairing requires `remote.selectedInterface`; if the listener is already bound to that adapter, it upgrades the session to `waiting` in place. If the listener is bound to all adapters, it is stopped and rebound to the selected adapter before generating the QR URL.
 
 Listen mode keeps the signaling server bound in the background for the lifetime of the app, not just while the pairing UI is open. The listener scope is user-controlled from the Remote sidebar. This is covered in "Security and privacy" below.
 
 ### Starting a pairing session
 
-1. Open the Remote section in the left sidebar, select the adapter if needed, and click Pair.
+1. Open the Remote section in the left sidebar and click New pair. Select the `QR adapter` shown above the QR area if needed.
 2. Canopy calls `remote:start`, which triggers `RemoteSessionService.start()`. The session transitions to `starting`.
 3. The service requires `remote.selectedInterface` to be set. Link-local APIPA addresses (`169.254.*`) are ignored. The named interface is used as-is (including normally-filtered virtual adapters like Tailscale — the user opted in explicitly); if that interface is not selected, no longer present, or has no routable IPv4 address, the service returns `NoNetworkInterface`.
 4. A 32-byte random hex token is generated.
@@ -153,5 +153,5 @@ The trusted device store currently uses device ID matching only. Cryptographic c
 - Errors: `src/main/remote/errors.ts`
 - Store: `src/renderer/src/lib/stores/remoteSession.svelte.ts`
 - Preload: `src/preload/index.ts` (remote section)
-- Components: `src/renderer/src/components/sidebar/RemoteSection.svelte`, `src/renderer/src/components/sidebar/RemoteControls.svelte`, `src/renderer/src/components/sidebar/RemotePairingQr.svelte`, `src/renderer/src/components/dialogs/RemoteAcceptDeviceModal.svelte`, `src/renderer/src/components/preferences/RemoteControlPrefs.svelte`
+- Components: `src/renderer/src/components/sidebar/RemoteSection.svelte`, `src/renderer/src/components/sidebar/RemoteControls.svelte`, `src/renderer/src/components/sidebar/RemoteSelectField.svelte`, `src/renderer/src/components/sidebar/RemoteStatusSummary.svelte`, `src/renderer/src/components/sidebar/RemotePairingQr.svelte`, `src/renderer/src/components/dialogs/RemoteAcceptDeviceModal.svelte`, `src/renderer/src/components/preferences/RemoteControlPrefs.svelte`
 - Renderer helpers: `src/renderer/src/lib/remote/interfaceOptions.ts`

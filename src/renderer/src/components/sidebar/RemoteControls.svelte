@@ -1,37 +1,21 @@
 <script lang="ts">
   import { Play, Plus, Square } from '@lucide/svelte'
   import type { RemoteSessionStatus } from '../../../../main/remote/types'
-  import CustomSelect from '../shared/CustomSelect.svelte'
-
-  type SelectOption = { value: string; label: string }
-  type SelectGroup = { label: string; options: SelectOption[] }
 
   let {
     status,
     busy,
     canListen,
-    hasSelectedInterface,
-    selectedInterface,
-    interfaceGroups,
-    listenerScope,
     onStartListening,
     onStartPairing,
     onStopSession,
-    onSetInterface,
-    onSetListenerScope,
   }: {
     status: RemoteSessionStatus
     busy: boolean
     canListen: boolean
-    hasSelectedInterface: boolean
-    selectedInterface: string
-    interfaceGroups: SelectGroup[]
-    listenerScope: string
     onStartListening: () => void
     onStartPairing: () => void
     onStopSession: () => void
-    onSetInterface: (name: string) => void
-    onSetListenerScope: (value: string) => void
   } = $props()
 </script>
 
@@ -50,7 +34,7 @@
     <button
       type="button"
       class="inline-flex items-center justify-center gap-1 h-7 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-medium cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-      disabled={busy || !hasSelectedInterface}
+      disabled={busy}
       onclick={onStartPairing}
     >
       <Plus size={13} />
@@ -71,7 +55,7 @@
     <button
       type="button"
       class="inline-flex items-center justify-center gap-1 h-7 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-medium cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-      disabled={busy || !hasSelectedInterface}
+      disabled={busy}
       onclick={onStartPairing}
     >
       <Plus size={13} />
@@ -89,21 +73,3 @@
     Stop
   </button>
 {/if}
-
-<div class="flex flex-col gap-2 pt-2 border-t border-border-subtle">
-  <label class="flex flex-col gap-1 text-2xs uppercase tracking-caps-tight text-text-faint">
-    Adapter
-    <CustomSelect value={selectedInterface} groups={interfaceGroups} onchange={onSetInterface} />
-  </label>
-  <label class="flex flex-col gap-1 text-2xs uppercase tracking-caps-tight text-text-faint">
-    Listener
-    <CustomSelect
-      value={listenerScope}
-      onchange={onSetListenerScope}
-      options={[
-        { value: 'selected', label: 'Selected adapter' },
-        { value: 'all', label: 'All adapters' },
-      ]}
-    />
-  </label>
-</div>

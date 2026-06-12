@@ -5,6 +5,8 @@
   import CollapsibleSection from './CollapsibleSection.svelte'
   import RemoteControls from './RemoteControls.svelte'
   import RemotePairingQr from './RemotePairingQr.svelte'
+  import RemoteSelectField from './RemoteSelectField.svelte'
+  import RemoteStatusSummary from './RemoteStatusSummary.svelte'
   import Tooltip from '../shared/Tooltip.svelte'
   import { remoteSession } from '../../lib/stores/remoteSession.svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
@@ -21,6 +23,7 @@
   let busy = $state(false)
   let errorMsg: string | null = $state(null)
   let copied = $state(false)
+  let pairSetupOpen = $state(false)
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
   let status = $derived(remoteSession.status)
@@ -29,6 +32,9 @@
   let listenAllInterfaces = $derived(prefs['remote.listenAllInterfaces'] === 'true')
   let listenerScope = $derived(listenAllInterfaces ? 'all' : 'selected')
   let canListen = $derived(trustedDeviceCount > 0 && (listenAllInterfaces || hasSelectedInterface))
+  let showQrAdapter = $derived(
+    pairSetupOpen || status.kind === 'waiting' || status.kind === 'peerArrived',
+  )
   let pairingUrl = $derived(
     status.kind === 'waiting' || status.kind === 'peerArrived' ? status.pairingUrl : null,
   )
@@ -49,6 +55,10 @@
   })
 
   const interfaceGroups = $derived(buildRemoteInterfaceGroups(interfaces, selectedInterface))
+  const listenerOptions = [
+    { value: 'selected', label: 'Selected adapter' },
+    { value: 'all', label: 'All adapters' },
+  ]
 
   const statusTone = $derived.by(() =>
     match(status.kind)
@@ -129,6 +139,7 @@
 
   async function startPairing(): Promise<void> {
     if (busy) return
+    pairSetupOpen = true
     if (!hasSelectedInterface) {
       errorMsg = 'Select a network adapter before pairing.'
       return
@@ -137,6 +148,7 @@
     errorMsg = null
     try {
       await window.api.remote.start()
+      pairSetupOpen = false
       await loadInterfaces()
       await loadTrustedDevices()
     } catch (e) {
@@ -152,6 +164,7 @@
     errorMsg = null
     try {
       await window.api.remote.stop()
+      pairSetupOpen = false
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : String(e)
     } finally {
@@ -176,6 +189,7 @@
 
   function setInterface(name: string): void {
     setPref('remote.selectedInterface', name)
+    if (name) errorMsg = null
   }
 
   function setListenerScope(value: string): void {
@@ -197,19 +211,25 @@
   {/snippet}
 
   <div class="px-3 flex flex-col gap-3">
-    <div class="flex items-center gap-2 min-w-0">
-      <span class="size-2 rounded-full shrink-0" style={statusDotStyle} aria-hidden="true"></span>
-      <div class="min-w-0 flex-1">
-        <div class="text-sm text-text truncate" title={statusLabel}>{statusLabel}</div>
-        {#if hostLabel}
-          <div class="text-2xs text-text-muted font-mono truncate" title={hostLabel}>
-            {hostLabel}
-          </div>
-        {:else}
-          <div class="text-2xs text-text-muted truncate">No active listener</div>
-        {/if}
-      </div>
-    </div>
+    <RemoteSelectField
+      label="Listening on"
+      tooltip="Trusted reconnect listener: selected adapter or all adapters. QR pairing still uses the QR adapter."
+      value={listenerScope}
+      onchange={setListenerScope}
+      options={listenerOptions}
+    />
+
+    <RemoteStatusSummary {statusDotStyle} {statusLabel} {hostLabel} />
+
+    {#if showQrAdapter}
+      <RemoteSelectField
+        label="QR adapter"
+        tooltip="Address encoded into the QR code. Pick the adapter the phone can reach."
+        value={selectedInterface}
+        groups={interfaceGroups}
+        onchange={setInterface}
+      />
+    {/if}
 
     {#if pairingUrl}
       <div class="flex justify-center p-2 bg-bg-input border border-border-subtle rounded-md">
@@ -254,7 +274,7 @@
             : 'Trusted devices may reconnect.'}
         </span>
       </div>
-    {:else if !hasSelectedInterface}
+    {:else if showQrAdapter && !hasSelectedInterface}
       <div
         class="text-xs text-warning-text bg-bg-input border border-border-subtle rounded-md px-2.5 py-2"
       >
@@ -272,15 +292,9 @@
       {status}
       {busy}
       {canListen}
-      {hasSelectedInterface}
-      {selectedInterface}
-      {interfaceGroups}
-      {listenerScope}
       onStartListening={startListening}
       onStartPairing={startPairing}
       onStopSession={stopSession}
-      onSetInterface={setInterface}
-      onSetListenerScope={setListenerScope}
     />
   </div>
 </CollapsibleSection>
