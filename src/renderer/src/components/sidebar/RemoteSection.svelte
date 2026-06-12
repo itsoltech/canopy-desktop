@@ -234,7 +234,7 @@
   <div class="px-3 flex flex-col gap-3">
     <RemoteSelectField
       label="Listening on"
-      tooltip="Where trusted devices may reconnect without a new QR pair. Pick one adapter, or all adapters. New QR pairing uses the QR adapter below."
+      tooltip="This setting decides where Canopy listens for connections from trusted devices. You can choose a specific adapter or all active adapters."
       value={listenerValue}
       onchange={setListener}
       groups={listenerGroups}
