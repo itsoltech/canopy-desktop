@@ -217,7 +217,7 @@
   background: transparent;
 }
 
-/* ============ Status-dot animations — RemoteConnectionModal, AgentInspector ============ */
+/* ============ Status-dot animations - AgentInspector ============ */
 [data-kind='waiting'] .status-dot,
 [data-kind='starting'] .status-dot {
   background: var(--color-warning);

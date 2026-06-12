@@ -28,7 +28,7 @@ const REAPER_WINDOW_MS = 30 * 1000 // 30 seconds
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
 
 /** Retry passive listen mode while the OS is still assigning an adapter IP after startup. */
-const LISTEN_RETRY_MS = 5000
+const LISTEN_RETRY_DELAYS_MS = [5000, 30000, 60000] as const
 
 const REMOTE_STATUS_CHANNEL = 'remote:statusChange'
 const REMOTE_SIGNAL_CHANNEL = 'remote:signal'
@@ -82,6 +82,7 @@ export class RemoteSessionService {
   private reaperTimer: ReturnType<typeof setTimeout> | null = null
   private idleTimer: ReturnType<typeof setTimeout> | null = null
   private listenRetryTimer: ReturnType<typeof setTimeout> | null = null
+  private listenRetryAttempt = 0
   private lastPairedDeviceName: string | null = null
   /**
    * Device ID of the most recently accepted peer in this session. Used to
@@ -889,13 +890,16 @@ export class RemoteSessionService {
 
   private scheduleListenRetry(hostWcId: number): void {
     if (this.listenRetryTimer || this.signalingServer.isRunning) return
+    const delay =
+      LISTEN_RETRY_DELAYS_MS[Math.min(this.listenRetryAttempt, LISTEN_RETRY_DELAYS_MS.length - 1)]
+    this.listenRetryAttempt += 1
     this.listenRetryTimer = setTimeout(() => {
       this.listenRetryTimer = null
       this.ensureListening(hostWcId).match(
         () => {},
         () => {},
       )
-    }, LISTEN_RETRY_MS)
+    }, delay)
   }
 
   private clearListenRetryTimer(): void {
@@ -903,6 +907,7 @@ export class RemoteSessionService {
       clearTimeout(this.listenRetryTimer)
       this.listenRetryTimer = null
     }
+    this.listenRetryAttempt = 0
   }
 
   private cleanupSession(): void {

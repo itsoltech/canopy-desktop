@@ -4,6 +4,18 @@ export type SelectGroup = { label: string; options: SelectOption[] }
 
 export const REMOTE_LISTEN_ALL_VALUE = '__all__'
 
+export function applyRemoteListenerPref(
+  value: string,
+  setPref: (key: string, value: string) => void,
+): void {
+  if (value === REMOTE_LISTEN_ALL_VALUE) {
+    setPref('remote.listenAllInterfaces', 'true')
+    return
+  }
+  setPref('remote.selectedInterface', value)
+  setPref('remote.listenAllInterfaces', 'false')
+}
+
 export function buildRemoteInterfaceGroups(
   interfaces: NetworkInterface[],
   selectedInterface: string,

@@ -13,6 +13,7 @@
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
   import {
+    applyRemoteListenerPref,
     buildRemoteInterfaceGroups,
     buildRemoteListenerGroups,
     formatRemoteInterfaceLabel,
@@ -193,12 +194,7 @@
   }
 
   function setListener(value: string): void {
-    if (value === REMOTE_LISTEN_ALL_VALUE) {
-      setPref('remote.listenAllInterfaces', 'true')
-      return
-    }
-    setPref('remote.selectedInterface', value)
-    setPref('remote.listenAllInterfaces', 'false')
+    applyRemoteListenerPref(value, setPref)
   }
 </script>
 

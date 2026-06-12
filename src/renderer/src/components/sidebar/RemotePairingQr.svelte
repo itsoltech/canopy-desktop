@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import QRCodeStyling from 'qr-code-styling'
   import appIconUrl from '../../assets/app-icon.png'
 
@@ -11,21 +11,48 @@
 
   let qrEl: HTMLDivElement | undefined = $state()
   let qrInstance: QRCodeStyling | null = null
+  let themeObserver: MutationObserver | null = null
 
   onDestroy(() => {
+    themeObserver?.disconnect()
+    themeObserver = null
     // eslint-disable-next-line svelte/no-dom-manipulating
     qrEl?.replaceChildren()
     qrInstance = null
   })
 
+  onMount(() => {
+    themeObserver = new MutationObserver(() => updateQr())
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'style'],
+    })
+  })
+
+  function getQrColors(): { textColor: string; accentColor: string } {
+    const style = getComputedStyle(document.documentElement)
+    return {
+      textColor: style.getPropertyValue('--color-text').trim(),
+      accentColor: style.getPropertyValue('--color-accent').trim(),
+    }
+  }
+
+  function updateQr(): void {
+    if (!qrInstance) return
+    const { textColor, accentColor } = getQrColors()
+    qrInstance.update({
+      data: url,
+      dotsOptions: { color: textColor, type: 'rounded' },
+      cornersSquareOptions: { color: accentColor, type: 'extra-rounded' },
+      cornersDotOptions: { color: accentColor },
+    })
+  }
+
   $effect(() => {
     if (!qrEl) return
-    const style = getComputedStyle(document.documentElement)
-    const textColor = style.getPropertyValue('--color-text').trim()
-    const accentColor = style.getPropertyValue('--color-accent').trim()
-
+    const { textColor, accentColor } = getQrColors()
     if (qrInstance) {
-      qrInstance.update({ data: url })
+      updateQr()
       return
     }
 

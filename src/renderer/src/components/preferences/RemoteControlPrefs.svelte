@@ -9,6 +9,7 @@
   import PrefsSection from './_partials/PrefsSection.svelte'
   import PrefsRow from './_partials/PrefsRow.svelte'
   import {
+    applyRemoteListenerPref,
     buildRemoteListenerGroups,
     REMOTE_LISTEN_ALL_VALUE,
     type NetworkInterface,
@@ -47,12 +48,7 @@
   }
 
   function setListeningOn(value: string): void {
-    if (value === REMOTE_LISTEN_ALL_VALUE) {
-      setPref('remote.listenAllInterfaces', 'true')
-      return
-    }
-    setPref('remote.selectedInterface', value)
-    setPref('remote.listenAllInterfaces', 'false')
+    applyRemoteListenerPref(value, setPref)
   }
 
   async function loadTrustedDevices(): Promise<void> {

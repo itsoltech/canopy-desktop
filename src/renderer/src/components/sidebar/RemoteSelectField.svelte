@@ -27,9 +27,13 @@
   <span class="flex items-center gap-1 text-2xs uppercase tracking-caps-tight text-text-faint">
     {label}
     <Tooltip text={tooltip}>
-      <span class="inline-flex items-center text-text-muted">
+      <button
+        type="button"
+        class="inline-flex items-center border-0 bg-transparent p-0 text-text-muted cursor-help rounded-sm focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+        aria-label="{label} help"
+      >
         <CircleHelp size={11} />
-      </span>
+      </button>
     </Tooltip>
   </span>
   <CustomSelect {value} {options} {groups} {onchange} />
