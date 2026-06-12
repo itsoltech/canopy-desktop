@@ -906,10 +906,13 @@ export function registerIpcHandlers(
         )
       }
     }
-    // Changing the bound interface requires rebinding the signaling server.
+    // Changing the listener bind scope requires rebinding the signaling server.
     // Stop the current session; the next ensureListening() / start() picks
     // up the new pref. Mirrors the enabled=false teardown above.
-    if (payload.key === 'remote.selectedInterface') {
+    if (
+      payload.key === 'remote.selectedInterface' ||
+      payload.key === 'remote.listenAllInterfaces'
+    ) {
       void remoteSessionService.stop().match(
         () => {
           void remoteSessionService.ensureListening(event.sender.id).match(

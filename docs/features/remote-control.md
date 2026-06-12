@@ -22,21 +22,21 @@ Remote control must be explicitly enabled in Settings before the Remote sidebar 
 
 1. Open Settings and navigate to Remote Control.
 2. Toggle "Enable remote control" on. This sets the `remote.enabled` preference to `true`.
-3. Select the network interface that the phone/tablet can reach. There is no auto-detect fallback because the QR code must advertise a specific, reachable adapter address.
+3. Select the network interface that the phone/tablet can reach. There is no auto-detect fallback for pairing because the QR code must advertise a specific, reachable adapter address.
 4. The Remote section appears in the left sidebar with connection status, pairing controls, and basic configuration.
 
 Once the feature is enabled **and** at least one trusted device exists, Canopy brings the signaling server up automatically on every app launch (see "Listen mode" below). Disabling the toggle or removing all trusted devices stops this auto-start on the next launch.
 
 ### Listen mode (trusted reconnect)
 
-Listen mode lets a previously trusted device — typically the mobile remote — reconnect to Canopy after a desktop restart without the user having to start pairing first.
+Listen mode lets a previously trusted device reconnect to Canopy after a desktop restart without the user having to start pairing first.
 
-1. At app mount, the renderer calls `remote:ensureListening`. The main process silently no-ops unless `remote.enabled === 'true'`, `remote.selectedInterface` is set, and the `TrustedDeviceStore` has at least one entry. If the selected adapter is not usable yet (for example after OS restart while it is still coming up and has no routable IPv4), listen mode retries in the background every 5 seconds. Listen mode never surfaces errors to the user.
-2. On success, the `SignalingServer` is bound to the selected adapter's IPv4 address (re-using the saved `remote.lastPort` when possible so the peer client's origin stays stable) and the session transitions to `listening`. There is no pairing token in this state — only trusted devices whose `deviceId` already matches an entry in the store can pair. Untrusted pair attempts are rejected.
-3. When a trusted peer connects, the service transitions directly from `listening` → `paired`, auto-accepts, and updates the `lastSeen` timestamp.
-4. Clicking Pair in the Remote sidebar while in `listening` state upgrades the session to `waiting` in place: a fresh token is generated on the already-bound port and the QR is shown.
+1. At app mount, the renderer calls `remote:ensureListening`. The main process silently no-ops unless `remote.enabled === 'true'`, the `TrustedDeviceStore` has at least one entry, and either `remote.selectedInterface` is set or `remote.listenAllInterfaces === 'true'`. If the selected-adapter listener cannot resolve its adapter yet (for example after OS restart while it is still coming up and has no routable IPv4), listen mode retries in the background every 5 seconds. Listen mode never surfaces errors to the user.
+2. On success, the `SignalingServer` is bound either to the selected adapter's IPv4 address or to `0.0.0.0` when "All adapters" is selected, re-using the saved `remote.lastPort` when possible so the peer client's origin stays stable. The session transitions to `listening`. There is no pairing token in this state; only trusted devices whose `deviceId` already matches an entry in the store can pair. Untrusted pair attempts are rejected.
+3. When a trusted peer connects, the service transitions directly from `listening` to `paired`, auto-accepts, and updates the `lastSeen` timestamp.
+4. Clicking Pair in the Remote sidebar while in `listening` state requires `remote.selectedInterface`. If the listener is already bound to that adapter, it upgrades the session to `waiting` in place; if the listener is bound to all adapters, it is stopped and rebound to the selected adapter before generating the QR URL.
 
-Listen mode keeps the signaling server bound on the selected adapter in the background for the lifetime of the app, not just while the pairing UI is open. This is covered in "Security and privacy" below.
+Listen mode keeps the signaling server bound in the background for the lifetime of the app, not just while the pairing UI is open. The listener scope is user-controlled from the Remote sidebar. This is covered in "Security and privacy" below.
 
 ### Starting a pairing session
 
@@ -101,12 +101,13 @@ Hide blurs xterm's hidden textarea to dismiss the soft keyboard. Copy sends only
 
 ## Configuration
 
-| Preference key             | Values                 | Default   | Notes                                                                                                                                                                                                                                                                              |
-| -------------------------- | ---------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `remote.enabled`           | `"true"` / `"false"`   | `"false"` | Must be `true` for the Remote sidebar section and trusted-device listen mode to appear                                                                                                                                                                                             |
-| `remote.lastPort`          | port number as string  | none      | Persisted automatically after first bind; keeps peer-client origin stable                                                                                                                                                                                                          |
-| `remote.selectedInterface` | interface name or `""` | `""`      | Required for pairing and listen mode. Empty means remote is not configured. The signaling server binds only on the named interface's routable IPv4 address; missing or APIPA-only interface yields `NoNetworkInterface` for manual pairing and background retries for listen mode. |
-| `remote.trustedDevices`    | JSON array             | `[]`      | Managed by TrustedDeviceStore; not user-editable                                                                                                                                                                                                                                   |
+| Preference key               | Values                 | Default   | Notes                                                                                                                                                                                                                                                                            |
+| ---------------------------- | ---------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `remote.enabled`             | `"true"` / `"false"`   | `"false"` | Must be `true` for the Remote sidebar section and trusted-device listen mode to appear                                                                                                                                                                                           |
+| `remote.lastPort`            | port number as string  | none      | Persisted automatically after first bind; keeps peer-client origin stable                                                                                                                                                                                                        |
+| `remote.selectedInterface`   | interface name or `""` | `""`      | Required for pairing. Also used by listen mode when `remote.listenAllInterfaces` is not `"true"`. Empty means pairing is not configured. Missing or APIPA-only interface yields `NoNetworkInterface` for manual pairing and background retries for selected-adapter listen mode. |
+| `remote.listenAllInterfaces` | `"true"` / `"false"`   | `"false"` | When `"true"`, trusted-device listen mode binds to `0.0.0.0` so known devices can reconnect through any active adapter. Pairing still requires `remote.selectedInterface` and always advertises the selected adapter address in the QR URL.                                      |
+| `remote.trustedDevices`      | JSON array             | `[]`      | Managed by TrustedDeviceStore; not user-editable                                                                                                                                                                                                                                 |
 
 Trusted devices can be viewed and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
 
@@ -126,7 +127,9 @@ Trusted devices can be viewed and removed in Settings. Each entry stores `device
 
 ## Security and privacy
 
-The signaling server binds only on the explicitly selected interface's routable IPv4 address, narrowing the LAN exposure to one adapter. Link-local APIPA addresses are ignored so a restarted adapter does not advertise an unreachable host. It shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. Changing `remote.selectedInterface` stops any in-flight session so the new bind takes effect on the next pairing or trusted reconnect. With **listen mode** (feature enabled, selected interface, and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user starting pairing first — see "Listen mode" under Behavior. In this mode the server accepts only trusted `deviceId`s; any other pair attempt is rejected before reaching the accept prompt.
+Pairing sessions bind only on the explicitly selected interface's routable IPv4 address, and the QR URL always advertises that selected address. Link-local APIPA addresses are ignored so a restarted adapter does not advertise an unreachable host. Listen mode defaults to the selected adapter too, but the user can opt into "All adapters"; in that case the trusted-device listener binds to `0.0.0.0` and accepts reconnects through any active interface. It still accepts only trusted `deviceId`s; any other pair attempt is rejected before reaching the accept prompt.
+
+The signaling server shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. Changing `remote.selectedInterface` or `remote.listenAllInterfaces` stops any in-flight session so the new bind takes effect on the next pairing or trusted reconnect. With **listen mode** (feature enabled, listener scope configured, and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user starting pairing first — see "Listen mode" under Behavior.
 
 Pairing tokens are 32 random bytes (hex-encoded, 64 characters). Token comparison uses Node.js `timingSafeEqual` to prevent timing attacks. Tokens are single-use per session.
 
@@ -150,4 +153,5 @@ The trusted device store currently uses device ID matching only. Cryptographic c
 - Errors: `src/main/remote/errors.ts`
 - Store: `src/renderer/src/lib/stores/remoteSession.svelte.ts`
 - Preload: `src/preload/index.ts` (remote section)
-- Components: `src/renderer/src/components/sidebar/RemoteSection.svelte`, `src/renderer/src/components/sidebar/RemotePairingQr.svelte`, `src/renderer/src/components/dialogs/RemoteAcceptDeviceModal.svelte`, `src/renderer/src/components/preferences/RemoteControlPrefs.svelte`
+- Components: `src/renderer/src/components/sidebar/RemoteSection.svelte`, `src/renderer/src/components/sidebar/RemoteControls.svelte`, `src/renderer/src/components/sidebar/RemotePairingQr.svelte`, `src/renderer/src/components/dialogs/RemoteAcceptDeviceModal.svelte`, `src/renderer/src/components/preferences/RemoteControlPrefs.svelte`
+- Renderer helpers: `src/renderer/src/lib/remote/interfaceOptions.ts`

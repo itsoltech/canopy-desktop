@@ -1,20 +1,23 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
   import { match } from 'ts-pattern'
-  import { Check, Copy, Play, Settings, Smartphone, Square, Wifi } from '@lucide/svelte'
+  import { Check, Copy, Settings, Smartphone, Wifi } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
+  import RemoteControls from './RemoteControls.svelte'
   import RemotePairingQr from './RemotePairingQr.svelte'
   import Tooltip from '../shared/Tooltip.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
   import { remoteSession } from '../../lib/stores/remoteSession.svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
+  import {
+    buildRemoteInterfaceGroups,
+    type NetworkInterface,
+  } from '../../lib/remote/interfaceOptions'
 
-  type GuardProfile = 'none' | 'destructive' | 'full'
-  type NetworkInterface = { name: string; address: string; virtual: boolean }
-  type SelectOption = { value: string; label: string }
+  type TrustedDevice = { deviceId: string }
 
   let interfaces = $state<NetworkInterface[]>([])
+  let trustedDeviceCount = $state(0)
   let busy = $state(false)
   let errorMsg: string | null = $state(null)
   let copied = $state(false)
@@ -23,9 +26,9 @@
   let status = $derived(remoteSession.status)
   let selectedInterface = $derived(prefs['remote.selectedInterface'] ?? '')
   let hasSelectedInterface = $derived(selectedInterface.length > 0)
-  let guardProfile: GuardProfile = $derived(
-    (prefs['remote.actionGuard'] as GuardProfile) ?? 'destructive',
-  )
+  let listenAllInterfaces = $derived(prefs['remote.listenAllInterfaces'] === 'true')
+  let listenerScope = $derived(listenAllInterfaces ? 'all' : 'selected')
+  let canListen = $derived(trustedDeviceCount > 0 && (listenAllInterfaces || hasSelectedInterface))
   let pairingUrl = $derived(
     status.kind === 'waiting' || status.kind === 'peerArrived' ? status.pairingUrl : null,
   )
@@ -37,32 +40,15 @@
       status.kind === 'paired' ||
       status.kind === 'reconnecting'
     ) {
+      if (status.kind === 'listening' && status.lanIp === '0.0.0.0') {
+        return `All adapters:${status.port}`
+      }
       return `${status.lanIp}:${status.port}`
     }
     return null
   })
 
-  const interfaceGroups = $derived.by(() => {
-    const placeholder = [{ value: '', label: 'Select adapter' }]
-    const physical = interfaces
-      .filter((i) => !i.virtual)
-      .map((i) => ({ value: i.name, label: `${i.name} (${i.address})` }))
-    const virtual = interfaces
-      .filter((i) => i.virtual)
-      .map((i) => ({ value: i.name, label: `${i.name} (${i.address}) virtual` }))
-    const groups: Array<{ label: string; options: SelectOption[] }> = [
-      { label: 'Required', options: placeholder },
-    ]
-    if (physical.length) groups.push({ label: 'Physical', options: physical })
-    if (virtual.length) groups.push({ label: 'Virtual', options: virtual })
-    if (selectedInterface && !interfaces.some((i) => i.name === selectedInterface)) {
-      groups.push({
-        label: 'Unavailable',
-        options: [{ value: selectedInterface, label: `${selectedInterface} (not ready)` }],
-      })
-    }
-    return groups
-  })
+  const interfaceGroups = $derived(buildRemoteInterfaceGroups(interfaces, selectedInterface))
 
   const statusTone = $derived.by(() =>
     match(status.kind)
@@ -83,25 +69,62 @@
     match(status)
       .with({ kind: 'idle' }, () => 'Idle')
       .with({ kind: 'starting' }, () => 'Starting')
-      .with({ kind: 'listening' }, () => 'Listening')
+      .with({ kind: 'listening' }, (s) =>
+        s.lanIp === '0.0.0.0' ? 'Listening on all adapters' : 'Listening',
+      )
       .with({ kind: 'waiting' }, () => 'Pairing')
       .with({ kind: 'peerArrived' }, () => 'Approval needed')
       .with({ kind: 'paired' }, (s) => `Connected: ${s.deviceName}`)
-      .with({ kind: 'reconnecting' }, () => 'Reconnecting')
+      .with({ kind: 'reconnecting' }, () => 'Disconnected - listening')
       .with({ kind: 'error' }, () => 'Error')
       .exhaustive(),
   )
 
   onMount(() => {
     void loadInterfaces()
+    void loadTrustedDevices()
   })
 
   onDestroy(() => {
     if (copiedTimer) clearTimeout(copiedTimer)
   })
 
+  $effect(() => {
+    if (status.kind === 'idle' || status.kind === 'listening' || status.kind === 'paired') {
+      void loadTrustedDevices()
+    }
+  })
+
   async function loadInterfaces(): Promise<void> {
     interfaces = await window.api.remote.listNetworkInterfaces()
+  }
+
+  async function loadTrustedDevices(): Promise<void> {
+    const devices: TrustedDevice[] = await window.api.remote.listTrustedDevices()
+    trustedDeviceCount = devices.length
+  }
+
+  async function startListening(): Promise<void> {
+    if (busy) return
+    if (trustedDeviceCount === 0) {
+      errorMsg = 'Remember a device before starting listen mode.'
+      return
+    }
+    if (!listenAllInterfaces && !hasSelectedInterface) {
+      errorMsg = 'Select a network adapter or listen on all adapters.'
+      return
+    }
+    busy = true
+    errorMsg = null
+    try {
+      await window.api.remote.ensureListening()
+      await loadInterfaces()
+      await loadTrustedDevices()
+    } catch (e) {
+      errorMsg = e instanceof Error ? e.message : String(e)
+    } finally {
+      busy = false
+    }
   }
 
   async function startPairing(): Promise<void> {
@@ -115,6 +138,7 @@
     try {
       await window.api.remote.start()
       await loadInterfaces()
+      await loadTrustedDevices()
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : String(e)
     } finally {
@@ -154,8 +178,8 @@
     setPref('remote.selectedInterface', name)
   }
 
-  function setGuard(value: string): void {
-    setPref('remote.actionGuard', value)
+  function setListenerScope(value: string): void {
+    setPref('remote.listenAllInterfaces', value === 'all' ? 'true' : 'false')
   }
 </script>
 
@@ -224,7 +248,11 @@
         class="flex items-center gap-2 text-xs text-text-secondary bg-bg-input border border-border-subtle rounded-md px-2.5 py-2"
       >
         <Wifi size={13} class="shrink-0 text-warning-text" />
-        <span class="truncate">Trusted devices may reconnect.</span>
+        <span class="truncate">
+          {status.lanIp === '0.0.0.0'
+            ? 'Trusted devices may reconnect on any adapter.'
+            : 'Trusted devices may reconnect.'}
+        </span>
       </div>
     {:else if !hasSelectedInterface}
       <div
@@ -240,47 +268,19 @@
       </div>
     {/if}
 
-    <div class="flex gap-1">
-      {#if status.kind === 'idle' || status.kind === 'error' || status.kind === 'listening'}
-        <button
-          type="button"
-          class="inline-flex items-center justify-center gap-1 flex-1 h-7 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-medium cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-          disabled={busy || !hasSelectedInterface}
-          onclick={startPairing}
-        >
-          <Play size={13} />
-          Pair
-        </button>
-      {:else}
-        <button
-          type="button"
-          class="inline-flex items-center justify-center gap-1 flex-1 h-7 rounded-md border-0 bg-danger-bg text-danger-text text-xs font-medium cursor-pointer enabled:hover:bg-hover disabled:opacity-50 disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-          disabled={busy}
-          onclick={stopSession}
-        >
-          <Square size={12} />
-          Stop
-        </button>
-      {/if}
-    </div>
-
-    <div class="flex flex-col gap-2 pt-2 border-t border-border-subtle">
-      <label class="flex flex-col gap-1 text-2xs uppercase tracking-caps-tight text-text-faint">
-        Adapter
-        <CustomSelect value={selectedInterface} groups={interfaceGroups} onchange={setInterface} />
-      </label>
-      <label class="flex flex-col gap-1 text-2xs uppercase tracking-caps-tight text-text-faint">
-        Guard
-        <CustomSelect
-          value={guardProfile}
-          onchange={setGuard}
-          options={[
-            { value: 'destructive', label: 'Destructive' },
-            { value: 'full', label: 'Full' },
-            { value: 'none', label: 'None' },
-          ]}
-        />
-      </label>
-    </div>
+    <RemoteControls
+      {status}
+      {busy}
+      {canListen}
+      {hasSelectedInterface}
+      {selectedInterface}
+      {interfaceGroups}
+      {listenerScope}
+      onStartListening={startListening}
+      onStartPairing={startPairing}
+      onStopSession={stopSession}
+      onSetInterface={setInterface}
+      onSetListenerScope={setListenerScope}
+    />
   </div>
 </CollapsibleSection>

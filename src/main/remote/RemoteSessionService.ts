@@ -42,6 +42,7 @@ const REMOTE_SIGNAL_CHANNEL = 'remote:signal'
  * new port means a new origin means a fresh, empty storage.
  */
 const LAST_PORT_PREF_KEY = 'remote.lastPort'
+const LISTEN_ALL_INTERFACES_PREF_KEY = 'remote.listenAllInterfaces'
 
 /**
  * Preference key holding the user's chosen LAN interface name (e.g. `Wi-Fi`
@@ -144,21 +145,6 @@ export class RemoteSessionService {
   start(hostWcId: number): ResultAsync<{ pairingUrl: string }, RemoteServerError> {
     this.clearListenRetryTimer()
 
-    // Fast path: signaling server is already bound from an auto-listen
-    // pass (see `ensureListening`). Upgrade to `waiting` by generating a
-    // fresh one-shot token + QR URL on the existing listener — no rebind,
-    // no bundle reload. The caller becomes the host window so peer signals
-    // reach the renderer that started pairing from the Remote sidebar.
-    if (this.status.kind === 'listening') {
-      this.hostWcId = hostWcId
-      const { lanIp, port } = this.status
-      return okAsync(this.beginPairing(lanIp, port))
-    }
-
-    if (this.status.kind !== 'idle' && this.status.kind !== 'error') {
-      return errAsync({ _tag: 'AlreadyRunning' })
-    }
-
     const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
     if (!preferredIfaceName) {
       const err: RemoteServerError = { _tag: 'NoNetworkInterface' }
@@ -170,6 +156,29 @@ export class RemoteSessionService {
       const err: RemoteServerError = { _tag: 'NoNetworkInterface' }
       this.setStatus({ kind: 'error', message: 'Selected network interface is unavailable' })
       return errAsync(err)
+    }
+
+    // Fast path: signaling server is already bound from an auto-listen
+    // pass (see `ensureListening`). Upgrade to `waiting` by generating a
+    // fresh one-shot token + QR URL on the existing listener — no rebind,
+    // no bundle reload. The caller becomes the host window so peer signals
+    // reach the renderer that started pairing from the Remote sidebar.
+    if (this.status.kind === 'listening') {
+      if (this.signalingServer.listeningHost !== iface.address) {
+        return this.signalingServer.stop().andThen(() => {
+          this.cleanupSession()
+          this.hostWcId = null
+          this.setStatus({ kind: 'idle' })
+          return this.start(hostWcId)
+        })
+      }
+      this.hostWcId = hostWcId
+      const { lanIp, port } = this.status
+      return okAsync(this.beginPairing(lanIp, port))
+    }
+
+    if (this.status.kind !== 'idle' && this.status.kind !== 'error') {
+      return errAsync({ _tag: 'AlreadyRunning' })
     }
 
     this.hostWcId = hostWcId
@@ -224,11 +233,11 @@ export class RemoteSessionService {
    * pairing manually. Conditions:
    *   - `remote.enabled === 'true'` (user opted in)
    *   - TrustedDeviceStore has ≥1 entry
-   *   - A network interface was explicitly selected
-   *   - The selected interface has a usable LAN address
+   *   - Either listen-on-all is enabled or a network interface was explicitly selected
+   *   - The selected interface has a usable LAN address when listen-on-all is off
    * Missing preferences/trust/selection is a silent no-op. Missing network for
-   * a selected interface schedules a short retry because adapters can come up
-   * after Canopy starts.
+   * a selected-interface listener schedules a short retry because adapters can
+   * come up after Canopy starts.
    *
    * Idempotent: if the server is already running (either from a prior
    * listen-mode start or a manual `start()`), the method only rebinds the
@@ -261,20 +270,25 @@ export class RemoteSessionService {
       return okAsync(undefined)
     }
 
+    const listenAllInterfaces = this.preferencesStore.get(LISTEN_ALL_INTERFACES_PREF_KEY) === 'true'
     const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
-    if (!preferredIfaceName) {
+    if (!listenAllInterfaces && !preferredIfaceName) {
       this.clearListenRetryTimer()
       return okAsync(undefined)
     }
-    const iface = selectPrimaryInterface(preferredIfaceName)
+    let bindHost = '0.0.0.0'
+    const iface = listenAllInterfaces ? null : selectPrimaryInterface(preferredIfaceName)
     // Silent retry for listen mode: no interface at all, or the user-named
     // interface currently unavailable, leaves the session idle and checks
     // again shortly. Listen mode never surfaces errors to the user — the
     // next manual `start()` will return NoNetworkInterface with a visible
     // message.
-    if (!iface) {
-      this.scheduleListenRetry(hostWcId)
-      return okAsync(undefined)
+    if (!listenAllInterfaces) {
+      if (!iface) {
+        this.scheduleListenRetry(hostWcId)
+        return okAsync(undefined)
+      }
+      bindHost = iface.address
     }
 
     this.clearListenRetryTimer()
@@ -287,7 +301,7 @@ export class RemoteSessionService {
       .start({
         bundleRoot,
         preferredPort: savedPort,
-        bindHost: iface.address,
+        bindHost,
         handlers: {
           onPairAttempt: (msg) => this.handlePairAttempt(msg),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),
@@ -308,14 +322,19 @@ export class RemoteSessionService {
         this.currentPairing = {
           pairingUrl: '',
           hostname,
-          lanIp: iface.address,
+          lanIp: bindHost,
           port,
           expiresAt: Number.POSITIVE_INFINITY,
         }
         // Deliberately NO pendingToken: untrusted peers cannot pair from
         // listening mode, only trusted devices whose deviceId matches an
         // entry already in the TrustedDeviceStore.
-        this.setStatus({ kind: 'listening', hostname, lanIp: iface.address, port })
+        this.setStatus({
+          kind: 'listening',
+          hostname,
+          lanIp: bindHost,
+          port,
+        })
       })
       .mapErr((e) => {
         // Best-effort: listen mode failing should not block the app. Log
