@@ -151,10 +151,15 @@
       errorMsg = 'Select a network adapter before pairing.'
       return
     }
+    await startPairingWithInterface(qrInterface)
+  }
+
+  async function startPairingWithInterface(interfaceName: string): Promise<void> {
+    if (busy) return
     busy = true
     errorMsg = null
     try {
-      await window.api.remote.start(qrInterface)
+      await window.api.remote.start(interfaceName)
       pairSetupOpen = false
       await loadInterfaces()
       await loadTrustedDevices()
@@ -198,6 +203,9 @@
   function setInterface(name: string): void {
     qrInterface = name
     if (name) errorMsg = null
+    if (name && pairSetupOpen && !pairingUrl) {
+      void startPairingWithInterface(name)
+    }
   }
 
   function setListener(value: string): void {
@@ -231,7 +239,6 @@
       onchange={setListener}
       groups={listenerGroups}
     />
-
     <RemoteStatusSummary {statusDotStyle} {statusLabel} {hostLabel} />
 
     {#if pairSetupOpen && !pairingUrl}

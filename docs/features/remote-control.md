@@ -40,7 +40,7 @@ Listen mode keeps the signaling server bound in the background for the lifetime 
 
 ### Starting a pairing session
 
-1. Open the Remote section in the left sidebar and click New pair. Select the `QR adapter` shown above the QR area if needed, then click New pair again to generate the QR code.
+1. Open the Remote section in the left sidebar and click New pair. Select the `QR adapter` shown above the QR area if needed; choosing an adapter generates the QR code.
 2. Canopy calls `remote:start` with the chosen QR adapter, which triggers `RemoteSessionService.start()`. The session transitions to `starting`.
 3. The service requires a QR adapter to be provided. Link-local APIPA addresses (`169.254.*`) are ignored. The named interface is used as-is (including normally-filtered virtual adapters like Tailscale — the user opted in explicitly); if that interface is not selected, no longer present, or has no routable IPv4 address, the service returns `NoNetworkInterface`.
 4. A 32-byte random hex token is generated.

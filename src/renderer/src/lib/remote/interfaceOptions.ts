@@ -31,9 +31,12 @@ export function buildRemoteListenerGroups(
   interfaces: NetworkInterface[],
   selectedInterface: string,
 ): SelectGroup[] {
+  const adapterGroups = buildRemoteInterfaceGroups(interfaces, selectedInterface).filter(
+    (group) => group.label !== 'Required',
+  )
   return [
     { label: 'Scope', options: [{ value: REMOTE_LISTEN_ALL_VALUE, label: 'All adapters' }] },
-    ...buildRemoteInterfaceGroups(interfaces, selectedInterface),
+    ...adapterGroups,
   ]
 }
 
