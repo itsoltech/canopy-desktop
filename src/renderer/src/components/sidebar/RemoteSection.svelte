@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
   import { match } from 'ts-pattern'
-  import { Check, Copy, Settings, Smartphone, Wifi } from '@lucide/svelte'
+  import { Check, Copy, Settings } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import RemoteControls from './RemoteControls.svelte'
   import RemotePairingQr from './RemotePairingQr.svelte'
   import RemoteSelectField from './RemoteSelectField.svelte'
+  import RemoteSessionNotice from './RemoteSessionNotice.svelte'
   import RemoteStatusSummary from './RemoteStatusSummary.svelte'
   import Tooltip from '../shared/Tooltip.svelte'
   import { remoteSession } from '../../lib/stores/remoteSession.svelte'
@@ -13,6 +14,9 @@
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
   import {
     buildRemoteInterfaceGroups,
+    buildRemoteListenerGroups,
+    formatRemoteInterfaceLabel,
+    REMOTE_LISTEN_ALL_VALUE,
     type NetworkInterface,
   } from '../../lib/remote/interfaceOptions'
 
@@ -24,20 +28,20 @@
   let errorMsg: string | null = $state(null)
   let copied = $state(false)
   let pairSetupOpen = $state(false)
+  let qrInterface = $state('')
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
   let status = $derived(remoteSession.status)
-  let selectedInterface = $derived(prefs['remote.selectedInterface'] ?? '')
-  let hasSelectedInterface = $derived(selectedInterface.length > 0)
+  let listenerInterface = $derived(prefs['remote.selectedInterface'] ?? '')
+  let hasListenerInterface = $derived(listenerInterface.length > 0)
   let listenAllInterfaces = $derived(prefs['remote.listenAllInterfaces'] === 'true')
-  let listenerScope = $derived(listenAllInterfaces ? 'all' : 'selected')
-  let canListen = $derived(trustedDeviceCount > 0 && (listenAllInterfaces || hasSelectedInterface))
-  let showQrAdapter = $derived(
-    pairSetupOpen || status.kind === 'waiting' || status.kind === 'peerArrived',
-  )
+  let listenerValue = $derived(listenAllInterfaces ? REMOTE_LISTEN_ALL_VALUE : listenerInterface)
+  let canListen = $derived(trustedDeviceCount > 0 && (listenAllInterfaces || hasListenerInterface))
   let pairingUrl = $derived(
     status.kind === 'waiting' || status.kind === 'peerArrived' ? status.pairingUrl : null,
   )
+  let showQrAdapter = $derived(pairSetupOpen || !!pairingUrl)
+  let hasQrInterface = $derived(qrInterface.length > 0)
   let hostLabel = $derived.by(() => {
     if (
       status.kind === 'listening' ||
@@ -54,11 +58,9 @@
     return null
   })
 
-  const interfaceGroups = $derived(buildRemoteInterfaceGroups(interfaces, selectedInterface))
-  const listenerOptions = [
-    { value: 'selected', label: 'Selected adapter' },
-    { value: 'all', label: 'All adapters' },
-  ]
+  const qrInterfaceGroups = $derived(buildRemoteInterfaceGroups(interfaces, qrInterface))
+  const listenerGroups = $derived(buildRemoteListenerGroups(interfaces, listenerInterface))
+  const qrInterfaceLabel = $derived(formatRemoteInterfaceLabel(interfaces, qrInterface))
 
   const statusTone = $derived.by(() =>
     match(status.kind)
@@ -120,7 +122,7 @@
       errorMsg = 'Remember a device before starting listen mode.'
       return
     }
-    if (!listenAllInterfaces && !hasSelectedInterface) {
+    if (!listenAllInterfaces && !hasListenerInterface) {
       errorMsg = 'Select a network adapter or listen on all adapters.'
       return
     }
@@ -139,15 +141,20 @@
 
   async function startPairing(): Promise<void> {
     if (busy) return
-    pairSetupOpen = true
-    if (!hasSelectedInterface) {
+    if (!pairSetupOpen && !pairingUrl) {
+      pairSetupOpen = true
+      qrInterface = listenAllInterfaces ? '' : listenerInterface
+      errorMsg = qrInterface ? null : 'Select a network adapter before pairing.'
+      return
+    }
+    if (!qrInterface) {
       errorMsg = 'Select a network adapter before pairing.'
       return
     }
     busy = true
     errorMsg = null
     try {
-      await window.api.remote.start()
+      await window.api.remote.start(qrInterface)
       pairSetupOpen = false
       await loadInterfaces()
       await loadTrustedDevices()
@@ -165,6 +172,7 @@
     try {
       await window.api.remote.stop()
       pairSetupOpen = false
+      qrInterface = ''
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : String(e)
     } finally {
@@ -188,12 +196,17 @@
   }
 
   function setInterface(name: string): void {
-    setPref('remote.selectedInterface', name)
+    qrInterface = name
     if (name) errorMsg = null
   }
 
-  function setListenerScope(value: string): void {
-    setPref('remote.listenAllInterfaces', value === 'all' ? 'true' : 'false')
+  function setListener(value: string): void {
+    if (value === REMOTE_LISTEN_ALL_VALUE) {
+      setPref('remote.listenAllInterfaces', 'true')
+      return
+    }
+    setPref('remote.selectedInterface', value)
+    setPref('remote.listenAllInterfaces', 'false')
   }
 </script>
 
@@ -213,22 +226,32 @@
   <div class="px-3 flex flex-col gap-3">
     <RemoteSelectField
       label="Listening on"
-      tooltip="Trusted reconnect listener: selected adapter or all adapters. QR pairing still uses the QR adapter."
-      value={listenerScope}
-      onchange={setListenerScope}
-      options={listenerOptions}
+      tooltip="Where trusted devices may reconnect without a new QR pair. Pick one adapter, or all adapters. New QR pairing uses the QR adapter below."
+      value={listenerValue}
+      onchange={setListener}
+      groups={listenerGroups}
     />
 
     <RemoteStatusSummary {statusDotStyle} {statusLabel} {hostLabel} />
 
-    {#if showQrAdapter}
+    {#if pairSetupOpen && !pairingUrl}
       <RemoteSelectField
         label="QR adapter"
         tooltip="Address encoded into the QR code. Pick the adapter the phone can reach."
-        value={selectedInterface}
-        groups={interfaceGroups}
+        value={qrInterface}
+        groups={qrInterfaceGroups}
         onchange={setInterface}
       />
+    {:else if pairingUrl}
+      <div class="flex flex-col gap-1">
+        <div class="text-2xs uppercase tracking-caps-tight text-text-faint">QR adapter</div>
+        <div
+          class="text-xs text-text-secondary bg-bg-input border border-border-subtle rounded-md px-2.5 py-2 truncate"
+          title={qrInterfaceLabel}
+        >
+          {qrInterfaceLabel}
+        </div>
+      </div>
     {/if}
 
     {#if pairingUrl}
@@ -250,37 +273,7 @@
       </button>
     {/if}
 
-    {#if status.kind === 'paired'}
-      <div
-        class="flex items-center gap-2 text-xs text-text-secondary bg-bg-input border border-border-subtle rounded-md px-2.5 py-2"
-      >
-        <Smartphone size={13} class="shrink-0 text-success" />
-        <span class="truncate">Remote device is controlling this window.</span>
-      </div>
-    {:else if status.kind === 'peerArrived'}
-      <div
-        class="text-xs text-warning-text bg-bg-input border border-border-subtle rounded-md px-2.5 py-2"
-      >
-        Accept or reject the device request in the approval dialog.
-      </div>
-    {:else if status.kind === 'listening'}
-      <div
-        class="flex items-center gap-2 text-xs text-text-secondary bg-bg-input border border-border-subtle rounded-md px-2.5 py-2"
-      >
-        <Wifi size={13} class="shrink-0 text-warning-text" />
-        <span class="truncate">
-          {status.lanIp === '0.0.0.0'
-            ? 'Trusted devices may reconnect on any adapter.'
-            : 'Trusted devices may reconnect.'}
-        </span>
-      </div>
-    {:else if showQrAdapter && !hasSelectedInterface}
-      <div
-        class="text-xs text-warning-text bg-bg-input border border-border-subtle rounded-md px-2.5 py-2"
-      >
-        Select an adapter before pairing.
-      </div>
-    {/if}
+    <RemoteSessionNotice {status} {showQrAdapter} {hasQrInterface} />
 
     {#if errorMsg || status.kind === 'error'}
       <div role="alert" class="text-xs text-danger-text bg-danger-bg rounded-md px-2.5 py-2">

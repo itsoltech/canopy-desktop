@@ -8,6 +8,11 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import PrefsRow from './_partials/PrefsRow.svelte'
+  import {
+    buildRemoteListenerGroups,
+    REMOTE_LISTEN_ALL_VALUE,
+    type NetworkInterface,
+  } from '../../lib/remote/interfaceOptions'
 
   type GuardProfile = 'none' | 'destructive' | 'full'
 
@@ -15,7 +20,9 @@
   let guardProfile: GuardProfile = $derived(
     (prefs['remote.actionGuard'] as GuardProfile) ?? 'destructive',
   )
-  let selectedInterface = $derived(prefs['remote.selectedInterface'] ?? '')
+  let listenerInterface = $derived(prefs['remote.selectedInterface'] ?? '')
+  let listenAllInterfaces = $derived(prefs['remote.listenAllInterfaces'] === 'true')
+  let listenerValue = $derived(listenAllInterfaces ? REMOTE_LISTEN_ALL_VALUE : listenerInterface)
 
   type TrustedDevice = {
     deviceId: string
@@ -25,36 +32,11 @@
     publicKeyJwk: unknown
   }
 
-  type NetworkInterface = { name: string; address: string; virtual: boolean }
-  type SelectOption = { value: string; label: string }
-
   let trustedDevices = $state<TrustedDevice[]>([])
   let loading = $state(false)
   let interfaces = $state<NetworkInterface[]>([])
 
-  const interfaceGroups = $derived.by(() => {
-    const placeholder = [{ value: '', label: 'Select adapter' }]
-    const physical = interfaces
-      .filter((i) => !i.virtual)
-      .map((i) => ({ value: i.name, label: `${i.name} (${i.address})` }))
-    const virtual = interfaces
-      .filter((i) => i.virtual)
-      .map((i) => ({ value: i.name, label: `${i.name} (${i.address}) — virtual` }))
-    const groups: Array<{ label: string; options: SelectOption[] }> = [
-      { label: 'Required', options: placeholder },
-    ]
-    if (physical.length) groups.push({ label: 'Physical', options: physical })
-    if (virtual.length) groups.push({ label: 'Virtual', options: virtual })
-    // If the user previously picked an interface that is no longer present,
-    // surface it so they can see what's selected and switch away.
-    if (selectedInterface && !interfaces.some((i) => i.name === selectedInterface)) {
-      groups.push({
-        label: 'Unavailable',
-        options: [{ value: selectedInterface, label: `${selectedInterface} (not found)` }],
-      })
-    }
-    return groups
-  })
+  const listenerGroups = $derived(buildRemoteListenerGroups(interfaces, listenerInterface))
 
   function toggleEnabled(): void {
     setPref('remote.enabled', enabled ? 'false' : 'true')
@@ -64,8 +46,13 @@
     setPref('remote.actionGuard', profile)
   }
 
-  function setInterface(name: string): void {
-    setPref('remote.selectedInterface', name)
+  function setListeningOn(value: string): void {
+    if (value === REMOTE_LISTEN_ALL_VALUE) {
+      setPref('remote.listenAllInterfaces', 'true')
+      return
+    }
+    setPref('remote.selectedInterface', value)
+    setPref('remote.listenAllInterfaces', 'false')
   }
 
   async function loadTrustedDevices(): Promise<void> {
@@ -150,14 +137,14 @@
       <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
     </PrefsRow>
     <PrefsRow
-      label="Network interface"
-      help="Required. The QR code uses this adapter's routable IPv4 address, and the server only listens on that one adapter. Link-local APIPA addresses are ignored; if the selected adapter is not ready after restart, trusted reconnect retries in the background."
+      label="Listening on"
+      help="Controls where trusted devices may reconnect without a new pairing QR. Choose one reachable adapter or All adapters. New QR pairing asks for a QR adapter separately."
       search="remote interface network adapter wifi ethernet bind ip"
     >
       <CustomSelect
-        value={selectedInterface}
-        groups={interfaceGroups}
-        onchange={setInterface}
+        value={listenerValue}
+        groups={listenerGroups}
+        onchange={setListeningOn}
         maxWidth="280px"
       />
     </PrefsRow>

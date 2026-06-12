@@ -3691,13 +3691,17 @@ export function registerIpcHandlers(
 
   // --- Remote control (WebRTC pairing via QR) ---
 
-  ipcMain.handle('remote:start', async (event) => {
+  ipcMain.handle('remote:start', async (event, payload?: { interfaceName?: string }) => {
     if (!remoteSessionService.isEnabledInPreferences()) {
       throw new Error('Remote control is disabled in settings')
     }
+    const interfaceName =
+      typeof payload?.interfaceName === 'string' && payload.interfaceName.length > 0
+        ? payload.interfaceName
+        : undefined
     // The host webContents owns this session — peer signals are routed back
     // to this window only, not broadcast to the other windows.
-    const result = await remoteSessionService.start(event.sender.id)
+    const result = await remoteSessionService.start(event.sender.id, interfaceName)
     return unwrapOrThrow(result, remoteServerErrorMessage)
   })
 

@@ -45,12 +45,13 @@ const LAST_PORT_PREF_KEY = 'remote.lastPort'
 const LISTEN_ALL_INTERFACES_PREF_KEY = 'remote.listenAllInterfaces'
 
 /**
- * Preference key holding the user's chosen LAN interface name (e.g. `Wi-Fi`
- * on Windows, `en0` on macOS). Empty / unset means remote pairing is not
- * configured. The named interface is used as-is (no virtual filter — the user
- * may deliberately pick Tailscale/WireGuard), and the signaling server binds
- * only on that interface's IPv4 address. A missing or unavailable interface
- * yields `NoNetworkInterface` rather than silently falling back.
+ * Preference key holding the user's listener LAN interface name (e.g. `Wi-Fi`
+ * on Windows, `en0` on macOS). Empty / unset means selected-adapter listen mode
+ * is not configured. Pairing may pass a transient QR adapter to `start()`;
+ * otherwise this listener preference remains the fallback. The named interface
+ * is used as-is (no virtual filter — the user may deliberately pick
+ * Tailscale/WireGuard), and selected-adapter listening binds only on that
+ * interface's IPv4 address.
  */
 const SELECTED_INTERFACE_PREF_KEY = 'remote.selectedInterface'
 
@@ -142,10 +143,14 @@ export class RemoteSessionService {
    * Idempotent-on-error: if any step fails, we tear back down to `idle` so the
    * user can retry without restarting the app.
    */
-  start(hostWcId: number): ResultAsync<{ pairingUrl: string }, RemoteServerError> {
+  start(
+    hostWcId: number,
+    interfaceName?: string,
+  ): ResultAsync<{ pairingUrl: string }, RemoteServerError> {
     this.clearListenRetryTimer()
 
-    const preferredIfaceName = this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
+    const preferredIfaceName =
+      interfaceName || this.preferencesStore.get(SELECTED_INTERFACE_PREF_KEY) || undefined
     if (!preferredIfaceName) {
       const err: RemoteServerError = { _tag: 'NoNetworkInterface' }
       this.setStatus({ kind: 'error', message: 'Select a network interface before pairing' })
@@ -169,7 +174,7 @@ export class RemoteSessionService {
           this.cleanupSession()
           this.hostWcId = null
           this.setStatus({ kind: 'idle' })
-          return this.start(hostWcId)
+          return this.start(hostWcId, interfaceName)
         })
       }
       this.hostWcId = hostWcId

@@ -1205,7 +1205,7 @@ interface RemoteNetworkInterface {
 }
 
 interface RemoteAPI {
-  start: () => Promise<{ pairingUrl: string }>
+  start: (interfaceName?: string) => Promise<{ pairingUrl: string }>
   ensureListening: () => Promise<void>
   stop: () => Promise<void>
   getStatus: () => Promise<RemoteSessionStatus>

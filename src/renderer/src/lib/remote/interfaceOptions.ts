@@ -2,6 +2,8 @@ export type NetworkInterface = { name: string; address: string; virtual: boolean
 export type SelectOption = { value: string; label: string }
 export type SelectGroup = { label: string; options: SelectOption[] }
 
+export const REMOTE_LISTEN_ALL_VALUE = '__all__'
+
 export function buildRemoteInterfaceGroups(
   interfaces: NetworkInterface[],
   selectedInterface: string,
@@ -23,4 +25,22 @@ export function buildRemoteInterfaceGroups(
     })
   }
   return groups
+}
+
+export function buildRemoteListenerGroups(
+  interfaces: NetworkInterface[],
+  selectedInterface: string,
+): SelectGroup[] {
+  return [
+    { label: 'Scope', options: [{ value: REMOTE_LISTEN_ALL_VALUE, label: 'All adapters' }] },
+    ...buildRemoteInterfaceGroups(interfaces, selectedInterface),
+  ]
+}
+
+export function formatRemoteInterfaceLabel(
+  interfaces: NetworkInterface[],
+  interfaceName: string,
+): string {
+  const found = interfaces.find((i) => i.name === interfaceName)
+  return found ? `${found.name} (${found.address})` : interfaceName || 'Select adapter'
 }

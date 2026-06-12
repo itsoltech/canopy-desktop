@@ -1361,7 +1361,8 @@ const api = {
 
   // Remote control (WebRTC pairing via QR)
   remote: {
-    start: () => ipcRenderer.invoke('remote:start') as Promise<{ pairingUrl: string }>,
+    start: (interfaceName?: string) =>
+      ipcRenderer.invoke('remote:start', { interfaceName }) as Promise<{ pairingUrl: string }>,
     // Best-effort request from the renderer on app mount — brings the
     // signaling server up in passive listen mode iff the user has opted in
     // and has ≥1 trusted device, so a previously paired phone can reconnect
