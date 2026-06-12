@@ -8,6 +8,12 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import PrefsRow from './_partials/PrefsRow.svelte'
+  import {
+    applyRemoteListenerPref,
+    buildRemoteListenerGroups,
+    REMOTE_LISTEN_ALL_VALUE,
+    type NetworkInterface,
+  } from '../../lib/remote/interfaceOptions'
 
   type GuardProfile = 'none' | 'destructive' | 'full'
 
@@ -15,7 +21,9 @@
   let guardProfile: GuardProfile = $derived(
     (prefs['remote.actionGuard'] as GuardProfile) ?? 'destructive',
   )
-  let selectedInterface = $derived(prefs['remote.selectedInterface'] ?? '')
+  let listenerInterface = $derived(prefs['remote.selectedInterface'] ?? '')
+  let listenAllInterfaces = $derived(prefs['remote.listenAllInterfaces'] === 'true')
+  let listenerValue = $derived(listenAllInterfaces ? REMOTE_LISTEN_ALL_VALUE : listenerInterface)
 
   type TrustedDevice = {
     deviceId: string
@@ -25,36 +33,11 @@
     publicKeyJwk: unknown
   }
 
-  type NetworkInterface = { name: string; address: string; virtual: boolean }
-
   let trustedDevices = $state<TrustedDevice[]>([])
   let loading = $state(false)
   let interfaces = $state<NetworkInterface[]>([])
 
-  const interfaceGroups = $derived.by(() => {
-    const auto = [{ value: '', label: 'Auto (detect at start)' }]
-    const physical = interfaces
-      .filter((i) => !i.virtual)
-      .map((i) => ({ value: i.name, label: `${i.name} (${i.address})` }))
-    const virtual = interfaces
-      .filter((i) => i.virtual)
-      .map((i) => ({ value: i.name, label: `${i.name} (${i.address}) — virtual` }))
-    const groups: Array<{ label: string; options: typeof auto }> = [
-      { label: 'Auto', options: auto },
-    ]
-    if (physical.length) groups.push({ label: 'Physical', options: physical })
-    if (virtual.length) groups.push({ label: 'Virtual', options: virtual })
-    // If the user previously picked an interface that is no longer present,
-    // surface it so they can see what's selected (and switch away) instead
-    // of the dropdown silently snapping back to "Auto".
-    if (selectedInterface && !interfaces.some((i) => i.name === selectedInterface)) {
-      groups.push({
-        label: 'Unavailable',
-        options: [{ value: selectedInterface, label: `${selectedInterface} (not found)` }],
-      })
-    }
-    return groups
-  })
+  const listenerGroups = $derived(buildRemoteListenerGroups(interfaces, listenerInterface))
 
   function toggleEnabled(): void {
     setPref('remote.enabled', enabled ? 'false' : 'true')
@@ -64,8 +47,8 @@
     setPref('remote.actionGuard', profile)
   }
 
-  function setInterface(name: string): void {
-    setPref('remote.selectedInterface', name)
+  function setListeningOn(value: string): void {
+    applyRemoteListenerPref(value, setPref)
   }
 
   async function loadTrustedDevices(): Promise<void> {
@@ -143,21 +126,21 @@
   >
     <PrefsRow
       label="Enable remote control"
-      help="When disabled, the command palette hides the Open Remote Connection action, the signaling server is never bound, and trusted devices cannot reconnect."
+      help="When disabled, the Remote sidebar section is hidden, the signaling server is never bound, and trusted devices cannot reconnect."
       search="remote control enable signaling pair phone tablet"
       badge={{ text: 'Beta', tone: 'warning' }}
     >
       <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
     </PrefsRow>
     <PrefsRow
-      label="Network interface"
-      help="Which LAN interface the signaling server binds to. The QR code uses this interface's IPv4 address, and the server only listens on that one adapter. 'Auto' picks the first physical Wi-Fi/Ethernet adapter at start. Changing this stops any active session — the next pairing or trusted reconnect picks up the new interface."
+      label="Listening on"
+      help="Controls where Canopy listens for connections from trusted devices. Choose one reachable adapter or All adapters."
       search="remote interface network adapter wifi ethernet bind ip"
     >
       <CustomSelect
-        value={selectedInterface}
-        groups={interfaceGroups}
-        onchange={setInterface}
+        value={listenerValue}
+        groups={listenerGroups}
+        onchange={setListeningOn}
         maxWidth="280px"
       />
     </PrefsRow>

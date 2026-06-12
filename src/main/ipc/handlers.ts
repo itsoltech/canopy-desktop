@@ -83,7 +83,7 @@ import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
-import { listAllInterfaces } from '../remote/discovery'
+import { listSelectableInterfaces } from '../remote/discovery'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
 import type { SkillRegistry } from '../skills/SkillRegistry'
@@ -886,7 +886,7 @@ export function registerIpcHandlers(
     return preferencesStore.get(payload.key)
   })
 
-  ipcMain.handle('db:prefs:set', (_event, payload: { key: string; value: string }) => {
+  ipcMain.handle('db:prefs:set', (event, payload: { key: string; value: string }) => {
     // Renderer must not be able to overwrite encrypted pref keys (API keys,
     // tracker tokens) — `preferencesStore.set` auto-encrypts via safeStorage,
     // so a write here would silently replace the user's stored credential
@@ -896,14 +896,32 @@ export function registerIpcHandlers(
       throw new Error(`Refusing to set encrypted preference key "${payload.key}" via db:prefs:set`)
     }
     preferencesStore.set(payload.key, payload.value)
-    if (payload.key === 'remote.enabled' && payload.value === 'false') {
-      void remoteSessionService.stop()
+    if (payload.key === 'remote.enabled') {
+      if (payload.value === 'false') {
+        void remoteSessionService.stop()
+      } else {
+        void remoteSessionService.ensureListening(event.sender.id).match(
+          () => {},
+          () => {},
+        )
+      }
     }
-    // Changing the bound interface requires rebinding the signaling server.
+    // Changing the listener bind scope requires rebinding the signaling server.
     // Stop the current session; the next ensureListening() / start() picks
     // up the new pref. Mirrors the enabled=false teardown above.
-    if (payload.key === 'remote.selectedInterface') {
-      void remoteSessionService.stop()
+    if (
+      payload.key === 'remote.selectedInterface' ||
+      payload.key === 'remote.listenAllInterfaces'
+    ) {
+      void remoteSessionService.stop().match(
+        () => {
+          void remoteSessionService.ensureListening(event.sender.id).match(
+            () => {},
+            () => {},
+          )
+        },
+        () => {},
+      )
     }
   })
 
@@ -3673,28 +3691,39 @@ export function registerIpcHandlers(
 
   // --- Remote control (WebRTC pairing via QR) ---
 
-  ipcMain.handle('remote:start', async (event) => {
+  ipcMain.handle('remote:start', async (event, payload?: { interfaceName?: string }) => {
     if (!remoteSessionService.isEnabledInPreferences()) {
       throw new Error('Remote control is disabled in settings')
     }
+    const interfaceName =
+      typeof payload?.interfaceName === 'string' && payload.interfaceName.length > 0
+        ? payload.interfaceName
+        : undefined
     // The host webContents owns this session — peer signals are routed back
     // to this window only, not broadcast to the other windows.
-    const result = await remoteSessionService.start(event.sender.id)
+    const result = await remoteSessionService.start(event.sender.id, interfaceName)
     return unwrapOrThrow(result, remoteServerErrorMessage)
   })
 
-  ipcMain.handle('remote:ensureListening', async (event) => {
-    // Best-effort: auto-bind the signaling server in listen mode so a
-    // previously trusted phone can reconnect without the user opening the
-    // Remote Connection modal. Silently no-ops if the user hasn't opted in,
-    // has no trusted devices, or the network is unavailable. Swallowed
-    // errors never surface to the renderer — a failed listen should not
-    // block app startup or UI rendering.
-    await remoteSessionService.ensureListening(event.sender.id).match(
-      () => {},
-      () => {},
-    )
-  })
+  ipcMain.handle(
+    'remote:ensureListening',
+    async (event, payload?: { allowWithoutTrusted?: boolean }) => {
+      // Best-effort: auto-bind the signaling server in listen mode. App-mount
+      // calls silently no-op without trusted devices; explicit sidebar Listen
+      // passes allowWithoutTrusted so first-time pairing can start from the
+      // same listening state. Auto-listen errors are swallowed; manual listen
+      // returns bind failures to the sidebar.
+      const manualListen = payload?.allowWithoutTrusted === true
+      const result = await remoteSessionService.ensureListening(event.sender.id, {
+        allowWithoutTrusted: manualListen,
+      })
+      if (manualListen) return unwrapOrThrow(result, remoteServerErrorMessage)
+      result.match(
+        () => {},
+        () => {},
+      )
+    },
+  )
 
   ipcMain.handle('remote:stop', async () => {
     const result = await remoteSessionService.stop()
@@ -3736,7 +3765,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('remote:listNetworkInterfaces', () => {
-    return listAllInterfaces()
+    return listSelectableInterfaces()
   })
 
   ipcMain.handle('remote:removeTrustedDevice', (_event, payload: { deviceId: string }) => {

@@ -34,10 +34,8 @@
     showPreferences,
     showAbout,
     showTmuxBrowser,
-    showRemoteConnection,
   } from '../../lib/stores/dialogs.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
-  import { prefs } from '../../lib/stores/preferences.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -165,16 +163,6 @@
       category: 'App',
       action: () => showAbout(),
     })
-
-    if (prefs['remote.enabled'] === 'true') {
-      items.push({
-        id: 'app:remote-connection',
-        label: 'Open Remote Connection (Beta)',
-        category: 'App',
-        description: 'Pair a remote device via QR code to mirror this window · Beta',
-        action: () => showRemoteConnection(),
-      })
-    }
 
     if (tmuxAvailable) {
       items.push({
