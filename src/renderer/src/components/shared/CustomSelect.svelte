@@ -181,6 +181,7 @@
       style="top: {top}px; left: {left}px; min-width: {width}px;"
       role="listbox"
       tabindex="0"
+      aria-activedescendant={focusedIndex >= 0 ? `cs-opt-${focusedIndex}` : undefined}
       onclick={(e) => e.stopPropagation()}
       onkeydown={handleListKeydown}
     >
@@ -194,6 +195,7 @@
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div
+            id={`cs-opt-${i}`}
             class="px-2.5 py-1.5 rounded-md text-md cursor-pointer whitespace-nowrap"
             class:bg-hover-strong={i === focusedIndex}
             class:text-accent={item.value === value}

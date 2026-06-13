@@ -17,6 +17,9 @@ export function graphqlFetch<T>(
   return fromExternalCall(
     fetch(apiUrl, {
       method: 'POST',
+      // Forbid redirects: apiUrl is derived from the repo's git remote host, so
+      // a 3xx could otherwise forward the bearer token to an unintended origin.
+      redirect: 'error',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',

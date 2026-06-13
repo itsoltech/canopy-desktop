@@ -68,8 +68,8 @@ function generateCommitMessageInner(
         options: {
           model: 'haiku',
           pathToClaudeCodeExecutable: claudePath,
-          env,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+          env,
         },
       })
 

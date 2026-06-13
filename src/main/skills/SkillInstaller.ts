@@ -274,7 +274,9 @@ export class SkillInstaller {
     }
 
     const fetchResult = await fromExternalCall(
-      fetch(url, { redirect: 'error' }),
+      // Time out a stalled host (no hung install) and forbid redirects so a 3xx
+      // cannot bounce past the SSRF check above.
+      fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) }),
       (e): SkillError => ({
         _tag: 'FetchFailed',
         source: url,
@@ -287,6 +289,14 @@ export class SkillInstaller {
     const resp = fetchResult.value
     if (!resp.ok) {
       return err({ _tag: 'FetchFailed', source: url, cause: `HTTP ${resp.status}` })
+    }
+
+    // Cap the response size: a hostile/compromised endpoint could otherwise
+    // stream an unbounded body into resp.text() and OOM the main process.
+    const MAX_SKILL_BYTES = 5 * 1024 * 1024
+    const declaredLength = Number(resp.headers.get('content-length'))
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_SKILL_BYTES) {
+      return err({ _tag: 'FetchFailed', source: url, cause: 'Skill response exceeds 5 MB limit' })
     }
 
     const textResult = await fromExternalCall(
