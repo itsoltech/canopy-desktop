@@ -177,6 +177,28 @@ Also skip:
 - Pure config file changes (unless they affect security settings)
 - CSS-only changes (Prettier handles formatting)
 
+## Review decision contract
+
+Use a binary decision:
+
+- **Approved**: no actionable issues were found.
+- **Changes requested**: one or more actionable issues were found.
+
+An actionable issue is any finding that should be changed in code, tests, docs, prompts, or
+workflow/config before merge. Severity does not matter. Small fixes, cleanup, edge cases, missing
+docs, and "nice to fix before merge" findings are still actionable.
+
+Rules:
+
+- Do not mark actionable feedback as "non-blocking", "nit", "optional", or "LGTM".
+- Do not write "LGTM" if you left any actionable inline comment or summary issue.
+- If an issue is worth mentioning as review feedback, it must either be an inline comment on the
+  relevant line or an item in the summary comment.
+- Use inline comments for line-specific issues.
+- Use the summary comment for PR-wide issues, repeated patterns, or feedback that does not attach
+  cleanly to one changed line.
+- Only use approval language when there are zero actionable issues.
+
 ## How to comment
 
 - Use inline comments on the specific lines where the issue appears.
@@ -192,16 +214,25 @@ After reviewing all files, post a single summary comment on the PR using `gh pr 
 Structure:
 
 - One line per category with the count of issues found (e.g., "Architecture: 2, IPC safety: 1").
-- If no issues were found, post a short approval message.
+- If no actionable issues were found, post a short approval message.
 - Mention any repeated issues that were flagged only once inline.
+- Include the final decision: `Decision: approved` or `Decision: changes requested`.
 - Keep it under 20 lines.
 
 ## Labels
 
 After posting the summary, apply exactly one label to the PR:
 
-- `claude:review:approved` if no issues were found.
-- `claude:review:changes-requested` if any issues were found.
+- `claude:review:approved` if no actionable issues were found.
+- `claude:review:changes-requested` if any actionable issues were found.
+
+Before applying the label, re-check the review you just posted:
+
+- If you posted any actionable inline comment, use `claude:review:changes-requested`.
+- If your summary lists any actionable issue, use `claude:review:changes-requested`.
+- If your summary says `Decision: changes requested`, use `claude:review:changes-requested`.
+- Only use `claude:review:approved` when the summary says `Decision: approved` and there are zero
+  actionable issues.
 
 Always remove the opposite label first to handle re-reviews:
 
