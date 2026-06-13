@@ -1,3 +1,15 @@
+## [0.13.0-next.14](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.13...v0.13.0-next.14) (2026-06-13)
+
+### Bug Fixes
+
+* refine remote mobile pairing controls ([#248](https://github.com/itsoltech/canopy-desktop/issues/248)) ([ef30b3b](https://github.com/itsoltech/canopy-desktop/commit/ef30b3ba95cf8808fc032787f0037bdf5fdd229b))
+
+## [0.13.0-next.13](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.12...v0.13.0-next.13) (2026-06-12)
+
+### Features
+
+* move remote pairing into sidebar ([#241](https://github.com/itsoltech/canopy-desktop/issues/241)) ([59ba305](https://github.com/itsoltech/canopy-desktop/commit/59ba3056825ae735dfcb85b52d163d717dea47f0))
+
 ## [0.13.0-next.12](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.11...v0.13.0-next.12) (2026-06-03)
 
 ### Refactoring
