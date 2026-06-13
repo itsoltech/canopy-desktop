@@ -23,10 +23,9 @@ function contentTypeFor(ext: string): string {
 }
 
 /**
- * Serves the built remote-client SPA bundle (vite output) over HTTP so a
- * peer device on the LAN — phone, tablet, or another laptop — can load
- * `http://<lan-ip>:<port>/remote/`. The peer navigates there after scanning
- * the QR code; the SPA then opens a WebSocket to `/signaling`.
+ * Serves the built remote-client SPA bundle (vite output) over HTTP so the
+ * mobile app can load `http://<lan-ip>:<port>/remote/` after scanning the
+ * QR code. The SPA then opens a WebSocket to `/signaling`.
  *
  * Files are served from a single whitelisted root directory. Path traversal
  * (`..`) is rejected by resolving + checking the prefix. Static GET/HEAD only.

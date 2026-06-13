@@ -18,7 +18,6 @@
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
   import CreatePRModal from '../github/CreatePRModal.svelte'
-  import RemoteConnectionModal from '../dialogs/RemoteConnectionModal.svelte'
   import RemoteAcceptDeviceModal from '../dialogs/RemoteAcceptDeviceModal.svelte'
   import RunConfigEditorModal from '../runConfig/RunConfigEditorModal.svelte'
   import RunConfigManagerModal from '../runConfig/RunConfigManagerModal.svelte'
@@ -566,8 +565,6 @@
   <TmuxSessionBrowser />
 {:else if dialogState.current.type === 'createGitHubPR'}
   <CreatePRModal />
-{:else if dialogState.current.type === 'remoteConnection'}
-  <RemoteConnectionModal />
 {:else if dialogState.current.type === 'remoteAcceptDevice'}
   <RemoteAcceptDeviceModal
     deviceId={dialogState.current.deviceId}

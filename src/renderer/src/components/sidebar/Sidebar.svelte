@@ -6,6 +6,7 @@
   import ToolSection from './ToolSection.svelte'
   import TaskTrackerSection from './TaskTrackerSection.svelte'
   import RunConfigSection from './RunConfigSection.svelte'
+  import RemoteSection from './RemoteSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
@@ -24,6 +25,7 @@
     const raw = prefs['sidebar.sections'] ?? ''
     return getSidebarConfig(raw)
   })
+  let remoteEnabled = $derived(prefs['remote.enabled'] === 'true')
 
   onMount(async () => {
     const info = await window.api.getAboutInfo()
@@ -52,6 +54,10 @@
           <TaskTrackerSection />
         {:else if section.id === 'runConfigs'}
           <RunConfigSection />
+        {:else if section.id === 'remote'}
+          {#if remoteEnabled}
+            <RemoteSection />
+          {/if}
         {/if}
       {/if}
     {/each}
