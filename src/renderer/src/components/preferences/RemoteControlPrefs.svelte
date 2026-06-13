@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { ShieldAlert, Trash2 } from '@lucide/svelte'
+  import { Pencil, ShieldAlert, Trash2 } from '@lucide/svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
-  import { confirm } from '../../lib/stores/dialogs.svelte'
+  import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomRadio from '../shared/CustomRadio.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -48,7 +48,9 @@
   }
 
   function setListeningOn(value: string): void {
-    applyRemoteListenerPref(value, setPref)
+    void applyRemoteListenerPref(value, setPref).catch((e) => {
+      console.warn('[remote] setListeningOn failed:', e)
+    })
   }
 
   async function loadTrustedDevices(): Promise<void> {
@@ -77,6 +79,25 @@
       await loadTrustedDevices()
     } catch (e) {
       console.warn('[remote] removeTrustedDevice failed:', e)
+    }
+  }
+
+  async function renameDevice(deviceId: string, name: string): Promise<void> {
+    const result = await prompt({
+      title: 'Rename trusted device',
+      initialValue: name,
+      placeholder: 'Device name',
+      submitLabel: 'Rename',
+      validate: (value) => (value.trim().length > 0 ? null : 'Device name is required'),
+    })
+    if (!result) return
+    const nextName = result.value.trim()
+    if (nextName === name) return
+    try {
+      await window.api.remote.renameTrustedDevice(deviceId, nextName)
+      await loadTrustedDevices()
+    } catch (e) {
+      console.warn('[remote] renameTrustedDevice failed:', e)
     }
   }
 
@@ -120,20 +141,17 @@
     </div>
   </div>
 
-  <PrefsSection
-    title="Remote control"
-    description="Control Canopy from another device on your local network. Connections use end-to-end encrypted WebRTC DTLS data channels."
-  >
+  <PrefsSection title="Remote control">
     <PrefsRow
       label="Enable remote control"
-      help="When disabled, the Remote sidebar section is hidden, the signaling server is never bound, and trusted devices cannot reconnect."
+      help="Shows the Remote sidebar section, lets you pair the mobile app, and lets trusted devices reconnect on your local network or via VPN."
       search="remote control enable signaling pair phone tablet"
       badge={{ text: 'Beta', tone: 'warning' }}
     >
       <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
     </PrefsRow>
     <PrefsRow
-      label="Listening on"
+      label="Listen on"
       help="Controls where Canopy listens for connections from trusted devices. Choose one reachable adapter or All adapters."
       search="remote interface network adapter wifi ethernet bind ip"
     >
@@ -219,15 +237,26 @@
                 )}
               </span>
             </div>
-            <button
-              type="button"
-              class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer shrink-0 hover:bg-danger-bg hover:text-danger-text"
-              onclick={() => removeDevice(device.deviceId, device.name)}
-              aria-label="Remove {device.name}"
-              title="Remove"
-            >
-              <Trash2 size={13} />
-            </button>
+            <div class="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+                onclick={() => renameDevice(device.deviceId, device.name)}
+                aria-label="Rename {device.name}"
+                title="Rename"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                type="button"
+                class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+                onclick={() => removeDevice(device.deviceId, device.name)}
+                aria-label="Remove {device.name}"
+                title="Remove"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           </li>
         {/each}
       </ul>

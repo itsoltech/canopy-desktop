@@ -1214,6 +1214,7 @@ interface RemoteAPI {
   sendSignal: (msg: unknown) => Promise<void>
   listTrustedDevices: () => Promise<RemoteTrustedDevice[]>
   removeTrustedDevice: (deviceId: string) => Promise<void>
+  renameTrustedDevice: (deviceId: string, name: string) => Promise<void>
   listNetworkInterfaces: () => Promise<RemoteNetworkInterface[]>
   onStatusChange: (callback: (status: RemoteSessionStatus) => void) => () => void
   onSignal: (callback: (msg: unknown) => void) => () => void

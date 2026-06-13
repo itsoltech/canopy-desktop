@@ -1,6 +1,6 @@
 # Remote control
 
-> Mirror and control a Canopy window from another device on the same local network.
+> Mirror and control a Canopy window from the mobile app on the same local network.
 
 **Status:** Beta
 **Introduced:** v0.10.0
@@ -8,11 +8,11 @@
 
 ## Overview
 
-Remote control lets you interact with a Canopy window from a phone, tablet, or another laptop connected to the same WiFi network. The feature uses a WebRTC data channel for the peer connection, with a local HTTP + WebSocket signaling server running on the desktop. Device pairing works through a QR code that encodes a one-shot URL with a cryptographic token.
+Remote control lets you interact with a Canopy window from the mobile app on the same WiFi network. The feature uses a WebRTC data channel for the peer connection, with a local HTTP + WebSocket signaling server running on the desktop. Device pairing works through a QR code consumed by the mobile app; manually opening or sharing the underlying URL is not a supported pairing flow.
 
 The pairing model is trust-on-first-use: when a new device connects, the desktop shows an accept/reject prompt displaying the device name and fingerprint. If the user checks "Remember this device," subsequent connections from that device skip the prompt. One device can be paired at a time.
 
-The remote client is a single-page application served by the signaling server itself at `http://<lan-ip>:<port>/remote/`. The peer loads this page after scanning the QR code, then upgrades to a WebSocket for the signaling handshake before establishing the WebRTC data channel.
+The remote client is a single-page application served by the signaling server itself at `http://<lan-ip>:<port>/remote/`. The mobile app loads this client after scanning the QR code, then upgrades to a WebSocket for the signaling handshake before establishing the WebRTC data channel.
 
 Remote control must be explicitly enabled in Settings before the Remote sidebar section appears.
 
@@ -23,7 +23,7 @@ Remote control must be explicitly enabled in Settings before the Remote sidebar 
 1. Open Settings and navigate to Remote Control.
 2. Toggle "Enable remote control" on. This sets the `remote.enabled` preference to `true`.
 3. The Remote section appears in the left sidebar with connection status, pairing controls, and basic configuration.
-4. The `Listening on` control at the top of the section configures where Canopy listens for connections from trusted devices.
+4. The `Listen on` control at the top of the section configures where Canopy listens for connections from trusted devices.
 
 Once the feature is enabled **and** at least one trusted device exists, Canopy brings the signaling server up automatically on every app launch (see "Listen mode" below). Disabling the toggle or removing all trusted devices stops this auto-start on the next launch.
 
@@ -31,27 +31,27 @@ Once the feature is enabled **and** at least one trusted device exists, Canopy b
 
 Listen mode lets a previously trusted device reconnect to Canopy after a desktop restart without the user having to start pairing first.
 
-1. At app mount, the renderer calls `remote:ensureListening`. The main process silently no-ops unless `remote.enabled === 'true'`, the `TrustedDeviceStore` has at least one entry, and either `remote.selectedInterface` is set or `remote.listenAllInterfaces === 'true'`. If the selected-adapter listener cannot resolve its adapter yet (for example after OS restart while it is still coming up and has no routable IPv4), listen mode retries in the background every 5 seconds. Listen mode never surfaces errors to the user.
+1. At app mount, the renderer calls `remote:ensureListening`. The main process silently no-ops unless `remote.enabled === 'true'`, the `TrustedDeviceStore` has at least one entry, and either `remote.selectedInterface` is set or `remote.listenAllInterfaces === 'true'`. If the selected-adapter listener cannot resolve its adapter yet (for example after OS restart while it is still coming up and has no routable IPv4), listen mode retries in the background with bounded backoff. Listen mode never surfaces errors to the user.
 2. On success, the `SignalingServer` is bound either to the selected adapter's IPv4 address or to `0.0.0.0` when "All adapters" is selected, re-using the saved `remote.lastPort` when possible so the peer client's origin stays stable. The session transitions to `listening`. There is no pairing token in this state; only trusted devices whose `deviceId` already matches an entry in the store can pair. Untrusted pair attempts are rejected.
 3. When a trusted peer connects, the service transitions directly from `listening` to `paired`, auto-accepts, and updates the `lastSeen` timestamp.
-4. Clicking `Listen` in the Remote sidebar starts manual listen mode even before a trusted device exists. Clicking `Pair new device` while listen mode is active shows the `QR adapter` selector. If `Listening on` is a concrete adapter, the QR adapter defaults to that adapter. If `Listening on` is All adapters, the QR adapter starts empty and must be chosen explicitly. Pairing uses this transient QR adapter value rather than changing the listener setting.
+4. Clicking `Start listening` in the Remote sidebar starts manual listen mode even before a trusted device exists. Clicking `Pair device` while listen mode is active shows the `Adapter to embed in QR code` selector. The QR adapter starts empty and must be chosen explicitly. Pairing uses this transient QR adapter value rather than changing the listener setting.
 
 Listen mode keeps the signaling server bound in the background for the lifetime of the app, not just while the pairing UI is open. The listener scope is user-controlled from the Remote sidebar. This is covered in "Security and privacy" below.
 
 ### Starting a pairing session
 
-1. Open the Remote section in the left sidebar, click `Listen`, then click `Pair new device`. Select the `QR adapter` shown above the QR area if needed; choosing an adapter generates the QR code.
+1. Open the Remote section in the left sidebar, click `Start listening`, then click `Pair device`. Select the adapter shown above the QR area; choosing an adapter generates the QR code for the mobile app.
 2. Canopy calls `remote:start` with the chosen QR adapter, which triggers `RemoteSessionService.start()`. The session transitions to `starting`.
 3. The service requires a QR adapter to be provided. Link-local APIPA addresses (`169.254.*`) are ignored. The named interface is used as-is (including normally-filtered virtual adapters like Tailscale — the user opted in explicitly); if that interface is not selected, no longer present, or has no routable IPv4 address, the service returns `NoNetworkInterface`.
 4. A 32-byte random hex token is generated.
 5. The `SignalingServer` starts an HTTP server with a preferred port (persisted in `remote.lastPort` preference), bound only on the selected interface's IPv4 address. If the preferred port is taken, it falls back to an ephemeral port. Reusing the same port keeps the peer-client origin stable so that the peer's localStorage (device ID, trust flag) survives Canopy restarts when the selected adapter address is unchanged.
-6. The pairing URL is built as `http://<lan-ip>:<port>/remote/?v=<cache-buster>#t=<token>&h=<hostname>`.
+6. The mobile-app QR payload is built as `http://<lan-ip>:<port>/remote/?v=<cache-buster>#t=<token>&h=<hostname>`.
 7. The session transitions to `waiting` state with a 10-minute expiry. The QR code is displayed in the Remote sidebar section.
 8. If no device connects within 10 minutes, the session auto-stops and returns to `idle`.
 
 ### Device pairing (new device)
 
-1. The remote device scans the QR code and opens the URL. The browser loads the SPA from the signaling server.
+1. The mobile app scans the QR code and loads the SPA from the signaling server.
 2. The SPA opens a WebSocket to `/signaling` and sends a `pair` message containing the token, a device name, and a persistent device ID (from localStorage).
 3. The signaling server validates the message format and forwards it to `RemoteSessionService.handlePairAttempt()`.
 4. The service performs constant-time comparison of the token. If invalid, the peer receives `{ type: "rejected", reason: "invalid token" }` and the WebSocket closes.
@@ -107,9 +107,9 @@ Hide blurs xterm's hidden textarea to dismiss the soft keyboard. Copy sends only
 | `remote.lastPort`            | port number as string  | none      | Persisted automatically after first bind; keeps peer-client origin stable                                                                                                                                                      |
 | `remote.selectedInterface`   | interface name or `""` | `""`      | Listener adapter used when `remote.listenAllInterfaces` is not `"true"`. Empty means selected-adapter listening is not configured. Missing or APIPA-only interface yields background retries for selected-adapter listen mode. |
 | `remote.listenAllInterfaces` | `"true"` / `"false"`   | `"false"` | When `"true"`, trusted-device listen mode binds to `0.0.0.0` so known devices can reconnect through any active adapter. New QR pairing still asks for an explicit QR adapter and does not change this setting.                 |
-| `remote.trustedDevices`      | JSON array             | `[]`      | Managed by TrustedDeviceStore; not user-editable                                                                                                                                                                               |
+| `remote.trustedDevices`      | JSON array             | `[]`      | Managed by TrustedDeviceStore; device names can be edited and devices can be removed in Settings                                                                                                                               |
 
-Trusted devices can be viewed and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
+Trusted devices can be viewed, renamed, and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
 
 ## Error states
 
@@ -129,7 +129,7 @@ Trusted devices can be viewed and removed in Settings. Each entry stores `device
 
 Pairing sessions bind only on the explicitly chosen QR adapter's routable IPv4 address, and the QR URL always advertises that chosen address. Link-local APIPA addresses are ignored so a restarted adapter does not advertise an unreachable host. Listen mode defaults to the configured listener adapter, but the user can opt into "All adapters"; in that case the trusted-device listener binds to `0.0.0.0` and accepts reconnects through any active interface. It still accepts only trusted `deviceId`s; any other pair attempt is rejected before reaching the accept prompt.
 
-The signaling server shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. Changing `remote.selectedInterface` or `remote.listenAllInterfaces` stops any in-flight session so the new bind takes effect on the next pairing or trusted reconnect. With **listen mode** (feature enabled, listener scope configured, and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user starting pairing first — see "Listen mode" under Behavior.
+The signaling server shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. Changing the effective listener scope stops and rebinds any in-flight session so the new bind takes effect on the next pairing or trusted reconnect. Changing `remote.selectedInterface` while `remote.listenAllInterfaces` is `"true"` does not rebind because the selected adapter is ignored in that mode. With **listen mode** (feature enabled, listener scope configured, and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user starting pairing first — see "Listen mode" under Behavior.
 
 Pairing tokens are 32 random bytes (hex-encoded, 64 characters). Token comparison uses Node.js `timingSafeEqual` to prevent timing attacks. Tokens are single-use per session.
 

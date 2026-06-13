@@ -886,7 +886,7 @@ export function registerIpcHandlers(
     return preferencesStore.get(payload.key)
   })
 
-  ipcMain.handle('db:prefs:set', (event, payload: { key: string; value: string }) => {
+  ipcMain.handle('db:prefs:set', async (event, payload: { key: string; value: string }) => {
     // Renderer must not be able to overwrite encrypted pref keys (API keys,
     // tracker tokens) — `preferencesStore.set` auto-encrypts via safeStorage,
     // so a write here would silently replace the user's stored credential
@@ -895,12 +895,14 @@ export function registerIpcHandlers(
     if (preferencesStore.isEncrypted(payload.key)) {
       throw new Error(`Refusing to set encrypted preference key "${payload.key}" via db:prefs:set`)
     }
+    const previousValue = preferencesStore.get(payload.key)
     preferencesStore.set(payload.key, payload.value)
-    if (payload.key === 'remote.enabled') {
+    const valueChanged = previousValue !== payload.value
+    if (payload.key === 'remote.enabled' && valueChanged) {
       if (payload.value === 'false') {
-        void remoteSessionService.stop()
+        await remoteSessionService.stop()
       } else {
-        void remoteSessionService.ensureListening(event.sender.id).match(
+        await remoteSessionService.ensureListening(event.sender.id).match(
           () => {},
           () => {},
         )
@@ -909,19 +911,19 @@ export function registerIpcHandlers(
     // Changing the listener bind scope requires rebinding the signaling server.
     // Stop the current session; the next ensureListening() / start() picks
     // up the new pref. Mirrors the enabled=false teardown above.
-    if (
-      payload.key === 'remote.selectedInterface' ||
-      payload.key === 'remote.listenAllInterfaces'
-    ) {
-      void remoteSessionService.stop().match(
-        () => {
-          void remoteSessionService.ensureListening(event.sender.id).match(
-            () => {},
-            () => {},
-          )
-        },
-        () => {},
-      )
+    const listenerPrefChanged =
+      payload.key === 'remote.selectedInterface' || payload.key === 'remote.listenAllInterfaces'
+    const listenerSelectionIsIgnored =
+      payload.key === 'remote.selectedInterface' &&
+      preferencesStore.get('remote.listenAllInterfaces') === 'true'
+    if (listenerPrefChanged && valueChanged && !listenerSelectionIsIgnored) {
+      const stopped = await remoteSessionService.stop()
+      if (stopped.isOk()) {
+        await remoteSessionService.ensureListening(event.sender.id).match(
+          () => {},
+          () => {},
+        )
+      }
     }
   })
 
@@ -3774,6 +3776,20 @@ export function registerIpcHandlers(
     }
     remoteSessionService.removeTrustedDevice(payload.deviceId)
   })
+
+  ipcMain.handle(
+    'remote:renameTrustedDevice',
+    (_event, payload: { deviceId: string; name: string }) => {
+      if (!payload || typeof payload.deviceId !== 'string' || payload.deviceId.length === 0) {
+        throw new Error('Invalid deviceId')
+      }
+      if (typeof payload.name !== 'string' || payload.name.trim().length === 0) {
+        throw new Error('Device name is required')
+      }
+      const renamed = remoteSessionService.renameTrustedDevice(payload.deviceId, payload.name)
+      if (!renamed) throw new Error('Trusted device not found')
+    },
+  )
 
   // --- Run Configurations ---
 

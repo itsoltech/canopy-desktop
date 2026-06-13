@@ -6,14 +6,14 @@ export const REMOTE_LISTEN_ALL_VALUE = '__all__'
 
 export function applyRemoteListenerPref(
   value: string,
-  setPref: (key: string, value: string) => void,
-): void {
+  setPref: (key: string, value: string) => Promise<void>,
+): Promise<void> {
   if (value === REMOTE_LISTEN_ALL_VALUE) {
-    setPref('remote.listenAllInterfaces', 'true')
-    return
+    return setPref('remote.listenAllInterfaces', 'true')
   }
-  setPref('remote.selectedInterface', value)
-  setPref('remote.listenAllInterfaces', 'false')
+  return setPref('remote.selectedInterface', value).then(() =>
+    setPref('remote.listenAllInterfaces', 'false'),
+  )
 }
 
 export function buildRemoteInterfaceGroups(

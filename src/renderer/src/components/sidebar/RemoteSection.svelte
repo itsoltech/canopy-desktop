@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
+  import { onMount } from 'svelte'
   import { match } from 'ts-pattern'
-  import { Check, Copy, Settings } from '@lucide/svelte'
+  import { Settings } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import RemoteControls from './RemoteControls.svelte'
   import RemotePairingQr from './RemotePairingQr.svelte'
@@ -24,10 +24,8 @@
   let interfaces = $state<NetworkInterface[]>([])
   let busy = $state(false)
   let errorMsg: string | null = $state(null)
-  let copied = $state(false)
   let pairSetupOpen = $state(false)
   let qrInterface = $state('')
-  let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
   let status = $derived(remoteSession.status)
   let listenerInterface = $derived(prefs['remote.selectedInterface'] ?? '')
@@ -40,6 +38,9 @@
   )
   let showQrAdapter = $derived(pairSetupOpen || !!pairingUrl)
   let hasQrInterface = $derived(qrInterface.length > 0)
+  let pairingActive = $derived(
+    pairSetupOpen || status.kind === 'waiting' || status.kind === 'peerArrived',
+  )
   let hostLabel = $derived.by(() => {
     if (
       status.kind === 'listening' ||
@@ -94,10 +95,6 @@
     void loadInterfaces()
   })
 
-  onDestroy(() => {
-    if (copiedTimer) clearTimeout(copiedTimer)
-  })
-
   $effect(() => {
     if (status.kind === 'idle' || status.kind === 'listening' || status.kind === 'paired')
       void loadInterfaces()
@@ -129,12 +126,12 @@
     if (busy) return
     if (!pairSetupOpen && !pairingUrl) {
       pairSetupOpen = true
-      qrInterface = listenAllInterfaces ? '' : listenerInterface
-      errorMsg = qrInterface ? null : 'Select a network adapter before pairing.'
+      qrInterface = ''
+      errorMsg = null
       return
     }
     if (!qrInterface) {
-      errorMsg = 'Select a network adapter before pairing.'
+      errorMsg = null
       return
     }
     await startPairingWithInterface(qrInterface)
@@ -170,18 +167,26 @@
     }
   }
 
-  async function copyUrl(): Promise<void> {
-    if (!pairingUrl) return
+  async function cancelPairing(): Promise<void> {
+    if (busy) return
+    if (!pairingUrl && (pairSetupOpen || status.kind === 'listening')) {
+      pairSetupOpen = false
+      qrInterface = ''
+      errorMsg = null
+      return
+    }
+    busy = true
+    errorMsg = null
     try {
-      await navigator.clipboard.writeText(pairingUrl)
-      copied = true
-      if (copiedTimer) clearTimeout(copiedTimer)
-      copiedTimer = setTimeout(() => {
-        copied = false
-        copiedTimer = null
-      }, 1500)
-    } catch {
-      copied = false
+      await window.api.remote.stop()
+      pairSetupOpen = false
+      qrInterface = ''
+      await window.api.remote.ensureListening({ allowWithoutTrusted: true })
+      await loadInterfaces()
+    } catch (e) {
+      errorMsg = e instanceof Error ? e.message : String(e)
+    } finally {
+      busy = false
     }
   }
 
@@ -194,7 +199,9 @@
   }
 
   function setListener(value: string): void {
-    applyRemoteListenerPref(value, setPref)
+    void applyRemoteListenerPref(value, setPref).catch((e) => {
+      errorMsg = e instanceof Error ? e.message : String(e)
+    })
   }
 </script>
 
@@ -213,7 +220,7 @@
 
   <div class="px-3 flex flex-col gap-3">
     <RemoteSelectField
-      label="Listening on"
+      label="Listen on"
       tooltip="This setting decides where Canopy listens for connections from trusted devices. You can choose a specific adapter or all active adapters."
       value={listenerValue}
       onchange={setListener}
@@ -223,15 +230,17 @@
 
     {#if pairSetupOpen && !pairingUrl}
       <RemoteSelectField
-        label="QR adapter"
-        tooltip="Address encoded into the QR code. Pick the adapter the phone can reach."
+        label="Adapter to embed in QR code"
+        tooltip="Address will be encoded into the QR code. Pick the adapter the phone can reach."
         value={qrInterface}
         groups={qrInterfaceGroups}
         onchange={setInterface}
       />
     {:else if pairingUrl}
       <div class="flex flex-col gap-1">
-        <div class="text-2xs uppercase tracking-caps-tight text-text-faint">QR adapter</div>
+        <div class="text-2xs uppercase tracking-caps-tight text-text-faint">
+          Adapter to embed in QR code
+        </div>
         <div
           class="text-xs text-text-secondary bg-bg-input border border-border-subtle rounded-md px-2.5 py-2 truncate"
           title={qrInterfaceLabel}
@@ -245,19 +254,6 @@
       <div class="flex justify-center p-2 bg-bg-input border border-border-subtle rounded-md">
         <RemotePairingQr url={pairingUrl} />
       </div>
-      <button
-        type="button"
-        class="inline-flex items-center justify-center gap-1 w-full h-7 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-medium cursor-pointer hover:bg-accent-bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-        onclick={copyUrl}
-      >
-        {#if copied}
-          <Check size={13} />
-          Copied
-        {:else}
-          <Copy size={13} />
-          Copy URL
-        {/if}
-      </button>
     {/if}
 
     <RemoteSessionNotice {status} {showQrAdapter} {hasQrInterface} />
@@ -272,8 +268,10 @@
       {status}
       {busy}
       {canListen}
+      {pairingActive}
       onStartListening={startListening}
       onStartPairing={startPairing}
+      onCancelPairing={cancelPairing}
       onStopSession={stopSession}
     />
   </div>

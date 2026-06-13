@@ -30,7 +30,7 @@ export interface SignalingServerHandlers {
    * token (constant-time), enforce single-peer policy, and return whether to
    * accept the WS or close it.
    */
-  onPairAttempt: (msg: PairMessage) => PairResponse
+  onPairAttempt: (msg: PairMessage, context: PairAttemptContext) => PairResponse
   /**
    * Called for every signaling message *after* the pair handshake. The server
    * has already verified that this WS is the active peer; the payload is
@@ -45,6 +45,10 @@ export interface SignalingServerHandlers {
    * decides whether to enter the reconnect window or fully tear down.
    */
   onPeerDisconnected: () => void
+}
+
+export interface PairAttemptContext {
+  localAddress: string | null
 }
 
 export interface PairMessage {
@@ -202,7 +206,7 @@ export class SignalingServer {
         path: '/signaling',
         maxPayload: MAX_MESSAGE_BYTES,
       })
-      wss.on('connection', (ws) => this.handleWsConnection(ws))
+      wss.on('connection', (ws, req) => this.handleWsConnection(ws, req))
 
       const cleanup = (): void => {
         try {
@@ -337,7 +341,7 @@ export class SignalingServer {
     res.end('Not found')
   }
 
-  private handleWsConnection(ws: WsWebSocket): void {
+  private handleWsConnection(ws: WsWebSocket, req: http.IncomingMessage): void {
     let paired = false
 
     // Boot sockets that never complete the pair handshake — otherwise a LAN
@@ -377,7 +381,9 @@ export class SignalingServer {
           ws.close(1011, 'server not ready')
           return
         }
-        const response = this.handlers.onPairAttempt(parsed)
+        const response = this.handlers.onPairAttempt(parsed, {
+          localAddress: normalizeSocketAddress(req.socket.localAddress),
+        })
         if (!response.ok) {
           try {
             ws.send(JSON.stringify({ type: 'rejected', reason: response.reason }))
@@ -441,6 +447,12 @@ function isPairMessage(value: unknown): value is PairMessage {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return v.type === 'pair' && typeof v.token === 'string' && v.token.length > 0
+}
+
+function normalizeSocketAddress(address: string | undefined): string | null {
+  if (!address) return null
+  if (address.startsWith('::ffff:')) return address.slice('::ffff:'.length)
+  return address
 }
 
 /**
