@@ -152,14 +152,9 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
   'pty.kill',
-  'worktree.remove',
-  // Peer-initiated filesystem effects. Creating a worktree writes to disk at a
-  // peer-chosen path, and attaching a project exposes that directory's whole
-  // tree to the (untrusted) peer. These are one-shot operations, so a per-call
-  // confirm is tolerable — and confirming them matches how the equally
-  // side-effectful `worktree.remove` is already treated.
   'worktree.add',
   'worktree.addCheckout',
+  'worktree.remove',
   'project.attach',
 ])
 

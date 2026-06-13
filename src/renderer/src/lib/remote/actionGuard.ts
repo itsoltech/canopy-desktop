@@ -179,6 +179,7 @@ function describeAction(method: RpcMethodName, params: unknown): string {
     .with('browser.openExternal', () => `open URL externally: ${p.url}`)
     .with('worktree.add', () => `create worktree "${p.branch}" at ${p.path}`)
     .with('worktree.addCheckout', () => `check out worktree "${p.branch}" at ${p.path}`)
+    .with('worktree.remove', () => `remove the worktree at ${p.path}`)
     .with('project.attach', () => `attach project folder ${p.path}`)
     .otherwise(() => `execute ${method}`)
 }

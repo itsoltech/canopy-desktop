@@ -94,8 +94,11 @@ function normalizeTrackerText(text: string): string {
     .trim()
 }
 
-function adfToPlainText(node: unknown): string {
+function adfToPlainText(node: unknown, depth = 0): string {
   if (!node || typeof node !== 'object') return typeof node === 'string' ? node : ''
+  // Bail out past a sane nesting depth so a pathologically deep ADF document
+  // (untrusted API response) cannot blow the main-process call stack.
+  if (depth > 100) return ''
   const n = node as { type?: string; text?: string; content?: unknown[] }
   return match(n)
     .with({ type: 'text' }, (x) => x.text ?? '')
@@ -103,7 +106,7 @@ function adfToPlainText(node: unknown): string {
     .when(
       (x) => Array.isArray(x.content),
       (x) => {
-        const parts = (x.content as unknown[]).map(adfToPlainText)
+        const parts = (x.content as unknown[]).map((c) => adfToPlainText(c, depth + 1))
         return match(x.type)
           .with('paragraph', 'heading', () => parts.join('').trimEnd() + '\n\n')
           .with('listItem', () => '• ' + parts.join('').trim() + '\n')

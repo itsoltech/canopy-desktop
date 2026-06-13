@@ -137,9 +137,11 @@ function parseSkillMd(
     typeof frontmatter.name === 'string' ? frontmatter.name : (fileName ?? 'unnamed-skill')
   const description = typeof frontmatter.description === 'string' ? frontmatter.description : ''
   const version = typeof frontmatter.version === 'string' ? frontmatter.version : '1.0.0'
-  const agents: SkillAgentTarget[] = Array.isArray(frontmatter.agents)
-    ? (frontmatter.agents as SkillAgentTarget[])
-    : ['claude']
+  const rawAgents = frontmatter.agents
+  const agents: SkillAgentTarget[] =
+    Array.isArray(rawAgents) && rawAgents.every((a) => typeof a === 'string')
+      ? (rawAgents as SkillAgentTarget[])
+      : ['claude']
   const metadata: Record<string, unknown> = {}
 
   if (frontmatter['allowed-tools']) metadata['allowed-tools'] = frontmatter['allowed-tools']
