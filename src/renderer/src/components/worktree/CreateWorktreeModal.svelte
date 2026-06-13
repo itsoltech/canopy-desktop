@@ -331,11 +331,14 @@
           <p class="m-0 mb-3 text-md text-text-secondary">
             Base: <strong class="text-text">{selectedBase}</strong>
           </p>
-          <!-- svelte-ignore a11y_label_has_associated_control -->
-          <label class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase">
+          <label
+            for="create-wt-branch-name"
+            class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase"
+          >
             New branch name
           </label>
           <input
+            id="create-wt-branch-name"
             class={inputCls}
             type="text"
             bind:value={newBranchName}

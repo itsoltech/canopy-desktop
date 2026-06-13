@@ -177,8 +177,8 @@ export const geminiAdapter: AgentAdapter = {
     if (rawName === 'AfterModel') {
       const llmResp = raw.llm_response as Record<string, unknown> | undefined
       const usage = llmResp?.usageMetadata as Record<string, unknown> | undefined
-      if (usage?.totalTokenCount) {
-        const totalTokens = usage.totalTokenCount as number
+      const totalTokens = usage?.totalTokenCount
+      if (typeof totalTokens === 'number') {
         extra = { totalTokenCount: totalTokens }
         // Also extract model from the request if available
         const llmReq = raw.llm_request as Record<string, unknown> | undefined

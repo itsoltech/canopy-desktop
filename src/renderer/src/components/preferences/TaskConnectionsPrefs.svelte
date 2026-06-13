@@ -148,14 +148,16 @@
 
   async function removeTracker(trackerId: string): Promise<void> {
     if (!config) return
+    const tracker = config.trackers.find((t) => t.id === trackerId)
     const ok = await confirm({
       title: 'Remove connection',
-      message: 'Remove this tracker connection?',
+      message: tracker
+        ? `Remove the ${providerLabel(tracker.provider)} connection${tracker.baseUrl ? ` at ${tracker.baseUrl}` : ''}?`
+        : 'Remove this tracker connection?',
       confirmLabel: 'Remove',
       destructive: true,
     })
     if (!ok) return
-    const tracker = config.trackers.find((t) => t.id === trackerId)
     if (tracker?.baseUrl) {
       const otherConfig = scope === 'global' ? getRepoConfig() : getGlobalConfig()
       const remaining = [
