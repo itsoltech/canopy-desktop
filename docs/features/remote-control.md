@@ -107,9 +107,9 @@ Hide blurs xterm's hidden textarea to dismiss the soft keyboard. Copy sends only
 | `remote.lastPort`            | port number as string  | none      | Persisted automatically after first bind; keeps peer-client origin stable                                                                                                                                                      |
 | `remote.selectedInterface`   | interface name or `""` | `""`      | Listener adapter used when `remote.listenAllInterfaces` is not `"true"`. Empty means selected-adapter listening is not configured. Missing or APIPA-only interface yields background retries for selected-adapter listen mode. |
 | `remote.listenAllInterfaces` | `"true"` / `"false"`   | `"false"` | When `"true"`, trusted-device listen mode binds to `0.0.0.0` so known devices can reconnect through any active adapter. New QR pairing still asks for an explicit QR adapter and does not change this setting.                 |
-| `remote.trustedDevices`      | JSON array             | `[]`      | Managed by TrustedDeviceStore; not user-editable                                                                                                                                                                               |
+| `remote.trustedDevices`      | JSON array             | `[]`      | Managed by TrustedDeviceStore; device names can be edited and devices can be removed in Settings                                                                                                                               |
 
-Trusted devices can be viewed and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
+Trusted devices can be viewed, renamed, and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
 
 ## Error states
 

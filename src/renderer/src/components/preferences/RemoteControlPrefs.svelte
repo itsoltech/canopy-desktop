@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { ShieldAlert, Trash2 } from '@lucide/svelte'
+  import { Pencil, ShieldAlert, Trash2 } from '@lucide/svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
-  import { confirm } from '../../lib/stores/dialogs.svelte'
+  import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomRadio from '../shared/CustomRadio.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -77,6 +77,25 @@
       await loadTrustedDevices()
     } catch (e) {
       console.warn('[remote] removeTrustedDevice failed:', e)
+    }
+  }
+
+  async function renameDevice(deviceId: string, name: string): Promise<void> {
+    const result = await prompt({
+      title: 'Rename trusted device',
+      initialValue: name,
+      placeholder: 'Device name',
+      submitLabel: 'Rename',
+      validate: (value) => (value.trim().length > 0 ? null : 'Device name is required'),
+    })
+    if (!result) return
+    const nextName = result.value.trim()
+    if (nextName === name) return
+    try {
+      await window.api.remote.renameTrustedDevice(deviceId, nextName)
+      await loadTrustedDevices()
+    } catch (e) {
+      console.warn('[remote] renameTrustedDevice failed:', e)
     }
   }
 
@@ -219,15 +238,26 @@
                 )}
               </span>
             </div>
-            <button
-              type="button"
-              class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer shrink-0 hover:bg-danger-bg hover:text-danger-text"
-              onclick={() => removeDevice(device.deviceId, device.name)}
-              aria-label="Remove {device.name}"
-              title="Remove"
-            >
-              <Trash2 size={13} />
-            </button>
+            <div class="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+                onclick={() => renameDevice(device.deviceId, device.name)}
+                aria-label="Rename {device.name}"
+                title="Rename"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                type="button"
+                class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+                onclick={() => removeDevice(device.deviceId, device.name)}
+                aria-label="Remove {device.name}"
+                title="Remove"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           </li>
         {/each}
       </ul>

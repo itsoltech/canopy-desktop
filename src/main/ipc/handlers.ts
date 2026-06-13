@@ -3775,6 +3775,20 @@ export function registerIpcHandlers(
     remoteSessionService.removeTrustedDevice(payload.deviceId)
   })
 
+  ipcMain.handle(
+    'remote:renameTrustedDevice',
+    (_event, payload: { deviceId: string; name: string }) => {
+      if (!payload || typeof payload.deviceId !== 'string' || payload.deviceId.length === 0) {
+        throw new Error('Invalid deviceId')
+      }
+      if (typeof payload.name !== 'string' || payload.name.trim().length === 0) {
+        throw new Error('Device name is required')
+      }
+      const renamed = remoteSessionService.renameTrustedDevice(payload.deviceId, payload.name)
+      if (!renamed) throw new Error('Trusted device not found')
+    },
+  )
+
   // --- Run Configurations ---
 
   ipcMain.handle('runConfig:discover', async (event, payload: { repoRoot: string }) => {

@@ -7,6 +7,7 @@ import type { PreferencesStore } from '../db/PreferencesStore'
 import {
   SignalingServer,
   tokensMatch,
+  type PairAttemptContext,
   type PairResponse,
   type PairMessage,
 } from './SignalingServer'
@@ -133,6 +134,21 @@ export class RemoteSessionService {
     }
   }
 
+  renameTrustedDevice(deviceId: string, name: string): boolean {
+    const renamed = this.trustedDevices.rename(deviceId, name)
+    if (!renamed) return false
+    if (deviceId === this.lastPairedDeviceId) {
+      const nextName = name.trim()
+      this.lastPairedDeviceName = nextName
+      if (this.status.kind === 'paired') {
+        this.setStatus({ ...this.status, deviceName: nextName })
+      } else if (this.status.kind === 'reconnecting') {
+        this.setStatus({ ...this.status, deviceName: nextName })
+      }
+    }
+    return true
+  }
+
   /**
    * Start a new pairing session: pick a LAN IP, generate a token, bind the
    * signaling server, build the URL the QR code will encode.
@@ -206,7 +222,7 @@ export class RemoteSessionService {
         preferredPort: savedPort,
         bindHost: iface.address,
         handlers: {
-          onPairAttempt: (msg) => this.handlePairAttempt(msg),
+          onPairAttempt: (msg, context) => this.handlePairAttempt(msg, context),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),
           onPeerDisconnected: () => this.handlePeerDisconnected(),
         },
@@ -314,7 +330,7 @@ export class RemoteSessionService {
         preferredPort: savedPort,
         bindHost,
         handlers: {
-          onPairAttempt: (msg) => this.handlePairAttempt(msg),
+          onPairAttempt: (msg, context) => this.handlePairAttempt(msg, context),
           onPeerSignal: (msg) => this.handlePeerSignal(msg),
           onPeerDisconnected: () => this.handlePeerDisconnected(),
         },
@@ -515,15 +531,16 @@ export class RemoteSessionService {
 
   // ===== SignalingServer callbacks =====
 
-  private handlePairAttempt(msg: PairMessage): PairResponse {
+  private handlePairAttempt(msg: PairMessage, context: PairAttemptContext): PairResponse {
     if (!this.isEnabledInPreferences()) {
       return { ok: false, reason: 'remote control disabled' }
     }
     const ts = new Date().toISOString().slice(11, 23)
     const incomingDeviceId =
       typeof msg.deviceId === 'string' && msg.deviceId.length > 0 ? msg.deviceId : null
-    const isTrustedDevice =
-      incomingDeviceId !== null && this.trustedDevices.isTrusted(incomingDeviceId)
+    const trustedDevice =
+      incomingDeviceId !== null ? this.trustedDevices.get(incomingDeviceId) : undefined
+    const isTrustedDevice = trustedDevice !== undefined
     // Only log a short fingerprint — the full deviceId is the sole auth factor
     // for trusted-device auto-accept and must never reach a log sink where a
     // bystander or log aggregator could capture and replay it.
@@ -571,12 +588,14 @@ export class RemoteSessionService {
       return { ok: false, reason: 'another device is already paired' }
     }
 
+    const deviceName =
+      trustedDevice?.name ??
+      (typeof msg.deviceName === 'string' && msg.deviceName.length > 0
+        ? msg.deviceName
+        : 'Remote device')
     const device: PendingDevice = {
       deviceId: incomingDeviceId ?? randomBytes(8).toString('hex'),
-      deviceName:
-        typeof msg.deviceName === 'string' && msg.deviceName.length > 0
-          ? msg.deviceName
-          : 'Remote device',
+      deviceName,
       fingerprint: '',
       publicKeyJwk: msg.publicKeyJwk,
     }
@@ -610,7 +629,7 @@ export class RemoteSessionService {
       this.clearExpiryTimer()
       this.clearReaperTimer()
       this.resetIdleTimer()
-      const pairing = this.currentPairing
+      const pairing = this.pairingForPeerConnection(this.currentPairing, context.localAddress)
       this.setStatus({
         kind: 'paired',
         hostname: pairing.hostname,
@@ -629,12 +648,13 @@ export class RemoteSessionService {
     }
 
     if (this.currentPairing) {
+      const pairing = this.pairingForPeerConnection(this.currentPairing, context.localAddress)
       this.setStatus({
         kind: 'peerArrived',
-        pairingUrl: this.currentPairing.pairingUrl,
-        hostname: this.currentPairing.hostname,
-        lanIp: this.currentPairing.lanIp,
-        port: this.currentPairing.port,
+        pairingUrl: pairing.pairingUrl,
+        hostname: pairing.hostname,
+        lanIp: pairing.lanIp,
+        port: pairing.port,
         device,
       })
     }
@@ -831,6 +851,16 @@ export class RemoteSessionService {
     return selectPrimaryInterface(preferredIfaceName)?.address ?? null
   }
 
+  private pairingForPeerConnection(
+    pairing: PairingUrlInfo,
+    localAddress: string | null,
+  ): PairingUrlInfo {
+    if (pairing.lanIp !== '0.0.0.0' || !isUsableLanIp(localAddress)) return pairing
+    const next = { ...pairing, lanIp: localAddress }
+    this.currentPairing = next
+    return next
+  }
+
   private setStatus(next: RemoteSessionStatus): void {
     const ts = new Date().toISOString().slice(11, 23)
     console.log(`[remote ${ts}] setStatus: ${this.status.kind} → ${next.kind}`)
@@ -930,6 +960,12 @@ export class RemoteSessionService {
     // signaling WebSocket still works in dev for verifying the IPC wiring.
     return path.join(app.getAppPath(), 'out', 'renderer')
   }
+}
+
+function isUsableLanIp(value: string | null): value is string {
+  if (!value || value === '0.0.0.0' || value === '::') return false
+  if (value === '127.0.0.1' || value === '::1') return false
+  return true
 }
 
 function buildPairingUrl(opts: {
