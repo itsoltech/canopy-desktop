@@ -6782,7 +6782,7 @@ LGPL-3.0-or-later
 
 The following npm packages may be included in this product:
 
- - @esbuild/darwin-arm64@0.27.4
+ - @esbuild/darwin-arm64@0.28.1
  - @rollup/rollup-darwin-arm64@4.60.0
  - @simple-git/args-pathspec@1.0.3
  - @simple-git/argv-parser@1.1.1
@@ -7664,7 +7664,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - esbuild@0.27.4
+ - esbuild@0.28.1
 
 This package contains the following license:
 
