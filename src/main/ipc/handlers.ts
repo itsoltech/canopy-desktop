@@ -1381,14 +1381,14 @@ export function registerIpcHandlers(
         stageAll?: boolean
       },
     ) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const result = await GitRepository.commit(resolvedRepo, payload.message, payload.stageAll)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle('git:pushWorktree', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
     const result = await GitRepository.push(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
@@ -1399,14 +1399,14 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('git:pullWithPreferences', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
     const rebase = (preferencesStore.get('gitPullRebase') ?? 'true') !== 'false'
     const result = unwrapOrThrow(await GitRepository.pull(resolvedRepo, rebase), gitErrorMessage)
     return { ...result, rebase }
   })
 
   ipcMain.handle('git:fetchWorktree', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
     const result = await GitRepository.fetch(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
@@ -1427,7 +1427,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('git:stashWorktree', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
     const result = await GitRepository.stash(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
@@ -1438,7 +1438,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('git:stashPopWorktree', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
     const result = await GitRepository.stashPop(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })

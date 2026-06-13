@@ -62,6 +62,13 @@ Worktrees are intentionally created OUTSIDE the workspace (default `worktrees.ba
 
 Creation paths additionally walk up to the closest existing ancestor before realpath-normalizing, so a non-existent leaf is OK; the tail is then rechecked to reject escapes via `..`. The same TOCTOU-safe pattern as `validateCreationPath` is used.
 
+Worktree-scoped git operations (`commit`, `push`, `pull`, `fetch`, `stash`, branch
+listing, create, and remove) validate their repository/worktree argument against the main
+process' attached project snapshot. If strict active-window containment fails, the path is
+still allowed only when it exactly matches the attached project's workspace path, repo root,
+or one of its known worktree paths. This lets inactive attached worktrees operate from
+`~/canopy/worktrees` without allowing arbitrary renderer-supplied paths.
+
 ### Post-creation setup
 
 Worktree setup actions are configured per workspace and stored in the preferences database under the key `workspace:<workspaceId>:worktreeSetup` as a JSON array.
@@ -117,6 +124,7 @@ Example configuration (JSON):
 | Path not absolute                    | "Worktree path must be absolute"                         | Renderer passed a relative path to create or remove                                  |
 | No existing ancestor                 | "Access denied: no existing ancestor"                    | Creation path walks up past the filesystem root without finding an existing ancestor |
 | Path outside allowed roots           | "Access denied: worktree path outside home or workspace" | Resolved path is not under `$HOME` or a registered workspace                         |
+| Repo outside attached project        | "Access denied: path outside workspace"                  | Repo/worktree path is not a strict workspace path or exact attached project path      |
 | Path escapes ancestor                | "Access denied: worktree path escapes ancestor"          | Non-existent tail of the creation path escapes its ancestor via `..` or absolute ref |
 | Setup command timeout                | "Command timed out after 5 minutes"                      | A setup action's shell command did not exit within 300 seconds                       |
 | Setup command failure                | "\<label\>: Command exited with code \<N\>"              | A setup action's shell command returned non-zero                                     |
