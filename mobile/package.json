@@ -82,6 +82,7 @@
     },
     "@xmldom/xmldom": "^0.8.13",
     "postcss": "^8.5.10",
+    "shell-quote": "^1.8.4",
     "xcode": {
       "uuid": "^14.0.0"
     }
