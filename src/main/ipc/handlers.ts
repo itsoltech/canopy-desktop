@@ -1463,7 +1463,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:branchCreateFromHead',
     async (event, payload: { repoRoot: string; branch: string }) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const result = await GitRepository.createBranch(resolvedRepo, payload.branch, 'HEAD')
       return unwrapOrThrow(result, gitErrorMessage)
     },
@@ -1488,7 +1488,7 @@ export function registerIpcHandlers(
       event,
       payload: GitBranchPrepareDeletePayload,
     ): Promise<GitBranchPrepareDeleteResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const branchMerged = unwrapOrThrow(
         await GitRepository.isBranchMerged(resolvedRepo, payload.branch),
         gitErrorMessage,
@@ -1509,7 +1509,7 @@ export function registerIpcHandlers(
       event,
       payload: GitBranchDeleteWithPreflightPayload,
     ): Promise<GitBranchDeleteWithPreflightResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const branchMerged = unwrapOrThrow(
         await GitRepository.isBranchMerged(resolvedRepo, payload.branch),
         gitErrorMessage,
@@ -1550,7 +1550,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:preparePush',
     async (event, payload: { repoRoot: string }): Promise<GitPreparePushResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const info = await GitRepository.getPushInfo(resolvedRepo).unwrapOr(null)
       if (!info) {
         return {

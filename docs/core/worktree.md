@@ -62,13 +62,13 @@ Worktrees are intentionally created OUTSIDE the workspace (default `worktrees.ba
 
 Creation paths additionally walk up to the closest existing ancestor before realpath-normalizing, so a non-existent leaf is OK; the tail is then rechecked to reject escapes via `..`. The same TOCTOU-safe pattern as `validateCreationPath` is used.
 
-Worktree-scoped git operations (`diff`, `stage`, `revert`, `commit`, `push`, `pull`,
-`fetch`, `stash`, branch listing, create, and remove) validate their repository/worktree
-argument against the main process' attached project snapshot. If strict active-window
-containment fails, the path is still allowed only when it exactly matches the attached
-project's workspace path, repo root, or one of its known worktree paths. This lets inactive
-attached worktrees operate from `~/canopy/worktrees` without allowing arbitrary
-renderer-supplied paths.
+Worktree-scoped git operations (`diff`, `stage`, `revert`, `commit`, push preflight,
+`push`, `pull`, `fetch`, `stash`, branch listing, branch create/delete, worktree create,
+and worktree remove) validate their repository/worktree argument against the main process'
+attached project snapshot. If strict active-window containment fails, the path is still
+allowed only when it exactly matches the attached project's workspace path, repo root, or
+one of its known worktree paths. This lets inactive attached worktrees operate from
+`~/canopy/worktrees` without allowing arbitrary renderer-supplied paths.
 
 ### Post-creation setup
 
