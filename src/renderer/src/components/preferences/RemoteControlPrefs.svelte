@@ -48,7 +48,9 @@
   }
 
   function setListeningOn(value: string): void {
-    applyRemoteListenerPref(value, setPref)
+    void applyRemoteListenerPref(value, setPref).catch((e) => {
+      console.warn('[remote] setListeningOn failed:', e)
+    })
   }
 
   async function loadTrustedDevices(): Promise<void> {
@@ -139,10 +141,7 @@
     </div>
   </div>
 
-  <PrefsSection
-    title="Remote control"
-    description="Control Canopy from the Canopy Remote mobile app on your local network or via VPN. The mobile app will be available soon."
-  >
+  <PrefsSection title="Remote control">
     <PrefsRow
       label="Enable remote control"
       help="Shows the Remote sidebar section, lets you pair the mobile app, and lets trusted devices reconnect on your local network or via VPN."
@@ -152,7 +151,7 @@
       <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
     </PrefsRow>
     <PrefsRow
-      label="Listening on"
+      label="Listen on"
       help="Controls where Canopy listens for connections from trusted devices. Choose one reachable adapter or All adapters."
       search="remote interface network adapter wifi ethernet bind ip"
     >

@@ -199,7 +199,9 @@
   }
 
   function setListener(value: string): void {
-    applyRemoteListenerPref(value, setPref)
+    void applyRemoteListenerPref(value, setPref).catch((e) => {
+      errorMsg = e instanceof Error ? e.message : String(e)
+    })
   }
 </script>
 
@@ -218,7 +220,7 @@
 
   <div class="px-3 flex flex-col gap-3">
     <RemoteSelectField
-      label="Listening on"
+      label="Listen on"
       tooltip="This setting decides where Canopy listens for connections from trusted devices. You can choose a specific adapter or all active adapters."
       value={listenerValue}
       onchange={setListener}

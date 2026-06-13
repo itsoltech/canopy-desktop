@@ -271,23 +271,6 @@ export class RemoteSessionService {
     hostWcId: number,
     opts: { allowWithoutTrusted?: boolean } = {},
   ): ResultAsync<void, RemoteServerError> {
-    // Already running — keep the server up, just adopt the caller as the
-    // host renderer if the previous one is destroyed. We do NOT blindly
-    // reassign: a mid-session window claiming listening should not steal
-    // signaling from an active host.
-    if (this.signalingServer.isRunning) {
-      const prev = this.hostWcId
-      let prevLive = false
-      if (prev !== null) {
-        const wc = webContentsNs.fromId(prev)
-        prevLive = !!wc && !wc.isDestroyed()
-      }
-      if (!prevLive) {
-        this.hostWcId = hostWcId
-      }
-      return okAsync(undefined)
-    }
-
     if (!this.isEnabledInPreferences()) {
       this.clearListenRetryTimer()
       return okAsync(undefined)
@@ -312,10 +295,40 @@ export class RemoteSessionService {
     // message.
     if (!listenAllInterfaces) {
       if (!iface) {
+        if (opts.allowWithoutTrusted) {
+          this.clearListenRetryTimer()
+          const err: RemoteServerError = { _tag: 'NoNetworkInterface' }
+          this.setStatus({ kind: 'error', message: 'Selected network interface is unavailable' })
+          return errAsync(err)
+        }
         this.scheduleListenRetry(hostWcId)
         return okAsync(undefined)
       }
       bindHost = iface.address
+    }
+
+    // Already running: keep it only if the current bind host matches the
+    // listener preference. Dynamic Listen on changes can otherwise leave
+    // the server alive on the previous adapter and make manual start a no-op.
+    if (this.signalingServer.isRunning) {
+      if (this.signalingServer.listeningHost !== bindHost) {
+        return this.signalingServer.stop().andThen(() => {
+          this.cleanupSession()
+          this.hostWcId = null
+          this.setStatus({ kind: 'idle' })
+          return this.ensureListening(hostWcId, opts)
+        })
+      }
+      const prev = this.hostWcId
+      let prevLive = false
+      if (prev !== null) {
+        const wc = webContentsNs.fromId(prev)
+        prevLive = !!wc && !wc.isDestroyed()
+      }
+      if (!prevLive) {
+        this.hostWcId = hostWcId
+      }
+      return okAsync(undefined)
     }
 
     this.clearListenRetryTimer()
@@ -855,7 +868,9 @@ export class RemoteSessionService {
     pairing: PairingUrlInfo,
     localAddress: string | null,
   ): PairingUrlInfo {
-    if (pairing.lanIp !== '0.0.0.0' || !isUsableLanIp(localAddress)) return pairing
+    if (this.signalingServer.listeningHost !== '0.0.0.0' || !isUsableLanIp(localAddress)) {
+      return pairing
+    }
     const next = { ...pairing, lanIp: localAddress }
     this.currentPairing = next
     return next

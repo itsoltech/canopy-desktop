@@ -41,7 +41,7 @@
     onclick={onStartListening}
   >
     <Play size={13} />
-    Listen
+    Start listening
   </button>
 {:else if status.kind === 'listening'}
   <div class="grid grid-cols-2 gap-1">
