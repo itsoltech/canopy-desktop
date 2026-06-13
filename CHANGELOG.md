@@ -1,3 +1,11 @@
+## [0.13.0-next.15](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.14...v0.13.0-next.15) (2026-06-13)
+
+### Bug Fixes
+
+* allow worktree repo validation for attached projects ([#249](https://github.com/itsoltech/canopy-desktop/issues/249)) ([c1edfa7](https://github.com/itsoltech/canopy-desktop/commit/c1edfa79bdb47e6fe4f75b71bdf9de6a2af8b4fc))
+* **deps:** override esbuild vulnerability ([c73d609](https://github.com/itsoltech/canopy-desktop/commit/c73d6094b30e430fa759c693aef1c8e099110ee2))
+* **mobile-deps:** override shell-quote vulnerability ([e37c178](https://github.com/itsoltech/canopy-desktop/commit/e37c1783898826926fa6dde92b46a97cf6317b65))
+
 ## [0.13.0-next.14](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.13...v0.13.0-next.14) (2026-06-13)
 
 ### Bug Fixes
