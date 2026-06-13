@@ -158,7 +158,6 @@
         class="flex items-center justify-center w-7 h-7 border-0 bg-transparent text-text-muted cursor-pointer rounded-md hover:bg-hover hover:text-text"
         aria-label="Close"
         onclick={closeDialog}
-        aria-label="Close"
       >
         <X size={16} />
       </button>
@@ -176,7 +175,6 @@
                 class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-text-muted cursor-pointer rounded-sm hover:bg-hover hover:text-text"
                 aria-label="New run configuration"
                 onclick={() => startNew(group.configDir)}
-                aria-label="New configuration"
               >
                 <Plus size={14} />
               </button>
@@ -209,7 +207,6 @@
                       e.stopPropagation()
                       handlePlay(group.configDir, config.name)
                     }}
-                    aria-label="Run {config.name}"
                   >
                     <Play size={14} />
                   </button>
@@ -220,7 +217,6 @@
                       e.stopPropagation()
                       handleDelete(group.configDir, config.name)
                     }}
-                    aria-label="Delete {config.name}"
                   >
                     <X size={14} />
                   </button>
