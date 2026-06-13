@@ -210,7 +210,14 @@
       <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
         <div class="px-7 pt-5 pb-3 border-b border-border-subtle shrink-0 flex flex-col gap-0.5">
           <h2 class="text-lg font-semibold text-text m-0 leading-tight">{activeSection}</h2>
-          {#if activeMeta?.description}
+          {#if activeSection === 'Remote Control'}
+            <p class="text-xs text-text-muted m-0 leading-snug max-w-[72ch]">
+              Control Canopy from the Canopy Remote mobile app on your local network or via VPN.
+              <strong class="text-warning-text font-semibold">
+                The mobile app will be available soon.
+              </strong>
+            </p>
+          {:else if activeMeta?.description}
             <p class="text-xs text-text-muted m-0 leading-snug">{activeMeta.description}</p>
           {/if}
         </div>

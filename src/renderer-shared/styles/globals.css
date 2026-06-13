@@ -217,33 +217,7 @@
   background: transparent;
 }
 
-/* ============ Status-dot animations — RemoteConnectionModal, AgentInspector ============ */
-[data-kind='waiting'] .status-dot,
-[data-kind='starting'] .status-dot {
-  background: var(--color-warning);
-  box-shadow: 0 0 8px var(--color-warning);
-  animation: pulse 1.4s ease-in-out infinite;
-}
-[data-kind='listening'] .status-dot {
-  background: var(--color-success);
-  animation: pulse 2.4s ease-in-out infinite;
-}
-[data-kind='peerArrived'] .status-dot {
-  background: var(--color-accent);
-  box-shadow: 0 0 8px var(--color-accent);
-}
-[data-kind='paired'] .status-dot {
-  background: var(--color-success);
-  box-shadow: 0 0 8px var(--color-success);
-}
-[data-kind='reconnecting'] .status-dot {
-  background: var(--color-warning);
-  animation: pulse 1s ease-in-out infinite;
-}
-[data-kind='error'] .status-dot {
-  background: var(--color-danger);
-}
-
+/* ============ Status-dot animations - AgentInspector ============ */
 [data-status='idle'] .status-dot {
   background: var(--color-success);
 }
@@ -518,10 +492,6 @@
  * vestibular issues).
  */
 @media (prefers-reduced-motion: reduce) {
-  [data-kind='waiting'] .status-dot,
-  [data-kind='starting'] .status-dot,
-  [data-kind='listening'] .status-dot,
-  [data-kind='reconnecting'] .status-dot,
   [data-status='active'] .status-dot,
   [data-status='permission'] .status-dot {
     animation: none;

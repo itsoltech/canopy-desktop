@@ -1,7 +1,6 @@
 /**
- * Remote-control session state surfaced to the renderer (and thus to the
- * `RemoteConnectionModal` UI). Discriminated by `kind` so the renderer can
- * pattern-match on it via `ts-pattern`.
+ * Remote-control session state surfaced to the renderer. Discriminated by
+ * `kind` so the renderer can pattern-match on it via `ts-pattern`.
  */
 export type RemoteSessionStatus =
   | { kind: 'idle' }
