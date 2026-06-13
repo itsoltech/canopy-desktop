@@ -204,6 +204,16 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    // When the branch-create sub-view is open, this window-level handler must
+    // not drive the (hidden) task list. Escape returns to the list; every other
+    // key is left to the sub-view's own inputs.
+    if (selectedTask) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        cancelBranchCreation()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       closeDialog()
     } else if (e.key === 'ArrowDown') {
