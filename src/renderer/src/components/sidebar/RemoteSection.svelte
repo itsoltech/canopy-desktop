@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
+  import { onMount } from 'svelte'
   import { match } from 'ts-pattern'
-  import { Check, Copy, Settings } from '@lucide/svelte'
+  import { Settings } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import RemoteControls from './RemoteControls.svelte'
   import RemotePairingQr from './RemotePairingQr.svelte'
@@ -24,10 +24,8 @@
   let interfaces = $state<NetworkInterface[]>([])
   let busy = $state(false)
   let errorMsg: string | null = $state(null)
-  let copied = $state(false)
   let pairSetupOpen = $state(false)
   let qrInterface = $state('')
-  let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
   let status = $derived(remoteSession.status)
   let listenerInterface = $derived(prefs['remote.selectedInterface'] ?? '')
@@ -94,10 +92,6 @@
     void loadInterfaces()
   })
 
-  onDestroy(() => {
-    if (copiedTimer) clearTimeout(copiedTimer)
-  })
-
   $effect(() => {
     if (status.kind === 'idle' || status.kind === 'listening' || status.kind === 'paired')
       void loadInterfaces()
@@ -129,12 +123,12 @@
     if (busy) return
     if (!pairSetupOpen && !pairingUrl) {
       pairSetupOpen = true
-      qrInterface = listenAllInterfaces ? '' : listenerInterface
-      errorMsg = qrInterface ? null : 'Select a network adapter before pairing.'
+      qrInterface = ''
+      errorMsg = null
       return
     }
     if (!qrInterface) {
-      errorMsg = 'Select a network adapter before pairing.'
+      errorMsg = null
       return
     }
     await startPairingWithInterface(qrInterface)
@@ -167,21 +161,6 @@
       errorMsg = e instanceof Error ? e.message : String(e)
     } finally {
       busy = false
-    }
-  }
-
-  async function copyUrl(): Promise<void> {
-    if (!pairingUrl) return
-    try {
-      await navigator.clipboard.writeText(pairingUrl)
-      copied = true
-      if (copiedTimer) clearTimeout(copiedTimer)
-      copiedTimer = setTimeout(() => {
-        copied = false
-        copiedTimer = null
-      }, 1500)
-    } catch {
-      copied = false
     }
   }
 
@@ -223,7 +202,7 @@
 
     {#if pairSetupOpen && !pairingUrl}
       <RemoteSelectField
-        label="QR adapter"
+        label="Pick an adapter to generate QR code"
         tooltip="Address encoded into the QR code. Pick the adapter the phone can reach."
         value={qrInterface}
         groups={qrInterfaceGroups}
@@ -231,7 +210,9 @@
       />
     {:else if pairingUrl}
       <div class="flex flex-col gap-1">
-        <div class="text-2xs uppercase tracking-caps-tight text-text-faint">QR adapter</div>
+        <div class="text-2xs uppercase tracking-caps-tight text-text-faint">
+          Pick an adapter to generate QR code
+        </div>
         <div
           class="text-xs text-text-secondary bg-bg-input border border-border-subtle rounded-md px-2.5 py-2 truncate"
           title={qrInterfaceLabel}
@@ -245,19 +226,6 @@
       <div class="flex justify-center p-2 bg-bg-input border border-border-subtle rounded-md">
         <RemotePairingQr url={pairingUrl} />
       </div>
-      <button
-        type="button"
-        class="inline-flex items-center justify-center gap-1 w-full h-7 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-medium cursor-pointer hover:bg-accent-bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-        onclick={copyUrl}
-      >
-        {#if copied}
-          <Check size={13} />
-          Copied
-        {:else}
-          <Copy size={13} />
-          Copy URL
-        {/if}
-      </button>
     {/if}
 
     <RemoteSessionNotice {status} {showQrAdapter} {hasQrInterface} />
