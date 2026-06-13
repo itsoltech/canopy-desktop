@@ -2199,6 +2199,11 @@ export function registerIpcHandlers(
     return target === base || target.startsWith(base + path.sep)
   }
 
+  async function normalizeRealpathOrInput(targetPath: string): Promise<string> {
+    const result = await fromExternalCall(fs.promises.realpath(targetPath), () => null)
+    return path.normalize(result.isOk() ? result.value : targetPath)
+  }
+
   // Realpath-normalize workspace roots too: otherwise a macOS workspace at
   // `/var/...` (which resolves to `/private/var/...`) would never match a
   // target's realpath and all reads get rejected; conversely a symlinked
@@ -2209,15 +2214,7 @@ export function registerIpcHandlers(
   async function validatePathAccess(wcId: number, targetPath: string): Promise<string> {
     const resolved = path.normalize(await fs.promises.realpath(targetPath))
     const allowed = windowManager.getWorkspacePaths(wcId)
-    const resolvedAllowed = await Promise.all(
-      allowed.map(async (wp) => {
-        try {
-          return path.normalize(await fs.promises.realpath(wp))
-        } catch {
-          return path.normalize(wp)
-        }
-      }),
-    )
+    const resolvedAllowed = await Promise.all(allowed.map(normalizeRealpathOrInput))
     const ok = resolvedAllowed.some((normalWp) => sameOrChildPath(resolved, normalWp))
     if (!ok) throw new Error('Access denied: path outside workspace')
     return resolved
@@ -2227,30 +2224,28 @@ export function registerIpcHandlers(
     wcId: number,
     targetPath: string,
   ): Promise<string> {
-    try {
-      return await validatePathAccess(wcId, targetPath)
-    } catch (accessError) {
-      const resolved = path.normalize(await fs.promises.realpath(targetPath))
-      const ownedPaths = workspaceCommandService
-        .getSnapshot(wcId)
-        .projects.flatMap((project) => [
-          project.workspace.path,
-          ...(project.repoRoot ? [project.repoRoot] : []),
-          ...project.worktrees.map((worktree) => worktree.path),
-        ])
-      const resolvedOwnedPaths = await Promise.all(
-        ownedPaths.map(async (ownedPath) => {
-          try {
-            return path.normalize(await fs.promises.realpath(ownedPath))
-          } catch {
-            return path.normalize(ownedPath)
-          }
-        }),
-      )
-      const ok = resolvedOwnedPaths.some((ownedPath) => samePath(resolved, ownedPath))
-      if (!ok) throw accessError
-      return resolved
-    }
+    const strictAccess = await fromExternalCall(validatePathAccess(wcId, targetPath), (e) => e)
+    if (strictAccess.isOk()) return strictAccess.value
+
+    const accessError = strictAccess.error
+    const targetRealpath = await fromExternalCall(
+      fs.promises.realpath(targetPath),
+      () => accessError,
+    )
+    if (targetRealpath.isErr()) throw targetRealpath.error
+
+    const resolved = path.normalize(targetRealpath.value)
+    const ownedPaths = workspaceCommandService
+      .getSnapshot(wcId)
+      .projects.flatMap((project) => [
+        project.workspace.path,
+        ...(project.repoRoot ? [project.repoRoot] : []),
+        ...project.worktrees.map((worktree) => worktree.path),
+      ])
+    const resolvedOwnedPaths = await Promise.all(ownedPaths.map(normalizeRealpathOrInput))
+    const ok = resolvedOwnedPaths.some((ownedPath) => samePath(resolved, ownedPath))
+    if (!ok) throw accessError
+    return resolved
   }
 
   async function readFileTreeDir(
@@ -2530,19 +2525,9 @@ export function registerIpcHandlers(
   // workspace path registered to this window. Windows paths compare
   // case-insensitively to match validatePathAccess.
   async function isUnderHomeOrWorkspace(wcId: number, resolved: string): Promise<boolean> {
-    const homeReal = path.normalize(
-      await fs.promises.realpath(os.homedir()).catch(() => os.homedir()),
-    )
+    const homeReal = await normalizeRealpathOrInput(os.homedir())
     const allowed = windowManager.getWorkspacePaths(wcId)
-    const resolvedAllowed = await Promise.all(
-      allowed.map(async (wp) => {
-        try {
-          return path.normalize(await fs.promises.realpath(wp))
-        } catch {
-          return path.normalize(wp)
-        }
-      }),
-    )
+    const resolvedAllowed = await Promise.all(allowed.map(normalizeRealpathOrInput))
     const bases = [homeReal, ...resolvedAllowed]
     return bases.some((base) => sameOrChildPath(resolved, base))
   }
