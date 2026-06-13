@@ -23,7 +23,10 @@
   let confirmBtn: HTMLButtonElement | undefined = $state()
 
   onMount(() => {
+    // Restore focus to the element that opened the dialog when it closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     cancelBtn?.focus()
+    return () => previouslyFocused?.focus?.()
   })
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -31,6 +34,12 @@
       e.preventDefault()
       e.stopPropagation()
       onCancel()
+    }
+    if (e.key === 'Tab') {
+      // Trap focus within the dialog's only two focusable controls.
+      e.preventDefault()
+      if (document.activeElement === cancelBtn) confirmBtn?.focus()
+      else cancelBtn?.focus()
     }
     if (e.key === 'Enter') {
       e.preventDefault()

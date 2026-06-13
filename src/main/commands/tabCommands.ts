@@ -180,7 +180,18 @@ export class ToolSessionService {
       this.deps.agentSessionManager.rekey(agentTempId, session.id)
     }
 
-    const wsUrl = await this.deps.wsBridge.create(session.id, session.pty)
+    let wsUrl: string
+    try {
+      wsUrl = await this.deps.wsBridge.create(session.id, session.pty)
+    } catch (error) {
+      // If the WS bridge fails to start, the spawned PTY — and, for agents, the
+      // hook-server session created above — would leak: onExit is not yet wired
+      // and the window never tracks the session. Tear them down before
+      // rethrowing, mirroring the cleanup path in runConfigCommands.
+      this.deps.ptyManager.kill(session.id)
+      if (isAgent) this.deps.agentSessionManager.destroySession(session.id)
+      throw error
+    }
 
     this.deps.windowManager.trackPtySession(sender.id, session.id)
 

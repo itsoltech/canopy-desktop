@@ -23,6 +23,7 @@
   import KeystrokeVisualizer from './KeystrokeVisualizer.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { reattachTmuxPane, killTmuxPane } from '../../lib/stores/tabs.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
 
   let {
     pane,
@@ -163,13 +164,15 @@
     }
   })
 
+  const DROP_ZONE_CLASSES: Record<DropZone, string> = {
+    left: 'left-0 top-0 w-1/2 h-full',
+    right: 'left-1/2 top-0 w-1/2 h-full',
+    top: 'left-0 top-0 w-full h-1/2',
+    bottom: 'left-0 top-1/2 w-full h-1/2',
+  }
+
   function dropZonePosition(zone: DropZone): string {
-    return {
-      left: 'left-0 top-0 w-1/2 h-full',
-      right: 'left-1/2 top-0 w-1/2 h-full',
-      top: 'left-0 top-0 w-full h-1/2',
-      bottom: 'left-0 top-1/2 w-full h-1/2',
-    }[zone]
+    return DROP_ZONE_CLASSES[zone]
   }
 </script>
 
@@ -227,7 +230,15 @@
           <DetachedOverlay
             tmuxSessionName={pane.tmuxSessionName}
             onReattach={() => reattachTmuxPane(worktreePath, tabId, pane.id)}
-            onKill={() => killTmuxPane(worktreePath, tabId, pane.id)}
+            onKill={async () => {
+              const ok = await confirm({
+                title: 'Kill Session',
+                message: `Kill detached session "${pane.tmuxSessionName}"? The process running in it will be terminated.`,
+                confirmLabel: 'Kill',
+                destructive: true,
+              })
+              if (ok) killTmuxPane(worktreePath, tabId, pane.id)
+            }}
           />
         {:else if !pane.isRunning}
           <ExitBanner

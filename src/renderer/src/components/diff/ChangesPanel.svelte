@@ -5,6 +5,7 @@
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import type { DiffFile, ParsedDiff } from '../../lib/types/diff'
 
   let {
@@ -134,6 +135,7 @@
       await refresh()
     } catch (err) {
       console.error('Failed to stage file:', err)
+      addToast(`Failed to stage ${path}`)
     }
   }
 
@@ -151,6 +153,7 @@
       await refresh()
     } catch (err) {
       console.error('Failed to revert file:', err)
+      addToast(`Failed to revert ${path}`)
     }
   }
 </script>

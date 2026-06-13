@@ -90,6 +90,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="fixed inset-0 flex items-center justify-center bg-scrim z-[100]"
+  role="presentation"
   onkeydown={handleKeydown}
   onclick={closeDialog}
 >
@@ -98,10 +99,10 @@
     class="bg-bg border border-border rounded-xl p-5 w-[480px] max-w-[90vw]"
     role="dialog"
     aria-modal="true"
-    aria-labelledby="create-pr-heading"
+    aria-labelledby="create-pr-title"
     onclick={(e) => e.stopPropagation()}
   >
-    <h2 id="create-pr-heading" class="text-[15px] font-semibold text-text m-0 mb-4">
+    <h2 id="create-pr-title" class="text-[15px] font-semibold text-text m-0 mb-4">
       Create pull request
     </h2>
 

@@ -129,10 +129,19 @@ function parseSkillMd(
     })
   }
 
-  const name = (frontmatter.name as string) ?? fileName ?? 'unnamed-skill'
-  const description = (frontmatter.description as string) ?? ''
-  const version = (frontmatter.version as string) ?? '1.0.0'
-  const agents = (frontmatter.agents as SkillAgentTarget[]) ?? ['claude']
+  // Frontmatter values are untrusted: the hand-rolled parser can yield arrays
+  // (inline `[a, b]` or block lists) or booleans. Guard the type instead of
+  // asserting it — a non-string name would otherwise crash `.toLowerCase()` in
+  // the installer, and a non-array `agents` would be iterated char-by-char.
+  const name =
+    typeof frontmatter.name === 'string' ? frontmatter.name : (fileName ?? 'unnamed-skill')
+  const description = typeof frontmatter.description === 'string' ? frontmatter.description : ''
+  const version = typeof frontmatter.version === 'string' ? frontmatter.version : '1.0.0'
+  const rawAgents = frontmatter.agents
+  const agents: SkillAgentTarget[] =
+    Array.isArray(rawAgents) && rawAgents.every((a) => typeof a === 'string')
+      ? (rawAgents as SkillAgentTarget[])
+      : ['claude']
   const metadata: Record<string, unknown> = {}
 
   if (frontmatter['allowed-tools']) metadata['allowed-tools'] = frontmatter['allowed-tools']

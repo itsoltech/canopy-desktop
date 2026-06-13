@@ -98,11 +98,12 @@
 
   $effect(() => {
     const ac = new AbortController()
-    const deps = projects.map((p) => p.worktrees.length)
-    if (deps.length >= 0) {
-      for (const p of projects) {
-        checkMergedStatus(p, ac.signal)
-      }
+    // Read each project's worktree count so the effect re-runs when worktrees
+    // are added/removed. The previous `deps.length >= 0` guard was always true
+    // (see WorktreeSection for the same fix).
+    for (const p of projects) void p.worktrees.length
+    for (const p of projects) {
+      checkMergedStatus(p, ac.signal)
     }
     return () => ac.abort()
   })
@@ -518,6 +519,7 @@
                 <button
                   class="{badge.className} flex-shrink-0 mr-1"
                   title={`${pr.title} — click to open`}
+                  aria-label={`Open pull request: ${pr.title}`}
                   onclick={(e) => {
                     e.stopPropagation()
                     window.api.openExternal(pr.url)

@@ -231,16 +231,19 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
         existing.status = 'completed'
         if (event.taskSubject) existing.subject = event.taskSubject
       } else {
-        session.tasks = [
+        const next = [
           ...session.tasks,
           {
             id: taskId,
             subject: event.taskSubject ?? '',
-            status: 'completed',
+            status: 'completed' as const,
             activeForm: null,
             owner: null,
           },
         ]
+        // Cap growth: a stream of TaskCompleted events with unique ids would
+        // otherwise grow `tasks` unbounded (TaskCreate already enforces this).
+        session.tasks = next.length > MAX_TASKS ? next.slice(-MAX_TASKS) : next
       }
     })
     .with('Notification', () => {

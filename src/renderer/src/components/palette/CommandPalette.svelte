@@ -34,10 +34,8 @@
     showPreferences,
     showAbout,
     showTmuxBrowser,
-    showRemoteConnection,
   } from '../../lib/stores/dialogs.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
-  import { prefs } from '../../lib/stores/preferences.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -165,16 +163,6 @@
       category: 'App',
       action: () => showAbout(),
     })
-
-    if (prefs['remote.enabled'] === 'true') {
-      items.push({
-        id: 'app:remote-connection',
-        label: 'Open Remote Connection (Beta)',
-        category: 'App',
-        description: 'Pair a remote device via QR code to mirror this window · Beta',
-        action: () => showRemoteConnection(),
-      })
-    }
 
     if (tmuxAvailable) {
       items.push({
@@ -665,6 +653,12 @@
         bind:value={query}
         class="w-full border-0 bg-transparent text-text text-md font-inherit outline-none placeholder:text-text-faint"
         type="text"
+        role="combobox"
+        aria-controls="command-palette-listbox"
+        aria-expanded={flatItems.length > 0}
+        aria-activedescendant={flatItems.length > 0 && selectedIndex >= 0
+          ? `command-palette-option-${selectedIndex}`
+          : undefined}
         placeholder={filterMode === 'app'
           ? 'Search app commands...'
           : filterMode === 'git'
@@ -675,9 +669,14 @@
       />
     </div>
 
-    <div class="overflow-y-auto flex-1 py-1.5">
+    <div
+      id="command-palette-listbox"
+      role="listbox"
+      aria-label="Command palette results"
+      class="overflow-y-auto flex-1 py-1.5"
+    >
       {#if flatItems.length === 0}
-        <div class="px-3 py-5 text-center text-text-faint text-md">No results</div>
+        <div class="px-3 py-5 text-center text-text-faint text-md" role="status">No results</div>
       {:else}
         {#each groupedItems as group, gi (group.category)}
           {@const Icon = CATEGORY_ICON[group.category] ?? Sliders}
@@ -694,6 +693,10 @@
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
+                id={`command-palette-option-${flatIndex(gi, ii)}`}
+                role="option"
+                aria-selected={isSelected}
+                aria-disabled={item.disabled}
                 class="flex items-center gap-2 h-8 px-3 cursor-pointer text-md text-text transition-colors duration-fast"
                 class:bg-accent-bg={isSelected}
                 class:text-accent-text={isSelected}

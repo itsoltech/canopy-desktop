@@ -192,6 +192,19 @@ export class WindowManager {
       return { action: 'deny' }
     })
 
+    // The main renderer is a bundled single-page app and must never navigate
+    // away from its own document. Block any top-level navigation — defense in
+    // depth against an injected window.location change escaping this privileged,
+    // IPC-capable context — and route safe external URLs to the OS browser,
+    // mirroring the window-open handler above. `will-navigate` does not fire on
+    // reloads or History API changes, so legitimate in-app behaviour is
+    // unaffected.
+    win.webContents.on('will-navigate', (event, url) => {
+      if (url === win.webContents.getURL()) return
+      event.preventDefault()
+      if (isSafeExternalUrl(url)) shell.openExternal(url)
+    })
+
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
       win.loadURL(process.env['ELECTRON_RENDERER_URL'])
     } else {

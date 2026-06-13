@@ -145,6 +145,7 @@
           <button
             class="{badge.className} flex-shrink-0 mr-1"
             title={`${pr.title} — click to open`}
+            aria-label={`Open pull request: ${pr.title}`}
             onclick={(e) => {
               e.stopPropagation()
               window.api.openExternal(pr.url)

@@ -79,8 +79,10 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="contents" onkeydown={handleKeydown}>
   <div class="flex items-center gap-1.5 mb-1.5">
-    <!-- svelte-ignore a11y_label_has_associated_control -->
-    <label class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase">
+    <label
+      for="branch-picker-search"
+      class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase"
+    >
       {label}
     </label>
     <button
@@ -104,6 +106,7 @@
     </button>
   </div>
   <input
+    id="branch-picker-search"
     class="w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
     type="text"
     bind:value={query}

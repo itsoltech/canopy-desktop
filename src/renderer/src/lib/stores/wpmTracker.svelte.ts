@@ -8,6 +8,13 @@ const CHARS_PER_WORD = 5
 const MIN_CHARS_TO_ACTIVATE = 5
 /** Minimum keystrokes within the window to show WPM (filters startup noise) */
 const MIN_WINDOW_CHARS = 3
+/**
+ * Cap timestamps recorded per input event. xterm delivers an entire paste as a
+ * single onData event; without a cap the array balloons to paste size (the trim
+ * below is a no-op when every entry shares the same `now`). Far above any human
+ * single-event keystroke count, so real typing is unaffected.
+ */
+const MAX_TIMESTAMPS_PER_EVENT = 100
 
 interface SessionData {
   timestamps: number[]
@@ -54,7 +61,10 @@ export function recordKeystroke(sessionId: string, data: string): void {
     sessions.set(sessionId, session)
   }
 
-  for (let i = 0; i < printable; i++) {
+  // totalChars still counts the true number of printable characters; only the
+  // per-event timestamp contribution is capped (see MAX_TIMESTAMPS_PER_EVENT).
+  const recorded = Math.min(printable, MAX_TIMESTAMPS_PER_EVENT)
+  for (let i = 0; i < recorded; i++) {
     session.timestamps.push(now)
   }
   session.lastActivity = now
