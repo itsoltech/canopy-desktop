@@ -2,6 +2,13 @@
 
 ### Bug Fixes
 
+* **ci:** pin Windows release runner to 2022 ([b6b51d7](https://github.com/itsoltech/canopy-desktop/commit/b6b51d76bfb5dbb53e2152b5ffac332235036945))
+* refine remote mobile pairing controls ([#248](https://github.com/itsoltech/canopy-desktop/issues/248)) ([ef30b3b](https://github.com/itsoltech/canopy-desktop/commit/ef30b3ba95cf8808fc032787f0037bdf5fdd229b))
+
+## [0.13.0-next.14](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.13...v0.13.0-next.14) (2026-06-13)
+
+### Bug Fixes
+
 * refine remote mobile pairing controls ([#248](https://github.com/itsoltech/canopy-desktop/issues/248)) ([ef30b3b](https://github.com/itsoltech/canopy-desktop/commit/ef30b3ba95cf8808fc032787f0037bdf5fdd229b))
 
 ## [0.13.0-next.13](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.12...v0.13.0-next.13) (2026-06-12)
