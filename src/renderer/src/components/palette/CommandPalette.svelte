@@ -691,7 +691,6 @@
               {@const isSelected = flatIndex(gi, ii) === selectedIndex}
               {@const isShortDesc = !!item.description && item.description.length <= 24}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 id={`command-palette-option-${flatIndex(gi, ii)}`}
                 role="option"

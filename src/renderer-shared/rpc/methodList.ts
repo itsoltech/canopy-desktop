@@ -159,6 +159,11 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
   'pty.kill',
+  // Filesystem/repo state mutations from the untrusted peer. These create
+  // worktrees/branches on disk or attach an arbitrary directory (with `~/`
+  // expansion) to the host workspace, so they need a per-call host prompt in
+  // the default `destructive` profile — same treatment as `worktree.remove`,
+  // which would otherwise be the only gated worktree operation.
   'tools.spawn',
   'worktree.add',
   'worktree.addCheckout',
