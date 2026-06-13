@@ -269,6 +269,7 @@
             ondrop={() => onTokenDrop(i)}
             ondragend={onTokenDragEnd}
             onclick={(e) => onSeparatorTokenClick(i, e)}
+            aria-label={`Separator "${token.value}" — click to change`}
           >
             {token.value}
           </button>

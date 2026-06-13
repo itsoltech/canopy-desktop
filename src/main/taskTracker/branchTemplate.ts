@@ -61,7 +61,10 @@ function slugify(text: string, maxLength = 50): string {
 function sanitizeBranchName(name: string): string {
   return (
     name
-      .replace(/\.\./g, '.')
+      // Collapse any run of 2+ dots to a single dot. A single non-overlapping
+      // `..`→`.` pass leaves even-length runs intact ("...." → ".."), which would
+      // reintroduce a ".." path component (git rejects these in ref names).
+      .replace(/\.{2,}/g, '.')
       .replace(/[~^:?*[\]\\@{}#\s]/g, '-')
       .replace(/\/{2,}/g, '/')
       .replace(/^\/|\/$/g, '')

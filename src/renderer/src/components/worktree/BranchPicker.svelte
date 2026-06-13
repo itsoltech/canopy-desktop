@@ -90,6 +90,7 @@
       onclick={onRefresh}
       disabled={refreshing}
       title="Fetch from remote"
+      aria-label="Fetch from remote"
       type="button"
     >
       <svg

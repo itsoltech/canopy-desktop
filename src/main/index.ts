@@ -887,7 +887,7 @@ app.whenReady().then(async () => {
     'app:getChangelogSinceVersion',
     async (_e, { fromVersion }: { fromVersion: string }) => {
       if (typeof fromVersion !== 'string' || !semver.valid(fromVersion)) return null
-      const channel = (preferencesStore.get('update.channel') ?? 'stable') as 'stable' | 'next'
+      const channel = preferencesStore.get('update.channel') === 'next' ? 'next' : 'stable'
       return fetchChangelogRange(fromVersion, app.getVersion(), channel).unwrapOr(null)
     },
   )

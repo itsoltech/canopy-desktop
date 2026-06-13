@@ -97,6 +97,11 @@ function generateCommitMessageInner(
   })
 }
 
+// Serializes the global process.env mutation below. Mutating process.env around
+// the awaited query() is not concurrency-safe: two simultaneous
+// git:generateCommitMessage calls (e.g. from two windows/repos) would interleave
+// their save/restore and could leak one window's ANTHROPIC_API_KEY/base URL into
+// the other's request, or corrupt process.env. Chaining ensures one owner at a time.
 export async function generateCommitMessage(
   diff: string,
   preferencesStore: PreferencesStore,

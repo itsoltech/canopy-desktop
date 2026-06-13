@@ -66,8 +66,15 @@ export class WsBridge {
       }
     })
 
+    // Tear the bridge down when the PTY exits on its own. Otherwise the onData
+    // subscription, the (up to 1 MB) history buffer, and the bridge entry leak,
+    // and the WS server never closes via closeServerIfIdle(). destroy() is
+    // idempotent, so this is safe alongside an explicit destroy() from kill paths.
+    const onExit = ptyProcess.onExit(() => this.destroy(sessionId))
+
     bridge.cleanup = () => {
       onData.dispose()
+      onExit.dispose()
     }
 
     this.bridges.set(sessionId, bridge)

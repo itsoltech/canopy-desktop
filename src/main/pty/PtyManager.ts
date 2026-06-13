@@ -69,6 +69,15 @@ export class PtyManager {
 
     const session: PtySession = { id, pty: p, tmuxSessionName: options?.tmuxSessionName }
     this.sessions.set(id, session)
+
+    // Remove the session when the PTY exits on its own (shell `exit`, agent CLI
+    // completion, crash). Without this, only explicit kill()/dispose() prune the
+    // map, so self-terminating PTYs leave dead IPty handles in `sessions` for the
+    // life of the process. delete() is idempotent, so this is safe alongside kill().
+    p.onExit(() => {
+      this.sessions.delete(id)
+    })
+
     return session
   }
 
