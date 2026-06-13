@@ -38,6 +38,9 @@
   )
   let showQrAdapter = $derived(pairSetupOpen || !!pairingUrl)
   let hasQrInterface = $derived(qrInterface.length > 0)
+  let pairingActive = $derived(
+    pairSetupOpen || status.kind === 'waiting' || status.kind === 'peerArrived',
+  )
   let hostLabel = $derived.by(() => {
     if (
       status.kind === 'listening' ||
@@ -164,6 +167,29 @@
     }
   }
 
+  async function cancelPairing(): Promise<void> {
+    if (busy) return
+    if (!pairingUrl && (pairSetupOpen || status.kind === 'listening')) {
+      pairSetupOpen = false
+      qrInterface = ''
+      errorMsg = null
+      return
+    }
+    busy = true
+    errorMsg = null
+    try {
+      await window.api.remote.stop()
+      pairSetupOpen = false
+      qrInterface = ''
+      await window.api.remote.ensureListening({ allowWithoutTrusted: true })
+      await loadInterfaces()
+    } catch (e) {
+      errorMsg = e instanceof Error ? e.message : String(e)
+    } finally {
+      busy = false
+    }
+  }
+
   function setInterface(name: string): void {
     qrInterface = name
     if (name) errorMsg = null
@@ -203,7 +229,7 @@
     {#if pairSetupOpen && !pairingUrl}
       <RemoteSelectField
         label="Pick an adapter to generate the QR code"
-        tooltip="Address encoded into the QR code. Pick the adapter the phone can reach."
+        tooltip="Address will be encoded into the QR code. Pick the adapter the phone can reach."
         value={qrInterface}
         groups={qrInterfaceGroups}
         onchange={setInterface}
@@ -240,8 +266,10 @@
       {status}
       {busy}
       {canListen}
+      {pairingActive}
       onStartListening={startListening}
       onStartPairing={startPairing}
+      onCancelPairing={cancelPairing}
       onStopSession={stopSession}
     />
   </div>
