@@ -11,9 +11,9 @@ import type { OutboundSignalFromRenderer } from '../../../../renderer-shared/rem
  *
  * The desktop renderer never holds canonical state for the remote session —
  * it only observes pushes from `remote:statusChange` and dispatches actions
- * via `window.api.remote.*`. The UI (modal, status indicators, command
- * palette conditional) reads from this store so each component doesn't have
- * to subscribe to IPC events individually.
+ * via `window.api.remote.*`. The UI (sidebar status, pairing controls, and
+ * accept prompt) reads from this store so each component doesn't have to
+ * subscribe to IPC events individually.
  *
  * Listeners are installed once at app mount (see `MainLayout.svelte`) and
  * torn down on unmount.
@@ -89,15 +89,10 @@ function applyStatus(status: RemoteSessionStatus): void {
     teardownHostController()
   }
 
-  // The accept UI is now rendered *inline* by `RemoteConnectionModal` while
-  // the QR modal is open. We only fall back to the standalone accept dialog
-  // if the connection modal is closed when a peer arrives — that lets the
-  // user still respond to a peer-arrival even after dismissing the QR.
-  if (
-    status.kind === 'peerArrived' &&
-    dialogState.current.type !== 'remoteConnection' &&
-    dialogState.current.type !== 'remoteAcceptDevice'
-  ) {
+  // The pairing QR now lives in the Remote sidebar. Peer approval remains a
+  // standalone prompt so it can appear even if the sidebar section is scrolled
+  // away or the user is focused elsewhere.
+  if (status.kind === 'peerArrived' && dialogState.current.type !== 'remoteAcceptDevice') {
     showRemoteAcceptDevice({
       deviceId: status.device.deviceId,
       deviceName: status.device.deviceName,
@@ -148,10 +143,10 @@ export function initRemoteSessionListeners(): () => void {
 
   // Best-effort: ask the main process to bring the signaling server up in
   // passive listen mode so a previously trusted phone can reconnect without
-  // the user re-opening the Remote Connection modal after a desktop
-  // restart. The main process silently no-ops unless the user has opted in
-  // and has ≥1 trusted device; on success we'll receive a `statusChange`
-  // event transitioning to `listening` through the listener above.
+  // the user starting a new sidebar pairing flow after a desktop restart.
+  // The main process silently no-ops unless the user has opted in and has
+  // ≥1 trusted device; on success we'll receive a `statusChange` event
+  // transitioning to `listening` through the listener above.
   window.api.remote.ensureListening().catch(() => {
     // Never surfaces errors — listen mode is opportunistic.
   })

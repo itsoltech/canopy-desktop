@@ -57,6 +57,17 @@ export class TrustedDeviceStore {
     this.prefs.set(PREF_KEY, JSON.stringify(devices))
   }
 
+  rename(deviceId: string, name: string): boolean {
+    const nextName = name.trim()
+    if (!nextName) return false
+    const devices = this.list()
+    const device = devices.find((d) => d.deviceId === deviceId)
+    if (!device) return false
+    device.name = nextName
+    this.prefs.set(PREF_KEY, JSON.stringify(devices))
+    return true
+  }
+
   remove(deviceId: string): void {
     const devices = this.list().filter((d) => d.deviceId !== deviceId)
     this.prefs.set(PREF_KEY, JSON.stringify(devices))

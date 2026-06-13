@@ -22,7 +22,10 @@ export function remoteServerErrorMessage(error: RemoteServerError): string {
   return match(error)
     .with({ _tag: 'AlreadyRunning' }, () => 'Remote control session is already running')
     .with({ _tag: 'NotRunning' }, () => 'Remote control session is not running')
-    .with({ _tag: 'NoNetworkInterface' }, () => 'No usable network interface found on the LAN')
+    .with(
+      { _tag: 'NoNetworkInterface' },
+      () => 'Select a usable network interface for remote control',
+    )
     .with({ _tag: 'PortBindFailed' }, (e) => `Failed to bind signaling server: ${e.message}`)
     .with({ _tag: 'BundleNotFound' }, (e) => `Remote client bundle not found at ${e.path}`)
     .with({ _tag: 'TokenInvalid' }, () => 'Invalid pairing token')

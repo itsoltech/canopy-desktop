@@ -1361,13 +1361,15 @@ const api = {
 
   // Remote control (WebRTC pairing via QR)
   remote: {
-    start: () => ipcRenderer.invoke('remote:start') as Promise<{ pairingUrl: string }>,
+    start: (interfaceName?: string) =>
+      ipcRenderer.invoke('remote:start', { interfaceName }) as Promise<{ pairingUrl: string }>,
     // Best-effort request from the renderer on app mount — brings the
     // signaling server up in passive listen mode iff the user has opted in
     // and has ≥1 trusted device, so a previously paired phone can reconnect
-    // without the user re-opening the Remote Connection modal. Never
+    // without the user starting a new sidebar pairing flow. Never
     // rejects; failures are silently no-oped on the main side.
-    ensureListening: () => ipcRenderer.invoke('remote:ensureListening') as Promise<void>,
+    ensureListening: (options?: { allowWithoutTrusted?: boolean }) =>
+      ipcRenderer.invoke('remote:ensureListening', options) as Promise<void>,
     stop: () => ipcRenderer.invoke('remote:stop') as Promise<void>,
     getStatus: () => ipcRenderer.invoke('remote:getStatus') as Promise<RemoteSessionStatus>,
     acceptDevice: (remember: boolean) =>
@@ -1386,6 +1388,8 @@ const api = {
       >,
     removeTrustedDevice: (deviceId: string) =>
       ipcRenderer.invoke('remote:removeTrustedDevice', { deviceId }) as Promise<void>,
+    renameTrustedDevice: (deviceId: string, name: string) =>
+      ipcRenderer.invoke('remote:renameTrustedDevice', { deviceId, name }) as Promise<void>,
     listNetworkInterfaces: () =>
       ipcRenderer.invoke('remote:listNetworkInterfaces') as Promise<
         Array<{ name: string; address: string; virtual: boolean }>
