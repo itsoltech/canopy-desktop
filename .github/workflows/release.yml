@@ -71,7 +71,8 @@ jobs:
             platform: linux
             arch: ''
             label: linux
-          - os: windows-latest
+          # windows-latest/windows-2025 may point at VS 2026 images that node-gyp cannot use yet.
+          - os: windows-2022
             platform: win
             arch: ''
             label: win
