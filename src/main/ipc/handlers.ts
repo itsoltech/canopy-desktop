@@ -1580,7 +1580,7 @@ export function registerIpcHandlers(
       event,
       payload: { repoRoot: string; path: string; branch: string; baseBranch: string },
     ) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
@@ -1606,7 +1606,7 @@ export function registerIpcHandlers(
         createLocalTracking: boolean
       },
     ) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
@@ -1624,7 +1624,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'worktree:create',
     async (event, payload: WorktreeCreatePayload): Promise<WorktreeCreateResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const expandedPath = payload.worktreePath.startsWith('~/')
         ? os.homedir() + payload.worktreePath.slice(1)
         : payload.worktreePath
@@ -1655,7 +1655,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:worktreeRemove',
     async (event, payload: { repoRoot: string; path: string; force: boolean }) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const resolvedTarget = await validateWorktreeExistingPath(event.sender.id, payload.path)
       const result = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, payload.force)
       return unwrapOrThrow(result, gitErrorMessage)
@@ -1665,7 +1665,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'worktree:prepareRemove',
     async (event, payload: WorktreePrepareRemovePayload): Promise<WorktreePrepareRemoveResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const resolvedTarget = await validateWorktreeExistingPath(
         event.sender.id,
         payload.worktreePath,
@@ -1712,7 +1712,7 @@ export function registerIpcHandlers(
       event,
       payload: WorktreeGetMergedBranchesPayload,
     ): Promise<WorktreeGetMergedBranchesResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const requestedBranches = Array.from(
         new Set(payload.branches.filter((branch) => branch && branch !== '(detached)')),
       )
@@ -1731,12 +1731,12 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('worktree:listBranches', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
     return unwrapOrThrow(await GitRepository.listBranches(resolvedRepo), gitErrorMessage)
   })
 
   ipcMain.handle('worktree:refreshBranches', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
     unwrapOrThrow(await GitRepository.fetchAll(resolvedRepo), gitErrorMessage)
     return unwrapOrThrow(await GitRepository.listBranches(resolvedRepo), gitErrorMessage)
   })
@@ -1747,7 +1747,7 @@ export function registerIpcHandlers(
       event,
       payload: WorktreeRemoveWithBranchPayload,
     ): Promise<WorktreeRemoveWithBranchResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const resolvedTarget = await validateWorktreeExistingPath(
         event.sender.id,
         payload.worktreePath,
@@ -2206,6 +2206,38 @@ export function registerIpcHandlers(
     })
     if (!ok) throw new Error('Access denied: path outside workspace')
     return resolved
+  }
+
+  async function validateWorktreeRepoAccess(wcId: number, repoRoot: string): Promise<string> {
+    try {
+      return await validatePathAccess(wcId, repoRoot)
+    } catch (accessError) {
+      const resolved = path.normalize(await fs.promises.realpath(repoRoot))
+      const ownedPaths = workspaceCommandService
+        .getSnapshot(wcId)
+        .projects.flatMap((project) => [
+          project.workspace.path,
+          ...(project.repoRoot ? [project.repoRoot] : []),
+          ...project.worktrees.map((worktree) => worktree.path),
+        ])
+      const resolvedOwnedPaths = await Promise.all(
+        ownedPaths.map(async (ownedPath) => {
+          try {
+            return path.normalize(await fs.promises.realpath(ownedPath))
+          } catch {
+            return path.normalize(ownedPath)
+          }
+        }),
+      )
+      const isWin = process.platform === 'win32'
+      const target = isWin ? resolved.toLowerCase() : resolved
+      const ok = resolvedOwnedPaths.some((ownedPath) => {
+        const base = isWin ? ownedPath.toLowerCase() : ownedPath
+        return target === base
+      })
+      if (!ok) throw accessError
+      return resolved
+    }
   }
 
   async function readFileTreeDir(
@@ -3358,7 +3390,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:createWorktreeFromTask',
     async (event, payload: TaskTrackerCreateWorktreeFromTaskPayload) => {
-      const repoRoot = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const repoRoot = await validateWorktreeRepoAccess(event.sender.id, payload.repoRoot)
       const expandedPath = payload.worktreePath.startsWith('~/')
         ? os.homedir() + payload.worktreePath.slice(1)
         : payload.worktreePath
