@@ -152,7 +152,6 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
   'pty.kill',
-  'worktree.remove',
   // Peer-initiated filesystem / process / git mutations. Each is a one-shot
   // operation (a per-call confirm is tolerable), and without listing them here
   // the default 'destructive' profile would auto-allow spawning host processes,
@@ -161,6 +160,7 @@ export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethod
   'tools.spawn',
   'worktree.add',
   'worktree.addCheckout',
+  'worktree.remove',
   'project.attach',
 ])
 

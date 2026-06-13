@@ -155,6 +155,7 @@
         ? `Remove the ${providerLabel(tracker.provider)} connection${tracker.baseUrl ? ` at ${tracker.baseUrl}` : ''}?`
         : 'Remove this tracker connection?',
       confirmLabel: 'Remove',
+      destructive: true,
     })
     if (!ok) return
     if (tracker?.baseUrl) {

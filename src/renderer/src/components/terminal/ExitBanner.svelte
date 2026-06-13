@@ -10,7 +10,7 @@
 
 <div class="absolute inset-0 flex items-center justify-center bg-scrim z-pane-overlay">
   <div class="flex flex-col items-center gap-3">
-    <span class="text-text-secondary text-md">
+    <span class="text-text-secondary text-md" role="status">
       Process exited{exitCode !== null ? ` (code ${exitCode})` : ''}
     </span>
     <button

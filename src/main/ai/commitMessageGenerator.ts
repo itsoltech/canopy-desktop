@@ -15,9 +15,12 @@ async function resolveClaudeExecutable(): Promise<string | undefined> {
   const cmd = os.platform() === 'win32' ? 'where' : 'which'
   const env = getLoginEnv() ?? (process.env as Record<string, string>)
   return new Promise((resolve) => {
-    execFile(cmd, ['claude'], { env }, (err, stdout) => {
-      cachedClaudePath = err ? '' : stdout.trim()
-      resolve(cachedClaudePath || undefined)
+    execFile(cmd, ['claude'], { env }, (error, stdout) => {
+      const resolved = error ? '' : stdout.trim()
+      // Only cache a successful lookup so `claude` installed later in the
+      // session is still picked up instead of being pinned to "not found".
+      if (resolved) cachedClaudePath = resolved
+      resolve(resolved || undefined)
     })
   })
 }
@@ -52,7 +55,10 @@ const OUTPUT_SCHEMA = {
   required: ['subject', 'body'] as const,
 }
 
-function generateCommitMessageInner(diff: string): ResultAsyncType<string | null, AiError> {
+function generateCommitMessageInner(
+  diff: string,
+  env: Record<string, string | undefined>,
+): ResultAsyncType<string | null, AiError> {
   const truncatedDiff = diff.length > MAX_DIFF_LENGTH ? diff.slice(0, MAX_DIFF_LENGTH) : diff
   const prompt = PROMPT_TEMPLATE.replace('{diff}', truncatedDiff)
 
@@ -66,6 +72,7 @@ function generateCommitMessageInner(diff: string): ResultAsyncType<string | null
           model: 'haiku',
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+          env,
         },
       })
 
@@ -89,13 +96,6 @@ function generateCommitMessageInner(diff: string): ResultAsyncType<string | null
     return body ? `${subject}\n\n${body}` : subject
   })
 }
-
-// Serializes the global `process.env` mutation below. Two concurrent calls
-// (e.g. two windows, or a rapid double-trigger) would otherwise interleave and
-// clobber each other's API key / base URL — call B could route call A's request
-// to the wrong endpoint, and B's restore in `finally` could leave A's temporary
-// values behind in the process environment.
-let commitMessageLock: Promise<unknown> = Promise.resolve()
 
 export async function generateCommitMessage(
   diff: string,
@@ -126,31 +126,12 @@ export async function generateCommitMessage(
     }
   }
 
-  const run = commitMessageLock.then(async () => {
-    const savedEnv: Record<string, string | undefined> = {}
+  // Pass the API key + provider overrides to the SDK's scoped child env rather
+  // than mutating the shared global process.env. The old mutate/restore exposed
+  // the secret to any concurrent reader (e.g. a PTY spawn snapshotting env) for
+  // the request's duration, and two overlapping calls corrupted the save/restore
+  // (the second captured the first's injected values), leaving keys persisted.
+  const env: Record<string, string | undefined> = { ...process.env, ...envOverrides }
 
-    try {
-      for (const [key, val] of Object.entries(envOverrides)) {
-        savedEnv[key] = process.env[key]
-        process.env[key] = val
-      }
-
-      return await generateCommitMessageInner(diff).unwrapOr(null)
-    } finally {
-      for (const [key, val] of Object.entries(savedEnv)) {
-        if (val !== undefined) {
-          process.env[key] = val
-        } else {
-          delete process.env[key]
-        }
-      }
-    }
-  })
-  // Keep the chain alive regardless of this run's outcome so one failure does
-  // not wedge every subsequent call.
-  commitMessageLock = run.then(
-    () => undefined,
-    () => undefined,
-  )
-  return run
+  return await generateCommitMessageInner(diff, env).unwrapOr(null)
 }

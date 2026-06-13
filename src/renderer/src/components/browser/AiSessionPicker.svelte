@@ -37,6 +37,9 @@
   <div
     bind:this={containerEl}
     class="outline-none min-w-55 p-2 bg-bg-overlay border border-border rounded-xl shadow-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Send to session"
     tabindex="-1"
     onmousedown={(e) => e.stopPropagation()}
   >

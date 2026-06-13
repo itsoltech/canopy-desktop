@@ -30,7 +30,13 @@
       error = 'Name is required'
       return
     }
-    if (trimmed in DEFAULT_VIEWPORTS || trimmed in getCustomViewports()) {
+    // Use hasOwnProperty, not `in`: the latter also matches inherited
+    // Object.prototype keys (toString, constructor, …), which would falsely
+    // reject those names even on an empty list.
+    if (
+      Object.prototype.hasOwnProperty.call(DEFAULT_VIEWPORTS, trimmed) ||
+      Object.prototype.hasOwnProperty.call(getCustomViewports(), trimmed)
+    ) {
       error = 'Viewport name already exists'
       return
     }
@@ -97,7 +103,7 @@
     <span>Mobile device</span>
   </label>
   {#if error}
-    <p class="text-sm text-danger-text m-0">{error}</p>
+    <p class="text-sm text-danger-text m-0" role="alert">{error}</p>
   {/if}
   <div class="flex justify-end gap-2">
     <button

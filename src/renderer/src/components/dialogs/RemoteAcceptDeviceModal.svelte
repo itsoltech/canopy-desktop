@@ -123,7 +123,9 @@
       </p>
     {/if}
 
-    <p class="m-0 mt-2 text-xs text-text-muted text-right">Auto-reject in {secondsLeft}s</p>
+    <p class="m-0 mt-2 text-xs text-text-muted text-right" role="timer" aria-live="polite">
+      Auto-reject in {secondsLeft}s
+    </p>
 
     <div class="flex justify-end gap-2 mt-4">
       <button

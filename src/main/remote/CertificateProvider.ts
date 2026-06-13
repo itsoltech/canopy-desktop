@@ -41,6 +41,9 @@ export class CertificateProvider {
     const pems = await selfsigned.generate(attrs, {
       notAfterDate,
       keySize: 2048,
+      // selfsigned defaults to SHA-1 when `algorithm` is omitted; pin SHA-256
+      // so the signaling TLS cert is not signed with a deprecated hash.
+      algorithm: 'sha256',
       extensions: [
         {
           name: 'subjectAltName',

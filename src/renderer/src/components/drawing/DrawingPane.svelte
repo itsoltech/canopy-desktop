@@ -17,6 +17,7 @@
     pointFromEvent,
   } from './drawingCanvas'
   import { deleteSelected, selectAll, undoLast, sendToAgent, copyPng } from './drawingActions'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
 
   // Drawing pane has no props — canvas state is keyed by project via drawingsState.
 
@@ -352,8 +353,17 @@
     strokes = undoLast(strokes, selectedIds)
   }
 
-  function handleClear(): void {
+  async function handleClear(): Promise<void> {
     if (strokes.length === 0) return
+    // Clear is irreversible — undo only pops individual strokes, so it can't
+    // restore a wiped canvas. Confirm before discarding the whole drawing.
+    const ok = await confirm({
+      title: 'Clear drawing',
+      message: 'Remove all strokes from this drawing? This cannot be undone.',
+      confirmLabel: 'Clear',
+      destructive: true,
+    })
+    if (!ok) return
     strokes = []
     selectedIds.clear()
   }

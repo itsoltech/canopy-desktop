@@ -89,10 +89,15 @@
 
   async function runCheck(): Promise<void> {
     checking = true
-    const data = await window.api.checkDependencies([...onboardingState.selectedTools])
-    results = data.results
-    platform = data.platform
-    checking = false
+    try {
+      const data = await window.api.checkDependencies([...onboardingState.selectedTools])
+      results = data.results
+      platform = data.platform
+    } finally {
+      // Always clear the loading flag so a rejected IPC call doesn't leave the
+      // step stuck on its spinner with no way to proceed.
+      checking = false
+    }
   }
 
   async function copyCommand(cmd: string): Promise<void> {

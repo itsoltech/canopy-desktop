@@ -53,12 +53,16 @@
   }
 
   let actions = $state<SetupAction[]>(loadActions())
+  let loadedKey: string | null = prefKey
 
   $effect(() => {
-    if (prefKey) {
-      actions = loadActions()
-    } else {
-      actions = []
+    // Reload setup actions only when the workspace (prefKey) changes — not when
+    // our own persistActions() writes back to the same pref. Reloading on every
+    // write would rebuild the `actions` array (new object identities) on each
+    // keystroke and clobber the in-progress edit that bind:value points at.
+    if (prefKey !== loadedKey) {
+      loadedKey = prefKey
+      actions = prefKey ? loadActions() : []
     }
   })
 
@@ -168,7 +172,7 @@
 
         {#if actions.length > 0}
           <div class="flex flex-col gap-2">
-            {#each actions as action, i (i)}
+            {#each actions as action, i (action)}
               <div
                 class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-bg-input border border-border-subtle"
               >

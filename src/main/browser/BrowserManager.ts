@@ -108,6 +108,11 @@ export class BrowserManager {
   setup(browserId: string, wcId: number, win: BrowserWindow, sender: WebContents): void {
     const wc = this.guestContents.get(wcId) ?? findWebContents(wcId)
     if (!wc) return
+    // `wcId` originates from the untrusted renderer. The privileged operations
+    // wired up below (DevTools, debugger attach, credential injection) must
+    // only ever target a <webview> guest — never a main renderer or another
+    // window's contents — so reject anything that isn't a webview guest.
+    if (wc.getType() !== 'webview') return
 
     const entry: WebviewEntry = {
       webContentsId: wcId,

@@ -10,12 +10,13 @@
   import { getTheme } from './lib/terminal/themes'
 
   onMount(() => {
-    // Not async on purpose: an async onMount returns a Promise, so Svelte would
-    // discard the cleanup function returned by initUpdateListeners and never
-    // tear down its update IPC listeners. loadPrefs has no ordering dependency
-    // with those listeners, so fire it independently.
+    // Register update listeners synchronously and return their disposer so
+    // Svelte actually runs it on unmount. An `async` onMount returns a Promise
+    // (not the cleanup), so the IPC subscriptions would otherwise leak. Prefs
+    // load in the background — the listeners don't depend on them.
+    const disposeUpdateListeners = initUpdateListeners()
     void loadPrefs()
-    return initUpdateListeners()
+    return disposeUpdateListeners
   })
 
   $effect(() => {
