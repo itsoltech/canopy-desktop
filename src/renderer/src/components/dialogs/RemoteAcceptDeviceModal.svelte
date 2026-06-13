@@ -131,7 +131,7 @@
       <button
         bind:this={rejectBtn}
         type="button"
-        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-active text-text transition-colors duration-fast enabled:hover:bg-border focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1 disabled:opacity-50 disabled:cursor-wait"
+        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-danger-bg text-danger-text transition-colors duration-fast enabled:hover:bg-[color-mix(in_srgb,var(--color-danger)_30%,transparent)] focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1 disabled:opacity-50 disabled:cursor-wait"
         disabled={busy}
         onclick={handleReject}
       >
@@ -139,7 +139,7 @@
       </button>
       <button
         type="button"
-        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-danger-bg text-danger-text transition-colors duration-fast enabled:hover:bg-[color-mix(in_srgb,var(--color-danger)_30%,transparent)] focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1 disabled:opacity-50 disabled:cursor-wait"
+        class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-success-bg text-success-text transition-colors duration-fast enabled:hover:bg-[color-mix(in_srgb,var(--color-success)_30%,transparent)] focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1 disabled:opacity-50 disabled:cursor-wait"
         disabled={busy}
         onclick={handleAccept}
       >
