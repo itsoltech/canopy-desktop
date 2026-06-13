@@ -23,6 +23,7 @@
   import KeystrokeVisualizer from './KeystrokeVisualizer.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { reattachTmuxPane, killTmuxPane } from '../../lib/stores/tabs.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
 
   let {
     pane,
@@ -229,7 +230,15 @@
           <DetachedOverlay
             tmuxSessionName={pane.tmuxSessionName}
             onReattach={() => reattachTmuxPane(worktreePath, tabId, pane.id)}
-            onKill={() => killTmuxPane(worktreePath, tabId, pane.id)}
+            onKill={async () => {
+              const ok = await confirm({
+                title: 'Kill Session',
+                message: `Kill detached session "${pane.tmuxSessionName}"? The process running in it will be terminated.`,
+                confirmLabel: 'Kill',
+                destructive: true,
+              })
+              if (ok) killTmuxPane(worktreePath, tabId, pane.id)
+            }}
           />
         {:else if !pane.isRunning}
           <ExitBanner
