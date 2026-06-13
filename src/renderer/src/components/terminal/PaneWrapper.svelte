@@ -164,13 +164,15 @@
     }
   })
 
+  const DROP_ZONE_CLASSES: Record<DropZone, string> = {
+    left: 'left-0 top-0 w-1/2 h-full',
+    right: 'left-1/2 top-0 w-1/2 h-full',
+    top: 'left-0 top-0 w-full h-1/2',
+    bottom: 'left-0 top-1/2 w-full h-1/2',
+  }
+
   function dropZonePosition(zone: DropZone): string {
-    return {
-      left: 'left-0 top-0 w-1/2 h-full',
-      right: 'left-1/2 top-0 w-1/2 h-full',
-      top: 'left-0 top-0 w-full h-1/2',
-      bottom: 'left-0 top-1/2 w-full h-1/2',
-    }[zone]
+    return DROP_ZONE_CLASSES[zone]
   }
 </script>
 

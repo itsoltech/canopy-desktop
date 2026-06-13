@@ -12,7 +12,7 @@
 
 <div class="absolute inset-0 flex items-center justify-center bg-scrim z-pane-overlay">
   <div class="flex flex-col items-center gap-2">
-    <span class="text-text text-lg font-medium">Session detached</span>
+    <span class="text-text text-lg font-medium" role="status">Session detached</span>
     <span class="text-text-faint text-xs font-mono">{tmuxSessionName}</span>
     <span class="text-text-secondary text-sm mb-1">Still running in background</span>
     <div class="flex gap-2">

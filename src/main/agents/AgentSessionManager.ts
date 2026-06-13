@@ -303,7 +303,8 @@ export class AgentSessionManager extends EventEmitter {
   }
 
   dispose(): void {
-    for (const [id] of this.sessions) {
+    // Snapshot the keys first — destroySession mutates this.sessions while we iterate.
+    for (const id of [...this.sessions.keys()]) {
       this.destroySession(id)
     }
     this.busySessions.clear()

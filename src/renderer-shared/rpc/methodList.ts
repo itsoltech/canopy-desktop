@@ -152,7 +152,10 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
   'pty.kill',
+  'worktree.add',
+  'worktree.addCheckout',
   'worktree.remove',
+  'project.attach',
 ])
 
 /**

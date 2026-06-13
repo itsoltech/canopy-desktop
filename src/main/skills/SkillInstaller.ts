@@ -241,18 +241,19 @@ export class SkillInstaller {
       if (cloneResult.isErr()) return err(cloneResult.error)
 
       const skillDir = subpath ? join(tmpDir, subpath) : tmpDir
-      // `subpath` comes from the untrusted renderer; ensure `..` segments cannot
-      // escape the cloned repo into arbitrary on-disk locations before reading.
+      // `subpath` is untrusted (it comes from the renderer's source string) and
+      // is never validated like `owner`/`repo` are. Reject any value that
+      // escapes the cloned temp dir via `..` before reading skill files from it.
+      const resolvedDir = resolve(skillDir)
       const resolvedTmp = resolve(tmpDir)
-      const resolvedSkillDir = resolve(skillDir)
-      if (resolvedSkillDir !== resolvedTmp && !resolvedSkillDir.startsWith(resolvedTmp + sep)) {
+      if (resolvedDir !== resolvedTmp && !resolvedDir.startsWith(resolvedTmp + sep)) {
         return err({
           _tag: 'InvalidSource',
           source: `github:${ref}`,
-          reason: 'Subpath escapes repository',
+          reason: 'Subpath escapes repository root',
         })
       }
-      return await this.readSkillDir(skillDir, `github:${ref}`, 'github')
+      return await this.readSkillDir(resolvedDir, `github:${ref}`, 'github')
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
@@ -273,7 +274,9 @@ export class SkillInstaller {
     }
 
     const fetchResult = await fromExternalCall(
-      fetch(url, { redirect: 'error' }),
+      // Time out a stalled host (no hung install) and forbid redirects so a 3xx
+      // cannot bounce past the SSRF check above.
+      fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) }),
       (e): SkillError => ({
         _tag: 'FetchFailed',
         source: url,
@@ -286,6 +289,14 @@ export class SkillInstaller {
     const resp = fetchResult.value
     if (!resp.ok) {
       return err({ _tag: 'FetchFailed', source: url, cause: `HTTP ${resp.status}` })
+    }
+
+    // Cap the response size: a hostile/compromised endpoint could otherwise
+    // stream an unbounded body into resp.text() and OOM the main process.
+    const MAX_SKILL_BYTES = 5 * 1024 * 1024
+    const declaredLength = Number(resp.headers.get('content-length'))
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_SKILL_BYTES) {
+      return err({ _tag: 'FetchFailed', source: url, cause: 'Skill response exceeds 5 MB limit' })
     }
 
     const textResult = await fromExternalCall(

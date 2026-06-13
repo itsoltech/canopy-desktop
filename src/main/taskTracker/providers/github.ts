@@ -201,6 +201,7 @@ export const githubClient: TaskTrackerProviderClient = {
       }>(apiUrl, token, query, { owner, name: repo, number: issueNumber }),
     ).map((data) => {
       const issue = data.repository.issue
+      if (!issue) return null
       return {
         key: `#${issue.number}`,
         summary: issue.title,
