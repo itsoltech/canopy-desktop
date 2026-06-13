@@ -26,8 +26,8 @@ npm install
 ## Dev against a local desktop
 
 1. Start the desktop app: `npm run dev` from the repo root
-2. In Canopy: Preferences → Security → Remote Control → enable
-3. Open pairing modal: `Cmd+Shift+P` → "Open Remote Connection"
+2. In Canopy: Preferences → Security → Remote Control → enable and select the reachable network adapter
+3. Open the REMOTE section in the left sidebar and click Pair
 4. Install the simulator build, tap Connect, scan the QR code
 5. Accept on the desktop — the session is live
 

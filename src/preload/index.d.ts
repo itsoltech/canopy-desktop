@@ -1205,8 +1205,8 @@ interface RemoteNetworkInterface {
 }
 
 interface RemoteAPI {
-  start: () => Promise<{ pairingUrl: string }>
-  ensureListening: () => Promise<void>
+  start: (interfaceName?: string) => Promise<{ pairingUrl: string }>
+  ensureListening: (options?: { allowWithoutTrusted?: boolean }) => Promise<void>
   stop: () => Promise<void>
   getStatus: () => Promise<RemoteSessionStatus>
   acceptDevice: (remember: boolean) => Promise<void>
@@ -1214,6 +1214,7 @@ interface RemoteAPI {
   sendSignal: (msg: unknown) => Promise<void>
   listTrustedDevices: () => Promise<RemoteTrustedDevice[]>
   removeTrustedDevice: (deviceId: string) => Promise<void>
+  renameTrustedDevice: (deviceId: string, name: string) => Promise<void>
   listNetworkInterfaces: () => Promise<RemoteNetworkInterface[]>
   onStatusChange: (callback: (status: RemoteSessionStatus) => void) => () => void
   onSignal: (callback: (msg: unknown) => void) => () => void

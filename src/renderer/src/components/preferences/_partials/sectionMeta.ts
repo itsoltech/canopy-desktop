@@ -127,7 +127,8 @@ export const sectionMeta: Record<string, SectionMeta> = {
   },
   'Remote Control': {
     icon: Smartphone,
-    description: 'Remote sessions and trusted devices',
+    description:
+      'Control Canopy from the Canopy Remote mobile app on your local network or via VPN. The mobile app will be available soon.',
     keywords: 'remote control phone session trusted device port pair',
   },
 }
