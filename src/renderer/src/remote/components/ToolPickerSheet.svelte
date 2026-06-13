@@ -18,7 +18,16 @@
   } = $props()
 
   let availableTools = $derived(tools.filter((t) => t.available))
+
+  function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      onClose()
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <button
   type="button"
