@@ -202,7 +202,7 @@
 
     {#if pairSetupOpen && !pairingUrl}
       <RemoteSelectField
-        label="Pick an adapter to generate QR code"
+        label="Pick an adapter to generate the QR code"
         tooltip="Address encoded into the QR code. Pick the adapter the phone can reach."
         value={qrInterface}
         groups={qrInterfaceGroups}
@@ -211,7 +211,7 @@
     {:else if pairingUrl}
       <div class="flex flex-col gap-1">
         <div class="text-2xs uppercase tracking-caps-tight text-text-faint">
-          Pick an adapter to generate QR code
+          Pick an adapter to generate the QR code
         </div>
         <div
           class="text-xs text-text-secondary bg-bg-input border border-border-subtle rounded-md px-2.5 py-2 truncate"
