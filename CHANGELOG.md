@@ -1,3 +1,9 @@
+## [0.13.0-next.16](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.15...v0.13.0-next.16) (2026-06-13)
+
+### Bug Fixes
+
+* delegate update restart to updater ([3f7380b](https://github.com/itsoltech/canopy-desktop/commit/3f7380b9ebff3df83ed40027acff8a8d6e74141c))
+
 ## [0.13.0-next.15](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.14...v0.13.0-next.15) (2026-06-13)
 
 ### Bug Fixes
