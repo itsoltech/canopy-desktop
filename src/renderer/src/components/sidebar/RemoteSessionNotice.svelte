@@ -30,6 +30,6 @@
   <div
     class="text-xs text-warning-text bg-bg-input border border-border-subtle rounded-md px-2.5 py-2"
   >
-    Select an adapter before pairing.
+    Select an adapter to generate a QR code for pairing.
   </div>
 {/if}
