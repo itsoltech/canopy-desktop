@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
-import { join, basename, resolve, extname, sep } from 'path'
+import { join, basename, resolve, normalize, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
 import type { Result } from 'neverthrow'
