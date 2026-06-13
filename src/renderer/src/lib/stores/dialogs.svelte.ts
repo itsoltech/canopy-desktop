@@ -80,10 +80,6 @@ interface CreateGitHubPRState {
   type: 'createGitHubPR'
 }
 
-interface RemoteConnectionState {
-  type: 'remoteConnection'
-}
-
 interface RemoteAcceptDeviceState {
   type: 'remoteAcceptDevice'
   deviceId: string
@@ -135,7 +131,6 @@ type DialogState =
   | FeatureOnboardingState
   | TmuxBrowserState
   | CreateGitHubPRState
-  | RemoteConnectionState
   | RemoteAcceptDeviceState
   | RunConfigEditorState
   | RunConfigManagerState
@@ -224,10 +219,6 @@ export function showTmuxBrowser(): void {
 
 export function showCreateGitHubPR(): void {
   dialogState.current = { type: 'createGitHubPR' }
-}
-
-export function showRemoteConnection(): void {
-  dialogState.current = { type: 'remoteConnection' }
 }
 
 export function showRemoteAcceptDevice(device: {

@@ -7,7 +7,6 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
-  import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
@@ -205,6 +204,16 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    // When the branch-create sub-view is open, this window-level handler must
+    // not drive the (hidden) task list. Escape returns to the list; every other
+    // key is left to the sub-view's own inputs.
+    if (selectedTask) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        cancelBranchCreation()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       closeDialog()
     } else if (e.key === 'ArrowDown') {
@@ -253,11 +262,11 @@
     e.stopPropagation()
     const result = getActiveAgentPane()
     if (!result) return
-    const context = await fetchAndFormatTaskContext(
+    const context = await window.api.taskTrackerBuildTaskContext({
       connectionId,
       task,
-      workspaceState.repoRoot ?? undefined,
-    )
+      repoRoot: workspaceState.repoRoot ?? undefined,
+    })
     await switchTab(result.tabId)
     await window.api.agentSendTaskContext({
       text: context,

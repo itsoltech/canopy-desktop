@@ -118,12 +118,24 @@ export class GitHubService {
   > {
     return this.getRepoIdentifier(repoRoot).map((repo) => {
       const connections = this.taskTrackerManager.getConnections()
-      // Match by exact projectKey, or empty projectKey on same host (or github.com default)
+      // Match by exact projectKey, or empty projectKey on same host (or github.com default).
+      // Security: the host check applies to BOTH branches. The token must only ever be
+      // sent to the host the repo's git remote points at — `repo.host`/`repo.apiUrl` are
+      // derived from the (untrusted) remote URL. Matching on projectKey (owner/repo) alone
+      // would leak a connection's token to a look-alike host: opening a repo whose remote
+      // is https://evil.com/owner/repo.git would match a github.com connection configured
+      // for owner/repo and POST its token to evil.com.
       const match = connections.find((c) => {
         if (c.provider !== 'github') return false
+        let connHost: string
+        try {
+          connHost = c.baseUrl ? new URL(c.baseUrl).hostname : 'github.com'
+        } catch {
+          return false
+        }
+        if (connHost !== repo.host) return false
         if (c.projectKey) return c.projectKey === `${repo.owner}/${repo.repo}`
-        const connHost = c.baseUrl ? new URL(c.baseUrl).hostname : 'github.com'
-        return connHost === repo.host
+        return true
       })
       if (!match) return null
 

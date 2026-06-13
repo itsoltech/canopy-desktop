@@ -148,6 +148,13 @@ export type CallArgs<M extends RpcMethodName> = RpcMethods[M]['params'] extends 
  * Only put methods here where a per-call prompt is tolerable (one-shot
  * operations like closing a tab or killing a PTY) — anything on a
  * keystroke path belongs in `SESSION_GRANTABLE_METHODS` instead.
+ *
+ * This must cover every privileged one-shot mutation, not just data-loss ones:
+ * spawning a host process (`tools.spawn`), attaching an arbitrary directory to
+ * the workspace (`project.attach`), and creating worktrees on disk
+ * (`worktree.add`/`worktree.addCheckout`) are all peer-initiated side effects
+ * that must be confirmed under the `'destructive'` profile, just like
+ * `worktree.remove`. Otherwise they fall through to an unconfirmed allow.
  */
 export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'tabs.close',
@@ -157,6 +164,7 @@ export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethod
   // expansion) to the host workspace, so they need a per-call host prompt in
   // the default `destructive` profile — same treatment as `worktree.remove`,
   // which would otherwise be the only gated worktree operation.
+  'tools.spawn',
   'worktree.add',
   'worktree.addCheckout',
   'worktree.remove',

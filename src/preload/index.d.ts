@@ -1,9 +1,17 @@
 import type {
   AgentCommandResult,
+  AppStateSnapshot,
+  CloseWarningResult,
+  CloseWarningTarget,
+  EditorFileLoadResult,
+  EditorFileSaveResult,
+  EditorFileSnapshot,
   RunConfigCommandResult,
   RunConfigProcessSnapshot,
-  TabSnapshot,
+  TabCloseAllPreflightResult,
+  TabClosePreflightResult,
   TabCommandResult,
+  TabStateSnapshot,
   WorkspaceCommandResult,
 } from '../main/commands/types'
 
@@ -100,10 +108,106 @@ interface GitPushInfo {
   commitCount: number
 }
 
+type GitPreparePushResult =
+  | {
+      hasUpstream: false
+      confirmationMessage: string
+    }
+  | {
+      hasUpstream: true
+      branch: string
+      remote: string
+      commitCount: number
+      confirmationMessage: string
+    }
+
 interface GitBranchList {
   local: string[]
   remote: string[]
   current: string | null
+}
+
+interface WorktreeRemoveWithBranchInput {
+  repoRoot: string
+  worktreePath: string
+  branch?: string
+  deleteBranch?: boolean
+  forceOnFailure?: boolean
+}
+
+interface WorktreePrepareRemoveInput {
+  repoRoot: string
+  worktreePath: string
+  branch: string
+}
+
+interface WorktreePrepareRemoveResult {
+  hasUncommittedChanges: boolean
+  unmergedCommitCount: number
+  branchMerged: boolean
+  forceRequired: boolean
+  canDeleteBranch: boolean
+  warnings: string[]
+}
+
+interface WorktreeGetMergedBranchesInput {
+  repoRoot: string
+  branches: string[]
+}
+
+interface WorktreeGetMergedBranchesResult {
+  mergedBranches: string[]
+}
+
+interface GitBranchPrepareDeleteInput {
+  repoRoot: string
+  branch: string
+}
+
+interface GitBranchPrepareDeleteResult {
+  branchMerged: boolean
+  forceRequired: boolean
+  warnings: string[]
+}
+
+interface GitBranchDeleteWithPreflightInput {
+  repoRoot: string
+  branch: string
+  forceIfUnmerged?: boolean
+}
+
+interface GitBranchDeleteWithPreflightResult {
+  branchDeleted: boolean
+  forcedBranchDelete: boolean
+  branchMerged: boolean
+}
+
+type WorktreeCreateInput =
+  | {
+      repoRoot: string
+      worktreePath: string
+      mode: 'new'
+      branch: string
+      baseBranch: string
+    }
+  | {
+      repoRoot: string
+      worktreePath: string
+      mode: 'existing'
+      branch: string
+      createLocalTracking?: boolean
+    }
+
+interface WorktreeCreateResult {
+  branch: string
+  worktreePath: string
+}
+
+interface WorktreeRemoveWithBranchResult {
+  worktreeRemoved: boolean
+  branchDeleted: boolean
+  forcedWorktreeRemove: boolean
+  forcedBranchDelete: boolean
 }
 
 interface AgentHookEventData {
@@ -189,16 +293,10 @@ interface DirEntry {
   size: number
 }
 
-type FileReadResult =
-  | { content: string; truncated: boolean; size: number; binary: false }
-  | { binary: true; size: number }
-
-type FileWriteResult = import('../main/ipc/fsErrors').FsWriteFileResponse
-
-interface FileStatResult {
-  mtimeMs: number
-  size: number
-  canWrite: boolean
+interface FileTreeGitStatus {
+  statuses: Record<string, string>
+  changedDirs: string[]
+  affectedPaths: string[]
 }
 
 interface CanopyAPI {
@@ -256,7 +354,6 @@ interface CanopyAPI {
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
-  hasChildProcess: (sessionId: string) => Promise<boolean>
   getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
 
   // Tmux
@@ -286,6 +383,14 @@ interface CanopyAPI {
   workspaceDetachProject: (path: string) => Promise<WorkspaceCommandResult>
   workspaceSelectWorktree: (path: string) => Promise<WorkspaceCommandResult>
   workspaceInitGitRepo: (path: string) => Promise<WorkspaceCommandResult>
+  getAppState: () => Promise<AppStateSnapshot>
+  getStartupRestoreState: () => Promise<{ restoring: boolean }>
+  completeStartupRestore: () => Promise<void>
+  onAppStateChanged: (callback: (snapshot: AppStateSnapshot) => void) => () => void
+  fileTreeReadDir: (dirPath: string) => Promise<DirEntry[]>
+  fileTreeCreateFile: (filePath: string) => Promise<void>
+  fileTreeCreateDirectory: (dirPath: string) => Promise<void>
+  fileTreeGetGitStatus: (repoRoot: string, worktreePath: string) => Promise<FileTreeGitStatus>
 
   // Preferences
   getPref: (key: string) => Promise<string | null>
@@ -327,10 +432,106 @@ interface CanopyAPI {
       profileId?: string
       workspaceName?: string
       branch?: string
-      tabs?: TabSnapshot[]
-      activeTabId?: string | null
     },
   ) => Promise<TabCommandResult>
+  tabOpenDiff: (worktreePath: string) => Promise<TabCommandResult>
+  tabOpenSessionTab: (
+    worktreePath: string,
+    name: string,
+    sessionId: string,
+  ) => Promise<TabCommandResult>
+  tabOpenEditorFile: (worktreePath: string, filePath: string) => Promise<TabCommandResult>
+  tabDetachEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+  ) => Promise<TabCommandResult>
+  tabCloseEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+  ) => Promise<TabCommandResult>
+  tabPrepareCloseEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+  ) => Promise<TabClosePreflightResult>
+  tabMoveEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+    toIndex: number,
+  ) => Promise<TabCommandResult>
+  tabMoveEditorFileBetweenPanes: (
+    worktreePath: string,
+    sourcePaneId: string,
+    targetPaneId: string,
+    filePath: string,
+    toIndex: number,
+  ) => Promise<TabCommandResult>
+  tabSetActiveEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+  ) => Promise<TabCommandResult>
+  tabUpdateEditorFileState: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+    patch: Partial<EditorFileSnapshot>,
+  ) => Promise<TabCommandResult>
+  tabLoadEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+    options?: { maxBytes?: number },
+  ) => Promise<EditorFileLoadResult>
+  tabSaveEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+    options: {
+      content: string
+      fileLineEnding?: 'LF' | 'CRLF'
+      expectedMtimeMs?: number
+    },
+  ) => Promise<EditorFileSaveResult>
+  tabUpdatePaneTitle: (
+    worktreePath: string,
+    sessionId: string,
+    title: string,
+  ) => Promise<TabCommandResult>
+  tabUpdatePaneUrl: (
+    worktreePath: string,
+    sessionId: string,
+    url: string,
+  ) => Promise<TabCommandResult>
+  tabUpdateTmuxSessionName: (
+    worktreePath: string,
+    oldName: string,
+    newName: string,
+  ) => Promise<TabCommandResult>
+  tabHandlePtyExit: (
+    worktreePath: string,
+    sessionId: string,
+    exitCode: number,
+    tmuxSessionName?: string,
+  ) => Promise<TabCommandResult>
+  tabKillTmuxPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+  ) => Promise<TabCommandResult>
+  tabReattachTmuxPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+    },
+  ) => Promise<TabCommandResult>
+  tabToggleFocusedInspector: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
   tabRestartPane: (
     worktreePath: string,
     tabId: string,
@@ -338,14 +539,54 @@ interface CanopyAPI {
     options?: {
       workspaceName?: string
       branch?: string
-      tabs?: TabSnapshot[]
-      activeTabId?: string | null
     },
   ) => Promise<TabCommandResult>
-  tabCloseTab: (
+  tabCloseTab: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
+  tabPrepareCloseTab: (worktreePath: string, tabId: string) => Promise<TabClosePreflightResult>
+  tabPrepareCloseAllForWorktree: (
     worktreePath: string,
-    tabId: string,
-    options?: { tabs?: TabSnapshot[]; activeTabId?: string | null },
+    options?: { confirmedActiveProcesses?: boolean },
+  ) => Promise<TabCloseAllPreflightResult>
+  tabGetCloseWarning: (
+    worktreePath: string,
+    target: CloseWarningTarget,
+  ) => Promise<CloseWarningResult>
+  tabReopenClosedTab: (
+    worktreePath: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+    },
+  ) => Promise<TabCommandResult>
+  tabClosePane: (worktreePath: string, tabId: string, paneId: string) => Promise<TabCommandResult>
+  tabCloseAllForWorktree: (worktreePath: string) => Promise<TabCommandResult>
+  tabSetActiveTab: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
+  tabMoveTab: (
+    worktreePath: string,
+    fromIndex: number,
+    toIndex: number,
+  ) => Promise<TabCommandResult>
+  tabMoveTabToSplit: (
+    worktreePath: string,
+    sourceTabId: string,
+    targetTabId: string,
+    targetPaneId: string,
+    direction: 'horizontal' | 'vertical',
+    position: 'first' | 'second',
+  ) => Promise<TabCommandResult>
+  tabMovePaneToTarget: (
+    worktreePath: string,
+    sourceTabId: string,
+    sourcePaneId: string,
+    targetTabId: string,
+    targetPaneId: string,
+    direction: 'horizontal' | 'vertical',
+    position: 'first' | 'second',
+  ) => Promise<TabCommandResult>
+  tabDetachPaneToTab: (
+    worktreePath: string,
+    sourceTabId: string,
+    sourcePaneId: string,
   ) => Promise<TabCommandResult>
   tabSpawnPane: (
     toolId: string,
@@ -358,8 +599,43 @@ interface CanopyAPI {
       resumeSessionId?: string
     },
   ) => Promise<PaneSnapshot>
-  tabSaveLayout: (worktreePath: string, layoutJson: string) => Promise<void>
-  tabDeleteLayout: (worktreePath: string) => Promise<void>
+  tabSplitPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+    direction: 'horizontal' | 'vertical',
+  ) => Promise<TabCommandResult>
+  tabFocusPane: (worktreePath: string, tabId: string, paneId: string) => Promise<TabCommandResult>
+  tabNavigatePaneFocus: (
+    worktreePath: string,
+    tabId: string,
+    direction: 'left' | 'right' | 'up' | 'down',
+  ) => Promise<TabCommandResult>
+  tabUpdateSplitRatio: (
+    worktreePath: string,
+    tabId: string,
+    splitId: string,
+    ratio: number,
+  ) => Promise<TabCommandResult>
+  tabRestoreLayout: (
+    worktreePath: string,
+    layoutJson: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+    },
+  ) => Promise<TabCommandResult & { restored: boolean }>
+  tabResumeSuspendedTab: (
+    worktreePath: string,
+    tabId: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+    },
+  ) => Promise<TabCommandResult>
+  tabKillAll: () => Promise<TabStateSnapshot>
+  tabFocusSession: (sessionId: string) => Promise<TabCommandResult | null>
+  tabSaveCurrentLayout: (worktreePath: string) => Promise<void>
 
   agentSendTaskContext: (payload: {
     text: string
@@ -426,16 +702,31 @@ interface CanopyAPI {
   gitCommit: (repoRoot: string, message: string, stageAll?: boolean) => Promise<GitCommitResult>
   gitPush: (repoRoot: string) => Promise<{ branch: string; remote: string }>
   gitPull: (repoRoot: string, rebase: boolean) => Promise<{ summary: string }>
+  gitPullWithPreferences: (payload: { repoRoot: string }) => Promise<{
+    summary: string
+    rebase: boolean
+  }>
+  gitCommitWorktree: (payload: {
+    repoRoot: string
+    message: string
+    stageAll?: boolean
+  }) => Promise<GitCommitResult>
+  gitPushWorktree: (payload: { repoRoot: string }) => Promise<{ branch: string; remote: string }>
+  gitFetchWorktree: (payload: { repoRoot: string }) => Promise<void>
   gitFetch: (repoRoot: string) => Promise<void>
   gitFetchAll: (repoRoot: string) => Promise<void>
+  gitStashWorktree: (payload: { repoRoot: string }) => Promise<void>
   gitStash: (repoRoot: string) => Promise<void>
+  gitStashPopWorktree: (payload: { repoRoot: string }) => Promise<void>
   gitStashPop: (repoRoot: string) => Promise<void>
   gitBranches: (repoRoot: string) => Promise<GitBranchList>
   gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) => Promise<void>
+  gitBranchCreateFromHead: (payload: { repoRoot: string; branch: string }) => Promise<void>
   gitCheckout: (repoRoot: string, branch: string) => Promise<void>
   gitBranchDelete: (repoRoot: string, name: string, force: boolean) => Promise<void>
   gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) => Promise<void>
   gitPushInfo: (repoRoot: string) => Promise<GitPushInfo | null>
+  gitPreparePush: (payload: { repoRoot: string }) => Promise<GitPreparePushResult>
   gitBranchMerged: (repoRoot: string, branch: string) => Promise<boolean>
   gitWorktreeAdd: (
     repoRoot: string,
@@ -450,8 +741,29 @@ interface CanopyAPI {
     createLocalTracking: boolean,
   ) => Promise<void>
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) => Promise<void>
+  worktreeCreate: (payload: WorktreeCreateInput) => Promise<WorktreeCreateResult>
+  worktreePrepareRemove: (
+    payload: WorktreePrepareRemoveInput,
+  ) => Promise<WorktreePrepareRemoveResult>
+  worktreeGetMergedBranches: (
+    payload: WorktreeGetMergedBranchesInput,
+  ) => Promise<WorktreeGetMergedBranchesResult>
+  worktreeListBranches: (payload: { repoRoot: string }) => Promise<GitBranchList>
+  worktreeRefreshBranches: (payload: { repoRoot: string }) => Promise<GitBranchList>
+  gitBranchPrepareDelete: (
+    payload: GitBranchPrepareDeleteInput,
+  ) => Promise<GitBranchPrepareDeleteResult>
+  gitBranchDeleteWithPreflight: (
+    payload: GitBranchDeleteWithPreflightInput,
+  ) => Promise<GitBranchDeleteWithPreflightResult>
+  worktreeRemoveWithBranch: (
+    payload: WorktreeRemoveWithBranchInput,
+  ) => Promise<WorktreeRemoveWithBranchResult>
   gitUnmergedCommits: (repoRoot: string, branch: string) => Promise<string[]>
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) => Promise<string>
+  changesGetDiff: (payload: { worktreePath: string }) => Promise<ParsedDiff>
+  changesStageFile: (payload: { worktreePath: string; filePath: string }) => Promise<void>
+  changesRevertFile: (payload: { worktreePath: string; filePath: string }) => Promise<void>
   gitDiff: (repoRoot: string) => Promise<ParsedDiff>
   gitDiffFile: (repoRoot: string, filePath: string) => Promise<ParsedDiff>
   gitStageFile: (repoRoot: string, filePath: string) => Promise<void>
@@ -587,19 +899,8 @@ interface CanopyAPI {
   onMenuShowPreferences: (callback: () => void) => () => void
 
   // Filesystem
-  readDir: (dirPath: string) => Promise<DirEntry[]>
-  readFile: (filePath: string, maxBytes?: number) => Promise<FileReadResult>
-  writeFile: (
-    filePath: string,
-    content: string,
-    expectedMtimeMs?: number,
-  ) => Promise<FileWriteResult>
-  createFile: (filePath: string) => Promise<void>
-  mkdir: (dirPath: string) => Promise<void>
-  statFile: (filePath: string) => Promise<FileStatResult>
   quickOpenListFiles: (worktreePath: string, force?: boolean) => Promise<string[]>
   quickOpenInvalidateCache: (worktreePath: string) => Promise<void>
-  confirmUnsavedChanges: (filePaths: string[]) => Promise<'save' | 'discard' | 'cancel'>
 
   // Repo Config
   repoConfigLoad: (repoRoot: string) => Promise<RepoConfig | null>
@@ -734,6 +1035,7 @@ interface CanopyAPI {
     filename: string,
   ) => Promise<string>
   taskTrackerCleanupAttachments: (filePaths: string[]) => Promise<void>
+  taskTrackerBuildTaskContext: (payload: TaskTrackerBuildTaskContextInput) => Promise<string>
   taskTrackerResolveBranchName: (
     connectionId: string,
     task: TrackerTask,
@@ -741,6 +1043,15 @@ interface CanopyAPI {
     branchType?: string,
     repoRoot?: string,
   ) => Promise<string>
+  taskTrackerPrepareBranchFromTask: (
+    payload: TaskTrackerBranchFromTaskInput,
+  ) => Promise<TaskTrackerBranchFromTaskResult>
+  taskTrackerCreateBranchFromTask: (
+    payload: TaskTrackerCreateBranchFromTaskInput,
+  ) => Promise<TaskTrackerBranchFromTaskResult>
+  taskTrackerCreateWorktreeFromTask: (
+    payload: TaskTrackerCreateWorktreeFromTaskInput,
+  ) => Promise<TaskTrackerCreateWorktreeFromTaskResult>
   taskTrackerResolveBranchType: (
     taskType: string,
     connectionId?: string,
@@ -894,8 +1205,8 @@ interface RemoteNetworkInterface {
 }
 
 interface RemoteAPI {
-  start: () => Promise<{ pairingUrl: string }>
-  ensureListening: () => Promise<void>
+  start: (interfaceName?: string) => Promise<{ pairingUrl: string }>
+  ensureListening: (options?: { allowWithoutTrusted?: boolean }) => Promise<void>
   stop: () => Promise<void>
   getStatus: () => Promise<RemoteSessionStatus>
   acceptDevice: (remember: boolean) => Promise<void>
@@ -903,6 +1214,7 @@ interface RemoteAPI {
   sendSignal: (msg: unknown) => Promise<void>
   listTrustedDevices: () => Promise<RemoteTrustedDevice[]>
   removeTrustedDevice: (deviceId: string) => Promise<void>
+  renameTrustedDevice: (deviceId: string, name: string) => Promise<void>
   listNetworkInterfaces: () => Promise<RemoteNetworkInterface[]>
   onStatusChange: (callback: (status: RemoteSessionStatus) => void) => () => void
   onSignal: (callback: (msg: unknown) => void) => () => void
@@ -989,6 +1301,39 @@ interface TrackerTask {
   sprintNumber?: number
   assignee?: string
   url?: string
+}
+
+interface TaskTrackerBranchFromTaskInput {
+  connectionId: string
+  task: TrackerTask
+  boardId?: string
+  branchType?: string
+  repoRoot: string
+}
+
+interface TaskTrackerCreateBranchFromTaskInput extends TaskTrackerBranchFromTaskInput {
+  baseBranch: string
+  stashBeforeCreate?: boolean
+}
+
+interface TaskTrackerCreateWorktreeFromTaskInput extends TaskTrackerBranchFromTaskInput {
+  worktreePath: string
+  baseBranch: string
+}
+
+interface TaskTrackerBranchFromTaskResult {
+  branchName: string
+}
+
+interface TaskTrackerCreateWorktreeFromTaskResult extends TaskTrackerBranchFromTaskResult {
+  worktreePath: string
+}
+
+interface TaskTrackerBuildTaskContextInput {
+  connectionId: string
+  task: TrackerTask
+  repoRoot?: string
+  trackerId?: string
 }
 
 interface TrackerBoard {

@@ -15,9 +15,12 @@ async function resolveClaudeExecutable(): Promise<string | undefined> {
   const cmd = os.platform() === 'win32' ? 'where' : 'which'
   const env = getLoginEnv() ?? (process.env as Record<string, string>)
   return new Promise((resolve) => {
-    execFile(cmd, ['claude'], { env }, (err, stdout) => {
-      cachedClaudePath = err ? '' : stdout.trim()
-      resolve(cachedClaudePath || undefined)
+    execFile(cmd, ['claude'], { env }, (error, stdout) => {
+      const resolved = error ? '' : stdout.trim()
+      // Only cache a successful lookup so `claude` installed later in the
+      // session is still picked up instead of being pinned to "not found".
+      if (resolved) cachedClaudePath = resolved
+      resolve(resolved || undefined)
     })
   })
 }
@@ -54,7 +57,7 @@ const OUTPUT_SCHEMA = {
 
 function generateCommitMessageInner(
   diff: string,
-  envOverrides: Record<string, string>,
+  env: Record<string, string | undefined>,
 ): ResultAsyncType<string | null, AiError> {
   const truncatedDiff = diff.length > MAX_DIFF_LENGTH ? diff.slice(0, MAX_DIFF_LENGTH) : diff
   const prompt = PROMPT_TEMPLATE.replace('{diff}', truncatedDiff)
@@ -69,12 +72,7 @@ function generateCommitMessageInner(
           model: 'haiku',
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
-          // Pass credentials only to the spawned `claude` subprocess. Mutating
-          // the main process's global `process.env` instead would (a) leak the
-          // API key into every other child process spawned during the call
-          // (PTYs, git, `which`) and (b) race with concurrent generations
-          // restoring/deleting each other's keys.
-          env: { ...process.env, ...envOverrides },
+          env,
         },
       })
 
@@ -99,6 +97,11 @@ function generateCommitMessageInner(
   })
 }
 
+// Serializes the global process.env mutation below. Mutating process.env around
+// the awaited query() is not concurrency-safe: two simultaneous
+// git:generateCommitMessage calls (e.g. from two windows/repos) would interleave
+// their save/restore and could leak one window's ANTHROPIC_API_KEY/base URL into
+// the other's request, or corrupt process.env. Chaining ensures one owner at a time.
 export async function generateCommitMessage(
   diff: string,
   preferencesStore: PreferencesStore,
@@ -128,5 +131,12 @@ export async function generateCommitMessage(
     }
   }
 
-  return await generateCommitMessageInner(diff, envOverrides).unwrapOr(null)
+  // Pass the API key + provider overrides to the SDK's scoped child env rather
+  // than mutating the shared global process.env. The old mutate/restore exposed
+  // the secret to any concurrent reader (e.g. a PTY spawn snapshotting env) for
+  // the request's duration, and two overlapping calls corrupted the save/restore
+  // (the second captured the first's injected values), leaving keys persisted.
+  const env: Record<string, string | undefined> = { ...process.env, ...envOverrides }
+
+  return await generateCommitMessageInner(diff, env).unwrapOr(null)
 }

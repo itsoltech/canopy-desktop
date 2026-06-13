@@ -17,7 +17,8 @@ import { codexAdapter } from './adapters/codex'
 interface AgentSession {
   agentType: AgentType
   adapter: AgentAdapter
-  agentSessionId: string
+  hookSessionId: string
+  agentSessionId?: string
   ptySessionId: string
   settingsSetup: SettingsSetup
   hookPort: number
@@ -84,8 +85,8 @@ export class AgentSessionManager extends EventEmitter {
     const adapter = getAdapter(toolId)
     if (!adapter) throw new Error(`No agent adapter for tool: ${toolId}`)
 
-    const agentSessionId = randomUUID()
-    const tempId = `_agent_${agentSessionId}`
+    const hookSessionId = randomUUID()
+    const tempId = `_agent_${hookSessionId}`
     const sessionRef = { ptySessionId: tempId }
 
     const {
@@ -93,9 +94,10 @@ export class AgentSessionManager extends EventEmitter {
       path: hookPath,
       authToken: hookAuthToken,
     } = await this.router.addSession(
-      agentSessionId,
+      hookSessionId,
       (rawEvent: Record<string, unknown>): Record<string, unknown> | void => {
         const normalized = adapter.normalizeEvent(rawEvent)
+        this.updateAgentSessionId(sessionRef.ptySessionId, normalized.sessionId)
 
         // Track busy state
         const rawName = (rawEvent.hook_event_name as string) ?? ''
@@ -179,7 +181,7 @@ export class AgentSessionManager extends EventEmitter {
       }
     }
 
-    const settingsPath = join(this.hooksDir, `session-${agentSessionId}.json`)
+    const settingsPath = join(this.hooksDir, `session-${hookSessionId}.json`)
     const settingsSetup = adapter.setupSettings(
       settingsPath,
       worktreePath,
@@ -191,7 +193,7 @@ export class AgentSessionManager extends EventEmitter {
     const session: AgentSession = {
       agentType: adapter.agentType,
       adapter,
-      agentSessionId,
+      hookSessionId,
       ptySessionId: tempId,
       settingsSetup,
       hookPort,
@@ -232,6 +234,13 @@ export class AgentSessionManager extends EventEmitter {
     return adapter?.buildResumeArgs?.(resumeSessionId) ?? []
   }
 
+  updateAgentSessionId(ptySessionId: string, agentSessionId: string): void {
+    if (!agentSessionId) return
+    const session = this.sessions.get(ptySessionId)
+    if (!session) return
+    session.agentSessionId = agentSessionId
+  }
+
   rekey(tempId: string, realPtySessionId: string): void {
     const session = this.sessions.get(tempId)
     if (!session) return
@@ -257,7 +266,7 @@ export class AgentSessionManager extends EventEmitter {
     const session = this.sessions.get(ptySessionId)
     if (!session) return
 
-    this.router.removeSession(session.agentSessionId)
+    this.router.removeSession(session.hookSessionId)
     session.settingsSetup.cleanup()
     this.busySessions.delete(ptySessionId)
     this.emit('sessionDestroyed', ptySessionId)
@@ -294,7 +303,8 @@ export class AgentSessionManager extends EventEmitter {
   }
 
   dispose(): void {
-    for (const [id] of this.sessions) {
+    // Snapshot the keys first — destroySession mutates this.sessions while we iterate.
+    for (const id of [...this.sessions.keys()]) {
       this.destroySession(id)
     }
     this.busySessions.clear()

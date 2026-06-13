@@ -89,6 +89,9 @@
       destructive: true,
     })
     if (!ok) return
+    // Drop stale reveal state for this key so re-adding a variable with the
+    // same name later doesn't render its value unmasked.
+    revealed.delete(entry.key)
     persistEnvEntries(envEntries.filter((_, i) => i !== index))
   }
 </script>

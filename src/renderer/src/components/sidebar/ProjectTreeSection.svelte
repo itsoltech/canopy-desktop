@@ -1,5 +1,6 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
+  import { untrack } from 'svelte'
   import { ChevronRight, Square, Trash2, X } from '@lucide/svelte'
   import { fileManagerLabel } from '../../lib/platform'
   import {
@@ -79,29 +80,30 @@
 
   async function checkMergedStatus(project: ProjectState, signal: AbortSignal): Promise<void> {
     if (!project.isGitRepo || !project.repoRoot) return
-    const checks = project.worktrees
-      .filter((wt) => !wt.isMain)
-      .map(async (wt) => {
-        const merged = await window.api.gitBranchMerged(project.repoRoot!, wt.branch)
-        return { branch: wt.branch, merged }
-      })
-    const results = await Promise.all(checks)
+    const branches = project.worktrees
+      .filter((wt) => !wt.isMain && wt.branch !== '(detached)')
+      .map((wt) => wt.branch)
+    const result =
+      branches.length > 0
+        ? await window.api.worktreeGetMergedBranches({ repoRoot: project.repoRoot, branches })
+        : { mergedBranches: [] }
     if (signal.aborted) return
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- temporary local Set, not reactive state
     const next = new Set<string>()
-    for (const r of results) {
-      if (r.merged) next.add(r.branch)
+    for (const branch of result.mergedBranches) {
+      next.add(branch)
     }
-    mergedBranches = { ...mergedBranches, [project.workspace.path]: next }
+    mergedBranches = untrack(() => ({ ...mergedBranches, [project.workspace.path]: next }))
   }
 
   $effect(() => {
     const ac = new AbortController()
-    const deps = projects.map((p) => p.worktrees.length)
-    if (deps.length >= 0) {
-      for (const p of projects) {
-        checkMergedStatus(p, ac.signal)
-      }
+    // Read each project's worktree count so the effect re-runs when worktrees
+    // are added/removed. The previous `deps.length >= 0` guard was always true
+    // (see WorktreeSection for the same fix).
+    for (const p of projects) void p.worktrees.length
+    for (const p of projects) {
+      checkMergedStatus(p, ac.signal)
     }
     return () => ac.abort()
   })
@@ -137,23 +139,22 @@
     if (!project.repoRoot || removingPaths.has(wt.path)) return
     removingPaths.add(wt.path)
 
-    await closeAllTabsForWorktree(wt.path)
-
-    const isDetached = wt.branch === '(detached)'
     try {
-      await window.api.gitWorktreeRemove(project.repoRoot, wt.path, false)
-      if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, false)
-    } catch {
-      try {
-        await window.api.gitWorktreeRemove(project.repoRoot, wt.path, true)
-        if (!isDetached) await window.api.gitBranchDelete(project.repoRoot, wt.branch, true)
-      } catch {
-        removingPaths.delete(wt.path)
-        return
-      }
-    }
+      if (!(await closeAllTabsForWorktree(wt.path))) return
 
-    removingPaths.delete(wt.path)
+      const isDetached = wt.branch === '(detached)'
+      await window.api.worktreeRemoveWithBranch({
+        repoRoot: project.repoRoot,
+        worktreePath: wt.path,
+        branch: wt.branch,
+        deleteBranch: !isDetached,
+        forceOnFailure: true,
+      })
+    } catch {
+      return
+    } finally {
+      removingPaths.delete(wt.path)
+    }
 
     if (workspaceState.selectedWorktreePath === wt.path) {
       const main = project.worktrees.find((w) => w.isMain)
@@ -518,6 +519,7 @@
                 <button
                   class="{badge.className} flex-shrink-0 mr-1"
                   title={`${pr.title} — click to open`}
+                  aria-label={`Open pull request: ${pr.title}`}
                   onclick={(e) => {
                     e.stopPropagation()
                     window.api.openExternal(pr.url)

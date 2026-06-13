@@ -13,6 +13,7 @@ import type {
   CommandWarning,
   ProjectSnapshot,
   WorkspaceCommandResult,
+  WorkspaceSnapshot,
   WorkspaceStateSnapshot,
 } from './types'
 
@@ -34,6 +35,7 @@ interface WorkspaceCommandServiceDeps {
   persistWindowConfigs: () => void
   validatePathAccess: (webContentsId: number, targetPath: string) => Promise<string>
   clearWorkspaceFileCache: (path: string) => void
+  emitAppStateChanged: (sender: WebContents) => void
 }
 
 interface AttachProjectOptions {
@@ -42,9 +44,12 @@ interface AttachProjectOptions {
   restoredLayouts: Array<{ worktreePath: string; layoutJson: string }>
 }
 
+type WorktreeStatusSnapshot = Pick<WorkspaceStateSnapshot, 'branch' | 'isDirty' | 'aheadBehind'>
+
 export class WorkspaceCommandService {
   private projectsByWindow = new Map<number, ProjectSnapshot[]>()
   private selectedWorktreeByWindow = new Map<number, string>()
+  private statusByWorktreeByWindow = new Map<number, Map<string, WorktreeStatusSnapshot>>()
   private grantedAttachPathsByWindow = new Map<number, Set<string>>()
   private trackedWebContents = new Set<number>()
 
@@ -89,11 +94,13 @@ export class WorkspaceCommandService {
     if (targetPath) {
       this.selectedWorktreeByWindow.set(sender.id, targetPath)
       this.deps.windowManager.setActiveWorktree(sender.id, targetPath)
+      await this.refreshSelectedWorktreeStatus(sender.id, targetPath)
       this.deps.persistWindowConfigs()
     }
 
     const result = this.result(sender.id, warnings, restoredLayouts)
     if (focusedExistingWindow) result.focusedExistingWindow = true
+    this.emitAppStateChanged(sender)
     return result
   }
 
@@ -108,6 +115,7 @@ export class WorkspaceCommandService {
     })
     const result = this.result(sender.id, warnings, restoredLayouts)
     if (focusedExistingWindow) result.focusedExistingWindow = true
+    this.emitAppStateChanged(sender)
     return result
   }
 
@@ -120,6 +128,7 @@ export class WorkspaceCommandService {
     const key = this.projectKey(project)
     this.deps.windowManager.removeWorkspacePath(sender.id, key)
     if (project.repoRoot) this.deps.windowManager.disposeGitWatcher(sender.id, project.repoRoot)
+    this.clearProjectStatus(sender.id, project)
 
     const ws = this.deps.workspaceStore.getByPath(key)
     if (ws) this.deps.layoutStore.deleteAll(ws.id)
@@ -144,7 +153,9 @@ export class WorkspaceCommandService {
     }
 
     this.deps.persistWindowConfigs()
-    return this.result(sender.id, [], [])
+    const result = this.result(sender.id, [], [])
+    this.emitAppStateChanged(sender)
+    return result
   }
 
   async selectWorktree(sender: WebContents, worktreePath: string): Promise<WorkspaceCommandResult> {
@@ -157,8 +168,18 @@ export class WorkspaceCommandService {
     }
     this.selectedWorktreeByWindow.set(sender.id, worktreePath)
     this.deps.windowManager.setActiveWorktree(sender.id, worktreePath)
+    await this.refreshSelectedWorktreeStatus(sender.id, worktreePath)
     this.deps.persistWindowConfigs()
-    return this.result(sender.id, [], [])
+    const result = this.result(sender.id, [], [])
+    this.emitAppStateChanged(sender)
+    return result
+  }
+
+  getSnapshot(webContentsId: number): WorkspaceSnapshot {
+    return {
+      projects: this.getProjects(webContentsId),
+      workspaceState: this.workspaceState(webContentsId),
+    }
   }
 
   getWorkspaceIdForWorktree(webContentsId: number, worktreePath: string): string | null {
@@ -189,6 +210,7 @@ export class WorkspaceCommandService {
         worktree.path === detectedProjectRoot ? { ...worktree, path: projectRoot } : worktree,
       ),
     }
+    this.updateGitStatusCache(sender.id, info)
     const projects = this.getProjects(sender.id)
     const projectIndex = projects.findIndex(
       (project) =>
@@ -225,7 +247,9 @@ export class WorkspaceCommandService {
     }
 
     this.deps.persistWindowConfigs()
-    return this.result(sender.id, warnings, [])
+    const result = this.result(sender.id, warnings, [])
+    this.emitAppStateChanged(sender)
+    return result
   }
 
   private async attachProjectSnapshot(
@@ -274,6 +298,7 @@ export class WorkspaceCommandService {
     }
 
     this.projectsByWindow.set(sender.id, [...projects, project])
+    this.updateGitStatusCache(sender.id, info)
 
     this.deps.windowManager.addWorkspacePath(sender.id, projectPath)
     this.deps.persistWindowConfigs()
@@ -320,6 +345,8 @@ export class WorkspaceCommandService {
           })
         }
         this.updateProjectGitInfo(sender.id, repoRoot, info)
+        this.updateGitStatusCache(sender.id, info)
+        this.emitAppStateChanged(sender)
         if (!sender.isDestroyed()) {
           sender.send('git:changed', { ...info, repoRoot, changes })
         }
@@ -363,9 +390,9 @@ export class WorkspaceCommandService {
     warnings: CommandWarning[],
     restoredLayouts: Array<{ worktreePath: string; layoutJson: string }>,
   ): WorkspaceCommandResult {
+    const snapshot = this.getSnapshot(webContentsId)
     return {
-      projects: this.getProjects(webContentsId),
-      workspaceState: this.workspaceState(webContentsId),
+      ...snapshot,
       ...(restoredLayouts.length > 0 ? { restoredLayouts } : {}),
       warnings,
     }
@@ -390,12 +417,15 @@ export class WorkspaceCommandService {
     const selectedWorktree = project.worktrees.find(
       (worktree) => worktree.path === selectedWorktreePath,
     )
+    const status = selectedWorktreePath
+      ? this.getWorktreeStatus(webContentsId, selectedWorktreePath)
+      : null
     return {
       project,
       selectedWorktreePath,
-      branch: selectedWorktree?.branch ?? null,
-      isDirty: false,
-      aheadBehind: null,
+      branch: status?.branch ?? selectedWorktree?.branch ?? null,
+      isDirty: status?.isDirty ?? false,
+      aheadBehind: status?.aheadBehind ?? null,
     }
   }
 
@@ -409,6 +439,7 @@ export class WorkspaceCommandService {
     sender.once('destroyed', () => {
       this.projectsByWindow.delete(sender.id)
       this.selectedWorktreeByWindow.delete(sender.id)
+      this.statusByWorktreeByWindow.delete(sender.id)
       this.grantedAttachPathsByWindow.delete(sender.id)
       this.trackedWebContents.delete(sender.id)
     })
@@ -456,6 +487,25 @@ export class WorkspaceCommandService {
     const info = await GitRepository.detect(worktreePath).unwrapOr(defaultGitInfo)
     if (!info.repoRoot) return
     this.updateProjectGitInfo(webContentsId, info.repoRoot, info)
+    this.updateGitStatusCache(webContentsId, info)
+  }
+
+  private async refreshSelectedWorktreeStatus(
+    webContentsId: number,
+    worktreePath: string,
+  ): Promise<void> {
+    const project = this.getProjectForWorktree(webContentsId, worktreePath)
+    if (!project?.isGitRepo) return
+
+    const info = await GitRepository.detect(worktreePath).unwrapOr(defaultGitInfo)
+    if (!info.isGitRepo) return
+
+    const worktree = info.worktrees.find((candidate) => candidate.path === worktreePath)
+    this.setWorktreeStatus(webContentsId, worktreePath, {
+      branch: worktree?.branch ?? info.branch,
+      isDirty: info.isDirty,
+      aheadBehind: info.aheadBehind,
+    })
   }
 
   private updateProjectGitInfo(webContentsId: number, repoRoot: string, info: GitInfo): void {
@@ -481,6 +531,57 @@ export class WorkspaceCommandService {
     this.projectsByWindow.set(webContentsId, projects)
   }
 
+  private updateGitStatusCache(webContentsId: number, info: GitInfo): void {
+    const mainWorktreePath = info.worktrees.find((worktree) => worktree.isMain)?.path
+    const repoStatus: WorktreeStatusSnapshot = {
+      branch: info.branch,
+      isDirty: info.isDirty,
+      aheadBehind: info.aheadBehind,
+    }
+
+    if (info.repoRoot) this.setWorktreeStatus(webContentsId, info.repoRoot, repoStatus)
+    if (mainWorktreePath) this.setWorktreeStatus(webContentsId, mainWorktreePath, repoStatus)
+
+    for (const worktree of info.worktrees) {
+      if (worktree.path === mainWorktreePath) continue
+      const existing = this.getWorktreeStatus(webContentsId, worktree.path)
+      this.setWorktreeStatus(webContentsId, worktree.path, {
+        branch: worktree.branch ?? existing?.branch ?? null,
+        isDirty: existing?.isDirty ?? false,
+        aheadBehind: existing?.aheadBehind ?? null,
+      })
+    }
+  }
+
+  private setWorktreeStatus(
+    webContentsId: number,
+    worktreePath: string,
+    status: WorktreeStatusSnapshot,
+  ): void {
+    let statuses = this.statusByWorktreeByWindow.get(webContentsId)
+    if (!statuses) {
+      statuses = new Map()
+      this.statusByWorktreeByWindow.set(webContentsId, statuses)
+    }
+    statuses.set(worktreePath, status)
+  }
+
+  private getWorktreeStatus(
+    webContentsId: number,
+    worktreePath: string,
+  ): WorktreeStatusSnapshot | null {
+    return this.statusByWorktreeByWindow.get(webContentsId)?.get(worktreePath) ?? null
+  }
+
+  private clearProjectStatus(webContentsId: number, project: ProjectSnapshot): void {
+    const statuses = this.statusByWorktreeByWindow.get(webContentsId)
+    if (!statuses) return
+    for (const ownedPath of this.getOwnedPaths(project)) {
+      statuses.delete(ownedPath)
+    }
+    if (statuses.size === 0) this.statusByWorktreeByWindow.delete(webContentsId)
+  }
+
   private getDefaultWorktreePath(project: ProjectSnapshot | undefined): string | undefined {
     if (!project) return undefined
     if (!project.isGitRepo) return project.workspace.path
@@ -497,6 +598,11 @@ export class WorkspaceCommandService {
 
   private projectKey(project: ProjectSnapshot): string {
     return project.repoRoot ?? project.workspace.path
+  }
+
+  private emitAppStateChanged(sender: WebContents): void {
+    if (sender.isDestroyed()) return
+    this.deps.emitAppStateChanged(sender)
   }
 
   private stalePathsWarning(removedPaths: string[]): CommandWarning {

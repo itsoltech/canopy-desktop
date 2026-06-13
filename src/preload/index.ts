@@ -7,6 +7,15 @@ import type { CanopySkill } from '../main/skills/types'
 import type { RemoteSessionStatus } from '../main/remote/types'
 import type { AgentProfileMasked, ProfileInput } from '../main/profiles/types'
 import type { AgentType } from '../main/agents/types'
+import type {
+  AppStateSnapshot,
+  CloseWarningResult,
+  CloseWarningTarget,
+  EditorFileLoadResult,
+  EditorFileSaveResult,
+  TabCloseAllPreflightResult,
+  TabClosePreflightResult,
+} from '../main/commands/types'
 
 const api = {
   // PTY
@@ -16,8 +25,6 @@ const api = {
     ipcRenderer.invoke('pty:kill', { sessionId, killTmux }),
   writePty: (sessionId: string, data: string) =>
     ipcRenderer.invoke('pty:write', { sessionId, data }),
-  hasChildProcess: (sessionId: string) =>
-    ipcRenderer.invoke('pty:hasChildProcess', { sessionId }) as Promise<boolean>,
   getPtyDimensions: (sessionId: string) =>
     ipcRenderer.invoke('pty:getDimensions', { sessionId }) as Promise<{
       cols: number
@@ -64,6 +71,28 @@ const api = {
     ipcRenderer.invoke('workspace:command:selectWorktree', { path }),
   workspaceInitGitRepo: (path: string) =>
     ipcRenderer.invoke('workspace:command:initGitRepo', { path }),
+  getAppState: () => ipcRenderer.invoke('app:getState') as Promise<AppStateSnapshot>,
+  getStartupRestoreState: () =>
+    ipcRenderer.invoke('app:getStartupRestoreState') as Promise<{ restoring: boolean }>,
+  completeStartupRestore: () => ipcRenderer.invoke('app:completeStartupRestore') as Promise<void>,
+  onAppStateChanged: (callback: (snapshot: AppStateSnapshot) => void) => {
+    const handler = (_event: IpcRendererEvent, snapshot: AppStateSnapshot): void =>
+      callback(snapshot)
+    ipcRenderer.on('app:stateChanged', handler)
+    return (): void => {
+      ipcRenderer.removeListener('app:stateChanged', handler)
+    }
+  },
+  fileTreeReadDir: (dirPath: string) => ipcRenderer.invoke('fileTree:readDir', { dirPath }),
+  fileTreeCreateFile: (filePath: string) => ipcRenderer.invoke('fileTree:createFile', { filePath }),
+  fileTreeCreateDirectory: (dirPath: string) =>
+    ipcRenderer.invoke('fileTree:createDirectory', { dirPath }),
+  fileTreeGetGitStatus: (repoRoot: string, worktreePath: string) =>
+    ipcRenderer.invoke('fileTree:getGitStatus', { repoRoot, worktreePath }) as Promise<{
+      statuses: Record<string, string>
+      changedDirs: string[]
+      affectedPaths: string[]
+    }>,
 
   // Preferences
   getPref: (key: string) => ipcRenderer.invoke('db:prefs:get', { key }),
@@ -112,19 +141,169 @@ const api = {
       profileId?: string
       workspaceName?: string
       branch?: string
-      tabs?: unknown
-      activeTabId?: string | null
     },
-  ) => {
-    const { tabs, activeTabId, ...commandOptions } = options ?? {}
-    return ipcRenderer.invoke('tab:command:openTool', {
+  ) =>
+    ipcRenderer.invoke('tab:command:openTool', {
       toolId,
       worktreePath,
-      options: commandOptions,
-      tabs,
-      activeTabId,
-    })
-  },
+      options,
+    }),
+  tabOpenDiff: (worktreePath: string) =>
+    ipcRenderer.invoke('tab:command:openDiff', {
+      worktreePath,
+    }),
+  tabOpenSessionTab: (worktreePath: string, name: string, sessionId: string) =>
+    ipcRenderer.invoke('tab:command:openSessionTab', {
+      worktreePath,
+      name,
+      sessionId,
+    }),
+  tabOpenEditorFile: (worktreePath: string, filePath: string) =>
+    ipcRenderer.invoke('tab:command:openEditorFile', {
+      worktreePath,
+      filePath,
+    }),
+  tabDetachEditorFile: (worktreePath: string, paneId: string, filePath: string) =>
+    ipcRenderer.invoke('tab:command:detachEditorFile', {
+      worktreePath,
+      paneId,
+      filePath,
+    }),
+  tabCloseEditorFile: (worktreePath: string, paneId: string, filePath: string) =>
+    ipcRenderer.invoke('tab:command:closeEditorFile', {
+      worktreePath,
+      paneId,
+      filePath,
+    }),
+  tabPrepareCloseEditorFile: (worktreePath: string, paneId: string, filePath: string) =>
+    ipcRenderer.invoke('tab:command:prepareCloseEditorFile', {
+      worktreePath,
+      paneId,
+      filePath,
+    }) as Promise<TabClosePreflightResult>,
+  tabMoveEditorFile: (worktreePath: string, paneId: string, filePath: string, toIndex: number) =>
+    ipcRenderer.invoke('tab:command:moveEditorFile', {
+      worktreePath,
+      paneId,
+      filePath,
+      toIndex,
+    }),
+  tabMoveEditorFileBetweenPanes: (
+    worktreePath: string,
+    sourcePaneId: string,
+    targetPaneId: string,
+    filePath: string,
+    toIndex: number,
+  ) =>
+    ipcRenderer.invoke('tab:command:moveEditorFileBetweenPanes', {
+      worktreePath,
+      sourcePaneId,
+      targetPaneId,
+      filePath,
+      toIndex,
+    }),
+  tabSetActiveEditorFile: (worktreePath: string, paneId: string, filePath: string) =>
+    ipcRenderer.invoke('tab:command:setActiveEditorFile', {
+      worktreePath,
+      paneId,
+      filePath,
+    }),
+  tabUpdateEditorFileState: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+    patch: unknown,
+  ) =>
+    ipcRenderer.invoke('tab:command:updateEditorFileState', {
+      worktreePath,
+      paneId,
+      filePath,
+      patch,
+    }),
+  tabLoadEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+    options?: { maxBytes?: number },
+  ) =>
+    ipcRenderer.invoke('tab:command:loadEditorFile', {
+      worktreePath,
+      paneId,
+      filePath,
+      options,
+    }) as Promise<EditorFileLoadResult>,
+  tabSaveEditorFile: (
+    worktreePath: string,
+    paneId: string,
+    filePath: string,
+    options: {
+      content: string
+      fileLineEnding?: 'LF' | 'CRLF'
+      expectedMtimeMs?: number
+    },
+  ) =>
+    ipcRenderer.invoke('tab:command:saveEditorFile', {
+      worktreePath,
+      paneId,
+      filePath,
+      options,
+    }) as Promise<EditorFileSaveResult>,
+  tabUpdatePaneTitle: (worktreePath: string, sessionId: string, title: string) =>
+    ipcRenderer.invoke('tab:command:updatePaneTitle', {
+      worktreePath,
+      sessionId,
+      title,
+    }),
+  tabUpdatePaneUrl: (worktreePath: string, sessionId: string, url: string) =>
+    ipcRenderer.invoke('tab:command:updatePaneUrl', {
+      worktreePath,
+      sessionId,
+      url,
+    }),
+  tabUpdateTmuxSessionName: (worktreePath: string, oldName: string, newName: string) =>
+    ipcRenderer.invoke('tab:command:updateTmuxSessionName', {
+      worktreePath,
+      oldName,
+      newName,
+    }),
+  tabHandlePtyExit: (
+    worktreePath: string,
+    sessionId: string,
+    exitCode: number,
+    tmuxSessionName?: string,
+  ) =>
+    ipcRenderer.invoke('tab:command:handlePtyExit', {
+      worktreePath,
+      sessionId,
+      exitCode,
+      tmuxSessionName,
+    }),
+  tabKillTmuxPane: (worktreePath: string, tabId: string, paneId: string) =>
+    ipcRenderer.invoke('tab:command:killTmuxPane', {
+      worktreePath,
+      tabId,
+      paneId,
+    }),
+  tabReattachTmuxPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+    },
+  ) =>
+    ipcRenderer.invoke('tab:command:reattachTmuxPane', {
+      worktreePath,
+      tabId,
+      paneId,
+      options,
+    }),
+  tabToggleFocusedInspector: (worktreePath: string, tabId: string) =>
+    ipcRenderer.invoke('tab:command:toggleFocusedInspector', {
+      worktreePath,
+      tabId,
+    }),
   tabRestartPane: (
     worktreePath: string,
     tabId: string,
@@ -132,30 +311,108 @@ const api = {
     options?: {
       workspaceName?: string
       branch?: string
-      tabs?: unknown
-      activeTabId?: string | null
     },
-  ) => {
-    const { tabs, activeTabId, ...commandOptions } = options ?? {}
-    return ipcRenderer.invoke('tab:command:restartPane', {
+  ) =>
+    ipcRenderer.invoke('tab:command:restartPane', {
       worktreePath,
       tabId,
       paneId,
-      options: commandOptions,
-      tabs,
-      activeTabId,
-    })
-  },
-  tabCloseTab: (
-    worktreePath: string,
-    tabId: string,
-    options?: { tabs?: unknown; activeTabId?: string | null },
-  ) =>
+      options,
+    }),
+  tabCloseTab: (worktreePath: string, tabId: string) =>
     ipcRenderer.invoke('tab:command:closeTab', {
       worktreePath,
       tabId,
-      tabs: options?.tabs,
-      activeTabId: options?.activeTabId,
+    }),
+  tabPrepareCloseTab: (worktreePath: string, tabId: string) =>
+    ipcRenderer.invoke('tab:command:prepareCloseTab', {
+      worktreePath,
+      tabId,
+    }) as Promise<TabClosePreflightResult>,
+  tabPrepareCloseAllForWorktree: (
+    worktreePath: string,
+    options?: { confirmedActiveProcesses?: boolean },
+  ) =>
+    ipcRenderer.invoke('tab:command:prepareCloseAllForWorktree', {
+      worktreePath,
+      confirmedActiveProcesses: options?.confirmedActiveProcesses,
+    }) as Promise<TabCloseAllPreflightResult>,
+  tabGetCloseWarning: (worktreePath: string, target: CloseWarningTarget) =>
+    ipcRenderer.invoke('tab:command:getCloseWarning', {
+      worktreePath,
+      target,
+    }) as Promise<CloseWarningResult>,
+  tabReopenClosedTab: (
+    worktreePath: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+    },
+  ) =>
+    ipcRenderer.invoke('tab:command:reopenClosedTab', {
+      worktreePath,
+      options,
+    }),
+  tabClosePane: (worktreePath: string, tabId: string, paneId: string) =>
+    ipcRenderer.invoke('tab:command:closePane', {
+      worktreePath,
+      tabId,
+      paneId,
+    }),
+  tabCloseAllForWorktree: (worktreePath: string) =>
+    ipcRenderer.invoke('tab:command:closeAllForWorktree', {
+      worktreePath,
+    }),
+  tabSetActiveTab: (worktreePath: string, tabId: string) =>
+    ipcRenderer.invoke('tab:command:setActiveTab', {
+      worktreePath,
+      tabId,
+    }),
+  tabMoveTab: (worktreePath: string, fromIndex: number, toIndex: number) =>
+    ipcRenderer.invoke('tab:command:moveTab', {
+      worktreePath,
+      fromIndex,
+      toIndex,
+    }),
+  tabMoveTabToSplit: (
+    worktreePath: string,
+    sourceTabId: string,
+    targetTabId: string,
+    targetPaneId: string,
+    direction: 'horizontal' | 'vertical',
+    position: 'first' | 'second',
+  ) =>
+    ipcRenderer.invoke('tab:command:moveTabToSplit', {
+      worktreePath,
+      sourceTabId,
+      targetTabId,
+      targetPaneId,
+      direction,
+      position,
+    }),
+  tabMovePaneToTarget: (
+    worktreePath: string,
+    sourceTabId: string,
+    sourcePaneId: string,
+    targetTabId: string,
+    targetPaneId: string,
+    direction: 'horizontal' | 'vertical',
+    position: 'first' | 'second',
+  ) =>
+    ipcRenderer.invoke('tab:command:movePaneToTarget', {
+      worktreePath,
+      sourceTabId,
+      sourcePaneId,
+      targetTabId,
+      targetPaneId,
+      direction,
+      position,
+    }),
+  tabDetachPaneToTab: (worktreePath: string, sourceTabId: string, sourcePaneId: string) =>
+    ipcRenderer.invoke('tab:command:detachPaneToTab', {
+      worktreePath,
+      sourceTabId,
+      sourcePaneId,
     }),
   tabSpawnPane: (
     toolId: string,
@@ -168,11 +425,52 @@ const api = {
       resumeSessionId?: string
     },
   ) => ipcRenderer.invoke('tab:command:spawnPane', { toolId, worktreePath, options }),
-  tabSaveLayout: (worktreePath: string, layoutJson: string) =>
-    ipcRenderer.invoke('tab:command:saveLayout', { worktreePath, layoutJson }),
-  tabDeleteLayout: (worktreePath: string) =>
-    ipcRenderer.invoke('tab:command:deleteLayout', { worktreePath }),
-
+  tabSplitPane: (
+    worktreePath: string,
+    tabId: string,
+    paneId: string,
+    direction: 'horizontal' | 'vertical',
+  ) => ipcRenderer.invoke('tab:command:splitPane', { worktreePath, tabId, paneId, direction }),
+  tabFocusPane: (worktreePath: string, tabId: string, paneId: string) =>
+    ipcRenderer.invoke('tab:command:focusPane', { worktreePath, tabId, paneId }),
+  tabNavigatePaneFocus: (
+    worktreePath: string,
+    tabId: string,
+    direction: 'left' | 'right' | 'up' | 'down',
+  ) => ipcRenderer.invoke('tab:command:navigatePaneFocus', { worktreePath, tabId, direction }),
+  tabUpdateSplitRatio: (worktreePath: string, tabId: string, splitId: string, ratio: number) =>
+    ipcRenderer.invoke('tab:command:updateSplitRatio', { worktreePath, tabId, splitId, ratio }),
+  tabRestoreLayout: (
+    worktreePath: string,
+    layoutJson: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+    },
+  ) =>
+    ipcRenderer.invoke('tab:command:restoreLayout', {
+      worktreePath,
+      layoutJson,
+      options,
+    }),
+  tabResumeSuspendedTab: (
+    worktreePath: string,
+    tabId: string,
+    options?: {
+      workspaceName?: string
+      branch?: string
+    },
+  ) =>
+    ipcRenderer.invoke('tab:command:resumeSuspendedTab', {
+      worktreePath,
+      tabId,
+      options,
+    }),
+  tabKillAll: () => ipcRenderer.invoke('tab:command:killAll'),
+  tabFocusSession: (sessionId: string) =>
+    ipcRenderer.invoke('tab:command:focusSession', { sessionId }),
+  tabSaveCurrentLayout: (worktreePath: string) =>
+    ipcRenderer.invoke('tab:command:saveCurrentLayout', { worktreePath }),
   agentSendTaskContext: (payload: { text: string; worktreePath?: string; sessionId?: string }) =>
     ipcRenderer.invoke('agent:command:sendTaskContext', payload),
   agentSendReviewContext: (payload: { text: string; worktreePath?: string; sessionId?: string }) =>
@@ -402,20 +700,42 @@ const api = {
   gitPush: (repoRoot: string) => ipcRenderer.invoke('git:push', { repoRoot }),
   gitPull: (repoRoot: string, rebase: boolean) =>
     ipcRenderer.invoke('git:pull', { repoRoot, rebase }),
+  gitPullWithPreferences: (payload: { repoRoot: string }) =>
+    ipcRenderer.invoke('git:pullWithPreferences', payload),
+  gitCommitWorktree: (payload: { repoRoot: string; message: string; stageAll?: boolean }) =>
+    ipcRenderer.invoke('git:commitWorktree', payload),
+  gitPushWorktree: (payload: { repoRoot: string }) =>
+    ipcRenderer.invoke('git:pushWorktree', payload),
+  gitFetchWorktree: (payload: { repoRoot: string }) =>
+    ipcRenderer.invoke('git:fetchWorktree', payload),
   gitFetch: (repoRoot: string) => ipcRenderer.invoke('git:fetch', { repoRoot }),
   gitFetchAll: (repoRoot: string) => ipcRenderer.invoke('git:fetchAll', { repoRoot }),
+  gitStashWorktree: (payload: { repoRoot: string }) =>
+    ipcRenderer.invoke('git:stashWorktree', payload),
   gitStash: (repoRoot: string) => ipcRenderer.invoke('git:stash', { repoRoot }),
+  gitStashPopWorktree: (payload: { repoRoot: string }) =>
+    ipcRenderer.invoke('git:stashPopWorktree', payload),
   gitStashPop: (repoRoot: string) => ipcRenderer.invoke('git:stashPop', { repoRoot }),
   gitBranches: (repoRoot: string) => ipcRenderer.invoke('git:branches', { repoRoot }),
   gitBranchCreate: (repoRoot: string, name: string, baseBranch: string) =>
     ipcRenderer.invoke('git:branchCreate', { repoRoot, name, baseBranch }),
+  gitBranchCreateFromHead: (payload: { repoRoot: string; branch: string }) =>
+    ipcRenderer.invoke('git:branchCreateFromHead', payload),
   gitCheckout: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('git:checkout', { repoRoot, branch }),
   gitBranchDelete: (repoRoot: string, name: string, force: boolean) =>
     ipcRenderer.invoke('git:branchDelete', { repoRoot, name, force }),
+  gitBranchPrepareDelete: (payload: { repoRoot: string; branch: string }) =>
+    ipcRenderer.invoke('git:branchPrepareDelete', payload),
+  gitBranchDeleteWithPreflight: (payload: {
+    repoRoot: string
+    branch: string
+    forceIfUnmerged?: boolean
+  }) => ipcRenderer.invoke('git:branchDeleteWithPreflight', payload),
   gitBranchDeleteRemote: (repoRoot: string, remote: string, name: string) =>
     ipcRenderer.invoke('git:branchDeleteRemote', { repoRoot, remote, name }),
   gitPushInfo: (repoRoot: string) => ipcRenderer.invoke('git:pushInfo', { repoRoot }),
+  gitPreparePush: (payload: { repoRoot: string }) => ipcRenderer.invoke('git:preparePush', payload),
   gitBranchMerged: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('git:branchMerged', { repoRoot, branch }),
   gitWorktreeAdd: (repoRoot: string, path: string, branch: string, baseBranch: string) =>
@@ -434,10 +754,48 @@ const api = {
     }),
   gitWorktreeRemove: (repoRoot: string, path: string, force: boolean) =>
     ipcRenderer.invoke('git:worktreeRemove', { repoRoot, path, force }),
+  worktreeCreate: (
+    payload:
+      | {
+          repoRoot: string
+          worktreePath: string
+          mode: 'new'
+          branch: string
+          baseBranch: string
+        }
+      | {
+          repoRoot: string
+          worktreePath: string
+          mode: 'existing'
+          branch: string
+          createLocalTracking?: boolean
+        },
+  ) => ipcRenderer.invoke('worktree:create', payload),
+  worktreePrepareRemove: (payload: { repoRoot: string; worktreePath: string; branch: string }) =>
+    ipcRenderer.invoke('worktree:prepareRemove', payload),
+  worktreeGetMergedBranches: (payload: { repoRoot: string; branches: string[] }) =>
+    ipcRenderer.invoke('worktree:getMergedBranches', payload),
+  worktreeListBranches: (payload: { repoRoot: string }) =>
+    ipcRenderer.invoke('worktree:listBranches', payload),
+  worktreeRefreshBranches: (payload: { repoRoot: string }) =>
+    ipcRenderer.invoke('worktree:refreshBranches', payload),
+  worktreeRemoveWithBranch: (payload: {
+    repoRoot: string
+    worktreePath: string
+    branch?: string
+    deleteBranch?: boolean
+    forceOnFailure?: boolean
+  }) => ipcRenderer.invoke('worktree:removeWithBranch', payload),
   gitUnmergedCommits: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('git:unmergedCommits', { repoRoot, branch }),
   gitStatusPorcelain: (repoRoot: string, worktreePath?: string) =>
     ipcRenderer.invoke('git:statusPorcelain', { repoRoot, worktreePath }),
+  changesGetDiff: (payload: { worktreePath: string }) =>
+    ipcRenderer.invoke('changes:getDiff', payload),
+  changesStageFile: (payload: { worktreePath: string; filePath: string }) =>
+    ipcRenderer.invoke('changes:stageFile', payload),
+  changesRevertFile: (payload: { worktreePath: string; filePath: string }) =>
+    ipcRenderer.invoke('changes:revertFile', payload),
   gitDiff: (repoRoot: string) => ipcRenderer.invoke('git:diff', { repoRoot }),
   gitDiffFile: (repoRoot: string, filePath: string) =>
     ipcRenderer.invoke('git:diffFile', { repoRoot, filePath }),
@@ -751,20 +1109,10 @@ const api = {
   },
 
   // Filesystem
-  readDir: (dirPath: string) => ipcRenderer.invoke('fs:readDir', { dirPath }),
-  readFile: (filePath: string, maxBytes?: number) =>
-    ipcRenderer.invoke('fs:readFile', { filePath, maxBytes }),
-  writeFile: (filePath: string, content: string, expectedMtimeMs?: number) =>
-    ipcRenderer.invoke('fs:writeFile', { filePath, content, expectedMtimeMs }),
-  createFile: (filePath: string) => ipcRenderer.invoke('fs:createFile', { filePath }),
-  mkdir: (dirPath: string) => ipcRenderer.invoke('fs:mkdir', { dirPath }),
-  statFile: (filePath: string) => ipcRenderer.invoke('fs:stat', { filePath }),
   quickOpenListFiles: (worktreePath: string, force?: boolean) =>
     ipcRenderer.invoke('quickOpen:listFiles', { worktreePath, force }) as Promise<string[]>,
   quickOpenInvalidateCache: (worktreePath: string) =>
     ipcRenderer.invoke('quickOpen:invalidateCache', { worktreePath }) as Promise<void>,
-  confirmUnsavedChanges: (filePaths: string[]) =>
-    ipcRenderer.invoke('dialog:confirmUnsavedChanges', { filePaths }),
 
   // Repo Config
   repoConfigLoad: (repoRoot: string) => ipcRenderer.invoke('repoConfig:load', { repoRoot }),
@@ -893,6 +1241,20 @@ const api = {
     }) as Promise<string>,
   taskTrackerCleanupAttachments: (filePaths: string[]) =>
     ipcRenderer.invoke('taskTracker:cleanupAttachments', { filePaths }),
+  taskTrackerBuildTaskContext: (payload: {
+    connectionId: string
+    task: {
+      key: string
+      summary: string
+      description: string
+      status: string
+      priority: string
+      type: string
+      url?: string
+    }
+    repoRoot?: string
+    trackerId?: string
+  }) => ipcRenderer.invoke('taskTracker:buildTaskContext', payload) as Promise<string>,
   taskTrackerResolveBranchName: (
     connectionId: string,
     task: { key: string; type: string; [k: string]: unknown },
@@ -907,6 +1269,31 @@ const api = {
       branchType,
       repoRoot,
     }),
+  taskTrackerPrepareBranchFromTask: (payload: {
+    connectionId: string
+    task: { key: string; type: string; [k: string]: unknown }
+    boardId?: string
+    branchType?: string
+    repoRoot: string
+  }) => ipcRenderer.invoke('taskTracker:prepareBranchFromTask', payload),
+  taskTrackerCreateBranchFromTask: (payload: {
+    connectionId: string
+    task: { key: string; type: string; [k: string]: unknown }
+    boardId?: string
+    branchType?: string
+    repoRoot: string
+    baseBranch: string
+    stashBeforeCreate?: boolean
+  }) => ipcRenderer.invoke('taskTracker:createBranchFromTask', payload),
+  taskTrackerCreateWorktreeFromTask: (payload: {
+    connectionId: string
+    task: { key: string; type: string; [k: string]: unknown }
+    boardId?: string
+    branchType?: string
+    repoRoot: string
+    worktreePath: string
+    baseBranch: string
+  }) => ipcRenderer.invoke('taskTracker:createWorktreeFromTask', payload),
   taskTrackerResolveBranchType: (
     taskType: string,
     connectionId?: string,
@@ -974,13 +1361,15 @@ const api = {
 
   // Remote control (WebRTC pairing via QR)
   remote: {
-    start: () => ipcRenderer.invoke('remote:start') as Promise<{ pairingUrl: string }>,
+    start: (interfaceName?: string) =>
+      ipcRenderer.invoke('remote:start', { interfaceName }) as Promise<{ pairingUrl: string }>,
     // Best-effort request from the renderer on app mount — brings the
     // signaling server up in passive listen mode iff the user has opted in
     // and has ≥1 trusted device, so a previously paired phone can reconnect
-    // without the user re-opening the Remote Connection modal. Never
+    // without the user starting a new sidebar pairing flow. Never
     // rejects; failures are silently no-oped on the main side.
-    ensureListening: () => ipcRenderer.invoke('remote:ensureListening') as Promise<void>,
+    ensureListening: (options?: { allowWithoutTrusted?: boolean }) =>
+      ipcRenderer.invoke('remote:ensureListening', options) as Promise<void>,
     stop: () => ipcRenderer.invoke('remote:stop') as Promise<void>,
     getStatus: () => ipcRenderer.invoke('remote:getStatus') as Promise<RemoteSessionStatus>,
     acceptDevice: (remember: boolean) =>
@@ -999,6 +1388,8 @@ const api = {
       >,
     removeTrustedDevice: (deviceId: string) =>
       ipcRenderer.invoke('remote:removeTrustedDevice', { deviceId }) as Promise<void>,
+    renameTrustedDevice: (deviceId: string, name: string) =>
+      ipcRenderer.invoke('remote:renameTrustedDevice', { deviceId, name }) as Promise<void>,
     listNetworkInterfaces: () =>
       ipcRenderer.invoke('remote:listNetworkInterfaces') as Promise<
         Array<{ name: string; address: string; virtual: boolean }>

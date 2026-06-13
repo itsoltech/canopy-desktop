@@ -46,8 +46,8 @@
   const showFilter = $derived(workspaces.length > 4)
 
   $effect(() => {
-    void filteredWorkspaces
-    if (selectedIndex >= filteredWorkspaces.length) selectedIndex = 0
+    const count = filteredWorkspaces.length
+    if (selectedIndex >= count && selectedIndex !== 0) selectedIndex = 0
   })
 
   onMount(async () => {

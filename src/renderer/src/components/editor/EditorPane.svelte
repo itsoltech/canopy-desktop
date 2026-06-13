@@ -6,6 +6,9 @@
     findEditorPane,
     setActiveEditorFile,
     updateEditorFileState,
+    loadEditorFile,
+    saveEditorFile,
+    prepareCloseEditorFile,
     closeEditorFile,
     detachEditorFile,
     moveEditorFile,
@@ -119,7 +122,12 @@
     fileDeleted = false
     externalChangeDetected = false
     try {
-      const readResult = await window.api.readFile(path, MAX_EDIT_BYTES)
+      const readResult = await loadEditorFile(paneId, path, MAX_EDIT_BYTES)
+      if (!readResult.ok) {
+        error = readResult.message
+        return
+      }
+
       if (readResult.binary) {
         binary = true
         fileSize = readResult.size
@@ -139,18 +147,9 @@
         }
       }
 
-      let statResult: { mtimeMs: number; size: number; canWrite: boolean } | null = null
-      if (typeof window.api.statFile === 'function') {
-        try {
-          statResult = await window.api.statFile(path)
-        } catch {
-          statResult = null
-        }
-      }
-      canWrite = statResult?.canWrite ?? true
-      fileMtimeMs = statResult?.mtimeMs ?? 0
+      canWrite = readResult.canWrite
+      fileMtimeMs = readResult.mtimeMs
       dirty = false
-      persistCurrentFileState()
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to read file'
     } finally {
@@ -206,12 +205,10 @@
     if (!dirty || !canEdit) return
     saveError = null
     const path = activeFilePath
-    const contentToWrite =
-      fileLineEnding === 'CRLF' ? editedContent.replace(/\r?\n/g, '\r\n') : editedContent
     skipNextWatcherEvent = true
-    let result: Awaited<ReturnType<typeof window.api.writeFile>>
+    let result: Awaited<ReturnType<typeof saveEditorFile>>
     try {
-      result = await window.api.writeFile(path, contentToWrite, fileMtimeMs)
+      result = await saveEditorFile(paneId, path, editedContent, fileLineEnding, fileMtimeMs)
     } catch (e) {
       // Only reached on true IPC failures (e.g. access denied from
       // validatePathAccess). Expected outcomes (stale writes, write errors)
@@ -225,13 +222,6 @@
       fileMtimeMs = result.mtimeMs
       fileSize = result.size
       dirty = false
-      updateEditorFileState(paneId, path, {
-        dirty: false,
-        originalContent: editedContent,
-        currentContent: editedContent,
-        fileMtimeMs: result.mtimeMs,
-        externalChangeDetected: false,
-      })
       setTimeout(() => {
         skipNextWatcherEvent = false
       }, 1500)
@@ -273,37 +263,24 @@
 
   async function handleSubTabClose(evt: Event, path: string): Promise<void> {
     evt.stopPropagation()
-    const state = editorFiles.find((f) => f.filePath === path)
-    if (state?.dirty) {
-      const choice = await window.api.confirmUnsavedChanges([path])
-      if (choice === 'cancel') return
-      if (choice === 'save') {
-        const contentToWrite =
-          state.fileLineEnding === 'CRLF'
-            ? (state.currentContent ?? '').replace(/\r?\n/g, '\r\n')
-            : (state.currentContent ?? '')
-        skipNextWatcherEvent = true
-        let writeResult: Awaited<ReturnType<typeof window.api.writeFile>>
-        try {
-          writeResult = await window.api.writeFile(path, contentToWrite, state.fileMtimeMs)
-        } catch (e) {
-          skipNextWatcherEvent = false
-          saveError = `Failed to save: ${e instanceof Error ? e.message : String(e)}`
-          return
+    skipNextWatcherEvent = true
+    try {
+      const preflight = await prepareCloseEditorFile(paneId, path)
+      if (!preflight.ok) {
+        if (preflight.reason === 'save-failed') {
+          saveError = `Failed to save ${preflight.failedCount} file(s).`
         }
-        if (!writeResult.ok) {
-          skipNextWatcherEvent = false
-          saveError =
-            writeResult.tag === 'StaleWrite'
-              ? 'File changed on disk — reload before saving.'
-              : `Failed to save: ${writeResult.message}`
-          return
-        }
-        setTimeout(() => {
-          skipNextWatcherEvent = false
-        }, 1500)
+        skipNextWatcherEvent = false
+        return
       }
+    } catch (e) {
+      skipNextWatcherEvent = false
+      saveError = `Failed to save: ${e instanceof Error ? e.message : String(e)}`
+      return
     }
+    setTimeout(() => {
+      skipNextWatcherEvent = false
+    }, 1500)
     editorRef?.closeBuffer(path)
     closeEditorFile(paneId, path)
   }

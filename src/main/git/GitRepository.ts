@@ -166,10 +166,13 @@ export class GitRepository {
   }
 
   static getRemoteUrl(repoRoot: string, remote = 'origin'): ResultAsync<string, GitError> {
-    const git = simpleGit(repoRoot)
-    return gitCall('remote get-url', git.raw(['remote', 'get-url', remote])).map((raw) =>
-      raw.trim(),
-    )
+    // Guard the positional `remote` argument against leading-dash flag injection.
+    return validateRef(remote).asyncAndThen(() => {
+      const git = simpleGit(repoRoot)
+      return gitCall('remote get-url', git.raw(['remote', 'get-url', remote])).map((raw) =>
+        raw.trim(),
+      )
+    })
   }
 
   static listWorktrees(repoRoot: string): ResultAsync<GitWorktreeInfo[], GitError> {
@@ -353,14 +356,17 @@ export class GitRepository {
   }
 
   static isBranchMerged(repoRoot: string, branch: string): ResultAsync<boolean, GitError> {
+    return this.getMergedBranches(repoRoot).map((merged) => merged.includes(branch))
+  }
+
+  static getMergedBranches(repoRoot: string): ResultAsync<string[], GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('branch --merged', git.raw(['branch', '--merged'])).map((raw) => {
-      const merged = raw
+    return gitCall('branch --merged', git.raw(['branch', '--merged'])).map((raw) =>
+      raw
         .split('\n')
         .map((line) => line.replace(/^\*?\s+/, '').trim())
-        .filter(Boolean)
-      return merged.includes(branch)
-    })
+        .filter(Boolean),
+    )
   }
 
   static worktreeAdd(
@@ -369,8 +375,10 @@ export class GitRepository {
     branch: string,
     baseBranch: string,
   ): ResultAsync<void, GitError> {
+    // `path` is positional; guard it (and the refs) against leading-dash flag injection.
     return validateRef(branch)
       .andThen(() => validateRef(baseBranch))
+      .andThen(() => validateRef(path))
       .asyncAndThen(() => {
         const git = simpleGit(repoRoot)
         return gitCall('worktree add', git.raw(['worktree', 'add', '-b', branch, path, baseBranch]))
@@ -384,7 +392,9 @@ export class GitRepository {
     branch: string,
     createLocalTracking: boolean,
   ): ResultAsync<void, GitError> {
+    // `path` is positional; guard it (and the ref) against leading-dash flag injection.
     return validateRef(branch)
+      .andThen(() => validateRef(path))
       .asyncAndThen(() => {
         const git = simpleGit(repoRoot)
 
@@ -421,10 +431,13 @@ export class GitRepository {
     path: string,
     force: boolean,
   ): ResultAsync<void, GitError> {
-    const git = simpleGit(repoRoot)
-    const args = ['worktree', 'remove', path]
-    if (force) args.push('--force')
-    return gitCall('worktree remove', git.raw(args)).map(() => undefined)
+    // `path` is positional; guard it against leading-dash flag injection.
+    return validateRef(path).asyncAndThen(() => {
+      const git = simpleGit(repoRoot)
+      const args = ['worktree', 'remove', path]
+      if (force) args.push('--force')
+      return gitCall('worktree remove', git.raw(args)).map(() => undefined)
+    })
   }
 
   static getUnmergedCommits(repoRoot: string, branch: string): ResultAsync<string[], GitError> {

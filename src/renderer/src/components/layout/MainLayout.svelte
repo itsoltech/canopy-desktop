@@ -18,7 +18,6 @@
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
   import CreatePRModal from '../github/CreatePRModal.svelte'
-  import RemoteConnectionModal from '../dialogs/RemoteConnectionModal.svelte'
   import RemoteAcceptDeviceModal from '../dialogs/RemoteAcceptDeviceModal.svelte'
   import RunConfigEditorModal from '../runConfig/RunConfigEditorModal.svelte'
   import RunConfigManagerModal from '../runConfig/RunConfigManagerModal.svelte'
@@ -26,6 +25,7 @@
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import RightPanel from './RightPanel.svelte'
   import Toast from '../shared/Toast.svelte'
+  import { Loader2 } from '@lucide/svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import {
@@ -43,13 +43,12 @@
     projects,
     attachProject,
     restoreProjects,
-    updateGitInfoForProject,
+    initWorkspaceStateSubscription,
     toggleSidebar,
     toggleRightPanel,
   } from '../../lib/stores/workspace.svelte'
   import {
     activeTabId,
-    ensureDefaultTab,
     openTool,
     reopenClosedTab,
     switchTabByIndex,
@@ -65,6 +64,7 @@
     updateSplitRatio,
     focusSessionByPtyId,
     saveAllLayouts,
+    type TabInfo,
   } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
   import { initRemoteSessionListeners } from '../../lib/stores/remoteSession.svelte'
@@ -81,13 +81,29 @@
   import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
   import { initSkillStore, destroySkillStore } from '../../lib/stores/skills.svelte'
   import { initProfileStore, destroyProfileStore } from '../../lib/stores/profiles.svelte'
+  import { isMacPlatform } from '../../lib/platform'
 
   onMount(() => {
+    let disposed = false
     initToolStore()
     initSkillStore()
     initProfileStore()
+    const stopWorkspaceStateSubscription = initWorkspaceStateSubscription()
     const stopRemoteListeners = initRemoteSessionListeners()
+    window.api
+      .getStartupRestoreState()
+      .then((state) => {
+        if (disposed || startupRestoreState !== 'checking') return
+        startupRestoreState = state.restoring ? 'restoring' : 'ready'
+      })
+      .catch(() => {
+        if (!disposed && startupRestoreState !== 'ready') {
+          startupRestoreState = 'ready'
+        }
+      })
     return () => {
+      disposed = true
+      stopWorkspaceStateSubscription()
       destroySkillStore()
       stopRemoteListeners()
       destroyToolStore()
@@ -95,9 +111,22 @@
     }
   })
 
-  const isMac = navigator.userAgent.includes('Mac')
+  const isMac = isMacPlatform()
+  const EMPTY_TABS: TabInfo[] = []
   let paletteOpen = $state(false)
   let quickOpenOpen = $state(false)
+  let startupRestoreState = $state<'checking' | 'restoring' | 'ready'>('checking')
+  let startupMessage = $derived(
+    startupRestoreState === 'restoring'
+      ? {
+          title: 'Restoring previous session',
+          description: 'Reopening projects, tabs, and terminal layouts...',
+        }
+      : {
+          title: 'Starting Canopy',
+          description: 'Checking for a previous session...',
+        },
+  )
 
   // Sidebar resize state
   const SIDEBAR_MIN = 150
@@ -170,26 +199,8 @@
   let currentWorktreeTabs = $derived(
     workspaceState.selectedWorktreePath
       ? getTabsForWorktree(workspaceState.selectedWorktreePath)
-      : [],
+      : EMPTY_TABS,
   )
-
-  // Auto-create default tab when selected worktree changes
-  $effect(() => {
-    const path = workspaceState.selectedWorktreePath
-    if (path) {
-      ensureDefaultTab(path)
-    }
-  })
-
-  // Subscribe to git:changed push events (all projects)
-  $effect(() => {
-    const unsubscribe = window.api.onGitChanged((info) => {
-      if (info.repoRoot) {
-        updateGitInfoForProject(info.repoRoot, info)
-      }
-    })
-    return unsubscribe
-  })
 
   // Subscribe to pty:exit push events
   $effect(() => {
@@ -274,7 +285,17 @@
   // Restore a whole window's projects in parallel, then focus the saved worktree once.
   $effect(() => {
     const unsubscribe = window.api.onRestoreWindow(async (data) => {
-      await restoreProjects(data.paths, data.activeWorktreePath, data.removedPaths)
+      if (data.paths.length > 0) {
+        startupRestoreState = 'restoring'
+      }
+      try {
+        await restoreProjects(data.paths, data.activeWorktreePath, data.removedPaths)
+      } finally {
+        if (data.paths.length > 0) {
+          void window.api.completeStartupRestore().catch(() => undefined)
+        }
+        startupRestoreState = 'ready'
+      }
     })
     return unsubscribe
   })
@@ -375,18 +396,31 @@
 
   // Global keyboard shortcuts
   function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      if (paletteOpen) {
+        e.preventDefault()
+        paletteOpen = false
+        return
+      }
+      if (quickOpenOpen) {
+        e.preventDefault()
+        quickOpenOpen = false
+        return
+      }
+    }
+
     const mod = isMac ? e.metaKey : e.ctrlKey
     if (!mod) return
 
     // Cmd+K: toggle command palette
-    if (e.key === 'k') {
+    if (e.key === 'k' || e.key === 'K') {
       e.preventDefault()
       paletteOpen = !paletteOpen
       return
     }
 
     // Cmd+P: toggle quick open (file picker)
-    if (e.key === 'p' && !e.shiftKey) {
+    if ((e.key === 'p' || e.key === 'P') && !e.shiftKey) {
       e.preventDefault()
       quickOpenOpen = !quickOpenOpen
       return
@@ -531,8 +565,6 @@
   <TmuxSessionBrowser />
 {:else if dialogState.current.type === 'createGitHubPR'}
   <CreatePRModal />
-{:else if dialogState.current.type === 'remoteConnection'}
-  <RemoteConnectionModal />
 {:else if dialogState.current.type === 'remoteAcceptDevice'}
   <RemoteAcceptDeviceModal
     deviceId={dialogState.current.deviceId}
@@ -584,73 +616,87 @@
 <Toast />
 
 <main class="flex flex-row flex-1 min-h-0 overflow-hidden">
-  {#if workspaceState.sidebarOpen && projects.length > 0}
-    <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
+  {#if startupRestoreState !== 'ready'}
     <div
-      class="w-1 cursor-col-resize bg-transparent flex-shrink-0 transition-colors duration-base hover:bg-accent-muted"
-      class:bg-accent-muted={sidebarDragging}
-      onpointerdown={handleSidebarPointerDown}
-      onpointermove={handleSidebarPointerMove}
-      onpointerup={handleSidebarPointerUp}
-      onpointercancel={handleSidebarPointerUp}
-    ></div>
-  {/if}
-
-  <div class="flex-1 min-w-0 flex flex-col">
-    {#if workspaceState.selectedWorktreePath}
-      <TabBar worktreePath={workspaceState.selectedWorktreePath} />
+      class="flex flex-1 min-w-0 flex-col items-center justify-center gap-3 bg-bg text-center"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 size={18} class="animate-spin text-text-faint motion-reduce:animate-none" />
+      <div class="flex flex-col items-center gap-1">
+        <p class="m-0 text-sm font-medium text-text">{startupMessage.title}</p>
+        <p class="m-0 text-xs text-text-faint">{startupMessage.description}</p>
+      </div>
+    </div>
+  {:else}
+    {#if workspaceState.sidebarOpen && projects.length > 0}
+      <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="w-1 cursor-col-resize bg-transparent flex-shrink-0 transition-colors duration-base hover:bg-accent-muted"
+        class:bg-accent-muted={sidebarDragging}
+        onpointerdown={handleSidebarPointerDown}
+        onpointermove={handleSidebarPointerMove}
+        onpointerup={handleSidebarPointerUp}
+        onpointercancel={handleSidebarPointerUp}
+      ></div>
     {/if}
 
-    <div class="flex-1 min-h-0 flex flex-row">
-      <div class="flex-1 min-h-0 relative">
-        {#each allTabs as tab (tab.id)}
-          {#if !tab.suspended}
-            <div class="absolute inset-0 bg-bg" class:hidden={tab.id !== currentActiveTabId}>
-              <SplitPaneContainer
-                node={tab.rootSplit}
-                tabId={tab.id}
-                worktreePath={tab.worktreePath}
-                focusedPaneId={tab.focusedPaneId}
-                active={tab.id === currentActiveTabId}
-                onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
-                onUpdateRatio={(paneId, ratio) =>
-                  updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
-              />
+    <div class="flex-1 min-w-0 flex flex-col">
+      {#if workspaceState.selectedWorktreePath}
+        <TabBar worktreePath={workspaceState.selectedWorktreePath} />
+      {/if}
+
+      <div class="flex-1 min-h-0 flex flex-row">
+        <div class="flex-1 min-h-0 relative">
+          {#each allTabs as tab (tab.id)}
+            {#if !tab.suspended}
+              <div class="absolute inset-0 bg-bg" class:hidden={tab.id !== currentActiveTabId}>
+                <SplitPaneContainer
+                  node={tab.rootSplit}
+                  tabId={tab.id}
+                  worktreePath={tab.worktreePath}
+                  focusedPaneId={tab.focusedPaneId}
+                  active={tab.id === currentActiveTabId}
+                  onFocusPane={(paneId) => focusPane(tab.worktreePath, tab.id, paneId)}
+                  onUpdateRatio={(paneId, ratio) =>
+                    updateSplitRatio(tab.worktreePath, tab.id, paneId, ratio)}
+                />
+              </div>
+            {/if}
+          {/each}
+
+          {#if projects.length === 0 && allTabs.length === 0}
+            <WelcomeDashboard />
+          {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
+            <div class="flex flex-col items-center justify-center h-full text-text-faint">
+              <p class="text-lg font-normal m-0">
+                Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a new tab
+              </p>
+              <p class="text-sm font-normal mt-1.5 mb-0 text-text-faint">
+                {isMac ? 'Cmd' : 'Ctrl'}+K to open command palette
+              </p>
             </div>
           {/if}
-        {/each}
+        </div>
 
-        {#if projects.length === 0 && allTabs.length === 0}
-          <WelcomeDashboard />
-        {:else if workspaceState.selectedWorktreePath && currentWorktreeTabs.length === 0}
-          <div class="flex flex-col items-center justify-center h-full text-text-faint">
-            <p class="text-lg font-normal m-0">
-              Press {isMac ? 'Cmd' : 'Ctrl'}+T to open a new tab
-            </p>
-            <p class="text-sm font-normal mt-1.5 mb-0 text-text-faint">
-              {isMac ? 'Cmd' : 'Ctrl'}+K to open command palette
-            </p>
-          </div>
+        {#if workspaceState.rightPanelOpen && workspaceState.selectedWorktreePath}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="w-px cursor-col-resize bg-transparent flex-shrink-0 relative after:content-empty after:absolute after:inset-y-0 after:-inset-x-1 after:cursor-col-resize hover:bg-accent-muted"
+            class:bg-accent-muted={rpDragging}
+            onpointerdown={handleRpPointerDown}
+            onpointermove={handleRpPointerMove}
+            onpointerup={handleRpPointerUp}
+            onpointercancel={handleRpPointerUp}
+          ></div>
+          <RightPanel
+            agentState={activeAgentState}
+            width={rightPanelWidth}
+            worktreePath={workspaceState.selectedWorktreePath ?? ''}
+          />
         {/if}
       </div>
-
-      {#if workspaceState.rightPanelOpen && workspaceState.selectedWorktreePath}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="w-px cursor-col-resize bg-transparent flex-shrink-0 relative after:content-empty after:absolute after:inset-y-0 after:-inset-x-1 after:cursor-col-resize hover:bg-accent-muted"
-          class:bg-accent-muted={rpDragging}
-          onpointerdown={handleRpPointerDown}
-          onpointermove={handleRpPointerMove}
-          onpointerup={handleRpPointerUp}
-          onpointercancel={handleRpPointerUp}
-        ></div>
-        <RightPanel
-          agentState={activeAgentState}
-          width={rightPanelWidth}
-          worktreePath={workspaceState.selectedWorktreePath ?? ''}
-        />
-      {/if}
     </div>
-  </div>
+  {/if}
 </main>

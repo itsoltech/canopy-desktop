@@ -9,7 +9,6 @@
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
   import { isAiToolId, openTool } from '../../lib/stores/tabs.svelte'
   import { agentSessions } from '../../lib/agents/agentState.svelte'
-  import { fetchAndFormatTaskContext } from '../../lib/taskTracker/taskContext'
   import { setActiveTask } from '../../lib/stores/taskTracker.svelte'
   import { safeDirName } from '../../lib/sanitize'
 
@@ -75,7 +74,9 @@
         )
         .catch(() => null),
       window.api.taskTrackerFindTaskByKey(task.key).catch(() => null),
-      repoRoot ? window.api.gitBranches(repoRoot).catch(() => null) : Promise.resolve(null),
+      repoRoot
+        ? window.api.worktreeListBranches({ repoRoot }).catch(() => null)
+        : Promise.resolve(null),
     ])
 
     if (foundTask) fullTask = foundTask as Task
@@ -106,13 +107,14 @@
   async function updateBranchPreview(): Promise<void> {
     try {
       const plain = $state.snapshot(task) as Task
-      resolvedBranchName = await window.api.taskTrackerResolveBranchName(
+      const result = await window.api.taskTrackerPrepareBranchFromTask({
         connectionId,
-        plain,
-        selectedBoardId || undefined,
-        templateHasBranchType ? selectedBranchType : undefined,
-        workspaceState.repoRoot || undefined,
-      )
+        task: plain,
+        boardId: selectedBoardId || undefined,
+        branchType: templateHasBranchType ? selectedBranchType : undefined,
+        repoRoot: workspaceState.repoRoot || '',
+      })
+      resolvedBranchName = result.branchName
     } catch {
       resolvedBranchName = task.key
     }
@@ -152,8 +154,17 @@
     creatingWorktree = true
     setPref('taskTracker.lastAgent', selectedAgentId)
     try {
-      await window.api.gitWorktreeAdd(repoRoot, worktreePath, resolvedBranchName, baseBranch)
-      await setActiveTask(worktreePath, {
+      const branchTask = $state.snapshot(task) as Task
+      const created = await window.api.taskTrackerCreateWorktreeFromTask({
+        connectionId,
+        task: branchTask,
+        boardId: selectedBoardId || undefined,
+        branchType: templateHasBranchType ? selectedBranchType : undefined,
+        repoRoot,
+        worktreePath,
+        baseBranch,
+      })
+      await setActiveTask(created.worktreePath, {
         taskKey: fullTask.key,
         summary: fullTask.summary,
         connectionId,
@@ -164,7 +175,7 @@
         const wsId = workspaceState.workspace!.id
         addToast('Running worktree setup...')
         try {
-          await window.api.runWorktreeSetup(wsId, repoRoot, worktreePath)
+          await window.api.runWorktreeSetup(wsId, repoRoot, created.worktreePath)
           addToast('Worktree setup complete')
         } catch (e) {
           addToast('Worktree setup failed: ' + (e instanceof Error ? e.message : String(e)))
@@ -177,21 +188,21 @@
         const taskSnapshot = $state.snapshot(fullTask) as typeof fullTask
 
         try {
-          const tab = await openTool(agentId, worktreePath)
-          await selectWorktree(worktreePath)
+          const tab = await openTool(agentId, created.worktreePath)
+          await selectWorktree(created.worktreePath)
           const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
           if (pane) {
             const sessionId = pane.sessionId
             const ready = await waitForAgentIdle(sessionId)
             if (ready) {
-              const context = await fetchAndFormatTaskContext(
-                connId,
-                taskSnapshot,
-                workspaceState.repoRoot ?? undefined,
-              )
+              const context = await window.api.taskTrackerBuildTaskContext({
+                connectionId: connId,
+                task: taskSnapshot,
+                repoRoot: workspaceState.repoRoot ?? undefined,
+              })
               await window.api.agentSendTaskContext({
                 text: context,
-                worktreePath,
+                worktreePath: created.worktreePath,
                 sessionId,
               })
             }
@@ -200,7 +211,7 @@
           addToast('Failed to send task context to agent')
         }
       } else {
-        await selectWorktree(worktreePath)
+        await selectWorktree(created.worktreePath)
       }
 
       closeDialog()

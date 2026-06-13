@@ -1,7 +1,7 @@
 import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import { randomUUID } from 'crypto'
-import { execFile } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
 import os from 'os'
 import { getLoginEnv } from '../shell/loginEnv'
 
@@ -9,6 +9,10 @@ interface PtySession {
   id: string
   pty: IPty
   tmuxSessionName?: string
+}
+
+interface KillOptions {
+  killProcessTree?: boolean
 }
 
 export interface SpawnOptions {
@@ -65,6 +69,15 @@ export class PtyManager {
 
     const session: PtySession = { id, pty: p, tmuxSessionName: options?.tmuxSessionName }
     this.sessions.set(id, session)
+
+    // Remove the session when the PTY exits on its own (shell `exit`, agent CLI
+    // completion, crash). Without this, only explicit kill()/dispose() prune the
+    // map, so self-terminating PTYs leave dead IPty handles in `sessions` for the
+    // life of the process. delete() is idempotent, so this is safe alongside kill().
+    p.onExit(() => {
+      this.sessions.delete(id)
+    })
+
     return session
   }
 
@@ -133,9 +146,12 @@ export class PtyManager {
     }
   }
 
-  kill(id: string): void {
+  kill(id: string, options?: KillOptions): void {
     const session = this.sessions.get(id)
     if (session) {
+      if (options?.killProcessTree) {
+        this.terminateProcessTree(session.pty.pid)
+      }
       try {
         session.pty.kill()
       } catch {
@@ -171,12 +187,69 @@ export class PtyManager {
 
   dispose(): void {
     for (const [id, session] of this.sessions) {
+      this.terminateProcessTree(session.pty.pid)
       try {
         session.pty.kill()
       } catch {
         // PTY already exited — ignore
       }
       this.sessions.delete(id)
+    }
+  }
+
+  private terminateProcessTree(pid: number): void {
+    if (!Number.isFinite(pid) || pid <= 0) return
+
+    if (process.platform === 'win32') {
+      try {
+        execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+          stdio: 'ignore',
+          timeout: 2000,
+        })
+      } catch {
+        // Process may already be gone.
+      }
+      return
+    }
+
+    const pids = [...this.collectDescendantPids(pid), pid]
+    for (const targetPid of pids) {
+      this.signalPid(targetPid, 'SIGTERM')
+    }
+
+    const forceKill = setTimeout(() => {
+      for (const targetPid of pids) {
+        this.signalPid(targetPid, 'SIGKILL')
+      }
+    }, 750)
+    forceKill.unref?.()
+  }
+
+  private collectDescendantPids(pid: number): number[] {
+    const children = this.collectChildPids(pid)
+    return children.flatMap((childPid) => [...this.collectDescendantPids(childPid), childPid])
+  }
+
+  private collectChildPids(pid: number): number[] {
+    try {
+      return execFileSync('pgrep', ['-P', String(pid)], {
+        encoding: 'utf-8',
+        timeout: 1000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+        .split(/\s+/)
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    } catch {
+      return []
+    }
+  }
+
+  private signalPid(pid: number, signal: NodeJS.Signals): void {
+    try {
+      process.kill(pid, signal)
+    } catch {
+      // Process may already be gone or owned by another user.
     }
   }
 }

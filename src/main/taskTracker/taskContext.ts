@@ -1,4 +1,4 @@
-interface TaskContextInput {
+export interface TaskContextInput {
   key: string
   summary: string
   description: string
@@ -8,19 +8,17 @@ interface TaskContextInput {
   url?: string
 }
 
-interface TaskComment {
+export interface TaskComment {
   author: string
   body: string
   created: string
 }
 
-interface TaskAttachmentPath {
+export interface TaskAttachmentPath {
   name: string
   localPath: string
 }
 
-// Description and comment bodies are sent without a character cap — the agent manages
-// its own context window and will summarise or ignore content as needed.
 const MAX_COMMENTS = 15
 
 function normalizeTaskText(text: string): string {
@@ -87,8 +85,8 @@ export function formatTaskContext(
   ) {
     lines.push('', '## Attachments')
     if (attachments) {
-      for (const a of attachments) {
-        lines.push(`@${a.localPath}`)
+      for (const attachment of attachments) {
+        lines.push(`@${attachment.localPath}`)
       }
     }
     if (failedAttachments && failedAttachments.length > 0) {
@@ -97,60 +95,4 @@ export function formatTaskContext(
   }
 
   return lines.join('\n')
-}
-
-export async function fetchAndFormatTaskContext(
-  connectionId: string,
-  task: TaskContextInput,
-  repoRoot?: string,
-): Promise<string> {
-  const [fullTask, comments, rawAttachments] = await Promise.all([
-    // Re-fetch full task to get description (list fetch omits it for performance)
-    window.api
-      .trackerConfigFindTaskByKey(repoRoot, task.key, connectionId)
-      .catch(() => window.api.taskTrackerFindTaskByKey(task.key).catch(() => null)),
-    window.api
-      .trackerConfigFetchTaskComments(repoRoot, task.key, connectionId)
-      .catch(() => window.api.taskTrackerFetchTaskComments(connectionId, task.key).catch(() => [])),
-    window.api
-      .trackerConfigFetchTaskAttachments(repoRoot, task.key, connectionId)
-      .catch(() =>
-        window.api.taskTrackerFetchTaskAttachments(connectionId, task.key).catch(() => []),
-      ),
-  ])
-
-  const resolvedTask: TaskContextInput = fullTask
-    ? { ...task, description: fullTask.description || task.description }
-    : task
-
-  const attachments: TaskAttachmentPath[] = []
-  const failedAttachments: string[] = []
-  const downloadResults = await Promise.allSettled(
-    rawAttachments.map(async (a) => {
-      const localPath = await window.api
-        .trackerConfigDownloadAttachment(repoRoot, a.url, a.name, connectionId)
-        .catch(() => window.api.taskTrackerDownloadAttachment(connectionId, a.url, a.name))
-      return { name: a.name, localPath }
-    }),
-  )
-  for (let i = 0; i < downloadResults.length; i++) {
-    const result = downloadResults[i]
-    if (result.status === 'fulfilled') {
-      attachments.push(result.value)
-    } else {
-      failedAttachments.push(rawAttachments[i].name)
-    }
-  }
-
-  const context = formatTaskContext(resolvedTask, comments, attachments, failedAttachments)
-
-  // Schedule cleanup of downloaded attachment files
-  if (attachments.length > 0) {
-    const paths = attachments.map((a) => a.localPath)
-    setTimeout(() => {
-      window.api.taskTrackerCleanupAttachments(paths).catch(() => {})
-    }, 60_000)
-  }
-
-  return context
 }

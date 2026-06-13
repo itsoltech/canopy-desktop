@@ -209,6 +209,16 @@
     clearDrag()
   }
 
+  // Safety net: if the component unmounts mid-drag (e.g. the tab is closed via a
+  // shortcut while a pointer drag is in progress), remove the window-level drag
+  // listeners so they don't outlive the component. Mirrors PaneTabStrip.svelte.
+  $effect(() => {
+    return () => {
+      window.removeEventListener('pointermove', handleDragMove)
+      window.removeEventListener('pointerup', handleDragEnd)
+    }
+  })
+
   // --- Pane drag: tab bar as detach target + tab-switch-on-hover ---
 
   let isPaneDragActive = $derived(
@@ -399,6 +409,8 @@
         <button
           class="flex items-center justify-center w-8 h-full border-0 bg-transparent text-text-secondary text-lg cursor-pointer hover:bg-hover hover:text-text"
           aria-label="Show more tabs"
+          aria-haspopup="menu"
+          aria-expanded={showOverflow}
           onclick={() => {
             showOverflow = !showOverflow
           }}

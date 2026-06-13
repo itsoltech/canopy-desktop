@@ -87,35 +87,50 @@
     'w-full px-2 py-1.5 border border-border rounded-lg bg-bg-input text-text text-md font-inherit outline-none box-border focus:border-focus-ring'
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="fixed inset-0 flex items-center justify-center bg-scrim z-[100]"
-  role="dialog"
-  aria-modal="true"
+  role="presentation"
   onkeydown={handleKeydown}
   onclick={closeDialog}
 >
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
   <div
     class="bg-bg border border-border rounded-xl p-5 w-[480px] max-w-[90vw]"
-    role="none"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="create-pr-title"
     onclick={(e) => e.stopPropagation()}
   >
-    <h2 class="text-[15px] font-semibold text-text m-0 mb-4">Create pull request</h2>
+    <h2 id="create-pr-title" class="text-[15px] font-semibold text-text m-0 mb-4">
+      Create pull request
+    </h2>
 
     <div class="mb-2.5">
-      <label class="block text-sm text-text-secondary mb-1">Title</label>
-      <input class={inputCls} bind:value={title} bind:this={titleEl} placeholder="PR title" />
+      <label class="block text-sm text-text-secondary mb-1" for="create-pr-title">Title</label>
+      <input
+        id="create-pr-title"
+        class={inputCls}
+        bind:value={title}
+        bind:this={titleEl}
+        placeholder="PR title"
+      />
     </div>
 
     <div class="mb-2.5">
-      <label class="block text-sm text-text-secondary mb-1">Base branch</label>
-      <input class={inputCls} bind:value={baseRefName} placeholder={defaultBranch} />
+      <label class="block text-sm text-text-secondary mb-1" for="create-pr-base">Base branch</label>
+      <input
+        id="create-pr-base"
+        class={inputCls}
+        bind:value={baseRefName}
+        placeholder={defaultBranch}
+      />
     </div>
 
     <div class="mb-2.5">
-      <label class="block text-sm text-text-secondary mb-1">Description</label>
+      <label class="block text-sm text-text-secondary mb-1" for="create-pr-body">Description</label>
       <textarea
+        id="create-pr-body"
         class="{inputCls} resize-y min-h-[60px]"
         bind:value={body}
         placeholder="Optional description"

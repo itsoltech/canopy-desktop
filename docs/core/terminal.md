@@ -101,8 +101,14 @@ Detected URLs in terminal output are clickable. Behavior depends on the `urlOpen
 
 1. When a user closes a tab, the system checks whether the PTY has child processes (`pgrep -P <pid>` on Unix, `wmic` on Windows).
 2. For AI tool tabs, it checks whether the agent status is in an active state (thinking, tool calling, compacting, waiting for permission).
-3. If active processes are found, a confirmation dialog appears: "This tab has N running processes that will be terminated."
+3. If active processes are found, a confirmation dialog appears before the PTY is killed.
 4. On confirmation, all PTYs in the tab's split tree are killed.
+
+Closing all tabs for a worktree uses the same safety path. The renderer first aggregates active
+process warnings across tabs, then runs the unsaved-editor preflight for every open tab. If the
+user cancels either prompt, the worktree removal/detach operation that requested the close is
+cancelled as well. Closing the final tab leaves the worktree with no tabs; Canopy no longer opens
+a replacement shell automatically.
 
 ### Tmux session lifecycle
 

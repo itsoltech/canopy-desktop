@@ -15,8 +15,16 @@
   let sessionCount = $state<number | null>(null)
 
   onMount(() => {
-    window.api.tmuxIsAvailable().then((v) => (tmuxAvailable = v))
-    window.api.tmuxGetVersion().then((v) => (tmuxVersion = v))
+    // Resolve the loading sentinels even if the IPC call rejects, otherwise the
+    // Status panel shows "…" forever on failure.
+    window.api
+      .tmuxIsAvailable()
+      .then((v) => (tmuxAvailable = v))
+      .catch(() => (tmuxAvailable = false))
+    window.api
+      .tmuxGetVersion()
+      .then((v) => (tmuxVersion = v))
+      .catch(() => (tmuxVersion = null))
   })
 
   $effect(() => {
