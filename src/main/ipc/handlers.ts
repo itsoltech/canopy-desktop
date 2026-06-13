@@ -1821,7 +1821,7 @@ export function registerIpcHandlers(
   }
 
   ipcMain.handle('changes:getDiff', async (event, payload: { worktreePath: string }) => {
-    const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+    const resolvedWorktree = await validateWorktreeRepoAccess(event.sender.id, payload.worktreePath)
     const result = await GitRepository.getDiffParsed(resolvedWorktree)
     return result.unwrapOr({ files: [] })
   })
@@ -1829,7 +1829,10 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'changes:stageFile',
     async (event, payload: { worktreePath: string; filePath: string }) => {
-      const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+      const resolvedWorktree = await validateWorktreeRepoAccess(
+        event.sender.id,
+        payload.worktreePath,
+      )
       validateFilePath(payload.filePath)
       const result = await GitRepository.stageFile(resolvedWorktree, payload.filePath)
       return unwrapOrThrow(result, gitErrorMessage)
@@ -1839,7 +1842,10 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'changes:revertFile',
     async (event, payload: { worktreePath: string; filePath: string }) => {
-      const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+      const resolvedWorktree = await validateWorktreeRepoAccess(
+        event.sender.id,
+        payload.worktreePath,
+      )
       validateFilePath(payload.filePath)
       const result = await GitRepository.revertFile(resolvedWorktree, payload.filePath)
       return unwrapOrThrow(result, gitErrorMessage)
