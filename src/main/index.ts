@@ -609,6 +609,7 @@ app.whenReady().then(async () => {
     })
 
     autoUpdater.on('error', (err) => {
+      updateInstalling = false
       broadcast('update:error', { message: err.message })
     })
 
@@ -660,28 +661,7 @@ app.whenReady().then(async () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 500))
 
-      // Destroy all windows to prevent lifecycle conflicts
-      const closePromises = BrowserWindow.getAllWindows().map(
-        (win) =>
-          new Promise<void>((resolve) => {
-            if (win.isDestroyed()) return resolve()
-            win.once('closed', () => resolve())
-            win.destroy()
-          }),
-      )
-      await Promise.all(closePromises)
-      console.log('[updater] all windows destroyed')
-
-      app.releaseSingleInstanceLock()
-      setImmediate(() => {
-        autoUpdater.quitAndInstall(true, true)
-      })
-
-      // Safety net: force exit if quit hangs
-      setTimeout(() => {
-        console.error('[updater] quit did not complete within 10s — forcing exit')
-        app.exit(0)
-      }, 10_000)
+      autoUpdater.quitAndInstall(true, true)
     })
 
     const checkFrequency = normalizeUpdateCheckFrequency(
@@ -1085,8 +1065,8 @@ app.whenReady().then(async () => {
 app.on('before-quit', (event) => {
   if (database.isClosed()) return
 
-  // During update install, skip cleanup that could interfere with Squirrel.
-  // Window configs already saved; windows already destroyed.
+  // During update install, let electron-updater own the window/app shutdown sequence.
+  // Window configs were already saved before quitAndInstall().
   if (updateInstalling) {
     disposeRuntimeForQuit({ disposeWindows: false, forceExit: false })
     return
