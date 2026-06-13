@@ -642,7 +642,7 @@ export class RemoteSessionService {
       this.clearExpiryTimer()
       this.clearReaperTimer()
       this.resetIdleTimer()
-      const pairing = this.pairingForPeerConnection(this.currentPairing, context.localAddress)
+      const pairing = this.resolveAndStorePairingLanIp(this.currentPairing, context.localAddress)
       this.setStatus({
         kind: 'paired',
         hostname: pairing.hostname,
@@ -661,7 +661,7 @@ export class RemoteSessionService {
     }
 
     if (this.currentPairing) {
-      const pairing = this.pairingForPeerConnection(this.currentPairing, context.localAddress)
+      const pairing = this.resolveAndStorePairingLanIp(this.currentPairing, context.localAddress)
       this.setStatus({
         kind: 'peerArrived',
         pairingUrl: pairing.pairingUrl,
@@ -864,7 +864,7 @@ export class RemoteSessionService {
     return selectPrimaryInterface(preferredIfaceName)?.address ?? null
   }
 
-  private pairingForPeerConnection(
+  private resolveAndStorePairingLanIp(
     pairing: PairingUrlInfo,
     localAddress: string | null,
   ): PairingUrlInfo {
