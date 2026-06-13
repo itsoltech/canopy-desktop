@@ -462,9 +462,10 @@
           action: async () => {
             const wtPath = selectedWt.path
             const branch = selectedWt.branch
+            const operationRoot = workspaceState.worktrees.find((w) => w.isMain)?.path ?? root
             try {
               const preflight = await window.api.worktreePrepareRemove({
-                repoRoot: root,
+                repoRoot: operationRoot,
                 worktreePath: wtPath,
                 branch,
               })
@@ -493,7 +494,7 @@
               }
 
               await window.api.worktreeRemoveWithBranch({
-                repoRoot: root,
+                repoRoot: operationRoot,
                 worktreePath: wtPath,
                 branch,
                 deleteBranch,

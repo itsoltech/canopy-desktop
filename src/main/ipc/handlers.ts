@@ -1381,14 +1381,14 @@ export function registerIpcHandlers(
         stageAll?: boolean
       },
     ) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const result = await GitRepository.commit(resolvedRepo, payload.message, payload.stageAll)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle('git:pushWorktree', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
     const result = await GitRepository.push(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
@@ -1399,14 +1399,14 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('git:pullWithPreferences', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
     const rebase = (preferencesStore.get('gitPullRebase') ?? 'true') !== 'false'
     const result = unwrapOrThrow(await GitRepository.pull(resolvedRepo, rebase), gitErrorMessage)
     return { ...result, rebase }
   })
 
   ipcMain.handle('git:fetchWorktree', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
     const result = await GitRepository.fetch(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
@@ -1427,7 +1427,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('git:stashWorktree', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
     const result = await GitRepository.stash(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
@@ -1438,7 +1438,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('git:stashPopWorktree', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
     const result = await GitRepository.stashPop(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
@@ -1463,7 +1463,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:branchCreateFromHead',
     async (event, payload: { repoRoot: string; branch: string }) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const result = await GitRepository.createBranch(resolvedRepo, payload.branch, 'HEAD')
       return unwrapOrThrow(result, gitErrorMessage)
     },
@@ -1488,7 +1488,7 @@ export function registerIpcHandlers(
       event,
       payload: GitBranchPrepareDeletePayload,
     ): Promise<GitBranchPrepareDeleteResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const branchMerged = unwrapOrThrow(
         await GitRepository.isBranchMerged(resolvedRepo, payload.branch),
         gitErrorMessage,
@@ -1509,7 +1509,7 @@ export function registerIpcHandlers(
       event,
       payload: GitBranchDeleteWithPreflightPayload,
     ): Promise<GitBranchDeleteWithPreflightResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const branchMerged = unwrapOrThrow(
         await GitRepository.isBranchMerged(resolvedRepo, payload.branch),
         gitErrorMessage,
@@ -1550,7 +1550,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:preparePush',
     async (event, payload: { repoRoot: string }): Promise<GitPreparePushResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const info = await GitRepository.getPushInfo(resolvedRepo).unwrapOr(null)
       if (!info) {
         return {
@@ -1580,7 +1580,7 @@ export function registerIpcHandlers(
       event,
       payload: { repoRoot: string; path: string; branch: string; baseBranch: string },
     ) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
@@ -1606,7 +1606,7 @@ export function registerIpcHandlers(
         createLocalTracking: boolean
       },
     ) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
@@ -1624,7 +1624,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'worktree:create',
     async (event, payload: WorktreeCreatePayload): Promise<WorktreeCreateResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const expandedPath = payload.worktreePath.startsWith('~/')
         ? os.homedir() + payload.worktreePath.slice(1)
         : payload.worktreePath
@@ -1655,7 +1655,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'git:worktreeRemove',
     async (event, payload: { repoRoot: string; path: string; force: boolean }) => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const resolvedTarget = await validateWorktreeExistingPath(event.sender.id, payload.path)
       const result = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, payload.force)
       return unwrapOrThrow(result, gitErrorMessage)
@@ -1665,7 +1665,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'worktree:prepareRemove',
     async (event, payload: WorktreePrepareRemovePayload): Promise<WorktreePrepareRemoveResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const resolvedTarget = await validateWorktreeExistingPath(
         event.sender.id,
         payload.worktreePath,
@@ -1712,7 +1712,7 @@ export function registerIpcHandlers(
       event,
       payload: WorktreeGetMergedBranchesPayload,
     ): Promise<WorktreeGetMergedBranchesResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const requestedBranches = Array.from(
         new Set(payload.branches.filter((branch) => branch && branch !== '(detached)')),
       )
@@ -1731,12 +1731,12 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('worktree:listBranches', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
     return unwrapOrThrow(await GitRepository.listBranches(resolvedRepo), gitErrorMessage)
   })
 
   ipcMain.handle('worktree:refreshBranches', async (event, payload: { repoRoot: string }) => {
-    const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
     unwrapOrThrow(await GitRepository.fetchAll(resolvedRepo), gitErrorMessage)
     return unwrapOrThrow(await GitRepository.listBranches(resolvedRepo), gitErrorMessage)
   })
@@ -1747,7 +1747,7 @@ export function registerIpcHandlers(
       event,
       payload: WorktreeRemoveWithBranchPayload,
     ): Promise<WorktreeRemoveWithBranchResult> => {
-      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const resolvedTarget = await validateWorktreeExistingPath(
         event.sender.id,
         payload.worktreePath,
@@ -1821,7 +1821,10 @@ export function registerIpcHandlers(
   }
 
   ipcMain.handle('changes:getDiff', async (event, payload: { worktreePath: string }) => {
-    const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+    const resolvedWorktree = await validateWorktreeScopedPathAccess(
+      event.sender.id,
+      payload.worktreePath,
+    )
     const result = await GitRepository.getDiffParsed(resolvedWorktree)
     return result.unwrapOr({ files: [] })
   })
@@ -1829,7 +1832,10 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'changes:stageFile',
     async (event, payload: { worktreePath: string; filePath: string }) => {
-      const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+      const resolvedWorktree = await validateWorktreeScopedPathAccess(
+        event.sender.id,
+        payload.worktreePath,
+      )
       validateFilePath(payload.filePath)
       const result = await GitRepository.stageFile(resolvedWorktree, payload.filePath)
       return unwrapOrThrow(result, gitErrorMessage)
@@ -1839,7 +1845,10 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'changes:revertFile',
     async (event, payload: { worktreePath: string; filePath: string }) => {
-      const resolvedWorktree = await validatePathAccess(event.sender.id, payload.worktreePath)
+      const resolvedWorktree = await validateWorktreeScopedPathAccess(
+        event.sender.id,
+        payload.worktreePath,
+      )
       validateFilePath(payload.filePath)
       const result = await GitRepository.revertFile(resolvedWorktree, payload.filePath)
       return unwrapOrThrow(result, gitErrorMessage)
@@ -2176,6 +2185,25 @@ export function registerIpcHandlers(
     return false
   }
 
+  function comparablePath(value: string): string {
+    return process.platform === 'win32' ? value.toLowerCase() : value
+  }
+
+  function samePath(a: string, b: string): boolean {
+    return comparablePath(a) === comparablePath(b)
+  }
+
+  function sameOrChildPath(targetPath: string, basePath: string): boolean {
+    const target = comparablePath(targetPath)
+    const base = comparablePath(basePath)
+    return target === base || target.startsWith(base + path.sep)
+  }
+
+  async function normalizeRealpathOrInput(targetPath: string): Promise<string> {
+    const result = await fromExternalCall(fs.promises.realpath(targetPath), () => null)
+    return path.normalize(result.isOk() ? result.value : targetPath)
+  }
+
   // Realpath-normalize workspace roots too: otherwise a macOS workspace at
   // `/var/...` (which resolves to `/private/var/...`) would never match a
   // target's realpath and all reads get rejected; conversely a symlinked
@@ -2186,25 +2214,37 @@ export function registerIpcHandlers(
   async function validatePathAccess(wcId: number, targetPath: string): Promise<string> {
     const resolved = path.normalize(await fs.promises.realpath(targetPath))
     const allowed = windowManager.getWorkspacePaths(wcId)
-    const resolvedAllowed = await Promise.all(
-      allowed.map(async (wp) => {
-        try {
-          return path.normalize(await fs.promises.realpath(wp))
-        } catch {
-          return path.normalize(wp)
-        }
-      }),
-    )
-    const ok = resolvedAllowed.some((normalWp) => {
-      // Windows paths are case-insensitive
-      if (process.platform === 'win32') {
-        const r = resolved.toLowerCase()
-        const w = normalWp.toLowerCase()
-        return r === w || r.startsWith(w + path.sep)
-      }
-      return resolved === normalWp || resolved.startsWith(normalWp + path.sep)
-    })
+    const resolvedAllowed = await Promise.all(allowed.map(normalizeRealpathOrInput))
+    const ok = resolvedAllowed.some((normalWp) => sameOrChildPath(resolved, normalWp))
     if (!ok) throw new Error('Access denied: path outside workspace')
+    return resolved
+  }
+
+  async function validateWorktreeScopedPathAccess(
+    wcId: number,
+    targetPath: string,
+  ): Promise<string> {
+    const strictAccess = await fromExternalCall(validatePathAccess(wcId, targetPath), (e) => e)
+    if (strictAccess.isOk()) return strictAccess.value
+
+    const accessError = strictAccess.error
+    const targetRealpath = await fromExternalCall(
+      fs.promises.realpath(targetPath),
+      () => accessError,
+    )
+    if (targetRealpath.isErr()) throw targetRealpath.error
+
+    const resolved = path.normalize(targetRealpath.value)
+    const ownedPaths = workspaceCommandService
+      .getSnapshot(wcId)
+      .projects.flatMap((project) => [
+        project.workspace.path,
+        ...(project.repoRoot ? [project.repoRoot] : []),
+        ...project.worktrees.map((worktree) => worktree.path),
+      ])
+    const resolvedOwnedPaths = await Promise.all(ownedPaths.map(normalizeRealpathOrInput))
+    const ok = resolvedOwnedPaths.some((ownedPath) => samePath(resolved, ownedPath))
+    if (!ok) throw accessError
     return resolved
   }
 
@@ -2485,26 +2525,11 @@ export function registerIpcHandlers(
   // workspace path registered to this window. Windows paths compare
   // case-insensitively to match validatePathAccess.
   async function isUnderHomeOrWorkspace(wcId: number, resolved: string): Promise<boolean> {
-    const homeReal = path.normalize(
-      await fs.promises.realpath(os.homedir()).catch(() => os.homedir()),
-    )
+    const homeReal = await normalizeRealpathOrInput(os.homedir())
     const allowed = windowManager.getWorkspacePaths(wcId)
-    const resolvedAllowed = await Promise.all(
-      allowed.map(async (wp) => {
-        try {
-          return path.normalize(await fs.promises.realpath(wp))
-        } catch {
-          return path.normalize(wp)
-        }
-      }),
-    )
+    const resolvedAllowed = await Promise.all(allowed.map(normalizeRealpathOrInput))
     const bases = [homeReal, ...resolvedAllowed]
-    const isWin = process.platform === 'win32'
-    return bases.some((base) => {
-      const target = isWin ? resolved.toLowerCase() : resolved
-      const b = isWin ? base.toLowerCase() : base
-      return target === b || target.startsWith(b + path.sep)
-    })
+    return bases.some((base) => sameOrChildPath(resolved, base))
   }
 
   // Worktrees are intentionally created OUTSIDE the workspace by design (the
@@ -3358,7 +3383,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:createWorktreeFromTask',
     async (event, payload: TaskTrackerCreateWorktreeFromTaskPayload) => {
-      const repoRoot = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const repoRoot = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const expandedPath = payload.worktreePath.startsWith('~/')
         ? os.homedir() + payload.worktreePath.slice(1)
         : payload.worktreePath

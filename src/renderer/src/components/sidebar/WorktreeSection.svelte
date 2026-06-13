@@ -67,7 +67,7 @@
     wt: { path: string; branch: string },
   ): Promise<void> {
     e.stopPropagation()
-    const repoRoot = workspaceState.repoRoot
+    const repoRoot = workspaceState.worktrees.find((w) => w.isMain)?.path ?? workspaceState.repoRoot
     if (!repoRoot) return
 
     const isDetached = wt.branch === '(detached)'
@@ -92,8 +92,13 @@
         deleteBranch: !isDetached,
         forceOnFailure: true,
       })
-    } catch {
-      // Ignore — watcher will update the list
+    } catch (err) {
+      await confirm({
+        title: 'Git Error',
+        message: err instanceof Error ? err.message : String(err),
+        confirmLabel: 'OK',
+      })
+      return
     }
 
     if (workspaceState.selectedWorktreePath === wt.path) {
