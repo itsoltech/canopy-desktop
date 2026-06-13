@@ -33,9 +33,14 @@ export const claudeTransformer: SkillTransformer = {
     const frontmatterLines = [`---`]
     if (skill.description) frontmatterLines.push(`description: ${skill.description}`)
     const meta = skill.metadata
-    if (meta['allowed-tools']) {
-      const tools = meta['allowed-tools'] as string[]
-      frontmatterLines.push(`allowed-tools: [${tools.map((t) => `'${t}'`).join(', ')}]`)
+    // `allowed-tools` may be parsed as a scalar string (not a list) from skill
+    // frontmatter; guard with Array.isArray so a non-array value can't throw a
+    // TypeError that would escape this method's Result contract.
+    const allowedTools = meta['allowed-tools']
+    if (Array.isArray(allowedTools)) {
+      frontmatterLines.push(
+        `allowed-tools: [${allowedTools.map((t) => `'${String(t)}'`).join(', ')}]`,
+      )
     }
     if (meta['disable-model-invocation']) {
       frontmatterLines.push(`disable-model-invocation: true`)
