@@ -253,11 +253,16 @@
       async () => {
         finishTimer = null
         const targetPath = createdPath || worktreeDirDisplay
-        await openTool(getPref('newWorktree.toolId', 'shell'), targetPath).catch((err) => {
-          console.error('Failed to launch tool after worktree creation:', err)
-        })
-        selectWorktree(targetPath)
-        onClose()
+        try {
+          await selectWorktree(targetPath)
+          await openTool(getPref('newWorktree.toolId', 'shell'), targetPath).catch((err) => {
+            console.error('Failed to launch tool after worktree creation:', err)
+          })
+          onClose()
+        } catch (err) {
+          errorMessage = err instanceof Error ? err.message : String(err)
+          step = 'error'
+        }
       },
       setupErrors.length > 0 ? 2000 : 400,
     )

@@ -188,8 +188,8 @@
         const taskSnapshot = $state.snapshot(fullTask) as typeof fullTask
 
         try {
-          const tab = await openTool(agentId, created.worktreePath)
           await selectWorktree(created.worktreePath)
+          const tab = await openTool(agentId, created.worktreePath)
           const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
           if (pane) {
             const sessionId = pane.sessionId

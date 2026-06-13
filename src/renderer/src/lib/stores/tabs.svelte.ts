@@ -973,7 +973,6 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<boo
     delete saveTimers[worktreePath]
   }
   applyTabCommandResult(result)
-  delete closedTabs[worktreePath]
   return true
 }
 
@@ -983,9 +982,6 @@ export async function killAllTabs(): Promise<void> {
   for (const p of allSessions) disposeEphemeralPaneState(p)
   const result = await window.api.tabKillAll()
   applyTabsSnapshot(result, { replaceAll: true })
-  for (const path of Object.keys(closedTabs)) {
-    delete closedTabs[path]
-  }
 }
 
 export function focusSessionByPtyId(ptySessionId: string): void {

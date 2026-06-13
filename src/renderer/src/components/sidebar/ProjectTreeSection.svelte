@@ -136,7 +136,8 @@
     project: ProjectState,
     wt: { path: string; branch: string },
   ): Promise<void> {
-    if (!project.repoRoot || removingPaths.has(wt.path)) return
+    const repoRoot = project.worktrees.find((w) => w.isMain)?.path ?? project.repoRoot
+    if (!repoRoot || removingPaths.has(wt.path)) return
     removingPaths.add(wt.path)
 
     try {
@@ -144,13 +145,18 @@
 
       const isDetached = wt.branch === '(detached)'
       await window.api.worktreeRemoveWithBranch({
-        repoRoot: project.repoRoot,
+        repoRoot,
         worktreePath: wt.path,
         branch: wt.branch,
         deleteBranch: !isDetached,
         forceOnFailure: true,
       })
-    } catch {
+    } catch (err) {
+      await confirm({
+        title: 'Git Error',
+        message: err instanceof Error ? err.message : String(err),
+        confirmLabel: 'OK',
+      })
       return
     } finally {
       removingPaths.delete(wt.path)
