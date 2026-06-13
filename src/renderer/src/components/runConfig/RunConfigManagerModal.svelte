@@ -156,6 +156,7 @@
       <h2 class="m-0 text-lg font-semibold text-text">Run Configurations</h2>
       <button
         class="flex items-center justify-center w-7 h-7 border-0 bg-transparent text-text-muted cursor-pointer rounded-md hover:bg-hover hover:text-text"
+        aria-label="Close"
         onclick={closeDialog}
         aria-label="Close"
       >
@@ -173,6 +174,7 @@
               >
               <button
                 class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-text-muted cursor-pointer rounded-sm hover:bg-hover hover:text-text"
+                aria-label="New run configuration"
                 onclick={() => startNew(group.configDir)}
                 aria-label="New configuration"
               >
@@ -202,6 +204,7 @@
                 <div class="flex gap-px flex-shrink-0 opacity-0 group-hover/item:opacity-100">
                   <button
                     class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-success-text cursor-pointer rounded-sm hover:bg-hover-strong"
+                    aria-label={`Run ${config.name}`}
                     onclick={(e) => {
                       e.stopPropagation()
                       handlePlay(group.configDir, config.name)
@@ -212,6 +215,7 @@
                   </button>
                   <button
                     class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-text-muted cursor-pointer rounded-sm hover:bg-hover-strong hover:text-danger-text"
+                    aria-label={`Delete ${config.name}`}
                     onclick={(e) => {
                       e.stopPropagation()
                       handleDelete(group.configDir, config.name)
