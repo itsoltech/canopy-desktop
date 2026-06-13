@@ -122,11 +122,11 @@
 
   <PrefsSection
     title="Remote control"
-    description="Control Canopy from another device on your local network. Connections use end-to-end encrypted WebRTC DTLS data channels."
+    description="Control Canopy from the Canopy Remote mobile app on your local network or via VPN. The mobile app will be available soon."
   >
     <PrefsRow
       label="Enable remote control"
-      help="When disabled, the Remote sidebar section is hidden, the signaling server is never bound, and trusted devices cannot reconnect."
+      help="Shows the Remote sidebar section, lets you pair the mobile app, and lets trusted devices reconnect on your local network or via VPN."
       search="remote control enable signaling pair phone tablet"
       badge={{ text: 'Beta', tone: 'warning' }}
     >
