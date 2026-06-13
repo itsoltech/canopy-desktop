@@ -153,6 +153,14 @@ export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethod
   'tabs.close',
   'pty.kill',
   'worktree.remove',
+  // Peer-initiated filesystem effects. Creating a worktree writes to disk at a
+  // peer-chosen path, and attaching a project exposes that directory's whole
+  // tree to the (untrusted) peer. These are one-shot operations, so a per-call
+  // confirm is tolerable — and confirming them matches how the equally
+  // side-effectful `worktree.remove` is already treated.
+  'worktree.add',
+  'worktree.addCheckout',
+  'project.attach',
 ])
 
 /**

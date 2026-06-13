@@ -90,16 +90,16 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="fixed inset-0 flex items-center justify-center bg-scrim z-[100]"
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="create-pr-title"
+  role="presentation"
   onkeydown={handleKeydown}
   onclick={closeDialog}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="bg-bg border border-border rounded-xl p-5 w-[480px] max-w-[90vw]"
-    role="none"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="create-pr-title"
     onclick={(e) => e.stopPropagation()}
   >
     <h2 id="create-pr-title" class="text-[15px] font-semibold text-text m-0 mb-4">

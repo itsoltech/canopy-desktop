@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
-import { join, basename, resolve, normalize, extname, sep } from 'path'
+import { join, basename, resolve, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
 import type { Result } from 'neverthrow'
@@ -240,18 +240,20 @@ export class SkillInstaller {
 
       if (cloneResult.isErr()) return err(cloneResult.error)
 
-      // `subpath` is renderer-supplied and unvalidated; `..` segments could
-      // escape the cloned repo and let readSkillDir read arbitrary local
-      // directories. Normalize and confirm the result stays within tmpDir.
-      const skillDir = subpath ? normalize(join(tmpDir, subpath)) : tmpDir
-      if (skillDir !== tmpDir && !skillDir.startsWith(tmpDir + sep)) {
+      const skillDir = subpath ? join(tmpDir, subpath) : tmpDir
+      // `subpath` is untrusted (it comes from the renderer's source string) and
+      // is never validated like `owner`/`repo` are. Reject any value that
+      // escapes the cloned temp dir via `..` before reading skill files from it.
+      const resolvedDir = resolve(skillDir)
+      const resolvedTmp = resolve(tmpDir)
+      if (resolvedDir !== resolvedTmp && !resolvedDir.startsWith(resolvedTmp + sep)) {
         return err({
           _tag: 'InvalidSource',
           source: `github:${ref}`,
-          reason: 'Skill subpath must not escape the repository',
+          reason: 'Subpath escapes repository root',
         })
       }
-      return await this.readSkillDir(skillDir, `github:${ref}`, 'github')
+      return await this.readSkillDir(resolvedDir, `github:${ref}`, 'github')
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
