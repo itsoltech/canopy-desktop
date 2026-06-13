@@ -102,6 +102,7 @@
     onpointerdown={() => startRepeat(decrement)}
     onpointerup={stopRepeat}
     onpointerleave={stopRepeat}
+    onpointercancel={stopRepeat}
   >
     &minus;
   </button>
@@ -126,6 +127,7 @@
     onpointerdown={() => startRepeat(increment)}
     onpointerup={stopRepeat}
     onpointerleave={stopRepeat}
+    onpointercancel={stopRepeat}
   >
     +
   </button>

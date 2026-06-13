@@ -52,7 +52,10 @@ const OUTPUT_SCHEMA = {
   required: ['subject', 'body'] as const,
 }
 
-function generateCommitMessageInner(diff: string): ResultAsyncType<string | null, AiError> {
+function generateCommitMessageInner(
+  diff: string,
+  env: Record<string, string | undefined>,
+): ResultAsyncType<string | null, AiError> {
   const truncatedDiff = diff.length > MAX_DIFF_LENGTH ? diff.slice(0, MAX_DIFF_LENGTH) : diff
   const prompt = PROMPT_TEMPLATE.replace('{diff}', truncatedDiff)
 
@@ -66,6 +69,7 @@ function generateCommitMessageInner(diff: string): ResultAsyncType<string | null
           model: 'haiku',
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+          env,
         },
       })
 
@@ -119,22 +123,12 @@ export async function generateCommitMessage(
     }
   }
 
-  const savedEnv: Record<string, string | undefined> = {}
+  // Pass the API key + provider overrides to the SDK's scoped child env rather
+  // than mutating the shared global process.env. The old mutate/restore exposed
+  // the secret to any concurrent reader (e.g. a PTY spawn snapshotting env) for
+  // the request's duration, and two overlapping calls corrupted the save/restore
+  // (the second captured the first's injected values), leaving keys persisted.
+  const env: Record<string, string | undefined> = { ...process.env, ...envOverrides }
 
-  try {
-    for (const [key, val] of Object.entries(envOverrides)) {
-      savedEnv[key] = process.env[key]
-      process.env[key] = val
-    }
-
-    return await generateCommitMessageInner(diff).unwrapOr(null)
-  } finally {
-    for (const [key, val] of Object.entries(savedEnv)) {
-      if (val !== undefined) {
-        process.env[key] = val
-      } else {
-        delete process.env[key]
-      }
-    }
-  }
+  return await generateCommitMessageInner(diff, env).unwrapOr(null)
 }

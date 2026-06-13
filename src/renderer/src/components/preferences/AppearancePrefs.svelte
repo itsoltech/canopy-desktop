@@ -43,6 +43,7 @@
             class:bg-accent-bg={active}
             class:border-focus-ring={active}
             class:text-accent={active}
+            aria-pressed={active}
             onclick={() => setTheme(name)}
           >
             {name}

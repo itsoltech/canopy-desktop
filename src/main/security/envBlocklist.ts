@@ -47,9 +47,17 @@ export const BLOCKED_ENV_VARS = new Set([
   // Proxies / TLS (callers normalize to uppercase, so lowercase variants are covered)
   'HTTP_PROXY',
   'HTTPS_PROXY',
+  'ALL_PROXY',
+  'FTP_PROXY',
   'NO_PROXY',
   'SSL_CERT_FILE',
   'SSL_CERT_DIR',
+  // CA-bundle overrides honoured by common agent toolchains — a user/config
+  // value here could route an agent's API traffic through a rogue CA/proxy.
+  'REQUESTS_CA_BUNDLE',
+  'CURL_CA_BUNDLE',
+  'GIT_SSL_CAINFO',
+  'NODE_TLS_REJECT_UNAUTHORIZED',
 
   // Build / compilation
   'CC',
