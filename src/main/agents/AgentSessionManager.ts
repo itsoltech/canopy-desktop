@@ -248,6 +248,12 @@ export class AgentSessionManager extends EventEmitter {
     session.ptySessionId = realPtySessionId
     session.sessionRef.ptySessionId = realPtySessionId
     this.sessions.set(realPtySessionId, session)
+    // Busy state is keyed by ptySessionId; migrate it too, otherwise a session
+    // that went busy under the temp id leaks a stale entry and isBusy() reports
+    // the wrong value after rekey.
+    if (this.busySessions.delete(tempId)) {
+      this.busySessions.add(realPtySessionId)
+    }
   }
 
   isBusy(ptySessionId: string): boolean {

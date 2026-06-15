@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto'
 import { execFile, execFileSync } from 'child_process'
 import os from 'os'
 import { getLoginEnv } from '../shell/loginEnv'
+import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 
 interface PtySession {
   id: string
@@ -57,7 +58,20 @@ export class PtyManager {
       COLORTERM: 'truecolor',
       TERM: 'xterm-256color',
     } as Record<string, string>
-    const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv
+    // Defense-in-depth: never let caller-supplied env override protected
+    // variables (PATH, LD_PRELOAD, NODE_OPTIONS, GIT_SSH_COMMAND, …) at the
+    // spawn boundary, even though callers are expected to pre-filter. Keys are
+    // normalized to uppercase to match how BLOCKED_ENV_VARS is declared.
+    let env = baseEnv
+    if (options?.env) {
+      const safeEnv: Record<string, string> = {}
+      for (const [key, value] of Object.entries(options.env)) {
+        if (typeof value === 'string' && !BLOCKED_ENV_VARS.has(key.toUpperCase())) {
+          safeEnv[key] = value
+        }
+      }
+      env = { ...baseEnv, ...safeEnv }
+    }
 
     const p = pty.spawn(finalCommand, finalArgs, {
       name: 'xterm-256color',

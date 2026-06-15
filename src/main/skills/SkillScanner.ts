@@ -254,10 +254,16 @@ async function scanPluginsCache(cacheDir: string): Promise<ScannedSkill[]> {
 
           const versions = await readdir(pluginPath)
           // Use the latest version (last alphabetically)
-          // Sort by semver-like segments numerically (e.g. 1.10.0 > 1.2.0)
+          // Sort by semver-like segments numerically (e.g. 1.10.0 > 1.2.0).
+          // Non-numeric segments (e.g. a "1.2.0-beta" dir) coerce to NaN, which
+          // would poison the comparator, so treat them as 0.
+          const toSegment = (s: string): number => {
+            const n = Number(s)
+            return Number.isNaN(n) ? 0 : n
+          }
           const latestVersion = versions.sort((a, b) => {
-            const pa = a.split('.').map(Number)
-            const pb = b.split('.').map(Number)
+            const pa = a.split('.').map(toSegment)
+            const pb = b.split('.').map(toSegment)
             for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
               const diff = (pb[i] ?? 0) - (pa[i] ?? 0)
               if (diff !== 0) return diff

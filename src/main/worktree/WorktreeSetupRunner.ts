@@ -1,8 +1,14 @@
 import * as pty from 'node-pty'
 import { copyFile, mkdir } from 'fs/promises'
-import { join, dirname } from 'path'
+import { join, dirname, resolve, relative, isAbsolute } from 'path'
 import type { WorktreeSetupAction, WorktreeSetupProgress } from '../db/types'
 import { getLoginEnv } from '../shell/loginEnv'
+
+/** True when `target` resolves to `root` itself or a path nested inside it. */
+function isWithinRoot(root: string, target: string): boolean {
+  const rel = relative(resolve(root), resolve(target))
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
 
 export interface SetupContext {
   repoRoot: string
@@ -139,6 +145,15 @@ export async function runWorktreeSetup(
       } else {
         const sourcePath = join(context.mainWorktreePath, action.source)
         const destPath = join(context.newWorktreePath, action.dest ?? action.source)
+        // Confine copy actions to their worktree roots — a crafted source/dest
+        // (e.g. "../../.bashrc") must not read from or overwrite files outside
+        // the worktree being set up.
+        if (
+          !isWithinRoot(context.mainWorktreePath, sourcePath) ||
+          !isWithinRoot(context.newWorktreePath, destPath)
+        ) {
+          throw new Error('Copy action path escapes its worktree root')
+        }
         await mkdir(dirname(destPath), { recursive: true })
         await copyFile(sourcePath, destPath)
         onProgress({

@@ -107,9 +107,10 @@
     </h2>
 
     <div class="mb-2.5">
-      <label class="block text-sm text-text-secondary mb-1" for="create-pr-title">Title</label>
+      <label class="block text-sm text-text-secondary mb-1" for="create-pr-title-input">Title</label
+      >
       <input
-        id="create-pr-title"
+        id="create-pr-title-input"
         class={inputCls}
         bind:value={title}
         bind:this={titleEl}
