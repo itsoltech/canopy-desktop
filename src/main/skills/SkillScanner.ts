@@ -2,6 +2,7 @@ import { readdir, readFile, access, stat } from 'fs/promises'
 import { join, basename } from 'path'
 import os from 'os'
 import { is } from '@electron-toolkit/utils'
+import semver from 'semver'
 import { parseSkillContent } from './SkillParser'
 
 interface ScanTarget {
@@ -253,22 +254,20 @@ async function scanPluginsCache(cacheDir: string): Promise<ScannedSkill[]> {
           if (!pluginStat.isDirectory()) continue
 
           const versions = await readdir(pluginPath)
-          // Use the latest version (last alphabetically)
-          // Sort by semver-like segments numerically (e.g. 1.10.0 > 1.2.0).
-          // Non-numeric segments (e.g. a "1.2.0-beta" dir) coerce to NaN, which
-          // would poison the comparator, so treat them as 0.
-          const toSegment = (s: string): number => {
-            const n = Number(s)
-            return Number.isNaN(n) ? 0 : n
-          }
+          // Use the latest plugin version. Prefer real semver so prerelease
+          // directories like "1.2.10-beta" sort above "1.2.9"; fall back to
+          // coerced/numeric comparison for older cache names.
           const latestVersion = versions.sort((a, b) => {
-            const pa = a.split('.').map(toSegment)
-            const pb = b.split('.').map(toSegment)
-            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-              const diff = (pb[i] ?? 0) - (pa[i] ?? 0)
-              if (diff !== 0) return diff
-            }
-            return 0
+            const validA = semver.valid(a)
+            const validB = semver.valid(b)
+            if (validA && validB) return semver.rcompare(validA, validB)
+
+            const coercedA = semver.coerce(a)
+            const coercedB = semver.coerce(b)
+            if (coercedA && coercedB) return semver.rcompare(coercedA, coercedB)
+            if (coercedA) return -1
+            if (coercedB) return 1
+            return b.localeCompare(a, undefined, { numeric: true })
           })[0]
           if (!latestVersion) continue
 
