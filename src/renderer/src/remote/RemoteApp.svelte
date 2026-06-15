@@ -374,7 +374,7 @@
       <span class="version">v{REMOTE_PROTOCOL_VERSION}</span>
     </div>
 
-    <div class="status-pill" data-kind={dotKind}>
+    <div class="status-pill" data-kind={dotKind} role="status" aria-live="polite">
       <span class="status-dot"></span>
       <span class="status-label">{statusHeadline}</span>
       {#if mirrorState.hostInfo?.hostname && phase.kind === 'connected'}
@@ -461,7 +461,13 @@
           {:else}
             <ul class="tool-grid">
               {#each mirrorState.tools as tool (tool.id)}
-                <li class="tool-chip" class:unavailable={!tool.available}>{tool.name}</li>
+                <li
+                  class="tool-chip"
+                  class:unavailable={!tool.available}
+                  aria-label={tool.available ? tool.name : `${tool.name}, unavailable`}
+                >
+                  {tool.name}
+                </li>
               {/each}
             </ul>
           {/if}

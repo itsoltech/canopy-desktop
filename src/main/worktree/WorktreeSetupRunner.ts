@@ -1,8 +1,57 @@
 import * as pty from 'node-pty'
-import { copyFile, mkdir } from 'fs/promises'
-import { join, dirname } from 'path'
+import { copyFile, lstat, mkdir, realpath } from 'fs/promises'
+import { join, dirname, resolve, relative, isAbsolute } from 'path'
 import type { WorktreeSetupAction, WorktreeSetupProgress } from '../db/types'
 import { getLoginEnv } from '../shell/loginEnv'
+
+/** True when `target` is `root` itself or a path nested inside it. */
+function isWithinRoot(root: string, target: string): boolean {
+  const rel = relative(root, target)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
+async function assertSourceWithinRoot(root: string, target: string): Promise<void> {
+  const [rootReal, targetReal] = await Promise.all([realpath(root), realpath(target)])
+  if (!isWithinRoot(rootReal, targetReal)) {
+    throw new Error('Copy action source path escapes its worktree root')
+  }
+}
+
+async function assertDestinationWithinRoot(root: string, target: string): Promise<void> {
+  const rootResolved = resolve(root)
+  const targetResolved = resolve(target)
+  if (!isWithinRoot(rootResolved, targetResolved)) {
+    throw new Error('Copy action destination path escapes its worktree root')
+  }
+
+  const rel = relative(rootResolved, dirname(targetResolved))
+  let current = rootResolved
+  for (const segment of rel.split(/[\\/]+/).filter(Boolean)) {
+    current = join(current, segment)
+    try {
+      const stat = await lstat(current)
+      if (stat.isSymbolicLink()) {
+        throw new Error('Copy action destination path crosses a symlink')
+      }
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
+        break
+      }
+      throw err
+    }
+  }
+
+  try {
+    const stat = await lstat(targetResolved)
+    if (stat.isSymbolicLink()) {
+      throw new Error('Copy action destination path is a symlink')
+    }
+  } catch (err) {
+    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) {
+      throw err
+    }
+  }
+}
 
 export interface SetupContext {
   repoRoot: string
@@ -139,6 +188,10 @@ export async function runWorktreeSetup(
       } else {
         const sourcePath = join(context.mainWorktreePath, action.source)
         const destPath = join(context.newWorktreePath, action.dest ?? action.source)
+        // Confine copy actions to their real worktree roots. copyFile follows
+        // symlinks, so lexical ".." checks alone are not enough here.
+        await assertSourceWithinRoot(context.mainWorktreePath, sourcePath)
+        await assertDestinationWithinRoot(context.newWorktreePath, destPath)
         await mkdir(dirname(destPath), { recursive: true })
         await copyFile(sourcePath, destPath)
         onProgress({

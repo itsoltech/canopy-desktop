@@ -24,7 +24,9 @@
 
   function onTextInput<K extends keyof ProfilePrefs>(key: K) {
     return (e: Event): void => {
+      // Bound only to <input>/<textarea> elements; their .value is a string.
       const target = e.target as HTMLInputElement | HTMLTextAreaElement
+      // ProfilePrefs fields used here are all string | undefined, so the string value satisfies ProfilePrefs[K].
       set(key, target.value as ProfilePrefs[K])
     }
   }

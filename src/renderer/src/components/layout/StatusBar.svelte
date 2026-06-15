@@ -256,8 +256,9 @@
       <!-- Sub-group A: git -->
       <div class="flex items-center gap-2">
         {#if workspaceState.isGitRepo && workspaceState.branch}
-          <button
-            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
+          <span
+            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm text-text-faint"
+            role="img"
             aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
               ? ', uncommitted changes'
               : ''}"
@@ -274,13 +275,14 @@
                 aria-hidden="true"
               ></span>
             {/if}
-          </button>
+          </span>
 
           {#if workspaceState.aheadBehind && (workspaceState.aheadBehind.ahead > 0 || workspaceState.aheadBehind.behind > 0)}
             {@const ahead = workspaceState.aheadBehind.ahead}
             {@const behind = workspaceState.aheadBehind.behind}
-            <button
-              class="inline-flex items-center gap-1 h-5 px-1.5 rounded-sm border-0 bg-border-subtle font-inherit text-text-secondary font-mono text-2xs font-semibold tabular-nums leading-none cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
+            <span
+              class="inline-flex items-center gap-1 h-5 px-1.5 rounded-sm bg-border-subtle text-text-secondary font-mono text-2xs font-semibold tabular-nums leading-none"
+              role="img"
               aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
                 ? ', '
                 : ''}{behind > 0 ? `${behind} behind` : ''}"
@@ -290,7 +292,7 @@
             >
               {#if ahead > 0}<span aria-hidden="true">↑{ahead}</span>{/if}
               {#if behind > 0}<span aria-hidden="true">↓{behind}</span>{/if}
-            </button>
+            </span>
           {/if}
         {/if}
 

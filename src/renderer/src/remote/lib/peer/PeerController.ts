@@ -175,9 +175,13 @@ export class PeerController {
     this.parts = parts
     this.setPhase({ kind: 'connecting-signaling' })
 
-    // Plain ws://. HTTPS fallback flips to wss:// when the host enables it
-    // in settings. The signaling endpoint lives at /signaling.
-    const url = `ws://${parts.host}:${parts.port}/signaling`
+    // Match the page's transport: when the host serves the remote bundle over
+    // HTTPS we must use wss:// — both so the pairing token (sent as the first
+    // frame) isn't exposed in cleartext, and because a ws:// socket from an
+    // https:// page is blocked as mixed content. The signaling endpoint lives
+    // at /signaling.
+    const scheme = loc.protocol === 'https:' ? 'wss' : 'ws'
+    const url = `${scheme}://${parts.host}:${parts.port}/signaling`
 
     this.signaling.onOpen = () => {
       this.setPhase({ kind: 'awaiting-paired' })

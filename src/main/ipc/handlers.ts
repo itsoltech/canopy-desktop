@@ -760,6 +760,10 @@ export function registerIpcHandlers(
     if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
       throw new Error('PTY session is not owned by this window')
     }
+    // Renderer is untrusted: only forward string data into the native PTY.
+    if (typeof payload.data !== 'string') {
+      throw new Error('pty:write requires string data')
+    }
     ptyManager.write(payload.sessionId, payload.data)
   })
 
@@ -2073,15 +2077,20 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('browser:saveCaptureFile', (_event, payload: { buffer: Buffer }) => {
+    // Validate the shape before touching it: Buffer.from(number) would allocate
+    // that many bytes (a ~1 GB DoS) and Buffer.from(string) would silently
+    // encode attacker text, both before the size cap below can run.
+    if (!(payload?.buffer instanceof Uint8Array)) {
+      throw new Error('Capture buffer must be binary data')
+    }
     // Cap renderer-supplied buffers so a hostile webview-driven save can't
     // exhaust /tmp. 25 MB comfortably covers a full-page PNG of any sane
     // viewport while bounding worst-case disk pressure.
     const MAX_CAPTURE_BYTES = 25 * 1024 * 1024
-    const buf = Buffer.from(payload.buffer)
-    if (buf.length > MAX_CAPTURE_BYTES) {
+    if (payload.buffer.length > MAX_CAPTURE_BYTES) {
       throw new Error(`Capture buffer exceeds ${MAX_CAPTURE_BYTES} bytes`)
     }
-    return browserManager.saveCaptureFile(buf)
+    return browserManager.saveCaptureFile(Buffer.from(payload.buffer))
   })
 
   // --- Credentials ---
