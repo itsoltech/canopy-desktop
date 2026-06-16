@@ -79,7 +79,12 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
   Notification: 'Notification',
 }
 
-const INTERNAL_BLOCKED = new Set(['CANOPY_HOOK_PORT', 'CANOPY_HOOK_TOKEN', 'ELECTRON_RUN_AS_NODE'])
+const INTERNAL_BLOCKED = new Set([
+  'CANOPY_HOOK_PORT',
+  'CANOPY_HOOK_PATH',
+  'CANOPY_HOOK_TOKEN',
+  'ELECTRON_RUN_AS_NODE',
+])
 
 export const geminiAdapter: AgentAdapter = {
   agentType: 'gemini',

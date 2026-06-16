@@ -15,6 +15,7 @@
   let selectedIndex = $state(0)
   let inputEl: HTMLInputElement | undefined = $state()
   let listEl: HTMLDivElement | undefined = $state()
+  let dialogEl: HTMLDivElement | undefined = $state()
 
   const MAX_RESULTS = 50
 
@@ -95,6 +96,23 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       onClose()
+      return
+    }
+    if (e.key === 'Tab' && dialogEl) {
+      const focusable = dialogEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !dialogEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
       return
     }
     if (e.key === 'ArrowDown') {
@@ -179,6 +197,7 @@
   role="presentation"
 >
   <div
+    bind:this={dialogEl}
     class="w-[min(620px,90vw)] max-h-[70vh] flex flex-col bg-bg-elevated border border-border rounded-xl shadow-modal overflow-hidden"
     onclick={(e) => e.stopPropagation()}
     onkeydown={handleKeydown}

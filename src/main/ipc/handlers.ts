@@ -1208,8 +1208,9 @@ export function registerIpcHandlers(
     return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
   })
 
-  ipcMain.handle('git:worktrees', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.listWorktrees(payload.repoRoot).unwrapOr([])
+  ipcMain.handle('git:worktrees', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    return GitRepository.listWorktrees(resolvedRepo).unwrapOr([])
   })
 
   ipcMain.handle('git:status', async (_event, payload: { path: string }) => {
@@ -1364,14 +1365,16 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'git:commit',
-    async (_event, payload: { repoRoot: string; message: string; stageAll?: boolean }) => {
-      const result = await GitRepository.commit(payload.repoRoot, payload.message, payload.stageAll)
+    async (event, payload: { repoRoot: string; message: string; stageAll?: boolean }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+      const result = await GitRepository.commit(resolvedRepo, payload.message, payload.stageAll)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
-  ipcMain.handle('git:push', async (_event, payload: { repoRoot: string }) => {
-    const result = await GitRepository.push(payload.repoRoot)
+  ipcMain.handle('git:push', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.push(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
@@ -1397,8 +1400,9 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
-  ipcMain.handle('git:pull', async (_event, payload: { repoRoot: string; rebase: boolean }) => {
-    const result = await GitRepository.pull(payload.repoRoot, payload.rebase)
+  ipcMain.handle('git:pull', async (event, payload: { repoRoot: string; rebase: boolean }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.pull(resolvedRepo, payload.rebase)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
@@ -1415,18 +1419,21 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
-  ipcMain.handle('git:fetch', async (_event, payload: { repoRoot: string }) => {
-    const result = await GitRepository.fetch(payload.repoRoot)
+  ipcMain.handle('git:fetch', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.fetch(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
-  ipcMain.handle('git:fetchAll', async (_event, payload: { repoRoot: string }) => {
-    const result = await GitRepository.fetchAll(payload.repoRoot)
+  ipcMain.handle('git:fetchAll', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.fetchAll(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
-  ipcMain.handle('git:stash', async (_event, payload: { repoRoot: string }) => {
-    const result = await GitRepository.stash(payload.repoRoot)
+  ipcMain.handle('git:stash', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.stash(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
@@ -1436,8 +1443,9 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
-  ipcMain.handle('git:stashPop', async (_event, payload: { repoRoot: string }) => {
-    const result = await GitRepository.stashPop(payload.repoRoot)
+  ipcMain.handle('git:stashPop', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.stashPop(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
@@ -1447,16 +1455,18 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
-  ipcMain.handle('git:branches', async (_event, payload: { repoRoot: string }) => {
-    const result = await GitRepository.listBranches(payload.repoRoot)
+  ipcMain.handle('git:branches', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.listBranches(resolvedRepo)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle(
     'git:branchCreate',
-    async (_event, payload: { repoRoot: string; name: string; baseBranch: string }) => {
+    async (event, payload: { repoRoot: string; name: string; baseBranch: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const result = await GitRepository.createBranch(
-        payload.repoRoot,
+        resolvedRepo,
         payload.name,
         payload.baseBranch,
       )
@@ -1473,15 +1483,17 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('git:checkout', async (_event, payload: { repoRoot: string; branch: string }) => {
-    const result = await GitRepository.checkout(payload.repoRoot, payload.branch)
+  ipcMain.handle('git:checkout', async (event, payload: { repoRoot: string; branch: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.checkout(resolvedRepo, payload.branch)
     return unwrapOrThrow(result, gitErrorMessage)
   })
 
   ipcMain.handle(
     'git:branchDelete',
-    async (_event, payload: { repoRoot: string; name: string; force: boolean }) => {
-      const result = await GitRepository.deleteBranch(payload.repoRoot, payload.name, payload.force)
+    async (event, payload: { repoRoot: string; name: string; force: boolean }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+      const result = await GitRepository.deleteBranch(resolvedRepo, payload.name, payload.force)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
@@ -1537,9 +1549,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'git:branchDeleteRemote',
-    async (_event, payload: { repoRoot: string; remote: string; name: string }) => {
+    async (event, payload: { repoRoot: string; remote: string; name: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const result = await GitRepository.deleteRemoteBranch(
-        payload.repoRoot,
+        resolvedRepo,
         payload.remote,
         payload.name,
       )
@@ -1547,8 +1560,9 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('git:pushInfo', async (_event, payload: { repoRoot: string }) => {
-    return GitRepository.getPushInfo(payload.repoRoot).unwrapOr(null)
+  ipcMain.handle('git:pushInfo', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    return GitRepository.getPushInfo(resolvedRepo).unwrapOr(null)
   })
 
   ipcMain.handle(
@@ -1573,8 +1587,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'git:branchMerged',
-    async (_event, payload: { repoRoot: string; branch: string }) => {
-      return GitRepository.isBranchMerged(payload.repoRoot, payload.branch).unwrapOr(false)
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+      return GitRepository.isBranchMerged(resolvedRepo, payload.branch).unwrapOr(false)
     },
   )
 
@@ -1801,20 +1816,23 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'git:unmergedCommits',
-    async (_event, payload: { repoRoot: string; branch: string }) => {
-      return GitRepository.getUnmergedCommits(payload.repoRoot, payload.branch).unwrapOr([])
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+      return GitRepository.getUnmergedCommits(resolvedRepo, payload.branch).unwrapOr([])
     },
   )
 
   ipcMain.handle(
     'git:statusPorcelain',
-    async (_event, payload: { repoRoot: string; worktreePath?: string }) => {
-      return GitRepository.getStatusPorcelain(payload.repoRoot, payload.worktreePath).unwrapOr('')
+    async (event, payload: { repoRoot: string; worktreePath?: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+      return GitRepository.getStatusPorcelain(resolvedRepo, payload.worktreePath).unwrapOr('')
     },
   )
 
-  ipcMain.handle('git:diff', async (_event, payload: { repoRoot: string }) => {
-    const result = await GitRepository.getDiffParsed(payload.repoRoot)
+  ipcMain.handle('git:diff', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const result = await GitRepository.getDiffParsed(resolvedRepo)
     return result.unwrapOr({ files: [] })
   })
 
@@ -1859,35 +1877,36 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle(
-    'git:diffFile',
-    async (_event, payload: { repoRoot: string; filePath: string }) => {
-      validateFilePath(payload.filePath)
-      const result = await GitRepository.getFileDiff(payload.repoRoot, payload.filePath)
-      return result.unwrapOr({ files: [] })
-    },
-  )
+  ipcMain.handle('git:diffFile', async (event, payload: { repoRoot: string; filePath: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    validateFilePath(payload.filePath)
+    const result = await GitRepository.getFileDiff(resolvedRepo, payload.filePath)
+    return result.unwrapOr({ files: [] })
+  })
 
   ipcMain.handle(
     'git:stageFile',
-    async (_event, payload: { repoRoot: string; filePath: string }) => {
+    async (event, payload: { repoRoot: string; filePath: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       validateFilePath(payload.filePath)
-      const result = await GitRepository.stageFile(payload.repoRoot, payload.filePath)
+      const result = await GitRepository.stageFile(resolvedRepo, payload.filePath)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle(
     'git:revertFile',
-    async (_event, payload: { repoRoot: string; filePath: string }) => {
+    async (event, payload: { repoRoot: string; filePath: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       validateFilePath(payload.filePath)
-      const result = await GitRepository.revertFile(payload.repoRoot, payload.filePath)
+      const result = await GitRepository.revertFile(resolvedRepo, payload.filePath)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
-  ipcMain.handle('git:generateCommitMessage', async (_event, payload: { repoRoot: string }) => {
-    const diff = await GitRepository.getDiff(payload.repoRoot).unwrapOr('')
+  ipcMain.handle('git:generateCommitMessage', async (event, payload: { repoRoot: string }) => {
+    const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+    const diff = await GitRepository.getDiff(resolvedRepo).unwrapOr('')
     if (!diff.trim()) return null
     return generateCommitMessage(diff, preferencesStore)
   })
