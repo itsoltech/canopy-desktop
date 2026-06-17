@@ -7,7 +7,12 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
-  import { isAiToolId, openTool } from '../../lib/stores/tabs.svelte'
+  import {
+    focusSessionByPtyId,
+    getAiSessions,
+    isAiToolId,
+    openTool,
+  } from '../../lib/stores/tabs.svelte'
   import { agentSessions } from '../../lib/agents/agentState.svelte'
   import { setActiveTask } from '../../lib/stores/taskTracker.svelte'
   import {
@@ -150,7 +155,11 @@
 
   async function confirmBranchCreation(): Promise<void> {
     if (createdWorktreePath && contextSendFailed) {
-      if (!selectedAgentId) return
+      if (!selectedAgentId) {
+        operationStatus = 'Worktree created'
+        operationError = 'Select an agent to retry sending the task.'
+        return
+      }
       creatingWorktree = true
       operationError = ''
       contextSendFailed = false
@@ -160,6 +169,7 @@
         selectedAgentId,
         connectionId,
         taskSnapshot,
+        { reuseExistingAgent: true },
       )
       creatingWorktree = false
       if (sent) closeDialog()
@@ -254,6 +264,7 @@
     agentId: string,
     connId: string,
     taskSnapshot: Task,
+    options: { reuseExistingAgent?: boolean } = {},
   ): Promise<boolean> {
     try {
       await selectWorktree(worktreePath)
@@ -266,20 +277,31 @@
       return false
     }
 
-    operationStatus = 'Starting agent...'
-    let tab: Awaited<ReturnType<typeof openTool>>
-    try {
-      tab = await openTool(agentId, worktreePath)
-    } catch (error) {
-      handleTaskToAgentFailure(agentStartFailedOutcome(error), {
-        taskKey: taskSnapshot.key,
-        connectionId: connId,
-        selectedAgentId: agentId,
-      })
-      return false
+    const existingAgentSession = options.reuseExistingAgent
+      ? getAiSessions(worktreePath).find((session) => session.toolId === agentId)
+      : null
+
+    let sessionId = existingAgentSession?.sessionId
+    if (sessionId) {
+      operationStatus = 'Focusing agent...'
+      focusSessionByPtyId(sessionId)
+    } else {
+      operationStatus = 'Starting agent...'
+      let tab: Awaited<ReturnType<typeof openTool>>
+      try {
+        tab = await openTool(agentId, worktreePath)
+      } catch (error) {
+        handleTaskToAgentFailure(agentStartFailedOutcome(error), {
+          taskKey: taskSnapshot.key,
+          connectionId: connId,
+          selectedAgentId: agentId,
+        })
+        return false
+      }
+      const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
+      sessionId = pane?.sessionId
     }
-    const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
-    const sessionId = pane?.sessionId
+
     if (!sessionId) {
       handleTaskToAgentFailure(agentNotReadyOutcome(), {
         taskKey: taskSnapshot.key,
@@ -485,7 +507,7 @@
         {#if creatingWorktree}
           Working...
         {:else if createdWorktreePath && contextSendFailed}
-          Retry Send
+          {selectedAgentId ? 'Retry Send' : 'Select Agent to Retry'}
         {:else if selectedAgentId}
           Create & Start Agent
         {:else}

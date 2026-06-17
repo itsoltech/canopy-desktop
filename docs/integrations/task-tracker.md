@@ -206,6 +206,7 @@ When a GitHub tracker has an empty `projectKey`, Canopy reads the git remote URL
 | `NoActiveAgent`            | "No running agent is available..."               | Quick send was triggered after the active agent target disappeared        |
 | `AgentStartFailed`         | "The worktree was created, but..."               | Worktree creation succeeded, but Canopy could not open the selected agent |
 | `AgentNotReady`            | "The agent did not become ready..."              | Started agent ended, errored, or did not become idle before timeout       |
+| `TabFocusFailed`           | "Could not focus the target agent tab..."        | The target agent tab could not be activated before sending                |
 | `TaskContextBuildFailed`   | "Could not build the task context..."            | Task details/comments/attachments could not be fetched or formatted       |
 | `TaskContextPasteFailed`   | "Could not paste the task into the agent..."     | Target agent session rejected or lost the paste target                    |
 
