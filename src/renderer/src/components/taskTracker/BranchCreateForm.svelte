@@ -150,7 +150,19 @@
 
   async function confirmBranchCreation(): Promise<void> {
     if (createdWorktreePath && contextSendFailed) {
-      closeDialog()
+      if (!selectedAgentId) return
+      creatingWorktree = true
+      operationError = ''
+      contextSendFailed = false
+      const taskSnapshot = $state.snapshot(fullTask) as typeof fullTask
+      const sent = await sendTaskContextToSelectedAgent(
+        createdWorktreePath,
+        selectedAgentId,
+        connectionId,
+        taskSnapshot,
+      )
+      creatingWorktree = false
+      if (sent) closeDialog()
       return
     }
 
@@ -206,82 +218,17 @@
       }
 
       if (selectedAgentId) {
-        const agentId = selectedAgentId
-        const connId = connectionId
         const taskSnapshot = $state.snapshot(fullTask) as typeof fullTask
-
-        try {
-          await selectWorktree(created.worktreePath)
-        } catch (error) {
-          handleTaskToAgentFailure(agentStartFailedOutcome(error), {
-            taskKey: taskSnapshot.key,
-            connectionId: connId,
-            selectedAgentId: agentId,
-          })
+        const sent = await sendTaskContextToSelectedAgent(
+          created.worktreePath,
+          selectedAgentId,
+          connectionId,
+          taskSnapshot,
+        )
+        if (!sent) {
           creatingWorktree = false
           return
         }
-
-        operationStatus = 'Starting agent...'
-        let tab: Awaited<ReturnType<typeof openTool>>
-        try {
-          tab = await openTool(agentId, created.worktreePath)
-        } catch (error) {
-          handleTaskToAgentFailure(agentStartFailedOutcome(error), {
-            taskKey: taskSnapshot.key,
-            connectionId: connId,
-            selectedAgentId: agentId,
-          })
-          creatingWorktree = false
-          return
-        }
-        const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
-        const sessionId = pane?.sessionId
-        if (!sessionId) {
-          handleTaskToAgentFailure(agentNotReadyOutcome(), {
-            taskKey: taskSnapshot.key,
-            connectionId: connId,
-            selectedAgentId: agentId,
-          })
-          creatingWorktree = false
-          return
-        }
-
-        operationStatus = 'Waiting for agent...'
-        const ready = await waitForAgentIdle(sessionId)
-        if (!ready) {
-          handleTaskToAgentFailure(agentNotReadyOutcome(sessionId), {
-            taskKey: taskSnapshot.key,
-            connectionId: connId,
-            selectedAgentId: agentId,
-            sessionId,
-          })
-          creatingWorktree = false
-          return
-        }
-
-        operationStatus = 'Sending task to agent...'
-        const outcome = await sendTaskToAgentContext({
-          connectionId: connId,
-          task: taskSnapshot,
-          repoRoot: workspaceState.repoRoot ?? undefined,
-          target: {
-            worktreePath: created.worktreePath,
-            sessionId,
-          },
-        })
-        if (outcome.status !== 'sent') {
-          handleTaskToAgentFailure(outcome, {
-            taskKey: taskSnapshot.key,
-            connectionId: connId,
-            selectedAgentId: agentId,
-            sessionId,
-          })
-          creatingWorktree = false
-          return
-        }
-        operationStatus = 'Task sent to agent'
-        addToast('Task sent to agent')
       } else {
         operationStatus = 'Opening worktree...'
         await selectWorktree(created.worktreePath)
@@ -300,6 +247,83 @@
         confirmLabel: 'OK',
       })
     }
+  }
+
+  async function sendTaskContextToSelectedAgent(
+    worktreePath: string,
+    agentId: string,
+    connId: string,
+    taskSnapshot: Task,
+  ): Promise<boolean> {
+    try {
+      await selectWorktree(worktreePath)
+    } catch (error) {
+      handleTaskToAgentFailure(agentStartFailedOutcome(error), {
+        taskKey: taskSnapshot.key,
+        connectionId: connId,
+        selectedAgentId: agentId,
+      })
+      return false
+    }
+
+    operationStatus = 'Starting agent...'
+    let tab: Awaited<ReturnType<typeof openTool>>
+    try {
+      tab = await openTool(agentId, worktreePath)
+    } catch (error) {
+      handleTaskToAgentFailure(agentStartFailedOutcome(error), {
+        taskKey: taskSnapshot.key,
+        connectionId: connId,
+        selectedAgentId: agentId,
+      })
+      return false
+    }
+    const pane = tab.rootSplit.type === 'leaf' ? tab.rootSplit.pane : null
+    const sessionId = pane?.sessionId
+    if (!sessionId) {
+      handleTaskToAgentFailure(agentNotReadyOutcome(), {
+        taskKey: taskSnapshot.key,
+        connectionId: connId,
+        selectedAgentId: agentId,
+      })
+      return false
+    }
+
+    operationStatus = 'Waiting for agent...'
+    const ready = await waitForAgentIdle(sessionId)
+    if (!ready) {
+      handleTaskToAgentFailure(agentNotReadyOutcome(sessionId), {
+        taskKey: taskSnapshot.key,
+        connectionId: connId,
+        selectedAgentId: agentId,
+        sessionId,
+      })
+      return false
+    }
+
+    operationStatus = 'Sending task to agent...'
+    const outcome = await sendTaskToAgentContext({
+      connectionId: connId,
+      task: taskSnapshot,
+      repoRoot: workspaceState.repoRoot ?? undefined,
+      target: {
+        worktreePath,
+        sessionId,
+      },
+    })
+    if (outcome.status !== 'sent') {
+      handleTaskToAgentFailure(outcome, {
+        taskKey: taskSnapshot.key,
+        connectionId: connId,
+        selectedAgentId: agentId,
+        sessionId,
+      })
+      return false
+    }
+
+    operationStatus = 'Task sent to agent'
+    addToast('Task sent to agent')
+    return true
   }
 
   function handleTaskToAgentFailure(
@@ -408,11 +432,11 @@
         >{resolvedBranchName}</code
       >
     </div>
+    <span class="sr-only" role="status" aria-live="polite">{operationError || operationStatus}</span
+    >
     {#if operationStatus || operationError}
       <div
         class="rounded-lg border px-3 py-2 text-xs leading-snug"
-        role={operationError ? 'alert' : 'status'}
-        aria-live={operationError ? 'assertive' : 'polite'}
         class:border-danger={operationError}
         class:border-border={!operationError}
         class:bg-danger-bg={operationError}
@@ -424,8 +448,7 @@
           <p class="m-0 font-medium">{operationError}</p>
           {#if createdWorktreePath}
             <p class="mt-1 mb-0">
-              The worktree was created. Open it from the worktree list if needed, start or focus an
-              agent there, then send the task again from the picker.
+              The worktree was created. Start or focus an agent there, then use Retry Send.
             </p>
           {/if}
         {:else}
@@ -462,7 +485,7 @@
         {#if creatingWorktree}
           Working...
         {:else if createdWorktreePath && contextSendFailed}
-          Close
+          Retry Send
         {:else if selectedAgentId}
           Create & Start Agent
         {:else}

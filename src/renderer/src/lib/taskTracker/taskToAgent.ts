@@ -22,6 +22,7 @@ export type TaskToAgentOutcome =
   | { status: 'no-active-agent'; message: string }
   | { status: 'agent-not-ready'; message: string; sessionId?: string }
   | { status: 'agent-start-failed'; message: string; errorMessage: string }
+  | { status: 'tab-focus-failed'; message: string; errorMessage: string; sessionId?: string }
   | { status: 'context-build-failed'; message: string; errorMessage: string }
   | { status: 'paste-failed'; message: string; errorMessage: string; sessionId: string }
 
@@ -56,6 +57,15 @@ export function agentStartFailedOutcome(error: unknown): TaskToAgentOutcome {
     status: 'agent-start-failed',
     errorMessage: errorMessage(error),
     message: 'The worktree was created, but the selected agent could not be started.',
+  }
+}
+
+export function tabFocusFailedOutcome(error: unknown, sessionId?: string): TaskToAgentOutcome {
+  return {
+    status: 'tab-focus-failed',
+    sessionId,
+    errorMessage: errorMessage(error),
+    message: 'Could not focus the target agent tab. The task was not sent.',
   }
 }
 
@@ -110,6 +120,7 @@ export function logTaskToAgentFailure(
     message: outcome.message,
     errorMessage:
       outcome.status === 'agent-start-failed' ||
+      outcome.status === 'tab-focus-failed' ||
       outcome.status === 'context-build-failed' ||
       outcome.status === 'paste-failed'
         ? outcome.errorMessage

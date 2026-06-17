@@ -11,6 +11,7 @@
     logTaskToAgentFailure,
     noActiveAgentOutcome,
     sendTaskToAgentContext,
+    tabFocusFailedOutcome,
   } from '../../lib/taskTracker/taskToAgent'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -168,6 +169,7 @@
   }
 
   async function onBoardChange(): Promise<void> {
+    clearTaskSendFeedback()
     setPref(`taskTracker.lastBoard.${connectionId}`, selectedBoardId)
     restoreSavedFilters()
     await fetchTasks()
@@ -244,6 +246,7 @@
 
   function selectTask(task: Task): void {
     if (!workspaceState.repoRoot || !workspaceState.branch) return
+    clearTaskSendFeedback()
     selectedTask = $state.snapshot(task) as Task
   }
 
@@ -266,6 +269,12 @@
 
   let hasActiveAgent = $derived(!!getActiveAgentPane())
 
+  function clearTaskSendFeedback(): void {
+    if (sendingTaskKey) return
+    sendStatus = ''
+    sendError = ''
+  }
+
   async function sendTaskToAgent(task: Task, e: MouseEvent): Promise<void> {
     e.stopPropagation()
     if (sendingTaskKey) return
@@ -287,16 +296,14 @@
     try {
       await switchTab(result.tabId)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const outcome = tabFocusFailedOutcome(error, result.pane.sessionId)
       sendStatus = ''
-      sendError = 'Could not focus the target agent tab. The task was not sent.'
+      sendError = outcome.message
       sendingTaskKey = ''
-      console.error('Task to agent failed', {
-        outcome: 'tab-focus-failed',
-        errorMessage,
+      logTaskToAgentFailure(outcome, {
         taskKey: task.key,
         connectionId,
-        hasSessionId: Boolean(result.pane.sessionId),
+        sessionId: result.pane.sessionId,
       })
       return
     }
@@ -432,21 +439,32 @@
           bind:this={searchInputEl}
           bind:value={searchQuery}
           placeholder="Search by key or title..."
-          oninput={() => (selectedIndex = 0)}
+          oninput={() => {
+            selectedIndex = 0
+            clearTaskSendFeedback()
+          }}
         />
       </div>
 
+      <span class="sr-only" role="status" aria-live="polite">{sendError || sendStatus}</span>
       {#if sendStatus || sendError}
         <div
-          class="px-4 py-2 border-b border-border-subtle text-xs leading-snug"
-          role={sendError ? 'alert' : 'status'}
-          aria-live={sendError ? 'assertive' : 'polite'}
+          class="flex items-start gap-2 px-4 py-2 border-b border-border-subtle text-xs leading-snug"
           class:bg-danger-bg={sendError}
           class:text-danger-text={sendError}
           class:bg-bg-input={!sendError}
           class:text-text-muted={!sendError}
         >
-          {sendError || sendStatus}
+          <span class="flex-1">{sendError || sendStatus}</span>
+          {#if sendError}
+            <button
+              class="flex items-center justify-center w-5 h-5 -mr-1 border-0 rounded bg-transparent text-current cursor-pointer opacity-70 hover:opacity-100 hover:bg-hover"
+              onclick={clearTaskSendFeedback}
+              aria-label="Dismiss task send error"
+            >
+              <X size={12} />
+            </button>
+          {/if}
         </div>
       {/if}
 
