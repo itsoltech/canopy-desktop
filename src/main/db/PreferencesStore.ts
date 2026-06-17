@@ -59,11 +59,25 @@ export class PreferencesStore {
     return isEncryptedKey(key)
   }
 
+  /**
+   * Encrypt an encrypted-class key's value with this machine's safeStorage,
+   * falling back to plaintext only when no OS keyring is available. The
+   * fallback is logged so it is observable (mirrors CredentialStore) rather
+   * than silently persisting a secret in cleartext.
+   */
+  private encryptForStorage(key: string, value: string): string {
+    if (!isEncryptedKey(key)) return value
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.encryptString(value).toString('base64')
+    }
+    console.warn(
+      `[PreferencesStore] safeStorage encryption unavailable — "${key}" stored without OS-level encryption. Configure a system keyring for secure storage.`,
+    )
+    return value
+  }
+
   set(key: string, value: string): void {
-    const stored =
-      isEncryptedKey(key) && safeStorage.isEncryptionAvailable()
-        ? safeStorage.encryptString(value).toString('base64')
-        : value
+    const stored = this.encryptForStorage(key, value)
     this.db
       .prepare('INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)')
       .run(key, stored)
@@ -123,10 +137,7 @@ export class PreferencesStore {
     let count = 0
     for (const [key, value] of Object.entries(entries)) {
       if (!isExportableKey(key)) continue
-      const stored =
-        isEncryptedKey(key) && safeStorage.isEncryptionAvailable()
-          ? safeStorage.encryptString(value).toString('base64')
-          : value
+      const stored = this.encryptForStorage(key, value)
       stmt.run(key, stored)
       count++
     }

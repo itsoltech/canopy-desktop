@@ -324,24 +324,29 @@
     <div
       class="fixed min-w-45 bg-bg-overlay border border-border rounded-md shadow-ctx p-1 z-popover"
       style="left: {ctxMenu.x}px; top: {ctxMenu.y}px"
+      role="menu"
       onclick={(e) => e.stopPropagation()}
     >
       <button
         class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+        role="menuitem"
         onclick={ctxRevealInFileManager}>{fileManagerLabel()}</button
       >
       <button
         class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+        role="menuitem"
         onclick={ctxCopyPath}>Copy Path</button
       >
       {#if ctxMenu.wt.branch !== '(detached)'}
         <button
           class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+          role="menuitem"
           onclick={ctxCopyBranch}>Copy Branch Name</button
         >
         <div class="h-px mx-2 my-1 bg-border-subtle"></div>
         <button
           class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+          role="menuitem"
           onclick={ctxNewWorktree}>New Worktree from Branch</button
         >
       {/if}
@@ -349,6 +354,7 @@
         <div class="h-px mx-2 my-1 bg-border-subtle"></div>
         <button
           class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+          role="menuitem"
           onclick={ctxStopAll}>Stop All Terminals</button
         >
       {/if}
@@ -356,6 +362,7 @@
         <div class="h-px mx-2 my-1 bg-border-subtle"></div>
         <button
           class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-danger-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+          role="menuitem"
           onclick={ctxRemoveWorktree}>Remove Worktree</button
         >
       {/if}

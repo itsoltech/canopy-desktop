@@ -63,7 +63,7 @@ export class RemoteClientHost {
    * request (sent a response), `false` if the path is outside `/remote/*` and
    * the caller should fall through to other routes.
    */
-  handleRequest(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://placeholder.invalid')
     const pathname = url.pathname
 
@@ -97,7 +97,7 @@ export class RemoteClientHost {
 
     let stat: fs.Stats
     try {
-      stat = fs.statSync(requested)
+      stat = await fs.promises.stat(requested)
     } catch {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
       res.end('Not found')

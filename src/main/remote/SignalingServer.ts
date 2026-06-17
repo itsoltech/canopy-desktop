@@ -320,7 +320,10 @@ export class SignalingServer {
     )
   }
 
-  private handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  private async handleHttpRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
     // Health endpoint (used for diagnostics)
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -335,7 +338,7 @@ export class SignalingServer {
       return
     }
 
-    if (this.bundleHost?.handleRequest(req, res)) return
+    if (await this.bundleHost?.handleRequest(req, res)) return
 
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
     res.end('Not found')

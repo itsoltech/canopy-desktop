@@ -147,6 +147,12 @@
     'absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-[3px] rounded-[7px] bg-accent-bg text-accent-text text-[9px] font-bold leading-[14px] text-center'
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === 'Escape' && dropdownOpen) closeDropdown()
+  }}
+/>
+
 {#if dropdownGroups.length > 0}
   <div class="flex items-center gap-1 [app-region:no-drag]">
     <button
