@@ -7,6 +7,11 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
+  import {
+    logTaskToAgentFailure,
+    noActiveAgentOutcome,
+    sendTaskToAgentContext,
+  } from '../../lib/taskTracker/taskToAgent'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
@@ -118,6 +123,9 @@
   let selectedTask: Task | null = $state(null)
 
   let searchInputEl: HTMLInputElement | null = $state(null)
+  let sendingTaskKey = $state('')
+  let sendStatus = $state('')
+  let sendError = $state('')
 
   onMount(async () => {
     searchInputEl?.focus()
@@ -260,19 +268,60 @@
 
   async function sendTaskToAgent(task: Task, e: MouseEvent): Promise<void> {
     e.stopPropagation()
+    if (sendingTaskKey) return
+
+    sendingTaskKey = task.key
+    sendStatus = `Sending ${task.key} to agent...`
+    sendError = ''
+
     const result = getActiveAgentPane()
-    if (!result) return
-    const context = await window.api.taskTrackerBuildTaskContext({
+    if (!result) {
+      const outcome = noActiveAgentOutcome()
+      sendStatus = ''
+      sendError = outcome.message
+      sendingTaskKey = ''
+      logTaskToAgentFailure(outcome, { taskKey: task.key, connectionId })
+      return
+    }
+
+    try {
+      await switchTab(result.tabId)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      sendStatus = ''
+      sendError = 'Could not focus the target agent tab. The task was not sent.'
+      sendingTaskKey = ''
+      console.error('Task to agent failed', {
+        outcome: 'tab-focus-failed',
+        errorMessage,
+        taskKey: task.key,
+        connectionId,
+        hasSessionId: Boolean(result.pane.sessionId),
+      })
+      return
+    }
+
+    const outcome = await sendTaskToAgentContext({
       connectionId,
       task,
       repoRoot: workspaceState.repoRoot ?? undefined,
+      target: {
+        worktreePath: workspaceState.selectedWorktreePath ?? undefined,
+        sessionId: result.pane.sessionId,
+      },
     })
-    await switchTab(result.tabId)
-    await window.api.agentSendTaskContext({
-      text: context,
-      worktreePath: workspaceState.selectedWorktreePath ?? undefined,
-      sessionId: result.pane.sessionId,
-    })
+    sendingTaskKey = ''
+    sendStatus = ''
+    if (outcome.status !== 'sent') {
+      sendError = outcome.message
+      logTaskToAgentFailure(outcome, {
+        taskKey: task.key,
+        connectionId,
+        sessionId: result.pane.sessionId,
+      })
+      return
+    }
+
     addToast('Task sent to agent')
     closeDialog()
   }
@@ -387,6 +436,20 @@
         />
       </div>
 
+      {#if sendStatus || sendError}
+        <div
+          class="px-4 py-2 border-b border-border-subtle text-xs leading-snug"
+          role={sendError ? 'alert' : 'status'}
+          aria-live={sendError ? 'assertive' : 'polite'}
+          class:bg-danger-bg={sendError}
+          class:text-danger-text={sendError}
+          class:bg-bg-input={!sendError}
+          class:text-text-muted={!sendError}
+        >
+          {sendError || sendStatus}
+        </div>
+      {/if}
+
       <div class="flex-1 overflow-y-auto py-1">
         {#if loading}
           <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
@@ -441,10 +504,15 @@
                 <button
                   class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
                   onclick={(e) => sendTaskToAgent(task, e)}
+                  disabled={Boolean(sendingTaskKey)}
                   title="Send to agent"
                   aria-label="Send to agent"
                 >
-                  <Send size={12} />
+                  {#if sendingTaskKey === task.key}
+                    <Loader2 size={12} class="animate-spin" />
+                  {:else}
+                    <Send size={12} />
+                  {/if}
                 </button>
               {/if}
               <button
