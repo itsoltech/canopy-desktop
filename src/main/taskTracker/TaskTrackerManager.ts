@@ -3,7 +3,7 @@ import { mkdirSync, createWriteStream, rmSync } from 'fs'
 import os from 'os'
 import { randomUUID } from 'crypto'
 import { pipeline } from 'stream/promises'
-import { Readable } from 'stream'
+import { Readable, Transform } from 'stream'
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { KeychainTokenStore } from './KeychainTokenStore'
@@ -312,7 +312,21 @@ export class TaskTrackerManager {
           return errAsync(dlErr(`Attachment too large: ${contentLength} bytes`))
         }
         const nodeStream = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
-        return fromExternalCall(pipeline(nodeStream, createWriteStream(filePath)), (e) =>
+        // content-length is advisory and may be absent or wrong; enforce the
+        // cap during streaming so a server that omits the header cannot write
+        // unbounded bytes to disk (resource exhaustion).
+        let received = 0
+        const capGuard = new Transform({
+          transform(chunk, _enc, cb) {
+            received += chunk.length
+            if (received > MAX_ATTACHMENT_BYTES) {
+              cb(new Error(`Attachment too large: exceeds ${MAX_ATTACHMENT_BYTES} bytes`))
+              return
+            }
+            cb(null, chunk)
+          },
+        })
+        return fromExternalCall(pipeline(nodeStream, capGuard, createWriteStream(filePath)), (e) =>
           dlErr(errorMessage(e)),
         ).map(() => filePath)
       })

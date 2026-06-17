@@ -313,6 +313,12 @@ export class PeerController {
         if (this.phase.kind === 'connected' || this.phase.kind === 'negotiating') {
           this.setPhase({ kind: 'disconnected' })
         }
+        // A connection that fails/closes on its own (e.g. network loss) never
+        // reaches dispose() via the `bye` path, leaving the RTCPeerConnection
+        // and signaling WebSocket allocated until the component unmounts.
+        // Release them now; dispose() is idempotent so the `bye`/unmount paths
+        // remain safe (retry is a fresh page load → new controller).
+        this.dispose()
       }
     }
 
