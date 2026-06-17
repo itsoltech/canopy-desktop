@@ -12,6 +12,7 @@ import { recordFileOpen } from './quickOpenMru.svelte'
 import { workspaceState, getProjectForWorktree, selectWorktree } from './workspace.svelte'
 import {
   initAgentSession,
+  rekeyAgentSession,
   removeAgentSession,
   agentSessions,
   type AgentType,
@@ -106,6 +107,15 @@ function editorFilesFromSnapshot(
 }
 
 function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneSession {
+  if (
+    previous &&
+    previous.sessionId !== snapshot.sessionId &&
+    isAiToolId(snapshot.toolId) &&
+    snapshot.isRunning
+  ) {
+    rekeyAgentSession(previous.sessionId, snapshot.sessionId, snapshot.toolId as AgentType)
+  }
+
   return {
     ...previous,
     id: snapshot.id,
