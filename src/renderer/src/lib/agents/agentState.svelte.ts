@@ -69,6 +69,12 @@ export const agentBadges: Record<string, BadgeType> = $state({})
 export const worktreeBadges: Record<string, BadgeType> = $state({})
 
 export function initAgentSession(ptySessionId: string, agentType: AgentType): void {
+  const existing = agentSessions[ptySessionId]
+  if (existing) {
+    if (existing.agentType === agentType) return
+    removeAgentSession(ptySessionId)
+  }
+
   agentSessions[ptySessionId] = {
     agentType,
     status: { type: 'inactive' },
@@ -92,6 +98,31 @@ export function initAgentSession(ptySessionId: string, agentType: AgentType): vo
     extra: {},
   }
   agentBadges[ptySessionId] = 'none'
+}
+
+export function rekeyAgentSession(
+  previousPtySessionId: string,
+  nextPtySessionId: string,
+  agentType: AgentType,
+): void {
+  if (!previousPtySessionId || !nextPtySessionId) return
+  if (previousPtySessionId === nextPtySessionId) return
+
+  const session = agentSessions[previousPtySessionId]
+  if (!session) return
+  if (agentSessions[nextPtySessionId] || session.agentType !== agentType) {
+    removeAgentSession(previousPtySessionId)
+    return
+  }
+
+  agentSessions[nextPtySessionId] = session
+  delete agentSessions[previousPtySessionId]
+
+  const badge = agentBadges[previousPtySessionId]
+  if (badge) {
+    agentBadges[nextPtySessionId] = badge
+    delete agentBadges[previousPtySessionId]
+  }
 }
 
 export function removeAgentSession(ptySessionId: string): void {
