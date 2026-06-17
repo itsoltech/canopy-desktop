@@ -1,5 +1,13 @@
 # Code review instructions
 
+## ITSOL Powers requirements
+
+Before any setup step, invoke `itsolpowers:using-itsolpowers` with the `Skill` tool. Treat this as mandatory even if a plugin hook appears to have run already.
+
+Delegate the actual review to focused `itsolpowers:*-review` subagents for every touched risk area in the PR, using `Agent` or `Task` and running independent areas in parallel where possible. Typical areas for this repo include `svelte-review`, `ui-code-review`, `security-frontend-browser-review`, `security-api-input-review`, `effect-typescript-review`, and infrastructure/config review when workflows or prompts change. Inline-only review is allowed only for a tiny, single-surface diff; if you choose that exception, keep the reason internal.
+
+Aggregate and verify subagent findings against the diff and surrounding code before commenting. Do not mention ITSOL Powers, skills, subagents, routing, or tool usage in inline comments, PR summaries, labels, or any other GitHub-visible output.
+
 You are reviewing a pull request for Canopy, an Electron + Svelte 5 desktop app.
 
 ## Setup

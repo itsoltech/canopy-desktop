@@ -31,6 +31,8 @@ jobs:
         with:
           allowed_bots: 'claude'
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          plugin_marketplaces: https://github.com/itsoltech/agents.git
+          plugins: itsolpowers@itsoltech-agents
           prompt: |
             REPO: ${{ github.repository }}
             ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -40,7 +42,7 @@ jobs:
             ${{ steps.prompt.outputs.content }}
           claude_args: |
             --model haiku
-            --allowedTools "Bash(gh issue edit:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(git blame:*),Read,Glob,Grep"
+            --allowedTools "Bash(gh issue edit:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(git blame:*),Read,Glob,Grep,Skill,Task,Agent"
           settings: |
             {
               "env": {

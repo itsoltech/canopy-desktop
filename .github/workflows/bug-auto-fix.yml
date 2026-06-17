@@ -42,6 +42,8 @@ jobs:
         with:
           allowed_bots: 'claude'
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          plugin_marketplaces: https://github.com/itsoltech/agents.git
+          plugins: itsolpowers@itsoltech-agents
           prompt: |
             REPO: ${{ github.repository }}
             ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -55,7 +57,7 @@ jobs:
           claude_args: |
             --model opus[1m]
             --effort max
-            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(gh api:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git blame:*),Bash(git branch:*),Bash(npm run lint:*),Bash(npm run format:*),Bash(npm run typecheck:*),Bash(npm run svelte-check:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(gh api:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git blame:*),Bash(git branch:*),Bash(npm run lint:*),Bash(npm run format:*),Bash(npm run typecheck:*),Bash(npm run svelte-check:*),Skill,Task,Agent"
           settings: |
             {
               "env": {

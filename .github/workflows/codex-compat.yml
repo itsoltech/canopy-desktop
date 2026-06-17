@@ -170,6 +170,8 @@ jobs:
         with:
           allowed_bots: 'claude,dependabot'
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          plugin_marketplaces: https://github.com/itsoltech/agents.git
+          plugins: itsolpowers@itsoltech-agents
           prompt: |
             REPO: ${{ github.repository }}
             FROM_VERSION: ${{ steps.range.outputs.from }}
@@ -180,7 +182,7 @@ jobs:
           claude_args: |
             --model opus[1m]
             --effort max
-            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/codex-compat),Bash(git checkout -b chore/codex-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/codex-compat),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/openai/codex/:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout chore/codex-compat),Bash(git checkout -b chore/codex-compat),Bash(git add:*),Bash(git commit:*),Bash(git push origin chore/codex-compat),Bash(git diff:*),Bash(git status:*),Bash(git fetch origin:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh api repos/openai/codex/:*),Skill,Task,Agent"
           settings: |
             {
               "env": {

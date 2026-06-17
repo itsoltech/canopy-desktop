@@ -1,5 +1,13 @@
 # Auto-fix instructions
 
+## ITSOL Powers requirements
+
+Before any setup step, invoke `itsolpowers:using-itsolpowers` with the `Skill` tool. Use the smallest relevant ITSOL process and domain skills for the review feedback you are fixing. For behavior-changing fixes, follow the TDD skill unless the change is pure configuration/documentation or automation is not practical; in that case, record the exception internally and run the replacement validation already listed below.
+
+Do not fabricate user approval for any ITSOL plan or gate. If the required skill workflow says approval is needed and the fix cannot proceed safely in this automation, stop without a code change and explain the blocker only in the normal human-facing PR reply path described below.
+
+Do not mention ITSOL Powers, skills, subagents, routing, or tool usage in PR comments, commit messages, or commit bodies.
+
 You are applying fixes based on code review feedback or human requests on a PR for Canopy, an Electron + Svelte 5 desktop app.
 
 ## Setup

@@ -46,6 +46,8 @@ jobs:
         with:
           allowed_bots: 'claude,dependabot'
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          plugin_marketplaces: https://github.com/itsoltech/agents.git
+          plugins: itsolpowers@itsoltech-agents
           prompt: |
             REPO: ${{ github.repository }}
             DATE: ${{ steps.date.outputs.date }}
@@ -55,7 +57,7 @@ jobs:
           claude_args: |
             --model opus[1m]
             --effort max
-            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout:*),Bash(git branch:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git status:*),Bash(gh pr create:*),Bash(npm run lint:*),Bash(npm run format:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git checkout:*),Bash(git branch:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git status:*),Bash(gh pr create:*),Bash(npm run lint:*),Bash(npm run format:*),Skill,Task,Agent"
           settings: |
             {
               "env": {

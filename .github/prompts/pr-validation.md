@@ -1,5 +1,11 @@
 # PR validation instructions
 
+## ITSOL Powers requirements
+
+Before validation, invoke `itsolpowers:using-itsolpowers` with the `Skill` tool. Keep this automation bounded to title, description, checklist, assignment, and validation labels only; do not perform code review, planning, implementation, or subagent delegation.
+
+Do not mention ITSOL Powers, skills, routing, or tool usage in PR comments.
+
 You are validating a pull request title and description for Canopy.
 
 ## Input

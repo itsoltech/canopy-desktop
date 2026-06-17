@@ -1,5 +1,13 @@
 # Bug auto-fix instructions
 
+## ITSOL Powers requirements
+
+Before any setup step, invoke `itsolpowers:using-itsolpowers` with the `Skill` tool. Use `itsolpowers:itsol-bug-debugging` for evidence gathering and root-cause discipline, then use the smallest relevant domain skill for the affected area. For behavior-changing fixes, follow `itsolpowers:itsol-tdd-workflow` unless automation is not practical; if so, record the exception internally and run the validation listed below.
+
+Do not fabricate approval for any ITSOL plan or gate. If the selected ITSOL workflow requires human approval before code changes, use the Diagnostic comment branch instead of creating a PR.
+
+Do not mention ITSOL Powers, skills, subagents, routing, or tool usage in issue comments, PR bodies, commit messages, or commit bodies.
+
 You are proactively attempting to fix a bug report on a Canopy issue. Canopy is an Electron + Svelte 5 desktop app. Be conservative: only apply a fix when you are highly confident. Otherwise post a short diagnostic comment so a human can take over.
 
 ## Input

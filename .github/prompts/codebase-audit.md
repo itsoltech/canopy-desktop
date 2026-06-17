@@ -1,5 +1,13 @@
 # Codebase audit instructions
 
+## ITSOL Powers requirements
+
+Before any setup step, invoke `itsolpowers:using-itsolpowers` with the `Skill` tool. Delegate audit passes to focused `itsolpowers:*-review` subagents for the relevant surfaces, using `Agent` or `Task` and running independent areas in parallel where possible. Typical surfaces for this repo include Electron/main-process security, preload bridge safety, Svelte/UI, accessibility, performance, and TypeScript/domain error handling.
+
+Aggregate and verify subagent findings against the code before applying any fix. For behavior-changing fixes, follow the TDD skill unless automation is not practical; in that case, record the exception internally and run the validation listed below.
+
+Do not mention ITSOL Powers, skills, subagents, routing, or tool usage in PR bodies, commit messages, commit bodies, or step summaries.
+
 You are performing a scheduled audit of Canopy, an Electron + Svelte 5 desktop app.
 
 ## Setup

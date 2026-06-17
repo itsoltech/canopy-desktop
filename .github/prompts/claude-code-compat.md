@@ -1,5 +1,13 @@
 # Claude Code Compatibility Analysis
 
+## ITSOL Powers requirements
+
+Before any setup or analysis step, invoke `itsolpowers:using-itsolpowers` with the `Skill` tool. Use `itsolpowers:itsol-current-tech-context` for version and documentation checks, then use the smallest relevant implementation or review skills for any workflow, prompt, SDK, or app-code changes. If the diff spans independent areas, delegate focused review/analysis to `itsolpowers:*-review` subagents with `Agent` or `Task`.
+
+Do not fabricate approval for any ITSOL plan or gate. If the selected ITSOL workflow requires human approval before a change, do not create or update a PR; write the blocker to `$GITHUB_STEP_SUMMARY` using the normal no-change path.
+
+Do not mention ITSOL Powers, skills, subagents, routing, or tool usage in PR bodies, commit messages, commit bodies, or step summaries.
+
 You are analyzing new Claude Code CLI releases to determine whether the **Canopy** desktop application (Electron + Svelte 5) needs code changes to stay compatible or to adopt new features.
 
 ## Context

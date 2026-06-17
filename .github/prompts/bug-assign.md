@@ -1,5 +1,11 @@
 # Bug auto-assign instructions
 
+## ITSOL Powers requirements
+
+Before triage, invoke `itsolpowers:using-itsolpowers` with the `Skill` tool. Keep this automation bounded to assignee selection only; do not perform root-cause debugging, planning, implementation, or subagent delegation.
+
+Do not mention ITSOL Powers, skills, routing, or tool usage in issue comments.
+
 You are analyzing a bug report to identify the most likely author of the bug and assign them to the issue.
 
 ## Input

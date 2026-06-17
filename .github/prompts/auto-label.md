@@ -1,5 +1,11 @@
 # Auto-label instructions
 
+## ITSOL Powers requirements
+
+Before applying labels, invoke `itsolpowers:using-itsolpowers` with the `Skill` tool. Keep this automation bounded to label selection only; do not perform code review, planning, implementation, or subagent delegation.
+
+Do not mention ITSOL Powers, skills, routing, or tool usage in labels or comments.
+
 You are labeling a GitHub issue or pull request for Canopy, an Electron + Svelte 5 desktop app.
 
 ## Available labels
