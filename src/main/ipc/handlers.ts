@@ -1881,18 +1881,20 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'git:stageFile',
-    async (_event, payload: { repoRoot: string; filePath: string }) => {
+    async (event, payload: { repoRoot: string; filePath: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       validateFilePath(payload.filePath)
-      const result = await GitRepository.stageFile(payload.repoRoot, payload.filePath)
+      const result = await GitRepository.stageFile(resolvedRepo, payload.filePath)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
 
   ipcMain.handle(
     'git:revertFile',
-    async (_event, payload: { repoRoot: string; filePath: string }) => {
+    async (event, payload: { repoRoot: string; filePath: string }) => {
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       validateFilePath(payload.filePath)
-      const result = await GitRepository.revertFile(payload.repoRoot, payload.filePath)
+      const result = await GitRepository.revertFile(resolvedRepo, payload.filePath)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )

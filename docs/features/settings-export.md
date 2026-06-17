@@ -7,7 +7,7 @@
 
 ## Overview
 
-Canopy stores all app state in a single SQLite database at `app.getPath('userData')/canopy.db`. Secrets (AI API keys, task tracker tokens, saved credentials) are encrypted at rest with Electron's `safeStorage`, which is bound to the source machine's OS keychain — an encrypted blob from machine A cannot be decrypted on machine B.
+Canopy stores all app state in a single SQLite database at `app.getPath('userData')/canopy.db`. Secrets (AI API keys, task tracker tokens, saved credentials) are encrypted at rest with Electron's `safeStorage` when OS-level encryption is available, which is bound to the source machine's OS keychain — an encrypted blob from machine A cannot be decrypted on machine B. If `safeStorage` is unavailable, for example on Linux without a configured keyring, encrypted-class preference values fall back to storage without OS-level encryption and Canopy logs a warning.
 
 The Backup & Restore feature works around this by decrypting secrets in the main process before writing them to a JSON file, and re-encrypting them with the destination machine's `safeStorage` on import. The exported file therefore contains plaintext API keys and tokens and must be treated as sensitive.
 
@@ -108,6 +108,7 @@ Profile `id`, `createdAt`, and `updatedAt` are intentionally omitted. Imports up
 ## Security
 
 - The export file contains plaintext secrets. Store it in an encrypted container (Keychain-backed disk image, password manager attachment, or similar). **Never commit it to version control, and never upload it to a shared drive.**
+- Local secrets are protected by Electron `safeStorage` only when OS-level encryption is available. Without a system keyring, encrypted-class preference values are persisted without OS-level encryption and Canopy logs a warning.
 - On macOS and Linux, the file is written with mode `0o600` so only the owning user can read it. On Windows NTFS, the mode is not enforced — verify the parent folder's ACLs manually or store the file under `%USERPROFILE%` where default permissions are user-private.
 - The export warning dialog must be confirmed before the file dialog opens, to prevent accidental exports.
 - `getAllDecrypted` and `listInternal` / `listInternalDecrypted` on the store classes are main-process-only. They are never exposed through IPC. The only way to reach them from outside the main process is via the two IPC handlers `settings:export` and `settings:import`, which always pair read and write with the user-driven file dialog.
