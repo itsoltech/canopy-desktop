@@ -69,7 +69,11 @@ export const agentBadges: Record<string, BadgeType> = $state({})
 export const worktreeBadges: Record<string, BadgeType> = $state({})
 
 export function initAgentSession(ptySessionId: string, agentType: AgentType): void {
-  if (agentSessions[ptySessionId]) return
+  const existing = agentSessions[ptySessionId]
+  if (existing) {
+    if (existing.agentType === agentType) return
+    removeAgentSession(ptySessionId)
+  }
 
   agentSessions[ptySessionId] = {
     agentType,
@@ -105,8 +109,11 @@ export function rekeyAgentSession(
   if (previousPtySessionId === nextPtySessionId) return
 
   const session = agentSessions[previousPtySessionId]
-  if (!session || agentSessions[nextPtySessionId]) return
-  if (session.agentType !== agentType) return
+  if (!session) return
+  if (agentSessions[nextPtySessionId] || session.agentType !== agentType) {
+    removeAgentSession(previousPtySessionId)
+    return
+  }
 
   agentSessions[nextPtySessionId] = session
   delete agentSessions[previousPtySessionId]

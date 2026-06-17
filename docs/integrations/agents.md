@@ -75,6 +75,11 @@ The renderer maintains per-session state in `agentSessions[ptySessionId]`:
 - `compactCount` / `toolCallCount`: Counters incremented on relevant events.
 - `extra`: Agent-specific data (Claude rate limits, Codex `cwd`/`transcriptPath`/`turnId`, OpenCode pending questions).
 
+Runtime session state is not reset when tab snapshots are reapplied. `initAgentSession()` is
+idempotent for an existing PTY session and `paneFromSnapshot()` rekeys the renderer state when a
+running agent pane receives a new `sessionId`, preserving status, badges, model/context data, tasks,
+notifications, and counters across tab/layout updates.
+
 ### Busy/idle tracking
 
 Each adapter declares `busyEvents` and `idleEvents` sets. The `AgentSessionManager` tracks busy state per session so the notch overlay and other UI elements can reflect whether the agent is actively working.
