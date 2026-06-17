@@ -37,11 +37,14 @@
   let containerEl: HTMLDivElement | undefined = $state()
 
   onMount(() => {
+    // Restore focus to the element that opened the dialog when it closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     if (multiline) {
       textareaEl?.focus()
     } else {
       inputEl?.focus()
     }
+    return () => previouslyFocused?.focus?.()
   })
 
   function trySubmit(): void {

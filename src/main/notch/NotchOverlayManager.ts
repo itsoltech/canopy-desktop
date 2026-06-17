@@ -35,16 +35,22 @@ export class NotchOverlayManager {
     // Panel windows cause macOS to hide the dock icon; restore it then refocus.
     // After restoring, force-set the icon so the Dock refreshes its cached entry.
     if (process.platform === 'darwin') {
-      app.dock?.show().then(() => {
-        const iconPath = app.isPackaged
-          ? join(process.resourcesPath, 'electron.icns')
-          : join(app.getAppPath(), 'build', 'icon.icns')
-        const icon = nativeImage.createFromPath(iconPath)
-        if (!icon.isEmpty()) {
-          app.dock?.setIcon(icon)
-        }
-        if (focusedWin && !focusedWin.isDestroyed()) focusedWin.focus()
-      })
+      app.dock
+        ?.show()
+        .then(() => {
+          const iconPath = app.isPackaged
+            ? join(process.resourcesPath, 'electron.icns')
+            : join(app.getAppPath(), 'build', 'icon.icns')
+          const icon = nativeImage.createFromPath(iconPath)
+          if (!icon.isEmpty()) {
+            app.dock?.setIcon(icon)
+          }
+          if (focusedWin && !focusedWin.isDestroyed()) focusedWin.focus()
+        })
+        .catch(() => {
+          // Dock restore can reject during teardown; ignore rather than surface
+          // as an unhandledRejection (which the crash reporter would record).
+        })
     }
     this.bindAgentEvents()
     this.bindIpcHandlers()

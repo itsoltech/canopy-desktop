@@ -31,6 +31,7 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
 
 const INTERNAL_BLOCKED = new Set([
   'CANOPY_HOOK_PORT',
+  'CANOPY_HOOK_PATH',
   'CANOPY_HOOK_TOKEN',
   'ELECTRON_RUN_AS_NODE',
   'OPENCODE_CONFIG_DIR',
