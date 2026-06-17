@@ -61,7 +61,9 @@ Jira maps `issuetype.subtask = true` to `subtask`, and normalizes type names (`U
 2. Canopy resolves the branch name using the configured `branchTemplate`. The default template is `{branchType}/{taskKey}-{taskTitle}`.
 3. The create form shows the proposed branch name, an optional branch-type select, an optional agent to launch, and a **base branch** picker (grouped local/remote, populated from `gitBranches`). The base defaults to the currently active branch but can be changed to any local or remote branch.
 4. Canopy creates a worktree for the new branch off the selected base via `gitWorktreeAdd`, then runs any configured worktree setup actions and optionally launches the selected agent with the task context.
-5. On failure, an error dialog is shown with the Git error message.
+5. While the flow runs, the form shows inline progress for worktree creation, setup, agent startup, agent readiness, and sending the task context.
+6. If worktree creation fails, an error dialog is shown with the Git error message.
+7. If the worktree is created but the agent cannot be started, does not become ready, or cannot receive the task context, the form keeps the partial-success state visible and offers **Retry Send** without creating another worktree.
 
 ### Branch template system
 
@@ -101,7 +103,9 @@ Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`.
 2. Canopy fetches three things in parallel: the full task details (to get the description, which list fetches omit for performance), comments, and attachments — each with fallback from config-based API to legacy connection-based API.
 3. A formatted context string is assembled: task header, metadata (status, priority, type), URL, description, comments, and attachment file references (`@/path/to/file`).
 4. The text is wrapped in bracketed-paste markers (`ESC[200~ … ESC[201~`) and written to the agent's PTY as one block, followed by `\r` to submit. The wrapping keeps the CLI's paste detection honest even when the OS (e.g. Windows ConPTY) delivers the write in multiple chunks; without it the tail of a long description can leak in as typed input. Control characters and any stray `ESC[201~` inside the content are sanitised first so they can't hijack the terminal or end the paste early.
-5. Attachment files are cleaned up after 60 seconds via `taskTrackerCleanupAttachments`.
+5. Quick send from the task picker keeps the picker open and shows inline feedback if there is no running agent, the target agent tab cannot be focused, task context cannot be built, or the paste fails.
+6. When sending as part of **Create & Start Agent**, the branch/worktree form shows the same progress and failure states. If the worktree already exists but sending fails, the user can start or focus an agent in that worktree and click **Retry Send**.
+7. Attachment files are cleaned up after 60 seconds via `taskTrackerCleanupAttachments`.
 
 ### Sprints
 
@@ -199,6 +203,12 @@ When a GitHub tracker has an empty `projectKey`, Canopy reads the git remote URL
 | `ConfigParseError`         | "Invalid config in {root}: {reason}"             | JSON parse error or unsupported config version                            |
 | `ConfigWriteError`         | "Failed to write config in {root}: {reason}"     | Filesystem permission error or disk full                                  |
 | `PRCreationFailed`         | "PR creation failed: {reason}"                   | `gh` CLI not installed, Git push failure, or `gh pr create` error         |
+| `NoActiveAgent`            | "No running agent is available..."               | Quick send was triggered after the active agent target disappeared        |
+| `AgentStartFailed`         | "The worktree was created, but..."               | Worktree creation succeeded, but Canopy could not open the selected agent |
+| `AgentNotReady`            | "The agent did not become ready..."              | Started agent ended, errored, or did not become idle before timeout       |
+| `TabFocusFailed`           | "Could not focus the target agent tab..."        | The target agent tab could not be activated before sending                |
+| `TaskContextBuildFailed`   | "Could not build the task context..."            | Task details/comments/attachments could not be fetched or formatted       |
+| `TaskContextPasteFailed`   | "Could not paste the task into the agent..."     | Target agent session rejected or lost the paste target                    |
 
 ## Security and privacy
 

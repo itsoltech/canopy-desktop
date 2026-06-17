@@ -10,4 +10,5 @@ perf/results/*.json
 perf/results/*.cpuprofile
 *.tsbuildinfo
 .codex/
+.itsol/plans/
 docs/superpowers/
