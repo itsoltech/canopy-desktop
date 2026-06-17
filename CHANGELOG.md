@@ -1,3 +1,10 @@
+## [0.13.0-next.17](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.16...v0.13.0-next.17) (2026-06-17)
+
+### Bug Fixes
+
+* **renderer:** preserve agent status across snapshots ([#256](https://github.com/itsoltech/canopy-desktop/issues/256)) ([f04ea70](https://github.com/itsoltech/canopy-desktop/commit/f04ea70cc3458d2f04b6ed6f3bc8a8f6af8fcb04))
+* **task-tracker:** show task-to-agent failures ([#254](https://github.com/itsoltech/canopy-desktop/issues/254)) ([2a896d7](https://github.com/itsoltech/canopy-desktop/commit/2a896d7047e23b4c102994e66ad3ec7a83b455c8))
+
 ## [0.13.0-next.16](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.15...v0.13.0-next.16) (2026-06-13)
 
 ### Bug Fixes
