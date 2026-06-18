@@ -14,6 +14,7 @@ import path from 'path'
 import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
+import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import { TmuxManager as TmuxManagerStatics } from '../pty/TmuxManager'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
 import type { PreferencesStore } from '../db/PreferencesStore'
@@ -295,6 +296,7 @@ async function runCredentialOsAuth(event: IpcMainInvokeEvent, domain: string): P
 export function registerIpcHandlers(
   ptyManager: PtyManager,
   wsBridge: WsBridge,
+  terminalStreamService: TerminalStreamService,
   workspaceStore: WorkspaceStore,
   preferencesStore: PreferencesStore,
   layoutStore: LayoutStore,
@@ -779,6 +781,84 @@ export function registerIpcHandlers(
       throw new Error('PTY session is not owned by this window')
     }
     return ptyManager.getDimensions(payload.sessionId)
+  })
+
+  function validatePtyStreamSubscriptionPayload(payload: unknown): {
+    sessionId: string
+    subscriptionId: string
+    offset: number
+  } {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('pty-stream:subscribe requires an object payload')
+    }
+
+    const candidate = payload as {
+      sessionId?: unknown
+      subscriptionId?: unknown
+      offset?: unknown
+    }
+    if (typeof candidate.sessionId !== 'string' || candidate.sessionId.length === 0) {
+      throw new Error('pty-stream:subscribe requires a sessionId')
+    }
+    if (
+      typeof candidate.subscriptionId !== 'string' ||
+      candidate.subscriptionId.length === 0 ||
+      candidate.subscriptionId.length > 200
+    ) {
+      throw new Error('pty-stream:subscribe requires a valid subscriptionId')
+    }
+    if (
+      typeof candidate.offset !== 'number' ||
+      !Number.isFinite(candidate.offset) ||
+      candidate.offset < 0
+    ) {
+      throw new Error('pty-stream:subscribe requires a non-negative offset')
+    }
+
+    return {
+      sessionId: candidate.sessionId,
+      subscriptionId: candidate.subscriptionId,
+      offset: Math.floor(candidate.offset),
+    }
+  }
+
+  function validatePtyStreamUnsubscribePayload(payload: unknown): { subscriptionId: string } {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('pty-stream:unsubscribe requires an object payload')
+    }
+
+    const candidate = payload as { subscriptionId?: unknown }
+    if (
+      typeof candidate.subscriptionId !== 'string' ||
+      candidate.subscriptionId.length === 0 ||
+      candidate.subscriptionId.length > 200
+    ) {
+      throw new Error('pty-stream:unsubscribe requires a valid subscriptionId')
+    }
+
+    return { subscriptionId: candidate.subscriptionId }
+  }
+
+  ipcMain.handle('pty-stream:subscribe', (event, payload: unknown) => {
+    const input = validatePtyStreamSubscriptionPayload(payload)
+    terminalStreamService.subscribe({
+      webContents: event.sender,
+      sessionId: input.sessionId,
+      subscriptionId: input.subscriptionId,
+      offset: input.offset,
+    })
+  })
+
+  ipcMain.handle('pty-stream:unsubscribe', (event, payload: unknown) => {
+    const input = validatePtyStreamUnsubscribePayload(payload)
+    return terminalStreamService.unsubscribe(input.subscriptionId, event.sender)
+  })
+
+  ipcMain.handle('pty-stream:getDiagnostics', (event) => {
+    if (!windowManager.getWindowById(event.sender.id)) {
+      throw new Error('PTY stream diagnostics are only available to app windows')
+    }
+    return terminalStreamService.getDiagnostics()
   })
 
   // --- Tmux ---
