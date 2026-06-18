@@ -20,13 +20,36 @@ interface ForwardedSubscription {
   intentional: boolean
 }
 
+interface TerminalStreamStateChange {
+  state: 'paused' | 'resumed'
+  pauseReasons: Array<'lock-screen' | 'suspend'>
+}
+
 export class PtyStreamForwarder {
   private subscriptions = new Map<string, ForwardedSubscription>()
   private offsets = new Map<string, number>()
+  private desiredSessions = new Set<string>()
+  private terminalStreamPaused = false
+  private sawTerminalStreamEvent = false
+  private cleanupTerminalStreamState: (() => void) | null = null
 
-  constructor(private rpc: DataChannelRpc) {}
+  constructor(private rpc: DataChannelRpc) {
+    this.cleanupTerminalStreamState = window.api.onTerminalStreamStateChanged((data) => {
+      this.sawTerminalStreamEvent = true
+      this.applyTerminalStreamState(data)
+    })
+
+    void window.api
+      .getTerminalStreamState()
+      .then((data) => {
+        if (!this.sawTerminalStreamEvent) this.applyTerminalStreamState(data)
+      })
+      .catch(() => undefined)
+  }
 
   subscribe(sessionId: string): void {
+    this.desiredSessions.add(sessionId)
+    if (this.terminalStreamPaused) return
     if (this.subscriptions.has(sessionId)) return
 
     const entry: ForwardedSubscription = {
@@ -67,6 +90,8 @@ export class PtyStreamForwarder {
         // treats the event as "session terminated" would fire spuriously
         // every time the peer swaps inline -> fullscreen preview.
         if (!entry.intentional) {
+          this.desiredSessions.delete(sessionId)
+          this.offsets.delete(sessionId)
           this.rpc.emit(`pty.closed.${sessionId}`, null)
         }
       },
@@ -75,6 +100,8 @@ export class PtyStreamForwarder {
           this.subscriptions.delete(sessionId)
         }
         if (!entry.intentional) {
+          this.desiredSessions.delete(sessionId)
+          this.offsets.delete(sessionId)
           this.rpc.emit(`pty.closed.${sessionId}`, null)
         }
       },
@@ -87,8 +114,12 @@ export class PtyStreamForwarder {
   }
 
   unsubscribe(sessionId: string): void {
+    this.desiredSessions.delete(sessionId)
     const entry = this.subscriptions.get(sessionId)
-    if (!entry) return
+    if (!entry) {
+      this.scheduleOffsetEviction(sessionId)
+      return
+    }
     // Mark and drop the entry synchronously so the *very next* `subscribe`
     // (which the peer may send in the same tick as `unsubscribe` when
     // switching between inline and fullscreen views) sees an empty slot
@@ -100,9 +131,12 @@ export class PtyStreamForwarder {
     } catch {
       /* ignore */
     }
+    this.scheduleOffsetEviction(sessionId)
   }
 
   dispose(): void {
+    this.cleanupTerminalStreamState?.()
+    this.cleanupTerminalStreamState = null
     for (const [, entry] of this.subscriptions) {
       entry.intentional = true
       try {
@@ -112,5 +146,37 @@ export class PtyStreamForwarder {
       }
     }
     this.subscriptions.clear()
+    this.desiredSessions.clear()
+    this.offsets.clear()
+  }
+
+  private applyTerminalStreamState(data: TerminalStreamStateChange): void {
+    this.terminalStreamPaused = data.state === 'paused' || data.pauseReasons.length > 0
+    if (this.terminalStreamPaused) {
+      this.pauseSubscriptions()
+      return
+    }
+    for (const sessionId of [...this.desiredSessions]) {
+      this.subscribe(sessionId)
+    }
+  }
+
+  private pauseSubscriptions(): void {
+    for (const [sessionId, entry] of [...this.subscriptions]) {
+      entry.intentional = true
+      this.subscriptions.delete(sessionId)
+      try {
+        entry.cleanup()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private scheduleOffsetEviction(sessionId: string): void {
+    setTimeout(() => {
+      if (this.desiredSessions.has(sessionId) || this.subscriptions.has(sessionId)) return
+      this.offsets.delete(sessionId)
+    }, 0)
   }
 }

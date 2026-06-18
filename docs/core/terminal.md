@@ -183,12 +183,12 @@ Every PTY session inherits the user's login environment (resolved via `getLoginE
 
 ## Error states
 
-| Error                      | User sees                               | Cause                                       |
-| -------------------------- | --------------------------------------- | ------------------------------------------- |
-| Terminal stream disconnected | "disconnected" overlay on terminal      | IPC stream subscription or PTY process failed |
+| Error                        | User sees                                | Cause                                         |
+| ---------------------------- | ---------------------------------------- | --------------------------------------------- |
+| Terminal stream disconnected | "disconnected" overlay on terminal       | IPC stream subscription or PTY process failed |
 | Terminal stream paused       | No error state; connection status clears | Screen is locked or system is suspended       |
-| WebGL context loss         | Transparent fallback to canvas renderer | GPU driver issue or resource pressure       |
-| PTY spawn failure          | Tab fails to open                       | Shell binary not found or permission denied |
+| WebGL context loss           | Transparent fallback to canvas renderer  | GPU driver issue or resource pressure         |
+| PTY spawn failure            | Tab fails to open                        | Shell binary not found or permission denied   |
 
 ## Source files
 
@@ -204,17 +204,19 @@ Every PTY session inherits the user's login environment (resolved via `getLoginE
 
 ## IPC channels
 
-| Channel                    | Direction       | Purpose                                                                      |
-| -------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `pty:resize`               | Renderer invoke | Resize a PTY after xterm fit changes.                                        |
-| `pty:kill`                 | Renderer invoke | Terminate a PTY session, optionally killing the tmux session.                |
-| `pty:write`                | Renderer invoke | Write user input to the PTY.                                                 |
-| `pty:getDimensions`        | Renderer invoke | Read the current PTY cols/rows.                                              |
-| `pty:exit`                 | Main event      | Notify renderer that a PTY exited.                                           |
-| `pty:resized`              | Main event      | Broadcast PTY size changes to renderers and remote-control forwarding.       |
-| `pty-stream:subscribe`     | Renderer invoke | Subscribe a renderer to PTY output from a retained character offset.         |
-| `pty-stream:unsubscribe`   | Renderer invoke | Drop a PTY output subscription.                                              |
-| `pty-stream:data`          | Main event      | Send replay or live PTY output to one logical subscriber.                    |
-| `pty-stream:closed`        | Main event      | Notify one logical subscriber that the PTY stream ended.                     |
-| `terminal-stream:getState` | Renderer invoke | Read whether terminal stream reconnects are currently paused.                |
-| `terminal-stream:state`    | Main event      | Notify terminal panes when lock/suspend pauses or resumes stream reconnects. |
+| Channel                     | Direction       | Purpose                                                                      |
+| --------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `pty:resize`                | Renderer invoke | Resize a PTY after xterm fit changes.                                        |
+| `pty:kill`                  | Renderer invoke | Terminate a PTY session, optionally killing the tmux session.                |
+| `pty:write`                 | Renderer invoke | Write user input to the PTY.                                                 |
+| `pty:getDimensions`         | Renderer invoke | Read the current PTY cols/rows.                                              |
+| `pty:exit`                  | Main event      | Notify renderer that a PTY exited.                                           |
+| `pty:resized`               | Main event      | Broadcast PTY size changes to renderers and remote-control forwarding.       |
+| `pty-stream:subscribe`      | Renderer invoke | Subscribe a renderer to PTY output from a retained character offset.         |
+| `pty-stream:unsubscribe`    | Renderer invoke | Drop a PTY output subscription.                                              |
+| `pty-stream:hasStream`      | Renderer invoke | Check whether a PTY stream exists and is owned by the calling window.        |
+| `pty-stream:getDiagnostics` | Renderer invoke | Read retained stream/subscriber diagnostics for app windows.                 |
+| `pty-stream:data`           | Main event      | Send replay or live PTY output to one logical subscriber.                    |
+| `pty-stream:closed`         | Main event      | Notify one logical subscriber that the PTY stream ended.                     |
+| `terminal-stream:getState`  | Renderer invoke | Read whether terminal stream reconnects are currently paused.                |
+| `terminal-stream:state`     | Main event      | Notify terminal panes when lock/suspend pauses or resumes stream reconnects. |

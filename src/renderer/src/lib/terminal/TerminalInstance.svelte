@@ -304,6 +304,11 @@
         cleanupPtyDataSubscription = null
         clearConnectionStatus(sessionId)
       },
+      () => {
+        if (disposed) return
+        cleanupPtyDataSubscription = null
+        setConnectionStatus(sessionId, 'disconnected')
+      },
     )
   }
 
