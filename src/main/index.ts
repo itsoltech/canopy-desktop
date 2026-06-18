@@ -7,7 +7,7 @@ import { autoUpdater } from 'electron-updater'
 import { match } from 'ts-pattern'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { PtyManager } from './pty/PtyManager'
-import { WsBridge } from './pty/WsBridge'
+import { TerminalStreamService } from './pty/TerminalStreamService'
 import { Database } from './db/Database'
 import { WorkspaceStore } from './db/WorkspaceStore'
 import { PreferencesStore } from './db/PreferencesStore'
@@ -98,7 +98,6 @@ if (process.env.CANOPY_TEST_USER_DATA && !app.isPackaged) {
 }
 
 const ptyManager = new PtyManager()
-const wsBridge = new WsBridge()
 const database = new Database()
 const workspaceStore = new WorkspaceStore(database)
 const preferencesStore = new PreferencesStore(database)
@@ -112,7 +111,10 @@ const {
 } = initSkills(database)
 const profileStore = new ProfileStore(database, preferencesStore)
 const telemetryManager = new TelemetryManager(preferencesStore)
-const windowManager = new WindowManager(ptyManager, wsBridge)
+const windowManager = new WindowManager(ptyManager)
+const terminalStreamService = new TerminalStreamService({
+  ownsSession: (webContentsId, sessionId) => windowManager.ownsPtySession(webContentsId, sessionId),
+})
 const browserManager = new BrowserManager()
 const credentialStore = new CredentialStore(database)
 const settingsExportService = new SettingsExportService(
@@ -125,6 +127,7 @@ const settingsExportService = new SettingsExportService(
 const tmuxManager = new TmuxManager(app.getPath('userData'))
 const remoteSessionService = new RemoteSessionService(preferencesStore)
 const perfHudService = new PerfHudService()
+windowManager.setTerminalStreamService(terminalStreamService)
 windowManager.setTmuxManager(tmuxManager)
 let lastClosedWindowConfigs: WindowConfig[] | null = null
 windowManager.setOnWindowCloseSnapshot(({ configs, isLastWindow }) => {
@@ -262,7 +265,7 @@ function disposeRuntimeForQuit(options: { disposeWindows: boolean; forceExit?: b
     }
   }
 
-  wsBridge.disposeAll()
+  terminalStreamService.disposeAll()
   ptyManager.dispose()
   database.close()
   if (options.forceExit !== false) {
@@ -728,7 +731,7 @@ app.whenReady().then(async () => {
 
   ipcCommandBridge = registerIpcHandlers(
     ptyManager,
-    wsBridge,
+    terminalStreamService,
     workspaceStore,
     preferencesStore,
     layoutStore,
@@ -756,6 +759,13 @@ app.whenReady().then(async () => {
   if (PERF) performance.mark('app:ipcHandlersRegistered')
 
   if (PERF) {
+    const getIpcPayloadSize = (payload: unknown): number => {
+      if (typeof payload === 'string') return payload.length
+      if (!payload || typeof payload !== 'object') return 0
+      const data = (payload as { data?: unknown }).data
+      return typeof data === 'string' ? data.length : 0
+    }
+
     // Log outgoing broadcasts for all current and future windows
     app.on('browser-window-created', (_, win) => {
       const wc = win.webContents
@@ -764,7 +774,7 @@ app.whenReady().then(async () => {
         if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
           ipcLog!.push({
             channel,
-            size: typeof args[0] === 'string' ? args[0].length : 0,
+            size: getIpcPayloadSize(args[0]),
             ts: Date.now(),
             dir: 'out',
           })
@@ -781,7 +791,7 @@ app.whenReady().then(async () => {
         if (!channel.startsWith('perf:') && ipcLog!.length < MAX_IPC_LOG_ENTRIES) {
           ipcLog!.push({
             channel,
-            size: typeof args[0] === 'string' ? args[0].length : 0,
+            size: getIpcPayloadSize(args[0]),
             ts: Date.now(),
             dir: 'out',
           })
@@ -790,19 +800,23 @@ app.whenReady().then(async () => {
       }
     }
 
-    ipcMain.handle('perf:diagnostics', () => ({
-      ptySessionCount: ptyManager.sessionCount,
-      wsBridgeCount: wsBridge.bridgeCount,
-      agentSessionCount: agentSessionManager?.sessionCount ?? 0,
-      gitWatcherCount: windowManager.gitWatcherCount,
-      windowCount: windowManager.size,
-      heapUsed: process.memoryUsage().heapUsed,
-      rss: process.memoryUsage().rss,
-      uptime: process.uptime(),
-      marks: performance
-        .getEntriesByType('mark')
-        .map((m) => ({ name: m.name, startTime: m.startTime })),
-    }))
+    ipcMain.handle('perf:diagnostics', () => {
+      const terminalStreamDiagnostics = terminalStreamService.getDiagnostics()
+      return {
+        ptySessionCount: ptyManager.sessionCount,
+        terminalStreamCount: terminalStreamDiagnostics.terminalStreamCount,
+        terminalStreamSubscriberCount: terminalStreamDiagnostics.terminalStreamSubscriberCount,
+        agentSessionCount: agentSessionManager?.sessionCount ?? 0,
+        gitWatcherCount: windowManager.gitWatcherCount,
+        windowCount: windowManager.size,
+        heapUsed: process.memoryUsage().heapUsed,
+        rss: process.memoryUsage().rss,
+        uptime: process.uptime(),
+        marks: performance
+          .getEntriesByType('mark')
+          .map((m) => ({ name: m.name, startTime: m.startTime })),
+      }
+    })
 
     ipcMain.handle('perf:ipcLog', () => {
       const snapshot = [...ipcLog!]
@@ -810,7 +824,9 @@ app.whenReady().then(async () => {
       return snapshot
     })
 
-    ipcMain.handle('perf:disconnectTerminalClients', () => wsBridge.disconnectAllClients())
+    ipcMain.handle('perf:disconnectTerminalClients', () =>
+      terminalStreamService.disconnectAllSubscribers(),
+    )
 
     ipcMain.handle('perf:openProject', (event, payload: { path: string }) => {
       let resolved: string
@@ -905,7 +921,7 @@ app.whenReady().then(async () => {
     if (wasPaused) return
 
     broadcastTerminalStreamState('paused', reason)
-    wsBridge.disconnectAllClients()
+    terminalStreamService.pauseAll(reason)
   }
 
   const resumeTerminalStreams = (
@@ -938,7 +954,8 @@ app.whenReady().then(async () => {
     resumeTerminalStreams('suspend', 'resume')
     scheduleLockScreenResumeWatchdog()
     if (!wasPaused) {
-      wsBridge.disconnectAllClients()
+      terminalStreamService.disconnectAllSubscribers()
+      broadcastTerminalStreamState('resumed', 'resume')
     }
   }
 

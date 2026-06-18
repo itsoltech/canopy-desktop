@@ -128,8 +128,8 @@ export class HostRpcServer {
     })
 
     // PTY stream forwarding. When the peer calls pty.subscribe, the
-    // forwarder opens a secondary WebSocket to the same WsBridge the desktop
-    // xterm.js uses, and relays each chunk as an RPC event.
+    // forwarder subscribes to the host renderer's preload IPC stream and
+    // relays each chunk as a DataChannel RPC event.
     this.ptyForwarder = new PtyStreamForwarder(this.rpc)
     const forwarder = this.ptyForwarder
 
@@ -146,11 +146,18 @@ export class HostRpcServer {
       this.rpc.emit(`pty.resized.${sessionId}`, { cols, rows })
     })
 
-    this.register('pty.subscribe', (params) => {
+    this.register('pty.subscribe', async (params) => {
       const sessionId = assertString(params, 'sessionId', 'pty.subscribe')
-      const wsUrl = findWsUrlForSession(sessionId)
-      if (!wsUrl) throw new Error(`No active session with id ${sessionId}`)
-      forwarder.subscribe(sessionId, wsUrl)
+      const hasStream = hasRunningSessionPane(sessionId)
+        ? await window.api.hasPtyStream(sessionId).catch(() => false)
+        : false
+      if (!hasStream) {
+        forwarder.unsubscribe(sessionId)
+        this.rpc.emit(`pty.closed.${sessionId}`, null)
+        provider.rebroadcast()
+        return
+      }
+      forwarder.subscribe(sessionId)
     })
 
     this.register('pty.unsubscribe', (params) => {
@@ -329,17 +336,16 @@ function getHostLanIp(): string {
 }
 
 /**
- * Walk every tab in every worktree, flatten their split trees, and find the
- * pane whose sessionId matches. Returns the `wsUrl` the terminal is
- * connected to so the {@link PtyStreamForwarder} can open a second WS.
+ * Walk every tab in every worktree, flatten their split trees, and confirm
+ * the requested PTY session is still represented by a host terminal pane.
  */
-function findWsUrlForSession(sessionId: string): string | null {
+function hasRunningSessionPane(sessionId: string): boolean {
   for (const tabs of Object.values(tabsByWorktree)) {
     for (const tab of tabs) {
       const panes = allPanes(tab.rootSplit)
       const match = panes.find((p) => p.sessionId === sessionId)
-      if (match) return match.wsUrl || null
+      if (match?.isRunning) return true
     }
   }
-  return null
+  return false
 }

@@ -2,7 +2,7 @@
  * Memory leak detection.
  *
  * Runs repeated open/close cycles and checks for resource leaks:
- * - Scenario A: Terminal open/close (PTY sessions, WS bridges)
+ * - Scenario A: Terminal open/close (PTY sessions, terminal stream subscribers)
  * - Scenario B: Workspace open/close (git watchers, file tree state)
  * - Heap growth monitoring via CDP
  */
@@ -31,10 +31,13 @@ test('terminal open/close should not leak PTY sessions', async ({
   expect(baseline).toBeTruthy()
 
   const baselinePty = baseline!.ptySessionCount
-  const baselineBridge = baseline!.wsBridgeCount
+  const baselineStreams = baseline!.terminalStreamCount
+  const baselineSubscribers = baseline!.terminalStreamSubscriberCount
 
   console.log(`\n--- Terminal Leak Test (${CYCLES} cycles) ---`)
-  console.log(`Baseline PTY: ${baselinePty}, WS bridges: ${baselineBridge}`)
+  console.log(
+    `Baseline PTY: ${baselinePty}, terminal streams: ${baselineStreams}, subscribers: ${baselineSubscribers}`,
+  )
 
   for (let i = 0; i < CYCLES; i++) {
     const result = await page.evaluate(
@@ -62,11 +65,14 @@ test('terminal open/close should not leak PTY sessions', async ({
   const after = await getDiagnostics(page)
   expect(after).toBeTruthy()
 
-  console.log(`After PTY: ${after!.ptySessionCount}, WS bridges: ${after!.wsBridgeCount}`)
+  console.log(
+    `After PTY: ${after!.ptySessionCount}, terminal streams: ${after!.terminalStreamCount}, subscribers: ${after!.terminalStreamSubscriberCount}`,
+  )
   console.log(`Heap: ${formatBytes(after!.heapUsed)}`)
 
   expect(after!.ptySessionCount).toBe(baselinePty)
-  expect(after!.wsBridgeCount).toBe(baselineBridge)
+  expect(after!.terminalStreamCount).toBe(baselineStreams)
+  expect(after!.terminalStreamSubscriberCount).toBe(baselineSubscribers)
 })
 
 test('workspace open should not leak git watchers', async ({

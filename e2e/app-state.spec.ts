@@ -2027,7 +2027,8 @@ test('main process exposes and publishes app state snapshots', async ({ electron
     return { tab: result.openedTab ?? null, sessionId: session.sessionId, wsUrl: session.wsUrl }
   }, tmpDir)
   expect(runConfigTab.tab?.id).toBeTruthy()
-  expect(runConfigTab.wsUrl).toMatch(/^ws:\/\/127\.0\.0\.1:/)
+  expect(runConfigTab.sessionId).toBeTruthy()
+  expect(runConfigTab.wsUrl).toBe('')
 
   await expect
     .poll(
@@ -2277,7 +2278,7 @@ test('main process exposes and publishes app state snapshots', async ({ electron
     .poll(
       () =>
         workspacePage.evaluate(
-          ({ projectPath, tabId, previousSessionId, previousWsUrl }) => {
+          ({ projectPath, tabId, previousSessionId }) => {
             const api = (window as unknown as { api: Required<AppStateApi> }).api
             return api.getAppState().then((snapshot) => {
               const tab = snapshot.tabs?.tabsByWorktree[projectPath]?.find(
@@ -2290,9 +2291,7 @@ test('main process exposes and publishes app state snapshots', async ({ electron
                 exitCode: pane?.exitCode ?? null,
                 detached: pane?.detached ?? null,
                 replacedSessionId: pane?.sessionId !== previousSessionId,
-                replacedWsUrl:
-                  pane?.wsUrl !== previousWsUrl &&
-                  (pane?.wsUrl?.startsWith('ws://127.0.0.1:') ?? false),
+                wsUrl: pane?.wsUrl ?? null,
                 retainedMissingTmux: pane?.tmuxSessionName === 'canopy-e2e-reattach-missing',
               }
             })
@@ -2301,7 +2300,6 @@ test('main process exposes and publishes app state snapshots', async ({ electron
             projectPath: tmpDir,
             tabId: reattachTmuxTab.id,
             previousSessionId: reattachTmuxTab.sessionId,
-            previousWsUrl: reattachTmuxTab.wsUrl,
           },
         ),
       { timeout: 10_000 },
@@ -2312,7 +2310,7 @@ test('main process exposes and publishes app state snapshots', async ({ electron
       exitCode: null,
       detached: false,
       replacedSessionId: true,
-      replacedWsUrl: true,
+      wsUrl: '',
       retainedMissingTmux: false,
     })
 
@@ -2676,7 +2674,8 @@ test('main process exposes and publishes app state snapshots', async ({ electron
               return {
                 suspended: Boolean(tab?.suspended),
                 isRunning: pane?.isRunning ?? null,
-                wsUrlIsRuntime: pane?.wsUrl?.startsWith('ws://127.0.0.1:') ?? false,
+                sessionId: pane?.sessionId ?? null,
+                wsUrl: pane?.wsUrl ?? null,
               }
             })
           },
@@ -2687,7 +2686,8 @@ test('main process exposes and publishes app state snapshots', async ({ electron
     .toEqual({
       suspended: false,
       isRunning: true,
-      wsUrlIsRuntime: true,
+      sessionId: expect.any(String),
+      wsUrl: '',
     })
 
   const editorFilePath = join(tmpDir, 'README.md')

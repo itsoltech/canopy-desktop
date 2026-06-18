@@ -23,7 +23,6 @@
   const DEFAULT_FONT_SIZE = 13
   let {
     sessionId,
-    wsUrl,
     active = true,
     focused = true,
     visible = true,
@@ -31,7 +30,6 @@
     onTitleChange,
   }: {
     sessionId: string
-    wsUrl: string
     active?: boolean
     focused?: boolean
     visible?: boolean
@@ -42,15 +40,13 @@
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
   let fitAddonRef: FitAddon | null = null
-  let wsRef: WebSocket | null = null
+  let cleanupPtyDataSubscription: (() => void) | null = null
   let webglAddonRef: WebglAddon | null = null
   let webglAttached = $state(false)
   let dragging = $state(false)
   let progressState = $state(0)
   let progressValue = $state(0)
   let disposed = false
-  let reconnectAttempt = 0
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let dataDisposable: { dispose(): void } | null = null
   let resizeObserver: ResizeObserver | null = null
   let pendingData = ''
@@ -68,8 +64,6 @@
   let startTerminal: (() => void) | null = null
   let terminalStreamPaused = false
 
-  const MAX_RECONNECT_ATTEMPTS = 30
-  const MAX_RECONNECT_DELAY = 8000
   const MAX_REPLAY_CHARS_PER_FRAME = 16_384
 
   function attachWebgl(term: Terminal): void {
@@ -240,24 +234,11 @@
     }
   }
 
-  function disconnectWs(options: { suppressStatus?: boolean } = {}): void {
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
-    reconnectAttempt = 0
-
+  function disconnectPtyData(options: { suppressStatus?: boolean } = {}): void {
     cancelPendingWrite()
 
-    const ws = wsRef
-    wsRef = null
-    if (ws) {
-      ws.onopen = null
-      ws.onmessage = null
-      ws.onclose = null
-      ws.onerror = null
-      ws.close()
-    }
+    cleanupPtyDataSubscription?.()
+    cleanupPtyDataSubscription = null
 
     if (!options.suppressStatus) {
       clearConnectionStatus(sessionId)
@@ -292,63 +273,50 @@
     })
   }
 
-  function scheduleReconnect(term: Terminal): void {
-    if (terminalStreamPaused) return
-    if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-      setConnectionStatus(sessionId, 'disconnected')
-      return
-    }
-    if (reconnectAttempt === 0) {
-      setConnectionStatus(sessionId, 'reconnecting')
-    }
-    const delay = Math.min(500 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY)
-    reconnectAttempt++
-    reconnectTimer = setTimeout(() => {
-      if (disposed || terminalStreamPaused) return
-      connectWs(term)
-    }, delay)
+  function connectPtyData(term: Terminal): void {
+    if (disposed || terminalStreamPaused) return
+    if (cleanupPtyDataSubscription) return
+
+    cleanupPtyDataSubscription = window.api.subscribePtyData(
+      sessionId,
+      receivedChars,
+      (event) => {
+        if (event.sessionId !== sessionId || disposed) return
+
+        const eventEnd = event.offset + event.data.length
+        if (eventEnd <= receivedChars) return
+
+        const overlap = Math.max(0, receivedChars - event.offset)
+        const chunk = overlap > 0 ? event.data.slice(overlap) : event.data
+        receivedChars = event.offset + overlap + chunk.length
+        if (!chunk) return
+
+        clearConnectionStatus(sessionId)
+        pendingData += chunk
+        // Always write through to xterm regardless of visibility. Gating on
+        // `visible` let pendingData accumulate while hidden and replay after
+        // show; with a bounded cap the head got truncated and deltas were
+        // applied to a stale buffer (overlapping / row-shifted TUI output).
+        flushPendingData(term)
+      },
+      (event) => {
+        if (event.sessionId !== sessionId || disposed) return
+        cleanupPtyDataSubscription = null
+        clearConnectionStatus(sessionId)
+      },
+      () => {
+        if (disposed) return
+        cleanupPtyDataSubscription = null
+        setConnectionStatus(sessionId, 'disconnected')
+      },
+    )
   }
 
-  function connectWs(term: Terminal): void {
+  function writeInput(data: string): void {
     if (disposed || terminalStreamPaused) return
-    if (
-      wsRef &&
-      (wsRef.readyState === WebSocket.OPEN || wsRef.readyState === WebSocket.CONNECTING)
-    ) {
-      return
-    }
-
-    const url = new URL(wsUrl)
-    url.searchParams.set('offset', String(receivedChars))
-    const ws = new WebSocket(url)
-    wsRef = ws
-
-    ws.onopen = (): void => {
-      clearConnectionStatus(sessionId)
-      reconnectAttempt = 0
-    }
-
-    ws.onmessage = (e): void => {
-      const chunk = typeof e.data === 'string' ? e.data : String(e.data)
-      receivedChars += chunk.length
-      pendingData += chunk
-      // Always write through to xterm regardless of visibility. Gating on
-      // `visible` let pendingData accumulate while hidden and replay after
-      // show; with a bounded cap the head got truncated and deltas were
-      // applied to a stale buffer (overlapping / row-shifted TUI output).
-      flushPendingData(term)
-    }
-
-    ws.onclose = (): void => {
-      if (disposed) return
-      wsRef = null
-      if (terminalStreamPaused) return
-      scheduleReconnect(term)
-    }
-
-    ws.onerror = (): void => {
-      // onclose fires after onerror, reconnect handled there
-    }
+    void window.api.writePty(sessionId, data).catch(() => {
+      setConnectionStatus(sessionId, 'disconnected')
+    })
   }
 
   function handleDragOver(event: DragEvent): void {
@@ -391,8 +359,8 @@
     if (!termRef) return
     const term = termRef
     if (visible) {
-      // Becoming visible: ensure WS is connected and flush any in-flight batch.
-      connectWs(term)
+      // Becoming visible: ensure PTY output is subscribed and flush any in-flight batch.
+      connectPtyData(term)
       flushPendingData(term)
       // The container was `display:none` while hidden, so the xterm renderer
       // and ResizeObserver saw no meaningful dimensions. Now that layout is
@@ -447,12 +415,13 @@
     }): void {
       terminalStreamPaused = data.state === 'paused' || data.pauseReasons.length > 0
       if (terminalStreamPaused) {
-        disconnectWs({ suppressStatus: true })
+        disconnectPtyData({ suppressStatus: true })
         clearConnectionStatus(sessionId)
         return
       }
+      disconnectPtyData({ suppressStatus: true })
       if (visible && termRef) {
-        connectWs(termRef)
+        connectPtyData(termRef)
         flushPendingData(termRef)
       }
     }
@@ -581,14 +550,12 @@
       termRef = term
 
       dataDisposable = term.onData((data) => {
-        if (wsRef && wsRef.readyState === WebSocket.OPEN) {
-          wsRef.send(data)
-        }
+        writeInput(data)
         recordKeystroke(sessionId, data)
       })
 
       if (visible) {
-        connectWs(term)
+        connectPtyData(term)
       }
 
       const isMac = navigator.userAgent.includes('Mac')
@@ -616,16 +583,12 @@
           // would otherwise fire (since returning false skips xterm's own preventDefault call)
           if (event.key === 'Enter' && event.shiftKey) {
             event.preventDefault()
-            if (wsRef && wsRef.readyState === WebSocket.OPEN) {
-              wsRef.send('\x1b\r')
-            }
+            writeInput('\x1b\r')
             return false
           }
           // Cmd+Backspace → kill line (delete to beginning)
           if (event.key === 'Backspace' && event.metaKey) {
-            if (wsRef && wsRef.readyState === WebSocket.OPEN) {
-              wsRef.send('\x15')
-            }
+            writeInput('\x15')
             return false
           }
           // Block Ctrl+Z in AI tool terminals to prevent unrecoverable SIGTSTP
@@ -742,7 +705,7 @@
         reclaimTextarea = null
       }
       restoreCursorImmediately()
-      disconnectWs({ suppressStatus: true })
+      disconnectPtyData({ suppressStatus: true })
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
       termRef = null

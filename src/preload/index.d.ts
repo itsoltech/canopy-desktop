@@ -31,6 +31,16 @@ interface TerminalStreamStateChange {
 
 type TerminalStreamState = Omit<TerminalStreamStateChange, 'reason'>
 
+interface PtyStreamDataEvent {
+  sessionId: string
+  offset: number
+  data: string
+}
+
+interface PtyStreamClosedEvent {
+  sessionId: string
+}
+
 interface TmuxSessionInfo {
   name: string
   created: number
@@ -354,6 +364,14 @@ interface CanopyAPI {
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
+  hasPtyStream: (sessionId: string) => Promise<boolean>
+  subscribePtyData: (
+    sessionId: string,
+    offset: number,
+    callback: (event: PtyStreamDataEvent) => void,
+    onClose?: (event: PtyStreamClosedEvent) => void,
+    onError?: (error: unknown) => void,
+  ) => () => void
   getTerminalStreamState: () => Promise<TerminalStreamState>
   onTerminalStreamStateChanged: (callback: (data: TerminalStreamStateChange) => void) => () => void
 
@@ -1102,7 +1120,8 @@ interface CanopyAPI {
   // Performance diagnostics (only present when CANOPY_PERF=1)
   perfDiagnostics?: () => Promise<{
     ptySessionCount: number
-    wsBridgeCount: number
+    terminalStreamCount: number
+    terminalStreamSubscriberCount: number
     agentSessionCount: number
     gitWatcherCount: number
     windowCount: number

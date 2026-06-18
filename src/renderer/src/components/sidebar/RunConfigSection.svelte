@@ -36,7 +36,7 @@
     if (result) {
       const worktreePath = workspaceState.selectedWorktreePath
       if (worktreePath) {
-        openRunConfigTab(name, result.sessionId, result.wsUrl, worktreePath)
+        openRunConfigTab(name, result.sessionId, worktreePath)
       }
     }
   }

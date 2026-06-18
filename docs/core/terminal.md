@@ -1,6 +1,6 @@
 # Terminal / PTY
 
-> Each tab in Canopy runs a pseudo-terminal backed by `node-pty`, with output streamed to the renderer over a local WebSocket.
+> Each tab in Canopy runs a pseudo-terminal backed by `node-pty`, with output streamed to the renderer over Electron IPC.
 
 **Status:** Stable
 **Introduced:** v0.1.0
@@ -9,7 +9,7 @@ macOS/Linux-only; Windows still shows AI agent-busy close warnings.
 
 ## Overview
 
-The terminal is the primary surface of the application. When a user opens a new shell tab, the main process spawns a PTY (`node-pty`) running the user's login shell and creates a WebSocket bridge so the renderer can display output via xterm.js. Each PTY session gets a UUID, and the renderer connects to `ws://127.0.0.1:<port>/<sessionId>` to read and write data.
+The terminal is the primary surface of the application. When a user opens a new shell tab, the main process spawns a PTY (`node-pty`) running the user's login shell and registers it with `TerminalStreamService` so the renderer can display output via xterm.js. Each PTY session gets a UUID, and the renderer subscribes to `pty-stream:*` IPC events through the preload bridge while user input is written through domain IPC methods.
 
 On macOS and Linux the default shell is read from `$SHELL` and launched with `--login`. On Windows it falls back to `powershell.exe`. Non-exe commands on Windows are wrapped through `cmd.exe /c` so `.cmd`/`.bat` wrappers resolve correctly.
 
@@ -25,18 +25,18 @@ Tmux integration (dev builds only) allows creating new tmux sessions or attachin
 2. Renderer asks the main-owned tab command API to open the shell for the selected worktree.
 3. Main process validates the sender owns that worktree, then spawns a PTY via `PtyManager.spawn()`
    and assigns a UUID session ID.
-4. `WsBridge.create()` attaches to the PTY data stream and returns a `ws://` URL.
-5. Renderer receives `{ sessionId, wsUrl }` and creates a `TerminalInstance` component.
-6. `TerminalInstance` waits for fonts to load, creates an xterm.js `Terminal`, then connects to the WebSocket URL.
-7. PTY output arrives as WebSocket messages, gets buffered, and flushed to xterm on the next `requestAnimationFrame`.
-8. User keystrokes flow from xterm's `onData` callback through the WebSocket back to the PTY.
+4. `TerminalStreamService.register()` attaches to the PTY data stream and stores bounded replay history.
+5. Renderer receives the session ID and creates a `TerminalInstance` component.
+6. `TerminalInstance` waits for fonts to load, creates an xterm.js `Terminal`, then subscribes through `window.api.subscribePtyData(sessionId, receivedChars, ...)`.
+7. PTY output arrives as IPC stream events, gets buffered, and flushed to xterm on the next `requestAnimationFrame`.
+8. User keystrokes flow from xterm's `onData` callback through `window.api.writePty(sessionId, data)` back to the PTY.
 
-### WebSocket reconnection
+### IPC stream resubscription
 
-1. If the WebSocket closes unexpectedly, the renderer schedules a reconnect with exponential backoff starting at 500ms, doubling up to 8000ms.
-2. During reconnection, a `reconnecting` status is set on the connection state store.
-3. On reconnect, the client passes `?offset=<receivedChars>` so the bridge replays only missed history.
-4. After 30 consecutive failed attempts, the status changes to `disconnected` and reconnection stops.
+1. The renderer owns a preload subscription cleanup function for the active PTY stream.
+2. If the app pauses terminal streams for lock/suspend, the renderer drops the subscription and keeps its `receivedChars` offset.
+3. On resume, the renderer creates a fresh subscription with the current offset so `TerminalStreamService` replays only missed history.
+4. If a write or subscription setup fails, the connection state store can show `disconnected`.
 
 ### Screen lock and wake handling
 
@@ -49,15 +49,15 @@ Linux builds rely on `suspend`/`resume` for this lifecycle handling.
    `lock-screen` adds a screen-lock pause reason and `suspend` adds a system-suspend pause reason.
 2. `unlock-screen` clears only the screen-lock reason. `resume` clears only the system-suspend
    reason. If both reasons are active, terminal streams resume only after both have cleared.
-3. On the first transition into paused state, main broadcasts `terminal-stream:state` and closes
-   current terminal WebSocket clients. PTY processes keep running.
-4. While paused, `TerminalInstance` cancels pending reconnect timers and does not create a new
-   WebSocket. It also clears transient reconnect status so the UI does not remain stuck on a stale
-   reconnecting state.
-5. When the effective pause state clears, visible terminal panes reconnect and request missed
+3. On the first transition into paused state, main broadcasts `terminal-stream:state` and disconnects
+   current terminal stream subscribers. PTY processes keep running.
+4. While paused, `TerminalInstance` drops its PTY data subscription and does not create a new
+   subscription. It also clears transient connection status so the UI does not remain stuck on stale
+   state.
+5. When the effective pause state clears, visible terminal panes resubscribe and request missed
    history through their existing offset.
 6. If Electron emits `resume` without a prior tracked `suspend`, Canopy still force-closes terminal
-   WebSocket clients to preserve the defensive wake behavior for stale connections.
+   stream subscribers to preserve the defensive wake behavior for stale subscriptions.
 7. If a wake clears `suspend` but only `lock-screen` remains, main starts a 30 second watchdog.
    A normal `unlock-screen` cancels it and resumes streams immediately; if the OS never delivers
    `unlock-screen`, the watchdog clears the stale screen-lock pause so terminal streaming can
@@ -65,7 +65,7 @@ Linux builds rely on `suspend`/`resume` for this lifecycle handling.
 
 ### Scrollback and history
 
-The WsBridge maintains a circular buffer of up to 1 MB of PTY output per session. When a new WebSocket client connects (or reconnects), it receives history from the requested offset. xterm.js maintains a separate scrollback buffer of 5000 lines.
+`TerminalStreamService` maintains a bounded buffer of up to 1 MB of PTY output per session. When a renderer or remote forwarder subscribes, it receives history from the requested offset. xterm.js maintains a separate scrollback buffer of 5000 lines.
 
 Replayed or bursty output is flushed to xterm in bounded chunks on animation frames instead of
 writing an entire backlog in one frame. This keeps the renderer responsive after long lock/unlock
@@ -183,20 +183,19 @@ Every PTY session inherits the user's login environment (resolved via `getLoginE
 
 ## Error states
 
-| Error                      | User sees                               | Cause                                       |
-| -------------------------- | --------------------------------------- | ------------------------------------------- |
-| WebSocket disconnected     | "reconnecting" overlay on terminal      | WebSocket server or PTY process crashed     |
-| WebSocket permanently lost | "disconnected" overlay                  | 30 consecutive reconnect attempts failed    |
-| Terminal stream paused     | No error state; reconnect status clears | Screen is locked or system is suspended     |
-| WebGL context loss         | Transparent fallback to canvas renderer | GPU driver issue or resource pressure       |
-| PTY spawn failure          | Tab fails to open                       | Shell binary not found or permission denied |
+| Error                        | User sees                                | Cause                                         |
+| ---------------------------- | ---------------------------------------- | --------------------------------------------- |
+| Terminal stream disconnected | "disconnected" overlay on terminal       | IPC stream subscription or PTY process failed |
+| Terminal stream paused       | No error state; connection status clears | Screen is locked or system is suspended       |
+| WebGL context loss           | Transparent fallback to canvas renderer  | GPU driver issue or resource pressure         |
+| PTY spawn failure            | Tab fails to open                        | Shell binary not found or permission denied   |
 
 ## Source files
 
 - Power lifecycle handling: `src/main/index.ts`
 - PTY manager: `src/main/pty/PtyManager.ts`
+- Terminal stream service: `src/main/pty/TerminalStreamService.ts`
 - Tmux manager: `src/main/pty/TmuxManager.ts`
-- WebSocket bridge: `src/main/pty/WsBridge.ts`
 - Terminal component: `src/renderer/src/lib/terminal/TerminalInstance.svelte`
 - Connection state: `src/renderer/src/lib/terminal/connectionState.svelte.ts`
 - Themes: `src/renderer/src/lib/terminal/themes.ts`
@@ -205,13 +204,19 @@ Every PTY session inherits the user's login environment (resolved via `getLoginE
 
 ## IPC channels
 
-| Channel                    | Direction       | Purpose                                                                      |
-| -------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `pty:resize`               | Renderer invoke | Resize a PTY after xterm fit changes.                                        |
-| `pty:kill`                 | Renderer invoke | Terminate a PTY session, optionally killing the tmux session.                |
-| `pty:write`                | Renderer invoke | Write user input to the PTY.                                                 |
-| `pty:getDimensions`        | Renderer invoke | Read the current PTY cols/rows.                                              |
-| `pty:exit`                 | Main event      | Notify renderer that a PTY exited.                                           |
-| `pty:resized`              | Main event      | Broadcast PTY size changes to renderers and remote-control forwarding.       |
-| `terminal-stream:getState` | Renderer invoke | Read whether terminal stream reconnects are currently paused.                |
-| `terminal-stream:state`    | Main event      | Notify terminal panes when lock/suspend pauses or resumes stream reconnects. |
+| Channel                     | Direction       | Purpose                                                                      |
+| --------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `pty:resize`                | Renderer invoke | Resize a PTY after xterm fit changes.                                        |
+| `pty:kill`                  | Renderer invoke | Terminate a PTY session, optionally killing the tmux session.                |
+| `pty:write`                 | Renderer invoke | Write user input to the PTY.                                                 |
+| `pty:getDimensions`         | Renderer invoke | Read the current PTY cols/rows.                                              |
+| `pty:exit`                  | Main event      | Notify renderer that a PTY exited.                                           |
+| `pty:resized`               | Main event      | Broadcast PTY size changes to renderers and remote-control forwarding.       |
+| `pty-stream:subscribe`      | Renderer invoke | Subscribe a renderer to PTY output from a retained character offset.         |
+| `pty-stream:unsubscribe`    | Renderer invoke | Drop a PTY output subscription.                                              |
+| `pty-stream:hasStream`      | Renderer invoke | Check whether a PTY stream exists and is owned by the calling window.        |
+| `pty-stream:getDiagnostics` | Renderer invoke | Read retained stream/subscriber diagnostics for app windows.                 |
+| `pty-stream:data`           | Main event      | Send replay or live PTY output to one logical subscriber.                    |
+| `pty-stream:closed`         | Main event      | Notify one logical subscriber that the PTY stream ended.                     |
+| `terminal-stream:getState`  | Renderer invoke | Read whether terminal stream reconnects are currently paused.                |
+| `terminal-stream:state`     | Main event      | Notify terminal panes when lock/suspend pauses or resumes stream reconnects. |
