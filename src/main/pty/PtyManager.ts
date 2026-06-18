@@ -178,19 +178,18 @@ export class PtyManager {
   hasChildProcess(id: string): Promise<boolean> {
     const session = this.sessions.get(id)
     if (!session) return Promise.resolve(false)
+    // Windows process-tree probes (`wmic`, PowerShell CIM queries, etc.) are
+    // too expensive for close-warning preflights and can visibly stall the app.
+    // Windows shell tabs therefore never raise running-process close warnings;
+    // agent-busy state is still checked separately by AgentSessionManager.
+    if (process.platform === 'win32') return Promise.resolve(false)
+
     const pid = String(session.pty.pid)
-    const isWin = process.platform === 'win32'
-    const cmd = isWin ? 'wmic' : 'pgrep'
-    const args = isWin
-      ? ['process', 'where', `(ParentProcessId=${pid})`, 'get', 'ProcessId', '/FORMAT:CSV']
-      : ['-P', pid]
+    const cmd = 'pgrep'
+    const args = ['-P', pid]
     return new Promise<boolean>((resolve) => {
-      execFile(cmd, args, { encoding: 'utf-8', timeout: 2000 }, (err, stdout) => {
-        if (isWin) {
-          resolve(!err && stdout.trim().split('\n').length > 1)
-        } else {
-          resolve(!err)
-        }
+      execFile(cmd, args, { encoding: 'utf-8', timeout: 2000 }, (err) => {
+        resolve(!err)
       })
     })
   }

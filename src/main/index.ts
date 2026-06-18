@@ -1127,10 +1127,9 @@ app.on('before-quit', (event) => {
   // re-enter or tear down windows.
   persistOpenWindowConfigs()
 
-  // hasAnyActiveSession() is async (spawns `pgrep`/`wmic` per shell), but
-  // event.preventDefault() must be called synchronously. preventDefault
-  // when any tracked PTY exists, then re-decide async — if nothing is
-  // actually busy, re-enter via app.quit().
+  // hasAnyActiveSession() is async, but event.preventDefault() must be called
+  // synchronously. preventDefault when any tracked PTY exists, then re-decide
+  // async — if nothing is actually busy, re-enter via app.quit().
   if (!windowManager.isQuitting && windowManager.getAllWindows().some((w) => !w.isDestroyed())) {
     const anyTracked = windowManager.getAllWindows().some((w) => {
       const id = w.webContents.id

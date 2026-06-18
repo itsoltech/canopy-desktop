@@ -4,7 +4,8 @@
 
 **Status:** Stable
 **Introduced:** v0.1.0
-**Platforms:** All (macOS, Linux, Windows)
+**Platforms:** All (macOS, Linux, Windows). Shell child-process close warnings are
+macOS/Linux-only; Windows still shows AI agent-busy close warnings.
 
 ## Overview
 
@@ -89,7 +90,9 @@ macOS and Linux are unaffected — `writeBurst` falls through to a plain scroll-
 In split layouts, each pane shows a strip above the pane body with the pane title and actions:
 
 - **Detach pane to tab**: removes that pane from the current split and opens it as a new top-level tab.
-- **Close pane**: closes only that pane. If it is running processes, the same termination confirmation flow is shown before closing.
+- **Close pane**: closes only that pane. On macOS/Linux, panes with running shell child
+  processes use the same termination confirmation flow before closing. On Windows, shell panes do
+  not raise this warning; AI agent-busy warnings still apply.
 
 Clicking the strip also focuses the pane.
 
@@ -124,10 +127,15 @@ Detected URLs in terminal output are clickable. Behavior depends on the `urlOpen
 
 ### Tab close with active processes
 
-1. When a user closes a tab, the system checks whether the PTY has child processes (`pgrep -P <pid>` on Unix, `wmic` on Windows).
-2. For AI tool tabs, it checks whether the agent status is in an active state (thinking, tool calling, compacting, waiting for permission).
-3. If active processes are found, a confirmation dialog appears before the PTY is killed.
-4. On confirmation, all PTYs in the tab's split tree are killed.
+1. On macOS/Linux, when a user closes a shell tab, the system checks whether the PTY has
+   child processes with `pgrep -P <pid>`.
+2. On Windows, shell tabs do not run child-process close-warning checks because the available
+   process-tree probes are too expensive for responsive close preflights.
+3. For AI tool tabs on all platforms, it checks whether the agent status is in an active state
+   (thinking, tool calling, compacting, waiting for permission).
+4. If active shell processes on macOS/Linux or busy AI agents on any platform are found, a
+   confirmation dialog appears before the PTY is killed.
+5. On confirmation, all PTYs in the tab's split tree are killed.
 
 Closing all tabs for a worktree uses the same safety path. The renderer first aggregates active
 process warnings across tabs, then runs the unsaved-editor preflight for every open tab. If the
