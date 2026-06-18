@@ -963,6 +963,7 @@ app.whenReady().then(async () => {
     if (!wasPaused) {
       terminalStreamService.disconnectAllSubscribers()
       wsBridge.disconnectAllClients()
+      broadcastTerminalStreamState('resumed', 'resume')
     }
   }
 

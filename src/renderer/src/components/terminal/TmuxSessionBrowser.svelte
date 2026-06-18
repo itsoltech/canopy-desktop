@@ -49,7 +49,7 @@
     try {
       const result = await window.api.tmuxAttach(name)
       const { openTmuxTab } = await import('../../lib/stores/tabs.svelte')
-      openTmuxTab(name, result.sessionId, result.wsUrl, worktreePath)
+      openTmuxTab(name, result.sessionId, worktreePath)
       closeDialog()
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to attach session'

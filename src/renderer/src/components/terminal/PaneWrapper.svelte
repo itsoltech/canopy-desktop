@@ -212,7 +212,6 @@
         {#key pane.sessionId}
           <TerminalInstance
             sessionId={pane.sessionId}
-            wsUrl={pane.wsUrl}
             {active}
             focused={active && focused}
             visible={active}

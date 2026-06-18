@@ -13,7 +13,7 @@ export interface EditorFileState {
 export interface PaneSession {
   id: string
   sessionId: string
-  wsUrl: string
+  wsUrl?: string
   toolId: string
   toolName: string
   isRunning: boolean

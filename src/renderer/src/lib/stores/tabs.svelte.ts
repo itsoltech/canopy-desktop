@@ -280,7 +280,6 @@ export async function openTool(
 export function openTmuxTab(
   _tmuxSessionName: string,
   sessionId: string,
-  _wsUrl: string,
   worktreePath: string,
 ): void {
   void openSessionTabInMain('Shell', sessionId, worktreePath).catch((err) => {
@@ -291,7 +290,6 @@ export function openTmuxTab(
 export function openRunConfigTab(
   configName: string,
   sessionId: string,
-  _wsUrl: string,
   worktreePath: string,
 ): void {
   void openSessionTabInMain(configName, sessionId, worktreePath).catch((err) => {

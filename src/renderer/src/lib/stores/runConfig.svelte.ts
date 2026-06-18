@@ -133,13 +133,13 @@ function hydrateRunningProcesses(snapshots: RunningProcess[]): void {
 export async function executeRunConfig(
   configDir: string,
   name: string,
-): Promise<{ sessionId: string; wsUrl: string } | null> {
+): Promise<{ sessionId: string } | null> {
   try {
     const cwd = workspaceState.selectedWorktreePath
     if (!cwd) return null
     const result = await window.api.runConfigExecuteCommand(configDir, name, cwd)
     hydrateRunningProcesses(await window.api.runConfigListRunning())
-    return { sessionId: result.sessionId, wsUrl: result.wsUrl }
+    return { sessionId: result.sessionId }
   } catch (e) {
     addToast(`Failed to run "${name}": ${e instanceof Error ? e.message : String(e)}`)
     return null
