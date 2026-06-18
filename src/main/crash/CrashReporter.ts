@@ -3,36 +3,9 @@ import os from 'os'
 import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { match, P } from 'ts-pattern'
+import type { CrashReport } from '../../renderer-shared/crashReport'
 import { findRecentNativeCrash, type NativeCrashInfo } from './NativeCrashReader'
 import { sanitizeDiagnosticText, sanitizeStack } from './sanitizeCrashDiagnostic'
-
-export interface CrashReport {
-  timestamp: string
-  type:
-    | 'uncaughtException'
-    | 'unhandledRejection'
-    | 'rendererCrash'
-    | 'childProcessGone'
-    | 'ungracefulShutdown'
-  errorMessage: string
-  stack?: string
-  appVersion: string
-  electronVersion: string
-  os: string
-  process?: 'main' | 'renderer' | 'child' | 'unknown'
-  renderer?: {
-    reason?: string
-    exitCode?: number
-  }
-  nativeCrash?: {
-    exceptionType?: string
-    exceptionCodes?: string
-    terminationReason?: string
-    triggeredThread?: string
-    incidentId?: string
-    stack?: string
-  }
-}
 
 const NATIVE_CRASH_PROCESS_NAME = 'Canopy'
 const RENDERER_CRASH_PROCESS_NAME = 'Canopy Helper (Renderer)'

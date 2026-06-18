@@ -14,6 +14,7 @@ import type {
   TabStateSnapshot,
   WorkspaceCommandResult,
 } from '../main/commands/types'
+import type { CrashReportData } from '../renderer-shared/crashReport'
 
 interface PtyExitData {
   sessionId: string
@@ -257,36 +258,6 @@ interface ChangelogEntry {
   version: string
   date: string
   body: string
-}
-
-type CrashReportType =
-  | 'uncaughtException'
-  | 'unhandledRejection'
-  | 'rendererCrash'
-  | 'childProcessGone'
-  | 'ungracefulShutdown'
-
-interface CrashReportData {
-  timestamp: string
-  type: CrashReportType
-  errorMessage: string
-  stack?: string
-  appVersion: string
-  electronVersion: string
-  os: string
-  process?: 'main' | 'renderer' | 'child' | 'unknown'
-  renderer?: {
-    reason?: string
-    exitCode?: number
-  }
-  nativeCrash?: {
-    exceptionType?: string
-    exceptionCodes?: string
-    terminationReason?: string
-    triggeredThread?: string
-    incidentId?: string
-    stack?: string
-  }
 }
 
 interface UpdateInfo {

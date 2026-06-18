@@ -1,3 +1,5 @@
+export type { CrashReportData } from '../../../../renderer-shared/crashReport'
+
 export interface ConfirmOptions {
   title: string
   message: string
@@ -97,34 +99,6 @@ interface RunConfigManagerState {
   type: 'runConfigManager'
   selectConfigDir?: string
   selectConfigName?: string
-}
-
-export interface CrashReportData {
-  timestamp: string
-  type:
-    | 'uncaughtException'
-    | 'unhandledRejection'
-    | 'rendererCrash'
-    | 'childProcessGone'
-    | 'ungracefulShutdown'
-  errorMessage: string
-  stack?: string
-  appVersion: string
-  electronVersion: string
-  os: string
-  process?: 'main' | 'renderer' | 'child' | 'unknown'
-  renderer?: {
-    reason?: string
-    exitCode?: number
-  }
-  nativeCrash?: {
-    exceptionType?: string
-    exceptionCodes?: string
-    terminationReason?: string
-    triggeredThread?: string
-    incidentId?: string
-    stack?: string
-  }
 }
 
 interface CrashReportState {

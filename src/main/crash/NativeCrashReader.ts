@@ -113,7 +113,7 @@ function findCandidate(
 
       const info = parseIpsFile(fullPath)
       if (!info) continue
-      if (info.processName !== processName) continue
+      if (!matchesNativeCrashProcessName(processName, info.processName)) continue
 
       const crashMs = Date.parse(info.timestamp)
       if (Number.isNaN(crashMs)) continue
@@ -126,6 +126,22 @@ function findCandidate(
   }
 
   return best?.info ?? null
+}
+
+export function matchesNativeCrashProcessName(
+  expectedProcessName: string,
+  actualProcessName: string | undefined,
+): boolean {
+  if (!actualProcessName) return false
+  if (actualProcessName === expectedProcessName) return true
+
+  const suffixIndex = expectedProcessName.indexOf(' (')
+  if (suffixIndex < 0) return false
+
+  const expectedBaseName = expectedProcessName.slice(0, suffixIndex)
+  return (
+    actualProcessName === expectedBaseName || actualProcessName.startsWith(`${expectedBaseName} (`)
+  )
 }
 
 function parseIpsFile(filePath: string): NativeCrashInfo | null {

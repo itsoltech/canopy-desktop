@@ -7,6 +7,7 @@ import type { CanopySkill } from '../main/skills/types'
 import type { RemoteSessionStatus } from '../main/remote/types'
 import type { AgentProfileMasked, ProfileInput } from '../main/profiles/types'
 import type { AgentType } from '../main/agents/types'
+import type { CrashReportData } from '../renderer-shared/crashReport'
 import type {
   AppStateSnapshot,
   CloseWarningResult,
@@ -16,34 +17,6 @@ import type {
   TabCloseAllPreflightResult,
   TabClosePreflightResult,
 } from '../main/commands/types'
-
-type CrashReportData = {
-  timestamp: string
-  type:
-    | 'uncaughtException'
-    | 'unhandledRejection'
-    | 'rendererCrash'
-    | 'childProcessGone'
-    | 'ungracefulShutdown'
-  errorMessage: string
-  stack?: string
-  appVersion: string
-  electronVersion: string
-  os: string
-  process?: 'main' | 'renderer' | 'child' | 'unknown'
-  renderer?: {
-    reason?: string
-    exitCode?: number
-  }
-  nativeCrash?: {
-    exceptionType?: string
-    exceptionCodes?: string
-    terminationReason?: string
-    triggeredThread?: string
-    incidentId?: string
-    stack?: string
-  }
-}
 
 const api = {
   // PTY

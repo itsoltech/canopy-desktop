@@ -26,6 +26,7 @@
   import RightPanel from './RightPanel.svelte'
   import Toast from '../shared/Toast.svelte'
   import { Loader2 } from '@lucide/svelte'
+  import { formatCrashReportMarkdown } from '../../lib/crashReportMarkdown'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import {
@@ -79,64 +80,6 @@
     clearWorktreeBadge,
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
-
-  function formatCrashReportMarkdown(d: CrashReportData): string {
-    const lines = [
-      '## Crash report',
-      '',
-      `- **Timestamp:** ${d.timestamp}`,
-      `- **Type:** ${d.type}`,
-      `- **Process:** ${d.process ?? 'unknown'}`,
-      `- **App version:** ${d.appVersion}`,
-      `- **Electron:** ${d.electronVersion}`,
-      `- **OS:** ${d.os}`,
-    ]
-
-    if (d.renderer?.reason) lines.push(`- **Renderer reason:** ${d.renderer.reason}`)
-    if (d.renderer?.exitCode !== undefined)
-      lines.push(`- **Renderer exit code:** ${d.renderer.exitCode}`)
-
-    appendFencedSection(lines, '### Error', d.errorMessage)
-
-    if (d.stack) {
-      appendFencedSection(lines, '### Stack trace', d.stack)
-    }
-
-    if (d.nativeCrash) {
-      lines.push('', '### Native crash')
-      if (d.nativeCrash.exceptionType) {
-        lines.push(`- **Exception:** ${d.nativeCrash.exceptionType}`)
-      }
-      if (d.nativeCrash.exceptionCodes) {
-        lines.push(`- **Exception codes:** ${d.nativeCrash.exceptionCodes}`)
-      }
-      if (d.nativeCrash.terminationReason) {
-        lines.push(`- **Termination:** ${d.nativeCrash.terminationReason}`)
-      }
-      if (d.nativeCrash.triggeredThread) {
-        lines.push(`- **Triggered thread:** ${d.nativeCrash.triggeredThread}`)
-      }
-      if (d.nativeCrash.incidentId) {
-        lines.push(`- **Incident ID:** ${d.nativeCrash.incidentId}`)
-      }
-      if (d.nativeCrash.stack) {
-        appendFencedSection(lines, '#### Native stack', d.nativeCrash.stack)
-      }
-    }
-
-    return lines.join('\n')
-  }
-
-  function appendFencedSection(lines: string[], heading: string, value: string): void {
-    const fence = markdownFenceFor(value)
-    lines.push('', heading, fence, value, fence)
-  }
-
-  function markdownFenceFor(value: string): string {
-    const backtickRuns = value.match(/`+/g) ?? []
-    const longestRun = backtickRuns.reduce((max, run) => Math.max(max, run.length), 0)
-    return '`'.repeat(Math.max(3, longestRun + 1))
-  }
 
   function crashIssueUrl(d: CrashReportData): string {
     const process = d.process ?? 'unknown'
@@ -194,6 +137,11 @@
           title: 'Starting Canopy',
           description: 'Checking for a previous session...',
         },
+  )
+  let crashReportMarkdown = $derived(
+    dialogState.current.type === 'crashReport'
+      ? formatCrashReportMarkdown(dialogState.current.data)
+      : '',
   )
 
   // Sidebar resize state
@@ -652,13 +600,12 @@
 {:else if dialogState.current.type === 'crashReport'}
   <CrashReportDialog
     data={dialogState.current.data}
-    reportMarkdown={formatCrashReportMarkdown(dialogState.current.data)}
+    reportMarkdown={crashReportMarkdown}
     onCreateIssue={async () => {
       if (dialogState.current.type !== 'crashReport') return
       const d = dialogState.current.data
-      const report = formatCrashReportMarkdown(d)
       try {
-        await navigator.clipboard.writeText(report)
+        await navigator.clipboard.writeText(crashReportMarkdown)
         addToast('Crash report copied to clipboard')
       } catch {
         addToast('Failed to copy crash report to clipboard')
