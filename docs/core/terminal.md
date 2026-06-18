@@ -58,6 +58,10 @@ Linux builds rely on `suspend`/`resume` for this lifecycle handling.
    history through their existing offset.
 6. If Electron emits `resume` without a prior tracked `suspend`, Canopy still force-closes terminal
    WebSocket clients to preserve the defensive wake behavior for stale connections.
+7. If a wake clears `suspend` but only `lock-screen` remains, main starts a 30 second watchdog.
+   A normal `unlock-screen` cancels it and resumes streams immediately; if the OS never delivers
+   `unlock-screen`, the watchdog clears the stale screen-lock pause so terminal streaming can
+   recover without restarting Canopy.
 
 ### Scrollback and history
 
@@ -201,13 +205,13 @@ Every PTY session inherits the user's login environment (resolved via `getLoginE
 
 ## IPC channels
 
-| Channel | Direction | Purpose |
-| --- | --- | --- |
-| `pty:resize` | Renderer invoke | Resize a PTY after xterm fit changes. |
-| `pty:kill` | Renderer invoke | Terminate a PTY session, optionally killing the tmux session. |
-| `pty:write` | Renderer invoke | Write user input to the PTY. |
-| `pty:getDimensions` | Renderer invoke | Read the current PTY cols/rows. |
-| `pty:exit` | Main event | Notify renderer that a PTY exited. |
-| `pty:resized` | Main event | Broadcast PTY size changes to renderers and remote-control forwarding. |
-| `terminal-stream:getState` | Renderer invoke | Read whether terminal stream reconnects are currently paused. |
-| `terminal-stream:state` | Main event | Notify terminal panes when lock/suspend pauses or resumes stream reconnects. |
+| Channel                    | Direction       | Purpose                                                                      |
+| -------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `pty:resize`               | Renderer invoke | Resize a PTY after xterm fit changes.                                        |
+| `pty:kill`                 | Renderer invoke | Terminate a PTY session, optionally killing the tmux session.                |
+| `pty:write`                | Renderer invoke | Write user input to the PTY.                                                 |
+| `pty:getDimensions`        | Renderer invoke | Read the current PTY cols/rows.                                              |
+| `pty:exit`                 | Main event      | Notify renderer that a PTY exited.                                           |
+| `pty:resized`              | Main event      | Broadcast PTY size changes to renderers and remote-control forwarding.       |
+| `terminal-stream:getState` | Renderer invoke | Read whether terminal stream reconnects are currently paused.                |
+| `terminal-stream:state`    | Main event      | Notify terminal panes when lock/suspend pauses or resumes stream reconnects. |

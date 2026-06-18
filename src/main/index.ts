@@ -874,7 +874,15 @@ app.whenReady().then(async () => {
   type TerminalStreamPauseReason = 'lock-screen' | 'suspend'
   type TerminalStreamEventReason = TerminalStreamPauseReason | 'unlock-screen' | 'resume'
 
+  const LOCK_SCREEN_RESUME_WATCHDOG_MS = 30_000
   const terminalStreamPauseReasons = new Set<TerminalStreamPauseReason>()
+  let lockScreenResumeWatchdog: ReturnType<typeof setTimeout> | null = null
+
+  const clearLockScreenResumeWatchdog = (): void => {
+    if (lockScreenResumeWatchdog === null) return
+    clearTimeout(lockScreenResumeWatchdog)
+    lockScreenResumeWatchdog = null
+  }
 
   const broadcastTerminalStreamState = (
     state: 'paused' | 'resumed',
@@ -891,6 +899,7 @@ app.whenReady().then(async () => {
   }
 
   const pauseTerminalStreams = (reason: TerminalStreamPauseReason): void => {
+    clearLockScreenResumeWatchdog()
     const wasPaused = terminalStreamPauseReasons.size > 0
     terminalStreamPauseReasons.add(reason)
     if (wasPaused) return
@@ -910,9 +919,24 @@ app.whenReady().then(async () => {
     broadcastTerminalStreamState('resumed', eventReason)
   }
 
+  const scheduleLockScreenResumeWatchdog = (): void => {
+    if (lockScreenResumeWatchdog !== null) return
+    if (terminalStreamPauseReasons.size !== 1 || !terminalStreamPauseReasons.has('lock-screen')) {
+      return
+    }
+
+    lockScreenResumeWatchdog = setTimeout(() => {
+      lockScreenResumeWatchdog = null
+      if (terminalStreamPauseReasons.size === 1 && terminalStreamPauseReasons.has('lock-screen')) {
+        resumeTerminalStreams('lock-screen', 'resume')
+      }
+    }, LOCK_SCREEN_RESUME_WATCHDOG_MS)
+  }
+
   const handlePowerResume = (): void => {
     const wasPaused = terminalStreamPauseReasons.size > 0
     resumeTerminalStreams('suspend', 'resume')
+    scheduleLockScreenResumeWatchdog()
     if (!wasPaused) {
       wsBridge.disconnectAllClients()
     }
@@ -925,7 +949,10 @@ app.whenReady().then(async () => {
 
   powerMonitor.on('lock-screen', () => pauseTerminalStreams('lock-screen'))
   powerMonitor.on('suspend', () => pauseTerminalStreams('suspend'))
-  powerMonitor.on('unlock-screen', () => resumeTerminalStreams('lock-screen', 'unlock-screen'))
+  powerMonitor.on('unlock-screen', () => {
+    clearLockScreenResumeWatchdog()
+    resumeTerminalStreams('lock-screen', 'unlock-screen')
+  })
   powerMonitor.on('resume', handlePowerResume)
 
   // Restore windows from last session

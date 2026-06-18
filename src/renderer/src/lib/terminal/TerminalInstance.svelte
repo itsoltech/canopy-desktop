@@ -161,13 +161,18 @@
   function recordPerfTerminalWrite(data: string): void {
     if (!window.api.perfDiagnostics) return
     const marker = 'CANOPY_REPLAY_DONE'
-    if (!data.includes(marker)) return
     const w = window as unknown as {
       __canopyTerminalMarkers?: Record<string, Record<string, true>>
+      __canopyTerminalTail?: Record<string, string>
     }
-    w.__canopyTerminalMarkers ??= {}
-    w.__canopyTerminalMarkers[sessionId] ??= {}
-    w.__canopyTerminalMarkers[sessionId][marker] = true
+    w.__canopyTerminalTail ??= {}
+    const combined = (w.__canopyTerminalTail[sessionId] ?? '') + data
+    if (combined.includes(marker)) {
+      w.__canopyTerminalMarkers ??= {}
+      w.__canopyTerminalMarkers[sessionId] ??= {}
+      w.__canopyTerminalMarkers[sessionId][marker] = true
+    }
+    w.__canopyTerminalTail[sessionId] = combined.slice(-(marker.length - 1))
   }
 
   function scrollPreservingWrite(term: Terminal, data: string, onParsed?: () => void): void {
