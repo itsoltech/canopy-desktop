@@ -266,10 +266,11 @@
       writeScheduled = false
       if (disposed || !pendingData) return
 
-      const frameData =
-        pendingData.length > MAX_REPLAY_CHARS_PER_FRAME
-          ? pendingData.slice(0, MAX_REPLAY_CHARS_PER_FRAME)
-          : pendingData
+      let cut = MAX_REPLAY_CHARS_PER_FRAME
+      const lastCode = pendingData.charCodeAt(cut - 1)
+      if (lastCode >= 0xd800 && lastCode <= 0xdbff) cut -= 1
+
+      const frameData = pendingData.length > cut ? pendingData.slice(0, cut) : pendingData
       pendingData = pendingData.slice(frameData.length)
       writeBurst(term, frameData)
       flushPendingData(term)
@@ -423,6 +424,7 @@
     let reclaimPtyHandler: (() => void) | null = null
     let reclaimTextarea: HTMLTextAreaElement | null = null
     let cleanupTerminalStreamState: (() => void) | null = null
+    let sawTerminalStreamEvent = false
 
     function applyTerminalStreamState(data: {
       state: 'paused' | 'resumed'
@@ -441,13 +443,14 @@
     }
 
     cleanupTerminalStreamState = window.api.onTerminalStreamStateChanged((data) => {
+      sawTerminalStreamEvent = true
       applyTerminalStreamState(data)
     })
 
     void window.api
       .getTerminalStreamState()
       .then((data) => {
-        if (!disposed) applyTerminalStreamState(data)
+        if (!disposed && !sawTerminalStreamEvent) applyTerminalStreamState(data)
       })
       .catch(() => {})
 
