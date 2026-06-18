@@ -101,12 +101,30 @@ interface RunConfigManagerState {
 
 export interface CrashReportData {
   timestamp: string
-  type: string
+  type:
+    | 'uncaughtException'
+    | 'unhandledRejection'
+    | 'rendererCrash'
+    | 'childProcessGone'
+    | 'ungracefulShutdown'
   errorMessage: string
   stack?: string
   appVersion: string
   electronVersion: string
   os: string
+  process?: 'main' | 'renderer' | 'child' | 'unknown'
+  renderer?: {
+    reason?: string
+    exitCode?: number
+  }
+  nativeCrash?: {
+    exceptionType?: string
+    exceptionCodes?: string
+    terminationReason?: string
+    triggeredThread?: string
+    incidentId?: string
+    stack?: string
+  }
 }
 
 interface CrashReportState {

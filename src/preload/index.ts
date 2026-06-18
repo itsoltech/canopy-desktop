@@ -17,6 +17,34 @@ import type {
   TabClosePreflightResult,
 } from '../main/commands/types'
 
+type CrashReportData = {
+  timestamp: string
+  type:
+    | 'uncaughtException'
+    | 'unhandledRejection'
+    | 'rendererCrash'
+    | 'childProcessGone'
+    | 'ungracefulShutdown'
+  errorMessage: string
+  stack?: string
+  appVersion: string
+  electronVersion: string
+  os: string
+  process?: 'main' | 'renderer' | 'child' | 'unknown'
+  renderer?: {
+    reason?: string
+    exitCode?: number
+  }
+  nativeCrash?: {
+    exceptionType?: string
+    exceptionCodes?: string
+    terminationReason?: string
+    triggeredThread?: string
+    incidentId?: string
+    stack?: string
+  }
+}
+
 const api = {
   // PTY
   resizePty: (sessionId: string, cols: number, rows: number) =>
@@ -615,17 +643,7 @@ const api = {
   },
 
   // Crash reports
-  onCrashReport: (
-    callback: (data: {
-      timestamp: string
-      type: string
-      errorMessage: string
-      stack?: string
-      appVersion: string
-      electronVersion: string
-      os: string
-    }) => void,
-  ) => {
+  onCrashReport: (callback: (data: CrashReportData) => void) => {
     const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
       callback(data)
     ipcRenderer.on('app:crashReport', handler)

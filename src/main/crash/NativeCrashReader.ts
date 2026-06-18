@@ -4,13 +4,13 @@ import { join } from 'path'
 
 export interface NativeCrashInfo {
   timestamp: string
+  processName?: string
   exceptionType?: string
   exceptionCodes?: string
   terminationReason?: string
   triggeredThread?: string
   stack: string
   incidentId?: string
-  sourceFile: string
 }
 
 interface IpsFrame {
@@ -38,6 +38,8 @@ interface IpsHeader {
 }
 
 interface IpsBody {
+  captureTime?: string
+  procName?: string
   exception?: {
     type?: string
     signal?: string
@@ -54,6 +56,12 @@ interface IpsBody {
 const MAX_FRAMES = 40
 const MAX_STACK_CHARS = 4000
 const CLOCK_SKEW_MS = 60_000
+const REDACTED = '[redacted]'
+const URL_PATTERN = /\bhttps?:\/\/[^\s<>"'`]+/gi
+const USER_PATH_PATTERN = /(?:[A-Z]:\\Users\\[^\\\s]+\\|\/(?:Users|home)\/[^/\s]+\/)/gi
+const TOKEN_LIKE_PATTERN =
+  /\b(?:token|secret|password|passwd|apikey|api_key|authorization|bearer)[A-Za-z0-9_\-:=./+]{3,}/gi
+const ENV_VALUE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}=([^\s]+)/g
 
 export function findRecentNativeCrash(
   processName: string,
@@ -63,19 +71,17 @@ export function findRecentNativeCrash(
   if (process.platform !== 'darwin') return null
 
   try {
-    const candidate = findCandidateFile(processName, sinceEpochMs, nowEpochMs)
-    if (!candidate) return null
-    return parseIpsFile(candidate)
+    return findCandidate(processName, sinceEpochMs, nowEpochMs)
   } catch {
     return null
   }
 }
 
-function findCandidateFile(
+function findCandidate(
   processName: string,
   sinceEpochMs: number,
   nowEpochMs: number,
-): string | null {
+): NativeCrashInfo | null {
   const home = os.homedir()
   const dirs = [
     join(home, 'Library', 'Logs', 'DiagnosticReports'),
@@ -86,7 +92,7 @@ function findCandidateFile(
   const upperBound = nowEpochMs + CLOCK_SKEW_MS
   const prefix = `${processName}-`
 
-  let best: { path: string; mtimeMs: number } | null = null
+  let best: { info: NativeCrashInfo; crashMs: number; mtimeMs: number } | null = null
 
   for (const dir of dirs) {
     let entries: string[]
@@ -108,15 +114,23 @@ function findCandidateFile(
         continue
       }
 
-      if (mtimeMs < lowerBound || mtimeMs > upperBound) continue
+      if (mtimeMs < lowerBound) continue
 
-      if (!best || mtimeMs > best.mtimeMs) {
-        best = { path: fullPath, mtimeMs }
+      const info = parseIpsFile(fullPath)
+      if (!info) continue
+      if (info.processName !== processName) continue
+
+      const crashMs = Date.parse(info.timestamp)
+      if (Number.isNaN(crashMs)) continue
+      if (crashMs < lowerBound || crashMs > upperBound) continue
+
+      if (!best || crashMs > best.crashMs || (crashMs === best.crashMs && mtimeMs > best.mtimeMs)) {
+        best = { info, crashMs, mtimeMs }
       }
     }
   }
 
-  return best ? best.path : null
+  return best?.info ?? null
 }
 
 function parseIpsFile(filePath: string): NativeCrashInfo | null {
@@ -146,14 +160,14 @@ function parseIpsFile(filePath: string): NativeCrashInfo | null {
   const terminationReason = formatTermination(body.termination)
 
   return {
-    timestamp: toIsoTimestamp(header.timestamp),
+    timestamp: toIsoTimestamp(body.captureTime ?? header.timestamp),
+    processName: body.procName ?? header.app_name,
     exceptionType,
-    exceptionCodes: body.exception?.codes,
+    exceptionCodes: sanitizeDiagnosticText(body.exception?.codes),
     terminationReason,
-    triggeredThread: triggered?.name ?? triggered?.queue,
+    triggeredThread: sanitizeDiagnosticText(triggered?.name ?? triggered?.queue),
     stack,
-    incidentId: header.incident_id,
-    sourceFile: filePath,
+    incidentId: sanitizeDiagnosticText(header.incident_id),
   }
 }
 
@@ -168,15 +182,15 @@ function toIsoTimestamp(raw: string | undefined): string {
 function formatException(exception: IpsBody['exception']): string | undefined {
   if (!exception) return undefined
   const { type, signal } = exception
-  if (type && signal) return `${type} (${signal})`
-  return type ?? signal
+  if (type && signal) return sanitizeDiagnosticText(`${type} (${signal})`)
+  return sanitizeDiagnosticText(type ?? signal)
 }
 
 function formatTermination(termination: IpsBody['termination']): string | undefined {
   if (!termination) return undefined
   const { indicator, byProc } = termination
-  if (indicator && byProc) return `${indicator} (by ${byProc})`
-  return indicator ?? byProc
+  if (indicator && byProc) return sanitizeDiagnosticText(`${indicator} (by ${byProc})`)
+  return sanitizeDiagnosticText(indicator ?? byProc)
 }
 
 function formatFrames(frames: IpsFrame[], images: IpsImage[]): string {
@@ -184,9 +198,10 @@ function formatFrames(frames: IpsFrame[], images: IpsImage[]): string {
 
   for (let i = 0; i < frames.length && i < MAX_FRAMES; i++) {
     const frame = frames[i]
-    const imageName =
-      frame.imageIndex !== undefined ? (images[frame.imageIndex]?.name ?? '???') : '???'
-    const symbol = frame.symbol ?? '???'
+    const imageName = sanitizeFramePart(
+      frame.imageIndex !== undefined ? (images[frame.imageIndex]?.name ?? '???') : '???',
+    )
+    const symbol = sanitizeFramePart(frame.symbol ?? '???')
     const offset = frame.symbolLocation ?? 0
     const idx = String(i).padStart(3, ' ')
     const img = imageName.padEnd(32, ' ')
@@ -195,5 +210,23 @@ function formatFrames(frames: IpsFrame[], images: IpsImage[]): string {
 
   const joined = lines.join('\n')
   if (joined.length <= MAX_STACK_CHARS) return joined
-  return `${joined.slice(0, MAX_STACK_CHARS - 20)}\n… (truncated)`
+  return `${joined.slice(0, MAX_STACK_CHARS - 20)}\n... (truncated)`
+}
+
+function sanitizeFramePart(value: string): string {
+  const sanitized = sanitizeDiagnosticText(value) ?? '???'
+  if (sanitized.length <= 160) return sanitized
+  return `${sanitized.slice(0, 157)}...`
+}
+
+function sanitizeDiagnosticText(value: string | undefined): string | undefined {
+  if (!value) return value
+  return value
+    .replace(USER_PATH_PATTERN, '~/')
+    .replace(URL_PATTERN, REDACTED)
+    .replace(TOKEN_LIKE_PATTERN, REDACTED)
+    .replace(ENV_VALUE_PATTERN, (match) => {
+      const idx = match.indexOf('=')
+      return idx >= 0 ? `${match.slice(0, idx + 1)}${REDACTED}` : REDACTED
+    })
 }

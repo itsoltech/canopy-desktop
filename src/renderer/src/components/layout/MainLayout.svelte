@@ -37,6 +37,7 @@
     showOnboardingWizard,
     showFeatureOnboarding,
     showCrashReport,
+    type CrashReportData,
   } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -78,6 +79,61 @@
     clearWorktreeBadge,
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
+
+  function formatCrashReportMarkdown(d: CrashReportData): string {
+    const lines = [
+      '## Crash report',
+      '',
+      `- **Timestamp:** ${d.timestamp}`,
+      `- **Type:** ${d.type}`,
+      `- **Process:** ${d.process ?? 'unknown'}`,
+      `- **App version:** ${d.appVersion}`,
+      `- **Electron:** ${d.electronVersion}`,
+      `- **OS:** ${d.os}`,
+    ]
+
+    if (d.renderer?.reason) lines.push(`- **Renderer reason:** ${d.renderer.reason}`)
+    if (d.renderer?.exitCode !== undefined)
+      lines.push(`- **Renderer exit code:** ${d.renderer.exitCode}`)
+
+    lines.push('', '### Error', '```', d.errorMessage, '```')
+
+    if (d.stack) {
+      lines.push('', '### Stack trace', '```', d.stack, '```')
+    }
+
+    if (d.nativeCrash) {
+      lines.push('', '### Native crash')
+      if (d.nativeCrash.exceptionType) {
+        lines.push(`- **Exception:** ${d.nativeCrash.exceptionType}`)
+      }
+      if (d.nativeCrash.exceptionCodes) {
+        lines.push(`- **Exception codes:** ${d.nativeCrash.exceptionCodes}`)
+      }
+      if (d.nativeCrash.terminationReason) {
+        lines.push(`- **Termination:** ${d.nativeCrash.terminationReason}`)
+      }
+      if (d.nativeCrash.triggeredThread) {
+        lines.push(`- **Triggered thread:** ${d.nativeCrash.triggeredThread}`)
+      }
+      if (d.nativeCrash.incidentId) {
+        lines.push(`- **Incident ID:** ${d.nativeCrash.incidentId}`)
+      }
+      if (d.nativeCrash.stack) {
+        lines.push('', '#### Native stack', '```', d.nativeCrash.stack, '```')
+      }
+    }
+
+    return lines.join('\n')
+  }
+
+  function crashIssueUrl(d: CrashReportData): string {
+    const title = encodeURIComponent(`Crash: ${d.errorMessage.slice(0, 80)}`)
+    const body = encodeURIComponent(
+      'Crash report copied from Canopy. Paste it here before submitting.',
+    )
+    return `https://github.com/itsoltech/canopy-desktop/issues/new?title=${title}&body=${body}&labels=bug,crash`
+  }
   import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
   import { initSkillStore, destroySkillStore } from '../../lib/stores/skills.svelte'
   import { initProfileStore, destroyProfileStore } from '../../lib/stores/profiles.svelte'
@@ -584,28 +640,22 @@
 {:else if dialogState.current.type === 'crashReport'}
   <CrashReportDialog
     data={dialogState.current.data}
-    onCreateIssue={() => {
+    reportMarkdown={formatCrashReportMarkdown(dialogState.current.data)}
+    onCreateIssue={async () => {
       if (dialogState.current.type !== 'crashReport') return
       const d = dialogState.current.data
-      // Strip home directory paths from stack traces to avoid leaking local paths
-      const homeDir = d.os.startsWith('win32')
-        ? /[A-Z]:\\Users\\[^\\]+\\/gi
-        : /\/(?:Users|home)\/[^/]+\//g
-      const sanitize = (s: string): string => s.replace(homeDir, '~/')
-      const title = encodeURIComponent(`Crash: ${sanitize(d.errorMessage).slice(0, 80)}`)
-      const body = encodeURIComponent(
-        `## Crash report\n\n` +
-          `- **Timestamp:** ${d.timestamp}\n` +
-          `- **Type:** ${d.type}\n` +
-          `- **App version:** ${d.appVersion}\n` +
-          `- **Electron:** ${d.electronVersion}\n` +
-          `- **OS:** ${d.os}\n\n` +
-          `### Error\n\`\`\`\n${sanitize(d.errorMessage)}\n\`\`\`\n\n` +
-          (d.stack ? `### Stack trace\n\`\`\`\n${sanitize(d.stack).slice(0, 3000)}\n\`\`\`\n` : ''),
-      )
-      const url = `https://github.com/itsoltech/canopy-desktop/issues/new?title=${title}&body=${body}&labels=bug,crash`
+      const report = formatCrashReportMarkdown(d)
+      try {
+        await navigator.clipboard.writeText(report)
+        addToast('Crash report copied to clipboard')
+      } catch {
+        addToast('Failed to copy crash report to clipboard')
+        return
+      }
+
+      const url = crashIssueUrl(d)
       window.api.openExternal(url).catch(() => {
-        addToast('Failed to open browser. Copy the URL from your address bar to report manually.')
+        addToast('Failed to open browser. Crash report is copied to clipboard.')
       })
       closeDialog()
     }}

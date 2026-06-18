@@ -259,6 +259,36 @@ interface ChangelogEntry {
   body: string
 }
 
+type CrashReportType =
+  | 'uncaughtException'
+  | 'unhandledRejection'
+  | 'rendererCrash'
+  | 'childProcessGone'
+  | 'ungracefulShutdown'
+
+interface CrashReportData {
+  timestamp: string
+  type: CrashReportType
+  errorMessage: string
+  stack?: string
+  appVersion: string
+  electronVersion: string
+  os: string
+  process?: 'main' | 'renderer' | 'child' | 'unknown'
+  renderer?: {
+    reason?: string
+    exitCode?: number
+  }
+  nativeCrash?: {
+    exceptionType?: string
+    exceptionCodes?: string
+    terminationReason?: string
+    triggeredThread?: string
+    incidentId?: string
+    stack?: string
+  }
+}
+
 interface UpdateInfo {
   version: string
   releaseNotes?: string
@@ -338,17 +368,7 @@ interface CanopyAPI {
   onShowChangelog: (callback: (data: { fromVersion: string }) => void) => () => void
 
   // Crash reports
-  onCrashReport: (
-    callback: (data: {
-      timestamp: string
-      type: string
-      errorMessage: string
-      stack?: string
-      appVersion: string
-      electronVersion: string
-      os: string
-    }) => void,
-  ) => () => void
+  onCrashReport: (callback: (data: CrashReportData) => void) => () => void
 
   // PTY
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
