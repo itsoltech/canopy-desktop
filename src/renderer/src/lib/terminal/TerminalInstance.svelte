@@ -175,6 +175,16 @@
     w.__canopyTerminalTail[sessionId] = combined.slice(-(marker.length - 1))
   }
 
+  function cleanupPerfTerminalWriteState(): void {
+    if (!window.api.perfDiagnostics) return
+    const w = window as unknown as {
+      __canopyTerminalMarkers?: Record<string, Record<string, true>>
+      __canopyTerminalTail?: Record<string, string>
+    }
+    delete w.__canopyTerminalMarkers?.[sessionId]
+    delete w.__canopyTerminalTail?.[sessionId]
+  }
+
   function scrollPreservingWrite(term: Terminal, data: string, onParsed?: () => void): void {
     const buffer = term.buffer.active
     const isAtBottom = buffer.viewportY >= buffer.baseY
@@ -723,6 +733,7 @@
       cleanupSession(sessionId)
       cleanupKeystrokeSession(sessionId)
       cleanupTerminalStreamState?.()
+      cleanupPerfTerminalWriteState()
       if (keystrokeHandler) containerEl.removeEventListener('keydown', keystrokeHandler, true)
       if (reclaimPtyHandler) {
         containerEl.removeEventListener('pointerdown', reclaimPtyHandler)

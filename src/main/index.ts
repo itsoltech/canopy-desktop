@@ -954,6 +954,7 @@ app.whenReady().then(async () => {
     resumeTerminalStreams('lock-screen', 'unlock-screen')
   })
   powerMonitor.on('resume', handlePowerResume)
+  app.on('will-quit', clearLockScreenResumeWatchdog)
 
   // Restore windows from last session
   const reopenPref = preferencesStore.get('reopenLastWorkspace')
