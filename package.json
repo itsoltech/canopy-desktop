@@ -26,8 +26,9 @@
     "perf:memory": "CANOPY_PERF=1 npx playwright test perf/memory-leak.ts --config perf/playwright.perf.config.ts",
     "perf:ipc": "CANOPY_PERF=1 npx playwright test perf/ipc-monitor.ts --config perf/playwright.perf.config.ts",
     "perf:renderer": "CANOPY_PERF=1 npx playwright test perf/renderer-perf.ts --config perf/playwright.perf.config.ts",
+    "perf:terminal-replay": "CANOPY_PERF=1 npx playwright test perf/terminal-replay.ts --config perf/playwright.perf.config.ts",
     "perf:cpu": "CANOPY_PERF=1 npx playwright test perf/cpu-profile.ts --config perf/playwright.perf.config.ts",
-    "perf:all": "npm run perf:startup && npm run perf:memory && npm run perf:ipc && npm run perf:renderer",
+    "perf:all": "npm run perf:startup && npm run perf:memory && npm run perf:ipc && npm run perf:renderer && npm run perf:terminal-replay",
     "_perf:note": "perf:* scripts use Unix env var syntax (macOS/Linux only)"
   },
   "dependencies": {

@@ -18,6 +18,14 @@ import type {
   TabClosePreflightResult,
 } from '../main/commands/types'
 
+type TerminalStreamStateChange = {
+  state: 'paused' | 'resumed'
+  reason: 'lock-screen' | 'unlock-screen' | 'suspend' | 'resume'
+  pauseReasons: Array<'lock-screen' | 'suspend'>
+}
+
+type TerminalStreamState = Omit<TerminalStreamStateChange, 'reason'>
+
 const api = {
   // PTY
   resizePty: (sessionId: string, cols: number, rows: number) =>
@@ -31,6 +39,16 @@ const api = {
       cols: number
       rows: number
     } | null>,
+  getTerminalStreamState: () =>
+    ipcRenderer.invoke('terminal-stream:getState') as Promise<TerminalStreamState>,
+  onTerminalStreamStateChanged: (callback: (data: TerminalStreamStateChange) => void) => {
+    const handler = (_event: IpcRendererEvent, data: TerminalStreamStateChange): void =>
+      callback(data)
+    ipcRenderer.on('terminal-stream:state', handler)
+    return (): void => {
+      ipcRenderer.removeListener('terminal-stream:state', handler)
+    }
+  },
 
   // Tmux
   tmuxIsAvailable: () => ipcRenderer.invoke('tmux:isAvailable') as Promise<boolean>,
@@ -1407,6 +1425,7 @@ const api = {
     ? {
         perfDiagnostics: () => ipcRenderer.invoke('perf:diagnostics'),
         perfIpcLog: () => ipcRenderer.invoke('perf:ipcLog'),
+        perfDisconnectTerminalClients: () => ipcRenderer.invoke('perf:disconnectTerminalClients'),
         perfOpenProject: (path: string) => ipcRenderer.invoke('perf:openProject', { path }),
       }
     : {}),

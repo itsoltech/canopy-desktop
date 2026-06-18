@@ -60,12 +60,14 @@ A separate developer-only diagnostics mode is available behind the `CANOPY_PERF=
 
 ### Developer diagnostics (CANOPY_PERF=1)
 
-Launching with `CANOPY_PERF=1` enables two additional IPC endpoints exposed through the preload bridge:
+Launching with `CANOPY_PERF=1` enables additional IPC endpoints exposed through the preload bridge:
 
-| Endpoint           | Returns                                                                                                                                                                       |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `perf:diagnostics` | Object with `ptySessionCount`, `wsBridgeCount`, `agentSessionCount`, `gitWatcherCount`, `windowCount`, `uptime`, `heapUsed`, `rss`, and `marks` (performance timeline marks). |
-| `perf:ipcLog`      | Array of `{ channel, size, ts, dir }` entries logged since the last call. The log is drained on read.                                                                         |
+| Endpoint                         | Returns / effect                                                                                                                                                             |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `perf:diagnostics`               | Object with `ptySessionCount`, `wsBridgeCount`, `agentSessionCount`, `gitWatcherCount`, `windowCount`, `uptime`, `heapUsed`, `rss`, and `marks` (performance timeline marks). |
+| `perf:ipcLog`                    | Array of `{ channel, size, ts, dir }` entries logged since the last call. The log is drained on read.                                                                         |
+| `perf:disconnectTerminalClients` | Closes active terminal WebSocket clients so perf tests can measure reconnect history replay without killing PTY processes. Returns the number of clients disconnected.          |
+| `perf:openProject`               | Grants and opens an existing project path under the user's home directory for perf fixtures.                                                                                  |
 
 These endpoints are gated at the preload level: when `CANOPY_PERF` is not `'1'`, the properties are not added to the `window.api` object. The main-process IPC interceptor that records traffic is also only installed when `CANOPY_PERF=1`.
 
@@ -76,8 +78,8 @@ No user-visible errors. `app.getAppMetrics()` is a synchronous Electron API that
 ## Source files
 
 - Main: `src/main/perf/PerfHudService.ts`
-- IPC handlers: `src/main/index.ts` (`perf:hud:start`, `perf:hud:stop` near line 694; `perf:diagnostics`, `perf:ipcLog` near line 672)
-- Preload: `src/preload/index.ts` (`perfHud` object and conditional `perfDiagnostics`/`perfIpcLog`)
+- IPC handlers: `src/main/index.ts` (`perf:hud:start`, `perf:hud:stop`, `perf:diagnostics`, `perf:ipcLog`, `perf:disconnectTerminalClients`, `perf:openProject`)
+- Preload: `src/preload/index.ts` (`perfHud` object and conditional `perfDiagnostics`, `perfIpcLog`, `perfDisconnectTerminalClients`, `perfOpenProject`)
 - Store: `src/renderer/src/lib/stores/perfHud.svelte.ts`
 - Status bar: `src/renderer/src/components/layout/StatusBar.svelte`
 - Settings toggle: `src/renderer/src/components/preferences/GeneralPrefs.svelte`

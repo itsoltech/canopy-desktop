@@ -23,6 +23,14 @@ interface PtyExitData {
   tmuxSessionName?: string
 }
 
+interface TerminalStreamStateChange {
+  state: 'paused' | 'resumed'
+  reason: 'lock-screen' | 'unlock-screen' | 'suspend' | 'resume'
+  pauseReasons: Array<'lock-screen' | 'suspend'>
+}
+
+type TerminalStreamState = Omit<TerminalStreamStateChange, 'reason'>
+
 interface TmuxSessionInfo {
   name: string
   created: number
@@ -346,6 +354,8 @@ interface CanopyAPI {
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
+  getTerminalStreamState: () => Promise<TerminalStreamState>
+  onTerminalStreamStateChanged: (callback: (data: TerminalStreamStateChange) => void) => () => void
 
   // Tmux
   tmuxIsAvailable: () => Promise<boolean>
@@ -1107,6 +1117,7 @@ interface CanopyAPI {
     ts: number
     dir: string
   }> | null>
+  perfDisconnectTerminalClients?: () => Promise<number>
   perfOpenProject?: (path: string) => Promise<void>
 
   // Status-bar perf HUD (always present)
