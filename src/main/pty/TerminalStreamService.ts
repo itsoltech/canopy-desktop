@@ -117,6 +117,12 @@ export class TerminalStreamService {
     }
   }
 
+  hasStream(webContentsId: number, sessionId: string): boolean {
+    const stream = this.streams.get(sessionId)
+    if (!stream) return false
+    return stream.ownerWebContentsId === webContentsId || this.ownsSession(webContentsId, sessionId)
+  }
+
   subscribe(input: TerminalStreamSubscribeInput): void {
     const { webContents, sessionId, subscriptionId } = input
     const stream = this.streams.get(sessionId)
@@ -165,7 +171,8 @@ export class TerminalStreamService {
     return true
   }
 
-  pauseAll(_reason?: string): number {
+  pauseAll(reason?: string): number {
+    void reason
     return this.disconnectAllSubscribers()
   }
 

@@ -364,6 +364,7 @@ interface CanopyAPI {
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
+  hasPtyStream: (sessionId: string) => Promise<boolean>
   subscribePtyData: (
     sessionId: string,
     offset: number,

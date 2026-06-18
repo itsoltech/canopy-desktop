@@ -852,6 +852,13 @@ export function registerIpcHandlers(
     return terminalStreamService.unsubscribe(input.subscriptionId, event.sender)
   })
 
+  ipcMain.handle('pty-stream:hasStream', (event, payload: { sessionId: string }) => {
+    if (!payload || typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) {
+      throw new Error('pty-stream:hasStream requires a sessionId')
+    }
+    return terminalStreamService.hasStream(event.sender.id, payload.sessionId)
+  })
+
   ipcMain.handle('pty-stream:getDiagnostics', (event) => {
     if (!windowManager.getWindowById(event.sender.id)) {
       throw new Error('PTY stream diagnostics are only available to app windows')

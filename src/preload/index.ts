@@ -77,6 +77,8 @@ const api = {
       cols: number
       rows: number
     } | null>,
+  hasPtyStream: (sessionId: string) =>
+    ipcRenderer.invoke('pty-stream:hasStream', { sessionId }) as Promise<boolean>,
   subscribePtyData: (
     sessionId: string,
     offset: number,
@@ -89,9 +91,7 @@ const api = {
     let unsubscribeRequested = false
 
     const sendUnsubscribe = (): void => {
-      void ipcRenderer
-        .invoke('pty-stream:unsubscribe', { subscriptionId })
-        .catch(() => undefined)
+      void ipcRenderer.invoke('pty-stream:unsubscribe', { subscriptionId }).catch(() => undefined)
     }
 
     const requestUnsubscribe = (): void => {
@@ -114,11 +114,7 @@ const api = {
     }
 
     const dataHandler = (_event: IpcRendererEvent, data: PtyStreamIpcDataEvent): void => {
-      if (
-        disposed ||
-        data.subscriptionId !== subscriptionId ||
-        data.sessionId !== sessionId
-      ) {
+      if (disposed || data.subscriptionId !== subscriptionId || data.sessionId !== sessionId) {
         return
       }
 
@@ -130,11 +126,7 @@ const api = {
     }
 
     const closedHandler = (_event: IpcRendererEvent, data: PtyStreamIpcClosedEvent): void => {
-      if (
-        disposed ||
-        data.subscriptionId !== subscriptionId ||
-        data.sessionId !== sessionId
-      ) {
+      if (disposed || data.subscriptionId !== subscriptionId || data.sessionId !== sessionId) {
         return
       }
 

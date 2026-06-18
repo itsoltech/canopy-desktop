@@ -146,10 +146,16 @@ export class HostRpcServer {
       this.rpc.emit(`pty.resized.${sessionId}`, { cols, rows })
     })
 
-    this.register('pty.subscribe', (params) => {
+    this.register('pty.subscribe', async (params) => {
       const sessionId = assertString(params, 'sessionId', 'pty.subscribe')
-      if (!hasActiveSession(sessionId)) {
-        throw new Error(`No active session with id ${sessionId}`)
+      const hasStream = hasRunningSessionPane(sessionId)
+        ? await window.api.hasPtyStream(sessionId).catch(() => false)
+        : false
+      if (!hasStream) {
+        forwarder.unsubscribe(sessionId)
+        this.rpc.emit(`pty.closed.${sessionId}`, null)
+        provider.rebroadcast()
+        return
       }
       forwarder.subscribe(sessionId)
     })
@@ -333,12 +339,12 @@ function getHostLanIp(): string {
  * Walk every tab in every worktree, flatten their split trees, and confirm
  * the requested PTY session is still represented by a host terminal pane.
  */
-function hasActiveSession(sessionId: string): boolean {
+function hasRunningSessionPane(sessionId: string): boolean {
   for (const tabs of Object.values(tabsByWorktree)) {
     for (const tab of tabs) {
       const panes = allPanes(tab.rootSplit)
       const match = panes.find((p) => p.sessionId === sessionId)
-      if (match) return true
+      if (match?.isRunning) return true
     }
   }
   return false

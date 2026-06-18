@@ -34,6 +34,15 @@
   let unsubClosed: (() => void) | null = null
   let unsubResized: (() => void) | null = null
   let lifecycleAc: AbortController | null = null
+  let destroyed = false
+  let pendingData = ''
+  let writeInFlight = false
+  let writeRafId: number | null = null
+  let queuedWriteChars = 0
+  let parsedWriteChars = 0
+  let pendingWriteCallbacks: Array<{ offset: number; callback: () => void }> = []
+
+  const MAX_REPLAY_CHARS_PER_WRITE = 16_384
 
   // ===== Smart auto-follow cursor state =====
   //
@@ -119,6 +128,65 @@
       rafScheduled = false
       doAutoFollow()
     })
+  }
+
+  function cancelPendingWrite(): void {
+    if (writeRafId !== null) {
+      cancelAnimationFrame(writeRafId)
+      writeRafId = null
+    }
+    pendingData = ''
+    writeInFlight = false
+    queuedWriteChars = 0
+    parsedWriteChars = 0
+    pendingWriteCallbacks = []
+  }
+
+  function fireParsedWriteCallbacks(): void {
+    while (
+      pendingWriteCallbacks.length > 0 &&
+      pendingWriteCallbacks[0].offset <= parsedWriteChars
+    ) {
+      const marker = pendingWriteCallbacks.shift()
+      marker?.callback()
+    }
+  }
+
+  function flushPendingData(): void {
+    if (destroyed || !term || !pendingData || writeInFlight || writeRafId !== null) return
+
+    writeRafId = requestAnimationFrame(() => {
+      writeRafId = null
+      if (destroyed || !term || !pendingData || writeInFlight) return
+
+      let cut = Math.min(MAX_REPLAY_CHARS_PER_WRITE, pendingData.length)
+      const lastCode = pendingData.charCodeAt(cut - 1)
+      if (lastCode >= 0xd800 && lastCode <= 0xdbff) cut -= 1
+      if (cut <= 0) return
+
+      const frameData = pendingData.slice(0, cut)
+      pendingData = pendingData.slice(frameData.length)
+      writeInFlight = true
+
+      term.write(frameData, () => {
+        writeInFlight = false
+        parsedWriteChars += frameData.length
+        fireParsedWriteCallbacks()
+        if (destroyed) return
+        scheduleAutoFollow()
+        flushPendingData()
+      })
+    })
+  }
+
+  function writeTerminalData(data: string, onParsed?: () => void): void {
+    if (destroyed || !term || !data) return
+    pendingData += data
+    queuedWriteChars += data.length
+    if (onParsed) {
+      pendingWriteCallbacks.push({ offset: queuedWriteChars, callback: onParsed })
+    }
+    flushPendingData()
   }
 
   /** User scroll handler: flips into manual mode if the scroll moved
@@ -377,17 +445,13 @@
       })
     })
 
-    // Subscribe to PTY output. After each chunk we queue an auto-follow
-    // tick — by the time the RAF fires, xterm has parsed the chunk and
-    // `term.buffer.active.cursorX` reflects the new cursor position.
-    unsubData = api.subscribe<string>(`pty.data.${sessionId}`, (chunk) => {
-      term?.write(chunk)
-      scheduleAutoFollow()
-    })
+    // Subscribe to PTY output. Chunks are buffered and written one bounded
+    // frame at a time; xterm's write callback releases the next frame so a
+    // replay cannot flood xterm's internal WriteBuffer.
+    unsubData = api.subscribe<string>(`pty.data.${sessionId}`, writeTerminalData)
 
     unsubClosed = api.subscribe<null>(`pty.closed.${sessionId}`, () => {
-      term?.write('\r\n\x1b[90m[session closed]\x1b[0m\r\n')
-      onClose?.()
+      writeTerminalData('\r\n\x1b[90m[session closed]\x1b[0m\r\n', () => onClose?.())
     })
 
     // Resize relay: when the host PTY changes dimensions (e.g. user
@@ -418,7 +482,7 @@
     try {
       await api.pty.subscribe(sessionId)
     } catch (e) {
-      term?.write(`\r\n\x1b[31m[failed to subscribe: ${e}]\x1b[0m\r\n`)
+      writeTerminalData(`\r\n\x1b[31m[failed to subscribe: ${e}]\x1b[0m\r\n`)
     }
   })
 
@@ -461,9 +525,11 @@
   })
 
   onDestroy(() => {
+    destroyed = true
     unsubData?.()
     unsubClosed?.()
     unsubResized?.()
+    cancelPendingWrite()
     lifecycleAc?.abort()
     scrollEl?.removeEventListener('scroll', onScrollEvent)
     api.pty.unsubscribe(sessionId).catch(() => {})
