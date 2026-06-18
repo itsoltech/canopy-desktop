@@ -180,6 +180,8 @@ export class PtyManager {
     if (!session) return Promise.resolve(false)
     // Windows process-tree probes (`wmic`, PowerShell CIM queries, etc.) are
     // too expensive for close-warning preflights and can visibly stall the app.
+    // Windows shell tabs therefore never raise running-process close warnings;
+    // agent-busy state is still checked separately by AgentSessionManager.
     if (process.platform === 'win32') return Promise.resolve(false)
 
     const pid = String(session.pty.pid)
