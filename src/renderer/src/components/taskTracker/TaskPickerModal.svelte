@@ -516,6 +516,8 @@
               <span
                 class="flex-shrink-0 text-[8px] leading-none"
                 style="color: {priorityColor(task.priority)}"
+                role="img"
+                aria-label="Priority: {task.priority}"
                 title={task.priority}>●</span
               >
               {#if hasActiveAgent}

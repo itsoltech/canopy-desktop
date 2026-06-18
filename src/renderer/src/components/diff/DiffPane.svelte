@@ -17,6 +17,7 @@
 
   let files = $state<DiffFile[]>([])
   let loading = $state(false)
+  let loadError = $state(false)
   let bodyEl: HTMLDivElement | undefined = $state()
   let paneEl: HTMLDivElement | undefined = $state()
 
@@ -45,11 +46,13 @@
 
   async function refresh(): Promise<void> {
     loading = true
+    loadError = false
     try {
       const result = await window.api.changesGetDiff({ worktreePath })
       files = result.files
     } catch {
       files = []
+      loadError = true
     } finally {
       loading = false
     }
@@ -463,6 +466,10 @@
   >
     {#if loading && files.length === 0}
       <div class="flex items-center justify-center h-full text-md text-text-muted">Loading...</div>
+    {:else if loadError}
+      <div class="flex items-center justify-center h-full text-md text-danger-text">
+        Failed to load changes
+      </div>
     {:else if files.length === 0}
       <div class="flex items-center justify-center h-full text-md text-text-muted">
         No uncommitted changes

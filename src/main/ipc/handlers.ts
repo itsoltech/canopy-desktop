@@ -3152,9 +3152,11 @@ export function registerIpcHandlers(
         token: string
       },
     ) => {
-      const parsed = new URL(payload.baseUrl)
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new Error('Base URL must use http:// or https://')
+      if (payload.baseUrl) {
+        const parsed = new URL(payload.baseUrl)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('Base URL must use http:// or https://')
+        }
       }
       const { token, ...connectionData } = payload
       const result = await taskTrackerManager.fetchBoardsForNew(
