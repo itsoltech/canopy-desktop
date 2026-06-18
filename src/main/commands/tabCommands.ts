@@ -2,6 +2,7 @@ import { BrowserWindow, type WebContents } from 'electron'
 import { randomUUID } from 'crypto'
 import { resolveShell, type PtyManager } from '../pty/PtyManager'
 import type { WsBridge } from '../pty/WsBridge'
+import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
 import type { ToolRegistry } from '../tools/ToolRegistry'
@@ -60,6 +61,7 @@ interface TmuxAttachPayload {
 interface ToolSessionServiceDeps {
   ptyManager: PtyManager
   wsBridge: WsBridge
+  terminalStreamService: TerminalStreamService
   preferencesStore: PreferencesStore
   toolRegistry: ToolRegistry
   agentSessionManager: AgentSessionManager
@@ -180,20 +182,16 @@ export class ToolSessionService {
       this.deps.agentSessionManager.rekey(agentTempId, session.id)
     }
 
-    let wsUrl: string
     try {
-      wsUrl = await this.deps.wsBridge.create(session.id, session.pty)
+      this.deps.windowManager.trackPtySession(sender.id, session.id)
+      this.deps.terminalStreamService.register(session.id, session.pty, sender.id)
     } catch (error) {
-      // If the WS bridge fails to start, the spawned PTY — and, for agents, the
-      // hook-server session created above — would leak: onExit is not yet wired
-      // and the window never tracks the session. Tear them down before
-      // rethrowing, mirroring the cleanup path in runConfigCommands.
+      this.deps.terminalStreamService.destroy(session.id)
+      this.deps.windowManager.untrackPtySession(sender.id, session.id)
       this.deps.ptyManager.kill(session.id)
       if (isAgent) this.deps.agentSessionManager.destroySession(session.id)
       throw error
     }
-
-    this.deps.windowManager.trackPtySession(sender.id, session.id)
 
     session.pty.onExit(({ exitCode, signal }) => {
       if (!sender.isDestroyed()) {
@@ -212,7 +210,7 @@ export class ToolSessionService {
 
     return {
       sessionId: session.id,
-      wsUrl,
+      wsUrl: '',
       toolId: tool.id,
       toolName: tool.name,
       tmuxSessionName,
@@ -235,9 +233,16 @@ export class ToolSessionService {
       rows: payload.rows,
       tmuxSessionName: payload.tmuxSessionName,
     })
-    const wsUrl = await this.deps.wsBridge.create(session.id, session.pty)
 
-    this.deps.windowManager.trackPtySession(sender.id, session.id)
+    try {
+      this.deps.windowManager.trackPtySession(sender.id, session.id)
+      this.deps.terminalStreamService.register(session.id, session.pty, sender.id)
+    } catch (error) {
+      this.deps.terminalStreamService.destroy(session.id)
+      this.deps.windowManager.untrackPtySession(sender.id, session.id)
+      this.deps.ptyManager.kill(session.id)
+      throw error
+    }
 
     session.pty.onExit(({ exitCode, signal }) => {
       if (!sender.isDestroyed()) {
@@ -251,11 +256,12 @@ export class ToolSessionService {
       this.deps.windowManager.untrackPtySession(sender.id, session.id)
     })
 
-    return { sessionId: session.id, wsUrl }
+    return { sessionId: session.id, wsUrl: '' }
   }
 
   async killPty(sessionId: string, killTmux?: boolean): Promise<void> {
     const tmuxName = this.deps.ptyManager.getTmuxSessionName(sessionId)
+    this.deps.terminalStreamService.destroy(sessionId)
     if (killTmux && tmuxName && TmuxManagerStatics.isCanopySession(tmuxName)) {
       try {
         await this.deps.tmuxManager.killSession(tmuxName)
@@ -304,13 +310,8 @@ export class ToolSessionService {
       throw new Error('PTY session is not owned by this window')
     }
 
-    const wsUrl = this.deps.wsBridge.getUrl(sessionId)
-    if (!wsUrl) {
-      throw new Error('PTY session is not available')
-    }
-
     return {
-      wsUrl,
+      wsUrl: '',
       tmuxSessionName: this.deps.ptyManager.getTmuxSessionName(sessionId),
     }
   }

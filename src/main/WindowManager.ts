@@ -8,6 +8,7 @@ import type { GitWatcher } from './git/GitWatcher'
 import type { FileTreeWatcher } from './fileWatcher/FileTreeWatcher'
 import type { AgentSessionManager } from './agents/AgentSessionManager'
 import type { BrowserManager } from './browser/BrowserManager'
+import type { TerminalStreamService } from './pty/TerminalStreamService'
 import { TmuxManager } from './pty/TmuxManager'
 import { isSafeExternalUrl } from './security/validateUrl'
 import type { WindowBounds, WindowConfig, WindowState } from './windowBounds'
@@ -35,6 +36,7 @@ export class WindowManager {
   private focusedAgentSessions = new Map<number, string>()
   private agentSessionManager: AgentSessionManager | null = null
   private browserManager: BrowserManager | null = null
+  private terminalStreamService: TerminalStreamService | null = null
   private tmuxManager: TmuxManager | null = null
   private allWindowsClosedCallback: (() => void) | null = null
   private windowDisposeCallback: ((paths: string[]) => void) | null = null
@@ -56,6 +58,10 @@ export class WindowManager {
 
   setBrowserManager(bm: BrowserManager): void {
     this.browserManager = bm
+  }
+
+  setTerminalStreamService(service: TerminalStreamService): void {
+    this.terminalStreamService = service
   }
 
   setTmuxManager(tm: TmuxManager): void {
@@ -469,8 +475,9 @@ export class WindowManager {
     const sessions = this.ptySessions.get(wcId)
     if (sessions) {
       for (const sid of sessions) {
+        const tmuxName = this.ptyManager.getTmuxSessionName(sid)
+        this.terminalStreamService?.destroy(sid)
         if (!this.isQuitting && this.tmuxManager) {
-          const tmuxName = this.ptyManager.getTmuxSessionName(sid)
           if (tmuxName && TmuxManager.isCanopySession(tmuxName)) {
             this.tmuxManager.killSession(tmuxName).catch(() => {})
           }

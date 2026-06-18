@@ -505,6 +505,7 @@ export function registerIpcHandlers(
   const toolSessionService = new ToolSessionService({
     ptyManager,
     wsBridge,
+    terminalStreamService,
     preferencesStore,
     toolRegistry,
     agentSessionManager,
@@ -535,7 +536,7 @@ export function registerIpcHandlers(
   })
   const runConfigCommandService = new RunConfigCommandService({
     ptyManager,
-    wsBridge,
+    terminalStreamService,
     windowManager,
     runConfigManager,
     validatePathAccess: (webContentsId, targetPath) =>
@@ -898,6 +899,7 @@ export function registerIpcHandlers(
       throw new Error('PTY session is not owned by this window')
     }
     const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
+    terminalStreamService.destroy(payload.sessionId)
     wsBridge.destroy(payload.sessionId)
     ptyManager.kill(payload.sessionId)
     return { tmuxSessionName: tmuxName }

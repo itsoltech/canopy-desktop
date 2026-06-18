@@ -3,7 +3,7 @@ import os from 'os'
 import path from 'path'
 import type { PtyManager } from '../pty/PtyManager'
 import { resolveShell } from '../pty/PtyManager'
-import type { WsBridge } from '../pty/WsBridge'
+import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import type { WindowManager } from '../WindowManager'
 import type { RunConfigManager } from '../runConfig/RunConfigManager'
 import { runConfigErrorMessage } from '../runConfig/errors'
@@ -13,7 +13,7 @@ import type { Result } from 'neverthrow'
 
 interface RunConfigCommandServiceDeps {
   ptyManager: PtyManager
-  wsBridge: WsBridge
+  terminalStreamService: TerminalStreamService
   windowManager: WindowManager
   runConfigManager: RunConfigManager
   validatePathAccess: (webContentsId: number, targetPath: string) => Promise<string>
@@ -144,6 +144,7 @@ export class RunConfigCommandService {
       const cleanup = (): void => {
         if (cleanedUp) return
         cleanedUp = true
+        this.deps.terminalStreamService.destroy(session.id)
         this.deps.windowManager.untrackPtySession(senderId, session.id)
         this.runningProcesses.delete(session.id)
         this.decrementInstance(instanceKey)
@@ -207,8 +208,8 @@ export class RunConfigCommandService {
       reserved = false
 
       try {
-        const wsUrl = await this.deps.wsBridge.create(session.id, session.pty)
-        return { sessionId: session.id, wsUrl, running: this.listRunning(sender) }
+        this.deps.terminalStreamService.register(session.id, session.pty, senderId)
+        return { sessionId: session.id, wsUrl: '', running: this.listRunning(sender) }
       } catch (error) {
         cleanup()
         this.deps.ptyManager.kill(session.id)

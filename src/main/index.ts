@@ -129,6 +129,7 @@ const settingsExportService = new SettingsExportService(
 const tmuxManager = new TmuxManager(app.getPath('userData'))
 const remoteSessionService = new RemoteSessionService(preferencesStore)
 const perfHudService = new PerfHudService()
+windowManager.setTerminalStreamService(terminalStreamService)
 windowManager.setTmuxManager(tmuxManager)
 let lastClosedWindowConfigs: WindowConfig[] | null = null
 windowManager.setOnWindowCloseSnapshot(({ configs, isLastWindow }) => {
