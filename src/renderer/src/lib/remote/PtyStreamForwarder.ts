@@ -1,105 +1,116 @@
 import type { DataChannelRpc } from '../../../../renderer-shared/rpc/DataChannelRpc'
 
 /**
- * Bridges a PTY session's output to the remote peer by opening a secondary
- * WebSocket to the local {@link WsBridge} (the same one that feeds the desktop
- * `TerminalInstance`), then forwarding every chunk as an RPC event on the
- * `commands` DataChannelRpc. The peer subscribes to `pty.data.<sessionId>` and
- * writes each chunk into its xterm.js instance.
- *
- * Why a second WebSocket? The WsBridge already supports multi-client per
- * session and maintains a history buffer. Connecting another client is the
- * lowest-friction approach — no changes to `WsBridge.ts` or IPC needed.
+ * Bridges a PTY session's output to the remote peer by subscribing to the
+ * host renderer's preload IPC stream, then forwarding every chunk as an RPC
+ * event on the `commands` DataChannelRpc. The peer subscribes to
+ * `pty.data.<sessionId>` and writes each chunk into its xterm.js instance.
  *
  * **Intentional vs unexpected close**: when the peer explicitly calls
  * `pty.unsubscribe` (e.g. the inline preview tearing down so the fullscreen
  * overlay can mount), we must NOT emit `pty.closed.<sessionId>` — the very
- * next `pty.subscribe` is about to open a fresh WS and any listener that
- * treats `pty.closed` as "session ended" would auto-exit fullscreen mode
- * mid-switch. We track intentional closes via a per-socket flag so only
- * unexpected WS drops (e.g. shell process exit, network failure) fire the
- * event.
+ * next `pty.subscribe` is about to open a fresh IPC subscription and any
+ * listener that treats `pty.closed` as "session ended" would auto-exit
+ * fullscreen mode mid-switch. We track intentional closes per subscription
+ * so only PTY stream closes from preload fire the event.
  */
 
-interface ForwardedSocket {
-  ws: WebSocket
+interface ForwardedSubscription {
+  cleanup: () => void
   intentional: boolean
 }
 
 export class PtyStreamForwarder {
-  private sockets = new Map<string, ForwardedSocket>()
+  private subscriptions = new Map<string, ForwardedSubscription>()
+  private offsets = new Map<string, number>()
 
   constructor(private rpc: DataChannelRpc) {}
 
-  subscribe(sessionId: string, wsUrl: string): void {
-    if (this.sockets.has(sessionId)) return
+  subscribe(sessionId: string): void {
+    if (this.subscriptions.has(sessionId)) return
 
-    const entry: ForwardedSocket = {
-      ws: new WebSocket(wsUrl),
+    const entry: ForwardedSubscription = {
+      cleanup: () => undefined,
       intentional: false,
     }
-    this.sockets.set(sessionId, entry)
+    this.subscriptions.set(sessionId, entry)
 
-    entry.ws.onmessage = (ev) => {
-      const text = typeof ev.data === 'string' ? ev.data : null
-      if (text === null) return
-      this.rpc.emit(`pty.data.${sessionId}`, text)
-    }
+    entry.cleanup = window.api.subscribePtyData(
+      sessionId,
+      this.offsets.get(sessionId) ?? 0,
+      (event) => {
+        if (event.sessionId !== sessionId) return
+        if (this.subscriptions.get(sessionId) !== entry) return
 
-    entry.ws.onerror = () => {
-      console.warn(`[pty-forwarder] WS error for session ${sessionId}`)
-      // Force the socket closed so a connection that errors while still
-      // CONNECTING (and never fires `close` on its own) can't pin its entry
-      // in `sockets` forever. `onclose` performs the actual map cleanup.
-      try {
-        entry.ws.close()
-      } catch {
-        /* ignore */
-      }
-    }
+        const receivedChars = this.offsets.get(sessionId) ?? 0
+        const eventEnd = event.offset + event.data.length
+        if (eventEnd <= receivedChars) return
 
-    entry.ws.onclose = () => {
-      // If `unsubscribe` already removed our entry from the map and a new
-      // `subscribe` has since replaced it with a fresh entry, leave the new
-      // one alone — we're the stale ghost of a previous session.
-      if (this.sockets.get(sessionId) === entry) {
-        this.sockets.delete(sessionId)
-      }
-      // Only surface `pty.closed` to the peer when the close was *not*
-      // caused by an explicit `unsubscribe`. Otherwise any listener that
-      // treats the event as "session terminated" would fire spuriously
-      // every time the peer swaps inline → fullscreen preview.
-      if (!entry.intentional) {
-        this.rpc.emit(`pty.closed.${sessionId}`, null)
-      }
+        const overlap = Math.max(0, receivedChars - event.offset)
+        const chunk = overlap > 0 ? event.data.slice(overlap) : event.data
+        const nextOffset = event.offset + overlap + chunk.length
+        this.offsets.set(sessionId, nextOffset)
+        if (!chunk) return
+
+        this.rpc.emit(`pty.data.${sessionId}`, chunk)
+      },
+      (event) => {
+        if (event.sessionId !== sessionId) return
+        // If `unsubscribe` already removed our entry from the map and a new
+        // `subscribe` has since replaced it with a fresh entry, leave the new
+        // one alone. This callback belongs to a stale subscription.
+        if (this.subscriptions.get(sessionId) === entry) {
+          this.subscriptions.delete(sessionId)
+        }
+        // Only surface `pty.closed` to the peer when the close was *not*
+        // caused by an explicit `unsubscribe`. Otherwise any listener that
+        // treats the event as "session terminated" would fire spuriously
+        // every time the peer swaps inline -> fullscreen preview.
+        if (!entry.intentional) {
+          this.rpc.emit(`pty.closed.${sessionId}`, null)
+        }
+      },
+      () => {
+        if (this.subscriptions.get(sessionId) === entry) {
+          this.subscriptions.delete(sessionId)
+        }
+        if (!entry.intentional) {
+          this.rpc.emit(`pty.closed.${sessionId}`, null)
+        }
+      },
+    )
+    if (this.subscriptions.get(sessionId) !== entry) {
+      entry.intentional = true
+      entry.cleanup()
+      return
     }
   }
 
   unsubscribe(sessionId: string): void {
-    const entry = this.sockets.get(sessionId)
+    const entry = this.subscriptions.get(sessionId)
     if (!entry) return
     // Mark and drop the entry synchronously so the *very next* `subscribe`
     // (which the peer may send in the same tick as `unsubscribe` when
     // switching between inline and fullscreen views) sees an empty slot
-    // and opens a fresh WebSocket instead of reusing the dying one.
+    // and opens a fresh IPC subscription instead of reusing the dying one.
     entry.intentional = true
-    this.sockets.delete(sessionId)
+    this.subscriptions.delete(sessionId)
     try {
-      entry.ws.close()
+      entry.cleanup()
     } catch {
       /* ignore */
     }
   }
 
   dispose(): void {
-    for (const [, entry] of this.sockets) {
+    for (const [, entry] of this.subscriptions) {
       entry.intentional = true
       try {
-        entry.ws.close()
+        entry.cleanup()
       } catch {
         /* ignore */
       }
     }
-    this.sockets.clear()
+    this.subscriptions.clear()
   }
 }

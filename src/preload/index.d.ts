@@ -369,6 +369,7 @@ interface CanopyAPI {
     offset: number,
     callback: (event: PtyStreamDataEvent) => void,
     onClose?: (event: PtyStreamClosedEvent) => void,
+    onError?: (error: unknown) => void,
   ) => () => void
   getTerminalStreamState: () => Promise<TerminalStreamState>
   onTerminalStreamStateChanged: (callback: (data: TerminalStreamStateChange) => void) => () => void

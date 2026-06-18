@@ -82,6 +82,7 @@ const api = {
     offset: number,
     callback: (event: PtyStreamDataEvent) => void,
     onClose?: (event: PtyStreamClosedEvent) => void,
+    onError?: (error: unknown) => void,
   ) => {
     const subscriptionId = createPtyStreamSubscriptionId()
     let disposed = false
@@ -149,8 +150,9 @@ const api = {
       .then(() => {
         if (disposed) sendUnsubscribe()
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         cleanup(false)
+        onError?.(error)
       })
 
     return cleanup
