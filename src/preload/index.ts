@@ -26,6 +26,44 @@ type TerminalStreamStateChange = {
 
 type TerminalStreamState = Omit<TerminalStreamStateChange, 'reason'>
 
+type PtyStreamDataEvent = {
+  sessionId: string
+  offset: number
+  data: string
+}
+
+type PtyStreamClosedEvent = {
+  sessionId: string
+}
+
+type PtyStreamIpcDataEvent = PtyStreamDataEvent & {
+  subscriptionId: string
+}
+
+type PtyStreamIpcClosedEvent = PtyStreamClosedEvent & {
+  subscriptionId: string
+}
+
+let ptyStreamSubscriptionCounter = 0
+
+function createPtyStreamSubscriptionId(): string {
+  ptyStreamSubscriptionCounter += 1
+  const sequence = ptyStreamSubscriptionCounter.toString(36)
+  const cryptoApi = globalThis.crypto
+
+  if (typeof cryptoApi?.randomUUID === 'function') {
+    return `pty-stream:${sequence}:${cryptoApi.randomUUID()}`
+  }
+
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const values = new Uint32Array(2)
+    cryptoApi.getRandomValues(values)
+    return `pty-stream:${sequence}:${values[0].toString(36)}${values[1].toString(36)}`
+  }
+
+  return `pty-stream:${sequence}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`
+}
+
 const api = {
   // PTY
   resizePty: (sessionId: string, cols: number, rows: number) =>
@@ -39,6 +77,84 @@ const api = {
       cols: number
       rows: number
     } | null>,
+  subscribePtyData: (
+    sessionId: string,
+    offset: number,
+    callback: (event: PtyStreamDataEvent) => void,
+    onClose?: (event: PtyStreamClosedEvent) => void,
+  ) => {
+    const subscriptionId = createPtyStreamSubscriptionId()
+    let disposed = false
+    let unsubscribeRequested = false
+
+    const sendUnsubscribe = (): void => {
+      void ipcRenderer
+        .invoke('pty-stream:unsubscribe', { subscriptionId })
+        .catch(() => undefined)
+    }
+
+    const requestUnsubscribe = (): void => {
+      if (unsubscribeRequested) return
+      unsubscribeRequested = true
+      sendUnsubscribe()
+    }
+
+    const cleanup = (notifyMain = true): void => {
+      if (disposed) {
+        if (notifyMain) requestUnsubscribe()
+        return
+      }
+
+      disposed = true
+      ipcRenderer.removeListener('pty-stream:data', dataHandler)
+      ipcRenderer.removeListener('pty-stream:closed', closedHandler)
+
+      if (notifyMain) requestUnsubscribe()
+    }
+
+    const dataHandler = (_event: IpcRendererEvent, data: PtyStreamIpcDataEvent): void => {
+      if (
+        disposed ||
+        data.subscriptionId !== subscriptionId ||
+        data.sessionId !== sessionId
+      ) {
+        return
+      }
+
+      callback({
+        sessionId: data.sessionId,
+        offset: data.offset,
+        data: data.data,
+      })
+    }
+
+    const closedHandler = (_event: IpcRendererEvent, data: PtyStreamIpcClosedEvent): void => {
+      if (
+        disposed ||
+        data.subscriptionId !== subscriptionId ||
+        data.sessionId !== sessionId
+      ) {
+        return
+      }
+
+      cleanup()
+      onClose?.({ sessionId: data.sessionId })
+    }
+
+    ipcRenderer.on('pty-stream:data', dataHandler)
+    ipcRenderer.on('pty-stream:closed', closedHandler)
+
+    void ipcRenderer
+      .invoke('pty-stream:subscribe', { sessionId, subscriptionId, offset })
+      .then(() => {
+        if (disposed) sendUnsubscribe()
+      })
+      .catch(() => {
+        cleanup(false)
+      })
+
+    return cleanup
+  },
   getTerminalStreamState: () =>
     ipcRenderer.invoke('terminal-stream:getState') as Promise<TerminalStreamState>,
   onTerminalStreamStateChanged: (callback: (data: TerminalStreamStateChange) => void) => {

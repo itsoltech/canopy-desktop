@@ -31,6 +31,16 @@ interface TerminalStreamStateChange {
 
 type TerminalStreamState = Omit<TerminalStreamStateChange, 'reason'>
 
+interface PtyStreamDataEvent {
+  sessionId: string
+  offset: number
+  data: string
+}
+
+interface PtyStreamClosedEvent {
+  sessionId: string
+}
+
 interface TmuxSessionInfo {
   name: string
   created: number
@@ -354,6 +364,12 @@ interface CanopyAPI {
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>
+  subscribePtyData: (
+    sessionId: string,
+    offset: number,
+    callback: (event: PtyStreamDataEvent) => void,
+    onClose?: (event: PtyStreamClosedEvent) => void,
+  ) => () => void
   getTerminalStreamState: () => Promise<TerminalStreamState>
   onTerminalStreamStateChanged: (callback: (data: TerminalStreamStateChange) => void) => () => void
 
