@@ -1,3 +1,11 @@
+## [0.13.0-next.18](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.17...v0.13.0-next.18) (2026-06-18)
+
+### Bug Fixes
+
+* **crash:** improve crash report diagnostics ([f3f29cd](https://github.com/itsoltech/canopy-desktop/commit/f3f29cd5fcce4182496293e5a48bd1a8884501f3))
+* disable windows child process polling ([445979a](https://github.com/itsoltech/canopy-desktop/commit/445979a42768f6547af2f2a2e62e2ec8e4338584))
+* **terminal:** pause streams during screen lock ([#260](https://github.com/itsoltech/canopy-desktop/issues/260)) ([2b93916](https://github.com/itsoltech/canopy-desktop/commit/2b93916fc78ed1458a437f01b03345af1489bee4))
+
 ## [0.13.0-next.17](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.16...v0.13.0-next.17) (2026-06-17)
 
 ### Bug Fixes
