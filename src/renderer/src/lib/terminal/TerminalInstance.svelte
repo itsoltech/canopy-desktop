@@ -66,9 +66,11 @@
   let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null
   let receivedChars = 0
   let startTerminal: (() => void) | null = null
+  let terminalStreamPaused = false
 
   const MAX_RECONNECT_ATTEMPTS = 30
   const MAX_RECONNECT_DELAY = 8000
+  const MAX_REPLAY_CHARS_PER_FRAME = 16_384
 
   function attachWebgl(term: Terminal): void {
     if (webglAddonRef) return
@@ -156,12 +158,24 @@
     return "'" + path.replace(/'/g, "'\\''") + "'"
   }
 
-  function scrollPreservingWrite(term: Terminal, data: string): void {
+  function recordPerfTerminalWrite(data: string): void {
+    if (!window.api.perfDiagnostics) return
+    const marker = 'CANOPY_REPLAY_DONE'
+    if (!data.includes(marker)) return
+    const w = window as unknown as {
+      __canopyTerminalMarkers?: Record<string, Record<string, true>>
+    }
+    w.__canopyTerminalMarkers ??= {}
+    w.__canopyTerminalMarkers[sessionId] ??= {}
+    w.__canopyTerminalMarkers[sessionId][marker] = true
+  }
+
+  function scrollPreservingWrite(term: Terminal, data: string, onParsed?: () => void): void {
     const buffer = term.buffer.active
     const isAtBottom = buffer.viewportY >= buffer.baseY
 
     if (isAtBottom) {
-      term.write(data)
+      term.write(data, onParsed)
     } else {
       const savedY = buffer.viewportY
       term.write(data, () => {
@@ -169,13 +183,15 @@
         if (currentY !== savedY) {
           term.scrollLines(savedY - currentY)
         }
+        onParsed?.()
       })
     }
   }
 
   function writeBurst(term: Terminal, data: string): void {
+    const recordParsed = (): void => recordPerfTerminalWrite(data)
     if (!isWindows) {
-      scrollPreservingWrite(term, data)
+      scrollPreservingWrite(term, data, recordParsed)
       return
     }
     // Honor the TUI's last DECTCEM intent: if the burst itself ended with
@@ -187,7 +203,7 @@
     const tuiWantsHidden = lastDectcem?.[0].endsWith('l') ?? false
     const prefixed = cursorHiddenForBurst ? data : '\x1b[?25l' + data
     cursorHiddenForBurst = true
-    scrollPreservingWrite(term, prefixed)
+    scrollPreservingWrite(term, prefixed, recordParsed)
     if (cursorRestoreTimer !== null) clearTimeout(cursorRestoreTimer)
     if (tuiWantsHidden) return
     cursorRestoreTimer = setTimeout(() => {
@@ -247,14 +263,21 @@
     writeScheduled = true
     writeRafId = requestAnimationFrame(() => {
       writeRafId = null
-      const frameData = pendingData
-      pendingData = ''
       writeScheduled = false
+      if (disposed || !pendingData) return
+
+      const frameData =
+        pendingData.length > MAX_REPLAY_CHARS_PER_FRAME
+          ? pendingData.slice(0, MAX_REPLAY_CHARS_PER_FRAME)
+          : pendingData
+      pendingData = pendingData.slice(frameData.length)
       writeBurst(term, frameData)
+      flushPendingData(term)
     })
   }
 
   function scheduleReconnect(term: Terminal): void {
+    if (terminalStreamPaused) return
     if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
       setConnectionStatus(sessionId, 'disconnected')
       return
@@ -265,13 +288,13 @@
     const delay = Math.min(500 * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY)
     reconnectAttempt++
     reconnectTimer = setTimeout(() => {
-      if (disposed) return
+      if (disposed || terminalStreamPaused) return
       connectWs(term)
     }, delay)
   }
 
   function connectWs(term: Terminal): void {
-    if (disposed) return
+    if (disposed || terminalStreamPaused) return
     if (
       wsRef &&
       (wsRef.readyState === WebSocket.OPEN || wsRef.readyState === WebSocket.CONNECTING)
@@ -285,9 +308,7 @@
     wsRef = ws
 
     ws.onopen = (): void => {
-      if (reconnectAttempt > 0) {
-        clearConnectionStatus(sessionId)
-      }
+      clearConnectionStatus(sessionId)
       reconnectAttempt = 0
     }
 
@@ -299,21 +320,13 @@
       // `visible` let pendingData accumulate while hidden and replay after
       // show; with a bounded cap the head got truncated and deltas were
       // applied to a stale buffer (overlapping / row-shifted TUI output).
-      if (!writeScheduled) {
-        writeScheduled = true
-        writeRafId = requestAnimationFrame(() => {
-          writeRafId = null
-          const frameData = pendingData
-          pendingData = ''
-          writeScheduled = false
-          writeBurst(term, frameData)
-        })
-      }
+      flushPendingData(term)
     }
 
     ws.onclose = (): void => {
       if (disposed) return
       wsRef = null
+      if (terminalStreamPaused) return
       scheduleReconnect(term)
     }
 
@@ -409,6 +422,34 @@
     let keystrokeHandler: ((e: KeyboardEvent) => void) | null = null
     let reclaimPtyHandler: (() => void) | null = null
     let reclaimTextarea: HTMLTextAreaElement | null = null
+    let cleanupTerminalStreamState: (() => void) | null = null
+
+    function applyTerminalStreamState(data: {
+      state: 'paused' | 'resumed'
+      pauseReasons: Array<'lock-screen' | 'suspend'>
+    }): void {
+      terminalStreamPaused = data.state === 'paused' || data.pauseReasons.length > 0
+      if (terminalStreamPaused) {
+        disconnectWs({ suppressStatus: true })
+        clearConnectionStatus(sessionId)
+        return
+      }
+      if (visible && termRef) {
+        connectWs(termRef)
+        flushPendingData(termRef)
+      }
+    }
+
+    cleanupTerminalStreamState = window.api.onTerminalStreamStateChanged((data) => {
+      applyTerminalStreamState(data)
+    })
+
+    void window.api
+      .getTerminalStreamState()
+      .then((data) => {
+        if (!disposed) applyTerminalStreamState(data)
+      })
+      .catch(() => {})
 
     function initTerminal(): void {
       if (disposed) return
@@ -673,6 +714,7 @@
       startTerminal = null
       cleanupSession(sessionId)
       cleanupKeystrokeSession(sessionId)
+      cleanupTerminalStreamState?.()
       if (keystrokeHandler) containerEl.removeEventListener('keydown', keystrokeHandler, true)
       if (reclaimPtyHandler) {
         containerEl.removeEventListener('pointerdown', reclaimPtyHandler)

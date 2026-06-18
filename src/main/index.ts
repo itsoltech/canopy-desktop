@@ -810,6 +810,8 @@ app.whenReady().then(async () => {
       return snapshot
     })
 
+    ipcMain.handle('perf:disconnectTerminalClients', () => wsBridge.disconnectAllClients())
+
     ipcMain.handle('perf:openProject', (event, payload: { path: string }) => {
       let resolved: string
       let home: string
@@ -869,10 +871,62 @@ app.whenReady().then(async () => {
     },
   )
 
-  // Force-close stale WebSocket clients on system wake so renderer reconnects
-  powerMonitor.on('resume', () => {
+  type TerminalStreamPauseReason = 'lock-screen' | 'suspend'
+  type TerminalStreamEventReason = TerminalStreamPauseReason | 'unlock-screen' | 'resume'
+
+  const terminalStreamPauseReasons = new Set<TerminalStreamPauseReason>()
+
+  const broadcastTerminalStreamState = (
+    state: 'paused' | 'resumed',
+    reason: TerminalStreamEventReason,
+  ): void => {
+    const payload = {
+      state,
+      reason,
+      pauseReasons: [...terminalStreamPauseReasons],
+    }
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('terminal-stream:state', payload)
+    }
+  }
+
+  const pauseTerminalStreams = (reason: TerminalStreamPauseReason): void => {
+    const wasPaused = terminalStreamPauseReasons.size > 0
+    terminalStreamPauseReasons.add(reason)
+    if (wasPaused) return
+
+    broadcastTerminalStreamState('paused', reason)
     wsBridge.disconnectAllClients()
-  })
+  }
+
+  const resumeTerminalStreams = (
+    clearReason: TerminalStreamPauseReason,
+    eventReason: Extract<TerminalStreamEventReason, 'unlock-screen' | 'resume'>,
+  ): void => {
+    const wasPaused = terminalStreamPauseReasons.size > 0
+    terminalStreamPauseReasons.delete(clearReason)
+    if (!wasPaused || terminalStreamPauseReasons.size > 0) return
+
+    broadcastTerminalStreamState('resumed', eventReason)
+  }
+
+  const handlePowerResume = (): void => {
+    const wasPaused = terminalStreamPauseReasons.size > 0
+    resumeTerminalStreams('suspend', 'resume')
+    if (!wasPaused) {
+      wsBridge.disconnectAllClients()
+    }
+  }
+
+  ipcMain.handle('terminal-stream:getState', () => ({
+    state: terminalStreamPauseReasons.size > 0 ? ('paused' as const) : ('resumed' as const),
+    pauseReasons: [...terminalStreamPauseReasons],
+  }))
+
+  powerMonitor.on('lock-screen', () => pauseTerminalStreams('lock-screen'))
+  powerMonitor.on('suspend', () => pauseTerminalStreams('suspend'))
+  powerMonitor.on('unlock-screen', () => resumeTerminalStreams('lock-screen', 'unlock-screen'))
+  powerMonitor.on('resume', handlePowerResume)
 
   // Restore windows from last session
   const reopenPref = preferencesStore.get('reopenLastWorkspace')

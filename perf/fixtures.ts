@@ -147,6 +147,10 @@ export interface CpuProfile {
   samples: number[]
 }
 
+type SplitSnapshot =
+  | { type: 'leaf'; pane: { id: string; sessionId: string; paneType?: string; toolId: string } }
+  | { type: 'split'; first: SplitSnapshot; second: SplitSnapshot }
+
 export async function stopCPUProfile(cdp: CDPSession): Promise<CpuProfile> {
   const { profile } = await cdp.send('Profiler.stop')
   await cdp.send('Profiler.disable')
@@ -172,10 +176,26 @@ export async function takeHeapSnapshot(cdp: CDPSession): Promise<string> {
  */
 export interface BrowserApi {
   api: {
+    platform: NodeJS.Platform
     getPref: (k: string) => Promise<string | null>
+    getAppState: () => Promise<{
+      tabs: {
+        tabsByWorktree: Record<
+          string,
+          Array<{
+            id: string
+            rootSplit: SplitSnapshot
+            focusedPaneId: string
+          }>
+        >
+        activeTabIdByWorktree: Record<string, string | null>
+      }
+    }>
     perfDiagnostics: () => Promise<PerfDiagnostics | null>
     perfIpcLog: () => Promise<Array<{ channel: string; size: number; ts: number; dir: string }>>
+    perfDisconnectTerminalClients?: () => Promise<number>
     perfOpenProject?: (path: string) => Promise<void>
+    workspaceAttachProject: (path: string) => Promise<unknown>
     tabSpawnPane: (toolId: string, worktreePath: string) => Promise<{ sessionId: string }>
     writePty: (sid: string, data: string) => Promise<void>
     killPty: (sid: string) => Promise<void>

@@ -87,12 +87,15 @@ export class WsBridge {
   }
 
   /** Terminate all WS clients across all bridges (triggers renderer reconnection) */
-  disconnectAllClients(): void {
+  disconnectAllClients(): number {
+    let disconnected = 0
     for (const bridge of this.bridges.values()) {
       for (const client of bridge.clients) {
+        disconnected++
         client.terminate()
       }
     }
+    return disconnected
   }
 
   destroy(sessionId: string): void {
