@@ -1,7 +1,7 @@
 /**
  * Terminal replay responsiveness diagnostic.
  *
- * Exercises a near-WsBridge-cap burst of terminal output and checks that the
+ * Exercises a near terminal-stream buffer-cap burst of output and checks that the
  * renderer stays responsive while xterm catches up.
  */
 

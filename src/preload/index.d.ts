@@ -1119,7 +1119,8 @@ interface CanopyAPI {
   // Performance diagnostics (only present when CANOPY_PERF=1)
   perfDiagnostics?: () => Promise<{
     ptySessionCount: number
-    wsBridgeCount: number
+    terminalStreamCount: number
+    terminalStreamSubscriberCount: number
     agentSessionCount: number
     gitWatcherCount: number
     windowCount: number

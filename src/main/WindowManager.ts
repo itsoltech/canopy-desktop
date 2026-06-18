@@ -3,7 +3,6 @@ import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import type { PtyManager } from './pty/PtyManager'
-import type { WsBridge } from './pty/WsBridge'
 import type { GitWatcher } from './git/GitWatcher'
 import type { FileTreeWatcher } from './fileWatcher/FileTreeWatcher'
 import type { AgentSessionManager } from './agents/AgentSessionManager'
@@ -44,12 +43,10 @@ export class WindowManager {
   private windowConfigChangedCallback: ((configs: WindowConfig[]) => void) | null = null
 
   private ptyManager: PtyManager
-  private wsBridge: WsBridge
   isQuitting = false
 
-  constructor(ptyManager: PtyManager, wsBridge: WsBridge) {
+  constructor(ptyManager: PtyManager) {
     this.ptyManager = ptyManager
-    this.wsBridge = wsBridge
   }
 
   setAgentSessionManager(asm: AgentSessionManager): void {
@@ -482,7 +479,6 @@ export class WindowManager {
             this.tmuxManager.killSession(tmuxName).catch(() => {})
           }
         }
-        this.wsBridge.destroy(sid)
         this.ptyManager.kill(sid, { killProcessTree: this.isQuitting })
       }
     }

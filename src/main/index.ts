@@ -7,7 +7,6 @@ import { autoUpdater } from 'electron-updater'
 import { match } from 'ts-pattern'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { PtyManager } from './pty/PtyManager'
-import { WsBridge } from './pty/WsBridge'
 import { TerminalStreamService } from './pty/TerminalStreamService'
 import { Database } from './db/Database'
 import { WorkspaceStore } from './db/WorkspaceStore'
@@ -99,7 +98,6 @@ if (process.env.CANOPY_TEST_USER_DATA && !app.isPackaged) {
 }
 
 const ptyManager = new PtyManager()
-const wsBridge = new WsBridge()
 const database = new Database()
 const workspaceStore = new WorkspaceStore(database)
 const preferencesStore = new PreferencesStore(database)
@@ -113,7 +111,7 @@ const {
 } = initSkills(database)
 const profileStore = new ProfileStore(database, preferencesStore)
 const telemetryManager = new TelemetryManager(preferencesStore)
-const windowManager = new WindowManager(ptyManager, wsBridge)
+const windowManager = new WindowManager(ptyManager)
 const terminalStreamService = new TerminalStreamService({
   ownsSession: (webContentsId, sessionId) => windowManager.ownsPtySession(webContentsId, sessionId),
 })
@@ -268,7 +266,6 @@ function disposeRuntimeForQuit(options: { disposeWindows: boolean; forceExit?: b
   }
 
   terminalStreamService.disposeAll()
-  wsBridge.disposeAll()
   ptyManager.dispose()
   database.close()
   if (options.forceExit !== false) {
@@ -734,7 +731,6 @@ app.whenReady().then(async () => {
 
   ipcCommandBridge = registerIpcHandlers(
     ptyManager,
-    wsBridge,
     terminalStreamService,
     workspaceStore,
     preferencesStore,
@@ -808,7 +804,6 @@ app.whenReady().then(async () => {
       const terminalStreamDiagnostics = terminalStreamService.getDiagnostics()
       return {
         ptySessionCount: ptyManager.sessionCount,
-        wsBridgeCount: wsBridge.bridgeCount,
         terminalStreamCount: terminalStreamDiagnostics.terminalStreamCount,
         terminalStreamSubscriberCount: terminalStreamDiagnostics.terminalStreamSubscriberCount,
         agentSessionCount: agentSessionManager?.sessionCount ?? 0,
@@ -829,9 +824,8 @@ app.whenReady().then(async () => {
       return snapshot
     })
 
-    ipcMain.handle(
-      'perf:disconnectTerminalClients',
-      () => terminalStreamService.disconnectAllSubscribers() + wsBridge.disconnectAllClients(),
+    ipcMain.handle('perf:disconnectTerminalClients', () =>
+      terminalStreamService.disconnectAllSubscribers(),
     )
 
     ipcMain.handle('perf:openProject', (event, payload: { path: string }) => {
@@ -928,7 +922,6 @@ app.whenReady().then(async () => {
 
     broadcastTerminalStreamState('paused', reason)
     terminalStreamService.pauseAll(reason)
-    wsBridge.disconnectAllClients()
   }
 
   const resumeTerminalStreams = (
@@ -962,7 +955,6 @@ app.whenReady().then(async () => {
     scheduleLockScreenResumeWatchdog()
     if (!wasPaused) {
       terminalStreamService.disconnectAllSubscribers()
-      wsBridge.disconnectAllClients()
       broadcastTerminalStreamState('resumed', 'resume')
     }
   }

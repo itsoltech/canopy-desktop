@@ -77,11 +77,13 @@ test('memory baseline at idle', async ({ page }) => {
   console.log(`Heap used:     ${(diag!.heapUsed / 1024 / 1024).toFixed(1)} MB`)
   console.log(`RSS:           ${(diag!.rss / 1024 / 1024).toFixed(1)} MB`)
   console.log(`PTY sessions:  ${diag!.ptySessionCount}`)
-  console.log(`WS bridges:    ${diag!.wsBridgeCount}`)
+  console.log(`Terminal streams: ${diag!.terminalStreamCount}`)
+  console.log(`Stream subscribers: ${diag!.terminalStreamSubscriberCount}`)
   console.log(`Git watchers:  ${diag!.gitWatcherCount}`)
   console.log(`Windows:       ${diag!.windowCount}`)
 
   // At idle with no project open, there should be minimal resource usage
   expect(diag!.ptySessionCount).toBe(0)
-  expect(diag!.wsBridgeCount).toBe(0)
+  expect(diag!.terminalStreamCount).toBe(0)
+  expect(diag!.terminalStreamSubscriberCount).toBe(0)
 })

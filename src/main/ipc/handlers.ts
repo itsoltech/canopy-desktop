@@ -13,7 +13,6 @@ import fs from 'fs'
 import path from 'path'
 import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
-import type { WsBridge } from '../pty/WsBridge'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import { TmuxManager as TmuxManagerStatics } from '../pty/TmuxManager'
 import type { WorkspaceStore } from '../db/WorkspaceStore'
@@ -295,7 +294,6 @@ async function runCredentialOsAuth(event: IpcMainInvokeEvent, domain: string): P
 
 export function registerIpcHandlers(
   ptyManager: PtyManager,
-  wsBridge: WsBridge,
   terminalStreamService: TerminalStreamService,
   workspaceStore: WorkspaceStore,
   preferencesStore: PreferencesStore,
@@ -504,7 +502,6 @@ export function registerIpcHandlers(
   })
   const toolSessionService = new ToolSessionService({
     ptyManager,
-    wsBridge,
     terminalStreamService,
     preferencesStore,
     toolRegistry,
@@ -900,7 +897,6 @@ export function registerIpcHandlers(
     }
     const tmuxName = ptyManager.getTmuxSessionName(payload.sessionId)
     terminalStreamService.destroy(payload.sessionId)
-    wsBridge.destroy(payload.sessionId)
     ptyManager.kill(payload.sessionId)
     return { tmuxSessionName: tmuxName }
   })

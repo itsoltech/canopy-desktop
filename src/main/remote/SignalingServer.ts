@@ -84,7 +84,7 @@ export type PairResponse =
  *   2. Accepts a single WebSocket peer at `WS /signaling` and forwards
  *      pairing + WebRTC SDP/ICE messages to the orchestrator
  *
- * **Bind address.** Unlike `WsBridge` and `AgentHookServer` (both `127.0.0.1`),
+ * **Bind address.** Unlike local-only helper servers such as `AgentHookServer`,
  * the remote service passes an explicitly selected adapter IP so a phone on the
  * same WiFi can reach it via the host's LAN address. This is an *intentional*
  * widening beyond loopback — the server is only started for remote control and

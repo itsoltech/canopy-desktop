@@ -1,7 +1,6 @@
 import { BrowserWindow, type WebContents } from 'electron'
 import { randomUUID } from 'crypto'
 import { resolveShell, type PtyManager } from '../pty/PtyManager'
-import type { WsBridge } from '../pty/WsBridge'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
@@ -60,7 +59,6 @@ interface TmuxAttachPayload {
 
 interface ToolSessionServiceDeps {
   ptyManager: PtyManager
-  wsBridge: WsBridge
   terminalStreamService: TerminalStreamService
   preferencesStore: PreferencesStore
   toolRegistry: ToolRegistry
@@ -269,7 +267,6 @@ export class ToolSessionService {
         // Session may already be gone.
       }
     }
-    this.deps.wsBridge.destroy(sessionId)
     this.deps.ptyManager.kill(sessionId)
   }
 

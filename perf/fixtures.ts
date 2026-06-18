@@ -8,7 +8,8 @@ const appDir = resolve(__dirname, '..')
 
 export interface PerfDiagnostics {
   ptySessionCount: number
-  wsBridgeCount: number
+  terminalStreamCount: number
+  terminalStreamSubscriberCount: number
   agentSessionCount: number
   gitWatcherCount: number
   windowCount: number
