@@ -544,10 +544,7 @@ app.whenReady().then(async () => {
 
       window.webContents.on('render-process-gone', (_event, details) => {
         if (details.reason !== 'clean-exit') {
-          crashReporter?.recordCrash(
-            'rendererCrash',
-            new Error(`Renderer crashed: ${details.reason}`),
-          )
+          crashReporter?.recordRendererCrash(details)
         }
       })
     }

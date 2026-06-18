@@ -7,6 +7,7 @@ import type { CanopySkill } from '../main/skills/types'
 import type { RemoteSessionStatus } from '../main/remote/types'
 import type { AgentProfileMasked, ProfileInput } from '../main/profiles/types'
 import type { AgentType } from '../main/agents/types'
+import type { CrashReportData } from '../renderer-shared/crashReport'
 import type {
   AppStateSnapshot,
   CloseWarningResult,
@@ -615,17 +616,7 @@ const api = {
   },
 
   // Crash reports
-  onCrashReport: (
-    callback: (data: {
-      timestamp: string
-      type: string
-      errorMessage: string
-      stack?: string
-      appVersion: string
-      electronVersion: string
-      os: string
-    }) => void,
-  ) => {
+  onCrashReport: (callback: (data: CrashReportData) => void) => {
     const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
       callback(data)
     ipcRenderer.on('app:crashReport', handler)

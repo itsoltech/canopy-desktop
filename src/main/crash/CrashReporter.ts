@@ -1,33 +1,14 @@
-import { app } from 'electron'
+import { app, type RenderProcessGoneDetails } from 'electron'
 import os from 'os'
 import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { match, P } from 'ts-pattern'
+import type { CrashReport } from '../../renderer-shared/crashReport'
 import { findRecentNativeCrash, type NativeCrashInfo } from './NativeCrashReader'
-
-export interface CrashReport {
-  timestamp: string
-  type:
-    | 'uncaughtException'
-    | 'unhandledRejection'
-    | 'rendererCrash'
-    | 'childProcessGone'
-    | 'ungracefulShutdown'
-  errorMessage: string
-  stack?: string
-  appVersion: string
-  electronVersion: string
-  os: string
-  nativeCrash?: {
-    exceptionType?: string
-    exceptionCodes?: string
-    terminationReason?: string
-    triggeredThread?: string
-    incidentId?: string
-    sourceFile?: string
-  }
-}
+import { sanitizeDiagnosticText, sanitizeStack } from './sanitizeCrashDiagnostic'
 
 const NATIVE_CRASH_PROCESS_NAME = 'Canopy'
+const RENDERER_CRASH_PROCESS_NAME = 'Canopy Helper (Renderer)'
 
 export class CrashReporter {
   private readonly sentinelPath: string
@@ -57,11 +38,37 @@ export class CrashReporter {
       this.writeCrashReport({
         timestamp: new Date().toISOString(),
         type,
-        errorMessage: error.message,
-        stack: error.stack,
+        errorMessage: sanitizeRequired(error.message),
+        stack: sanitizeStack(error.stack),
         appVersion: app.getVersion(),
         electronVersion: process.versions.electron,
         os: `${os.platform()} ${os.release()} ${os.arch()}`,
+        process: this.processForType(type),
+      })
+    } catch {
+      // Crash reporter must never throw
+    }
+  }
+
+  recordRendererCrash(details: RenderProcessGoneDetails): void {
+    try {
+      const timestamp = new Date().toISOString()
+      const crashMs = Date.parse(timestamp)
+      const native = findRecentNativeCrash(RENDERER_CRASH_PROCESS_NAME, crashMs)
+      this.writeCrashReport({
+        timestamp,
+        type: 'rendererCrash',
+        errorMessage: sanitizeRequired(`Renderer crashed: ${details.reason}`),
+        stack: sanitizeStack(new Error(`Renderer crashed: ${details.reason}`).stack),
+        appVersion: app.getVersion(),
+        electronVersion: process.versions.electron,
+        os: `${os.platform()} ${os.release()} ${os.arch()}`,
+        process: 'renderer',
+        renderer: {
+          reason: sanitizeDiagnosticText(details.reason),
+          exitCode: details.exitCode,
+        },
+        nativeCrash: this.toPublicNativeCrash(native),
       })
     } catch {
       // Crash reporter must never throw
@@ -72,7 +79,8 @@ export class CrashReporter {
     try {
       if (!existsSync(this.reportPath)) return null
       const raw = readFileSync(this.reportPath, 'utf-8')
-      return JSON.parse(raw) as CrashReport
+      const report = JSON.parse(raw) as CrashReport
+      return this.toPublicCrashReport(this.enrichRendererCrashReport(report))
     } catch {
       return null
     }
@@ -108,13 +116,14 @@ export class CrashReporter {
       appVersion: app.getVersion(),
       electronVersion: process.versions.electron,
       os: `${os.platform()} ${os.release()} ${os.arch()}`,
+      process: 'main' as const,
     }
 
     if (!native) {
       return {
         ...base,
         timestamp: new Date().toISOString(),
-        errorMessage: 'The app did not shut down cleanly',
+        errorMessage: sanitizeRequired('The app did not shut down cleanly'),
       }
     }
 
@@ -123,20 +132,86 @@ export class CrashReporter {
     return {
       ...base,
       timestamp: native.timestamp || new Date().toISOString(),
-      errorMessage: `Native crash: ${what}${where}`,
-      stack: native.stack,
-      nativeCrash: {
-        exceptionType: native.exceptionType,
-        exceptionCodes: native.exceptionCodes,
-        terminationReason: native.terminationReason,
-        triggeredThread: native.triggeredThread,
-        incidentId: native.incidentId,
-        sourceFile: native.sourceFile,
-      },
+      errorMessage: sanitizeRequired(`Native crash: ${what}${where}`),
+      stack: sanitizeStack(native.stack),
+      nativeCrash: this.toPublicNativeCrash(native),
     }
   }
 
-  private writeCrashReport(report: CrashReport): void {
-    writeFileSync(this.reportPath, JSON.stringify(report, null, 2))
+  private enrichRendererCrashReport(report: CrashReport): CrashReport {
+    if (report.type !== 'rendererCrash' || report.nativeCrash?.stack) return report
+
+    const crashMs = Date.parse(report.timestamp)
+    if (Number.isNaN(crashMs)) return report
+
+    const native = findRecentNativeCrash(RENDERER_CRASH_PROCESS_NAME, crashMs)
+    const nativeCrash = this.toPublicNativeCrash(native)
+    if (!nativeCrash) return report
+
+    return {
+      ...report,
+      process: 'renderer',
+      nativeCrash,
+    }
   }
+
+  private toPublicCrashReport(report: CrashReport): CrashReport {
+    return {
+      timestamp: sanitizeRequired(report.timestamp),
+      type: report.type,
+      errorMessage: sanitizeRequired(report.errorMessage),
+      stack: sanitizeStack(report.stack),
+      appVersion: sanitizeRequired(report.appVersion),
+      electronVersion: sanitizeRequired(report.electronVersion),
+      os: sanitizeRequired(report.os),
+      process: report.process ?? this.processForType(report.type),
+      renderer: report.renderer
+        ? {
+            reason: sanitizeDiagnosticText(report.renderer.reason),
+            exitCode: report.renderer.exitCode,
+          }
+        : undefined,
+      nativeCrash: report.nativeCrash
+        ? {
+            exceptionType: sanitizeDiagnosticText(report.nativeCrash.exceptionType),
+            exceptionCodes: sanitizeDiagnosticText(report.nativeCrash.exceptionCodes),
+            terminationReason: sanitizeDiagnosticText(report.nativeCrash.terminationReason),
+            triggeredThread: sanitizeDiagnosticText(report.nativeCrash.triggeredThread),
+            incidentId: sanitizeDiagnosticText(report.nativeCrash.incidentId),
+            stack: sanitizeStack(report.nativeCrash.stack),
+          }
+        : undefined,
+    }
+  }
+
+  private toPublicNativeCrash(native: NativeCrashInfo | null): CrashReport['nativeCrash'] {
+    if (!native) return undefined
+    return {
+      exceptionType: sanitizeDiagnosticText(native.exceptionType),
+      exceptionCodes: sanitizeDiagnosticText(native.exceptionCodes),
+      terminationReason: sanitizeDiagnosticText(native.terminationReason),
+      triggeredThread: sanitizeDiagnosticText(native.triggeredThread),
+      incidentId: sanitizeDiagnosticText(native.incidentId),
+      stack: sanitizeStack(native.stack),
+    }
+  }
+
+  private processForType(type: CrashReport['type']): NonNullable<CrashReport['process']> {
+    return match(type)
+      .with('rendererCrash', () => 'renderer' as const)
+      .with('childProcessGone', () => 'child' as const)
+      .with(
+        P.union('uncaughtException', 'unhandledRejection', 'ungracefulShutdown'),
+        () => 'main' as const,
+      )
+      .exhaustive()
+  }
+
+  private writeCrashReport(report: CrashReport): void {
+    writeFileSync(this.reportPath, JSON.stringify(this.toPublicCrashReport(report), null, 2))
+  }
+}
+
+function sanitizeRequired(value: string): string {
+  return sanitizeDiagnosticText(value) ?? ''
 }

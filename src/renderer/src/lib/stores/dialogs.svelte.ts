@@ -1,3 +1,5 @@
+export type { CrashReportData } from '../../../../renderer-shared/crashReport'
+
 export interface ConfirmOptions {
   title: string
   message: string
@@ -97,16 +99,6 @@ interface RunConfigManagerState {
   type: 'runConfigManager'
   selectConfigDir?: string
   selectConfigName?: string
-}
-
-export interface CrashReportData {
-  timestamp: string
-  type: string
-  errorMessage: string
-  stack?: string
-  appVersion: string
-  electronVersion: string
-  os: string
 }
 
 interface CrashReportState {

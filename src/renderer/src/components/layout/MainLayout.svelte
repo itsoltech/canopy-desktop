@@ -26,6 +26,7 @@
   import RightPanel from './RightPanel.svelte'
   import Toast from '../shared/Toast.svelte'
   import { Loader2 } from '@lucide/svelte'
+  import { formatCrashReportMarkdown } from '../../lib/crashReportMarkdown'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import {
@@ -37,6 +38,7 @@
     showOnboardingWizard,
     showFeatureOnboarding,
     showCrashReport,
+    type CrashReportData,
   } from '../../lib/stores/dialogs.svelte'
   import {
     workspaceState,
@@ -78,6 +80,15 @@
     clearWorktreeBadge,
   } from '../../lib/agents/agentState.svelte'
   import { findWorktreeForSession } from '../../lib/stores/tabs.svelte'
+
+  function crashIssueUrl(d: CrashReportData): string {
+    const process = d.process ?? 'unknown'
+    const title = encodeURIComponent(`Canopy crash report: ${d.type} (${process})`)
+    const body = encodeURIComponent(
+      'Crash report copied from Canopy. Paste it here before submitting.',
+    )
+    return `https://github.com/itsoltech/canopy-desktop/issues/new?title=${title}&body=${body}&labels=bug,crash`
+  }
   import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
   import { initSkillStore, destroySkillStore } from '../../lib/stores/skills.svelte'
   import { initProfileStore, destroyProfileStore } from '../../lib/stores/profiles.svelte'
@@ -126,6 +137,11 @@
           title: 'Starting Canopy',
           description: 'Checking for a previous session...',
         },
+  )
+  let crashReportMarkdown = $derived(
+    dialogState.current.type === 'crashReport'
+      ? formatCrashReportMarkdown(dialogState.current.data)
+      : '',
   )
 
   // Sidebar resize state
@@ -584,28 +600,21 @@
 {:else if dialogState.current.type === 'crashReport'}
   <CrashReportDialog
     data={dialogState.current.data}
-    onCreateIssue={() => {
+    reportMarkdown={crashReportMarkdown}
+    onCreateIssue={async () => {
       if (dialogState.current.type !== 'crashReport') return
       const d = dialogState.current.data
-      // Strip home directory paths from stack traces to avoid leaking local paths
-      const homeDir = d.os.startsWith('win32')
-        ? /[A-Z]:\\Users\\[^\\]+\\/gi
-        : /\/(?:Users|home)\/[^/]+\//g
-      const sanitize = (s: string): string => s.replace(homeDir, '~/')
-      const title = encodeURIComponent(`Crash: ${sanitize(d.errorMessage).slice(0, 80)}`)
-      const body = encodeURIComponent(
-        `## Crash report\n\n` +
-          `- **Timestamp:** ${d.timestamp}\n` +
-          `- **Type:** ${d.type}\n` +
-          `- **App version:** ${d.appVersion}\n` +
-          `- **Electron:** ${d.electronVersion}\n` +
-          `- **OS:** ${d.os}\n\n` +
-          `### Error\n\`\`\`\n${sanitize(d.errorMessage)}\n\`\`\`\n\n` +
-          (d.stack ? `### Stack trace\n\`\`\`\n${sanitize(d.stack).slice(0, 3000)}\n\`\`\`\n` : ''),
-      )
-      const url = `https://github.com/itsoltech/canopy-desktop/issues/new?title=${title}&body=${body}&labels=bug,crash`
+      try {
+        await navigator.clipboard.writeText(crashReportMarkdown)
+        addToast('Crash report copied to clipboard')
+      } catch {
+        addToast('Failed to copy crash report to clipboard')
+        return
+      }
+
+      const url = crashIssueUrl(d)
       window.api.openExternal(url).catch(() => {
-        addToast('Failed to open browser. Copy the URL from your address bar to report manually.')
+        addToast('Failed to open browser. Crash report is copied to clipboard.')
       })
       closeDialog()
     }}

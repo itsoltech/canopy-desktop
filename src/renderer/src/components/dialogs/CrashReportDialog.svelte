@@ -5,18 +5,23 @@
 
   let {
     data,
+    reportMarkdown,
     onCreateIssue,
     onDismiss,
   }: {
     data: CrashReportData
+    reportMarkdown: string
     onCreateIssue: () => void
     onDismiss: () => void
   } = $props()
 
   let dismissBtn: HTMLButtonElement | undefined = $state()
+  let containerEl: HTMLDivElement | undefined = $state()
 
   onMount(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null
     dismissBtn?.focus()
+    return () => previouslyFocused?.focus?.()
   })
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -24,7 +29,27 @@
       e.preventDefault()
       e.stopPropagation()
       onDismiss()
+      return
     }
+
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+      return
+    }
+
     if (e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
@@ -46,16 +71,18 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-[1001] flex justify-center items-start pt-[120px] bg-scrim"
+  class="fixed inset-0 z-[1001] flex justify-center items-start p-4 pt-6 sm:pt-[120px] overflow-y-auto bg-scrim"
   onkeydown={handleKeydown}
   onmousedown={onDismiss}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="w-[480px] bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
+    bind:this={containerEl}
+    class="w-[480px] max-w-full max-h-[calc(100vh-48px)] sm:max-h-[calc(100vh-144px)] overflow-y-auto bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
     role="dialog"
     aria-modal="true"
     aria-labelledby="crash-dialog-title"
+    tabindex="-1"
     onmousedown={(e) => e.stopPropagation()}
   >
     <h3
@@ -66,7 +93,7 @@
       Canopy crashed
     </h3>
     <p class="m-0 mb-3 text-md text-text-secondary leading-normal">
-      The app did not shut down cleanly last time. You can report this to help us fix it.
+      The app did not shut down cleanly last time. Review the report before sharing it.
     </p>
 
     <div class="flex flex-col gap-1 mb-3 text-sm text-text-muted">
@@ -90,6 +117,24 @@
         <span class="min-w-16 text-text-faint">OS</span>
         <span>{data.os}</span>
       </div>
+      {#if data.renderer?.reason}
+        <div class="flex gap-2">
+          <span class="min-w-16 text-text-faint">Reason</span>
+          <span>{data.renderer.reason}</span>
+        </div>
+      {/if}
+      {#if data.renderer?.exitCode !== undefined}
+        <div class="flex gap-2">
+          <span class="min-w-16 text-text-faint">Exit</span>
+          <span>{data.renderer.exitCode}</span>
+        </div>
+      {/if}
+      {#if data.nativeCrash?.exceptionType}
+        <div class="flex gap-2">
+          <span class="min-w-16 text-text-faint">Native</span>
+          <span>{data.nativeCrash.exceptionType}</span>
+        </div>
+      {/if}
     </div>
 
     {#if data.errorMessage || data.stack}
@@ -97,6 +142,12 @@
         class="m-0 mb-3 p-2 bg-bg border border-border rounded-lg font-mono text-xs leading-snug text-text-muted max-h-[200px] overflow-y-auto whitespace-pre-wrap break-all">{data.errorMessage}{#if data.stack}
           {data.stack}{/if}</pre>
     {/if}
+
+    <div class="mb-3">
+      <div class="mb-1 text-sm text-text-faint">Report to copy</div>
+      <pre
+        class="m-0 p-2 bg-bg border border-border rounded-lg font-mono text-xs leading-snug text-text-muted max-h-[240px] overflow-y-auto whitespace-pre-wrap break-all">{reportMarkdown}</pre>
+    </div>
 
     <div class="flex justify-end gap-2 mt-4">
       <button
@@ -106,7 +157,7 @@
       >
       <button
         class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none bg-accent-bg text-accent-text transition-colors duration-fast hover:bg-accent-muted focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-        onclick={onCreateIssue}>Create issue</button
+        onclick={onCreateIssue}>Copy report and open issue</button
       >
     </div>
   </div>
