@@ -48,13 +48,13 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-[1001] flex justify-center items-start pt-[120px] bg-scrim"
+  class="fixed inset-0 z-[1001] flex justify-center items-start p-4 pt-6 sm:pt-[120px] overflow-y-auto bg-scrim"
   onkeydown={handleKeydown}
   onmousedown={onDismiss}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="w-[480px] bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
+    class="w-[480px] max-w-full max-h-[calc(100vh-48px)] sm:max-h-[calc(100vh-144px)] overflow-y-auto bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
     role="dialog"
     aria-modal="true"
     aria-labelledby="crash-dialog-title"

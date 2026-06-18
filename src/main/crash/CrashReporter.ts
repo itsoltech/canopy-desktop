@@ -2,7 +2,9 @@ import { app, type RenderProcessGoneDetails } from 'electron'
 import os from 'os'
 import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { match, P } from 'ts-pattern'
 import { findRecentNativeCrash, type NativeCrashInfo } from './NativeCrashReader'
+import { sanitizeDiagnosticText, sanitizeStack } from './sanitizeCrashDiagnostic'
 
 export interface CrashReport {
   timestamp: string
@@ -34,13 +36,6 @@ export interface CrashReport {
 
 const NATIVE_CRASH_PROCESS_NAME = 'Canopy'
 const RENDERER_CRASH_PROCESS_NAME = 'Canopy Helper (Renderer)'
-const REDACTED = '[redacted]'
-const MAX_STACK_CHARS = 4000
-const USER_PATH_PATTERN = /(?:[A-Z]:\\Users\\[^\\\s]+\\|\/(?:Users|home)\/[^/\s]+\/)/gi
-const URL_PATTERN = /\bhttps?:\/\/[^\s<>"'`]+/gi
-const TOKEN_LIKE_PATTERN =
-  /\b(?:token|secret|password|passwd|apikey|api_key|authorization|bearer)[A-Za-z0-9_\-:=./+]{3,}/gi
-const ENV_VALUE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}=([^\s]+)/g
 
 export class CrashReporter {
   private readonly sentinelPath: string
@@ -229,18 +224,14 @@ export class CrashReporter {
   }
 
   private processForType(type: CrashReport['type']): NonNullable<CrashReport['process']> {
-    switch (type) {
-      case 'rendererCrash':
-        return 'renderer'
-      case 'childProcessGone':
-        return 'child'
-      case 'uncaughtException':
-      case 'unhandledRejection':
-      case 'ungracefulShutdown':
-        return 'main'
-      default:
-        return 'unknown'
-    }
+    return match(type)
+      .with('rendererCrash', () => 'renderer' as const)
+      .with('childProcessGone', () => 'child' as const)
+      .with(
+        P.union('uncaughtException', 'unhandledRejection', 'ungracefulShutdown'),
+        () => 'main' as const,
+      )
+      .exhaustive()
   }
 
   private writeCrashReport(report: CrashReport): void {
@@ -248,25 +239,6 @@ export class CrashReporter {
   }
 }
 
-function sanitizeStack(value: string | undefined): string | undefined {
-  const sanitized = sanitizeDiagnosticText(value)
-  if (!sanitized) return sanitized
-  if (sanitized.length <= MAX_STACK_CHARS) return sanitized
-  return `${sanitized.slice(0, MAX_STACK_CHARS - 20)}\n... (truncated)`
-}
-
 function sanitizeRequired(value: string): string {
   return sanitizeDiagnosticText(value) ?? ''
-}
-
-function sanitizeDiagnosticText(value: string | undefined): string | undefined {
-  if (!value) return value
-  return value
-    .replace(USER_PATH_PATTERN, '~/')
-    .replace(URL_PATTERN, REDACTED)
-    .replace(TOKEN_LIKE_PATTERN, REDACTED)
-    .replace(ENV_VALUE_PATTERN, (match) => {
-      const idx = match.indexOf('=')
-      return idx >= 0 ? `${match.slice(0, idx + 1)}${REDACTED}` : REDACTED
-    })
 }

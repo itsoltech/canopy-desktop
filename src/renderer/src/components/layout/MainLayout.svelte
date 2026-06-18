@@ -96,10 +96,10 @@
     if (d.renderer?.exitCode !== undefined)
       lines.push(`- **Renderer exit code:** ${d.renderer.exitCode}`)
 
-    lines.push('', '### Error', '```', d.errorMessage, '```')
+    appendFencedSection(lines, '### Error', d.errorMessage)
 
     if (d.stack) {
-      lines.push('', '### Stack trace', '```', d.stack, '```')
+      appendFencedSection(lines, '### Stack trace', d.stack)
     }
 
     if (d.nativeCrash) {
@@ -120,15 +120,27 @@
         lines.push(`- **Incident ID:** ${d.nativeCrash.incidentId}`)
       }
       if (d.nativeCrash.stack) {
-        lines.push('', '#### Native stack', '```', d.nativeCrash.stack, '```')
+        appendFencedSection(lines, '#### Native stack', d.nativeCrash.stack)
       }
     }
 
     return lines.join('\n')
   }
 
+  function appendFencedSection(lines: string[], heading: string, value: string): void {
+    const fence = markdownFenceFor(value)
+    lines.push('', heading, fence, value, fence)
+  }
+
+  function markdownFenceFor(value: string): string {
+    const backtickRuns = value.match(/`+/g) ?? []
+    const longestRun = backtickRuns.reduce((max, run) => Math.max(max, run.length), 0)
+    return '`'.repeat(Math.max(3, longestRun + 1))
+  }
+
   function crashIssueUrl(d: CrashReportData): string {
-    const title = encodeURIComponent(`Crash: ${d.errorMessage.slice(0, 80)}`)
+    const process = d.process ?? 'unknown'
+    const title = encodeURIComponent(`Canopy crash report: ${d.type} (${process})`)
     const body = encodeURIComponent(
       'Crash report copied from Canopy. Paste it here before submitting.',
     )

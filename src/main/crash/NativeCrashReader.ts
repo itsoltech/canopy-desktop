@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'fs'
 import os from 'os'
 import { join } from 'path'
+import { sanitizeDiagnosticText, sanitizeStack } from './sanitizeCrashDiagnostic'
 
 export interface NativeCrashInfo {
   timestamp: string
@@ -56,12 +57,6 @@ interface IpsBody {
 const MAX_FRAMES = 40
 const MAX_STACK_CHARS = 4000
 const CLOCK_SKEW_MS = 60_000
-const REDACTED = '[redacted]'
-const URL_PATTERN = /\bhttps?:\/\/[^\s<>"'`]+/gi
-const USER_PATH_PATTERN = /(?:[A-Z]:\\Users\\[^\\\s]+\\|\/(?:Users|home)\/[^/\s]+\/)/gi
-const TOKEN_LIKE_PATTERN =
-  /\b(?:token|secret|password|passwd|apikey|api_key|authorization|bearer)[A-Za-z0-9_\-:=./+]{3,}/gi
-const ENV_VALUE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}=([^\s]+)/g
 
 export function findRecentNativeCrash(
   processName: string,
@@ -209,24 +204,11 @@ function formatFrames(frames: IpsFrame[], images: IpsImage[]): string {
   }
 
   const joined = lines.join('\n')
-  if (joined.length <= MAX_STACK_CHARS) return joined
-  return `${joined.slice(0, MAX_STACK_CHARS - 20)}\n... (truncated)`
+  return sanitizeStack(joined, MAX_STACK_CHARS) ?? ''
 }
 
 function sanitizeFramePart(value: string): string {
   const sanitized = sanitizeDiagnosticText(value) ?? '???'
   if (sanitized.length <= 160) return sanitized
   return `${sanitized.slice(0, 157)}...`
-}
-
-function sanitizeDiagnosticText(value: string | undefined): string | undefined {
-  if (!value) return value
-  return value
-    .replace(USER_PATH_PATTERN, '~/')
-    .replace(URL_PATTERN, REDACTED)
-    .replace(TOKEN_LIKE_PATTERN, REDACTED)
-    .replace(ENV_VALUE_PATTERN, (match) => {
-      const idx = match.indexOf('=')
-      return idx >= 0 ? `${match.slice(0, idx + 1)}${REDACTED}` : REDACTED
-    })
 }
