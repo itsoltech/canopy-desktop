@@ -16,9 +16,12 @@
   } = $props()
 
   let dismissBtn: HTMLButtonElement | undefined = $state()
+  let containerEl: HTMLDivElement | undefined = $state()
 
   onMount(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null
     dismissBtn?.focus()
+    return () => previouslyFocused?.focus?.()
   })
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -26,7 +29,27 @@
       e.preventDefault()
       e.stopPropagation()
       onDismiss()
+      return
     }
+
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+      return
+    }
+
     if (e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
@@ -54,6 +77,7 @@
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    bind:this={containerEl}
     class="w-[480px] max-w-full max-h-[calc(100vh-48px)] sm:max-h-[calc(100vh-144px)] overflow-y-auto bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
     role="dialog"
     aria-modal="true"
