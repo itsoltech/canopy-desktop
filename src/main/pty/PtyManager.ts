@@ -176,6 +176,10 @@ export class PtyManager {
     rows: number,
     source: 'desktop' | 'peer',
   ): ClientSize | null {
+    // Guard before getArbiterEntry: a resize can arrive after the PTY exited
+    // (onExit already pruned sessions + sizeArbiter). Without this, the late
+    // call would recreate an orphaned arbiter entry that nothing prunes.
+    if (!this.sessions.has(id)) return null
     const size = this.clampSize(cols, rows)
     const entry = this.getArbiterEntry(id)
     if (source === 'desktop') {
