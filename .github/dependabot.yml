@@ -18,6 +18,21 @@ updates:
     labels:
       - dependencies
     groups:
+      # Native modules are rebuilt against Electron's ABI by `install-app-deps`
+      # (postinstall). better-sqlite3 must support the Electron ABI it is rebuilt
+      # against — a version mismatch broke the build in #273. Keep Electron and the
+      # native modules in ONE PR (majors included, unlike every other group) so they
+      # are reviewed and rebuilt together, never a stray Electron major landing alone.
+      # Listed first so these three are pulled out of the catch-all `npm` group below.
+      electron-native:
+        patterns:
+          - 'electron'
+          - 'better-sqlite3'
+          - 'node-pty'
+        update-types:
+          - major
+          - minor
+          - patch
       npm:
         patterns:
           - '*'
