@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CircleHelp } from '@lucide/svelte'
+  import { CircleQuestionMark } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import Tooltip from '../shared/Tooltip.svelte'
 
@@ -32,7 +32,7 @@
         class="inline-flex items-center border-0 bg-transparent p-0 text-text-muted cursor-help rounded-sm focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
         aria-label="{label} help"
       >
-        <CircleHelp size={11} />
+        <CircleQuestionMark size={11} />
       </button>
     </Tooltip>
   </span>

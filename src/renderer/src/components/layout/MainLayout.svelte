@@ -25,7 +25,7 @@
   import WelcomeDashboard from '../dashboard/WelcomeDashboard.svelte'
   import RightPanel from './RightPanel.svelte'
   import Toast from '../shared/Toast.svelte'
-  import { Loader2 } from '@lucide/svelte'
+  import { LoaderCircle } from '@lucide/svelte'
   import { formatCrashReportMarkdown } from '../../lib/crashReportMarkdown'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -631,7 +631,7 @@
       role="status"
       aria-live="polite"
     >
-      <Loader2 size={18} class="animate-spin text-text-faint motion-reduce:animate-none" />
+      <LoaderCircle size={18} class="animate-spin text-text-faint motion-reduce:animate-none" />
       <div class="flex flex-col items-center gap-1">
         <p class="m-0 text-sm font-medium text-text">{startupMessage.title}</p>
         <p class="m-0 text-xs text-text-faint">{startupMessage.description}</p>

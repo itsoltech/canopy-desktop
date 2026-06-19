@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { Search, X, Loader2, Copy, Filter, Send } from '@lucide/svelte'
+  import { Search, X, LoaderCircle, Copy, Funnel, Send } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { setPref, getPref, prefs } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -381,7 +381,7 @@
             }}
             title="Filters"
           >
-            <Filter size={14} />
+            <Funnel size={14} />
           </button>
           <button
             class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
@@ -472,7 +472,7 @@
       <div class="flex-1 overflow-y-auto py-1">
         {#if loading}
           <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
-            <Loader2 size={16} class="animate-spin" />
+            <LoaderCircle size={16} class="animate-spin" />
             <span>Loading tasks...</span>
           </div>
         {:else if error}
@@ -530,7 +530,7 @@
                   aria-label="Send to agent"
                 >
                   {#if sendingTaskKey === task.key}
-                    <Loader2 size={12} class="animate-spin" />
+                    <LoaderCircle size={12} class="animate-spin" />
                   {:else}
                     <Send size={12} />
                   {/if}
