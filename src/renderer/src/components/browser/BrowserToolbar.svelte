@@ -11,7 +11,7 @@
     X,
     Smartphone,
     Star,
-  } from 'lucide-svelte'
+  } from '@lucide/svelte'
 
   let {
     url,

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { RotateCw } from 'lucide-svelte'
+  import { RotateCw } from '@lucide/svelte'
 
   let {
     errorDescription,
