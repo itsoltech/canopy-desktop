@@ -2,7 +2,8 @@
 # Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
 #
 # Strategy: weekly, grouped, non-major bumps so the review surface stays small.
-# Majors are excluded from the groups and arrive as individual PRs.
+# Majors are excluded from every group and arrive as individual PRs.
+# Updates target `next` (the integration branch) explicitly.
 # Review gate is intentionally kept: a maintainer still applies
 # `claude:review:approved` before auto-merge (see .github/workflows/auto-merge.yml).
 version: 2
@@ -10,6 +11,7 @@ updates:
   # ---- Root: Electron + Svelte 5 desktop app ----
   - package-ecosystem: npm
     directory: '/'
+    target-branch: 'next'
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
@@ -26,22 +28,27 @@ updates:
   # ---- Mobile: Expo + React Native app ----
   - package-ecosystem: npm
     directory: '/mobile'
+    target-branch: 'next'
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
     labels:
       - dependencies
-    # Expo SDK pins react-native / react / expo-* to exact versions. They must be
-    # upgraded together via `expo install` / an SDK bump, never piecemeal by
-    # Dependabot — a stray react-native minor breaks the Metro/native build
-    # (this is exactly what slipped into the grouped PR #263).
+    # Expo SDK pins the React Native / React / Expo packages to exact versions.
+    # They must be upgraded together via `expo install` / an SDK bump, never
+    # piecemeal by Dependabot — a stray react-native minor breaks the Metro/native
+    # build (this is exactly what slipped into the grouped PR #263). The scoped
+    # @expo/* and @react-native/* globs cover packages like @expo/ui that the
+    # unscoped expo-* / react-native-* patterns miss.
     ignore:
       - dependency-name: 'expo'
       - dependency-name: 'expo-*'
+      - dependency-name: '@expo/*'
       - dependency-name: 'react'
       - dependency-name: 'react-dom'
       - dependency-name: 'react-native'
       - dependency-name: 'react-native-*'
+      - dependency-name: '@react-native/*'
     groups:
       npm:
         patterns:
@@ -53,6 +60,7 @@ updates:
   # ---- GitHub Actions workflows ----
   - package-ecosystem: github-actions
     directory: '/'
+    target-branch: 'next'
     schedule:
       interval: weekly
     labels:
@@ -61,3 +69,6 @@ updates:
       actions:
         patterns:
           - '*'
+        update-types:
+          - minor
+          - patch
