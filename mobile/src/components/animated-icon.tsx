@@ -45,7 +45,7 @@ export function AnimatedSplashOverlay(): React.ReactElement | null {
 
 const styles = StyleSheet.create({
   backgroundSolidColor: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: '#FFFFFF',
     zIndex: 1000,
   },
