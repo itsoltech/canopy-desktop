@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { FolderGit2, Terminal, FileText, ArrowRight, Trash2, Plus } from '@lucide/svelte'
+  import {
+    FolderGit2,
+    Terminal,
+    FileText,
+    ArrowRight,
+    Trash2,
+    Plus,
+    FolderOpen,
+  } from '@lucide/svelte'
   import { prefs, setPref, getPref } from '../../lib/stores/preferences.svelte'
   import CustomRadio from '../shared/CustomRadio.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -20,6 +28,11 @@
     } else {
       setPref('worktrees.baseDir', '')
     }
+  }
+
+  async function browseWorktreesDir(): Promise<void> {
+    const selected = await window.api.openFolder(worktreesDir || undefined)
+    if (selected) updateWorktreesDir(selected)
   }
 
   interface SetupCommandAction {
@@ -118,17 +131,28 @@
       search="worktree directory base path"
       layout="stacked"
     >
-      <input
-        class="w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-        type="text"
-        name="worktreesBaseDir"
-        aria-label="Worktrees base directory"
-        value={worktreesDir}
-        oninput={(e) => updateWorktreesDir(e.currentTarget.value)}
-        placeholder="~/canopy/worktrees"
-        spellcheck="false"
-        autocomplete="off"
-      />
+      <div class="flex gap-2">
+        <input
+          class="min-w-0 flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+          type="text"
+          name="worktreesBaseDir"
+          aria-label="Worktrees base directory"
+          value={worktreesDir}
+          oninput={(e) => updateWorktreesDir(e.currentTarget.value)}
+          placeholder="~/canopy/worktrees"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <button
+          type="button"
+          class="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md border border-border bg-bg-input text-text-secondary hover:text-text hover:border-border-strong focus:outline-none focus:border-focus-ring"
+          title="Browse"
+          aria-label="Browse for worktrees base directory"
+          onclick={browseWorktreesDir}
+        >
+          <FolderOpen size={14} />
+        </button>
+      </div>
     </PrefsRow>
   </PrefsSection>
 

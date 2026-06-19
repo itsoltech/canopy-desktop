@@ -195,6 +195,10 @@ export class WorkspaceCommandService {
     paths.add(targetPath)
   }
 
+  getGrantedAttachPaths(webContentsId: number): string[] {
+    return [...(this.grantedAttachPathsByWindow.get(webContentsId) ?? [])]
+  }
+
   async initGitRepo(sender: WebContents, projectPath: string): Promise<WorkspaceCommandResult> {
     this.trackSender(sender)
     const resolved = await this.deps.validatePathAccess(sender.id, projectPath)

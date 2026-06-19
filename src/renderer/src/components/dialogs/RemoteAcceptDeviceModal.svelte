@@ -123,7 +123,10 @@
       </p>
     {/if}
 
-    <p class="m-0 mt-2 text-xs text-text-muted text-right" role="timer" aria-live="polite">
+    <!-- role="timer" implies aria-live="off": the countdown is visible to sighted
+         users but must not announce every second and drown out the fingerprint
+         a screen-reader user is reviewing for this security decision. -->
+    <p class="m-0 mt-2 text-xs text-text-muted text-right" role="timer">
       Auto-reject in {secondsLeft}s
     </p>
 
