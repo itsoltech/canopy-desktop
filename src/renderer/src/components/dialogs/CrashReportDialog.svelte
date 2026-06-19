@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { TriangleAlert } from 'lucide-svelte'
+  import { TriangleAlert } from '@lucide/svelte'
   import type { CrashReportData } from '../../lib/stores/dialogs.svelte'
 
   let {

@@ -9,7 +9,7 @@
     PanelLeft,
     Sliders,
     Terminal,
-  } from 'lucide-svelte'
+  } from '@lucide/svelte'
   import {
     workspaceState,
     toggleSidebar,

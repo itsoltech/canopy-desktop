@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { match } from 'ts-pattern'
-  import { RotateCw, Check, X } from 'lucide-svelte'
+  import { RotateCw, Check, X } from '@lucide/svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'

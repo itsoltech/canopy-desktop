@@ -5,7 +5,7 @@
     SvglGeminiLogo as GeminiLogo,
     SvglGitLogo as GitLogo,
   } from '@selemondev/svgl-svelte'
-  import { Terminal, Globe, FileText, Code } from 'lucide-svelte'
+  import { Terminal, Globe, FileText, Code } from '@lucide/svelte'
 
   let { icon, size = 14 }: { icon: string; size?: number } = $props()
 </script>

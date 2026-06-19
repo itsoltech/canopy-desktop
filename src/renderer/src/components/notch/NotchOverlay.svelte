@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { TerminalSquare, Loader, ShieldAlert, Sparkles } from 'lucide-svelte'
+  import { SquareTerminal, Loader, ShieldAlert, Sparkles } from '@lucide/svelte'
   import NotchNotificationRow from './NotchNotificationRow.svelte'
 
   interface NotchSession {
@@ -152,7 +152,7 @@
         {:else if aggregateStatus === 'waitingPermission'}
           <ShieldAlert size={15} />
         {:else}
-          <TerminalSquare size={15} />
+          <SquareTerminal size={15} />
         {/if}
       </span>
       <span

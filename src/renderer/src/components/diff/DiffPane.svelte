@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { match } from 'ts-pattern'
-  import { Search, RotateCw, ChevronRight, Copy } from 'lucide-svelte'
+  import { Search, RotateCw, ChevronRight, Copy } from '@lucide/svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'

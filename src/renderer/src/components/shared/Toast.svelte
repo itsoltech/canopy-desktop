@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Globe, ExternalLink, X } from 'lucide-svelte'
+  import { Globe, ExternalLink, X } from '@lucide/svelte'
   import { toastState, dismissToast } from '../../lib/stores/toast.svelte'
   import { openTool } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
