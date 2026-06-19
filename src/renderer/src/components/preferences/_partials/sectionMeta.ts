@@ -4,7 +4,7 @@ import {
   Shield,
   Keyboard,
   Bell,
-  MoreHorizontal,
+  Ellipsis,
   Palette,
   PanelLeft,
   Sparkles,
@@ -55,7 +55,7 @@ export const sectionMeta: Record<string, SectionMeta> = {
     keywords: 'notch overlay status indicator macos session',
   },
   Misc: {
-    icon: MoreHorizontal,
+    icon: Ellipsis,
     description: 'Other toggles and tweaks',
     keywords: 'misc miscellaneous other',
   },

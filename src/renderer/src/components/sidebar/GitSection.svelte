@@ -7,7 +7,7 @@
     Archive,
     ArchiveRestore,
     GitPullRequest,
-    Loader2,
+    LoaderCircle,
   } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt, showCreateGitHubPR } from '../../lib/stores/dialogs.svelte'
@@ -149,7 +149,7 @@
       title={workspaceState.isDirty ? 'Commit staged changes' : 'Nothing to commit'}
     >
       {#if loading === 'commit'}
-        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
       {:else}
         <GitCommitVertical
           size={13}
@@ -172,7 +172,7 @@
       title="Push to remote"
     >
       {#if loading === 'push'}
-        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
       {:else}
         <ArrowUpFromLine
           size={13}
@@ -194,7 +194,7 @@
       title="Pull from remote"
     >
       {#if loading === 'pull'}
-        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
       {:else}
         <ArrowDownToLine
           size={13}
@@ -216,7 +216,7 @@
       title="Fetch from remote"
     >
       {#if loading === 'fetch'}
-        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
       {:else}
         <RefreshCw
           size={13}
@@ -239,7 +239,7 @@
       title={workspaceState.isDirty ? 'Stash changes' : 'Nothing to stash'}
     >
       {#if loading === 'stash'}
-        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
       {:else}
         <Archive
           size={13}
@@ -255,7 +255,7 @@
       title="Pop stashed changes"
     >
       {#if loading === 'stashPop'}
-        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
       {:else}
         <ArchiveRestore
           size={13}
@@ -278,7 +278,7 @@
       title="Create pull request"
     >
       {#if loading === 'pr'}
-        <Loader2 size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
       {:else}
         <GitPullRequest
           size={13}

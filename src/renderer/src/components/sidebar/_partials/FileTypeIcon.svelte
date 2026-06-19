@@ -3,7 +3,7 @@
   import {
     File,
     FileCode,
-    FileJson,
+    FileBraces,
     FileText,
     FileType,
     FileCog,
@@ -46,7 +46,7 @@
         tone: 'text-warning-text',
       }))
       .with(P.union('svelte', 'vue'), () => ({ Icon: FileCode, tone: 'text-danger-text' }))
-      .with(P.union('json', 'jsonc'), () => ({ Icon: FileJson, tone: 'text-warning-text' }))
+      .with(P.union('json', 'jsonc'), () => ({ Icon: FileBraces, tone: 'text-warning-text' }))
       .with(P.union('yaml', 'yml', 'toml'), () => ({ Icon: FileCog, tone: 'text-text-muted' }))
       .with(P.union('css', 'scss', 'sass', 'less'), () => ({
         Icon: FileType,

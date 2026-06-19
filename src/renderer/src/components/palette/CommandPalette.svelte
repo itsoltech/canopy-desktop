@@ -7,7 +7,7 @@
     GitBranch,
     GitCommitVertical,
     PanelLeft,
-    Sliders,
+    SlidersVertical,
     Terminal,
   } from '@lucide/svelte'
   import {
@@ -71,7 +71,7 @@
     Git: GitCommitVertical,
     Worktrees: GitBranch,
     Tabs: PanelLeft,
-    App: Sliders,
+    App: SlidersVertical,
     Terminal,
   }
 
@@ -680,7 +680,7 @@
         <div class="px-3 py-5 text-center text-text-faint text-md" role="status">No results</div>
       {:else}
         {#each groupedItems as group, gi (group.category)}
-          {@const Icon = CATEGORY_ICON[group.category] ?? Sliders}
+          {@const Icon = CATEGORY_ICON[group.category] ?? SlidersVertical}
           <div class="py-0.5">
             <div
               class="flex items-center gap-1.5 text-2xs font-semibold tracking-caps-looser text-text-faint px-3 pt-2 pb-1 uppercase leading-tight"
