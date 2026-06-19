@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { ClaudeAILogo, OpenAILogo, GeminiLogo, GitLogo } from '@selemondev/svgl-svelte'
+  import {
+    SvglClaudeAILogo as ClaudeAILogo,
+    SvglOpenAILogo as OpenAILogo,
+    SvglGeminiLogo as GeminiLogo,
+    SvglGitLogo as GitLogo,
+  } from '@selemondev/svgl-svelte'
   import { Terminal, Globe, FileText, Code } from 'lucide-svelte'
 
   let { icon, size = 14 }: { icon: string; size?: number } = $props()
