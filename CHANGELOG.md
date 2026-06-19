@@ -1,3 +1,10 @@
+## [0.13.0-next.20](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.19...v0.13.0-next.20) (2026-06-19)
+
+### Bug Fixes
+
+* download Electron binary in postinstall for Electron 42 ([#284](https://github.com/itsoltech/canopy-desktop/issues/284)) ([e7425e2](https://github.com/itsoltech/canopy-desktop/commit/e7425e219bab2a254b438e495fe7c42688e1f7cf)), closes [#283](https://github.com/itsoltech/canopy-desktop/issues/283)
+* **worktree:** validate paths against configured base ([862e877](https://github.com/itsoltech/canopy-desktop/commit/862e8777078b60386d7261b7c3bf3f7219686627))
+
 ## [0.13.0-next.19](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.18...v0.13.0-next.19) (2026-06-19)
 
 ### Refactoring
