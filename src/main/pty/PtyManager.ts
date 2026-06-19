@@ -200,10 +200,10 @@ export class PtyManager {
   }
 
   /**
-   * Explicit desktop reclaim: the user returned to the desktop (window focus /
-   * terminal pointerdown). If a peer's size cap is still sticky from a previous
-   * disconnect, release it so the PTY grows back to the desktop size. A
-   * currently-connected peer is left untouched — a live phone still wins.
+   * Explicit desktop reclaim: the user returned to the desktop (terminal
+   * focus / keydown / pointerdown). If a peer's size cap is still sticky from a
+   * previous disconnect, release it so the PTY grows back to the desktop size.
+   * A currently-connected peer is left untouched — a live phone still wins.
    * Returns the new effective dims if they changed (to broadcast), else null.
    */
   reclaim(id: string): ClientSize | null {

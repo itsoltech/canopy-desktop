@@ -650,15 +650,25 @@
       // leaving the PTY stuck at the peer's dimensions until a real
       // window resize fires the ResizeObserver.
       //
-      // Instead we ALWAYS fire `window.api.resizePty` on focus/click
-      // with the desktop xterm's current cols/rows (refreshing the desktop's
-      // desired size in the host size arbiter), then `window.api.reclaimPty`
-      // to RELEASE a peer's sticky size cap. The arbiter keeps a disconnected
-      // peer's size sticky (so the PTY doesn't flap on the phone's frequent
-      // iOS background disconnects); an explicit desktop interaction is what
-      // grows the PTY back to the desktop layout. A still-connected peer is
-      // left untouched by reclaim — a live phone keeps the smaller size.
+      // Instead we ALWAYS fire `window.api.resizePty` on interaction with the
+      // desktop xterm's current cols/rows (refreshing the desktop's desired
+      // size in the host size arbiter), then `window.api.reclaimPty` to RELEASE
+      // a peer's sticky size cap. The arbiter keeps a disconnected peer's size
+      // sticky (so the PTY doesn't flap on the phone's frequent iOS background
+      // disconnects); an explicit desktop interaction is what grows the PTY
+      // back to the desktop layout. A still-connected peer is left untouched by
+      // reclaim — a live phone keeps the smaller size.
+      //
+      // Triggers: terminal `pointerdown`, textarea `focus`, AND `keydown` — the
+      // keydown path covers the case where the terminal already has focus and
+      // the user just keeps typing after a peer left (no new pointerdown/focus
+      // would fire, leaving the PTY stuck narrow). keydown is throttled so
+      // rapid typing doesn't spam the IPC; the arbiter call is idempotent.
+      let lastReclaimAt = 0
       reclaimPtyHandler = (): void => {
+        const now = performance.now()
+        if (now - lastReclaimAt < 750) return
+        lastReclaimAt = now
         if (term.cols > 0 && term.rows > 0) {
           window.api.resizePty(sessionId, term.cols, term.rows)
         }
@@ -666,6 +676,7 @@
       }
       reclaimTextarea = term.textarea ?? null
       containerEl.addEventListener('pointerdown', reclaimPtyHandler)
+      containerEl.addEventListener('keydown', reclaimPtyHandler)
       reclaimTextarea?.addEventListener('focus', reclaimPtyHandler)
 
       term.focus()
@@ -704,6 +715,7 @@
       if (keystrokeHandler) containerEl.removeEventListener('keydown', keystrokeHandler, true)
       if (reclaimPtyHandler) {
         containerEl.removeEventListener('pointerdown', reclaimPtyHandler)
+        containerEl.removeEventListener('keydown', reclaimPtyHandler)
         reclaimTextarea?.removeEventListener('focus', reclaimPtyHandler)
         reclaimPtyHandler = null
         reclaimTextarea = null

@@ -791,8 +791,8 @@ export function registerIpcHandlers(
     ptyManager.setPeerDisconnected(payload.sessionId)
   })
 
-  // Explicit desktop reclaim (window focus / terminal pointerdown): release a
-  // sticky peer cap left over from a disconnected peer so the PTY grows back
+  // Explicit desktop reclaim (terminal focus / keydown / pointerdown): release
+  // a sticky peer cap left over from a disconnected peer so the PTY grows back
   // to the desktop size. A live peer is left untouched by the arbiter.
   ipcMain.handle('pty:reclaim', (event, payload: { sessionId: string }) => {
     if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) return

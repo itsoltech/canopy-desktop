@@ -75,6 +75,12 @@ Listen mode keeps the signaling server bound in the background for the lifetime 
 3. If the peer reconnects within the window, the same-device-refresh check allows the pair attempt through, and the trust/accept flow runs again (auto-accept for trusted devices, manual accept otherwise).
 4. If 30 seconds pass without reconnection, the reaper fires. When listen mode is eligible (feature enabled, ≥1 trusted device, server still bound, `currentPairing` populated with host/port), the session drops back to `listening` instead of fully stopping — the port stays bound so the trusted device can wake the session back up later without any UI on the desktop. Otherwise the reaper calls `stop()` and returns to `idle`.
 
+### Shared terminal sizing (smallest client wins)
+
+A PTY session is shared between the desktop and a connected peer. Both view the same terminal, so it has a single size. The host sizes the PTY to the **smallest** attached client's viewport (tmux/zellij style), so terminal output — which the shell/agent lays out for the PTY's column count — is never wider than any viewer's grid. If the PTY were wider than the peer's phone screen, the peer would rewrap every line and cursor-positioning escape sequences (used by TUIs like Claude/Codex for progressive redraws) would land in the wrong cells, duplicating and losing text when scrolling.
+
+The peer's size contribution is **sticky**: it is retained when the peer disconnects (mobile apps are suspended after a short time in the background, while agent tasks run longer, so peers disconnect and reconnect frequently). Keeping the cap avoids flapping the PTY size — and forcing the agent to redraw — every time the phone backgrounds. The PTY grows back to the desktop size only when the desktop user **explicitly returns** to the terminal (focus, keydown, or pointerdown) while the peer is disconnected; a still-connected peer is never overridden. This is implemented by a size arbiter in `PtyManager` and the `pty:resize` / `pty:peerResize` / `pty:peerDetached` / `pty:reclaim` IPC channels; the desktop xterm itself is never resized by this mechanism (it renders the narrower content in its existing grid).
+
 ### Rejecting a device
 
 1. User clicks Reject on the accept prompt.
@@ -145,6 +151,7 @@ The trusted device store currently uses device ID matching only. Cryptographic c
 
 - Service: `src/main/remote/RemoteSessionService.ts`
 - Signaling server: `src/main/remote/SignalingServer.ts`
+- Shared PTY size arbiter (smallest-client-wins, sticky peer cap, reclaim): `src/main/pty/PtyManager.ts`
 - Remote client host: `src/main/remote/RemoteClientHost.ts`
 - Network discovery: `src/main/remote/discovery.ts`
 - Certificate provider: `src/main/remote/CertificateProvider.ts`
