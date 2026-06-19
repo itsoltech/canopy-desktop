@@ -12,7 +12,7 @@ import {
   Code,
   Braces,
   Wrench,
-  TerminalSquare,
+  SquareTerminal,
   Hammer,
   GitBranch,
   ListChecks,
@@ -95,7 +95,7 @@ export const sectionMeta: Record<string, SectionMeta> = {
     keywords: 'skills tools agents',
   },
   Terminal: {
-    icon: TerminalSquare,
+    icon: SquareTerminal,
     description: 'tmux session persistence and terminal behavior',
     keywords: 'terminal tmux mouse close detach kill ask session persistence',
   },
