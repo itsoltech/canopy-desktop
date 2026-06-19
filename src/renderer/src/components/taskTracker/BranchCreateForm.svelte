@@ -20,6 +20,7 @@
     agentStartFailedOutcome,
     logTaskToAgentFailure,
     sendTaskToAgentContext,
+    taskToAgentUserMessage,
     type TaskToAgentOutcome,
   } from '../../lib/taskTracker/taskToAgent'
   import { safeDirName } from '../../lib/sanitize'
@@ -359,7 +360,7 @@
   ): void {
     contextSendFailed = true
     operationStatus = 'Worktree created'
-    operationError = outcome.message
+    operationError = taskToAgentUserMessage(outcome)
     logTaskToAgentFailure(outcome, metadata)
   }
 
