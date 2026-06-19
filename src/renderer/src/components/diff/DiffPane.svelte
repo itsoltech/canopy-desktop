@@ -50,9 +50,10 @@
     try {
       const result = await window.api.changesGetDiff({ worktreePath })
       files = result.files
-    } catch {
+    } catch (e) {
       files = []
       loadError = true
+      console.error('changesGetDiff failed', e)
     } finally {
       loading = false
     }
@@ -467,7 +468,7 @@
     {#if loading && files.length === 0}
       <div class="flex items-center justify-center h-full text-md text-text-muted">Loading...</div>
     {:else if loadError}
-      <div class="flex items-center justify-center h-full text-md text-danger-text">
+      <div class="flex items-center justify-center h-full text-md text-danger-text" role="alert">
         Failed to load changes
       </div>
     {:else if files.length === 0}

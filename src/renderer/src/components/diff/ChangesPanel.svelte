@@ -31,9 +31,10 @@
     loadError = false
     try {
       diff = await window.api.changesGetDiff({ worktreePath })
-    } catch {
+    } catch (e) {
       diff = null
       loadError = true
+      console.error('changesGetDiff failed', e)
     } finally {
       loading = false
     }
@@ -294,7 +295,7 @@
     </ul>
   {:else if loadError}
     <div class="flex items-center justify-center h-full p-4">
-      <span class="text-sm text-danger-text">Failed to load changes</span>
+      <span class="text-sm text-danger-text" role="alert">Failed to load changes</span>
     </div>
   {:else if !loading}
     <div class="flex items-center justify-center h-full p-4">
