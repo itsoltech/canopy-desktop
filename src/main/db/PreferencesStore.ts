@@ -2,7 +2,12 @@ import { safeStorage } from 'electron'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
 
-const ENCRYPTED_KEYS = new Set(['claude.apiKey', 'gemini.apiKey', 'opencode.apiKey'])
+const ENCRYPTED_KEYS = new Set([
+  'claude.apiKey',
+  'gemini.apiKey',
+  'opencode.apiKey',
+  'worktrees.baseDir.trustedResolved',
+])
 const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.']
 
 /**
@@ -18,6 +23,7 @@ const NON_EXPORTABLE_KEYS = new Set([
   'remote.lastPort',
   'remote.trustedDevices',
   'taskTracker.migratedToGlobalConfig',
+  'worktrees.baseDir.trustedResolved',
 ])
 
 const NON_EXPORTABLE_PREFIXES = ['workspace:']
