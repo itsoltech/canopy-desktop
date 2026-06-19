@@ -15,7 +15,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
-    "postinstall": "electron-builder install-app-deps && generate-license-file -i package.json -o THIRD-PARTY-NOTICES --overwrite",
+    "postinstall": "electron-builder install-app-deps && install-electron && generate-license-file -i package.json -o THIRD-PARTY-NOTICES --overwrite",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
