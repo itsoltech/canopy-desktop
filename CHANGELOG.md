@@ -1,3 +1,9 @@
+## [0.13.0-next.21](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.20...v0.13.0-next.21) (2026-06-19)
+
+### Bug Fixes
+
+* **taskTracker:** surface underlying error when sending task to agent ([#285](https://github.com/itsoltech/canopy-desktop/issues/285)) ([275a17a](https://github.com/itsoltech/canopy-desktop/commit/275a17a4755dbe01e5a31ff52ea4c3b8638579b8))
+
 ## [0.13.0-next.20](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.19...v0.13.0-next.20) (2026-06-19)
 
 ### Bug Fixes
