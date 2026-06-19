@@ -31,7 +31,7 @@
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^14.0.0",
     "@expo/ui": "~55.0.11",
-    "@react-navigation/bottom-tabs": "^7.15.5",
+    "@react-navigation/bottom-tabs": "^7.18.2",
     "@react-navigation/elements": "^2.9.10",
     "@react-navigation/native": "^7.1.33",
     "@xterm/addon-fit": "^0.11.0",
