@@ -1688,7 +1688,7 @@ export function registerIpcHandlers(
       const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
-      const resolvedPath = await validateWorktreeCreationPath(event.sender.id, expanded)
+      const resolvedPath = await validateWorktreeCreationPath(expanded)
       const result = await GitRepository.worktreeAdd(
         resolvedRepo,
         resolvedPath,
@@ -1714,7 +1714,7 @@ export function registerIpcHandlers(
       const expanded = payload.path.startsWith('~/')
         ? os.homedir() + payload.path.slice(1)
         : payload.path
-      const resolvedPath = await validateWorktreeCreationPath(event.sender.id, expanded)
+      const resolvedPath = await validateWorktreeCreationPath(expanded)
       const result = await GitRepository.worktreeAddCheckout(
         resolvedRepo,
         resolvedPath,
@@ -1732,7 +1732,7 @@ export function registerIpcHandlers(
       const expandedPath = payload.worktreePath.startsWith('~/')
         ? os.homedir() + payload.worktreePath.slice(1)
         : payload.worktreePath
-      const worktreePath = await validateWorktreeCreationPath(event.sender.id, expandedPath)
+      const worktreePath = await validateWorktreeCreationPath(expandedPath)
 
       if (payload.mode === 'new') {
         const result = await GitRepository.worktreeAdd(
@@ -1760,8 +1760,8 @@ export function registerIpcHandlers(
     'git:worktreeRemove',
     async (event, payload: { repoRoot: string; path: string; force: boolean }) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      const resolvedTarget = await validateWorktreeExistingPath(event.sender.id, payload.path)
-      const result = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, payload.force)
+      const worktree = await validateWorktreeRemovalPath(resolvedRepo, payload.path)
+      const result = await GitRepository.worktreeRemove(resolvedRepo, worktree.path, payload.force)
       return unwrapOrThrow(result, gitErrorMessage)
     },
   )
@@ -1770,28 +1770,25 @@ export function registerIpcHandlers(
     'worktree:prepareRemove',
     async (event, payload: WorktreePrepareRemovePayload): Promise<WorktreePrepareRemoveResult> => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      const resolvedTarget = await validateWorktreeExistingPath(
-        event.sender.id,
-        payload.worktreePath,
-      )
-      const isDetached = payload.branch === '(detached)'
+      const worktree = await validateWorktreeRemovalPath(resolvedRepo, payload.worktreePath)
+      const hasDeletableBranch = worktree.branch !== '(detached)' && worktree.branch !== '(unknown)'
 
-      const statusResult = await GitRepository.getStatusPorcelain(resolvedRepo, resolvedTarget)
+      const statusResult = await GitRepository.getStatusPorcelain(resolvedRepo, worktree.path)
       const status = unwrapOrThrow(statusResult, gitErrorMessage)
       const hasUncommittedChanges = status.trim().length > 0
 
-      const unmergedCommits = isDetached
-        ? []
-        : unwrapOrThrow(
-            await GitRepository.getUnmergedCommits(resolvedRepo, payload.branch),
+      const unmergedCommits = hasDeletableBranch
+        ? unwrapOrThrow(
+            await GitRepository.getUnmergedCommits(resolvedRepo, worktree.branch),
             gitErrorMessage,
           )
-      const branchMerged = isDetached
-        ? false
-        : unwrapOrThrow(
-            await GitRepository.isBranchMerged(resolvedRepo, payload.branch),
+        : []
+      const branchMerged = hasDeletableBranch
+        ? unwrapOrThrow(
+            await GitRepository.isBranchMerged(resolvedRepo, worktree.branch),
             gitErrorMessage,
           )
+        : false
 
       const warnings: string[] = []
       if (hasUncommittedChanges) warnings.push('Has uncommitted changes.')
@@ -1804,7 +1801,7 @@ export function registerIpcHandlers(
         unmergedCommitCount: unmergedCommits.length,
         branchMerged,
         forceRequired: warnings.length > 0,
-        canDeleteBranch: !isDetached && branchMerged,
+        canDeleteBranch: hasDeletableBranch && branchMerged,
         warnings,
       }
     },
@@ -1852,21 +1849,18 @@ export function registerIpcHandlers(
       payload: WorktreeRemoveWithBranchPayload,
     ): Promise<WorktreeRemoveWithBranchResult> => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      const resolvedTarget = await validateWorktreeExistingPath(
-        event.sender.id,
-        payload.worktreePath,
-      )
+      const worktree = await validateWorktreeRemovalPath(resolvedRepo, payload.worktreePath)
       const forceOnFailure = payload.forceOnFailure ?? false
-      const shouldDeleteBranch =
-        payload.deleteBranch ?? Boolean(payload.branch && payload.branch !== '(detached)')
+      const canDeleteBranch = worktree.branch !== '(detached)' && worktree.branch !== '(unknown)'
+      const shouldDeleteBranch = payload.deleteBranch ?? canDeleteBranch
 
       let forcedWorktreeRemove = false
       try {
-        const result = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, false)
+        const result = await GitRepository.worktreeRemove(resolvedRepo, worktree.path, false)
         unwrapOrThrow(result, gitErrorMessage)
       } catch (e) {
         if (!forceOnFailure) throw e
-        const forcedResult = await GitRepository.worktreeRemove(resolvedRepo, resolvedTarget, true)
+        const forcedResult = await GitRepository.worktreeRemove(resolvedRepo, worktree.path, true)
         unwrapOrThrow(forcedResult, gitErrorMessage)
         forcedWorktreeRemove = true
       }
@@ -1874,16 +1868,16 @@ export function registerIpcHandlers(
       let branchDeleted = false
       let forcedBranchDelete = false
       if (shouldDeleteBranch) {
-        if (!payload.branch || payload.branch === '(detached)') {
-          throw new Error('Branch name is required when deleteBranch is true')
+        if (!canDeleteBranch) {
+          throw new Error('Cannot delete branch for detached or unknown worktree')
         }
         try {
-          const result = await GitRepository.deleteBranch(resolvedRepo, payload.branch, false)
+          const result = await GitRepository.deleteBranch(resolvedRepo, worktree.branch, false)
           unwrapOrThrow(result, gitErrorMessage)
           branchDeleted = true
         } catch (e) {
           if (!forceOnFailure) throw e
-          const forcedResult = await GitRepository.deleteBranch(resolvedRepo, payload.branch, true)
+          const forcedResult = await GitRepository.deleteBranch(resolvedRepo, worktree.branch, true)
           unwrapOrThrow(forcedResult, gitErrorMessage)
           branchDeleted = true
           forcedBranchDelete = true
@@ -2633,27 +2627,18 @@ export function registerIpcHandlers(
     return finalPath
   }
 
-  // Containment check shared by worktree validators: a resolved (realpath'd)
-  // path is acceptable if it lives under the user's home directory OR any
-  // workspace path registered to this window. Windows paths compare
-  // case-insensitively to match validatePathAccess.
-  async function isUnderHomeOrWorkspace(wcId: number, resolved: string): Promise<boolean> {
-    const homeReal = await normalizeRealpathOrInput(os.homedir())
-    const allowed = windowManager.getWorkspacePaths(wcId)
-    const resolvedAllowed = await Promise.all(allowed.map(normalizeRealpathOrInput))
-    const bases = [homeReal, ...resolvedAllowed]
-    return bases.some((base) => sameOrChildPath(resolved, base))
+  function expandHomePath(targetPath: string): string {
+    if (targetPath === '~') return os.homedir()
+    if (targetPath.startsWith('~/') || targetPath.startsWith('~\\')) {
+      return path.join(os.homedir(), targetPath.slice(2))
+    }
+    return targetPath
   }
 
-  // Worktrees are intentionally created OUTSIDE the workspace by design (the
-  // default `worktrees.baseDir` pref is `~/canopy/worktrees`), so the strict
-  // workspace-only containment used by validateCreationPath wrongly blocks
-  // them — most visibly on Windows where the home dir is never a workspace
-  // ancestor. This validator applies the same TOCTOU-safe ancestor walk and
-  // escape-via-`..` rejection, but relaxes containment to "under home OR
-  // workspace", which still prevents writes to system locations like /etc or
-  // C:\Program Files while permitting the documented worktree layout.
-  async function validateWorktreeCreationPath(wcId: number, targetPath: string): Promise<string> {
+  async function resolveWithExistingAncestor(
+    targetPath: string,
+    escapeMessage: string,
+  ): Promise<string> {
     if (!path.isAbsolute(targetPath)) {
       throw new Error('Worktree path must be absolute')
     }
@@ -2672,29 +2657,81 @@ export function registerIpcHandlers(
       }
     }
     const resolvedAncestor = path.normalize(await fs.promises.realpath(ancestor))
-    if (!(await isUnderHomeOrWorkspace(wcId, resolvedAncestor))) {
-      throw new Error('Access denied: worktree path outside home or workspace')
-    }
     const finalPath = path.join(resolvedAncestor, ...tail)
     const rel = path.relative(resolvedAncestor, finalPath)
     if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      throw new Error('Access denied: worktree path escapes ancestor')
+      throw new Error(escapeMessage)
     }
     return finalPath
   }
 
-  // Same relaxed containment for existing worktree paths (remove). Removing
-  // an inactive worktree under ~/canopy/worktrees would otherwise fail
-  // because only the *active* worktree is in WindowManager's allow-list.
-  async function validateWorktreeExistingPath(wcId: number, targetPath: string): Promise<string> {
+  function configuredWorktreeBaseDir(): string {
+    const configured = preferencesStore.get('worktrees.baseDir')?.trim() || '~/canopy/worktrees'
+    return expandHomePath(configured)
+  }
+
+  // New worktrees are created under the user-configured base directory, which
+  // may be outside the open workspace and outside the user's home directory.
+  // Canonicalize both missing-path tails against their nearest existing
+  // ancestors before containment checks so symlinked base directories compare
+  // consistently.
+  async function validateWorktreeCreationPath(targetPath: string): Promise<string> {
+    const expandedTarget = expandHomePath(targetPath)
+    const expandedBase = configuredWorktreeBaseDir()
+    const resolvedBase = await resolveWithExistingAncestor(
+      expandedBase,
+      'Access denied: worktree base path escapes ancestor',
+    )
+    const resolvedTarget = await resolveWithExistingAncestor(
+      expandedTarget,
+      'Access denied: worktree path escapes ancestor',
+    )
+    if (!sameOrChildPath(resolvedTarget, resolvedBase)) {
+      throw new Error('Access denied: worktree path outside configured base directory')
+    }
+    return resolvedTarget
+  }
+
+  // Removing worktrees is not tied to the current workspace or configured base:
+  // old worktrees may live anywhere the user previously chose. Keep deletion
+  // constrained by Git ownership instead, and only accept the exact path Git
+  // reports for a non-main worktree in this repository.
+  async function validateWorktreeRemovalPath(
+    resolvedRepo: string,
+    targetPath: string,
+  ): Promise<{ path: string; branch: string }> {
     if (!path.isAbsolute(targetPath)) {
       throw new Error('Worktree path must be absolute')
     }
-    const resolved = path.normalize(await fs.promises.realpath(targetPath))
-    if (!(await isUnderHomeOrWorkspace(wcId, resolved))) {
-      throw new Error('Access denied: worktree path outside home or workspace')
+    if (samePath(path.normalize(targetPath), path.normalize(resolvedRepo))) {
+      throw new Error('Access denied: cannot remove the current repo root')
     }
-    return resolved
+
+    const worktrees = unwrapOrThrow(
+      await GitRepository.listWorktrees(resolvedRepo),
+      gitErrorMessage,
+    )
+
+    const matchedWorktree = worktrees.find((worktree) =>
+      samePath(path.normalize(targetPath), path.normalize(worktree.path)),
+    )
+    if (!matchedWorktree) {
+      throw new Error('Access denied: worktree is not registered for this repository')
+    }
+    if (matchedWorktree.isMain) {
+      throw new Error('Access denied: cannot remove the main worktree')
+    }
+
+    const resolved = path.normalize(await fs.promises.realpath(targetPath))
+    const listedPath = path.normalize(await fs.promises.realpath(matchedWorktree.path))
+    if (samePath(listedPath, path.normalize(resolvedRepo))) {
+      throw new Error('Access denied: cannot remove the current repo root')
+    }
+    if (!samePath(resolved, listedPath)) {
+      throw new Error('Access denied: worktree is not registered for this repository')
+    }
+
+    return { path: resolved, branch: matchedWorktree.branch }
   }
 
   async function createFileTreeFile(webContentsId: number, filePath: string): Promise<void> {
@@ -3500,7 +3537,7 @@ export function registerIpcHandlers(
       const expandedPath = payload.worktreePath.startsWith('~/')
         ? os.homedir() + payload.worktreePath.slice(1)
         : payload.worktreePath
-      const worktreePath = await validateWorktreeCreationPath(event.sender.id, expandedPath)
+      const worktreePath = await validateWorktreeCreationPath(expandedPath)
       const branchName = await resolveTaskTrackerBranchName({ ...payload, repoRoot })
       const result = await GitRepository.worktreeAdd(
         repoRoot,
