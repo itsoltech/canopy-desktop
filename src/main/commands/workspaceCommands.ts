@@ -399,7 +399,7 @@ export class WorkspaceCommandService {
 
     const ownedPaths = this.getOwnedPaths(project)
     for (const entry of layouts) {
-      if (ownedPaths.has(entry.worktree_path)) {
+      if (ownedPaths.has(comparableFsPath(entry.worktree_path))) {
         restoredLayouts.push({ worktreePath: entry.worktree_path, layoutJson: entry.layout_json })
       } else {
         this.deps.layoutStore.delete(workspace.id, entry.worktree_path)
@@ -589,14 +589,16 @@ export class WorkspaceCommandService {
       statuses = new Map()
       this.statusByWorktreeByWindow.set(webContentsId, statuses)
     }
-    statuses.set(worktreePath, status)
+    statuses.set(comparableFsPath(worktreePath), status)
   }
 
   private getWorktreeStatus(
     webContentsId: number,
     worktreePath: string,
   ): WorktreeStatusSnapshot | null {
-    return this.statusByWorktreeByWindow.get(webContentsId)?.get(worktreePath) ?? null
+    return (
+      this.statusByWorktreeByWindow.get(webContentsId)?.get(comparableFsPath(worktreePath)) ?? null
+    )
   }
 
   private clearProjectStatus(webContentsId: number, project: ProjectSnapshot): void {
@@ -615,10 +617,12 @@ export class WorkspaceCommandService {
     return main?.path ?? project.repoRoot ?? project.workspace.path
   }
 
+  // Returns normalized (comparable) paths so membership tests are tolerant of
+  // Windows separator/case differences between stored and git-reported paths.
   private getOwnedPaths(project: ProjectSnapshot): Set<string> {
-    const ownedPaths = new Set<string>([project.workspace.path])
-    if (project.repoRoot) ownedPaths.add(project.repoRoot)
-    for (const worktree of project.worktrees) ownedPaths.add(worktree.path)
+    const ownedPaths = new Set<string>([comparableFsPath(project.workspace.path)])
+    if (project.repoRoot) ownedPaths.add(comparableFsPath(project.repoRoot))
+    for (const worktree of project.worktrees) ownedPaths.add(comparableFsPath(worktree.path))
     return ownedPaths
   }
 
