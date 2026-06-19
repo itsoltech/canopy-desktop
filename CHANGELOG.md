@@ -1,3 +1,9 @@
+## [0.13.0-next.19](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.18...v0.13.0-next.19) (2026-06-19)
+
+### Refactoring
+
+* **terminal:** replace local websocket bridge with ipc ([df9de5a](https://github.com/itsoltech/canopy-desktop/commit/df9de5a5338ad41d7b4bf79176dc4b943e420e9c))
+
 ## [0.13.0-next.18](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.17...v0.13.0-next.18) (2026-06-18)
 
 ### Bug Fixes
