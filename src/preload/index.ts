@@ -68,6 +68,16 @@ const api = {
   // PTY
   resizePty: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', { sessionId, cols, rows }),
+  // Resize relayed from the remote WebRTC peer (recorded as the peer client in
+  // the smallest-client-wins arbiter; marks the peer connected).
+  resizePtyAsPeer: (sessionId: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('pty:peerResize', { sessionId, cols, rows }),
+  // The remote peer detached (unsubscribed / disconnected). Its size cap stays
+  // sticky; the PTY is not resized here.
+  ptyPeerDetached: (sessionId: string) => ipcRenderer.invoke('pty:peerDetached', { sessionId }),
+  // Explicit desktop reclaim (focus/click) — release a sticky peer cap so the
+  // PTY grows back to the desktop size.
+  reclaimPty: (sessionId: string) => ipcRenderer.invoke('pty:reclaim', { sessionId }),
   killPty: (sessionId: string, killTmux?: boolean) =>
     ipcRenderer.invoke('pty:kill', { sessionId, killTmux }),
   writePty: (sessionId: string, data: string) =>

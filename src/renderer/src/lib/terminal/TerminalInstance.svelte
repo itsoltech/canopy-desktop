@@ -651,14 +651,18 @@
       // window resize fires the ResizeObserver.
       //
       // Instead we ALWAYS fire `window.api.resizePty` on focus/click
-      // with the desktop xterm's current cols/rows. That lets the host
-      // PTY snap back to the desktop layout on every interaction. The
-      // IPC call is cheap and node-pty's internal resize is a no-op
-      // when dims match, so there's no cost when nothing changed.
+      // with the desktop xterm's current cols/rows (refreshing the desktop's
+      // desired size in the host size arbiter), then `window.api.reclaimPty`
+      // to RELEASE a peer's sticky size cap. The arbiter keeps a disconnected
+      // peer's size sticky (so the PTY doesn't flap on the phone's frequent
+      // iOS background disconnects); an explicit desktop interaction is what
+      // grows the PTY back to the desktop layout. A still-connected peer is
+      // left untouched by reclaim — a live phone keeps the smaller size.
       reclaimPtyHandler = (): void => {
         if (term.cols > 0 && term.rows > 0) {
           window.api.resizePty(sessionId, term.cols, term.rows)
         }
+        window.api.reclaimPty(sessionId)
       }
       reclaimTextarea = term.textarea ?? null
       containerEl.addEventListener('pointerdown', reclaimPtyHandler)

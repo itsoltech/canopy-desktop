@@ -711,6 +711,18 @@ export function registerIpcHandlers(
 
   // --- PTY ---
 
+  // Broadcast the effective PTY dimensions to every open window so the remote
+  // host controller (running inside the host renderer) can relay them to any
+  // connected WebRTC peer. Without this, a peer's xterm stays at stale cols/rows
+  // and cursor-positioning escapes land in the wrong column on the peer's screen.
+  const broadcastPtyResized = (sessionId: string, cols: number, rows: number): void => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) {
+        w.webContents.send('pty:resized', { sessionId, cols, rows })
+      }
+    }
+  }
+
   ipcMain.handle(
     'pty:resize',
     (event, payload: { sessionId: string; cols: number; rows: number }) => {
@@ -736,20 +748,57 @@ export function registerIpcHandlers(
       ) {
         return
       }
-      ptyManager.resize(payload.sessionId, cols, rows)
-      // Broadcast the new dimensions to every open window so the remote
-      // host controller (running inside the host renderer) can relay them
-      // to any connected WebRTC peer. Without this, a peer's xterm stays
-      // at the PTY's original cols/rows and any cursor positioning escape
-      // sequence the shell/CLI emits lands in the wrong column on the
-      // peer's screen.
-      for (const w of BrowserWindow.getAllWindows()) {
-        if (!w.isDestroyed()) {
-          w.webContents.send('pty:resized', payload)
-        }
-      }
+      // Desktop is one client of a shared PTY. The size arbiter records this
+      // desired size and resizes the PTY to the MINIMUM across all attached
+      // clients (smallest-client-wins), so a narrower remote peer is never
+      // overrun. Broadcast the EFFECTIVE dims (not the requester's) so the
+      // remote host controller relays the true PTY size to the peer.
+      const eff = ptyManager.requestResize(payload.sessionId, cols, rows, 'desktop')
+      if (eff) broadcastPtyResized(payload.sessionId, eff.cols, eff.rows)
     },
   )
+
+  // Resize originating from the remote WebRTC peer (relayed by the host
+  // renderer's HostRpcServer). Recorded as the peer client + marks it
+  // connected. Effective (min) dims are broadcast back to all windows.
+  ipcMain.handle(
+    'pty:peerResize',
+    (event, payload: { sessionId: string; cols: number; rows: number }) => {
+      if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) return
+      const cols = payload?.cols
+      const rows = payload?.rows
+      if (
+        !Number.isInteger(cols) ||
+        !Number.isInteger(rows) ||
+        cols < 1 ||
+        rows < 1 ||
+        cols > 10_000 ||
+        rows > 10_000
+      ) {
+        return
+      }
+      const eff = ptyManager.requestResize(payload.sessionId, cols, rows, 'peer')
+      if (eff) broadcastPtyResized(payload.sessionId, eff.cols, eff.rows)
+    },
+  )
+
+  // The remote peer detached from a session (unsubscribed or disconnected).
+  // Its size cap stays sticky — see PtyManager.setPeerDisconnected — so the
+  // PTY does not flap on the frequent iOS background disconnects. No resize,
+  // so nothing to broadcast.
+  ipcMain.handle('pty:peerDetached', (event, payload: { sessionId: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) return
+    ptyManager.setPeerDisconnected(payload.sessionId)
+  })
+
+  // Explicit desktop reclaim (window focus / terminal pointerdown): release a
+  // sticky peer cap left over from a disconnected peer so the PTY grows back
+  // to the desktop size. A live peer is left untouched by the arbiter.
+  ipcMain.handle('pty:reclaim', (event, payload: { sessionId: string }) => {
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) return
+    const eff = ptyManager.reclaim(payload.sessionId)
+    if (eff) broadcastPtyResized(payload.sessionId, eff.cols, eff.rows)
+  })
 
   ipcMain.handle('pty:kill', async (event, payload: { sessionId: string; killTmux?: boolean }) => {
     if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {

@@ -361,6 +361,9 @@ interface CanopyAPI {
 
   // PTY
   resizePty: (sessionId: string, cols: number, rows: number) => Promise<void>
+  resizePtyAsPeer: (sessionId: string, cols: number, rows: number) => Promise<void>
+  ptyPeerDetached: (sessionId: string) => Promise<void>
+  reclaimPty: (sessionId: string) => Promise<void>
   killPty: (sessionId: string, killTmux?: boolean) => Promise<void>
   writePty: (sessionId: string, data: string) => Promise<void>
   getPtyDimensions: (sessionId: string) => Promise<{ cols: number; rows: number } | null>

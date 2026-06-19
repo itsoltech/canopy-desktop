@@ -103,10 +103,12 @@ export class HostRpcServer {
       // noise from a misbehaving peer computing bad dimensions.
       const safeCols = Math.max(10, Math.min(cols, 500))
       const safeRows = Math.max(3, Math.min(rows, 200))
-      await window.api.resizePty(sessionId, safeCols, safeRows)
-      // The `pty:resize` IPC handler already broadcasts `pty:resized` to
-      // every window, which the host's own `onPtyResized` relay (set up
-      // above) then emits as an RPC event. No extra work here.
+      // Resize AS THE PEER: the host arbiter records this as the remote
+      // client's desired size and caps the shared PTY to the min across
+      // clients (smallest-client-wins), instead of the peer's size racing
+      // the desktop's. The `pty:peerResize` handler broadcasts the effective
+      // dims, which the `onPtyResized` relay (set up above) emits back to us.
+      await window.api.resizePtyAsPeer(sessionId, safeCols, safeRows)
     })
 
     this.register('agent.sendInput', async (params) => {
@@ -163,6 +165,11 @@ export class HostRpcServer {
     this.register('pty.unsubscribe', (params) => {
       const sessionId = assertString(params, 'sessionId', 'pty.unsubscribe')
       forwarder.unsubscribe(sessionId)
+      // The peer left this session. Mark it detached so the host arbiter keeps
+      // its size cap STICKY (the peer likely returns — e.g. iOS foregrounding)
+      // without flapping the PTY; the cap is only released by an explicit
+      // desktop reclaim.
+      void window.api.ptyPeerDetached(sessionId)
     })
 
     this.register('pty.getDimensions', async (params) => {
@@ -253,6 +260,13 @@ export class HostRpcServer {
     resetSessionGrants()
     this.unsubPtyResized?.()
     this.unsubPtyResized = null
+    // Peer is disconnecting: mark each subscribed session detached so the host
+    // arbiter keeps its size cap STICKY (the peer likely reconnects — iOS
+    // backgrounds the app after ~30s) without flapping the PTY size. The cap is
+    // released only by an explicit desktop reclaim.
+    for (const sessionId of this.ptyForwarder?.activeSessionIds ?? []) {
+      void window.api.ptyPeerDetached(sessionId)
+    }
     this.ptyForwarder?.dispose()
     this.ptyForwarder = null
     this.stateProvider.detach()
