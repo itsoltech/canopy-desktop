@@ -28,7 +28,7 @@ jobs:
           persist-credentials: true
           token: ${{ secrets.RELEASE_TOKEN }}
 
-      - uses: volta-cli/action@v4
+      - uses: volta-cli/action@v5
 
       - name: Semantic Release
         id: semantic
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.dry_run && github.sha || needs.release-version.outputs.tag }}
-      - uses: volta-cli/action@v4
+      - uses: volta-cli/action@v5
       - run: npm ci
 
       - name: Build and publish

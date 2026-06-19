@@ -56,7 +56,7 @@ jobs:
           ref: ${{ steps.pr.outputs.head_ref }}
           fetch-depth: 1
 
-      - uses: volta-cli/action@v4
+      - uses: volta-cli/action@v5
 
       - name: Install dependencies
         run: npm ci
