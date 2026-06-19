@@ -51,7 +51,7 @@ jobs:
           echo "head_ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.pr.outputs.head_ref }}
           fetch-depth: 1
