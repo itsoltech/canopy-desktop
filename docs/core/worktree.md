@@ -62,11 +62,16 @@ Worktrees are intentionally created outside the workspace by default. New worktr
 resolve under the user-configured `worktrees.baseDir` preference, which defaults to
 `~/canopy/worktrees`. If the user changes that base directory in Preferences, creation is
 allowed under the configured directory even when it is outside the user's home directory
-or outside the currently attached workspace.
+or outside the currently attached workspace, provided the base directory was selected
+through the main-process directory picker and recorded as trusted.
 
 Creation paths walk up to the closest existing ancestor before realpath-normalizing, so a
 non-existent leaf is OK. The missing tail is then reattached and checked against the
-configured base directory to reject escapes via `..` or symlinked ancestors.
+configured base directory to reject escapes via `..` or symlinked ancestors. Because the
+renderer can write ordinary preferences, the configured base is not the sole authorization
+input: creation also requires the resolved base to live under the user's home directory,
+an attached workspace, a current main-process folder-selection grant, or the persisted
+main-only trusted base recorded from such a grant.
 
 Removal is validated differently because existing worktrees may have been created before
 the user changed `worktrees.baseDir`, or may live in another directory that Git still
@@ -115,9 +120,9 @@ The sidebar shows an aggregate status badge for each worktree that has agent ses
 Configured in Preferences under the Worktrees section. Stored globally as
 `worktrees.baseDir`.
 
-| Key                 | Default              | Description                                                                                           |
-| ------------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
-| `worktrees.baseDir` | `~/canopy/worktrees` | Base directory under which newly created worktrees must live. `~` expands to the user's home folder. |
+| Key                 | Default              | Description                                                                                                                                                        |
+| ------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `worktrees.baseDir` | `~/canopy/worktrees` | Base directory under which newly created worktrees must live. `~` expands to the user's home folder. Use the Browse button to trust a base outside home/workspace. |
 
 ### Worktree setup actions
 
@@ -141,23 +146,24 @@ Example configuration (JSON):
 
 ## Error states
 
-| Error                                | User sees                                                | Cause                                                                                |
-| ------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `GitCommandFailed` (worktree add)    | "Git worktree add failed: \<message\>"                   | Branch already checked out in another worktree, or path already exists               |
-| `GitCommandFailed` (worktree remove) | "Git worktree remove failed: \<message\>"                | Worktree has uncommitted changes and force was not set                               |
-| `InvalidRef`                         | "Invalid git ref: \<ref\>"                               | Branch name starts with `-`                                                          |
-| Path not absolute                    | "Worktree path must be absolute"                         | Renderer passed a relative path to create or remove                                  |
-| No existing ancestor                 | "Access denied: no existing ancestor"                    | Creation path walks up past the filesystem root without finding an existing ancestor |
-| Base path escapes ancestor           | "Access denied: worktree base path escapes ancestor"     | Configured `worktrees.baseDir` escapes its closest existing ancestor                 |
-| Path outside configured base         | "Access denied: worktree path outside configured base directory" | Creation path does not resolve under `worktrees.baseDir`                      |
-| Worktree not registered              | "Access denied: worktree is not registered for this repository" | Removal path does not exactly match a Git-listed worktree for the repository   |
-| Main worktree removal                | "Access denied: cannot remove the main worktree"         | Removal path matches the repository's main worktree                                  |
-| Current repo root removal            | "Access denied: cannot remove the current repo root"     | Removal path matches the repo root passed to the IPC handler                         |
-| Repo outside attached project        | "Access denied: path outside workspace"                  | Repo/worktree path is not a strict workspace path or exact attached project path      |
-| Path escapes ancestor                | "Access denied: worktree path escapes ancestor"          | Non-existent tail of the creation path escapes its ancestor via `..` or absolute ref |
-| Setup command timeout                | "Command timed out after 5 minutes"                      | A setup action's shell command did not exit within 300 seconds                       |
-| Setup command failure                | "\<label\>: Command exited with code \<N\>"              | A setup action's shell command returned non-zero                                     |
-| Setup aborted                        | "Setup aborted"                                          | User cancelled the setup while it was running                                        |
+| Error                                | User sees                                                        | Cause                                                                                                             |
+| ------------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `GitCommandFailed` (worktree add)    | "Git worktree add failed: \<message\>"                           | Branch already checked out in another worktree, or path already exists                                            |
+| `GitCommandFailed` (worktree remove) | "Git worktree remove failed: \<message\>"                        | Worktree has uncommitted changes and force was not set                                                            |
+| `InvalidRef`                         | "Invalid git ref: \<ref\>"                                       | Branch name starts with `-`                                                                                       |
+| Path not absolute                    | "Worktree path must be absolute"                                 | Renderer passed a relative path to create or remove                                                               |
+| No existing ancestor                 | "Access denied: no existing ancestor"                            | Creation path walks up past the filesystem root without finding an existing ancestor                              |
+| Base path escapes ancestor           | "Access denied: worktree base path escapes ancestor"             | Configured `worktrees.baseDir` escapes its closest existing ancestor                                              |
+| Base directory not trusted           | "Access denied: worktree base directory is not trusted"          | Configured `worktrees.baseDir` is outside home/workspace and was not selected through a trusted main-process flow |
+| Path outside configured base         | "Access denied: worktree path outside configured base directory" | Creation path does not resolve under `worktrees.baseDir`                                                          |
+| Worktree not registered              | "Access denied: worktree is not registered for this repository"  | Removal path does not exactly match a Git-listed worktree for the repository                                      |
+| Main worktree removal                | "Access denied: cannot remove the main worktree"                 | Removal path matches the repository's main worktree                                                               |
+| Current repo root removal            | "Access denied: cannot remove the current repo root"             | Removal path matches the repo root passed to the IPC handler                                                      |
+| Repo outside attached project        | "Access denied: path outside workspace"                          | Repo/worktree path is not a strict workspace path or exact attached project path                                  |
+| Path escapes ancestor                | "Access denied: worktree path escapes ancestor"                  | Non-existent tail of the creation path escapes its ancestor via `..` or absolute ref                              |
+| Setup command timeout                | "Command timed out after 5 minutes"                              | A setup action's shell command did not exit within 300 seconds                                                    |
+| Setup command failure                | "\<label\>: Command exited with code \<N\>"                      | A setup action's shell command returned non-zero                                                                  |
+| Setup aborted                        | "Setup aborted"                                                  | User cancelled the setup while it was running                                                                     |
 
 ## Source files
 

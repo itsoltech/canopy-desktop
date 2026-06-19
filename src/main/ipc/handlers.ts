@@ -36,6 +36,8 @@ import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 
 const execFileAsync = promisify(execFile)
+const WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir'
+const TRUSTED_WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir.trustedResolved'
 
 export interface IpcCommandBridge {
   grantAttachPath(webContentsId: number, targetPath: string): void
@@ -984,6 +986,9 @@ export function registerIpcHandlers(
     if (preferencesStore.isEncrypted(payload.key)) {
       throw new Error(`Refusing to set encrypted preference key "${payload.key}" via db:prefs:set`)
     }
+    if (payload.key === WORKTREE_BASE_DIR_PREF_KEY) {
+      await updateTrustedWorktreeBaseDir(event.sender.id, payload.value)
+    }
     const previousValue = preferencesStore.get(payload.key)
     preferencesStore.set(payload.key, payload.value)
     const valueChanged = previousValue !== payload.value
@@ -1685,10 +1690,7 @@ export function registerIpcHandlers(
       payload: { repoRoot: string; path: string; branch: string; baseBranch: string },
     ) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      const expanded = payload.path.startsWith('~/')
-        ? os.homedir() + payload.path.slice(1)
-        : payload.path
-      const resolvedPath = await validateWorktreeCreationPath(expanded)
+      const resolvedPath = await validateWorktreeCreationPath(event.sender.id, payload.path)
       const result = await GitRepository.worktreeAdd(
         resolvedRepo,
         resolvedPath,
@@ -1711,10 +1713,7 @@ export function registerIpcHandlers(
       },
     ) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      const expanded = payload.path.startsWith('~/')
-        ? os.homedir() + payload.path.slice(1)
-        : payload.path
-      const resolvedPath = await validateWorktreeCreationPath(expanded)
+      const resolvedPath = await validateWorktreeCreationPath(event.sender.id, payload.path)
       const result = await GitRepository.worktreeAddCheckout(
         resolvedRepo,
         resolvedPath,
@@ -1729,10 +1728,7 @@ export function registerIpcHandlers(
     'worktree:create',
     async (event, payload: WorktreeCreatePayload): Promise<WorktreeCreateResult> => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      const expandedPath = payload.worktreePath.startsWith('~/')
-        ? os.homedir() + payload.worktreePath.slice(1)
-        : payload.worktreePath
-      const worktreePath = await validateWorktreeCreationPath(expandedPath)
+      const worktreePath = await validateWorktreeCreationPath(event.sender.id, payload.worktreePath)
 
       if (payload.mode === 'new') {
         const result = await GitRepository.worktreeAdd(
@@ -2666,22 +2662,75 @@ export function registerIpcHandlers(
   }
 
   function configuredWorktreeBaseDir(): string {
-    const configured = preferencesStore.get('worktrees.baseDir')?.trim() || '~/canopy/worktrees'
+    const configured =
+      preferencesStore.get(WORKTREE_BASE_DIR_PREF_KEY)?.trim() || '~/canopy/worktrees'
     return expandHomePath(configured)
   }
 
+  async function isTrustedWorktreeBaseDir(wcId: number, resolvedBase: string): Promise<boolean> {
+    const home = await normalizeRealpathOrInput(os.homedir())
+    if (sameOrChildPath(resolvedBase, home)) return true
+
+    const windowPaths = windowManager.getWorkspacePaths(wcId)
+    const grantedPaths = workspaceCommandService.getGrantedAttachPaths(wcId)
+    const trustedPaths = await Promise.all(
+      [...windowPaths, ...grantedPaths].map(normalizeRealpathOrInput),
+    )
+    if (trustedPaths.some((trustedPath) => sameOrChildPath(resolvedBase, trustedPath))) {
+      return true
+    }
+
+    const trustedPref = preferencesStore.get(TRUSTED_WORKTREE_BASE_DIR_PREF_KEY)
+    return trustedPref ? samePath(resolvedBase, path.normalize(trustedPref)) : false
+  }
+
+  async function updateTrustedWorktreeBaseDir(
+    wcId: number,
+    configuredValue: string,
+  ): Promise<void> {
+    const trimmed = configuredValue.trim()
+    if (!trimmed) {
+      preferencesStore.delete(TRUSTED_WORKTREE_BASE_DIR_PREF_KEY)
+      return
+    }
+
+    const expandedBase = expandHomePath(trimmed)
+    const resolvedBaseResult = await fromExternalCall(
+      resolveWithExistingAncestor(
+        expandedBase,
+        'Access denied: worktree base path escapes ancestor',
+      ),
+      () => null,
+    )
+    if (resolvedBaseResult.isErr()) {
+      preferencesStore.delete(TRUSTED_WORKTREE_BASE_DIR_PREF_KEY)
+      return
+    }
+
+    const resolvedBase = resolvedBaseResult.value
+    if (await isTrustedWorktreeBaseDir(wcId, resolvedBase)) {
+      preferencesStore.set(TRUSTED_WORKTREE_BASE_DIR_PREF_KEY, resolvedBase)
+    } else {
+      preferencesStore.delete(TRUSTED_WORKTREE_BASE_DIR_PREF_KEY)
+    }
+  }
+
   // New worktrees are created under the user-configured base directory, which
-  // may be outside the open workspace and outside the user's home directory.
+  // may be outside the open workspace only when the main process has a trusted
+  // grant for that base, such as a native directory picker selection.
   // Canonicalize both missing-path tails against their nearest existing
   // ancestors before containment checks so symlinked base directories compare
   // consistently.
-  async function validateWorktreeCreationPath(targetPath: string): Promise<string> {
+  async function validateWorktreeCreationPath(wcId: number, targetPath: string): Promise<string> {
     const expandedTarget = expandHomePath(targetPath)
     const expandedBase = configuredWorktreeBaseDir()
     const resolvedBase = await resolveWithExistingAncestor(
       expandedBase,
       'Access denied: worktree base path escapes ancestor',
     )
+    if (!(await isTrustedWorktreeBaseDir(wcId, resolvedBase))) {
+      throw new Error('Access denied: worktree base directory is not trusted')
+    }
     const resolvedTarget = await resolveWithExistingAncestor(
       expandedTarget,
       'Access denied: worktree path escapes ancestor',
@@ -3534,10 +3583,7 @@ export function registerIpcHandlers(
     'taskTracker:createWorktreeFromTask',
     async (event, payload: TaskTrackerCreateWorktreeFromTaskPayload) => {
       const repoRoot = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      const expandedPath = payload.worktreePath.startsWith('~/')
-        ? os.homedir() + payload.worktreePath.slice(1)
-        : payload.worktreePath
-      const worktreePath = await validateWorktreeCreationPath(expandedPath)
+      const worktreePath = await validateWorktreeCreationPath(event.sender.id, payload.worktreePath)
       const branchName = await resolveTaskTrackerBranchName({ ...payload, repoRoot })
       const result = await GitRepository.worktreeAdd(
         repoRoot,
