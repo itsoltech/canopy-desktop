@@ -29,7 +29,7 @@
     "config:prod": "NODE_ENV=production expo config --json"
   },
   "dependencies": {
-    "@config-plugins/react-native-webrtc": "^14.0.0",
+    "@config-plugins/react-native-webrtc": "^15.0.1",
     "@expo/ui": "~55.0.11",
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/elements": "^2.9.10",
