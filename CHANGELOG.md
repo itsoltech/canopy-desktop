@@ -1,3 +1,9 @@
+## [0.13.0-next.22](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.21...v0.13.0-next.22) (2026-06-19)
+
+### Bug Fixes
+
+* **taskTracker:** jira task send fails (clone + windows path) ([#286](https://github.com/itsoltech/canopy-desktop/issues/286)) ([bef56f5](https://github.com/itsoltech/canopy-desktop/commit/bef56f59be74c65076968ca7f656b7b4b1ad55a2))
+
 ## [0.13.0-next.21](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.20...v0.13.0-next.21) (2026-06-19)
 
 ### Bug Fixes
