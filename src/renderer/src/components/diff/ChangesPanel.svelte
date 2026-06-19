@@ -18,6 +18,7 @@
 
   let diff = $state<ParsedDiff | null>(null)
   let loading = $state(false)
+  let loadError = $state(false)
   let hoveredPath = $state<string | null>(null)
   let visibleFilePath = $derived(workspaceState.diffVisibleFile)
 
@@ -27,10 +28,13 @@
 
   async function refresh(): Promise<void> {
     loading = true
+    loadError = false
     try {
       diff = await window.api.changesGetDiff({ worktreePath })
-    } catch {
+    } catch (e) {
       diff = null
+      loadError = true
+      console.error('changesGetDiff failed', e)
     } finally {
       loading = false
     }
@@ -289,6 +293,10 @@
         </li>
       {/each}
     </ul>
+  {:else if loadError}
+    <div class="flex items-center justify-center h-full p-4">
+      <span class="text-sm text-danger-text" role="alert">Failed to load changes</span>
+    </div>
   {:else if !loading}
     <div class="flex items-center justify-center h-full p-4">
       <span class="text-sm text-text-faint">
