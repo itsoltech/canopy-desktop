@@ -491,8 +491,7 @@ Apache License
 The following npm packages may be included in this product:
 
  - @types/estree@1.0.8
- - @types/node@22.19.21
- - @types/node@24.12.0
+ - @types/node@24.13.2
  - @types/trusted-types@2.0.7
 
 These packages each contain the following license:
@@ -7052,8 +7051,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 The following npm packages may be included in this product:
 
- - undici-types@6.21.0
- - undici-types@7.16.0
+ - undici-types@7.18.2
  - undici@7.28.0
 
 These packages each contain the following license:
