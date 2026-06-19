@@ -86,7 +86,7 @@
     "@types/semver": "^7.7.1",
     "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
-    "electron": "^41.0.0",
+    "electron": "^42.4.1",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
