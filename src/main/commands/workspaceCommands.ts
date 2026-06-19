@@ -19,6 +19,22 @@ import type {
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * Compare filesystem paths tolerant of Windows separator and case differences.
+ * git reports worktree paths with forward slashes while Node builds them with
+ * backslashes, so an exact `===` mis-fires on Windows and worktrees appear
+ * "not attached to this window". Normalize separators always; fold case on win32.
+ */
+function comparableFsPath(value: string): string {
+  const normalized = path.normalize(value)
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false
+  return comparableFsPath(a) === comparableFsPath(b)
+}
+
 const defaultGitInfo: GitInfo = {
   isGitRepo: false,
   repoRoot: null,
@@ -211,14 +227,16 @@ export class WorkspaceCommandService {
       ...detectedInfo,
       repoRoot: detectedInfo.repoRoot ? projectRoot : detectedInfo.repoRoot,
       worktrees: detectedInfo.worktrees.map((worktree) =>
-        worktree.path === detectedProjectRoot ? { ...worktree, path: projectRoot } : worktree,
+        samePath(worktree.path, detectedProjectRoot)
+          ? { ...worktree, path: projectRoot }
+          : worktree,
       ),
     }
     this.updateGitStatusCache(sender.id, info)
     const projects = this.getProjects(sender.id)
     const projectIndex = projects.findIndex(
       (project) =>
-        project.workspace.path === projectPath || this.projectKey(project) === projectPath,
+        samePath(project.workspace.path, projectPath) || this.projectKey(project) === projectPath,
     )
 
     if (projectIndex < 0) return this.result(sender.id, [], [])
@@ -381,7 +399,7 @@ export class WorkspaceCommandService {
 
     const ownedPaths = this.getOwnedPaths(project)
     for (const entry of layouts) {
-      if (ownedPaths.has(entry.worktree_path)) {
+      if (ownedPaths.has(comparableFsPath(entry.worktree_path))) {
         restoredLayouts.push({ worktreePath: entry.worktree_path, layoutJson: entry.layout_json })
       } else {
         this.deps.layoutStore.delete(workspace.id, entry.worktree_path)
@@ -418,8 +436,8 @@ export class WorkspaceCommandService {
       }
     }
 
-    const selectedWorktree = project.worktrees.find(
-      (worktree) => worktree.path === selectedWorktreePath,
+    const selectedWorktree = project.worktrees.find((worktree) =>
+      samePath(worktree.path, selectedWorktreePath),
     )
     const status = selectedWorktreePath
       ? this.getWorktreeStatus(webContentsId, selectedWorktreePath)
@@ -461,8 +479,9 @@ export class WorkspaceCommandService {
   }
 
   private projectOwnsPath(project: ProjectSnapshot, worktreePath: string): boolean {
-    if (project.workspace.path === worktreePath || project.repoRoot === worktreePath) return true
-    return project.worktrees.some((worktree) => worktree.path === worktreePath)
+    if (samePath(project.workspace.path, worktreePath) || samePath(project.repoRoot, worktreePath))
+      return true
+    return project.worktrees.some((worktree) => samePath(worktree.path, worktreePath))
   }
 
   private validateAttachPath(
@@ -504,7 +523,7 @@ export class WorkspaceCommandService {
     const info = await GitRepository.detect(worktreePath).unwrapOr(defaultGitInfo)
     if (!info.isGitRepo) return
 
-    const worktree = info.worktrees.find((candidate) => candidate.path === worktreePath)
+    const worktree = info.worktrees.find((candidate) => samePath(candidate.path, worktreePath))
     this.setWorktreeStatus(webContentsId, worktreePath, {
       branch: worktree?.branch ?? info.branch,
       isDirty: info.isDirty,
@@ -514,14 +533,17 @@ export class WorkspaceCommandService {
 
   private updateProjectGitInfo(webContentsId: number, repoRoot: string, info: GitInfo): void {
     const projects = this.getProjects(webContentsId)
-    const detectedPaths = new Set(info.worktrees.map((worktree) => worktree.path))
-    if (info.repoRoot) detectedPaths.add(info.repoRoot)
+    const detectedPaths = new Set(info.worktrees.map((worktree) => comparableFsPath(worktree.path)))
+    if (info.repoRoot) detectedPaths.add(comparableFsPath(info.repoRoot))
 
     const index = projects.findIndex((project) => {
-      if (project.repoRoot === repoRoot || project.workspace.path === repoRoot) return true
-      if (project.repoRoot && detectedPaths.has(project.repoRoot)) return true
-      if (detectedPaths.has(project.workspace.path)) return true
-      return project.worktrees.some((worktree) => detectedPaths.has(worktree.path))
+      if (samePath(project.repoRoot, repoRoot) || samePath(project.workspace.path, repoRoot))
+        return true
+      if (project.repoRoot && detectedPaths.has(comparableFsPath(project.repoRoot))) return true
+      if (detectedPaths.has(comparableFsPath(project.workspace.path))) return true
+      return project.worktrees.some((worktree) =>
+        detectedPaths.has(comparableFsPath(worktree.path)),
+      )
     })
     if (index < 0) return
 
@@ -547,7 +569,7 @@ export class WorkspaceCommandService {
     if (mainWorktreePath) this.setWorktreeStatus(webContentsId, mainWorktreePath, repoStatus)
 
     for (const worktree of info.worktrees) {
-      if (worktree.path === mainWorktreePath) continue
+      if (samePath(worktree.path, mainWorktreePath)) continue
       const existing = this.getWorktreeStatus(webContentsId, worktree.path)
       this.setWorktreeStatus(webContentsId, worktree.path, {
         branch: worktree.branch ?? existing?.branch ?? null,
@@ -567,14 +589,16 @@ export class WorkspaceCommandService {
       statuses = new Map()
       this.statusByWorktreeByWindow.set(webContentsId, statuses)
     }
-    statuses.set(worktreePath, status)
+    statuses.set(comparableFsPath(worktreePath), status)
   }
 
   private getWorktreeStatus(
     webContentsId: number,
     worktreePath: string,
   ): WorktreeStatusSnapshot | null {
-    return this.statusByWorktreeByWindow.get(webContentsId)?.get(worktreePath) ?? null
+    return (
+      this.statusByWorktreeByWindow.get(webContentsId)?.get(comparableFsPath(worktreePath)) ?? null
+    )
   }
 
   private clearProjectStatus(webContentsId: number, project: ProjectSnapshot): void {
@@ -593,10 +617,12 @@ export class WorkspaceCommandService {
     return main?.path ?? project.repoRoot ?? project.workspace.path
   }
 
+  // Returns normalized (comparable) paths so membership tests are tolerant of
+  // Windows separator/case differences between stored and git-reported paths.
   private getOwnedPaths(project: ProjectSnapshot): Set<string> {
-    const ownedPaths = new Set<string>([project.workspace.path])
-    if (project.repoRoot) ownedPaths.add(project.repoRoot)
-    for (const worktree of project.worktrees) ownedPaths.add(worktree.path)
+    const ownedPaths = new Set<string>([comparableFsPath(project.workspace.path)])
+    if (project.repoRoot) ownedPaths.add(comparableFsPath(project.repoRoot))
+    for (const worktree of project.worktrees) ownedPaths.add(comparableFsPath(worktree.path))
     return ownedPaths
   }
 

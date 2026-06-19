@@ -311,7 +311,7 @@
 
     const outcome = await sendTaskToAgentContext({
       connectionId,
-      task,
+      task: $state.snapshot(task) as Task,
       repoRoot: workspaceState.repoRoot ?? undefined,
       target: {
         worktreePath: workspaceState.selectedWorktreePath ?? undefined,
