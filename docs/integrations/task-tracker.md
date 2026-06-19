@@ -210,6 +210,8 @@ When a GitHub tracker has an empty `projectKey`, Canopy reads the git remote URL
 | `TaskContextBuildFailed`   | "Could not build the task context..."            | Task details/comments/attachments could not be fetched or formatted       |
 | `TaskContextPasteFailed`   | "Could not paste the task into the agent..."     | Target agent session rejected or lost the paste target                    |
 
+For the four statuses that carry an underlying error — `AgentStartFailed`, `TabFocusFailed`, `TaskContextBuildFailed`, and `TaskContextPasteFailed` — the banner appends that detail as `"{message} — {detail}"` (e.g. the provider, path, or agent error) so the cause is visible without DevTools. The other statuses show the generic message only.
+
 ## Security and privacy
 
 - Authentication tokens are stored via the `KeychainTokenStore`, which persists credentials in `PreferencesStore` keyed by `provider:baseUrl`. The legacy migration moves plaintext tokens from connection-specific preference keys to this store and deletes the originals.

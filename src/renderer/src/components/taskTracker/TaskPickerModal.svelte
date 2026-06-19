@@ -12,6 +12,7 @@
     noActiveAgentOutcome,
     sendTaskToAgentContext,
     tabFocusFailedOutcome,
+    taskToAgentUserMessage,
   } from '../../lib/taskTracker/taskToAgent'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -287,7 +288,7 @@
     if (!result) {
       const outcome = noActiveAgentOutcome()
       sendStatus = ''
-      sendError = outcome.message
+      sendError = taskToAgentUserMessage(outcome)
       sendingTaskKey = ''
       logTaskToAgentFailure(outcome, { taskKey: task.key, connectionId })
       return
@@ -298,7 +299,7 @@
     } catch (error) {
       const outcome = tabFocusFailedOutcome(error, result.pane.sessionId)
       sendStatus = ''
-      sendError = outcome.message
+      sendError = taskToAgentUserMessage(outcome)
       sendingTaskKey = ''
       logTaskToAgentFailure(outcome, {
         taskKey: task.key,
@@ -320,7 +321,7 @@
     sendingTaskKey = ''
     sendStatus = ''
     if (outcome.status !== 'sent') {
-      sendError = outcome.message
+      sendError = taskToAgentUserMessage(outcome)
       logTaskToAgentFailure(outcome, {
         taskKey: task.key,
         connectionId,

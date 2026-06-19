@@ -106,6 +106,29 @@ export async function sendTaskToAgentContext(
   }
 }
 
+export function taskToAgentErrorDetail(
+  outcome: Exclude<TaskToAgentOutcome, { status: 'sent' }>,
+): string | undefined {
+  return outcome.status === 'agent-start-failed' ||
+    outcome.status === 'tab-focus-failed' ||
+    outcome.status === 'context-build-failed' ||
+    outcome.status === 'paste-failed'
+    ? outcome.errorMessage
+    : undefined
+}
+
+/**
+ * User-facing message for a failed send: the generic message plus the underlying
+ * error detail when one is available. Surfacing the detail lets users report the
+ * real cause (e.g. from the task-tracker provider) without opening DevTools.
+ */
+export function taskToAgentUserMessage(
+  outcome: Exclude<TaskToAgentOutcome, { status: 'sent' }>,
+): string {
+  const detail = taskToAgentErrorDetail(outcome)
+  return detail ? `${outcome.message} — ${detail}` : outcome.message
+}
+
 export function logTaskToAgentFailure(
   outcome: Exclude<TaskToAgentOutcome, { status: 'sent' }>,
   metadata: {
@@ -118,13 +141,7 @@ export function logTaskToAgentFailure(
   console.error('Task to agent failed', {
     outcome: outcome.status,
     message: outcome.message,
-    errorMessage:
-      outcome.status === 'agent-start-failed' ||
-      outcome.status === 'tab-focus-failed' ||
-      outcome.status === 'context-build-failed' ||
-      outcome.status === 'paste-failed'
-        ? outcome.errorMessage
-        : undefined,
+    errorMessage: taskToAgentErrorDetail(outcome),
     taskKey: metadata.taskKey,
     connectionId: metadata.connectionId,
     selectedAgentId: metadata.selectedAgentId,
