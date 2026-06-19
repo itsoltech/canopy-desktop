@@ -141,13 +141,7 @@ export function logTaskToAgentFailure(
   console.error('Task to agent failed', {
     outcome: outcome.status,
     message: outcome.message,
-    errorMessage:
-      outcome.status === 'agent-start-failed' ||
-      outcome.status === 'tab-focus-failed' ||
-      outcome.status === 'context-build-failed' ||
-      outcome.status === 'paste-failed'
-        ? outcome.errorMessage
-        : undefined,
+    errorMessage: taskToAgentErrorDetail(outcome),
     taskKey: metadata.taskKey,
     connectionId: metadata.connectionId,
     selectedAgentId: metadata.selectedAgentId,
