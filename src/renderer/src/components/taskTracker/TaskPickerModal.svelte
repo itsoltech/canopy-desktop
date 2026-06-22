@@ -214,7 +214,30 @@
     saveFilters()
   }
 
+  let containerEl: HTMLDivElement | undefined = $state()
+
   function handleKeydown(e: KeyboardEvent): void {
+    // Trap Tab within the modal (applies in both the task list and the
+    // branch-create sub-view) so focus cannot escape to background chrome.
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length > 0) {
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        const active = document.activeElement as HTMLElement | null
+        if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+      return
+    }
+
     // When the branch-create sub-view is open, this window-level handler must
     // not drive the (hidden) task list. Escape returns to the list; every other
     // key is left to the sub-view's own inputs.
@@ -352,6 +375,7 @@
   role="presentation"
 >
   <div
+    bind:this={containerEl}
     class="w-[600px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
     onclick={(e) => e.stopPropagation()}
     role="dialog"

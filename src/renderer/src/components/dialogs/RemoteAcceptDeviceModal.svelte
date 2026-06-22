@@ -18,6 +18,7 @@
   let remember = $state(false)
   let secondsLeft = $state(AUTO_REJECT_SECONDS)
   let rejectBtn: HTMLButtonElement | undefined = $state()
+  let containerEl: HTMLDivElement | undefined = $state()
   let busy = $state(false)
   let actionError: string | null = $state(null)
   let countdown: ReturnType<typeof setInterval> | null = null
@@ -68,6 +69,26 @@
       e.preventDefault()
       e.stopPropagation()
       void handleReject()
+      return
+    }
+
+    // Trap focus within the dialog so a keyboard/screen-reader user cannot Tab
+    // onto background controls while making this remote-access trust decision.
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
   }
 </script>
@@ -80,6 +101,7 @@
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    bind:this={containerEl}
     class="w-[420px] bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
     role="dialog"
     aria-modal="true"

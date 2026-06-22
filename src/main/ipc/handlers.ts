@@ -1316,6 +1316,15 @@ export function registerIpcHandlers(
     // Dispose previous watcher for this specific repo only
     windowManager.disposeGitWatcher(senderId, payload.repoRoot)
 
+    // Enforce that the watched repo belongs to one of the window's workspaces,
+    // mirroring files:watch. Best-effort: git watching is non-essential, so skip
+    // silently rather than throwing when the path is outside the workspace.
+    const access = await fromExternalCall(
+      validateWorktreeScopedPathAccess(senderId, payload.repoRoot),
+      (e) => e,
+    )
+    if (access.isErr()) return
+
     // Find workspace ID for cache updates
     const ws = workspaceStore.getByPath(payload.repoRoot)
     const workspaceId = ws?.id ?? null
