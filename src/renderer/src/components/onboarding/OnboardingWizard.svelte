@@ -70,6 +70,18 @@
       e.preventDefault()
       handleSkip()
     } else if (e.key === 'Enter') {
+      // Don't hijack Enter while the user is typing in a field (e.g. the AI
+      // setup API-key input) — advancing/finishing the wizard from a keystroke
+      // meant for that field is surprising. Let the field handle it instead.
+      const target = e.target
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return
+      }
       e.preventDefault()
       if (isLast) {
         handleFinish()

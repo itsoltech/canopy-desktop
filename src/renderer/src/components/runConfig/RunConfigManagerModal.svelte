@@ -181,24 +181,21 @@
             </div>
             {#each group.configurations as config (config.name)}
               <div
-                class="flex items-center gap-1 w-full h-7 px-3 cursor-pointer border-0 bg-transparent text-inherit font-inherit text-left group/item hover:bg-hover"
+                class="flex items-center gap-1 w-full h-7 px-3 group/item hover:bg-hover"
                 class:!bg-active={!isNew &&
                   selectedKey?.configDir === group.configDir &&
                   selectedKey?.name === config.name}
-                onclick={() => selectConfig(group.configDir, config.name)}
-                onkeydown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    selectConfig(group.configDir, config.name)
-                  }
-                }}
-                role="button"
-                tabindex="0"
               >
-                <span
-                  class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm text-text"
-                  >{config.name}</span
+                <button
+                  type="button"
+                  class="flex items-center flex-1 min-w-0 h-full p-0 border-0 bg-transparent text-inherit font-inherit text-left cursor-pointer"
+                  onclick={() => selectConfig(group.configDir, config.name)}
                 >
+                  <span
+                    class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm text-text"
+                    >{config.name}</span
+                  >
+                </button>
                 <div class="flex gap-px flex-shrink-0 opacity-0 group-hover/item:opacity-100">
                   <button
                     class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-success-text cursor-pointer rounded-sm hover:bg-hover-strong"
