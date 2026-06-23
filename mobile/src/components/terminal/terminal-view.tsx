@@ -14,6 +14,51 @@ import type { TerminalThemeId } from '../../lib/storage/app-preferences-types'
 const PRIMARY_FONT = 'JetBrainsMonoNerdFontMono'
 const FONT_STACK = `"${PRIMARY_FONT}", Menlo, Monaco, "SF Mono", monospace`
 
+// Cap how many wheel reports / arrow keys a single touchmove may emit, so a
+// fast flick can't flood the WebRTC data channel. Travel beyond the cap is
+// dropped for that frame (not re-accumulated) — see onTouchMove.
+const MAX_ALT_LINES_PER_MOVE = 8
+
+// Translate an accumulated vertical swipe (in whole terminal rows) into the
+// input bytes a full-screen TUI on the alternate buffer expects. Apps drawing
+// on the alternate screen (lazygit, htop, the Claude TUI) have no scrollback,
+// so term.scrollLines() is a dead no-op there; instead we forward the swipe to
+// the PTY as the app's own scroll input. Positive `lines` = finger swiped down
+// = reveal older content = wheel-up / arrow-up, matching the scrollLines(-lines)
+// convention used on the normal buffer.
+function emitAltScrollInput(
+  term: XTerm,
+  lines: number,
+  touchX: number,
+  touchY: number,
+  host: HTMLElement,
+  emit: (seq: string) => void,
+): void {
+  const count = Math.min(Math.abs(lines), MAX_ALT_LINES_PER_MOVE)
+  if (count === 0) return
+  const up = lines > 0
+
+  // Mouse-tracking apps (e.g. lazygit) want SGR wheel reports targeted at the
+  // cell under the finger so the correct pane scrolls.
+  if (term.modes.mouseTrackingMode !== 'none') {
+    const cols = term.cols
+    const rows = term.rows
+    if (cols <= 0 || rows <= 0) return
+    const cellWidth = host.clientWidth / cols
+    const cellHeight = host.clientHeight / rows
+    if (cellWidth <= 0 || cellHeight <= 0) return
+    const rect = host.getBoundingClientRect()
+    const col = Math.min(Math.max(Math.ceil((touchX - rect.left) / cellWidth), 1), cols)
+    const row = Math.min(Math.max(Math.ceil((touchY - rect.top) / cellHeight), 1), rows)
+    emit(`\x1b[<${up ? 64 : 65};${col};${row}M`.repeat(count))
+    return
+  }
+
+  // Otherwise translate to cursor keys, honoring application cursor key mode.
+  const app = term.modes.applicationCursorKeysMode
+  emit((up ? (app ? '\x1bOA' : '\x1b[A') : app ? '\x1bOB' : '\x1b[B').repeat(count))
+}
+
 // Load the bundled Nerd Font at module import so it's usually ready by the
 // time the user navigates to the terminal screen. xterm measures glyph
 // width at construction time from whatever font is actually loaded — if we
@@ -258,12 +303,14 @@ export default function TerminalView({
       //
       // Three distinct gestures on the terminal surface:
       //   tap   (< TAP_MAX_MS, < TAP_SLOP movement) → focus terminal, pop keyboard
-      //   scroll (movement > TAP_SLOP before long-press threshold) → xterm scrollback
+      //   scroll (movement > TAP_SLOP before long-press threshold) → scroll content
       //   long-press (stationary > LONG_PRESS_MS) → native text selection via a11y tree
       //
-      // Vertical finger movement during scroll is forwarded to xterm's
-      // scrollback via `term.scrollLines()`. Swiping DOWN reveals older
-      // content — same direction as pull-to-scroll on native iOS lists.
+      // Vertical finger movement during scroll drives the normal-buffer
+      // scrollback via `term.scrollLines()`; on the alternate buffer (full-screen
+      // TUIs with no scrollback) it's forwarded to the app as wheel/arrow input
+      // via emitAltScrollInput(). Swiping DOWN reveals older content — same
+      // direction as pull-to-scroll on native iOS lists.
       const TAP_SLOP = 8
       const TAP_MAX_MS = 500
       const LONG_PRESS_MS = 400
@@ -340,7 +387,15 @@ export default function TerminalView({
 
         const lines = Math.trunc(scrollAccumulator / pixelsPerRow)
         if (lines !== 0) {
-          term.scrollLines(-lines)
+          // Alternate-screen TUIs have no scrollback — forward the swipe to the
+          // app as its own scroll input; otherwise drive xterm's scrollback.
+          if (term.buffer.active.type === 'alternate') {
+            emitAltScrollInput(term, lines, t.clientX, t.clientY, host, (seq) =>
+              onInputRef.current(seq),
+            )
+          } else {
+            term.scrollLines(-lines)
+          }
           scrollAccumulator -= lines * pixelsPerRow
         }
       }
