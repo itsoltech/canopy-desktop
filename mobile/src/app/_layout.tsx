@@ -1,6 +1,6 @@
 import 'react-native-get-random-values'
 
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native'
+import { ThemeProvider } from 'expo-router/react-navigation'
 import { Stack } from 'expo-router'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import * as Updates from 'expo-updates'
@@ -9,28 +9,11 @@ import { Alert, AppState } from 'react-native'
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon'
 import { AppConfig } from '@/config/app-config'
+import { CanopyDarkTheme, CanopyLightTheme } from '@/constants/navigation-theme'
 import { Colors } from '@/constants/theme'
 import { useColorScheme } from '@/hooks/use-color-scheme'
 import { reconnectIfDisconnected } from '@/lib/remote/session'
 import { AppPreferencesStorage } from '@/lib/storage/app-preferences'
-
-const CanopyDarkTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: Colors.dark.background,
-    card: Colors.dark.background,
-  },
-}
-
-const CanopyLightTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: Colors.light.background,
-    card: Colors.light.background,
-  },
-}
 
 function usePreferencesReady(): boolean {
   const [ready, setReady] = useState(AppPreferencesStorage.isLoaded())
@@ -50,6 +33,7 @@ function usePreferencesReady(): boolean {
 export default function RootLayout(): React.ReactElement {
   const ready = usePreferencesReady()
   const colorScheme = useColorScheme()
+  const backgroundColor = colorScheme === 'dark' ? Colors.dark.background : Colors.light.background
 
   // AnimatedSplashOverlay, EasUpdateAlert, and AppStateReconnect are
   // intentionally outside the ready gate: they don't need themed context
@@ -59,7 +43,7 @@ export default function RootLayout(): React.ReactElement {
   // would produce a white background on a light-OS / dark-app device
   // until SecureStore finishes loading).
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
       <AnimatedSplashOverlay />
       <EasUpdateAlert />
       <AppStateReconnect />
@@ -67,32 +51,25 @@ export default function RootLayout(): React.ReactElement {
         <ThemeProvider value={colorScheme === 'dark' ? CanopyDarkTheme : CanopyLightTheme}>
           <Stack
             screenOptions={{
-              headerShown: false,
-              contentStyle: {
-                backgroundColor:
-                  colorScheme === 'dark' ? Colors.dark.background : Colors.light.background,
-              },
+              contentStyle: { backgroundColor },
             }}
           >
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="instance/[id]" options={{ headerShown: false }} />
-            <Stack.Screen name="terminal" options={{ headerShown: false }} />
-            <Stack.Screen name="settings/appearance" options={{ headerShown: false }} />
+            {/* Tabs own their per-tab native stacks/headers. */}
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            {/* Declare headerLargeTitle statically so the large-title mode is fixed from the
+                first frame of the push transition — the dynamic title (nickname) is still set
+                in-screen via <Stack.Screen>. Setting it only in-screen applies after mount, which
+                reflows the content mid-transition. */}
             <Stack.Screen
-              name="worktree/new"
-              options={{ presentation: 'modal', headerShown: false }}
+              name="instance/[id]"
+              options={{ headerLargeTitle: true, headerBackTitle: 'Instances' }}
             />
-            <Stack.Screen
-              name="project/new"
-              options={{ presentation: 'modal', headerShown: false }}
-            />
-            <Stack.Screen
-              name="scan"
-              options={{
-                presentation: 'modal',
-                headerShown: false,
-              }}
-            />
+            {/* The instance nickname (the previous title) is too long for a stable
+                back label on iOS — show just the chevron to avoid the show-then-hide flicker. */}
+            <Stack.Screen name="terminal" options={{ headerBackButtonDisplayMode: 'minimal' }} />
+            <Stack.Screen name="worktree/new" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="project/new" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="scan" options={{ presentation: 'modal', title: 'Scan' }} />
           </Stack>
         </ThemeProvider>
       )}

@@ -1,18 +1,21 @@
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
-import { useEffect, useRef, useState } from 'react'
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { useEffect, useRef } from 'react'
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 
+import { ProjectsSkeleton } from '@/components/instances/projects-skeleton'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { ProjectSection } from '@/components/worktrees/project-section'
 import { Spacing } from '@/constants/theme'
 import { useRemoteSession } from '@/hooks/use-remote-session'
-import { useProjects } from '@/hooks/use-remote-state'
+import { useIsHydrated, useProjects } from '@/hooks/use-remote-state'
 import { useSavedInstance } from '@/hooks/use-saved-instances'
 import { useTheme } from '@/hooks/use-theme'
+import { AppRoutes } from '@/lib/navigation/routes'
 import type { WorktreeSnapshot } from '@/lib/remote/protocol/state-snapshot'
+import { sessionBannerText, shouldShowBanner } from '@/lib/remote/session-status'
 import { SavedInstancesStorage } from '@/lib/storage/saved-instances'
 
 export default function InstanceDetailScreen(): React.ReactElement {
@@ -22,8 +25,7 @@ export default function InstanceDetailScreen(): React.ReactElement {
   const { instance, loading } = useSavedInstance(id)
   const { state: sessionState, connect, disconnect } = useRemoteSession()
   const projects = useProjects()
-  const [editing, setEditing] = useState(false)
-  const [draftNickname, setDraftNickname] = useState('')
+  const hydrated = useIsHydrated()
 
   // Capture instance in a ref so we can call connect() without having
   // `instance` in the dep list — otherwise every SavedInstancesStorage
@@ -44,55 +46,53 @@ export default function InstanceDetailScreen(): React.ReactElement {
 
   if (loading) {
     return (
-      <ThemedView style={styles.centered}>
-        <ThemedText type="small" themeColor="textSecondary">
-          Loading…
-        </ThemedText>
-      </ThemedView>
+      <>
+        <Stack.Screen options={{ title: '' }} />
+        <ScrollView
+          style={styles.scroll}
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={styles.scrollContent}
+        >
+          <ProjectsSkeleton />
+        </ScrollView>
+      </>
     )
   }
 
   if (!instance) {
     return (
       <ThemedView style={styles.centered}>
+        <Stack.Screen options={{ title: 'Not found' }} />
         <ThemedText type="subtitle">Not found</ThemedText>
         <ThemedText type="small" themeColor="textSecondary" style={styles.notFoundHint}>
           This instance no longer exists.
         </ThemedText>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
-        >
-          <ThemedText type="linkPrimary">Go back</ThemedText>
-        </Pressable>
       </ThemedView>
     )
   }
 
-  const startEdit = (): void => {
-    setDraftNickname(instance.nickname)
-    setEditing(true)
-  }
-
-  const commitEdit = async (): Promise<void> => {
-    const trimmed = draftNickname.trim()
-    setEditing(false)
-    if (!trimmed || trimmed === instance.nickname) return
-    try {
-      await SavedInstancesStorage.update(instance.id, { nickname: trimmed })
-    } catch (e) {
-      Alert.alert('Could not rename', e instanceof Error ? e.message : String(e))
-    }
+  // Native iOS rename prompt. `Alert.prompt` is iOS-only; on Android it is a
+  // no-op (acceptable — this is the iOS companion app).
+  const promptRename = (): void => {
+    Alert.prompt(
+      'Rename instance',
+      undefined,
+      (text) => {
+        const trimmed = text?.trim()
+        if (!trimmed || trimmed === instance.nickname) return
+        void SavedInstancesStorage.update(instance.id, { nickname: trimmed }).catch(
+          (e: unknown) => {
+            Alert.alert('Could not rename', e instanceof Error ? e.message : String(e))
+          },
+        )
+      },
+      'plain-text',
+      instance.nickname,
+    )
   }
 
   const onWorktreePress = (_: unknown, worktree: WorktreeSnapshot): void => {
-    router.push({
-      pathname: '/terminal',
-      params: {
-        instanceId: instance.id,
-        worktreePath: encodeURIComponent(worktree.path),
-      },
-    })
+    router.push(AppRoutes.terminal(instance.id, worktree.path))
   }
 
   const confirmRemove = (): void => {
@@ -109,97 +109,79 @@ export default function InstanceDetailScreen(): React.ReactElement {
     ])
   }
 
-  const banner = sessionBannerText(sessionState)
+  const banner = shouldShowBanner(sessionState) ? sessionBannerText(sessionState) : null
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.header}>
+    <>
+      <Stack.Screen options={{ headerLargeTitle: true, title: instance.nickname }} />
+      <ScrollView
+        style={styles.scroll}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.scrollContent}
+      >
+        <View style={styles.metaRow}>
+          <View style={styles.metaText}>
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+              {instance.hostname}
+            </ThemedText>
+            <ThemedText type="code" themeColor="textSecondary" numberOfLines={1}>
+              {instance.lanIp}:{instance.port}
+            </ThemedText>
+          </View>
+          <Pressable
+            onPress={promptRename}
+            style={({ pressed }) => [styles.renameBtn, pressed && styles.pressed]}
+            accessibilityLabel="Rename instance"
+          >
+            <SymbolView
+              name={{ ios: 'pencil', android: 'edit', web: 'edit' }}
+              size={12}
+              weight="semibold"
+              tintColor={theme.text}
+            />
+            <ThemedText type="smallBold">Rename</ThemedText>
+          </Pressable>
+        </View>
+
+        {banner ? (
+          <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.bannerWrap}>
+            <ThemedView type="backgroundElement" style={styles.banner}>
+              <ThemedText type="small" themeColor="textSecondary">
+                {banner}
+              </ThemedText>
+            </ThemedView>
+          </Animated.View>
+        ) : null}
+
+        <View style={styles.sectionLabelRow}>
+          <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>
+            PROJECTS & WORKTREES
+          </ThemedText>
+          {hydrated && (
             <Pressable
-              onPress={() => router.back()}
-              style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
-              accessibilityLabel="Back"
+              onPress={() => router.push(AppRoutes.projectNew())}
+              style={({ pressed }) => [styles.addProjectBtn, pressed && styles.pressed]}
+              accessibilityLabel="Attach project"
             >
               <SymbolView
-                name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-                size={20}
+                name={{ ios: 'plus', android: 'add', web: 'add' }}
+                size={12}
                 weight="semibold"
                 tintColor={theme.text}
               />
+              <ThemedText type="smallBold">project</ThemedText>
             </Pressable>
+          )}
+        </View>
 
-            <View style={styles.headerTitle}>
-              {editing ? (
-                <TextInput
-                  value={draftNickname}
-                  onChangeText={setDraftNickname}
-                  onBlur={commitEdit}
-                  onSubmitEditing={commitEdit}
-                  autoFocus
-                  selectTextOnFocus
-                  style={[styles.nicknameInput, { color: theme.text }]}
-                />
-              ) : (
-                <Pressable onPress={startEdit} style={styles.nicknamePress}>
-                  <ThemedText type="subtitle" numberOfLines={1} style={styles.nickname}>
-                    {instance.nickname}
-                  </ThemedText>
-                  <SymbolView
-                    name={{ ios: 'pencil', android: 'edit', web: 'edit' }}
-                    size={14}
-                    weight="regular"
-                    tintColor={theme.textSecondary}
-                  />
-                </Pressable>
-              )}
-              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                {instance.hostname}
-              </ThemedText>
-              <ThemedText type="code" themeColor="textSecondary" numberOfLines={1}>
-                {instance.lanIp}:{instance.port}
-              </ThemedText>
-            </View>
-          </View>
-
-          {banner ? (
-            <View style={styles.bannerWrap}>
-              <ThemedView type="backgroundElement" style={styles.banner}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {banner}
-                </ThemedText>
-              </ThemedView>
-            </View>
-          ) : null}
-
-          <View style={styles.sectionLabelRow}>
-            <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>
-              PROJECTS & WORKTREES
-            </ThemedText>
-            {sessionState.kind === 'ready' && (
-              <Pressable
-                onPress={() => router.push('/project/new' as never)}
-                style={({ pressed }) => [styles.addProjectBtn, pressed && styles.pressed]}
-                accessibilityLabel="Attach project"
-              >
-                <SymbolView
-                  name={{ ios: 'plus', android: 'add', web: 'add' }}
-                  size={12}
-                  weight="semibold"
-                  tintColor={theme.text}
-                />
-                <ThemedText type="smallBold">project</ThemedText>
-              </Pressable>
-            )}
-          </View>
-
-          <View style={styles.projects}>
+        {!hydrated && sessionState.kind !== 'error' && sessionState.kind !== 'disconnected' ? (
+          <ProjectsSkeleton />
+        ) : hydrated ? (
+          <Animated.View style={styles.projects} entering={FadeIn}>
             {projects.length === 0 ? (
               <ThemedView type="backgroundElement" style={styles.empty}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {sessionState.kind === 'ready'
-                    ? 'No projects open on the host'
-                    : 'Waiting for host data…'}
+                  No projects open on the host
                 </ThemedText>
               </ThemedView>
             ) : (
@@ -211,65 +193,36 @@ export default function InstanceDetailScreen(): React.ReactElement {
                 />
               ))
             )}
-          </View>
+          </Animated.View>
+        ) : null}
 
-          <Pressable
-            onPress={confirmRemove}
-            style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}
-          >
-            <ThemedView type="backgroundElement" style={styles.removeInner}>
-              <SymbolView
-                name={{ ios: 'trash', android: 'delete', web: 'delete' }}
-                size={16}
-                weight="semibold"
-                tintColor="#e5484d"
-              />
-              <ThemedText type="smallBold" style={styles.removeText}>
-                Remove instance
-              </ThemedText>
-            </ThemedView>
-          </Pressable>
-        </ScrollView>
-      </SafeAreaView>
-    </ThemedView>
+        <Pressable
+          onPress={confirmRemove}
+          style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}
+        >
+          <ThemedView type="backgroundElement" style={styles.removeInner}>
+            <SymbolView
+              name={{ ios: 'trash', android: 'delete', web: 'delete' }}
+              size={16}
+              weight="semibold"
+              tintColor="#e5484d"
+            />
+            <ThemedText type="smallBold" style={styles.removeText}>
+              Remove instance
+            </ThemedText>
+          </ThemedView>
+        </Pressable>
+      </ScrollView>
+    </>
   )
 }
 
-function sessionBannerText(state: ReturnType<typeof useRemoteSession>['state']): string | null {
-  switch (state.kind) {
-    case 'idle':
-      return null
-    case 'connecting':
-      switch (state.phase) {
-        case 'signaling':
-          return 'Connecting to host…'
-        case 'pairing':
-          return 'Validating pairing token…'
-        case 'awaiting-accept':
-          return 'Waiting for approval on desktop…'
-        case 'rtc':
-          return 'Establishing WebRTC connection…'
-      }
-      return 'Connecting…'
-    case 'reconnecting':
-      return 'Reconnecting…'
-    case 'ready':
-      return null
-    case 'error':
-      return `Connection error: ${state.message}`
-    case 'disconnected':
-      return 'Disconnected'
-  }
-}
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
+  scroll: {
     flex: 1,
   },
   scrollContent: {
+    paddingTop: Spacing.two,
     paddingBottom: Spacing.six,
     gap: Spacing.four,
   },
@@ -283,42 +236,25 @@ const styles = StyleSheet.create({
   notFoundHint: {
     textAlign: 'center',
   },
-  backButton: {
-    marginTop: Spacing.three,
-    padding: Spacing.two,
-  },
-  header: {
+  metaRow: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    gap: Spacing.three,
-  },
-  iconBack: {
-    width: Spacing.five,
-    height: Spacing.five,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.one,
+    justifyContent: 'space-between',
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.four,
   },
-  headerTitle: {
+  metaText: {
     flex: 1,
     gap: Spacing.half,
   },
-  nicknamePress: {
+  renameBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-  },
-  nickname: {
-    fontSize: 24,
-    lineHeight: 30,
-    flexShrink: 1,
-  },
-  nicknameInput: {
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: '600',
-    paddingVertical: 0,
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    borderRadius: Spacing.two,
+    backgroundColor: 'rgba(127, 127, 127, 0.15)',
   },
   bannerWrap: {
     paddingHorizontal: Spacing.four,

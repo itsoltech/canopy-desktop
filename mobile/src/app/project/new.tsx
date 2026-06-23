@@ -1,9 +1,9 @@
-import { useRouter } from 'expo-router'
-import { SymbolView } from 'expo-symbols'
+import { Stack, useRouter } from 'expo-router'
 import { useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { ScrollView, StyleSheet, TextInput } from 'react-native'
 
+import { ConnectionFallback } from '@/components/connection-fallback'
+import { HeaderButton } from '@/components/header-button'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { DangerColor, Spacing } from '@/constants/theme'
@@ -35,106 +35,62 @@ export default function AttachProjectScreen(): React.ReactElement {
   }
 
   if (!api) {
-    return (
-      <ThemedView style={styles.centered}>
-        <ThemedText type="subtitle">Not connected</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
-          Open the instance first to establish a session.
-        </ThemedText>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
-        >
-          <ThemedText type="linkPrimary">Go back</ThemedText>
-        </Pressable>
-      </ThemedView>
-    )
+    return <ConnectionFallback hint="Open the instance first to establish a session." />
   }
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
-            accessibilityLabel="Cancel"
-          >
-            <SymbolView
-              name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-              size={20}
-              weight="semibold"
-              tintColor={theme.text}
-            />
-          </Pressable>
-          <View style={styles.headerTitle}>
-            <ThemedText type="subtitle">Attach project</ThemedText>
-          </View>
-        </View>
-
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          <ThemedText type="smallBold" themeColor="textSecondary" style={styles.fieldLabel}>
-            PROJECT PATH
-          </ThemedText>
-          <ThemedView
-            type="backgroundElement"
-            style={[styles.inputWrap, submitting && styles.disabled]}
-          >
-            <TextInput
-              value={path}
-              onChangeText={setPath}
-              placeholder="~/code/my-project"
-              placeholderTextColor={theme.textSecondary}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoFocus
-              editable={!submitting}
-              style={[styles.input, styles.inputMono, { color: theme.text }]}
-            />
-          </ThemedView>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.hintSmall}>
-            Enter an absolute path or use ~ for your home directory.
-          </ThemedText>
-
-          {error && (
-            <ThemedView type="backgroundElement" style={styles.errorBox}>
-              <ThemedText type="small" style={styles.errorText}>
-                {error}
-              </ThemedText>
-            </ThemedView>
-          )}
-
-          <View style={styles.actions}>
-            <Pressable
-              onPress={() => router.back()}
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-            >
-              <ThemedView type="backgroundElement" style={styles.actionInner}>
-                <ThemedText type="smallBold">Cancel</ThemedText>
-              </ThemedView>
-            </Pressable>
-            <Pressable
+      <Stack.Screen
+        options={{
+          title: 'Attach project',
+          headerLeft: () => <HeaderButton label="Cancel" onPress={() => router.back()} />,
+          headerRight: () => (
+            <HeaderButton
+              label="Attach"
               onPress={submit}
               disabled={!canSubmit}
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-            >
-              <ThemedView
-                type="backgroundSelected"
-                style={[styles.actionInner, !canSubmit && styles.disabled]}
-              >
-                {submitting ? (
-                  <ActivityIndicator />
-                ) : (
-                  <ThemedText type="smallBold">Attach</ThemedText>
-                )}
-              </ThemedView>
-            </Pressable>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+              loading={submitting}
+              bold
+            />
+          ),
+        }}
+      />
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <ThemedText type="smallBold" themeColor="textSecondary" style={styles.fieldLabel}>
+          PROJECT PATH
+        </ThemedText>
+        <ThemedView
+          type="backgroundElement"
+          style={[styles.inputWrap, submitting && styles.disabled]}
+        >
+          <TextInput
+            value={path}
+            onChangeText={setPath}
+            placeholder="~/code/my-project"
+            placeholderTextColor={theme.textSecondary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoFocus
+            editable={!submitting}
+            style={[styles.input, styles.inputMono, { color: theme.text }]}
+          />
+        </ThemedView>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.hintSmall}>
+          Enter an absolute path or use ~ for your home directory.
+        </ThemedText>
+
+        {error && (
+          <ThemedView type="backgroundElement" style={styles.errorBox}>
+            <ThemedText type="small" style={styles.errorText}>
+              {error}
+            </ThemedText>
+          </ThemedView>
+        )}
+      </ScrollView>
     </ThemedView>
   )
 }
@@ -142,40 +98,6 @@ export default function AttachProjectScreen(): React.ReactElement {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    padding: Spacing.four,
-  },
-  hint: {
-    textAlign: 'center',
-  },
-  linkButton: {
-    marginTop: Spacing.three,
-    padding: Spacing.two,
-  },
-  header: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    gap: Spacing.three,
-  },
-  iconBack: {
-    width: Spacing.five,
-    height: Spacing.five,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.one,
-  },
-  headerTitle: {
-    flex: 1,
-    gap: Spacing.half,
   },
   scrollContent: {
     padding: Spacing.four,
@@ -212,23 +134,7 @@ const styles = StyleSheet.create({
   errorText: {
     color: DangerColor,
   },
-  actions: {
-    flexDirection: 'row',
-    gap: Spacing.three,
-    marginTop: Spacing.four,
-  },
-  actionBtn: {
-    flex: 1,
-  },
-  actionInner: {
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.three,
-    alignItems: 'center',
-  },
   disabled: {
     opacity: 0.5,
-  },
-  pressed: {
-    opacity: 0.6,
   },
 })

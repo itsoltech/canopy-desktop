@@ -11,6 +11,7 @@ import React from 'react'
 import { Pressable, useColorScheme, View, StyleSheet } from 'react-native'
 
 import { ExternalLink } from './external-link'
+import { TABS } from './tabs/tab-config'
 import { ThemedText } from './themed-text'
 import { ThemedView } from './themed-view'
 
@@ -22,12 +23,11 @@ export default function AppTabs(): React.ReactElement {
       <TabSlot style={{ height: '100%' }} />
       <TabList asChild>
         <CustomTabList>
-          <TabTrigger name="index" href="/" asChild>
-            <TabButton>Instances</TabButton>
-          </TabTrigger>
-          <TabTrigger name="settings" href="/settings" asChild>
-            <TabButton>Settings</TabButton>
-          </TabTrigger>
+          {TABS.map((tab) => (
+            <TabTrigger key={tab.name} name={tab.name} href={tab.href} asChild>
+              <TabButton>{tab.label}</TabButton>
+            </TabTrigger>
+          ))}
         </CustomTabList>
       </TabList>
     </Tabs>
@@ -66,9 +66,9 @@ export function CustomTabList(props: TabListProps): React.ReactElement {
 
         {props.children}
 
-        <ExternalLink href="https://docs.expo.dev" asChild>
+        <ExternalLink href="https://canopy.itsol.tech" asChild>
           <Pressable style={styles.externalPressable}>
-            <ThemedText type="link">Docs</ThemedText>
+            <ThemedText type="link">Canopy</ThemedText>
             <SymbolView
               tintColor={colors.text}
               name={{ ios: 'arrow.up.right.square', web: 'link' }}
