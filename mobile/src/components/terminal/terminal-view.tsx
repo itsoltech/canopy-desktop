@@ -39,7 +39,11 @@ function emitAltScrollInput(
   const up = lines > 0
 
   // Mouse-tracking apps (e.g. lazygit) want SGR wheel reports targeted at the
-  // cell under the finger so the correct pane scrolls.
+  // cell under the finger so the correct pane scrolls. We emit SGR (CSI <)
+  // encoding unconditionally: the target full-screen TUIs (lazygit, htop, the
+  // Claude/Codex agent UIs) all request SGR extended mouse mode (DECSET 1006)
+  // alongside tracking. An app that enabled tracking with legacy X10 encoding
+  // would mis-parse this, but none of the apps this targets do.
   if (term.modes.mouseTrackingMode !== 'none') {
     const cols = term.cols
     const rows = term.rows

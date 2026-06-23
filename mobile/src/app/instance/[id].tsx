@@ -2,7 +2,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import { useEffect, useRef } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
+import Animated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
 
 import { ProjectsSkeleton } from '@/components/instances/projects-skeleton'
 import { ThemedText } from '@/components/themed-text'
@@ -26,6 +26,7 @@ export default function InstanceDetailScreen(): React.ReactElement {
   const { state: sessionState, connect, disconnect } = useRemoteSession()
   const projects = useProjects()
   const hydrated = useIsHydrated()
+  const reduceMotion = useReducedMotion()
 
   // Capture instance in a ref so we can call connect() without having
   // `instance` in the dep list — otherwise every SavedInstancesStorage
@@ -144,7 +145,11 @@ export default function InstanceDetailScreen(): React.ReactElement {
         </View>
 
         {banner ? (
-          <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.bannerWrap}>
+          <Animated.View
+            entering={reduceMotion ? undefined : FadeIn}
+            exiting={reduceMotion ? undefined : FadeOut}
+            style={styles.bannerWrap}
+          >
             <ThemedView type="backgroundElement" style={styles.banner}>
               <ThemedText type="small" themeColor="textSecondary">
                 {banner}
@@ -174,10 +179,8 @@ export default function InstanceDetailScreen(): React.ReactElement {
           )}
         </View>
 
-        {!hydrated && sessionState.kind !== 'error' && sessionState.kind !== 'disconnected' ? (
-          <ProjectsSkeleton />
-        ) : hydrated ? (
-          <Animated.View style={styles.projects} entering={FadeIn}>
+        {hydrated ? (
+          <Animated.View style={styles.projects} entering={reduceMotion ? undefined : FadeIn}>
             {projects.length === 0 ? (
               <ThemedView type="backgroundElement" style={styles.empty}>
                 <ThemedText type="small" themeColor="textSecondary">
@@ -194,7 +197,36 @@ export default function InstanceDetailScreen(): React.ReactElement {
               ))
             )}
           </Animated.View>
-        ) : null}
+        ) : sessionState.kind === 'error' || sessionState.kind === 'disconnected' ? (
+          // First-connect failure before any snapshot hydrated (bad token, host
+          // offline, RTC failure): show the reason in-content with a Retry,
+          // instead of leaving the region blank under the thin banner.
+          <View style={styles.projects}>
+            <ThemedView type="backgroundElement" style={styles.errorBox}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.errorText}>
+                {sessionState.kind === 'error'
+                  ? sessionState.message
+                  : 'Disconnected from the host.'}
+              </ThemedText>
+              <Pressable
+                onPress={() => void connect(instance)}
+                style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Retry connection"
+              >
+                <SymbolView
+                  name={{ ios: 'arrow.clockwise', android: 'refresh', web: 'refresh' }}
+                  size={14}
+                  weight="semibold"
+                  tintColor={theme.text}
+                />
+                <ThemedText type="smallBold">Retry</ThemedText>
+              </Pressable>
+            </ThemedView>
+          </View>
+        ) : (
+          <ProjectsSkeleton />
+        )}
 
         <Pressable
           onPress={confirmRemove}
@@ -290,6 +322,24 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     padding: Spacing.three,
     alignItems: 'center',
+  },
+  errorBox: {
+    borderRadius: Spacing.three,
+    padding: Spacing.three,
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  errorText: {
+    textAlign: 'center',
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderRadius: Spacing.two,
+    backgroundColor: 'rgba(127, 127, 127, 0.15)',
   },
   removeButton: {
     marginTop: Spacing.three,

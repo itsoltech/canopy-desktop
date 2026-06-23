@@ -1,8 +1,10 @@
 import { useEffect } from 'react'
 import { type DimensionValue, type StyleProp, type ViewStyle } from 'react-native'
 import Animated, {
+  cancelAnimation,
   Easing,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withRepeat,
   withTiming,
@@ -28,15 +30,24 @@ export function Skeleton({
   style,
 }: SkeletonProps): React.ReactElement {
   const theme = useTheme()
+  const reduceMotion = useReducedMotion()
   const pulse = useSharedValue(0.4)
 
   useEffect(() => {
+    // Respect the OS "Reduce Motion" setting: hold a static muted opacity
+    // instead of the looping pulse (CLAUDE.md accessibility rule).
+    if (reduceMotion) {
+      cancelAnimation(pulse)
+      pulse.value = 0.7
+      return
+    }
     pulse.value = withRepeat(
       withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
       -1,
       true,
     )
-  }, [pulse])
+    return () => cancelAnimation(pulse)
+  }, [pulse, reduceMotion])
 
   const animatedStyle = useAnimatedStyle(() => ({ opacity: pulse.value }))
 
