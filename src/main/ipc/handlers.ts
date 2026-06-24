@@ -1294,8 +1294,9 @@ export function registerIpcHandlers(
     aheadBehind: null,
   }
 
-  ipcMain.handle('git:detect', async (_event, payload: { path: string }) => {
-    return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
+  ipcMain.handle('git:detect', async (event, payload: { path: string }) => {
+    const resolved = await validateWorktreeScopedPathAccess(event.sender.id, payload.path)
+    return GitRepository.detect(resolved).unwrapOr(defaultGitInfo)
   })
 
   ipcMain.handle('git:worktrees', async (event, payload: { repoRoot: string }) => {
@@ -1303,10 +1304,11 @@ export function registerIpcHandlers(
     return GitRepository.listWorktrees(resolvedRepo).unwrapOr([])
   })
 
-  ipcMain.handle('git:status', async (_event, payload: { path: string }) => {
-    const branch = await GitRepository.getBranch(payload.path).unwrapOr(null)
-    const isDirty = await GitRepository.isDirty(payload.path).unwrapOr(false)
-    const aheadBehind = await GitRepository.getAheadBehind(payload.path).unwrapOr(null)
+  ipcMain.handle('git:status', async (event, payload: { path: string }) => {
+    const resolved = await validateWorktreeScopedPathAccess(event.sender.id, payload.path)
+    const branch = await GitRepository.getBranch(resolved).unwrapOr(null)
+    const isDirty = await GitRepository.isDirty(resolved).unwrapOr(false)
+    const aheadBehind = await GitRepository.getAheadBehind(resolved).unwrapOr(null)
     return { branch, isDirty, aheadBehind }
   })
 

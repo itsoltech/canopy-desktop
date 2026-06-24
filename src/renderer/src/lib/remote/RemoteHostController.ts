@@ -13,6 +13,14 @@ import type {
 import { HostRpcServer } from './HostRpcServer'
 
 /**
+ * Upper bound on ICE candidates buffered before the remote description is set.
+ * A peer that streams ICE but never sends an offer would otherwise grow this
+ * buffer for the life of the connection; trickle ICE for a single connection
+ * never legitimately exceeds a few dozen candidates.
+ */
+const MAX_PENDING_ICE = 100
+
+/**
  * Desktop side of the WebRTC peer connection.
  *
  * The remote peer is the offerer: it builds the data channels first, then
@@ -114,7 +122,11 @@ export class RemoteHostController {
       })
       .with({ type: 'ice' }, async (m) => {
         if (!pc.remoteDescription) {
-          this.pendingIce.push(m.candidate)
+          // Bound the pre-offer buffer so a peer that never sends an offer
+          // cannot grow it without limit.
+          if (this.pendingIce.length < MAX_PENDING_ICE) {
+            this.pendingIce.push(m.candidate)
+          }
           return
         }
         try {

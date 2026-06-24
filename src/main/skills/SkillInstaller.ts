@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { Readable } from 'stream'
 import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
 import { join, basename, resolve, normalize, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
@@ -292,7 +293,9 @@ export class SkillInstaller {
     }
 
     // Cap the response size: a hostile/compromised endpoint could otherwise
-    // stream an unbounded body into resp.text() and OOM the main process.
+    // stream an unbounded body into memory and OOM the main process. The
+    // declared content-length is only an advisory fast-path; enforce the limit
+    // against the bytes actually read, since a chunked response omits it.
     const MAX_SKILL_BYTES = 5 * 1024 * 1024
     const declaredLength = Number(resp.headers.get('content-length'))
     if (Number.isFinite(declaredLength) && declaredLength > MAX_SKILL_BYTES) {
@@ -300,7 +303,26 @@ export class SkillInstaller {
     }
 
     const textResult = await fromExternalCall(
-      resp.text(),
+      (async () => {
+        if (!resp.body) {
+          const text = await resp.text()
+          if (text.length > MAX_SKILL_BYTES) throw new Error('Skill response exceeds 5 MB limit')
+          return text
+        }
+        const nodeStream = Readable.fromWeb(resp.body as import('stream/web').ReadableStream)
+        const chunks: Buffer[] = []
+        let received = 0
+        for await (const chunk of nodeStream) {
+          const buf = chunk as Buffer
+          received += buf.length
+          if (received > MAX_SKILL_BYTES) {
+            nodeStream.destroy()
+            throw new Error('Skill response exceeds 5 MB limit')
+          }
+          chunks.push(buf)
+        }
+        return Buffer.concat(chunks).toString('utf8')
+      })(),
       (e): SkillError => ({
         _tag: 'FetchFailed',
         source: url,
