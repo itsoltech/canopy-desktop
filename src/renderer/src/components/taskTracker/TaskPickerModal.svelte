@@ -380,6 +380,7 @@
               saveFilters()
             }}
             title="Filters"
+            aria-label="Toggle filters"
           >
             <Funnel size={14} />
           </button>
@@ -472,7 +473,7 @@
       <div class="flex-1 overflow-y-auto py-1">
         {#if loading}
           <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
-            <LoaderCircle size={16} class="animate-spin" />
+            <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
             <span>Loading tasks...</span>
           </div>
         {:else if error}
@@ -530,7 +531,7 @@
                   aria-label="Send to agent"
                 >
                   {#if sendingTaskKey === task.key}
-                    <LoaderCircle size={12} class="animate-spin" />
+                    <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
                   {:else}
                     <Send size={12} />
                   {/if}

@@ -1294,8 +1294,9 @@ export function registerIpcHandlers(
     aheadBehind: null,
   }
 
-  ipcMain.handle('git:detect', async (_event, payload: { path: string }) => {
-    return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
+  ipcMain.handle('git:detect', async (event, payload: { path: string }) => {
+    const resolved = await validateWorktreeScopedPathAccess(event.sender.id, payload.path)
+    return GitRepository.detect(resolved).unwrapOr(defaultGitInfo)
   })
 
   ipcMain.handle('git:worktrees', async (event, payload: { repoRoot: string }) => {
@@ -1303,15 +1304,22 @@ export function registerIpcHandlers(
     return GitRepository.listWorktrees(resolvedRepo).unwrapOr([])
   })
 
-  ipcMain.handle('git:status', async (_event, payload: { path: string }) => {
-    const branch = await GitRepository.getBranch(payload.path).unwrapOr(null)
-    const isDirty = await GitRepository.isDirty(payload.path).unwrapOr(false)
-    const aheadBehind = await GitRepository.getAheadBehind(payload.path).unwrapOr(null)
+  ipcMain.handle('git:status', async (event, payload: { path: string }) => {
+    const resolved = await validateWorktreeScopedPathAccess(event.sender.id, payload.path)
+    const branch = await GitRepository.getBranch(resolved).unwrapOr(null)
+    const isDirty = await GitRepository.isDirty(resolved).unwrapOr(false)
+    const aheadBehind = await GitRepository.getAheadBehind(resolved).unwrapOr(null)
     return { branch, isDirty, aheadBehind }
   })
 
   ipcMain.handle('git:watch', async (event, payload: { repoRoot: string; snapshot?: GitInfo }) => {
     const senderId = event.sender.id
+
+    // Enforce that the watched repo belongs to one of the window's workspaces
+    // (mirrors files:watch / git:worktrees). The watcher runs git in this
+    // directory, so an unvalidated path would let a renderer execute git in —
+    // and honour the .git/config of — an arbitrary directory.
+    const resolvedRepo = await validateWorktreeScopedPathAccess(senderId, payload.repoRoot)
 
     // Dispose previous watcher for this specific repo only
     windowManager.disposeGitWatcher(senderId, payload.repoRoot)
@@ -1321,7 +1329,7 @@ export function registerIpcHandlers(
     const workspaceId = ws?.id ?? null
 
     const watcher = new GitWatcher(
-      payload.repoRoot,
+      resolvedRepo,
       (info, changes: GitRefreshFlags) => {
         if (workspaceId) {
           workspaceStore.updateGitCache(workspaceId, {
@@ -1438,8 +1446,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'db:workspace:refreshGitStatus',
-    async (_event, payload: { id: string; path: string }) => {
-      const info = await GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
+    async (event, payload: { id: string; path: string }) => {
+      const resolved = await validateWorktreeScopedPathAccess(event.sender.id, payload.path)
+      const info = await GitRepository.detect(resolved).unwrapOr(defaultGitInfo)
       const aheadBehind = info.aheadBehind ? JSON.stringify(info.aheadBehind) : null
       workspaceStore.updateGitCache(payload.id, {
         branch: info.branch,
