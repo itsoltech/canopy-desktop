@@ -27,7 +27,10 @@
   let isLast = $derived(onboardingState.currentStep === onboardingState.steps.length - 1)
 
   onMount(() => {
+    // Restore focus to the opener when the wizard closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
+    return () => previouslyFocused?.focus?.()
   })
 
   async function handleNext(): Promise<void> {

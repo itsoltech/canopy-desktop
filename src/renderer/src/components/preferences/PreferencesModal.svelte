@@ -70,9 +70,12 @@
   }
 
   onMount(() => {
+    // Restore focus to the opener when the modal closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     return () => {
       clearQuery()
+      previouslyFocused?.focus?.()
     }
   })
 

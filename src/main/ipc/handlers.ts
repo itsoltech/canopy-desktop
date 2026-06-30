@@ -1295,6 +1295,9 @@ export function registerIpcHandlers(
   }
 
   ipcMain.handle('git:detect', async (_event, payload: { path: string }) => {
+    if (typeof payload?.path !== 'string' || !path.isAbsolute(payload.path)) {
+      throw new Error('Invalid path: must be an absolute path string')
+    }
     return GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
   })
 
@@ -1304,6 +1307,9 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('git:status', async (_event, payload: { path: string }) => {
+    if (typeof payload?.path !== 'string' || !path.isAbsolute(payload.path)) {
+      throw new Error('Invalid path: must be an absolute path string')
+    }
     const branch = await GitRepository.getBranch(payload.path).unwrapOr(null)
     const isDirty = await GitRepository.isDirty(payload.path).unwrapOr(false)
     const aheadBehind = await GitRepository.getAheadBehind(payload.path).unwrapOr(null)
@@ -1439,7 +1445,12 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'db:workspace:refreshGitStatus',
     async (_event, payload: { id: string; path: string }) => {
-      const info = await GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
+      // Resolve the repo path from the authoritative workspace record (keyed by
+      // the trusted id) rather than the renderer-supplied path, which would
+      // otherwise be handed straight to git as a working directory.
+      const workspace = workspaceStore.get(payload.id)
+      if (!workspace) return null
+      const info = await GitRepository.detect(workspace.path).unwrapOr(defaultGitInfo)
       const aheadBehind = info.aheadBehind ? JSON.stringify(info.aheadBehind) : null
       workspaceStore.updateGitCache(payload.id, {
         branch: info.branch,
@@ -2062,6 +2073,31 @@ export function registerIpcHandlers(
 
   // --- Custom Tools ---
 
+  // The renderer is untrusted: validate custom-tool payloads before they reach
+  // ToolRegistry, which assumes `command` is a string (`.trim()`) and `args` is
+  // an array (`.some()`) and would otherwise throw an opaque TypeError.
+  function assertToolString(value: unknown, field: string): asserts value is string {
+    if (typeof value !== 'string') throw new Error(`Invalid tool: ${field} must be a string`)
+  }
+  function validateToolFields(fields: {
+    name?: unknown
+    command?: unknown
+    args?: unknown
+    icon?: unknown
+    category?: unknown
+  }): void {
+    if (fields.name !== undefined) assertToolString(fields.name, 'name')
+    if (fields.command !== undefined) assertToolString(fields.command, 'command')
+    if (fields.icon !== undefined) assertToolString(fields.icon, 'icon')
+    if (fields.category !== undefined) assertToolString(fields.category, 'category')
+    if (
+      fields.args !== undefined &&
+      (!Array.isArray(fields.args) || !fields.args.every((a) => typeof a === 'string'))
+    ) {
+      throw new Error('Invalid tool: args must be an array of strings')
+    }
+  }
+
   ipcMain.handle(
     'tools:addCustom',
     (
@@ -2075,6 +2111,10 @@ export function registerIpcHandlers(
         category?: string
       },
     ) => {
+      assertToolString(payload?.id, 'id')
+      assertToolString(payload?.name, 'name')
+      assertToolString(payload?.command, 'command')
+      validateToolFields(payload)
       toolRegistry.addCustom(payload)
       broadcastToolsChanged()
       return toolRegistry.getAll()
@@ -2102,6 +2142,11 @@ export function registerIpcHandlers(
         }
       },
     ) => {
+      assertToolString(payload?.id, 'id')
+      if (payload?.changes == null || typeof payload.changes !== 'object') {
+        throw new Error('Invalid tool: changes must be an object')
+      }
+      validateToolFields(payload.changes)
       toolRegistry.updateCustom(payload.id, payload.changes)
       broadcastToolsChanged()
       return toolRegistry.getAll()
