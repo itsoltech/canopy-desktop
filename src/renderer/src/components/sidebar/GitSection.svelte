@@ -149,7 +149,10 @@
       title={workspaceState.isDirty ? 'Commit staged changes' : 'Nothing to commit'}
     >
       {#if loading === 'commit'}
-        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle
+          size={13}
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
       {:else}
         <GitCommitVertical
           size={13}
@@ -172,7 +175,10 @@
       title="Push to remote"
     >
       {#if loading === 'push'}
-        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle
+          size={13}
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
       {:else}
         <ArrowUpFromLine
           size={13}
@@ -194,7 +200,10 @@
       title="Pull from remote"
     >
       {#if loading === 'pull'}
-        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle
+          size={13}
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
       {:else}
         <ArrowDownToLine
           size={13}
@@ -216,7 +225,10 @@
       title="Fetch from remote"
     >
       {#if loading === 'fetch'}
-        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle
+          size={13}
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
       {:else}
         <RefreshCw
           size={13}
@@ -239,7 +251,10 @@
       title={workspaceState.isDirty ? 'Stash changes' : 'Nothing to stash'}
     >
       {#if loading === 'stash'}
-        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle
+          size={13}
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
       {:else}
         <Archive
           size={13}
@@ -255,7 +270,10 @@
       title="Pop stashed changes"
     >
       {#if loading === 'stashPop'}
-        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle
+          size={13}
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
       {:else}
         <ArchiveRestore
           size={13}
@@ -278,7 +296,10 @@
       title="Create pull request"
     >
       {#if loading === 'pr'}
-        <LoaderCircle size={13} class="text-text-faint animate-spin-slow flex-shrink-0" />
+        <LoaderCircle
+          size={13}
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
       {:else}
         <GitPullRequest
           size={13}
