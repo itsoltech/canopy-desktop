@@ -72,6 +72,7 @@ export class TelemetryManager {
           'User-Agent': session.defaultSession.getUserAgent(),
         },
         body,
+        signal: AbortSignal.timeout(10_000),
       })
       .then((res) => {
         if (!res.ok) {
