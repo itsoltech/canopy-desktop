@@ -54,6 +54,8 @@ export class RemoteHostController {
   private rpcServer: HostRpcServer | null = null
   /** ICE candidates that arrived before `setRemoteDescription` — buffered and replayed. */
   private pendingIce: RTCIceCandidateInit[] = []
+  /** One-shot guard so a candidate flood logs the buffer-full warning once per connection. */
+  private iceBufferFullLogged = false
   private disposed = false
   private send: (msg: OutboundSignalFromRenderer) => void
 
@@ -126,6 +128,9 @@ export class RemoteHostController {
           // cannot grow it without limit.
           if (this.pendingIce.length < MAX_PENDING_ICE) {
             this.pendingIce.push(m.candidate)
+          } else if (!this.iceBufferFullLogged) {
+            this.iceBufferFullLogged = true
+            console.warn('[remote-host] pre-offer ICE buffer full (100), dropping candidate')
           }
           return
         }
