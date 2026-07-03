@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -14,8 +14,12 @@
   let titleEl: HTMLInputElement | undefined = $state()
   let containerEl: HTMLDivElement | undefined = $state()
   let mode: 'github' | 'cli' = $state('cli')
+  let previouslyFocused: HTMLElement | null = null
 
   onMount(async () => {
+    // Restore focus to the element that opened the dialog when it closes,
+    // so keyboard/screen-reader users aren't dropped to the document body.
+    previouslyFocused = document.activeElement as HTMLElement | null
     titleEl?.focus()
     const repoRoot = workspaceState.repoRoot
     if (!repoRoot) return
@@ -46,6 +50,8 @@
       title = branch.replace(/^(feat|fix|chore|refactor|docs|test)\//, '').replace(/[-_]/g, ' ')
     }
   })
+
+  onDestroy(() => previouslyFocused?.focus?.())
 
   async function submit(): Promise<void> {
     const repoRoot = workspaceState.repoRoot
@@ -154,8 +160,7 @@
         class="{inputCls} resize-y min-h-[60px]"
         bind:value={body}
         placeholder="Optional description"
-        rows="5"
-      ></textarea>
+        rows="5"></textarea>
     </div>
 
     <div class="mb-2.5 flex items-center">

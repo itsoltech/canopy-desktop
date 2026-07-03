@@ -152,6 +152,11 @@ export class NotchOverlayManager {
     })
 
     this.overlayWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // The overlay only ever loads the bundled notch.html. Block any top-level
+    // navigation away from it as defense in depth, matching the main window.
+    this.overlayWindow.webContents.on('will-navigate', (event, url) => {
+      if (url !== this.overlayWindow?.webContents.getURL()) event.preventDefault()
+    })
     this.overlayWindow.setAlwaysOnTop(true, 'pop-up-menu')
     if (isMac) {
       this.overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })

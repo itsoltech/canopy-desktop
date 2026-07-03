@@ -22,10 +22,13 @@
   let busy = $state(false)
   let actionError: string | null = $state(null)
   let countdown: ReturnType<typeof setInterval> | null = null
+  let previouslyFocused: HTMLElement | null = null
 
   const devLogId = deviceId
 
   onMount(() => {
+    // Restore focus to the opener when the dialog closes.
+    previouslyFocused = document.activeElement as HTMLElement | null
     rejectBtn?.focus()
     countdown = setInterval(() => {
       secondsLeft -= 1
@@ -37,6 +40,7 @@
 
   onDestroy(() => {
     if (countdown) clearInterval(countdown)
+    previouslyFocused?.focus?.()
   })
 
   async function handleAccept(): Promise<void> {
