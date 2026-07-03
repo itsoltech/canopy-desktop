@@ -152,7 +152,7 @@
               {#if status?.found}
                 <span
                   class="text-xs text-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap"
-                  >{status.path}</span
+                  title={status.path}>{status.path}</span
                 >
               {:else}
                 <span class="text-xs text-text-muted font-mono">Not found in PATH</span>

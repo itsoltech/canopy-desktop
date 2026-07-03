@@ -655,6 +655,7 @@
         class="w-full border-0 bg-transparent text-text text-md font-inherit outline-none placeholder:text-text-faint"
         type="text"
         role="combobox"
+        aria-label="Search commands"
         aria-controls="command-palette-listbox"
         aria-expanded={flatItems.length > 0}
         aria-activedescendant={flatItems.length > 0 && selectedIndex >= 0
