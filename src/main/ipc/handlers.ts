@@ -1333,8 +1333,11 @@ export function registerIpcHandlers(
     // Dispose previous watcher for this specific repo only
     windowManager.disposeGitWatcher(senderId, payload.repoRoot)
 
-    // Find workspace ID for cache updates
-    const ws = workspaceStore.getByPath(resolved)
+    // Find workspace ID for cache updates. Look up by the raw renderer-sent
+    // path (the exact key WorkspaceStore keys on) — not the realpath-normalized
+    // `resolved`, which would miss symlinked / `/var`→`/private/var` roots and
+    // silently stop cache updates. `resolved` is used only for the watcher path.
+    const ws = workspaceStore.getByPath(payload.repoRoot)
     const workspaceId = ws?.id ?? null
 
     const watcher = new GitWatcher(
