@@ -48,6 +48,9 @@ function ytFetch<T>(
   return fromExternalCall(
     fetch(url, {
       headers: buildHeaders(token),
+      // Do not follow redirects: baseUrl comes from repo config, and a redirect
+      // would forward the Authorization token to an attacker-controlled host.
+      redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     }),
     (e) => apiError(0, errorMessage(e)),

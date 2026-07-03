@@ -158,6 +158,7 @@
     <button
       bind:this={triggerEl}
       class="inline-flex items-center justify-between gap-1.5 h-6 px-2 max-w-[180px] border border-border rounded-md bg-bg-secondary text-text text-xs font-inherit cursor-pointer outline-none hover:bg-hover"
+      title={activeLabel}
       onclick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
     >
       <span class="overflow-hidden text-ellipsis whitespace-nowrap">{activeLabel}</span>

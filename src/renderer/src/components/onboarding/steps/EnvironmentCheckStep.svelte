@@ -152,7 +152,7 @@
               {#if status?.found}
                 <span
                   class="text-xs text-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap"
-                  >{status.path}</span
+                  title={status.path}>{status.path}</span
                 >
               {:else}
                 <span class="text-xs text-text-muted font-mono">Not found in PATH</span>
@@ -178,8 +178,10 @@
                         <button
                           class="flex-shrink-0 flex items-center justify-center w-[26px] h-[26px] p-0 border border-border rounded-md bg-hover text-text-secondary cursor-pointer transition-colors duration-fast hover:bg-active"
                           onclick={() => copyCommand(opt.cmd)}
-                          title="Copy to clipboard"
-                          aria-label="Copy install command"
+                          title={copiedCmd === opt.cmd ? 'Copied' : 'Copy to clipboard'}
+                          aria-label={copiedCmd === opt.cmd
+                            ? 'Copied install command'
+                            : 'Copy install command'}
                         >
                           {#if copiedCmd === opt.cmd}
                             <Check size={14} />

@@ -125,6 +125,7 @@
   let selectedTask: Task | null = $state(null)
 
   let searchInputEl: HTMLInputElement | null = $state(null)
+  let dialogEl: HTMLDivElement | undefined = $state()
   let sendingTaskKey = $state('')
   let sendStatus = $state('')
   let sendError = $state('')
@@ -214,30 +215,7 @@
     saveFilters()
   }
 
-  let containerEl: HTMLDivElement | undefined = $state()
-
   function handleKeydown(e: KeyboardEvent): void {
-    // Trap Tab within the modal (applies in both the task list and the
-    // branch-create sub-view) so focus cannot escape to background chrome.
-    if (e.key === 'Tab' && containerEl) {
-      const focusable = containerEl.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )
-      if (focusable.length > 0) {
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        const active = document.activeElement as HTMLElement | null
-        if (e.shiftKey && (active === first || !containerEl.contains(active))) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && active === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
-      return
-    }
-
     // When the branch-create sub-view is open, this window-level handler must
     // not drive the (hidden) task list. Escape returns to the list; every other
     // key is left to the sub-view's own inputs.
@@ -245,6 +223,23 @@
       if (e.key === 'Escape') {
         e.preventDefault()
         cancelBranchCreation()
+      }
+      return
+    }
+    if (e.key === 'Tab' && dialogEl) {
+      const focusable = dialogEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !dialogEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
       }
       return
     }
@@ -375,7 +370,7 @@
   role="presentation"
 >
   <div
-    bind:this={containerEl}
+    bind:this={dialogEl}
     class="w-[600px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
     onclick={(e) => e.stopPropagation()}
     role="dialog"
@@ -404,6 +399,7 @@
               saveFilters()
             }}
             title="Filters"
+            aria-label="Toggle filters"
           >
             <Funnel size={14} />
           </button>
@@ -463,6 +459,7 @@
           class="flex-1 border-0 bg-transparent text-text text-md font-inherit outline-none placeholder:text-text-faint"
           bind:this={searchInputEl}
           bind:value={searchQuery}
+          aria-label="Search tasks"
           placeholder="Search by key or title..."
           oninput={() => {
             selectedIndex = 0
@@ -496,7 +493,7 @@
       <div class="flex-1 overflow-y-auto py-1">
         {#if loading}
           <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
-            <LoaderCircle size={16} class="animate-spin" />
+            <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
             <span>Loading tasks...</span>
           </div>
         {:else if error}
@@ -554,7 +551,7 @@
                   aria-label="Send to agent"
                 >
                   {#if sendingTaskKey === task.key}
-                    <LoaderCircle size={12} class="animate-spin" />
+                    <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
                   {:else}
                     <Send size={12} />
                   {/if}

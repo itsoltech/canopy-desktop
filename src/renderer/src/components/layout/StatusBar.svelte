@@ -3,14 +3,17 @@
   import { Settings, GitBranch, Folder, Bell, ArrowDownToLine, Eye, Cpu } from '@lucide/svelte'
   import { workspaceState, projects, toggleRightPanel } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
-  import { getAllTabs, activeTabId, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
+  import {
+    getAllTabs,
+    activeTabId,
+    focusSessionByPtyId,
+    isAiToolId,
+  } from '../../lib/stores/tabs.svelte'
   import { findLeaf } from '../../lib/stores/splitTree'
   import { updateState, installUpdate } from '../../lib/stores/updateState.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { perfHudState, enablePerfHud, disablePerfHud } from '../../lib/stores/perfHud.svelte'
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
-
-  const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
   // --- Derived: focused pane + agent ---
 
@@ -71,7 +74,7 @@
     if (focusedPane.paneType === 'editor') return 'editor'
     if (focusedPane.paneType === 'notes') return 'notes'
     if (focusedPane.paneType === 'drawing') return 'drawing'
-    if (AI_TOOL_IDS.has(focusedPane.toolId)) return 'agent'
+    if (isAiToolId(focusedPane.toolId)) return 'agent'
     return 'shell'
   })
 

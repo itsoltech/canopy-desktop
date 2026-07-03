@@ -282,6 +282,23 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
@@ -493,8 +510,10 @@
       <div
         class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
       >
-        <p class="text-md text-danger-text m-0" role="alert">Error</p>
-        <p class="text-xs text-text-faint font-mono break-all m-0">{errorMessage}</p>
+        <div role="alert" class="contents">
+          <p class="text-md text-danger-text m-0">Error</p>
+          <p class="text-xs text-text-faint font-mono break-all m-0">{errorMessage}</p>
+        </div>
         <div class="flex justify-end gap-2 mt-4">
           <button class={btnCancelCls} onclick={onClose}>Close</button>
         </div>
