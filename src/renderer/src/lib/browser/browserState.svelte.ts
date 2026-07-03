@@ -15,7 +15,7 @@ export interface WebviewElement extends HTMLElement {
   isDevToolsFocused(): boolean
   executeJavaScript(code: string): Promise<unknown>
   capturePage(rect?: { x: number; y: number; width: number; height: number }): Promise<{
-    toPNG(): Buffer
+    toPNG(): Uint8Array
     toDataURL(): string
   }>
 }
