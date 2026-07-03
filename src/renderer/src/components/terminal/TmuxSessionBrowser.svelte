@@ -141,7 +141,9 @@
     </div>
 
     {#if error}
-      <div class="px-5 py-2 text-sm text-danger bg-bg-elevated border-b border-active">{error}</div>
+      <div class="px-5 py-2 text-sm text-danger bg-bg-elevated border-b border-active" role="alert">
+        {error}
+      </div>
     {/if}
 
     <div class="flex-1 overflow-y-auto py-2">
