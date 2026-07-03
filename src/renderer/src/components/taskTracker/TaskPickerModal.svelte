@@ -399,6 +399,7 @@
               saveFilters()
             }}
             title="Filters"
+            aria-label="Toggle filters"
           >
             <Funnel size={14} />
           </button>

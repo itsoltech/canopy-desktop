@@ -96,7 +96,8 @@
       .with('error', () => 'error')
       .with('working', () => 'working')
       .with('idle', () => 'idle')
-      .otherwise(() => '')
+      .with('none', () => '')
+      .exhaustive()
   }
 
   function statusDotColor(status: WorstStatus): string {
@@ -105,7 +106,8 @@
       .with('error', () => 'var(--color-danger-text)')
       .with('working', () => 'var(--color-accent-text)')
       .with('idle', () => 'var(--color-success)')
-      .otherwise(() => 'var(--color-text-faint)')
+      .with('none', () => 'var(--color-text-faint)')
+      .exhaustive()
   }
 
   function agentStatusLabel(s: AgentSessionState): string {
