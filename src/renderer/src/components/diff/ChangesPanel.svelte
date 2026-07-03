@@ -20,6 +20,7 @@
   let loading = $state(false)
   let loadError = $state(false)
   let hoveredPath = $state<string | null>(null)
+  let focusedPath = $state<string | null>(null)
   let visibleFilePath = $derived(workspaceState.diffVisibleFile)
 
   // Filter state
@@ -208,6 +209,7 @@
         class="w-full h-full px-2.5 bg-transparent border-0 outline-none text-xs text-text font-mono placeholder:text-text-faint"
         type="text"
         placeholder="Filter files…"
+        aria-label="Filter files"
         spellcheck="false"
         autocomplete="off"
         bind:value={filterQuery}
@@ -258,6 +260,10 @@
           }}
           onpointerenter={() => (hoveredPath = file.path)}
           onpointerleave={() => (hoveredPath = null)}
+          onfocusin={() => (focusedPath = file.path)}
+          onfocusout={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) focusedPath = null
+          }}
         >
           <span
             class="flex-shrink-0 w-4 text-center font-semibold text-xs font-mono {statusClass(
@@ -274,7 +280,7 @@
             {#if file.deletions > 0}<span class="text-diff-delete-fg">&minus;{file.deletions}</span
               >{/if}
           </span>
-          {#if hoveredPath === file.path}
+          {#if hoveredPath === file.path || focusedPath === file.path}
             <span class="flex gap-0.5 flex-shrink-0 w-11 justify-end">
               <button
                 class="bg-transparent border-0 cursor-pointer px-0.5 py-px rounded-sm flex items-center justify-center text-success hover:bg-diff-add-bg"

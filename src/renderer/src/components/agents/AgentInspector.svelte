@@ -45,7 +45,8 @@
       .with('error', () => 'bg-danger-text')
       .with('active', () => 'bg-accent-text animate-badge-pulse motion-reduce:animate-none')
       .with('idle', () => 'bg-success')
-      .otherwise(() => 'bg-text-faint'),
+      .with('dim', () => 'bg-text-faint')
+      .exhaustive(),
   )
 
   function relativeTime(ts: number): string {

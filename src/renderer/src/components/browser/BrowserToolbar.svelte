@@ -143,6 +143,7 @@
     onkeydown={handleKeydown}
     onfocus={handleFocus}
     placeholder="Enter URL..."
+    aria-label="Address"
     spellcheck="false"
   />
 

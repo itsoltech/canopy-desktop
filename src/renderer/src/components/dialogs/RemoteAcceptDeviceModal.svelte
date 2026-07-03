@@ -18,13 +18,17 @@
   let remember = $state(false)
   let secondsLeft = $state(AUTO_REJECT_SECONDS)
   let rejectBtn: HTMLButtonElement | undefined = $state()
+  let dialogEl: HTMLDivElement | undefined = $state()
   let busy = $state(false)
   let actionError: string | null = $state(null)
   let countdown: ReturnType<typeof setInterval> | null = null
+  let previouslyFocused: HTMLElement | null = null
 
   const devLogId = deviceId
 
   onMount(() => {
+    // Restore focus to the opener when the dialog closes.
+    previouslyFocused = document.activeElement as HTMLElement | null
     rejectBtn?.focus()
     countdown = setInterval(() => {
       secondsLeft -= 1
@@ -36,6 +40,7 @@
 
   onDestroy(() => {
     if (countdown) clearInterval(countdown)
+    previouslyFocused?.focus?.()
   })
 
   async function handleAccept(): Promise<void> {
@@ -64,6 +69,23 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Tab' && dialogEl) {
+      const focusable = dialogEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !dialogEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
@@ -80,6 +102,7 @@
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
+    bind:this={dialogEl}
     class="w-[420px] bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
     role="dialog"
     aria-modal="true"

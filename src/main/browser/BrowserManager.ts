@@ -305,11 +305,15 @@ export class BrowserManager {
       }
       // Destroy the view on full teardown
       if (entry.devToolsView) {
+        const devToolsWc = entry.devToolsView.webContents
         try {
           entry.win.contentView.removeChildView(entry.devToolsView)
         } catch {
           // Already removed
         }
+        // Detaching the view from the tree does not release its webContents;
+        // close it explicitly so the DevTools renderer isn't leaked until GC.
+        if (!devToolsWc.isDestroyed()) devToolsWc.close()
       }
     }
     this.entries.delete(browserId)
@@ -441,7 +445,9 @@ export class BrowserManager {
 
   async saveCaptureFile(pngBuffer: Buffer): Promise<string> {
     const filePath = join(os.tmpdir(), `canopy-capture-${randomUUID()}.png`)
-    await writeFile(filePath, pngBuffer)
+    // Restrict to owner-only: page captures can contain sensitive rendered
+    // content and are written to the shared temp dir on multi-user systems.
+    await writeFile(filePath, pngBuffer, { mode: 0o600 })
     return filePath
   }
 
