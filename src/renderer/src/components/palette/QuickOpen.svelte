@@ -211,6 +211,7 @@
         bind:value={query}
         class="flex-1 bg-transparent border-0 outline-none text-text text-lg font-inherit"
         type="text"
+        aria-label="Search files"
         placeholder={loading && files.length === 0 ? 'Indexing files…' : 'Search files by name'}
         spellcheck="false"
         autocomplete="off"
