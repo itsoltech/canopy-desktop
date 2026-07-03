@@ -1026,6 +1026,16 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('db:prefs:delete', (_event, payload: { key: string }) => {
+    // Symmetry with db:prefs:get/set: the renderer must not be able to delete
+    // encrypted pref keys (API keys, tracker tokens) either — dropping a stored
+    // credential from a compromised page/webview would silently de-auth the
+    // user's agents/trackers. Secret lifecycle goes through profile:save /
+    // keychain:setCredentials.
+    if (preferencesStore.isEncrypted(payload.key)) {
+      throw new Error(
+        `Refusing to delete encrypted preference key "${payload.key}" via db:prefs:delete`,
+      )
+    }
     preferencesStore.delete(payload.key)
   })
 
