@@ -290,9 +290,15 @@
   })
 
   // Notify browser panes when app-level overlays open/close so they can hide
-  // DevTools WebContentsView (native layer that paints above DOM modals)
+  // DevTools WebContentsView (native layer that paints above DOM modals).
+  // Only dispatch on an actual transition: this effect also re-runs when
+  // dialogState.current mutates without changing the aggregate open state, and
+  // every dispatch wakes each BrowserPane listener.
+  let lastOverlayOpen = false
   $effect(() => {
     const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen || quickOpenOpen
+    if (anyOverlayOpen === lastOverlayOpen) return
+    lastOverlayOpen = anyOverlayOpen
     window.dispatchEvent(
       new CustomEvent('canopy:app-overlay', { detail: { open: anyOverlayOpen } }),
     )

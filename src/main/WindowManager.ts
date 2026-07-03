@@ -480,6 +480,11 @@ export class WindowManager {
           }
         }
         this.ptyManager.kill(sid, { killProcessTree: this.isQuitting })
+        // Release agent-session bookkeeping (hook-router entry, generated
+        // settings files, busy/session maps) on window close — not only on tab
+        // close or app quit — otherwise an agent tab still open when its window
+        // closes leaks its session. No-op for non-agent PTY sessions.
+        this.agentSessionManager?.destroySession(sid)
       }
     }
 
