@@ -6,7 +6,12 @@ const ENCRYPTED_KEYS = new Set([
   'claude.apiKey',
   'gemini.apiKey',
   'opencode.apiKey',
+  'codex.apiKey',
   'worktrees.baseDir.trustedResolved',
+  // Trusted remote-device identities. The deviceId is the sole auth factor for
+  // trusted-device auto-accept (RemoteSessionService), so the list must be
+  // encrypted at rest and excluded from the renderer-facing getAll() blob.
+  'remote.trustedDevices',
 ])
 const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.']
 
