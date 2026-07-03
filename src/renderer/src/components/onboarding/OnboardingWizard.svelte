@@ -27,7 +27,10 @@
   let isLast = $derived(onboardingState.currentStep === onboardingState.steps.length - 1)
 
   onMount(() => {
+    // Restore focus to the opener when the wizard closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
+    return () => previouslyFocused?.focus?.()
   })
 
   async function handleNext(): Promise<void> {
@@ -70,6 +73,21 @@
       e.preventDefault()
       handleSkip()
     } else if (e.key === 'Enter') {
+      // Don't hijack Enter while the user is typing in a field (e.g. the AI
+      // setup API-key input) — advancing/finishing the wizard from a keystroke
+      // meant for that field is surprising. Let the field handle it instead.
+      const target = e.target
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLButtonElement ||
+        target instanceof HTMLAnchorElement ||
+        (target instanceof HTMLElement &&
+          (target.isContentEditable || target.getAttribute('role') === 'button'))
+      ) {
+        return
+      }
       e.preventDefault()
       if (isLast) {
         handleFinish()

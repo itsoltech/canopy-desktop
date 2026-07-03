@@ -4,6 +4,10 @@ export function deepMerge(
 ): Record<string, unknown> {
   const out = { ...target }
   for (const [key, val] of Object.entries(source)) {
+    // Guard against prototype pollution: this merges untrusted parsed JSON
+    // (e.g. a repo's .codex/hooks.json or ~/.gemini/settings.json), so a
+    // crafted __proto__/constructor/prototype key must never reach assignment.
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
     if (
       val !== null &&
       typeof val === 'object' &&

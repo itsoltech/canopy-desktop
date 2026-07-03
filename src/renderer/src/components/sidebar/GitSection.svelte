@@ -151,7 +151,7 @@
       {#if loading === 'commit'}
         <LoaderCircle
           size={13}
-          class="text-text-faint animate-spin-slow motion-reduce:animate-none flex-shrink-0"
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
         />
       {:else}
         <GitCommitVertical
@@ -177,7 +177,7 @@
       {#if loading === 'push'}
         <LoaderCircle
           size={13}
-          class="text-text-faint animate-spin-slow motion-reduce:animate-none flex-shrink-0"
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
         />
       {:else}
         <ArrowUpFromLine
@@ -202,7 +202,7 @@
       {#if loading === 'pull'}
         <LoaderCircle
           size={13}
-          class="text-text-faint animate-spin-slow motion-reduce:animate-none flex-shrink-0"
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
         />
       {:else}
         <ArrowDownToLine
@@ -227,7 +227,7 @@
       {#if loading === 'fetch'}
         <LoaderCircle
           size={13}
-          class="text-text-faint animate-spin-slow motion-reduce:animate-none flex-shrink-0"
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
         />
       {:else}
         <RefreshCw
@@ -253,7 +253,7 @@
       {#if loading === 'stash'}
         <LoaderCircle
           size={13}
-          class="text-text-faint animate-spin-slow motion-reduce:animate-none flex-shrink-0"
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
         />
       {:else}
         <Archive
@@ -272,7 +272,7 @@
       {#if loading === 'stashPop'}
         <LoaderCircle
           size={13}
-          class="text-text-faint animate-spin-slow motion-reduce:animate-none flex-shrink-0"
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
         />
       {:else}
         <ArchiveRestore
@@ -298,7 +298,7 @@
       {#if loading === 'pr'}
         <LoaderCircle
           size={13}
-          class="text-text-faint animate-spin-slow motion-reduce:animate-none flex-shrink-0"
+          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
         />
       {:else}
         <GitPullRequest

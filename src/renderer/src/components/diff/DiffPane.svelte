@@ -182,8 +182,16 @@
   let totalAdditions = $derived(files.reduce((sum, f) => sum + f.additions, 0))
   let totalDeletions = $derived(files.reduce((sum, f) => sum + f.deletions, 0))
 
-  // Search matching
-  let searchLower = $derived(searchQuery.toLowerCase())
+  // Search matching. Debounce the query that drives the full-diff scan and
+  // per-line highlight so typing stays responsive on large diffs; the input
+  // stays bound to searchQuery for immediate feedback.
+  let debouncedQuery = $state('')
+  $effect(() => {
+    const q = searchQuery
+    const timer = setTimeout(() => (debouncedQuery = q), 150)
+    return () => clearTimeout(timer)
+  })
+  let searchLower = $derived(debouncedQuery.toLowerCase())
 
   let matchCount = $derived.by(() => {
     if (!searchLower) return 0
@@ -563,13 +571,14 @@
                       <span class="px-2 flex-1">{hunk.header}</span>
                     </div>
                     {#each hunk.changes as change, i (`${i}-${change.type}`)}
+                      {@const lineMatch = lineMatchesSearch(change.content)}
                       <div
                         class="diff-line {change.type} flex select-text relative"
                         class:bg-diff-add-bg={change.type === 'add'}
                         class:bg-diff-delete-bg={change.type === 'delete'}
-                        class:outline-1={lineMatchesSearch(change.content)}
-                        class:outline-warning={lineMatchesSearch(change.content)}
-                        class:-outline-offset-1={lineMatchesSearch(change.content)}
+                        class:outline-1={lineMatch}
+                        class:outline-warning={lineMatch}
+                        class:-outline-offset-1={lineMatch}
                       >
                         {#if hasAgent}
                           <button
@@ -600,7 +609,7 @@
                               ? '-'
                               : ' '}</span
                         >
-                        {#if searchQuery && lineMatchesSearch(change.content)}
+                        {#if searchQuery && lineMatch}
                           <span
                             class="line-content flex-1 px-2 pl-1 whitespace-pre min-w-0 text-text"
                           >
@@ -625,8 +634,7 @@
                             onkeydown={(e) => {
                               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendComment()
                               if (e.key === 'Escape') closeComment()
-                            }}
-                          ></textarea>
+                            }}></textarea>
                           <div
                             class="flex items-center px-4 py-1.5 bg-bg-elevated border-t border-border-subtle"
                           >

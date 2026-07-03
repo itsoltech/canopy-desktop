@@ -282,6 +282,23 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
