@@ -114,6 +114,15 @@ export class BrowserManager {
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
 
+    // Idempotency guard: the listeners wired up below are anonymous closures
+    // that teardown() cannot selectively remove. If this exact guest is already
+    // registered (e.g. a duplicate `browser:setup` from a renderer re-mount or
+    // a `dom-ready` re-fire), bail out so we don't stack a second copy of every
+    // listener on the same WebContents. A genuinely new guest for this
+    // browserId arrives with a different wcId and is still wired below.
+    const existing = this.entries.get(browserId)
+    if (existing && existing.webContentsId === wcId) return
+
     const entry: WebviewEntry = {
       webContentsId: wcId,
       win,

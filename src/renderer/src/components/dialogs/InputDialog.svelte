@@ -134,7 +134,8 @@
           {placeholder}
           rows="4"
           spellcheck="false"
-        ></textarea>
+          aria-invalid={!!error}
+          aria-describedby={error ? 'input-dialog-error' : undefined}></textarea>
       {:else}
         <input
           bind:this={inputEl}
@@ -144,11 +145,13 @@
           {placeholder}
           spellcheck="false"
           autocomplete="off"
+          aria-invalid={!!error}
+          aria-describedby={error ? 'input-dialog-error' : undefined}
         />
       {/if}
 
       {#if error}
-        <p class="m-0 text-sm text-danger-text">{error}</p>
+        <p id="input-dialog-error" role="alert" class="m-0 text-sm text-danger-text">{error}</p>
       {/if}
 
       {#if checkbox}
