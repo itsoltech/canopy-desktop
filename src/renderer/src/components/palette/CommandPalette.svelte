@@ -655,6 +655,7 @@
         class="w-full border-0 bg-transparent text-text text-md font-inherit outline-none placeholder:text-text-faint"
         type="text"
         role="combobox"
+        aria-label="Search commands"
         aria-controls="command-palette-listbox"
         aria-expanded={flatItems.length > 0}
         aria-activedescendant={flatItems.length > 0 && selectedIndex >= 0
@@ -713,8 +714,9 @@
                   if (!item.disabled) selectedIndex = flatIndex(gi, ii)
                 }}
               >
-                <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                  >{item.label}</span
+                <span
+                  class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                  title={item.label}>{item.label}</span
                 >
                 {#if item.description}
                   {#if isShortDesc}
