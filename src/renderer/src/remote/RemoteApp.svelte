@@ -651,11 +651,13 @@
             {/if}
           </section>
 
-          {#if actionError}
-            <p class="action-error inline">{actionError}</p>
-          {:else if lastAction}
-            <p class="action-ok inline">{lastAction}</p>
-          {/if}
+          <div class="action-feedback" role="status" aria-live="polite">
+            {#if actionError}
+              <p class="action-error inline">{actionError}</p>
+            {:else if lastAction}
+              <p class="action-ok inline">{lastAction}</p>
+            {/if}
+          </div>
         {:else}
           <!-- ----- empty state (desktop, no selection) ----- -->
           <div class="empty-pane">
