@@ -182,8 +182,16 @@
   let totalAdditions = $derived(files.reduce((sum, f) => sum + f.additions, 0))
   let totalDeletions = $derived(files.reduce((sum, f) => sum + f.deletions, 0))
 
-  // Search matching
-  let searchLower = $derived(searchQuery.toLowerCase())
+  // Search matching. Debounce the query that drives the full-diff scan and
+  // per-line highlight so typing stays responsive on large diffs; the input
+  // stays bound to searchQuery for immediate feedback.
+  let debouncedQuery = $state('')
+  $effect(() => {
+    const q = searchQuery
+    const timer = setTimeout(() => (debouncedQuery = q), 150)
+    return () => clearTimeout(timer)
+  })
+  let searchLower = $derived(debouncedQuery.toLowerCase())
 
   let matchCount = $derived.by(() => {
     if (!searchLower) return 0
