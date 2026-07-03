@@ -78,7 +78,10 @@
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
+        target instanceof HTMLButtonElement ||
+        target instanceof HTMLAnchorElement ||
+        (target instanceof HTMLElement &&
+          (target.isContentEditable || target.getAttribute('role') === 'button'))
       ) {
         return
       }

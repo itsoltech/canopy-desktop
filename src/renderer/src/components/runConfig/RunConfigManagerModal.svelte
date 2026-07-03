@@ -196,7 +196,9 @@
                     >{config.name}</span
                   >
                 </button>
-                <div class="flex gap-px flex-shrink-0 opacity-0 group-hover/item:opacity-100">
+                <div
+                  class="flex gap-px flex-shrink-0 opacity-0 group-hover/item:opacity-100 group-focus-within/item:opacity-100"
+                >
                   <button
                     class="flex items-center justify-center w-[22px] h-[22px] border-0 bg-transparent text-success-text cursor-pointer rounded-sm hover:bg-hover-strong"
                     aria-label={`Run ${config.name}`}
