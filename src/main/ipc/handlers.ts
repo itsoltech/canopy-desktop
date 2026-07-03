@@ -1325,15 +1325,23 @@ export function registerIpcHandlers(
   ipcMain.handle('git:watch', async (event, payload: { repoRoot: string; snapshot?: GitInfo }) => {
     const senderId = event.sender.id
 
+    // Scope the renderer-supplied repoRoot to this window's workspaces before
+    // starting a filesystem watcher on it — mirrors the git:worktrees handler
+    // and prevents watching an arbitrary absolute path. Throws if out of scope.
+    const resolved = await validateWorktreeScopedPathAccess(senderId, payload.repoRoot)
+
     // Dispose previous watcher for this specific repo only
     windowManager.disposeGitWatcher(senderId, payload.repoRoot)
 
-    // Find workspace ID for cache updates
+    // Find workspace ID for cache updates. Look up by the raw renderer-sent
+    // path (the exact key WorkspaceStore keys on) — not the realpath-normalized
+    // `resolved`, which would miss symlinked / `/var`→`/private/var` roots and
+    // silently stop cache updates. `resolved` is used only for the watcher path.
     const ws = workspaceStore.getByPath(payload.repoRoot)
     const workspaceId = ws?.id ?? null
 
     const watcher = new GitWatcher(
-      payload.repoRoot,
+      resolved,
       (info, changes: GitRefreshFlags) => {
         if (workspaceId) {
           workspaceStore.updateGitCache(workspaceId, {
@@ -1451,7 +1459,12 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'db:workspace:refreshGitStatus',
     async (_event, payload: { id: string; path: string }) => {
-      const info = await GitRepository.detect(payload.path).unwrapOr(defaultGitInfo)
+      // Resolve the repo path from the authoritative workspace record (keyed by
+      // the trusted id) rather than the renderer-supplied path, which would
+      // otherwise be handed straight to git as a working directory.
+      const workspace = workspaceStore.get(payload.id)
+      if (!workspace) return null
+      const info = await GitRepository.detect(workspace.path).unwrapOr(defaultGitInfo)
       const aheadBehind = info.aheadBehind ? JSON.stringify(info.aheadBehind) : null
       workspaceStore.updateGitCache(payload.id, {
         branch: info.branch,
@@ -2074,6 +2087,31 @@ export function registerIpcHandlers(
 
   // --- Custom Tools ---
 
+  // The renderer is untrusted: validate custom-tool payloads before they reach
+  // ToolRegistry, which assumes `command` is a string (`.trim()`) and `args` is
+  // an array (`.some()`) and would otherwise throw an opaque TypeError.
+  function assertToolString(value: unknown, field: string): asserts value is string {
+    if (typeof value !== 'string') throw new Error(`Invalid tool: ${field} must be a string`)
+  }
+  function validateToolFields(fields: {
+    name?: unknown
+    command?: unknown
+    args?: unknown
+    icon?: unknown
+    category?: unknown
+  }): void {
+    if (fields.name !== undefined) assertToolString(fields.name, 'name')
+    if (fields.command !== undefined) assertToolString(fields.command, 'command')
+    if (fields.icon !== undefined) assertToolString(fields.icon, 'icon')
+    if (fields.category !== undefined) assertToolString(fields.category, 'category')
+    if (
+      fields.args !== undefined &&
+      (!Array.isArray(fields.args) || !fields.args.every((a) => typeof a === 'string'))
+    ) {
+      throw new Error('Invalid tool: args must be an array of strings')
+    }
+  }
+
   ipcMain.handle(
     'tools:addCustom',
     (
@@ -2087,6 +2125,10 @@ export function registerIpcHandlers(
         category?: string
       },
     ) => {
+      assertToolString(payload?.id, 'id')
+      assertToolString(payload?.name, 'name')
+      assertToolString(payload?.command, 'command')
+      validateToolFields(payload)
       toolRegistry.addCustom(payload)
       broadcastToolsChanged()
       return toolRegistry.getAll()
@@ -2114,6 +2156,11 @@ export function registerIpcHandlers(
         }
       },
     ) => {
+      assertToolString(payload?.id, 'id')
+      if (payload?.changes == null || typeof payload.changes !== 'object') {
+        throw new Error('Invalid tool: changes must be an object')
+      }
+      validateToolFields(payload.changes)
       toolRegistry.updateCustom(payload.id, payload.changes)
       broadcastToolsChanged()
       return toolRegistry.getAll()
