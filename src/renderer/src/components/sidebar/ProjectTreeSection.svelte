@@ -46,6 +46,15 @@
     const panes = tabs.flatMap((t) => allPanes(t.rootSplit))
     const running = panes.filter((p) => p.isRunning)
     if (running.length === 0) return
+    const ok = await confirm({
+      title: 'Stop all terminals',
+      message: `Stop ${running.length} running terminal${
+        running.length === 1 ? '' : 's'
+      } in this worktree? Any in-progress agent or command work will be terminated.`,
+      confirmLabel: 'Stop all',
+      destructive: true,
+    })
+    if (!ok) return
     await Promise.all(running.map((p) => window.api.killPty(p.sessionId, true)))
   }
 
@@ -276,10 +285,21 @@
 
   async function ctxStopAll(): Promise<void> {
     if (!ctxMenu) return
-    const tabs = getTabsForWorktree(ctxMenu.wt.path)
-    const running = tabs.flatMap((t) => allPanes(t.rootSplit)).filter((p) => p.isRunning)
-    await Promise.all(running.map((p) => window.api.killPty(p.sessionId, true)))
+    const worktreePath = ctxMenu.wt.path
     closeCtxMenu()
+    const tabs = getTabsForWorktree(worktreePath)
+    const running = tabs.flatMap((t) => allPanes(t.rootSplit)).filter((p) => p.isRunning)
+    if (running.length === 0) return
+    const ok = await confirm({
+      title: 'Stop all terminals',
+      message: `Stop ${running.length} running terminal${
+        running.length === 1 ? '' : 's'
+      } in this worktree? Any in-progress agent or command work will be terminated.`,
+      confirmLabel: 'Stop all',
+      destructive: true,
+    })
+    if (!ok) return
+    await Promise.all(running.map((p) => window.api.killPty(p.sessionId, true)))
   }
 
   async function ctxRemoveWorktree(): Promise<void> {

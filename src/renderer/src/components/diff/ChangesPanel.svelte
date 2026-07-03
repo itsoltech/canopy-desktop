@@ -208,6 +208,7 @@
         class="w-full h-full px-2.5 bg-transparent border-0 outline-none text-xs text-text font-mono placeholder:text-text-faint"
         type="text"
         placeholder="Filter files…"
+        aria-label="Filter files"
         spellcheck="false"
         autocomplete="off"
         bind:value={filterQuery}

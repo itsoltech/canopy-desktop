@@ -114,6 +114,11 @@ export class BrowserManager {
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
 
+    // Re-registering the same browserId would stack a second set of guest
+    // listeners and leak the previous entry's closures (win/sender). Tear any
+    // existing registration down first so setup is idempotent.
+    if (this.entries.has(browserId)) this.teardown(browserId)
+
     const entry: WebviewEntry = {
       webContentsId: wcId,
       win,
@@ -296,11 +301,15 @@ export class BrowserManager {
       }
       // Destroy the view on full teardown
       if (entry.devToolsView) {
+        const devToolsWc = entry.devToolsView.webContents
         try {
           entry.win.contentView.removeChildView(entry.devToolsView)
         } catch {
           // Already removed
         }
+        // Detaching the view from the tree does not release its webContents;
+        // close it explicitly so the DevTools renderer isn't leaked until GC.
+        if (!devToolsWc.isDestroyed()) devToolsWc.close()
       }
     }
     this.entries.delete(browserId)

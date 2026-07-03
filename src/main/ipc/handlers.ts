@@ -3692,7 +3692,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:createPR',
     async (
-      _event,
+      event,
       payload: {
         repoRoot: string
         task: TrackerTask
@@ -3701,13 +3701,17 @@ export function registerIpcHandlers(
         boardId?: string
       },
     ) => {
+      // The renderer is untrusted: confine repoRoot to a path this window owns
+      // before reading tracker config, listing branches, pushing, or opening a
+      // PR from it. Mirrors taskTracker:findPR, git:createPR and github:createPR.
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       let task = payload.task
       if (task.key && !task.summary) {
         const found = await taskTrackerManager.findTaskByKey(task.key)
         if (found) task = found
       }
 
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(resolvedRepo)
       const prTpl = resolved
         ? getPRTemplate(resolved.config, payload.boardId)
         : {
@@ -3717,7 +3721,7 @@ export function registerIpcHandlers(
             targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
           }
 
-      const branchResult = await GitRepository.listBranches(payload.repoRoot)
+      const branchResult = await GitRepository.listBranches(resolvedRepo)
       const branches = unwrapOrThrow(branchResult, gitErrorMessage)
       const existingBranches = [...branches.local, ...branches.remote]
 
@@ -3728,7 +3732,7 @@ export function registerIpcHandlers(
         prTpl.targetRules,
       )
       const result = await createPullRequest({
-        repoRoot: payload.repoRoot,
+        repoRoot: resolvedRepo,
         task,
         sourceBranch: payload.sourceBranch,
         prConfig,
@@ -3764,6 +3768,19 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'worktree:runSetup',
     async (event, payload: { workspaceId: string; repoRoot: string; newWorktreePath: string }) => {
+      // Setup actions come from an unencrypted preference the untrusted
+      // renderer can rewrite via db:prefs:set, and each `command` action is run
+      // through a shell with cwd = newWorktreePath. Confine both paths before
+      // anything executes — repoRoot to a workspace this window owns, and
+      // newWorktreePath to the trusted worktree base dir — mirroring the checks
+      // on worktree:create. Without this the handler is arbitrary command
+      // execution in an arbitrary directory.
+      const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
+      const resolvedNewWorktreePath = await validateWorktreeCreationPath(
+        event.sender.id,
+        payload.newWorktreePath,
+      )
+
       const configJson = preferencesStore.get(`workspace:${payload.workspaceId}:worktreeSetup`)
       if (!configJson) return { success: true, errors: [] }
 
@@ -3776,9 +3793,9 @@ export function registerIpcHandlers(
 
       if (actions.length === 0) return { success: true, errors: [] }
 
-      const worktrees = await GitRepository.listWorktrees(payload.repoRoot).unwrapOr([])
+      const worktrees = await GitRepository.listWorktrees(resolvedRepo).unwrapOr([])
       const mainWorktree = worktrees.find((wt) => wt.isMain)
-      const mainWorktreePath = mainWorktree?.path ?? payload.repoRoot
+      const mainWorktreePath = mainWorktree?.path ?? resolvedRepo
 
       const sender = event.sender
       const controller = new AbortController()
@@ -3788,9 +3805,9 @@ export function registerIpcHandlers(
         return await runWorktreeSetup(
           actions,
           {
-            repoRoot: payload.repoRoot,
+            repoRoot: resolvedRepo,
             mainWorktreePath,
-            newWorktreePath: payload.newWorktreePath,
+            newWorktreePath: resolvedNewWorktreePath,
           },
           (progress) => {
             if (!sender.isDestroyed()) {
