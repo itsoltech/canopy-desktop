@@ -943,7 +943,16 @@ export function registerIpcHandlers(
       ptyManager.updateTmuxSessionName(payload.oldName, payload.newName)
     },
   )
-  ipcMain.handle('agent:updateTitle', (_event, payload: { sessionId: string; title: string }) => {
+  ipcMain.handle('agent:updateTitle', (event, payload: { sessionId: string; title: string }) => {
+    // Renderer is untrusted: gate on session ownership (mirrors the pty:* handlers)
+    // so one window cannot retitle another window's agent session, and reject a
+    // non-string title before it reaches the manager.
+    if (!windowManager.ownsPtySession(event.sender.id, payload.sessionId)) {
+      throw new Error('Agent session is not owned by this window')
+    }
+    if (typeof payload.title !== 'string') {
+      throw new Error('agent:updateTitle requires a string title')
+    }
     agentSessionManager.updateProcessTitle(payload.sessionId, payload.title)
   })
 
@@ -3706,6 +3715,9 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle('taskTracker:findTaskByKey', async (_event, payload: { taskKey: string }) => {
+    // Validate the renderer-supplied key before it reaches the tracker backend
+    // query, mirroring the sibling taskKey handlers.
+    if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
     return taskTrackerManager.findTaskByKey(payload.taskKey)
   })
 

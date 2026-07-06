@@ -188,6 +188,21 @@ export class BrowserManager {
       }
     })
 
+    // Server-side 3xx redirects fire `will-redirect`, not `will-navigate`, so
+    // the guard above alone would let a redirect from an http(s) page to a
+    // non-http(s) scheme (e.g. a custom/external protocol) slip through. Mirror
+    // the same protocol check on redirects.
+    wc.on('will-redirect', (event, url) => {
+      try {
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          event.preventDefault()
+        }
+      } catch {
+        event.preventDefault()
+      }
+    })
+
     // Intercept keyboard shortcuts so they reach the main renderer
     wc.on('before-input-event', (event, input) => {
       if (!input.meta && !input.control) return
