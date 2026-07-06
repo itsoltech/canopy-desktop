@@ -25,7 +25,9 @@
     aria-live="polite"
   >
     {#if toastState.url}
-      <span class="text-sm text-text max-w-50 truncate">{toastState.url}</span>
+      <span class="text-sm text-text max-w-50 truncate" title={toastState.url}
+        >{toastState.url}</span
+      >
       <div class="flex items-center gap-1">
         <button
           class="flex items-center gap-1 px-2 py-1 border border-border rounded-md bg-hover text-text text-xs font-inherit cursor-pointer whitespace-nowrap hover:bg-hover-strong"
@@ -53,7 +55,9 @@
         </button>
       </div>
     {:else}
-      <span class="text-sm text-text max-w-75 truncate">{toastState.message}</span>
+      <span class="text-sm text-text max-w-75 truncate" title={toastState.message}
+        >{toastState.message}</span
+      >
       <button
         class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer p-0 hover:text-text hover:bg-active"
         onclick={dismissToast}
