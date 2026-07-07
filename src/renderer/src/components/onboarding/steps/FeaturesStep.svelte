@@ -33,6 +33,7 @@
       <CustomCheckbox
         checked={reopenLast}
         onchange={() => toggle('reopenLastWorkspace', reopenLast)}
+        ariaLabel="Reopen last workspace on startup"
       />
       <div class="flex flex-col gap-0.5">
         <span class="text-md text-text">Reopen last workspace on startup</span>
@@ -46,7 +47,7 @@
       <label
         class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors duration-fast hover:bg-border-subtle"
       >
-        <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} />
+        <CustomCheckbox checked={notchEnabled} onchange={toggleNotch} ariaLabel="Notch overlay" />
         <div class="flex flex-col gap-0.5">
           <span class="text-md text-text">Notch overlay</span>
           <span class="text-xs text-text-muted leading-snug"
@@ -59,7 +60,11 @@
     <label
       class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors duration-fast hover:bg-border-subtle"
     >
-      <CustomCheckbox checked={wpmEnabled} onchange={() => toggle('wpm.enabled', wpmEnabled)} />
+      <CustomCheckbox
+        checked={wpmEnabled}
+        onchange={() => toggle('wpm.enabled', wpmEnabled)}
+        ariaLabel="Typing speed (WPM)"
+      />
       <div class="flex flex-col gap-0.5">
         <span class="text-md text-text">Typing speed (WPM)</span>
         <span class="text-xs text-text-muted leading-snug"
@@ -74,6 +79,7 @@
       <CustomCheckbox
         checked={telemetryEnabled}
         onchange={() => toggle('telemetry.enabled', telemetryEnabled)}
+        ariaLabel="Minimal telemetry"
       />
       <div class="flex flex-col gap-0.5">
         <span class="text-md text-text">Minimal telemetry</span>

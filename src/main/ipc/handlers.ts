@@ -97,6 +97,7 @@ import type { SkillError } from '../skills/errors'
 import { getTransformer } from '../skills/SkillTransformer'
 import { scanSkills } from '../skills/SkillScanner'
 import type { SkillAgentTarget } from '../skills/types'
+import { isSkillAgentTarget } from '../skills/types'
 import type { ProfileStore } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
 import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
@@ -4222,13 +4223,19 @@ export function registerIpcHandlers(
           : err({ _tag: 'SkillNotFound' as const, skillId: payload.id } as SkillError),
         skillErrorMessage,
       )
+      // The renderer is untrusted: reject any agent value that is not a known
+      // skill-agent target before it is merged into — and persisted with — the
+      // skill's enabledAgents set.
+      const { agent } = payload
+      if (!isSkillAgentTarget(agent)) throw new Error(`Invalid agent target: ${agent}`)
+
       const enabledAgents: SkillAgentTarget[] = payload.enabled
-        ? ([...new Set([...skill.enabledAgents, payload.agent])] as SkillAgentTarget[])
-        : skill.enabledAgents.filter((a) => a !== payload.agent)
+        ? [...new Set([...skill.enabledAgents, agent])]
+        : skill.enabledAgents.filter((a) => a !== agent)
 
       // Deploy or undeploy files BEFORE updating DB
       // Global skills use transformer's globalDir(); project skills need workspacePath
-      const transformer = getTransformer(payload.agent as SkillAgentTarget)
+      const transformer = getTransformer(agent)
       if (transformer) {
         if (skill.scope === 'project' && !payload.workspacePath) {
           unwrapOrThrow(

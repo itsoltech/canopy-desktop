@@ -115,7 +115,11 @@
   </h3>
 
   <!-- Status -->
-  <div class="flex items-center gap-2 h-7 px-2.5 rounded-md bg-border-subtle">
+  <div
+    class="flex items-center gap-2 h-7 px-2.5 rounded-md bg-border-subtle"
+    role="status"
+    aria-live="polite"
+  >
     <span class="size-2 rounded-full flex-shrink-0 {statusDotTone}" aria-hidden="true"></span>
     <span class="text-sm text-text">{statusText}</span>
   </div>
@@ -131,7 +135,7 @@
       </div>
       <div class="h-1.5 rounded-sm bg-border-subtle overflow-hidden">
         <div
-          class="h-full rounded-sm transition-[width] duration-slow {contextBarClass}"
+          class="h-full rounded-sm transition-[width] duration-slow motion-reduce:transition-none {contextBarClass}"
           style="width: {Math.min(state.contextPercent, 100)}%"
         ></div>
       </div>
@@ -250,14 +254,14 @@
   {#if reversedNotifications.length > 0}
     <div class="flex flex-col gap-1.5">
       <h4 class={sectionLabelCls}>Notifications</h4>
-      <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1">
+      <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1" aria-live="polite">
         {#each reversedNotifications as notif (notif.timestamp)}
           <div
             class="flex items-baseline justify-between gap-2 px-1 py-1 rounded-sm transition-colors duration-fast hover:bg-hover"
           >
             <span
               class="text-xs text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap flex-1"
-              >{notif.message || notif.title}</span
+              title={notif.message || notif.title}>{notif.message || notif.title}</span
             >
             <span
               class="inline-flex items-center h-4 px-1 rounded-sm bg-border-subtle text-text-faint text-2xs font-mono tabular-nums leading-none flex-shrink-0"

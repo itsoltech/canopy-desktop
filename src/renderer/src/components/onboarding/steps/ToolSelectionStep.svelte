@@ -31,6 +31,7 @@
         <CustomCheckbox
           checked={onboardingState.selectedTools.has(tool.id)}
           onchange={() => toggle(tool.id)}
+          ariaLabel={tool.name}
         />
         <div class="flex flex-col gap-0.5">
           <span class="text-md text-text">{tool.name}</span>

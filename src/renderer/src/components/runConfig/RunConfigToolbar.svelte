@@ -232,7 +232,8 @@
               aria-selected={selected?.configDir === item.configDir && selected?.name === item.name}
               tabindex="0"
             >
-              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{item.name}</span
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap" title={item.name}
+                >{item.name}</span
               >
               {#if itemRunning > 0}
                 <button

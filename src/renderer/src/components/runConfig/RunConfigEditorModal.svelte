@@ -135,8 +135,9 @@
       {#if isEdit}
         <div class="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md text-xs">
           <span class="text-text-muted flex-shrink-0">Location:</span>
-          <span class="text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap"
-            >{initialConfigDir}</span
+          <span
+            class="text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap"
+            title={initialConfigDir}>{initialConfigDir}</span
           >
         </div>
       {:else}

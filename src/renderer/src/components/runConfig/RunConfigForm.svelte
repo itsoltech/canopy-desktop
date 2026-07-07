@@ -221,7 +221,9 @@
   </div>
 
   {#if error}
-    <div class="px-2.5 py-2 bg-danger-bg text-danger-text rounded-lg text-sm">{error}</div>
+    <div class="px-2.5 py-2 bg-danger-bg text-danger-text rounded-lg text-sm" role="alert">
+      {error}
+    </div>
   {/if}
 
   <div class="flex justify-end mt-1">
