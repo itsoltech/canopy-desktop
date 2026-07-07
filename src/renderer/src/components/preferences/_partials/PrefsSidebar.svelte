@@ -22,7 +22,8 @@
   }
 </script>
 
-<aside
+<nav
+  aria-label="Settings sections"
   class="w-52 shrink-0 flex flex-col border-r border-border-subtle bg-bg-overlay overflow-hidden"
 >
   <div class="flex-1 overflow-y-auto py-3 px-2 select-none">
@@ -76,4 +77,4 @@
       {@render footer()}
     </div>
   {/if}
-</aside>
+</nav>

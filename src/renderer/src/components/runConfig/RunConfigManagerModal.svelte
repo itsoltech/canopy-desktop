@@ -180,20 +180,23 @@
               </button>
             </div>
             {#each group.configurations as config (config.name)}
+              {@const isSelected =
+                !isNew &&
+                selectedKey?.configDir === group.configDir &&
+                selectedKey?.name === config.name}
               <div
                 class="flex items-center gap-1 w-full h-7 px-3 group/item hover:bg-hover"
-                class:!bg-active={!isNew &&
-                  selectedKey?.configDir === group.configDir &&
-                  selectedKey?.name === config.name}
+                class:!bg-active={isSelected}
               >
                 <button
                   type="button"
                   class="flex items-center flex-1 min-w-0 h-full p-0 border-0 bg-transparent text-inherit font-inherit text-left cursor-pointer"
+                  aria-current={isSelected ? 'true' : undefined}
                   onclick={() => selectConfig(group.configDir, config.name)}
                 >
                   <span
                     class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm text-text"
-                    >{config.name}</span
+                    title={config.name}>{config.name}</span
                   >
                 </button>
                 <div

@@ -22,6 +22,7 @@
         class="flex flex-col items-center gap-1.5 p-2 border-2 border-transparent rounded-xl bg-border-subtle cursor-pointer transition-[border-color,background] duration-base hover:bg-hover hover:border-hover-strong"
         class:!border-focus-ring={name === currentTheme}
         class:!bg-accent-bg={name === currentTheme}
+        aria-pressed={name === currentTheme}
         onclick={() => setTheme(name)}
       >
         <div
