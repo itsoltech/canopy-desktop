@@ -282,6 +282,26 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (
+        e.shiftKey &&
+        (active === first || active === containerEl || !containerEl.contains(active))
+      ) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
@@ -442,11 +462,13 @@
       <div
         class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
       >
-        <p class="text-md text-text-secondary m-0">Creating worktree...</p>
+        <p class="text-md text-text-secondary m-0" role="status" aria-live="polite">
+          Creating worktree...
+        </p>
       </div>
     {:else if step === 'setup'}
       <div class="flex flex-col px-5 pb-5 gap-2 flex-1 overflow-y-auto min-h-0">
-        <p class="text-md text-text-secondary m-0">
+        <p class="text-md text-text-secondary m-0" role="status" aria-live="polite">
           Running setup... ({setupCurrent}/{setupTotal})
         </p>
         <p class="text-sm font-mono text-text-muted m-0">{setupLabel}</p>
@@ -476,7 +498,7 @@
       <div
         class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
       >
-        <p class="text-md text-success m-0">Worktree created</p>
+        <p class="text-md text-success m-0" role="status" aria-live="polite">Worktree created</p>
         <p class="text-xs text-text-faint font-mono break-all m-0">{createdPath}</p>
         {#if setupErrors.length > 0}
           <div class="mt-2 flex flex-col gap-1 items-center">
@@ -491,8 +513,10 @@
       <div
         class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
       >
-        <p class="text-md text-danger-text m-0">Error</p>
-        <p class="text-xs text-text-faint font-mono break-all m-0">{errorMessage}</p>
+        <div role="alert" class="contents">
+          <p class="text-md text-danger-text m-0">Error</p>
+          <p class="text-xs text-text-faint font-mono break-all m-0">{errorMessage}</p>
+        </div>
         <div class="flex justify-end gap-2 mt-4">
           <button class={btnCancelCls} onclick={onClose}>Close</button>
         </div>

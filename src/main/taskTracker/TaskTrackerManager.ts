@@ -301,8 +301,9 @@ export class TaskTrackerManager {
 
     const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
-    return fromExternalCall(fetch(url, { headers, signal: AbortSignal.timeout(60_000) }), (e) =>
-      dlErr(errorMessage(e)),
+    return fromExternalCall(
+      fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(60_000) }),
+      (e) => dlErr(errorMessage(e)),
     )
       .andThen((res) => {
         if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))

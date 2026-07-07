@@ -46,6 +46,10 @@
       >
     {:else if state === 'error'}
       <span class="truncate" title={errorMessage}>Update failed: {errorMessage}</span>
+      <button
+        class="px-2.5 py-1 border border-border rounded-md bg-transparent text-text text-sm cursor-pointer whitespace-nowrap hover:bg-active"
+        onclick={dismissUpdate}>Dismiss</button
+      >
     {/if}
   </div>
 {/if}

@@ -114,6 +114,15 @@ export class BrowserManager {
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
 
+    // Idempotency guard: the listeners wired up below are anonymous closures
+    // that teardown() cannot selectively remove. If this exact guest is already
+    // registered (e.g. a duplicate `browser:setup` from a renderer re-mount or
+    // a `dom-ready` re-fire), bail out so we don't stack a second copy of every
+    // listener on the same WebContents. A genuinely new guest for this
+    // browserId arrives with a different wcId and is still wired below.
+    const existing = this.entries.get(browserId)
+    if (existing && existing.webContentsId === wcId) return
+
     const entry: WebviewEntry = {
       webContentsId: wcId,
       win,
@@ -169,6 +178,21 @@ export class BrowserManager {
 
     // Only allow http(s) navigation
     wc.on('will-navigate', (event, url) => {
+      try {
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          event.preventDefault()
+        }
+      } catch {
+        event.preventDefault()
+      }
+    })
+
+    // Server-side 3xx redirects fire `will-redirect`, not `will-navigate`, so
+    // the guard above alone would let a redirect from an http(s) page to a
+    // non-http(s) scheme (e.g. a custom/external protocol) slip through. Mirror
+    // the same protocol check on redirects.
+    wc.on('will-redirect', (event, url) => {
       try {
         const parsed = new URL(url)
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -296,11 +320,15 @@ export class BrowserManager {
       }
       // Destroy the view on full teardown
       if (entry.devToolsView) {
+        const devToolsWc = entry.devToolsView.webContents
         try {
           entry.win.contentView.removeChildView(entry.devToolsView)
         } catch {
           // Already removed
         }
+        // Detaching the view from the tree does not release its webContents;
+        // close it explicitly so the DevTools renderer isn't leaked until GC.
+        if (!devToolsWc.isDestroyed()) devToolsWc.close()
       }
     }
     this.entries.delete(browserId)
@@ -432,7 +460,9 @@ export class BrowserManager {
 
   async saveCaptureFile(pngBuffer: Buffer): Promise<string> {
     const filePath = join(os.tmpdir(), `canopy-capture-${randomUUID()}.png`)
-    await writeFile(filePath, pngBuffer)
+    // Restrict to owner-only: page captures can contain sensitive rendered
+    // content and are written to the shared temp dir on multi-user systems.
+    await writeFile(filePath, pngBuffer, { mode: 0o600 })
     return filePath
   }
 

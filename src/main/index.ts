@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, session, shell } from 'electron'
 import os from 'os'
 import { existsSync, realpathSync } from 'fs'
 import { readFile } from 'fs/promises'
@@ -508,6 +508,22 @@ app.whenReady().then(async () => {
   if (PERF) performance.mark('app:loginEnvResolved')
 
   electronApp.setAppUserModelId('tech.itsol.canopy')
+
+  // Lock down the default session that backs the main window and the notch
+  // overlay. Only the isolated browser partition had a permission policy; the
+  // default session fell back to Chromium defaults, so a compromised
+  // privileged renderer could reach camera, microphone, geolocation or device
+  // APIs. Deny every permission except clipboard access — the only capability
+  // the trusted app UI uses (terminal copy/paste, copy path/branch/diff/image).
+  const isClipboardPermission = (permission: string): boolean =>
+    permission === 'clipboard-read' || permission === 'clipboard-sanitized-write'
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(isClipboardPermission(permission))
+  })
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
+    isClipboardPermission(permission),
+  )
+  session.defaultSession.setDevicePermissionHandler(() => false)
 
   crashReporter = new CrashReporter()
 

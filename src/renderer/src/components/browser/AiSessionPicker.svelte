@@ -15,7 +15,10 @@
   } = $props()
 
   onMount(() => {
+    // Restore focus to the element that opened the picker when it closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
+    return () => previouslyFocused?.focus?.()
   })
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -23,6 +26,27 @@
       e.preventDefault()
       e.stopPropagation()
       onClose()
+      return
+    }
+    if (e.key === 'Tab' && containerEl) {
+      // Trap focus within the picker so Tab doesn't walk into the obscured background.
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (
+        e.shiftKey &&
+        (active === first || active === containerEl || !containerEl.contains(active))
+      ) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
   }
 </script>

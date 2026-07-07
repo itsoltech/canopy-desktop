@@ -396,6 +396,18 @@ export async function closeTab(tabId: string): Promise<void> {
       if (!confirmed) return
     }
 
+    // Editor dirty state lives in the renderer, so the main-process close
+    // warning above cannot see it — guard unsaved buffers separately.
+    if (isTabDirty(tab)) {
+      const confirmed = await confirm({
+        title: 'Close tab?',
+        message: 'This tab has unsaved changes that will be lost.',
+        confirmLabel: 'Discard & Close',
+        destructive: true,
+      })
+      if (!confirmed) return
+    }
+
     // Kill all PTYs / destroy browser views and cleanup sessions
     for (const p of panes) {
       if (agentSessions[p.sessionId]) {
