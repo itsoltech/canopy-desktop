@@ -101,7 +101,12 @@
     }
   }
 
-  onMount(() => modalEl?.focus())
+  onMount(() => {
+    // Restore focus to the element that opened the modal when it closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    modalEl?.focus()
+    return () => previouslyFocused?.focus?.()
+  })
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

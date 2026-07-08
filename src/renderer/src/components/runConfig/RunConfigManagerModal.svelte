@@ -129,10 +129,13 @@
   }
 
   onMount(() => {
+    // Restore focus to the element that opened the modal when it closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     if (initialConfigDir && initialConfigName) {
       selectConfig(initialConfigDir, initialConfigName)
     }
     modalEl?.focus()
+    return () => previouslyFocused?.focus?.()
   })
 </script>
 
