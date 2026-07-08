@@ -4267,7 +4267,11 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('skills:scan', async (_event, payload?: { workspacePath?: string }) => {
+  ipcMain.handle('skills:scan', async (event, payload?: { workspacePath?: string }) => {
+    // The scan root comes from the untrusted renderer; confine it to one of this
+    // window's attached workspaces before reading skill files out of it (mirrors
+    // skills:install/remove/update/toggleAgent).
+    if (payload?.workspacePath) await validatePathAccess(event.sender.id, payload.workspacePath)
     const results = await scanSkills(payload?.workspacePath)
     return JSON.parse(JSON.stringify(results))
   })

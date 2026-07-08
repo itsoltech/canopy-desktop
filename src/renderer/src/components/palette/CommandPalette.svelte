@@ -590,6 +590,14 @@
       return
     }
 
+    if (e.key === 'Tab') {
+      // The search input is the only focusable control; keep focus trapped in
+      // the dialog instead of letting Tab move it to background window chrome.
+      e.preventDefault()
+      inputEl?.focus()
+      return
+    }
+
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       selectedIndex = (selectedIndex + 1) % Math.max(1, flatItems.length)

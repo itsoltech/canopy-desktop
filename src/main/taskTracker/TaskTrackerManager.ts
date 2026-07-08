@@ -1,4 +1,4 @@
-import { join, basename } from 'path'
+import { join, basename, sep } from 'path'
 import { mkdirSync, createWriteStream, rmSync } from 'fs'
 import os from 'os'
 import { randomUUID } from 'crypto'
@@ -383,14 +383,12 @@ export class TaskTrackerManager {
       })
     }
     return GitRepository.getRemoteUrl(repoRoot)
-      .mapErr(
-        (): TaskTrackerError => ({
-          _tag: 'ProviderApiError',
-          status: 0,
-          message: 'Could not read git remote URL from workspace',
-          provider: 'github',
-        }),
-      )
+      .mapErr((): TaskTrackerError => ({
+        _tag: 'ProviderApiError',
+        status: 0,
+        message: 'Could not read git remote URL from workspace',
+        provider: 'github',
+      }))
       .andThen((url) => {
         const parsed = parseGitHubRemote(url)
         if (parsed.isErr()) {
@@ -629,7 +627,9 @@ export class TaskTrackerManager {
   cleanupAttachmentDir(filePath: string): void {
     const tmpBase = os.tmpdir()
     const dir = join(filePath, '..')
-    if (!dir.startsWith(tmpBase) || !basename(dir).startsWith('canopy-attachments-')) return
+    // Anchor the tmp containment check to a path boundary: a bare
+    // startsWith(os.tmpdir()) also matches sibling dirs like `/tmpEVIL/...`.
+    if (!dir.startsWith(tmpBase + sep) || !basename(dir).startsWith('canopy-attachments-')) return
     try {
       rmSync(dir, { recursive: true, force: true })
     } catch {

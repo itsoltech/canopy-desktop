@@ -63,10 +63,10 @@
 
   async function handleStop(configDir: string, name: string): Promise<void> {
     const ids = getRunningSessionIds(configDir, name)
-    for (const id of ids) {
-      await window.api.killPty(id)
-      running.delete(id)
-    }
+    // Kill this run config's PTYs concurrently instead of awaiting each IPC
+    // round-trip in series.
+    await Promise.all(ids.map((id) => window.api.killPty(id)))
+    for (const id of ids) running.delete(id)
   }
 </script>
 
