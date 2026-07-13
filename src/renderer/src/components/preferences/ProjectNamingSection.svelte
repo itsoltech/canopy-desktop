@@ -1,0 +1,337 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import { Pencil, Plus, Check, X } from '@lucide/svelte'
+  import {
+    getResolvedConfig,
+    getRepoConfig,
+    getTrackerCredentials,
+    saveRepoConfig,
+  } from '../../lib/stores/taskTracker.svelte'
+  import {
+    RENDERER_DEFAULT_BRANCH_TEMPLATE,
+    RENDERER_DEFAULT_PR_TITLE,
+    BRANCH_EXAMPLE_VALUES,
+    PR_EXAMPLE_VALUES,
+    renderTemplateExample,
+  } from './_partials/configScopeLabels'
+  import CustomSelect from '../shared/CustomSelect.svelte'
+  import TaskBranchNamingPrefs from './TaskBranchNamingPrefs.svelte'
+  import TaskPRNamingPrefs from './TaskPRNamingPrefs.svelte'
+
+  // Merged read-only overview + in-place editor for branch/PR naming in the project modal. The
+  // project config always applies; "Branch naming" and "PR title" are shown per board (a base for
+  // all boards, plus any board-specific overrides). Clicking Edit swaps a read-only row for the
+  // existing builder, pinned to that board. One row is editable at a time.
+  let { repoRoot }: { repoRoot: string } = $props()
+
+  type Group = 'branch' | 'pr'
+
+  let resolved = $derived(getResolvedConfig())
+  let creds = $derived(getTrackerCredentials())
+
+  // Editing naming is only meaningful once a tracker is connected with WORKING credentials
+  // (boards require a token the tracker accepts); until then everything stays read-only.
+  let connected = $derived(
+    (resolved?.config.trackers ?? []).some(
+      (t) => creds[t.id]?.hasToken && creds[t.id]?.valid !== false,
+    ),
+  )
+  // A token exists but the tracker rejected it (expired/revoked) — deserves a specific message.
+  let credentialsExpired = $derived(
+    (resolved?.config.trackers ?? []).some(
+      (t) => creds[t.id]?.hasToken && creds[t.id]?.valid === false,
+    ),
+  )
+
+  let boards = $state<Array<{ id: string; name: string }>>([])
+  let placeholders = $state<Array<{ key: string; description: string; example: string }>>([])
+  let editing = $state<{ type: Group; scope: 'default' | string } | null>(null)
+  // Which group's "Add board override" picker is currently open.
+  let addingOverrideFor = $state<Group | null>(null)
+  // Snapshot of the repo config taken when an edit starts, so Cancel can revert the auto-saved edits.
+  let editSnapshot = $state<ReturnType<typeof getRepoConfig>>(null)
+
+  onMount(async () => {
+    try {
+      placeholders = await window.api.taskTrackerGetAvailablePlaceholders({})
+    } catch {
+      placeholders = []
+    }
+  })
+
+  // Board names require credentials, so (re)fetch them whenever a tracker becomes connected — not
+  // just on mount (the user may connect after this panel is already open).
+  $effect(() => {
+    if (!connected) {
+      boards = []
+      return
+    }
+    let cancelled = false
+    window.api
+      .trackerConfigFetchBoards(repoRoot ?? undefined)
+      .then((b) => {
+        if (!cancelled) boards = b
+      })
+      .catch(() => {
+        if (!cancelled) boards = []
+      })
+    return () => {
+      cancelled = true
+    }
+  })
+
+  function startEdit(type: Group, scope: 'default' | string): void {
+    editSnapshot = $state.snapshot(getRepoConfig()) as ReturnType<typeof getRepoConfig>
+    editing = { type, scope }
+  }
+
+  async function cancelEdit(): Promise<void> {
+    if (editSnapshot && repoRoot) await saveRepoConfig(repoRoot, editSnapshot)
+    editing = null
+    editSnapshot = null
+  }
+
+  function doneEdit(): void {
+    editing = null
+    editSnapshot = null
+  }
+
+  // Board names come from the provider and need credentials. Without them, label rows by a stable
+  // 1-based ordinal (over the override keys) so the same board reads the same in both groups.
+  let overrideKeys = $derived(Object.keys(resolved?.config.boardOverrides ?? {}))
+  function boardName(id: string): string | null {
+    return boards.find((b) => b.id === id)?.name ?? null
+  }
+  function rowLabel(id: string): { label: string; tooltip: string } {
+    const name = boardName(id)
+    if (name) return { label: name, tooltip: name }
+    const ordinal = overrideKeys.indexOf(id) + 1
+    return {
+      label: `Board #${ordinal || '?'}`,
+      tooltip: 'Connect this tracker to see the real board name',
+    }
+  }
+
+  // Tooltip for the base "All boards (default)" row, explaining it's the fallback for boards without
+  // their own override below.
+  function defaultTooltip(type: Group): string {
+    return type === 'branch'
+      ? "Used for branches created from tasks on boards that don't have their own override below."
+      : "Used for PR titles from tasks on boards that don't have their own override below."
+  }
+
+  // Illustrative example of a rendered template (shared sample values; branch titles are slugified).
+  function exampleFor(type: Group, template: string): string {
+    return renderTemplateExample(
+      template,
+      type === 'branch' ? BRANCH_EXAMPLE_VALUES : PR_EXAMPLE_VALUES,
+    )
+  }
+
+  let branchBase = $derived(
+    resolved?.config.branchTemplate?.template ?? RENDERER_DEFAULT_BRANCH_TEMPLATE,
+  )
+  let branchRows = $derived(
+    Object.entries(resolved?.config.boardOverrides ?? {})
+      .filter(([, o]) => o?.branchTemplate)
+      .map(([id, o]) => ({ id, template: o?.branchTemplate?.template || branchBase })),
+  )
+  let branchAddable = $derived(
+    boards.filter((b) => !resolved?.config.boardOverrides[b.id]?.branchTemplate),
+  )
+
+  // PR rows mirror the branch pattern: the read-only row shows the TITLE template per board; the
+  // in-place editor exposes the full set (title, body, target branch).
+  let prBase = $derived(resolved?.config.prTemplate?.titleTemplate ?? RENDERER_DEFAULT_PR_TITLE)
+  let prRows = $derived(
+    Object.entries(resolved?.config.boardOverrides ?? {})
+      .filter(([, o]) => o?.prTemplate)
+      .map(([id, o]) => ({ id, template: o?.prTemplate?.titleTemplate || prBase })),
+  )
+  let prAddable = $derived(boards.filter((b) => !resolved?.config.boardOverrides[b.id]?.prTemplate))
+</script>
+
+{#snippet editorFor(type: Group, scope: 'default' | string)}
+  <div class="flex flex-col gap-2 pt-1">
+    {#key `${type}:${scope}`}
+      {#if type === 'branch'}
+        <TaskBranchNamingPrefs {repoRoot} {placeholders} pinnedScope={scope} />
+      {:else}
+        <TaskPRNamingPrefs {repoRoot} pinnedScope={scope} />
+      {/if}
+    {/key}
+    <div class="flex items-center gap-2 self-start">
+      <button
+        type="button"
+        class="flex items-center gap-1 px-2.5 py-1 rounded-md border border-border bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
+        onclick={cancelEdit}
+        title="Discard the changes made in this edit"
+      >
+        <X size={13} />
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="flex items-center gap-1 px-2.5 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm font-inherit cursor-pointer hover:bg-accent-bg-hover"
+        onclick={doneEdit}
+      >
+        <Check size={13} />
+        Done
+      </button>
+    </div>
+  </div>
+{/snippet}
+
+{#snippet row(
+  type: Group,
+  scope: 'default' | string,
+  label: string,
+  tooltip: string,
+  template: string,
+)}
+  {#if editing?.type === type && editing.scope === scope}
+    <div class="py-2 border-t border-border-subtle first:border-t-0 first:pt-0">
+      <span class="text-sm font-medium text-text-secondary" title={tooltip || undefined}
+        >Editing: {label}</span
+      >
+      {@render editorFor(type, scope)}
+    </div>
+  {:else}
+    <div class="flex items-start gap-2 py-1.5 border-t border-border-subtle first:border-t-0">
+      <span
+        class="w-40 shrink-0 text-sm text-text-secondary break-words leading-5"
+        title={tooltip || undefined}>{label}</span
+      >
+      <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+        <code class="text-xs text-text bg-bg px-1.5 py-0.5 rounded font-mono break-all leading-5"
+          >{template}</code
+        >
+        <span class="text-2xs text-accent-text font-mono break-all leading-4 px-1.5"
+          >{exampleFor(type, template)}</span
+        >
+      </div>
+      {#if connected}
+        <button
+          type="button"
+          class="shrink-0 flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+          onclick={() => startEdit(type, scope)}
+          aria-label="Edit"
+          title="Edit"
+        >
+          <Pencil size={12} />
+        </button>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet group(
+  type: Group,
+  title: string,
+  description: string,
+  base: string,
+  rows: Array<{ id: string; template: string }>,
+  addable: Array<{ id: string; name: string }>,
+)}
+  <section class="rounded-lg border border-border-subtle px-4 pb-4 pt-2.5 flex flex-col gap-1.5">
+    <div class="flex flex-col gap-0.5">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+        >{title}</span
+      >
+      <p class="text-xs text-text-muted leading-snug m-0">{description}</p>
+    </div>
+    <div class="flex flex-col">
+      {@render row(type, 'default', 'All boards (default)', defaultTooltip(type), base)}
+      {#each rows as r (r.id)}
+        {@const meta = rowLabel(r.id)}
+        {@render row(type, r.id, meta.label, meta.tooltip, r.template)}
+      {/each}
+
+      {#if editing?.type === type && editing.scope !== 'default' && !rows.some((r) => r.id === editing?.scope)}
+        <div class="py-2 border-t border-border-subtle">
+          <span class="text-xs text-text-faint"
+            >New override · {boardName(editing.scope) ?? editing.scope}</span
+          >
+          {@render editorFor(type, editing.scope)}
+        </div>
+      {/if}
+    </div>
+
+    {#if !connected}
+      <button
+        type="button"
+        class="self-start mt-1 flex items-center gap-1 px-2 py-0.5 rounded-md bg-transparent border-0 text-text-faint text-xs font-inherit cursor-not-allowed opacity-60"
+        disabled
+        title="Connect this tracker (add credentials) to add a board-specific override"
+      >
+        <Plus size={12} />
+        Add board override
+      </button>
+    {:else if addable.length > 0}
+      {#if addingOverrideFor === type}
+        <div class="flex items-center gap-2 mt-1">
+          <CustomSelect
+            value=""
+            options={addable.map((b) => ({ value: b.id, label: b.name }))}
+            onchange={(id) => {
+              addingOverrideFor = null
+              startEdit(type, id)
+            }}
+          />
+          <button
+            type="button"
+            class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
+            onclick={() => (addingOverrideFor = null)}
+            aria-label="Cancel"
+            title="Cancel"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      {:else}
+        <button
+          type="button"
+          class="self-start mt-1 flex items-center gap-1 px-2 py-0.5 rounded-md border border-dashed border-border bg-transparent text-text-muted text-xs font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+          onclick={() => (addingOverrideFor = type)}
+        >
+          <Plus size={12} />
+          Add board override
+        </button>
+      {/if}
+    {/if}
+  </section>
+{/snippet}
+
+<div class="flex flex-col gap-5">
+  {#if !resolved}
+    <p class="text-sm text-text-faint m-0">No tracker configuration found.</p>
+  {:else}
+    {#if !connected}
+      <p class="text-xs text-warning-text m-0 leading-snug">
+        {#if credentialsExpired}
+          Tracker credentials have expired — reconnect above to edit branch &amp; PR naming. Until
+          then the configuration is read-only.
+        {:else}
+          Connect a tracker above to edit branch &amp; PR naming — until then the configuration is
+          read-only.
+        {/if}
+      </p>
+    {/if}
+    {@render group(
+      'branch',
+      'Branch naming',
+      'Templates for branch names created from tasks — per board, with a default for the rest.',
+      branchBase,
+      branchRows,
+      branchAddable,
+    )}
+    {@render group(
+      'pr',
+      'Pull request naming',
+      'PR title, description and target branch used when creating a PR from a task — per board. Rows show the title; edit to see all fields.',
+      prBase,
+      prRows,
+      prAddable,
+    )}
+  {/if}
+</div>

@@ -29,11 +29,6 @@ export interface PromptOptions {
   checkbox?: PromptCheckbox
 }
 
-interface ConfirmDialogState {
-  type: 'confirm'
-  props: ConfirmOptions & { onConfirm: () => void; onCancel: () => void }
-}
-
 interface InputDialogState {
   type: 'input'
   props: PromptOptions & { onSubmit: (result: PromptResult) => void; onCancel: () => void }
@@ -54,6 +49,10 @@ interface PreferencesState {
 interface TaskPickerState {
   type: 'taskPicker'
   connectionId: string
+}
+
+interface ProjectTrackerState {
+  type: 'projectTracker'
 }
 
 interface AboutState {
@@ -112,11 +111,11 @@ interface NoneState {
 
 type DialogState =
   | NoneState
-  | ConfirmDialogState
   | InputDialogState
   | CreateWorktreeState
   | PreferencesState
   | TaskPickerState
+  | ProjectTrackerState
   | AboutState
   | ChangelogState
   | OnboardingWizardState
@@ -130,20 +129,23 @@ type DialogState =
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
+// Confirmations render ABOVE whatever dialog is open (separate stacked state), so asking for a
+// confirmation inside a modal (e.g. the Project tracker dialog) doesn't replace and close it.
+export const confirmState: {
+  current: (ConfirmOptions & { onConfirm: () => void; onCancel: () => void }) | null
+} = $state({ current: null })
+
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
   return new Promise((resolve) => {
-    dialogState.current = {
-      type: 'confirm',
-      props: {
-        ...opts,
-        onConfirm: () => {
-          dialogState.current = { type: 'none' }
-          resolve(true)
-        },
-        onCancel: () => {
-          dialogState.current = { type: 'none' }
-          resolve(false)
-        },
+    confirmState.current = {
+      ...opts,
+      onConfirm: () => {
+        confirmState.current = null
+        resolve(true)
+      },
+      onCancel: () => {
+        confirmState.current = null
+        resolve(false)
       },
     }
   })
@@ -187,6 +189,10 @@ export function showPreferences(section?: string): void {
 
 export function showTaskPicker(connectionId: string): void {
   dialogState.current = { type: 'taskPicker', connectionId }
+}
+
+export function showProjectTracker(): void {
+  dialogState.current = { type: 'projectTracker' }
 }
 
 export function showAbout(): void {

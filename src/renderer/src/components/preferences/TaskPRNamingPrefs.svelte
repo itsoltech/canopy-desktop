@@ -1,51 +1,53 @@
 <script lang="ts">
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
+  import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
   import {
-    getRepoConfig,
-    getGlobalConfig,
-    saveRepoConfig,
-    saveGlobalConfig,
-  } from '../../lib/stores/taskTracker.svelte'
-  import PrefsSection from './_partials/PrefsSection.svelte'
+    RENDERER_DEFAULT_PR_TITLE,
+    RENDERER_DEFAULT_PR_BODY,
+    PR_EXAMPLE_VALUES,
+    renderTemplateExample,
+  } from './_partials/configScopeLabels'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
 
+  // PR template editor (title, body, target branch) for ONE board scope of the project config.
+  // Naming is owned by the project alone — "Reset to default" restores the built-in preset.
   interface Props {
-    repoRoot?: string
-    boards: Array<{ id: string; name: string }>
-    scope: 'global' | 'project'
+    repoRoot: string
+    /** Board scope this editor is pinned to: 'default' = base template, otherwise a board id. */
+    pinnedScope?: 'default' | string
   }
 
-  let { repoRoot, boards, scope }: Props = $props()
+  let { repoRoot, pinnedScope = 'default' }: Props = $props()
 
-  let config = $derived(scope === 'global' ? getGlobalConfig() : getRepoConfig())
-
-  type TemplateScope = 'default' | string
-  let prScope = $state<TemplateScope>('default')
+  let config = $derived(getRepoConfig())
 
   const PR_TAGS = [
     { key: 'taskKey', description: 'Task key (e.g. ISSUE-123)', example: 'ISSUE-123' },
     { key: 'taskTitle', description: 'Task title', example: 'Fix login bug' },
     { key: 'taskType', description: 'Task type (task, bug, story)', example: 'task' },
+    { key: 'parentKey', description: 'Parent task key', example: 'ISSUE-100' },
     { key: 'boardKey', description: 'Board/project key', example: 'ISSUE' },
+  ]
+  // The body additionally supports the task link and full description.
+  const PR_BODY_TAGS = [
+    ...PR_TAGS,
+    { key: 'taskUrl', description: 'Link to the task', example: 'https://…/ISSUE-123' },
+    {
+      key: 'taskDescription',
+      description: 'Full task description',
+      example: 'Login form does not validate…',
+    },
   ]
 
   let prTemplate = $derived.by(() => {
-    if (!config) {
-      return {
-        titleTemplate: '',
-        bodyTemplate: '',
-        defaultTargetBranch: 'develop',
-        targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
-      }
-    }
-    const base = config.prTemplate ?? {
+    const base = config?.prTemplate ?? {
       titleTemplate: '',
       bodyTemplate: '',
       defaultTargetBranch: 'develop',
       targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
     }
-    if (prScope !== 'default') {
-      const override = config.boardOverrides[prScope]?.prTemplate
+    if (config && pinnedScope !== 'default') {
+      const override = config.boardOverrides[pinnedScope]?.prTemplate
       if (override) {
         return {
           titleTemplate: override.titleTemplate ?? base.titleTemplate,
@@ -65,32 +67,31 @@
 
   $effect(() => {
     if (prTemplate && !initialized) {
-      titleTemplateInput = prTemplate.titleTemplate
-      bodyTemplateInput = prTemplate.bodyTemplate
-      defaultTargetBranch = prTemplate.defaultTargetBranch
+      titleTemplateInput = prTemplate.titleTemplate || RENDERER_DEFAULT_PR_TITLE
+      bodyTemplateInput = prTemplate.bodyTemplate || RENDERER_DEFAULT_PR_BODY
+      defaultTargetBranch = prTemplate.defaultTargetBranch || 'develop'
       initialized = true
     }
   })
 
+  let titleExample = $derived(renderTemplateExample(titleTemplateInput, PR_EXAMPLE_VALUES))
+  let bodyExample = $derived(renderTemplateExample(bodyTemplateInput, PR_EXAMPLE_VALUES))
+
   async function savePRField(field: string, value: string): Promise<void> {
     if (!config) return
     const updated = $state.snapshot(config) as typeof config
-    if (prScope === 'default') {
-      updated.prTemplate = { ...(updated.prTemplate ?? {}), [field]: value }
+    if (pinnedScope === 'default') {
+      updated!.prTemplate = { ...(updated!.prTemplate ?? {}), [field]: value }
     } else {
-      if (!updated.boardOverrides[prScope]) {
-        updated.boardOverrides[prScope] = {}
+      if (!updated!.boardOverrides[pinnedScope]) {
+        updated!.boardOverrides[pinnedScope] = {}
       }
-      updated.boardOverrides[prScope].prTemplate = {
-        ...updated.boardOverrides[prScope].prTemplate,
+      updated!.boardOverrides[pinnedScope].prTemplate = {
+        ...updated!.boardOverrides[pinnedScope].prTemplate,
         [field]: value,
       }
     }
-    if (scope === 'global') {
-      await saveGlobalConfig(updated)
-    } else if (repoRoot) {
-      await saveRepoConfig(repoRoot, updated)
-    }
+    await saveRepoConfig(repoRoot, updated!)
   }
 
   function onTitleTemplateSave(): void {
@@ -100,30 +101,77 @@
   function onBodyTemplateSave(): void {
     savePRField('bodyTemplate', bodyTemplateInput)
   }
+
+  function insertBodyField(key: string): void {
+    bodyTemplateInput = bodyTemplateInput + `{${key}}`
+    onBodyTemplateSave()
+  }
+
+  // Restore the base PR template to the built-in default by removing the project value.
+  async function resetToBuiltIn(): Promise<void> {
+    if (!config || pinnedScope !== 'default') return
+    const ok = await confirm({
+      title: 'Reset to default',
+      message: 'Reset the PR template to the built-in default?',
+      details: `Removes the project PR template from .canopy/config.json — the built-in title ${RENDERER_DEFAULT_PR_TITLE} will apply.`,
+      confirmLabel: 'Reset',
+    })
+    if (!ok) return
+    const updated = $state.snapshot(config) as typeof config
+    updated!.prTemplate = undefined
+    await saveRepoConfig(repoRoot, updated!)
+    initialized = false
+  }
+
+  // Drop this board's PR override so it falls back to the base template.
+  async function clearBoardOverride(): Promise<void> {
+    if (!config || pinnedScope === 'default') return
+    const updated = $state.snapshot(config) as typeof config
+    const entry = updated!.boardOverrides[pinnedScope]
+    if (entry?.prTemplate) {
+      delete entry.prTemplate
+      if (Object.keys(entry).length === 0) delete updated!.boardOverrides[pinnedScope]
+    }
+    await saveRepoConfig(repoRoot, updated!)
+    initialized = false
+  }
 </script>
 
-<PrefsSection
-  title="Pull request naming"
-  description="Templates applied when creating PRs from tasks"
->
-  <div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
-    {#if boards.length > 0}
-      <div class="flex items-center gap-3">
-        <span class="text-sm text-text-secondary w-20 shrink-0">Board</span>
-        <CustomSelect
-          value={prScope}
-          options={[
-            { value: 'default', label: 'All boards (default)' },
-            ...boards.map((b) => ({ value: b.id, label: b.name })),
-          ]}
-          onchange={(v) => {
-            prScope = v
-            initialized = false
-          }}
-        />
-      </div>
-    {/if}
+<div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
+  <div class="flex items-center gap-3">
+    <span class="text-sm text-text-secondary w-20 shrink-0">Preview</span>
+    <code class="text-sm text-accent-text bg-bg-input px-2 py-0.5 rounded-md font-mono"
+      >{titleExample || '—'}</code
+    >
+  </div>
 
+  {#if pinnedScope === 'default' && config?.prTemplate}
+    <button
+      type="button"
+      class="self-start px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
+      onclick={resetToBuiltIn}
+      title="Remove the project PR template — the built-in default will apply"
+    >
+      Reset to default
+    </button>
+  {:else if pinnedScope !== 'default' && config?.boardOverrides[pinnedScope]?.prTemplate}
+    <button
+      type="button"
+      class="self-start px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
+      onclick={clearBoardOverride}
+      title="Remove this board override; fall back to the base template"
+    >
+      Clear board override
+    </button>
+  {/if}
+
+  {#if pinnedScope !== 'default' && !config?.boardOverrides[pinnedScope]?.prTemplate}
+    <p class="text-xs text-text-faint m-0">
+      No override yet — uses the base template. Edit below to create one for this board.
+    </p>
+  {/if}
+
+  <div class="flex flex-col gap-1">
     <BranchTokenBuilder
       bind:templateInput={titleTemplateInput}
       placeholders={PR_TAGS}
@@ -131,37 +179,53 @@
       label="Title"
       autoSeparators={false}
     />
+    <p class="text-xs text-text-muted m-0 pl-23">
+      The pull request title, rendered from the task when the PR is created.
+    </p>
+  </div>
 
-    <BranchTokenBuilder
-      bind:templateInput={bodyTemplateInput}
-      placeholders={PR_TAGS}
-      onSave={onBodyTemplateSave}
-      label="Body"
-      autoSeparators={false}
-    />
-
-    <div class="flex flex-col gap-1">
-      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-        >Body text</span
-      >
+  <div class="flex flex-col gap-1">
+    <div class="flex items-start gap-3">
+      <span class="text-sm text-text-secondary w-20 shrink-0 pt-1">Body</span>
       <textarea
-        class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring resize-y min-h-15 placeholder:text-text-faint"
+        class="flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring resize-y min-h-15 placeholder:text-text-faint"
         name="prBody"
         aria-label="PR body template"
         bind:value={bodyTemplateInput}
         oninput={onBodyTemplateSave}
         rows="4"
-        placeholder="PR body template — use tags above or type freely"
-        spellcheck="false"
-      ></textarea>
+        placeholder="PR description — type freely, click fields below to insert"
+        spellcheck="false"></textarea>
     </div>
-
-    <div class="flex flex-col gap-1">
-      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-        >Default target branch</span
+    <div class="flex flex-wrap items-center gap-1 pl-23">
+      <span class="text-2xs uppercase tracking-caps-tight text-text-faint mr-1"
+        >Available fields</span
       >
+      {#each PR_BODY_TAGS as ph (ph.key)}
+        <button
+          type="button"
+          class="text-xs px-1.5 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary font-mono cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+          title={ph.description + ' (e.g. ' + ph.example + ')'}
+          onclick={() => insertBodyField(ph.key)}
+        >
+          {`{${ph.key}}`}
+        </button>
+      {/each}
+    </div>
+    {#if bodyExample}
+      <pre
+        class="text-2xs text-accent-text font-mono break-all leading-4 pl-23 m-0 whitespace-pre-wrap">{bodyExample}</pre>
+    {/if}
+    <p class="text-xs text-text-muted m-0 pl-23">
+      The pull request description (multi-line, Markdown works).
+    </p>
+  </div>
+
+  <div class="flex flex-col gap-1">
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-text-secondary w-20 shrink-0">Target branch</span>
       <input
-        class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        class="flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
         name="defaultTargetBranch"
         aria-label="Default target branch"
         bind:value={defaultTargetBranch}
@@ -170,5 +234,8 @@
         spellcheck="false"
       />
     </div>
+    <p class="text-xs text-text-muted m-0 pl-23">
+      The branch pull requests are created into by default (e.g. develop).
+    </p>
   </div>
-</PrefsSection>
+</div>

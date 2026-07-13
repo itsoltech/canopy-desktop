@@ -56,7 +56,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-overlay flex justify-center items-start pt-30 bg-scrim"
+  class="fixed inset-0 z-[10020] flex justify-center items-start pt-30 bg-scrim"
   onkeydown={handleKeydown}
   onmousedown={onCancel}
 >

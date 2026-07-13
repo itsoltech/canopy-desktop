@@ -11,6 +11,7 @@
   import InputDialog from '../dialogs/InputDialog.svelte'
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
+  import ProjectTrackerModal from '../preferences/ProjectTrackerModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
@@ -31,6 +32,7 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import {
     dialogState,
+    confirmState,
     closeDialog,
     showPreferences,
     showAbout,
@@ -296,7 +298,11 @@
   // every dispatch wakes each BrowserPane listener.
   let lastOverlayOpen = false
   $effect(() => {
-    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen || quickOpenOpen
+    const anyOverlayOpen =
+      dialogState.current.type !== 'none' ||
+      confirmState.current !== null ||
+      paletteOpen ||
+      quickOpenOpen
     if (anyOverlayOpen === lastOverlayOpen) return
     lastOverlayOpen = anyOverlayOpen
     window.dispatchEvent(
@@ -560,9 +566,11 @@
   <CommandPalette onClose={() => (paletteOpen = false)} />
 {/if}
 
-{#if dialogState.current.type === 'confirm'}
-  <ConfirmDialog {...dialogState.current.props} />
-{:else if dialogState.current.type === 'input'}
+{#if confirmState.current}
+  <ConfirmDialog {...confirmState.current} />
+{/if}
+
+{#if dialogState.current.type === 'input'}
   <InputDialog {...dialogState.current.props} />
 {:else if dialogState.current.type === 'createWorktree'}
   <CreateWorktreeModal
@@ -575,6 +583,8 @@
   <PreferencesModal section={dialogState.current.section} />
 {:else if dialogState.current.type === 'taskPicker'}
   <TaskPickerModal connectionId={dialogState.current.connectionId} />
+{:else if dialogState.current.type === 'projectTracker'}
+  <ProjectTrackerModal />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}

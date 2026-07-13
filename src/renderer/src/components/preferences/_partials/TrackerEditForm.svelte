@@ -2,6 +2,7 @@
   import { Check, X } from '@lucide/svelte'
   import { match } from 'ts-pattern'
   import CustomSelect from '../../shared/CustomSelect.svelte'
+  import { providerLabel } from '../../../lib/taskTracker/providerLabel'
 
   type Provider = 'jira' | 'youtrack' | 'github'
 
@@ -18,6 +19,9 @@
     onCancel,
     onTest,
     onSave,
+    // When true, the tracker definition (provider/URL/projectKey) is fixed and shown read-only;
+    // only credentials (username/token) are editable. Used to connect a repo-configured tracker.
+    credentialsOnly = false,
   }: {
     provider: Provider
     baseUrl: string
@@ -31,6 +35,7 @@
     onCancel: () => void
     onTest: () => void
     onSave: () => void
+    credentialsOnly?: boolean
   } = $props()
 
   function openTokenPage(): void {
@@ -52,32 +57,42 @@
     <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
       >Provider</span
     >
-    <CustomSelect
-      value={provider}
-      options={[
-        { value: 'jira', label: 'Jira' },
-        { value: 'youtrack', label: 'YouTrack' },
-        { value: 'github', label: 'GitHub' },
-      ]}
-      onchange={(v) => (provider = v as Provider)}
-    />
+    {#if credentialsOnly}
+      <span class="px-2.5 py-1.5 text-sm text-text-secondary">{providerLabel(provider)}</span>
+    {:else}
+      <CustomSelect
+        value={provider}
+        options={[
+          { value: 'jira', label: 'Jira' },
+          { value: 'youtrack', label: 'YouTrack' },
+          { value: 'github', label: 'GitHub' },
+        ]}
+        onchange={(v) => (provider = v as Provider)}
+      />
+    {/if}
   </div>
 
   <div class="flex flex-col gap-1">
     <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
       >Base URL</span
     >
-    <input
-      class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-      name="baseUrl"
-      aria-label="Base URL"
-      bind:value={baseUrl}
-      placeholder={provider === 'github' ? 'https://github.com' : 'https://company.atlassian.net'}
-      spellcheck="false"
-    />
+    {#if credentialsOnly}
+      <span class="px-2.5 py-1.5 text-sm text-text-secondary truncate" title={baseUrl}
+        >{baseUrl}</span
+      >
+    {:else}
+      <input
+        class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        name="baseUrl"
+        aria-label="Base URL"
+        bind:value={baseUrl}
+        placeholder={provider === 'github' ? 'https://github.com' : 'https://company.atlassian.net'}
+        spellcheck="false"
+      />
+    {/if}
   </div>
 
-  {#if provider === 'github'}
+  {#if provider === 'github' && !credentialsOnly}
     <div class="flex flex-col gap-1">
       <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
         >Repository (optional)</span
@@ -94,8 +109,6 @@
   {/if}
 
   <div class="flex flex-col gap-2 pt-2 border-t border-border-subtle">
-    <span class="text-2xs text-text-faint">Credentials — stored locally, never committed.</span>
-
     {#if provider === 'jira'}
       <div class="flex flex-col gap-1">
         <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
@@ -133,6 +146,7 @@
         bind:value={token}
         placeholder={!isNew && hasExistingToken ? '••••••••' : 'Enter token'}
         autocomplete="off"
+        title="Stored encrypted on your machine, keyed by provider + URL — never written to your repository"
       />
     </div>
   </div>
@@ -149,13 +163,15 @@
     <button
       type="button"
       class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-      onclick={onCancel}>Cancel</button
+      onclick={onCancel}
+      title="Discard changes and close the form">Cancel</button
     >
     <button
       type="button"
       class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
       onclick={onTest}
       disabled={testing || !baseUrl || !token}
+      title="Check the connection against the tracker — nothing is saved"
     >
       {testing ? 'Testing…' : 'Test'}
     </button>
@@ -163,7 +179,11 @@
       type="button"
       class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
       onclick={onSave}
-      disabled={!baseUrl}>Save</button
+      disabled={!baseUrl || (credentialsOnly && !token)}
+      title={credentialsOnly
+        ? 'Save credentials (stored globally on this machine, per provider + URL)'
+        : "Save the connection — you'll confirm where it goes (Global or Project)"}
+      >{credentialsOnly ? 'Save credentials' : 'Save'}</button
     >
   </div>
 </div>

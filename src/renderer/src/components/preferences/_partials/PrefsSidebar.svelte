@@ -12,10 +12,12 @@
     groups: readonly Group[]
     activeSection: string
     onselect: (section: string) => void
+    /** Sections that should show an attention dot (e.g. connections missing credentials). */
+    needsAttention?: readonly string[]
     footer?: Snippet
   }
 
-  let { groups, activeSection, onselect, footer }: Props = $props()
+  let { groups, activeSection, onselect, needsAttention = [], footer }: Props = $props()
 
   function slug(s: string): string {
     return s.toLowerCase().replace(/\s+/g, '-')
@@ -65,6 +67,14 @@
                 <Icon size={14} class="shrink-0 {active ? 'text-accent' : 'text-text-muted'}" />
               {/if}
               <span class="truncate">{section}</span>
+              {#if needsAttention.includes(section)}
+                <span
+                  class="ml-auto size-1.5 rounded-full bg-warning-text shrink-0"
+                  role="img"
+                  aria-label="Action needed"
+                  title="Action needed"
+                ></span>
+              {/if}
             </button>
           {/each}
         </div>

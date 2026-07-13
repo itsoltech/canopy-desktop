@@ -1,34 +1,27 @@
 <script lang="ts">
-  import { Plus, Trash2 } from '@lucide/svelte'
+  import { onMount } from 'svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
-  import {
-    getRepoConfig,
-    getGlobalConfig,
-    saveRepoConfig,
-    saveGlobalConfig,
-  } from '../../lib/stores/taskTracker.svelte'
-  import PrefsSection from './_partials/PrefsSection.svelte'
+  import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
+  import { RENDERER_DEFAULT_BRANCH_TEMPLATE } from './_partials/configScopeLabels'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
 
+  // Branch template editor for ONE board scope of the project config. Naming is owned by the
+  // project alone — "Reset to default" restores the built-in preset (there is no other tier).
   interface Props {
-    repoRoot?: string
-    boards: Array<{ id: string; name: string }>
+    repoRoot: string
     placeholders: Array<{ key: string; description: string; example: string }>
-    onTemplateChanged: () => void
-    scope: 'global' | 'project'
+    /** Board scope this editor is pinned to: 'default' = base template, otherwise a board id. */
+    pinnedScope?: 'default' | string
   }
 
-  let { repoRoot, boards, placeholders, onTemplateChanged, scope }: Props = $props()
+  let { repoRoot, placeholders, pinnedScope = 'default' }: Props = $props()
 
-  let config = $derived(scope === 'global' ? getGlobalConfig() : getRepoConfig())
-
-  type TemplateScope = 'default' | string
-  let templateScope = $state<TemplateScope>('default')
+  let config = $derived(getRepoConfig())
 
   let branchTemplate = $derived.by(() => {
     if (!config) return { template: '', customVars: {} as Record<string, string> }
-    if (templateScope !== 'default') {
-      const override = config.boardOverrides[templateScope]?.branchTemplate
+    if (pinnedScope !== 'default') {
+      const override = config.boardOverrides[pinnedScope]?.branchTemplate
       if (override) {
         return {
           template: override.template ?? config.branchTemplate?.template ?? '',
@@ -44,8 +37,6 @@
 
   let templateInput = $state('')
   let branchPreview = $state('')
-  let newVarKey = $state('')
-  let newVarValue = $state('')
 
   async function updatePreview(): Promise<void> {
     try {
@@ -56,157 +47,103 @@
     }
   }
 
+  async function persistConfig(updated: typeof config): Promise<void> {
+    if (!updated) return
+    await saveRepoConfig(repoRoot, updated)
+  }
+
   async function saveBranchTemplate(): Promise<void> {
     if (!config) return
     const updated = $state.snapshot(config) as typeof config
-    if (templateScope === 'default') {
-      updated.branchTemplate = {
-        ...updated.branchTemplate,
+    if (pinnedScope === 'default') {
+      updated!.branchTemplate = {
+        ...updated!.branchTemplate,
         template: templateInput,
         customVars: branchTemplate.customVars,
       }
     } else {
-      if (!updated.boardOverrides[templateScope]) {
-        updated.boardOverrides[templateScope] = {}
+      if (!updated!.boardOverrides[pinnedScope]) {
+        updated!.boardOverrides[pinnedScope] = {}
       }
-      updated.boardOverrides[templateScope].branchTemplate = {
+      updated!.boardOverrides[pinnedScope].branchTemplate = {
         template: templateInput,
         customVars: branchTemplate.customVars,
       }
     }
     await persistConfig(updated)
     updatePreview()
-    onTemplateChanged()
   }
 
-  async function persistConfig(updated: typeof config): Promise<void> {
-    if (!updated) return
-    if (scope === 'global') {
-      await saveGlobalConfig(updated)
-    } else if (repoRoot) {
-      await saveRepoConfig(repoRoot, updated)
+  // Restore the base template to the built-in default by removing the project value.
+  async function resetToBuiltIn(): Promise<void> {
+    if (!config || pinnedScope !== 'default') return
+    const ok = await confirm({
+      title: 'Reset to default',
+      message: 'Reset the branch template to the built-in default?',
+      details: `Removes the project template from .canopy/config.json — the built-in ${RENDERER_DEFAULT_BRANCH_TEMPLATE} will apply.`,
+      confirmLabel: 'Reset',
+    })
+    if (!ok) return
+    const updated = $state.snapshot(config) as typeof config
+    updated!.branchTemplate = undefined
+    await persistConfig(updated)
+    templateInput = RENDERER_DEFAULT_BRANCH_TEMPLATE
+    updatePreview()
+  }
+
+  // Drop this board's override so it falls back to the base template.
+  async function clearBoardOverride(): Promise<void> {
+    if (!config || pinnedScope === 'default') return
+    const updated = $state.snapshot(config) as typeof config
+    const entry = updated!.boardOverrides[pinnedScope]
+    if (entry?.branchTemplate) {
+      delete entry.branchTemplate
+      if (Object.keys(entry).length === 0) delete updated!.boardOverrides[pinnedScope]
     }
-  }
-
-  async function addCustomVar(): Promise<void> {
-    if (!newVarKey.trim() || !config) return
-    const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
-    const updated = $state.snapshot(config) as typeof config
-    updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
     await persistConfig(updated)
-    newVarKey = ''
-    newVarValue = ''
+    templateInput = branchTemplate.template || RENDERER_DEFAULT_BRANCH_TEMPLATE
     updatePreview()
-    onTemplateChanged()
   }
 
-  async function removeCustomVar(key: string): Promise<void> {
-    if (!config) return
-    const vars = { ...branchTemplate.customVars }
-    delete vars[key]
-    const updated = $state.snapshot(config) as typeof config
-    updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
-    await persistConfig(updated)
+  onMount(() => {
+    templateInput = branchTemplate.template || RENDERER_DEFAULT_BRANCH_TEMPLATE
     updatePreview()
-    onTemplateChanged()
-  }
-
-  export function initTemplate(template: string): void {
-    templateInput = template
-    updatePreview()
-  }
+  })
 </script>
 
-<PrefsSection
-  title="Branch naming"
-  description="Template for branch names created from tracker tasks"
->
-  <div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
-    {#if boards.length > 0}
-      <div class="flex items-center gap-3">
-        <span class="text-sm text-text-secondary w-20 shrink-0">Board</span>
-        <CustomSelect
-          value={templateScope}
-          options={[
-            { value: 'default', label: 'All boards (default)' },
-            ...boards.map((b) => ({ value: b.id, label: b.name })),
-          ]}
-          onchange={(v) => {
-            templateScope = v
-            templateInput = branchTemplate.template
-            updatePreview()
-          }}
-        />
-      </div>
-      {#if templateScope !== 'default' && !config?.boardOverrides[templateScope]?.branchTemplate}
-        <p class="text-xs text-text-faint m-0">
-          No override — uses default template. Edit below to create one.
-        </p>
-      {/if}
-    {/if}
-
-    <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />
-
-    <div class="flex items-center gap-3">
-      <span class="text-sm text-text-secondary w-20 shrink-0">Preview</span>
-      <code class="text-sm text-accent-text bg-bg-input px-2 py-0.5 rounded-md font-mono"
-        >{branchPreview || '—'}</code
-      >
-    </div>
-
-    <div class="flex flex-col gap-1.5">
-      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-        >Custom variables</span
-      >
-      {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
-        <div
-          class="flex items-center gap-2 px-2.5 py-1 rounded-md bg-bg-input border border-border-subtle text-md"
-        >
-          <code class="text-accent-text font-mono text-sm shrink-0">{'{' + key + '}'}</code>
-          <span class="text-text-secondary font-mono text-sm flex-1 truncate" title={value}
-            >{value}</span
-          >
-          <button
-            type="button"
-            class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer shrink-0 hover:bg-danger-bg hover:text-danger-text"
-            onclick={() => removeCustomVar(key)}
-            aria-label="Remove {key}"
-            title="Remove"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-      {/each}
-      <div class="flex items-center gap-1.5">
-        <input
-          class="w-25 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newVarKey"
-          aria-label="Variable key"
-          bind:value={newVarKey}
-          placeholder="key"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <input
-          class="w-25 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newVarValue"
-          aria-label="Variable value"
-          bind:value={newVarValue}
-          placeholder="value"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <button
-          type="button"
-          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
-          onclick={addCustomVar}
-          disabled={!newVarKey.trim()}
-          aria-label="Add variable"
-          title="Add"
-        >
-          <Plus size={14} />
-        </button>
-      </div>
-    </div>
+<div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
+  <div class="flex items-center gap-3">
+    <span class="text-sm text-text-secondary w-20 shrink-0">Preview</span>
+    <code class="text-sm text-accent-text bg-bg-input px-2 py-0.5 rounded-md font-mono"
+      >{branchPreview || '—'}</code
+    >
   </div>
-</PrefsSection>
+
+  {#if pinnedScope === 'default' && config?.branchTemplate}
+    <button
+      type="button"
+      class="self-start px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
+      onclick={resetToBuiltIn}
+      title="Remove the project template — the built-in default will apply"
+    >
+      Reset to default
+    </button>
+  {:else if pinnedScope !== 'default' && config?.boardOverrides[pinnedScope]?.branchTemplate}
+    <button
+      type="button"
+      class="self-start px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
+      onclick={clearBoardOverride}
+      title="Remove this board override; fall back to the base template"
+    >
+      Clear board override
+    </button>
+  {/if}
+
+  {#if pinnedScope !== 'default' && !config?.boardOverrides[pinnedScope]?.branchTemplate}
+    <p class="text-xs text-text-faint m-0">
+      No override yet — uses the base template. Edit below to create one for this board.
+    </p>
+  {/if}
+
+  <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />
+</div>
