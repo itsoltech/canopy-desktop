@@ -554,6 +554,19 @@ async function hydrateSelectedWorktree(path: string, requestId?: number): Promis
   if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
 
   const project = getProjectForWorktree(path)
+
+  // Reload the task-tracker config for the ACTIVE worktree's checkout. `.canopy/config.json` is a
+  // git-tracked, per-branch file, so the relevant config is the one in the worktree you're working
+  // in (not the project's main checkout). The store holds a single active config keyed to this path.
+  if (project) {
+    try {
+      await loadRepoConfig(path)
+    } catch (err) {
+      console.error(`[workspace] loadRepoConfig failed for "${path}":`, err)
+    }
+    if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
+  }
+
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)
     if (wt) {
