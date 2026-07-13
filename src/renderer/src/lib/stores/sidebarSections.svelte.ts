@@ -1,13 +1,7 @@
 import { setPref } from './preferences.svelte'
 
 export type SidebarSectionId =
-  | 'projects'
-  | 'git'
-  | 'files'
-  | 'tools'
-  | 'tasks'
-  | 'runConfigs'
-  | 'remote'
+  'projects' | 'git' | 'files' | 'tools' | 'tasks' | 'runConfigs' | 'remote'
 
 export interface SidebarSectionDef {
   id: SidebarSectionId
@@ -20,7 +14,7 @@ export const SECTION_DEFS: SidebarSectionDef[] = [
   { id: 'git', label: 'Git', forced: false },
   { id: 'files', label: 'Files', forced: false },
   { id: 'tools', label: 'Tools', forced: false },
-  { id: 'tasks', label: 'Tasks', forced: false },
+  { id: 'tasks', label: 'Project management', forced: false },
   { id: 'runConfigs', label: 'Run', forced: false },
   { id: 'remote', label: 'Remote', forced: false },
 ]
