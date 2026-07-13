@@ -13,6 +13,9 @@ export function mergeConfigs(
 ): ResolvedConfig | null {
   if (!global && !repo) return null
 
+  // Naming config (branch/PR templates, board overrides) is owned by the PROJECT alone: it comes
+  // from the repo config or falls back to the built-in defaults at the call sites. The personal
+  // (global) store only contributes tracker connections — it is never a template fallback.
   if (!global && repo) {
     return {
       config: repo,
@@ -28,10 +31,15 @@ export function mergeConfigs(
 
   if (global && !repo) {
     return {
-      config: global,
+      config: {
+        version: 1,
+        trackers: global.trackers,
+        boardOverrides: {},
+        filters: global.filters,
+      },
       source: {
-        branchTemplate: global.branchTemplate ? 'global' : 'default',
-        prTemplate: global.prTemplate ? 'global' : 'default',
+        branchTemplate: 'default',
+        prTemplate: 'default',
         filters: 'global',
       },
       hasGlobal: true,
@@ -39,39 +47,25 @@ export function mergeConfigs(
     }
   }
 
-  // Both exist — additive merge for trackers, repo overrides for other fields
+  // Both exist — additive merge for trackers only; everything else comes from the repo
   const g = global!
   const r = repo!
 
   const trackers = mergeTrackers(g.trackers, r.trackers)
 
-  const branchTemplateSource: ConfigSource | 'default' = r.branchTemplate
-    ? 'repo'
-    : g.branchTemplate
-      ? 'global'
-      : 'default'
-  const branchTemplate = r.branchTemplate ?? g.branchTemplate
-
-  const prTemplateSource: ConfigSource | 'default' = r.prTemplate
-    ? 'repo'
-    : g.prTemplate
-      ? 'global'
-      : 'default'
-  const prTemplate = r.prTemplate ?? g.prTemplate
+  const branchTemplateSource: ConfigSource | 'default' = r.branchTemplate ? 'repo' : 'default'
+  const prTemplateSource: ConfigSource | 'default' = r.prTemplate ? 'repo' : 'default'
 
   // Repo filters always take precedence when repo config exists
   const filtersSource: ConfigSource = 'repo'
-  const filters = r.filters
-
-  const boardOverrides = { ...g.boardOverrides, ...r.boardOverrides }
 
   const config: RepoConfig = {
     version: 1,
     trackers,
-    branchTemplate,
-    prTemplate,
-    boardOverrides,
-    filters,
+    branchTemplate: r.branchTemplate,
+    prTemplate: r.prTemplate,
+    boardOverrides: r.boardOverrides,
+    filters: r.filters,
   }
 
   return {
