@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { X, ExternalLink, ArrowLeft } from '@lucide/svelte'
+  import { X, ExternalLink, ArrowLeft, RotateCcw } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
@@ -54,6 +54,8 @@
   let branchTypeOptions: string[] = $state([])
   let selectedBranchType = $state('feat')
   let resolvedBranchName = $state('')
+  // Set once the user hand-edits the branch name; template re-renders then stop overwriting it.
+  let branchEdited = $state(false)
   let creatingWorktree = $state(false)
   let templateHasBranchType = $state(false)
   let initialized = $state(false)
@@ -122,6 +124,7 @@
   }
 
   async function updateBranchPreview(): Promise<void> {
+    if (branchEdited) return
     try {
       const plain = $state.snapshot(task) as Task
       const result = await window.api.taskTrackerPrepareBranchFromTask({
@@ -135,6 +138,11 @@
     } catch {
       resolvedBranchName = task.key
     }
+  }
+
+  function regenerateBranchName(): void {
+    branchEdited = false
+    updateBranchPreview()
   }
 
   async function onBranchTypeChange(): Promise<void> {
@@ -206,6 +214,7 @@
         repoRoot,
         worktreePath,
         baseBranch,
+        branchName: resolvedBranchName,
       })
       createdWorktreePath = created.worktreePath
       operationStatus = 'Worktree created'
@@ -451,9 +460,26 @@
     {/if}
     <div class="flex items-center gap-2.5">
       <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Branch</span>
-      <code class="text-sm text-accent-text bg-bg-input px-2.5 py-[5px] rounded-lg flex-1"
-        >{resolvedBranchName}</code
-      >
+      <input
+        class="text-sm text-accent-text bg-bg-input px-2.5 py-[5px] rounded-lg flex-1 min-w-0 font-mono border border-border outline-none focus:border-focus-ring"
+        name="branchName"
+        aria-label="Branch name"
+        bind:value={resolvedBranchName}
+        oninput={() => (branchEdited = true)}
+        spellcheck="false"
+        autocomplete="off"
+        title="Edit the branch name before creating it"
+      />
+      {#if branchEdited}
+        <button
+          class={iconBtnCls}
+          onclick={regenerateBranchName}
+          aria-label="Regenerate from template"
+          title="Regenerate the name from the template"
+        >
+          <RotateCcw size={14} />
+        </button>
+      {/if}
     </div>
     <span class="sr-only" role="status" aria-live="polite">{operationError || operationStatus}</span
     >
