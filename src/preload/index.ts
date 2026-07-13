@@ -1269,6 +1269,25 @@ const api = {
     taskKey: string,
     trackerId?: string,
   ) => ipcRenderer.invoke('trackerConfig:fetchTaskComments', { repoRoot, taskKey, trackerId }),
+  trackerConfigFetchTransitions: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => ipcRenderer.invoke('trackerConfig:fetchTransitions', { repoRoot, taskKey, trackerId }),
+  trackerConfigApplyTransition: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    taskKey: string
+    transitionId: string
+    fields?: Record<string, string>
+    comment?: string
+  }) => ipcRenderer.invoke('trackerConfig:applyTransition', payload),
+  trackerConfigAddComment: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    taskKey: string
+    body: string
+  }) => ipcRenderer.invoke('trackerConfig:addComment', payload),
   trackerConfigFetchTaskAttachments: (
     repoRoot: string | undefined,
     taskKey: string,
@@ -1414,6 +1433,7 @@ const api = {
     repoRoot: string
     worktreePath: string
     baseBranch: string
+    branchName?: string
   }) => ipcRenderer.invoke('taskTracker:createWorktreeFromTask', payload),
   taskTrackerResolveBranchType: (
     taskType: string,

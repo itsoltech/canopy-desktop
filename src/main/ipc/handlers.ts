@@ -73,6 +73,7 @@ import {
   getAvailablePlaceholders,
   validateTemplate,
   resolveBranchType,
+  sanitizeBranchName,
   BRANCH_TYPE_OPTIONS,
 } from '../taskTracker/branchTemplate'
 import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
@@ -145,6 +146,8 @@ interface TaskTrackerCreateWorktreeFromTaskPayload extends TaskTrackerBranchFrom
   repoRoot: string
   worktreePath: string
   baseBranch: string
+  /** User-edited branch name; when set it is sanitized and used instead of the rendered template. */
+  branchName?: string
 }
 
 interface TaskTrackerBuildTaskContextPayload {
@@ -3384,6 +3387,76 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle(
+    'trackerConfig:fetchTransitions',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchTransitionsFromConfig(
+        resolved.config,
+        payload.taskKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:applyTransition',
+    async (
+      _event,
+      payload: {
+        repoRoot?: string
+        trackerId?: string
+        taskKey: string
+        transitionId: string
+        fields?: Record<string, string>
+        comment?: string
+      },
+    ) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!payload.transitionId || typeof payload.transitionId !== 'string') {
+        throw new Error('Invalid transition')
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.applyTransitionFromConfig(
+        resolved.config,
+        payload.taskKey,
+        payload.transitionId,
+        { fields: payload.fields, comment: payload.comment },
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:addComment',
+    async (
+      _event,
+      payload: { repoRoot?: string; trackerId?: string; taskKey: string; body: string },
+    ) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!payload.body || typeof payload.body !== 'string' || !payload.body.trim()) {
+        throw new Error('Comment body is required')
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.addCommentFromConfig(
+        resolved.config,
+        payload.taskKey,
+        payload.body,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
     'trackerConfig:fetchTaskAttachments',
     async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
       if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
@@ -3661,7 +3734,8 @@ export function registerIpcHandlers(
     async (event, payload: TaskTrackerCreateWorktreeFromTaskPayload) => {
       const repoRoot = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const worktreePath = await validateWorktreeCreationPath(event.sender.id, payload.worktreePath)
-      const branchName = await resolveTaskTrackerBranchName({ ...payload, repoRoot })
+      const edited = payload.branchName ? sanitizeBranchName(payload.branchName.trim()) : ''
+      const branchName = edited || (await resolveTaskTrackerBranchName({ ...payload, repoRoot }))
       const result = await GitRepository.worktreeAdd(
         repoRoot,
         worktreePath,

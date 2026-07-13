@@ -9,6 +9,7 @@ import type {
   TrackerComment,
   TrackerTask,
   TrackerStatus,
+  TrackerTransition,
 } from '../types'
 
 interface YTTask {
@@ -20,9 +21,7 @@ interface YTTask {
     projectCustomField?: { field?: { name?: string } }
     name?: string
     value?:
-      | { name?: string; login?: string }
-      | Array<{ name?: string }>
-      | { name?: string; id?: string }
+      { name?: string; login?: string } | Array<{ name?: string }> | { name?: string; id?: string }
   }>
   parent?: { issues?: Array<{ idReadable?: string }> }
 }
@@ -62,6 +61,36 @@ function ytFetch<T>(
       ).andThen((body) => errAsync(apiError(res.status, body || res.statusText)))
     }
     return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+  })
+}
+
+/** POST to YouTrack and ignore the response body. */
+function ytSend(
+  connection: TaskTrackerConnection,
+  token: string,
+  path: string,
+  body: unknown,
+): ResultAsync<void, TaskTrackerError> {
+  const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
+  return fromExternalCall(
+    fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(token),
+      body: JSON.stringify(body),
+      // Do not follow redirects: baseUrl comes from repo config, and a redirect
+      // would forward the Authorization token to an attacker-controlled host.
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  ).andThen((res) => {
+    if (!res.ok) {
+      return fromExternalCall(
+        res.text().catch(() => ''),
+        (e) => apiError(res.status, errorMessage(e)),
+      ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+    }
+    return okAsync(undefined)
   })
 }
 
@@ -142,13 +171,11 @@ export const youtrackClient: TaskTrackerProviderClient = {
         projects?: Array<{ shortName?: string }>
       }>
     >(connection, token, `/api/agiles?fields=id,name,projects(shortName)&$top=50`).map((data) =>
-      data.map(
-        (b): TrackerBoard => ({
-          id: b.id,
-          name: b.name,
-          projectKey: b.projects?.[0]?.shortName,
-        }),
-      ),
+      data.map((b): TrackerBoard => ({
+        id: b.id,
+        name: b.name,
+        projectKey: b.projects?.[0]?.shortName,
+      })),
     )
   },
 
@@ -172,12 +199,10 @@ export const youtrackClient: TaskTrackerProviderClient = {
       )
       if (!stateField?.values) return []
 
-      return stateField.values.map(
-        (v): TrackerStatus => ({
-          id: v.name,
-          name: v.name,
-        }),
-      )
+      return stateField.values.map((v): TrackerStatus => ({
+        id: v.name,
+        name: v.name,
+      }))
     })
   },
 
@@ -275,14 +300,12 @@ export const youtrackClient: TaskTrackerProviderClient = {
       token,
       `/api/issues/${encodeURIComponent(taskKey)}/comments?fields=${encodeURIComponent(fields)}`,
     ).map((data) =>
-      data.map(
-        (c): TrackerComment => ({
-          id: c.id,
-          author: c.author?.fullName ?? c.author?.name ?? '',
-          body: c.text ?? '',
-          created: c.created ? new Date(c.created).toISOString() : '',
-        }),
-      ),
+      data.map((c): TrackerComment => ({
+        id: c.id,
+        author: c.author?.fullName ?? c.author?.name ?? '',
+        body: c.text ?? '',
+        created: c.created ? new Date(c.created).toISOString() : '',
+      })),
     )
   },
 
@@ -301,15 +324,65 @@ export const youtrackClient: TaskTrackerProviderClient = {
       `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
     ).map((data) => {
       const baseUrl = connection.baseUrl.replace(/\/$/, '')
-      return (data.attachments ?? []).map(
-        (a): TrackerAttachment => ({
-          id: a.id,
-          name: a.name ?? '',
-          mimeType: a.mimeType ?? '',
-          size: a.size ?? 0,
-          url: `${baseUrl}/api/issues/${encodeURIComponent(taskKey)}/attachments/${a.id}/file`,
-        }),
+      return (data.attachments ?? []).map((a): TrackerAttachment => ({
+        id: a.id,
+        name: a.name ?? '',
+        mimeType: a.mimeType ?? '',
+        size: a.size ?? 0,
+        url: `${baseUrl}/api/issues/${encodeURIComponent(taskKey)}/attachments/${a.id}/file`,
+      }))
+    })
+  },
+
+  fetchTransitions(connection, token, taskKey) {
+    // YouTrack has no transition introspection — workflow rules live in scripts and only surface
+    // as errors on apply. Offer the State bundle values (minus the current one) as plain targets.
+    const fields =
+      'customFields(name,value(name),projectCustomField(field(name),bundle(values(name,archived))))'
+    return ytFetch<{
+      customFields?: Array<{
+        name?: string
+        value?: { name?: string }
+        projectCustomField?: {
+          field?: { name?: string }
+          bundle?: { values?: Array<{ name?: string; archived?: boolean }> }
+        }
+      }>
+    }>(
+      connection,
+      token,
+      `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
+    ).map((data) => {
+      const stateField = (data.customFields ?? []).find(
+        (f) => (f.projectCustomField?.field?.name ?? f.name) === 'State',
       )
+      const current = stateField?.value?.name ?? ''
+      const values = stateField?.projectCustomField?.bundle?.values ?? []
+      return values
+        .filter((v) => v.name && !v.archived && v.name !== current)
+        .map((v): TrackerTransition => ({
+          id: v.name!,
+          name: v.name!,
+          toStatus: v.name!,
+          fields: [],
+        }))
+    })
+  },
+
+  applyTransition(connection, token, taskKey, transitionId, opts) {
+    // Commands API applies the state change and (optionally) a comment atomically; workflow
+    // violations come back as a 4xx whose message we surface verbatim.
+    const body: Record<string, unknown> = {
+      query: `State "${transitionId.replace(/"/g, '')}"`,
+      issues: [{ idReadable: taskKey }],
+    }
+    if (opts.comment) body.comment = opts.comment
+    return ytSend(connection, token, `/api/commands`, body)
+  },
+
+  addComment(connection, token, taskKey, body) {
+    return ytSend(connection, token, `/api/issues/${encodeURIComponent(taskKey)}/comments`, {
+      text: body,
     })
   },
 }

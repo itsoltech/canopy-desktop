@@ -954,6 +954,25 @@ interface CanopyAPI {
     taskKey: string,
     trackerId?: string,
   ) => Promise<TrackerComment[]>
+  trackerConfigFetchTransitions: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => Promise<TrackerTransition[]>
+  trackerConfigApplyTransition: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    taskKey: string
+    transitionId: string
+    fields?: Record<string, string>
+    comment?: string
+  }) => Promise<void>
+  trackerConfigAddComment: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    taskKey: string
+    body: string
+  }) => Promise<void>
   trackerConfigFetchTaskAttachments: (
     repoRoot: string | undefined,
     taskKey: string,
@@ -1341,6 +1360,8 @@ interface TaskTrackerCreateBranchFromTaskInput extends TaskTrackerBranchFromTask
 interface TaskTrackerCreateWorktreeFromTaskInput extends TaskTrackerBranchFromTaskInput {
   worktreePath: string
   baseBranch: string
+  /** User-edited branch name; when set it is sanitized and used instead of the rendered template. */
+  branchName?: string
 }
 
 interface TaskTrackerBranchFromTaskResult {
@@ -1367,6 +1388,27 @@ interface TrackerBoard {
 interface TrackerStatus {
   id: string
   name: string
+}
+
+interface TrackerTransitionField {
+  key: string
+  name: string
+  required: boolean
+  allowedValues?: { id: string; name: string }[]
+}
+
+interface TrackerTransition {
+  id: string
+  name: string
+  toStatus: string
+  fields: TrackerTransitionField[]
+}
+
+interface TrackerComment {
+  id: string
+  author: string
+  body: string
+  created: string
 }
 
 interface TrackerSprint {

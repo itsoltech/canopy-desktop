@@ -56,7 +56,7 @@ function slugify(text: string, maxLength = 50): string {
     .slice(0, maxLength)
 }
 
-function sanitizeBranchName(name: string): string {
+export function sanitizeBranchName(name: string): string {
   return (
     name
       // Collapse any run of 2+ dots to a single dot. A single non-overlapping

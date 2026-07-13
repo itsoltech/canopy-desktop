@@ -22,6 +22,7 @@ import type {
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
+  TrackerTransition,
 } from './types'
 
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
@@ -225,6 +226,51 @@ export class TaskTrackerManager {
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
         return client.fetchTaskComments(conn, token, taskKey)
+      },
+    )
+  }
+
+  fetchTransitionsFromConfig(
+    config: RepoConfig,
+    taskKey: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerTransition[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTransitions(conn, token, taskKey)
+      },
+    )
+  }
+
+  applyTransitionFromConfig(
+    config: RepoConfig,
+    taskKey: string,
+    transitionId: string,
+    opts: { fields?: Record<string, string>; comment?: string },
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<void, TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.applyTransition(conn, token, taskKey, transitionId, opts)
+      },
+    )
+  }
+
+  addCommentFromConfig(
+    config: RepoConfig,
+    taskKey: string,
+    body: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<void, TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.addComment(conn, token, taskKey, body)
       },
     )
   }

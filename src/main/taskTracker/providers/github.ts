@@ -1,4 +1,4 @@
-import { okAsync, type ResultAsync } from 'neverthrow'
+import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
 import type { TaskTrackerError } from '../errors'
 import type {
   TaskTrackerConnection,
@@ -9,6 +9,7 @@ import type {
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
+  TrackerTransition,
 } from '../types'
 import { graphqlFetch } from '../../github/graphql'
 
@@ -47,6 +48,56 @@ function mapGitHubError<T>(result: ResultAsync<T, unknown>): ResultAsync<T, Task
 
 interface ViewerResponse {
   viewer: { login: string; name: string | null }
+}
+
+const ISSUE_ID_QUERY = `
+  query ($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      issue(number: $number) { id state }
+    }
+  }
+`
+
+const CLOSE_ISSUE_MUTATION = `
+  mutation ($id: ID!, $reason: IssueClosedStateReason) {
+    closeIssue(input: { issueId: $id, stateReason: $reason }) { issue { id } }
+  }
+`
+
+const REOPEN_ISSUE_MUTATION = `
+  mutation ($id: ID!) {
+    reopenIssue(input: { issueId: $id }) { issue { id } }
+  }
+`
+
+const ADD_COMMENT_MUTATION = `
+  mutation ($id: ID!, $body: String!) {
+    addComment(input: { subjectId: $id, body: $body }) { clientMutationId }
+  }
+`
+
+/** Resolve the GraphQL node id (needed by mutations) + current state for an issue number. */
+function fetchIssueId(
+  connection: TaskTrackerConnection,
+  token: string,
+  taskKey: string,
+): ResultAsync<{ id: string; state: string }, TaskTrackerError> {
+  const apiUrl = apiUrlForConnection(connection)
+  const { owner, repo } = ownerRepo(connection)
+  const issueNumber = parseInt(taskKey.replace(/^#/, ''), 10)
+  if (isNaN(issueNumber)) return errAsync(apiError(0, `Invalid issue number: ${taskKey}`))
+  return mapGitHubError(
+    graphqlFetch<{ repository: { issue: { id: string; state: string } | null } }>(
+      apiUrl,
+      token,
+      ISSUE_ID_QUERY,
+      { owner, name: repo, number: issueNumber },
+    ),
+  ).andThen((data) =>
+    data.repository.issue
+      ? okAsync(data.repository.issue)
+      : errAsync(apiError(404, `Issue ${taskKey} not found`)),
+  )
 }
 
 interface IssuesResponse {
@@ -257,20 +308,18 @@ export const githubClient: TaskTrackerProviderClient = {
         filterBy: Object.keys(filterBy).length > 0 ? filterBy : undefined,
       }),
     ).map((data) =>
-      data.repository.issues.nodes.map(
-        (issue): TrackerTask => ({
-          key: `#${issue.number}`,
-          summary: issue.title,
-          description: issue.body ?? '',
-          status: issue.state.toLowerCase(),
-          priority: mapPriority(issue.labels.nodes),
-          type: mapTaskType(issue.labels.nodes),
-          assignee: issue.assignees.nodes[0]?.login,
-          sprintName: issue.milestone?.title,
-          sprintNumber: issue.milestone?.number,
-          url: issue.url,
-        }),
-      ),
+      data.repository.issues.nodes.map((issue): TrackerTask => ({
+        key: `#${issue.number}`,
+        summary: issue.title,
+        description: issue.body ?? '',
+        status: issue.state.toLowerCase(),
+        priority: mapPriority(issue.labels.nodes),
+        type: mapTaskType(issue.labels.nodes),
+        assignee: issue.assignees.nodes[0]?.login,
+        sprintName: issue.milestone?.title,
+        sprintNumber: issue.milestone?.number,
+        url: issue.url,
+      })),
     )
   },
 
@@ -319,18 +368,68 @@ export const githubClient: TaskTrackerProviderClient = {
         number: issueNumber,
       }),
     ).map((data) =>
-      data.repository.issue.comments.nodes.map(
-        (c): TrackerComment => ({
-          id: c.id,
-          author: c.author?.login ?? '',
-          body: c.body,
-          created: c.createdAt,
-        }),
-      ),
+      data.repository.issue.comments.nodes.map((c): TrackerComment => ({
+        id: c.id,
+        author: c.author?.login ?? '',
+        body: c.body,
+        created: c.createdAt,
+      })),
     )
   },
 
   fetchTaskAttachments() {
     return okAsync([] satisfies TrackerAttachment[])
+  },
+
+  fetchTransitions(connection, token, taskKey) {
+    // GitHub issues have no workflow — the only "transitions" are close (with a state reason,
+    // GitHub's equivalent of a resolution) and reopen.
+    return fetchIssueId(connection, token, taskKey).map((issue): TrackerTransition[] =>
+      issue.state === 'OPEN'
+        ? [
+            { id: 'close:COMPLETED', name: 'Close (completed)', toStatus: 'closed', fields: [] },
+            {
+              id: 'close:NOT_PLANNED',
+              name: 'Close (not planned)',
+              toStatus: 'closed',
+              fields: [],
+            },
+          ]
+        : [{ id: 'reopen', name: 'Reopen', toStatus: 'open', fields: [] }],
+    )
+  },
+
+  applyTransition(connection, token, taskKey, transitionId, opts) {
+    const apiUrl = apiUrlForConnection(connection)
+    return fetchIssueId(connection, token, taskKey)
+      .andThen((issue) => {
+        if (transitionId === 'reopen') {
+          return mapGitHubError(
+            graphqlFetch<unknown>(apiUrl, token, REOPEN_ISSUE_MUTATION, { id: issue.id }),
+          ).map(() => issue.id)
+        }
+        const reason = transitionId.startsWith('close:') ? transitionId.slice(6) : 'COMPLETED'
+        return mapGitHubError(
+          graphqlFetch<unknown>(apiUrl, token, CLOSE_ISSUE_MUTATION, { id: issue.id, reason }),
+        ).map(() => issue.id)
+      })
+      .andThen((issueId) => {
+        if (!opts.comment) return okAsync(undefined)
+        return mapGitHubError(
+          graphqlFetch<unknown>(apiUrl, token, ADD_COMMENT_MUTATION, {
+            id: issueId,
+            body: opts.comment,
+          }),
+        ).map(() => undefined)
+      })
+  },
+
+  addComment(connection, token, taskKey, body) {
+    const apiUrl = apiUrlForConnection(connection)
+    return fetchIssueId(connection, token, taskKey).andThen((issue) =>
+      mapGitHubError(
+        graphqlFetch<unknown>(apiUrl, token, ADD_COMMENT_MUTATION, { id: issue.id, body }),
+      ).map(() => undefined),
+    )
   },
 }

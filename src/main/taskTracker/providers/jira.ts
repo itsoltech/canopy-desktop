@@ -11,6 +11,8 @@ import type {
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
+  TrackerTransition,
+  TrackerTransitionField,
 } from '../types'
 
 interface JiraTaskFields {
@@ -74,6 +76,64 @@ function jiraFetch<T>(
     }
     return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
+}
+
+/** POST to Jira and ignore the response body (transitions return 204, comment returns 201). */
+function jiraSend(
+  connection: TaskTrackerConnection,
+  token: string,
+  path: string,
+  body: unknown,
+): ResultAsync<void, TaskTrackerError> {
+  const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
+  return fromExternalCall(
+    fetch(url, {
+      method: 'POST',
+      headers: buildAuthHeaders(connection, token),
+      body: JSON.stringify(body),
+      // Do not follow redirects: baseUrl comes from repo config, and a redirect
+      // would forward the Authorization token to an attacker-controlled host.
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  ).andThen((res) => {
+    if (!res.ok) {
+      return fromExternalCall(
+        res.text().catch(() => ''),
+        (e) => apiError(res.status, errorMessage(e)),
+      ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+    }
+    return okAsync(undefined)
+  })
+}
+
+/** Jira Cloud v3 write endpoints take comment bodies in Atlassian Document Format. */
+function toAdf(text: string): unknown {
+  return {
+    type: 'doc',
+    version: 1,
+    content: text.split('\n').map((line) => ({
+      type: 'paragraph',
+      content: line ? [{ type: 'text', text: line }] : [],
+    })),
+  }
+}
+
+interface JiraTransitionsResponse {
+  transitions?: Array<{
+    id: string
+    name?: string
+    to?: { name?: string }
+    fields?: Record<
+      string,
+      {
+        name?: string
+        required?: boolean
+        allowedValues?: Array<{ id?: string | number; name?: string; value?: string }>
+      }
+    >
+  }>
 }
 
 function mapTaskType(fields: JiraTaskFields): string {
@@ -171,13 +231,11 @@ export const jiraClient: TaskTrackerProviderClient = {
         location?: { projectKey?: string }
       }>
     }>(connection, token, `/rest/agile/1.0/board${params}`).map((data) =>
-      data.values.map(
-        (b): TrackerBoard => ({
-          id: String(b.id),
-          name: b.name,
-          projectKey: b.location?.projectKey,
-        }),
-      ),
+      data.values.map((b): TrackerBoard => ({
+        id: String(b.id),
+        name: b.name,
+        projectKey: b.location?.projectKey,
+      })),
     )
   },
 
@@ -293,17 +351,15 @@ export const jiraClient: TaskTrackerProviderClient = {
       token,
       `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment?maxResults=50`,
     ).map((data) =>
-      (data.comments ?? []).map(
-        (c): TrackerComment => ({
-          id: c.id,
-          author: c.author?.displayName ?? '',
-          body:
-            typeof c.body === 'string'
-              ? normalizeTrackerText(c.body)
-              : normalizeTrackerText(adfToPlainText(c.body)),
-          created: c.created ?? '',
-        }),
-      ),
+      (data.comments ?? []).map((c): TrackerComment => ({
+        id: c.id,
+        author: c.author?.displayName ?? '',
+        body:
+          typeof c.body === 'string'
+            ? normalizeTrackerText(c.body)
+            : normalizeTrackerText(adfToPlainText(c.body)),
+        created: c.created ?? '',
+      })),
     )
   },
 
@@ -320,15 +376,62 @@ export const jiraClient: TaskTrackerProviderClient = {
       }
     }>(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=attachment`).map(
       (data) =>
-        (data.fields.attachment ?? []).map(
-          (a): TrackerAttachment => ({
-            id: a.id,
-            name: a.filename ?? '',
-            mimeType: a.mimeType ?? '',
-            size: a.size ?? 0,
-            url: a.content ?? '',
-          }),
-        ),
+        (data.fields.attachment ?? []).map((a): TrackerAttachment => ({
+          id: a.id,
+          name: a.filename ?? '',
+          mimeType: a.mimeType ?? '',
+          size: a.size ?? 0,
+          url: a.content ?? '',
+        })),
     )
+  },
+
+  fetchTransitions(connection, token, taskKey) {
+    // expand=transitions.fields returns each transition's screen fields with `required` flags and
+    // allowed values (e.g. resolution: Done / Won't Do) — the workflow requirements, introspected.
+    return jiraFetch<JiraTransitionsResponse>(
+      connection,
+      token,
+      `/rest/api/3/issue/${encodeURIComponent(taskKey)}/transitions?expand=transitions.fields`,
+    ).map((data) =>
+      (data.transitions ?? []).map((t): TrackerTransition => ({
+        id: t.id,
+        name: t.name ?? t.to?.name ?? t.id,
+        toStatus: t.to?.name ?? '',
+        fields: Object.entries(t.fields ?? {}).map(([key, f]): TrackerTransitionField => ({
+          key,
+          name: f.name ?? key,
+          required: f.required ?? false,
+          allowedValues: f.allowedValues?.map((v) => ({
+            id: String(v.id ?? v.value ?? ''),
+            name: v.name ?? v.value ?? String(v.id ?? ''),
+          })),
+        })),
+      })),
+    )
+  },
+
+  applyTransition(connection, token, taskKey, transitionId, opts) {
+    const fieldEntries = Object.entries(opts.fields ?? {}).filter(([, v]) => v)
+    const body: Record<string, unknown> = { transition: { id: transitionId } }
+    if (fieldEntries.length > 0) {
+      // Screen fields are sent by id (resolution and friends are option fields keyed by id).
+      body.fields = Object.fromEntries(fieldEntries.map(([key, id]) => [key, { id }]))
+    }
+    if (opts.comment) {
+      body.update = { comment: [{ add: { body: toAdf(opts.comment) } }] }
+    }
+    return jiraSend(
+      connection,
+      token,
+      `/rest/api/3/issue/${encodeURIComponent(taskKey)}/transitions`,
+      body,
+    )
+  },
+
+  addComment(connection, token, taskKey, commentBody) {
+    return jiraSend(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment`, {
+      body: toAdf(commentBody),
+    })
   },
 }

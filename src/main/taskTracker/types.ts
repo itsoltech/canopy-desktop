@@ -187,4 +187,41 @@ export interface TaskTrackerProviderClient {
     token: string,
     taskKey: string,
   ): ResultAsync<TrackerAttachment[], TaskTrackerError>
+  /** Transitions available from the task's CURRENT status, with workflow-required fields when the
+   *  provider can introspect them (Jira). Providers without introspection return empty `fields`. */
+  fetchTransitions(
+    connection: TaskTrackerConnection,
+    token: string,
+    taskKey: string,
+  ): ResultAsync<TrackerTransition[], TaskTrackerError>
+  applyTransition(
+    connection: TaskTrackerConnection,
+    token: string,
+    taskKey: string,
+    transitionId: string,
+    opts: { fields?: Record<string, string>; comment?: string },
+  ): ResultAsync<void, TaskTrackerError>
+  addComment(
+    connection: TaskTrackerConnection,
+    token: string,
+    taskKey: string,
+    body: string,
+  ): ResultAsync<void, TaskTrackerError>
+}
+
+/** A field the workflow requires/offers on a specific transition (e.g. Jira `resolution`). */
+export interface TrackerTransitionField {
+  key: string
+  name: string
+  required: boolean
+  allowedValues?: { id: string; name: string }[]
+}
+
+export interface TrackerTransition {
+  id: string
+  name: string
+  /** Status the task will be in after the transition. */
+  toStatus: string
+  /** Empty when the provider cannot introspect workflow requirements (YouTrack, GitHub). */
+  fields: TrackerTransitionField[]
 }
