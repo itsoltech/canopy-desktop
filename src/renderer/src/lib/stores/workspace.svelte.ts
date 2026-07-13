@@ -10,6 +10,7 @@ import {
   getRepoConfig,
   hasAnyCredentials,
   loadActiveTask,
+  resolvePanelTask,
 } from './taskTracker.svelte'
 import { addToast } from './toast.svelte'
 import { clearQuickOpenCache } from './quickOpenStore.svelte'
@@ -70,7 +71,7 @@ interface WorkspaceState {
   aheadBehind: { ahead: number; behind: number } | null
   sidebarOpen: boolean
   rightPanelOpen: boolean
-  rightPanelTab: 'session' | 'changes'
+  rightPanelTab: 'session' | 'changes' | 'task'
   changesCount: number
   diffScrollTarget: { path: string; ts: number } | null
   diffVisibleFile: string | null
@@ -557,15 +558,15 @@ async function hydrateSelectedWorktree(path: string, requestId?: number): Promis
 
   // Reload the task-tracker config for the ACTIVE worktree's checkout. `.canopy/config.json` is a
   // git-tracked, per-branch file, so the relevant config is the one in the worktree you're working
-  // in (not the project's main checkout). The store holds a single active config keyed to this path.
-  if (project) {
-    try {
-      await loadRepoConfig(path)
-    } catch (err) {
-      console.error(`[workspace] loadRepoConfig failed for "${path}":`, err)
-    }
-    if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
+  // in (not the project's main checkout). Deliberately NOT gated on the project lookup: during
+  // startup restore the projects list may not yet include a freshly-created worktree, and skipping
+  // would leave the tracker section missing until the worktree is manually re-selected.
+  try {
+    await loadRepoConfig(path)
+  } catch (err) {
+    console.error(`[workspace] loadRepoConfig failed for "${path}":`, err)
   }
+  if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
 
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)
@@ -577,6 +578,10 @@ async function hydrateSelectedWorktree(path: string, requestId?: number): Promis
     workspaceState.isDirty = false
     workspaceState.aheadBehind = null
   }
+
+  // Resolve the task backing this worktree for the Task inspector tab (activeTask, or a key parsed
+  // from the branch name). Fire-and-forget: the fallback path hits the tracker API.
+  void resolvePanelTask(path, workspaceState.branch, { shouldApply })
 }
 
 /** @deprecated Use updateGitInfoForProject instead */

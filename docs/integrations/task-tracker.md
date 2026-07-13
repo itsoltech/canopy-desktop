@@ -55,6 +55,33 @@ Jira maps `issuetype.subtask = true` to `subtask`, and normalizes type names (`U
 5. Attachments can be downloaded to a temp directory (`canopy-attachments-{uuid}` in `os.tmpdir()`). Downloads are capped at 50 MB per file with a 60-second timeout. The download URL must match the connection's `baseUrl` origin.
 6. Downloaded attachments are automatically cleaned up after 60 seconds.
 
+### Task panel & write-back
+
+When the selected worktree is backed by a tracker task, the right Inspector gains a **Task** tab
+(also opened by clicking the active-task chip in the sidebar's Project management section). The
+backing task resolves from the `activeTask.{worktreePath}` preference written at branch creation,
+with a fallback that parses a task key out of the branch name (`extractTaskKey` in
+`src/renderer/src/lib/taskTracker/branchTaskKey.ts`, e.g. `GAKKO-2754` from
+`s102/GAKKO-2754/nowy-panel-wpisow`) and validates it via `findTaskByKey`.
+
+The panel shows the task header (key linking to the tracker, status chip, **assignee**, the task
+**description**), a **Change status** form and the **comment history** with an add-comment box.
+Clicking the active-task chip in the sidebar opens (and re-opens) the right panel on this tab, so a
+hidden Inspector is always one click away. Status changes are workflow-aware where the provider
+allows introspection:
+
+| Capability                   | Jira                                                   | YouTrack                                                   | GitHub Issues                                   |
+| ---------------------------- | ------------------------------------------------------ | ---------------------------------------------------------- | ----------------------------------------------- |
+| Available transitions        | `GET /issue/{key}/transitions` (from current status)   | State bundle values (minus current)                        | Static: close (completed / not planned), reopen |
+| Required-field introspection | Yes — `expand=transitions.fields` (`required`, values) | No — workflow rules live in scripts; server error surfaced | n/a                                             |
+| Resolution / state reason    | `resolution` select from `allowedValues`               | n/a                                                        | `stateReason`: COMPLETED / NOT_PLANNED          |
+| Comment on transition        | `update.comment` (ADF) in the same request             | attached to the Commands API call                          | separate `addComment` mutation after the change |
+| Add comment                  | `POST /issue/{key}/comment` (ADF body)                 | `POST /api/issues/{key}/comments`                          | `addComment` GraphQL mutation (issue node id)   |
+
+Requirement fields the panel cannot edit (required fields other than an option list or the comment)
+disable Apply with a hint to set them in the tracker. IPC channels:
+`trackerConfig:fetchTransitions`, `trackerConfig:applyTransition`, `trackerConfig:addComment`.
+
 ### Creating a branch from a task
 
 1. User clicks "Create Branch" on a task.

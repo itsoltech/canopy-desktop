@@ -6,9 +6,10 @@
     getTrackerCredentials,
     getProjectTrackersNeedingCredentials,
     isTaskTrackerLoading,
-    getActiveTask,
+    getPanelTask,
   } from '../../lib/stores/taskTracker.svelte'
   import { showProjectTracker, showTaskPicker } from '../../lib/stores/dialogs.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
 
   let resolved = $derived(getResolvedConfig())
@@ -16,7 +17,7 @@
   let trackerCreds = $derived(getTrackerCredentials())
   let needsCredsList = $derived(getProjectTrackersNeedingCredentials())
   let loading = $derived(isTaskTrackerLoading())
-  let activeTask = $derived(getActiveTask())
+  let activeTask = $derived(getPanelTask())
 
   function openProjectTracker(): void {
     showProjectTracker()
@@ -24,6 +25,11 @@
 
   function browseTasks(connectionId: string): void {
     showTaskPicker(connectionId)
+  }
+
+  function openTaskPanel(): void {
+    workspaceState.rightPanelOpen = true
+    workspaceState.rightPanelTab = 'task'
   }
 </script>
 
@@ -63,8 +69,10 @@
     </ul>
 
     {#if activeTask}
-      <div
-        class="flex items-center gap-2 mx-2 mt-1 px-3 py-1.5 rounded-md bg-bg-elevated border border-border-subtle"
+      <button
+        class="flex items-center gap-2 mx-2 mt-1 px-3 py-1.5 rounded-md bg-bg-elevated border border-border-subtle w-[calc(100%-1rem)] text-left font-inherit cursor-pointer hover:border-accent-muted"
+        onclick={openTaskPanel}
+        title="Open the task panel (status, comments)"
       >
         <span class="text-xs font-semibold text-accent-text flex-shrink-0"
           >{activeTask.taskKey}</span
@@ -73,7 +81,7 @@
           class="text-xs text-text-muted overflow-hidden text-ellipsis whitespace-nowrap flex-1"
           title={activeTask.summary}>{activeTask.summary}</span
         >
-      </div>
+      </button>
     {/if}
 
     {#if needsCredsList.length > 0}

@@ -1,11 +1,18 @@
 import { setPref } from './preferences.svelte'
 import { trackersNeedingCredentials } from '../../components/preferences/_partials/configScopeLabels'
+import { extractTaskKey } from '../taskTracker/branchTaskKey'
 
 export interface ActiveTaskContext {
   taskKey: string
   summary: string
   connectionId: string
   boardId?: string
+}
+
+/** Task backing the current worktree for the Task panel: the persisted activeTask, or a task
+ *  resolved from the branch name (worktrees created outside Canopy). */
+export interface PanelTaskContext extends ActiveTaskContext {
+  source: 'active' | 'branch'
 }
 
 export interface TrackerCredentialState {
@@ -209,20 +216,26 @@ export async function initGlobalConfig(): Promise<RepoConfig> {
 
 // --- Active Task ---
 
+// Worktree paths reach this store with either separator (main returns backslashes on Windows, the
+// sidebar uses forward slashes) — normalize so the writer and the reader agree on the pref key.
+function activeTaskKey(worktreePath: string): string {
+  return `activeTask.${worktreePath.replace(/\\/g, '/')}`
+}
+
 export function getActiveTask(): ActiveTaskContext | null {
   return activeTask
 }
 
 export async function setActiveTask(worktreePath: string, task: ActiveTaskContext): Promise<void> {
   activeTask = task
-  await setPref(`activeTask.${worktreePath}`, JSON.stringify(task))
+  await setPref(activeTaskKey(worktreePath), JSON.stringify(task))
 }
 
 export async function loadActiveTask(
   worktreePath: string,
   options: { shouldApply?: () => boolean } = {},
 ): Promise<void> {
-  const raw = await window.api.getPref(`activeTask.${worktreePath}`)
+  const raw = await window.api.getPref(activeTaskKey(worktreePath))
   if (options.shouldApply && !options.shouldApply()) return
   if (raw) {
     try {
@@ -237,7 +250,52 @@ export async function loadActiveTask(
 
 export async function clearActiveTask(worktreePath: string): Promise<void> {
   activeTask = null
-  await setPref(`activeTask.${worktreePath}`, '')
+  await setPref(activeTaskKey(worktreePath), '')
+}
+
+// --- Panel task (worktree → task resolution for the Task inspector tab) ---
+
+let panelTask = $state<PanelTaskContext | null>(null)
+
+export function getPanelTask(): PanelTaskContext | null {
+  return panelTask
+}
+
+/**
+ * Resolve the task backing the current worktree. Preference order: the persisted activeTask
+ * (written at branch creation), then a task key parsed from the branch name and validated against
+ * the tracker (branches created outside Canopy). Nothing is persisted for the fallback.
+ */
+export async function resolvePanelTask(
+  worktreePath: string,
+  branch: string | null,
+  options: { shouldApply?: () => boolean } = {},
+): Promise<void> {
+  const apply = (): boolean => !options.shouldApply || options.shouldApply()
+
+  if (activeTask) {
+    if (apply()) panelTask = { ...activeTask, source: 'active' }
+    return
+  }
+
+  const key = branch ? extractTaskKey(branch) : null
+  if (!key) {
+    if (apply()) panelTask = null
+    return
+  }
+
+  const trackerId = resolvedConfig?.config.trackers[0]?.id ?? ''
+  try {
+    const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key)
+    if (!apply()) return
+    panelTask = task
+      ? { taskKey: task.key, summary: task.summary, connectionId: trackerId, source: 'branch' }
+      : null
+  } catch {
+    // Offline / expired credentials: keep the bare key so the panel can still render it.
+    if (apply())
+      panelTask = { taskKey: key, summary: '', connectionId: trackerId, source: 'branch' }
+  }
 }
 
 export async function loadConnections(): Promise<void> {
