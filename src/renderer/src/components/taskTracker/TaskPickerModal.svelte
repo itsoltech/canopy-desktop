@@ -532,6 +532,13 @@
                 class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
                 title={task.summary}>{task.summary}</span
               >
+              {#if task.assignee}
+                <span
+                  class="flex-shrink-0 max-w-28 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
+                  class:!text-accent-text={task.assignee === currentUserName}
+                  title={`Assignee: ${task.assignee}`}>{task.assignee}</span
+                >
+              {/if}
               <span class="flex-shrink-0 px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
                 >{task.status}</span
               >
