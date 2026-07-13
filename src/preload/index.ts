@@ -761,6 +761,8 @@ const api = {
 
   // App / Shell
   getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
+  isCredentialEncryptionAvailable: () =>
+    ipcRenderer.invoke('app:isEncryptionAvailable') as Promise<boolean>,
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
   newWindow: () => ipcRenderer.invoke('app:newWindow'),
   setFocusedAgentSession: (ptySessionId: string | null) =>

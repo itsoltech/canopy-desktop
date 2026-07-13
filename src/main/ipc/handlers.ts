@@ -5,6 +5,7 @@ import {
   shell,
   BrowserWindow,
   systemPreferences,
+  safeStorage,
   type IpcMainInvokeEvent,
   type WebContents,
 } from 'electron'
@@ -1229,6 +1230,11 @@ export function registerIpcHandlers(
   // --- App / Shell ---
 
   ipcMain.handle('app:homedir', () => os.homedir())
+
+  // Whether stored secrets (tracker tokens, API keys) are encrypted at rest via the OS mechanism
+  // (DPAPI / Keychain / keyring). When false, secrets are stored unencrypted. Returns a boolean
+  // only — never any secret material.
+  ipcMain.handle('app:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
 
   ipcMain.handle('app:showInFolder', async (event, payload: { path: string }) => {
     const resolved = await validatePathAccess(event.sender.id, payload.path)

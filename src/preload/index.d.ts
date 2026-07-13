@@ -672,6 +672,7 @@ interface CanopyAPI {
   }) => Promise<AgentCommandResult>
 
   // App / Shell
+  isCredentialEncryptionAvailable: () => Promise<boolean>
   showInFolder: (path: string) => Promise<void>
   newWindow: () => Promise<void>
   focusRendererWebContents: () => Promise<void>
@@ -1376,13 +1377,7 @@ interface TrackerSprint {
 }
 
 type SessionStatusType =
-  | 'idle'
-  | 'thinking'
-  | 'toolCalling'
-  | 'compacting'
-  | 'waitingPermission'
-  | 'error'
-  | 'ended'
+  'idle' | 'thinking' | 'toolCalling' | 'compacting' | 'waitingPermission' | 'error' | 'ended'
 
 interface NotchSessionStatus {
   ptySessionId: string
