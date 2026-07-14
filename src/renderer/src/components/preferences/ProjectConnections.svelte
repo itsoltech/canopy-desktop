@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, Unlink, KeyRound, Settings, X } from '@lucide/svelte'
+  import { Check, Unlink, KeyRound, Settings, X, Pencil } from '@lucide/svelte'
   import { confirm, showPreferences } from '../../lib/stores/dialogs.svelte'
   import {
     getRepoConfig,
@@ -169,7 +169,7 @@
               title={creds.username ? `Connected (${creds.username})` : 'Connected'}
             >
               <Check size={12} />
-              {#if creds.username}<span class="text-text-muted max-w-24 truncate"
+              {#if creds.username}<span class="text-text-muted whitespace-nowrap"
                   >{creds.username}</span
                 >{/if}
             </span>
@@ -191,10 +191,13 @@
           {:else}
             <button
               type="button"
-              class="flex items-center gap-1 px-2 py-1 rounded-md bg-transparent border border-border text-text-secondary text-xs font-inherit cursor-pointer hover:bg-hover hover:text-text"
+              class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
               onclick={() => startConnect(tracker)}
-              title="Change the stored token for this tracker">Change</button
+              aria-label="Change credentials"
+              title="Change the stored token for this tracker"
             >
+              <Pencil size={12} />
+            </button>
           {/if}
           <button
             type="button"

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Plus, Trash2, Check, Unlink } from '@lucide/svelte'
+  import { Plus, Trash2, Check, Unlink, Pencil } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import {
     getGlobalConfig,
@@ -23,6 +23,109 @@
   let trackers = $derived(globalCfg?.trackers ?? [])
   let trackerCreds = $derived(getTrackerCredentials())
 
+  // Credentials stored on this machine that no personal connection covers — typically entered from
+  // a project's tracker modal. Without this list they'd be invisible in Settings.
+  interface StoredCredential {
+    provider: string
+    baseUrl: string
+    username?: string
+  }
+  let storedCreds = $state<StoredCredential[]>([])
+
+  async function loadStoredCreds(): Promise<void> {
+    try {
+      storedCreds = await window.api.keychainListCredentials()
+    } catch {
+      storedCreds = []
+    }
+  }
+
+  let orphanCreds = $derived(
+    storedCreds.filter(
+      (c) =>
+        !trackers.some(
+          (t) => t.provider === c.provider && t.baseUrl.replace(/\/$/, '') === c.baseUrl,
+        ),
+    ),
+  )
+
+  // Inline token update for a stored credential (same flow as "Change" in the project modal).
+  let editingCredKey = $state<string | null>(null)
+  let credProvider = $state<'jira' | 'youtrack' | 'github'>('jira')
+  let credBaseUrl = $state('')
+  let credProjectKey = $state('')
+  let credUsername = $state('')
+  let credToken = $state('')
+  let credTesting = $state(false)
+  let credTestResult = $state<'success' | 'fail' | ''>('')
+
+  function startEditCred(cred: StoredCredential): void {
+    editingCredKey = `${cred.provider}:${cred.baseUrl}`
+    credProvider = cred.provider as 'jira' | 'youtrack' | 'github'
+    credBaseUrl = cred.baseUrl
+    credProjectKey = ''
+    credUsername = cred.username ?? ''
+    credToken = ''
+    credTestResult = ''
+  }
+
+  async function testCred(): Promise<void> {
+    credTesting = true
+    credTestResult = ''
+    try {
+      await window.api.taskTrackerTestNewConnection({
+        provider: credProvider,
+        name: `${credProvider}:${credBaseUrl}`,
+        baseUrl: credBaseUrl,
+        username: credUsername || undefined,
+        token: credToken,
+      })
+      credTestResult = 'success'
+    } catch {
+      credTestResult = 'fail'
+    } finally {
+      credTesting = false
+    }
+  }
+
+  async function saveCred(): Promise<void> {
+    try {
+      await window.api.keychainSetCredentials(
+        credProvider,
+        credBaseUrl,
+        credToken,
+        credUsername || undefined,
+      )
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save credentials')
+      return
+    }
+    editingCredKey = null
+    await loadGlobalConfig()
+    await loadStoredCreds()
+    addToast('Credentials saved')
+  }
+
+  // Promote a token-only entry (saved from a project tracker) to a full personal connection —
+  // the token is already stored, so this only adds the connection definition.
+  async function promoteCred(cred: StoredCredential): Promise<void> {
+    if (!globalCfg) return
+    const updated = $state.snapshot(globalCfg) as typeof globalCfg
+    updated!.trackers.push({
+      id: `${cred.provider}-${crypto.randomUUID().slice(0, 8)}`,
+      provider: cred.provider as 'jira' | 'youtrack' | 'github',
+      baseUrl: cred.baseUrl,
+    })
+    try {
+      await saveGlobalConfig(updated!)
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save connection')
+      return
+    }
+    await loadStoredCreds()
+    addToast('Saved as personal connection')
+  }
+
   let editingId = $state<string | null>(null)
   let editProvider = $state<'jira' | 'youtrack' | 'github'>('jira')
   let editBaseUrl = $state('')
@@ -36,6 +139,7 @@
     await loadGlobalConfig()
     // First run: the personal store may not exist yet — create it so adding a connection works.
     if (!getGlobalConfig()) await initGlobalConfig()
+    await loadStoredCreds()
   })
 
   function startAdd(): void {
@@ -157,6 +261,7 @@
         return
       }
       await loadGlobalConfig()
+      await loadStoredCreds()
     }
 
     editingId = null
@@ -182,6 +287,7 @@
       return
     }
     await loadGlobalConfig()
+    await loadStoredCreds()
     addToast('Credentials removed')
   }
 
@@ -228,12 +334,12 @@
 </script>
 
 <PrefsSection
-  title="Your connections"
-  description="Your personal tracker connections — private to you, reused across all projects"
+  title="Connections & credentials"
+  description="Your personal tracker connections and tokens stored on this machine — credentials are keyed by provider + URL and shared across your projects"
 >
   <div class="flex flex-col gap-2">
-    {#if trackers.length === 0 && editingId === null}
-      <p class="text-sm text-text-faint m-0">No personal connections configured.</p>
+    {#if trackers.length === 0 && orphanCreds.length === 0 && editingId === null}
+      <p class="text-sm text-text-faint m-0">No connections or stored credentials yet.</p>
     {/if}
 
     {#each trackers as tracker (tracker.id)}
@@ -319,6 +425,76 @@
       {/if}
     {/each}
 
+    <!-- Token-only entries (saved from project trackers) live in the same list, marked with a
+         "Project" chip; promoting one just adds the connection definition on top of the token. -->
+    {#each orphanCreds as cred (`${cred.provider}:${cred.baseUrl}`)}
+      <div class="flex items-center gap-1">
+        <div
+          class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-sm min-w-0"
+        >
+          <span
+            class="text-2xs font-semibold uppercase tracking-caps-tight text-accent-text bg-accent-bg px-1.5 py-px rounded-sm shrink-0"
+            >{providerLabel(cred.provider)}</span
+          >
+          <span class="flex-1 text-text-secondary truncate" title={cred.baseUrl}
+            >{cred.baseUrl}</span
+          >
+          {#if cred.username}
+            <span class="text-2xs text-text-muted whitespace-nowrap shrink-0">{cred.username}</span>
+          {/if}
+          <span
+            class="text-2xs font-semibold uppercase tracking-caps-tight bg-border-subtle text-text-muted px-1.5 py-px rounded-sm shrink-0"
+            title="Token saved when connecting a tracker defined in a repository's .canopy/config.json — there is no personal connection for it yet"
+            >Project</span
+          >
+        </div>
+        <button
+          type="button"
+          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+          onclick={() => promoteCred(cred)}
+          aria-label="Save as personal connection"
+          title="Save as a personal connection — reusable across all your projects"
+        >
+          <Plus size={12} />
+        </button>
+        <button
+          type="button"
+          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+          onclick={() => startEditCred(cred)}
+          aria-label="Change credentials"
+          title="Change the stored token"
+        >
+          <Pencil size={12} />
+        </button>
+        <button
+          type="button"
+          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+          onclick={() => removeCredentials(cred)}
+          aria-label="Remove credentials"
+          title={`Remove the stored token for ${providerLabel(cred.provider)} at ${cred.baseUrl} — affects every project that connects to this URL`}
+        >
+          <Unlink size={12} />
+        </button>
+      </div>
+      {#if editingCredKey === `${cred.provider}:${cred.baseUrl}`}
+        <TrackerEditForm
+          bind:provider={credProvider}
+          bind:baseUrl={credBaseUrl}
+          bind:projectKey={credProjectKey}
+          bind:username={credUsername}
+          bind:token={credToken}
+          isNew={false}
+          hasExistingToken={true}
+          credentialsOnly={true}
+          testing={credTesting}
+          testResult={credTestResult}
+          onCancel={() => (editingCredKey = null)}
+          onTest={testCred}
+          onSave={saveCred}
+        />
+      {/if}
+    {/each}
+
     {#if editingId === '__new__'}
       <TrackerEditForm
         bind:provider={editProvider}
@@ -352,6 +528,7 @@
       <CredentialStorageNote
         provider={editingId ? editProvider : undefined}
         baseUrl={editingId ? editBaseUrl.replace(/\/$/, '') : undefined}
+        sharingNote={false}
       />
     </div>
   </div>

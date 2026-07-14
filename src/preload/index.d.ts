@@ -1003,6 +1003,9 @@ interface CanopyAPI {
     provider: string,
     baseUrl: string,
   ) => Promise<{ username?: string; hasToken: boolean } | null>
+  keychainListCredentials: () => Promise<
+    Array<{ provider: string; baseUrl: string; username?: string }>
+  >
 
   // Task Tracker
   taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
@@ -1335,6 +1338,7 @@ interface TrackerTask {
   summary: string
   description: string
   status: string
+  statusCategory?: 'todo' | 'in-progress' | 'done'
   priority: string
   type: string
   parentKey?: string
@@ -1401,6 +1405,7 @@ interface TrackerTransition {
   id: string
   name: string
   toStatus: string
+  toStatusCategory?: 'todo' | 'in-progress' | 'done'
   fields: TrackerTransitionField[]
 }
 

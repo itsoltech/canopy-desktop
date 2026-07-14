@@ -52,8 +52,7 @@ export class PreferencesStore {
 
   get(key: string): string | null {
     const row = this.db.prepare('SELECT value FROM preferences WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined
+      { value: string } | undefined
     if (!row) return null
     if (isEncryptedKey(key) && safeStorage.isEncryptionAvailable()) {
       try {
@@ -68,6 +67,14 @@ export class PreferencesStore {
 
   isEncrypted(key: string): boolean {
     return isEncryptedKey(key)
+  }
+
+  /** Keys only — values stay in the store, so this is safe for secret-class key enumeration. */
+  keysWithPrefix(prefix: string): string[] {
+    const rows = this.db
+      .prepare("SELECT key FROM preferences WHERE key LIKE ? || '%'")
+      .all(prefix) as { key: string }[]
+    return rows.map((r) => r.key)
   }
 
   /**

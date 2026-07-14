@@ -3086,6 +3086,11 @@ export function registerIpcHandlers(
     },
   )
 
+  // Tokens never cross this boundary — listCredentials returns provider/baseUrl/username only.
+  ipcMain.handle('keychain:listCredentials', () => {
+    return keychainTokenStore.listCredentials()
+  })
+
   // --- Task Tracker ---
 
   ipcMain.handle('taskTracker:getConnections', () => {

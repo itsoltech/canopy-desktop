@@ -1320,6 +1320,10 @@ const api = {
       username?: string
       hasToken: boolean
     } | null>,
+  keychainListCredentials: () =>
+    ipcRenderer.invoke('keychain:listCredentials') as Promise<
+      Array<{ provider: string; baseUrl: string; username?: string }>
+    >,
 
   // Task Tracker
   taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),

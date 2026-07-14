@@ -5,6 +5,15 @@ export interface TrackerCredentials {
   username?: string
 }
 
+/** A stored credential entry WITHOUT the token — safe to cross IPC for the Settings list. */
+export interface StoredTrackerCredential {
+  provider: string
+  baseUrl: string
+  username?: string
+}
+
+const TOKEN_KEY_PREFIX = 'taskTracker.token.'
+
 function normalizeUrl(baseUrl: string): string {
   try {
     const url = new URL(baseUrl)
@@ -18,7 +27,23 @@ export class KeychainTokenStore {
   constructor(private preferencesStore: PreferencesStore) {}
 
   private buildKey(provider: string, baseUrl: string): string {
-    return `taskTracker.token.${provider}:${normalizeUrl(baseUrl)}`
+    return `${TOKEN_KEY_PREFIX}${provider}:${normalizeUrl(baseUrl)}`
+  }
+
+  /** Every credential stored on this machine, tokens omitted (key format: `provider:baseUrl`). */
+  listCredentials(): StoredTrackerCredential[] {
+    return this.preferencesStore
+      .keysWithPrefix(TOKEN_KEY_PREFIX)
+      .map((key): StoredTrackerCredential | null => {
+        const id = key.slice(TOKEN_KEY_PREFIX.length)
+        const sep = id.indexOf(':')
+        if (sep <= 0) return null
+        const provider = id.slice(0, sep)
+        const baseUrl = id.slice(sep + 1)
+        const creds = this.getCredentials(provider, baseUrl)
+        return creds ? { provider, baseUrl, username: creds.username } : null
+      })
+      .filter((c): c is StoredTrackerCredential => c !== null)
   }
 
   getCredentials(provider: string, baseUrl: string): TrackerCredentials | null {

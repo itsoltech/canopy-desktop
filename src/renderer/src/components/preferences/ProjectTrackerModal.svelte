@@ -86,9 +86,13 @@
       <div class="flex flex-col gap-0.5 min-w-0">
         <h2 class="text-lg font-semibold text-text m-0 leading-tight">Project tracker</h2>
         {#if repoRoot}
+          <p class="text-xs text-text-muted m-0 leading-snug">
+            This configuration is shared with your team via
+            <code class="font-mono">.canopy/config.json</code> in this repository.
+          </p>
           <p class="text-xs text-text-muted m-0 leading-snug truncate" title={repoRoot}>
-            Active worktree: <span class="text-text-secondary">{repoName}</span> — shared with your
-            team via <code class="font-mono">.canopy/config.json</code> (git).
+            Active branch:
+            <span class="text-text-secondary font-mono">{workspaceState.branch ?? repoName}</span>
           </p>
         {/if}
       </div>

@@ -7,7 +7,13 @@
   // Shown before credentials are saved (future tense). Credentials are encrypted at rest via
   // Electron safeStorage (DPAPI / Keychain / keyring) in Canopy's local DB — never written into any
   // file in the repositories. When a specific connection is in context, its provider + URL are named.
-  let { provider, baseUrl }: { provider?: string; baseUrl?: string } = $props()
+  // `sharingNote: false` drops the "all connections … will use those credentials" sentence when the
+  // surrounding UI already says it.
+  let {
+    provider,
+    baseUrl,
+    sharingNote = true,
+  }: { provider?: string; baseUrl?: string; sharingNote?: boolean } = $props()
 
   let encryptionAvailable = $state(true)
   let checked = $state(false)
@@ -32,12 +38,14 @@
   >
     <ShieldAlert size={14} class="shrink-0 mt-px" aria-hidden="true" />
     <div class="flex flex-col gap-1">
-      <span>
-        {#if specific}All connections to <strong>{providerName}</strong> at
-          <strong>{baseUrl}</strong>
-          across your projects will use those credentials.{:else}All connections using the same
-          provider + URL across your projects will use those credentials.{/if}
-      </span>
+      {#if sharingNote}
+        <span>
+          {#if specific}All connections to <strong>{providerName}</strong> at
+            <strong>{baseUrl}</strong>
+            across your projects will use those credentials.{:else}All connections using the same
+            provider + URL across your projects will use those credentials.{/if}
+        </span>
+      {/if}
       <span>
         Your credentials will be stored <strong>unencrypted</strong> in Canopy's
         <strong>local database on this machine</strong> (no OS keyring is available). Credentials are
@@ -51,12 +59,14 @@
   >
     <Lock size={14} class="shrink-0 mt-px" aria-hidden="true" />
     <div class="flex flex-col gap-1">
-      <span>
-        {#if specific}All connections to <strong>{providerName}</strong> at
-          <strong>{baseUrl}</strong>
-          across your projects will use those credentials.{:else}All connections using the same
-          provider + URL across your projects will use those credentials.{/if}
-      </span>
+      {#if sharingNote}
+        <span>
+          {#if specific}All connections to <strong>{providerName}</strong> at
+            <strong>{baseUrl}</strong>
+            across your projects will use those credentials.{:else}All connections using the same
+            provider + URL across your projects will use those credentials.{/if}
+        </span>
+      {/if}
       <span>
         Your credentials will be encrypted with {mechanism} and stored in Canopy's
         <strong>local database on this machine</strong>. Credentials are never written in the files
