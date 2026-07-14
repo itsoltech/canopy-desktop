@@ -35,6 +35,8 @@ Each provider implements a common `TaskTrackerProviderClient` interface. Jira us
 4. Tasks are returned as `TrackerTask` objects with normalized fields: `key`, `summary`, `status`, `priority`, `type` (mapped from provider-specific values), `parentKey`, `sprintName`, `assignee`, and `url`.
 5. If no tasks match the filters, the UI shows an empty state.
 6. Jira and YouTrack fetch up to 200 tasks per request. GitHub fetches up to 100. Jira excludes issues in the "Done" status category by default.
+7. The picker opens with the filter panel expanded: "Only assigned to me", per-status chips, and per-sprint chips (tasks without a sprint fall into a "(no sprint)" bucket). Rows show the sprint name next to the assignee. Filter selections persist per connection + board.
+8. The picker is also reachable from the Create Worktree modal ("+ new" → **From task**, disabled when no tracker is configured or its credentials are missing/expired) — picking a task continues into the branch-create form, where the base branch is chosen and the branch name is generated from the task.
 
 ### Task type mapping
 
@@ -58,14 +60,20 @@ Jira maps `issuetype.subtask = true` to `subtask`, and normalizes type names (`U
 ### Task panel & write-back
 
 When the selected worktree is backed by a tracker task, the right Inspector gains a **Task** tab
-(also opened by clicking the active-task chip in the sidebar's Project management section). The
-backing task resolves from the `activeTask.{worktreePath}` preference written at branch creation,
-with a fallback that parses a task key out of the branch name (`extractTaskKey` in
-`src/renderer/src/lib/taskTracker/branchTaskKey.ts`, e.g. `GAKKO-2754` from
-`s102/GAKKO-2754/nowy-panel-wpisow`) and validates it via `findTaskByKey`.
+(also opened by clicking the task banner in the sidebar's Project management section — the banner
+is always visible; with no task linked it reads "No task linked — pick one" and opens the task
+picker). The backing tasks resolve from **every** task key found in the branch name
+(`extractTaskKeys` in `src/renderer/src/lib/taskTracker/branchTaskKey.ts`, e.g. both `GAKKO-100`
+and `GAKKO-123` from `s115/GAKKO-100/GAKKO-123-fix`), each validated via `findTaskByKey` (keys the
+tracker rejects are dropped; bare keys are kept when the tracker is unreachable), plus the
+`activeTask.{worktreePath}` preference written at branch creation. When several tasks are tracked
+the panel shows a key switcher; the activeTask is selected by default, otherwise the **last** key
+in the branch name (parent/subtask convention — work happens on the most specific task) and the
+sidebar banner shows a `+N` counter.
 
-The panel shows the task header (key linking to the tracker, status chip, **assignee**, the task
-**description**), a **Change status** form and the **comment history** with an add-comment box.
+The panel shows the task header (key linking to the tracker, status chip colored by the tracker's
+status category, **assignee**, the task **description**), a **Change status** form (target
+statuses render as category-colored chips) and the **comment history** with an add-comment box.
 Clicking the active-task chip in the sidebar opens (and re-opens) the right panel on this tab, so a
 hidden Inspector is always one click away. Status changes are workflow-aware where the provider
 allows introspection:
