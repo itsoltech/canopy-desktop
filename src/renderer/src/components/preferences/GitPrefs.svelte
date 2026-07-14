@@ -16,6 +16,12 @@
 
   let pullRebase = $derived(prefs.gitPullRebase !== 'false')
   let worktreesDir = $state(getPref('worktrees.baseDir', ''))
+  let defaultBaseBranch = $state(getPref('worktrees.defaultBaseBranch', ''))
+
+  function updateDefaultBaseBranch(value: string): void {
+    defaultBaseBranch = value
+    setPref('worktrees.defaultBaseBranch', value.trim())
+  }
 
   function setPullStrategy(rebase: boolean): void {
     setPref('gitPullRebase', rebase ? 'true' : 'false')
@@ -124,7 +130,7 @@
     </PrefsRow>
   </PrefsSection>
 
-  <PrefsSection title="Worktrees" description="Where new git worktrees are created">
+  <PrefsSection title="Worktrees" description="Defaults for creating new git worktrees">
     <PrefsRow
       label="Base directory"
       help="Pattern: <dir>/<project>/<branch>"
@@ -153,6 +159,24 @@
           <FolderOpen size={14} />
         </button>
       </div>
+    </PrefsRow>
+    <PrefsRow
+      label="Default base branch"
+      help="Preselected as the base when creating a worktree (New branch / From task). If the repository has no such branch, the branch picker opens instead."
+      search="worktree default base branch develop main"
+      layout="stacked"
+    >
+      <input
+        class="min-w-0 w-full px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        type="text"
+        name="worktreesDefaultBaseBranch"
+        aria-label="Default base branch"
+        value={defaultBaseBranch}
+        oninput={(e) => updateDefaultBaseBranch(e.currentTarget.value)}
+        placeholder="develop"
+        spellcheck="false"
+        autocomplete="off"
+      />
     </PrefsRow>
   </PrefsSection>
 

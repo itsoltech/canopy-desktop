@@ -5,8 +5,27 @@
   import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
   import '@xterm/xterm/css/xterm.css'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
-  import { getPref, prefs } from '../../lib/stores/preferences.svelte'
+  import { getPref, setPref, prefs } from '../../lib/stores/preferences.svelte'
   import { openTool } from '../../lib/stores/tabs.svelte'
+  import {
+    getResolvedConfig,
+    getTrackerCredentials,
+    setActiveTask,
+  } from '../../lib/stores/taskTracker.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
+  import { statusChipClass } from '../../lib/taskTracker/statusChip'
+  import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
+  import { Pencil, LoaderCircle } from '@lucide/svelte'
+  import {
+    DONE_STATUS_PATTERN,
+    NO_SPRINT,
+    loadSavedTaskFilters,
+    saveTaskFilters,
+    taskDisplayKey,
+  } from '../../lib/taskTracker/taskFilterPrefs'
+  import { SvelteSet } from 'svelte/reactivity'
+  import CustomSelect from '../shared/CustomSelect.svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { getTheme } from '../../lib/terminal/themes'
   import { safeDirName } from '../../lib/sanitize'
   import BranchPicker from './BranchPicker.svelte'
@@ -25,7 +44,22 @@
   } = $props()
 
   type Step = 'loading' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
-  type Mode = 'new' | 'existing'
+  type Mode = 'new' | 'existing' | 'task'
+
+  interface TrackerTaskLite {
+    key: string
+    summary: string
+    description: string
+    status: string
+    statusCategory?: string
+    priority: string
+    type: string
+    parentKey?: string
+    sprintName?: string
+    sprintNumber?: number
+    assignee?: string
+    url?: string
+  }
 
   let step = $state<Step>('loading')
   let mode = $state<Mode>('new')
@@ -39,11 +73,44 @@
   let refreshing = $state(false)
   let containerEl: HTMLDivElement | undefined = $state()
 
+  // "From task" mode: task list + the branch name generated from the picked task.
+  let tasks = $state<TrackerTaskLite[]>([])
+  let tasksLoaded = $state(false)
+  let tasksLoading = $state(false)
+  let tasksError = $state('')
+  let taskQuery = $state('')
+  let taskBoards = $state<Array<{ id: string; name: string }>>([])
+  let taskBoardId = $state('')
+  let currentUserName = $state('')
+  let taskAssignedToMe = $state(false)
+  let hasSavedTaskFilters = $state(false)
+  let excludedStatuses = new SvelteSet<string>()
+  let excludedSprints = new SvelteSet<string>()
+  let selectedTask = $state<TrackerTaskLite | null>(null)
+  let taskBranchName = $state('')
+  let taskBranchEdited = $state(false)
+
   let setupLabel = $state('')
   let setupCurrent = $state(0)
   let setupTotal = $state(0)
   let setupErrors = $state<string[]>([])
   let cleanupProgressListener: (() => void) | null = null
+
+  // The selected-task screen is much shorter than the list screen. If the dialog carries an
+  // explicit height (user resize writes one inline), picking a task would leave a large void —
+  // drop the inline height so the dialog hugs its content, and restore it when the pick is
+  // cleared and the tall list comes back.
+  let savedInlineHeight = ''
+  $effect(() => {
+    if (!containerEl) return
+    if (selectedTask) {
+      savedInlineHeight = containerEl.style.height
+      containerEl.style.height = ''
+    } else if (savedInlineHeight) {
+      containerEl.style.height = savedInlineHeight
+      savedInlineHeight = ''
+    }
+  })
 
   let setupTerm: Terminal | null = null
   let progressState = $state(0)
@@ -51,15 +118,21 @@
   let finishTimer: ReturnType<typeof setTimeout> | null = null
 
   let repoRoot = $derived(repoRootProp ?? workspaceState.repoRoot!)
+  // Tracker config (.canopy/config.json) is resolved against the ACTIVE WORKTREE — that's where
+  // the Project tracker modal reads/writes it. Using the main repo root here would silently pick
+  // up a stale copy of the config from the default branch.
+  let trackerRepoRoot = $derived(workspaceState.selectedWorktreePath ?? repoRoot)
   let projectName = $derived(repoRoot.split('/').pop() || 'project')
   let workspaceId = $derived(workspaceIdProp ?? workspaceState.workspace?.id)
 
   let effectiveBranchName = $derived(
     mode === 'new'
       ? newBranchName
-      : selectedBase && isRemoteOnly(selectedBase, branches)
-        ? selectedBase.slice(selectedBase.indexOf('/') + 1)
-        : selectedBase,
+      : mode === 'task'
+        ? taskBranchName
+        : selectedBase && isRemoteOnly(selectedBase, branches)
+          ? selectedBase.slice(selectedBase.indexOf('/') + 1)
+          : selectedBase,
   )
 
   let worktreeDir = $derived.by(() => {
@@ -69,9 +142,23 @@
     return `${baseDir}/${projectName}/${safeName}`
   })
 
-  let worktreeDirDisplay = $derived(
-    homedir && worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir,
-  )
+  let worktreeDirDisplay = $derived.by(() => {
+    const p = homedir && worktreeDir.startsWith('~/') ? homedir + worktreeDir.slice(1) : worktreeDir
+    // Consistent separators for display — homedir arrives with backslashes on Windows while the
+    // configured base dir uses forward slashes, which rendered as C:\Users\x/canopy/….
+    return window.api.platform === 'win32' ? p.replace(/\//g, '\\') : p.replace(/\\/g, '/')
+  })
+
+  // Resolved default base (from settings) that actually exists in this repo, and the configured
+  // name when it doesn't — the latter drives a hint above the picker.
+  let defaultBase = $state('')
+  let defaultBaseMissing = $state('')
+
+  function resolveDefaultBase(name: string): string {
+    if (branches.local.includes(name)) return name
+    if (branches.remote.includes(name)) return name
+    return branches.remote.find((r) => r.slice(r.indexOf('/') + 1) === name) ?? ''
+  }
 
   onMount(async () => {
     containerEl?.focus()
@@ -81,6 +168,13 @@
       branches = { local: list.local, remote: list.remote }
       if (baseBranchProp) {
         selectedBase = baseBranchProp
+      } else {
+        const preferred = getPref('worktrees.defaultBaseBranch', '').trim()
+        if (preferred) {
+          defaultBase = resolveDefaultBase(preferred)
+          if (defaultBase) selectedBase = defaultBase
+          else defaultBaseMissing = preferred
+        }
       }
       step = 'pickBase'
     } catch (e) {
@@ -147,9 +241,39 @@
     if (/\.\./.test(newBranchName)) return 'Cannot contain ..'
     if (/[~^:\\]/.test(newBranchName)) return 'Invalid characters'
     if (newBranchName.startsWith('-')) return 'Cannot start with -'
+    if (worktreeBranches.has(newBranchName)) {
+      return 'Branch is already checked out in an existing worktree'
+    }
     if (branches.local.includes(newBranchName)) return 'Branch already exists'
     return null
   })
+
+  let taskBranchNameError = $derived.by(() => {
+    if (!taskBranchName) return null
+    if (/\s/.test(taskBranchName)) return 'No spaces allowed'
+    if (/\.\./.test(taskBranchName)) return 'Cannot contain ..'
+    if (/[~^:\\]/.test(taskBranchName)) return 'Invalid characters'
+    if (taskBranchName.startsWith('-')) return 'Cannot start with -'
+    if (worktreeBranches.has(taskBranchName)) {
+      return 'Branch is already checked out in an existing worktree'
+    }
+    if (branches.local.includes(taskBranchName)) return 'Branch already exists'
+    return null
+  })
+
+  // Branches already checked out by this project's worktrees — git refuses to check them out
+  // twice, so creation is blocked up front.
+  let worktreeBranches = $derived.by(() => {
+    const norm = (p: string | null | undefined): string => (p ?? '').replace(/\\/g, '/')
+    if (norm(repoRoot) !== norm(workspaceState.repoRoot)) return new Set<string>()
+    return new Set(workspaceState.worktrees.map((w) => w.branch).filter((b): b is string => !!b))
+  })
+
+  let existingModeError = $derived(
+    mode === 'existing' && selectedBase && worktreeBranches.has(effectiveBranchName)
+      ? 'This branch is already checked out in an existing worktree'
+      : null,
+  )
 
   function hasSetupConfig(): boolean {
     if (!workspaceId) return false
@@ -166,8 +290,210 @@
   function setMode(next: Mode): void {
     if (mode === next) return
     mode = next
-    selectedBase = ''
+    // Base-taking modes start from the configured default base (when it exists in this repo).
+    selectedBase = next === 'existing' ? '' : defaultBase
     newBranchName = ''
+    selectedTask = null
+    taskBranchName = ''
+    taskBranchEdited = false
+    taskQuery = ''
+    // Prefetch so the list is ready when the user reaches the task screen.
+    if (next === 'task' && !tasksLoaded && !tasksLoading) void loadTasks()
+  }
+
+  // "From task" availability. The task list binds to the ACTIVE project's tracker config, hence
+  // the same-project requirement.
+  let taskModeState = $derived.by(() => {
+    const trackers = getResolvedConfig()?.config.trackers ?? []
+    const creds = getTrackerCredentials()
+    const usable = trackers.find(
+      (t) => (creds[t.id]?.hasToken ?? false) && creds[t.id]?.valid !== false,
+    )
+    const norm = (p: string | null | undefined): string => (p ?? '').replace(/\\/g, '/')
+    if (norm(repoRoot) !== norm(workspaceState.repoRoot)) {
+      return { disabled: true, reason: 'Switch to this project first', trackerId: '' }
+    }
+    if (trackers.length === 0) {
+      return { disabled: true, reason: 'No tracker configured for this project', trackerId: '' }
+    }
+    if (!usable) {
+      return { disabled: true, reason: 'Tracker credentials missing or expired', trackerId: '' }
+    }
+    return { disabled: false, reason: '', trackerId: usable.id }
+  })
+
+  async function loadTasks(): Promise<void> {
+    const trackerId = taskModeState.trackerId
+    if (!trackerId) return
+    tasksLoading = true
+    tasksError = ''
+    try {
+      if (taskBoards.length === 0) {
+        const [boards, userName] = await Promise.all([
+          window.api
+            .trackerConfigFetchBoards(trackerRepoRoot, trackerId)
+            .catch(() => [] as Array<{ id: string; name: string }>),
+          window.api.trackerConfigGetCurrentUser(trackerRepoRoot, trackerId).catch(() => ''),
+        ])
+        taskBoards = boards
+        currentUserName = userName
+        const last = getPref(`taskTracker.lastBoard.${trackerId}`)
+        taskBoardId = boards.some((b) => b.id === last) ? last : (boards[0]?.id ?? '')
+      }
+      restoreTaskFilters()
+      tasks = await window.api.trackerConfigFetchTasks(trackerRepoRoot, trackerId, {
+        boardId: taskBoardId || undefined,
+      })
+      // First visit to a board: hide done-ish statuses by default (same as the task picker).
+      if (!hasSavedTaskFilters && excludedStatuses.size === 0 && tasks.length > 0) {
+        for (const task of tasks) {
+          if (DONE_STATUS_PATTERN.test(task.status)) excludedStatuses.add(task.status)
+        }
+        persistTaskFilters()
+      }
+      tasksLoaded = true
+    } catch (e) {
+      tasksError = ipcErrorMessage(e, 'Failed to fetch tasks')
+    } finally {
+      tasksLoading = false
+    }
+  }
+
+  function restoreTaskFilters(): void {
+    excludedStatuses.clear()
+    excludedSprints.clear()
+    const saved = loadSavedTaskFilters(taskModeState.trackerId, taskBoardId)
+    if (saved) {
+      for (const s of saved.excludedStatuses) excludedStatuses.add(s)
+      for (const s of saved.excludedSprints ?? []) excludedSprints.add(s)
+      taskAssignedToMe = saved.assignedToMe
+      hasSavedTaskFilters = true
+    } else {
+      taskAssignedToMe = false
+      hasSavedTaskFilters = false
+    }
+  }
+
+  function persistTaskFilters(): void {
+    saveTaskFilters(taskModeState.trackerId, taskBoardId, {
+      excludedStatuses: [...excludedStatuses],
+      excludedSprints: [...excludedSprints],
+      assignedToMe: taskAssignedToMe,
+    })
+  }
+
+  async function onTaskBoardChange(boardId: string): Promise<void> {
+    taskBoardId = boardId
+    setPref(`taskTracker.lastBoard.${taskModeState.trackerId}`, boardId)
+    await loadTasks()
+  }
+
+  function toggleTaskStatus(status: string): void {
+    if (excludedStatuses.has(status)) excludedStatuses.delete(status)
+    else excludedStatuses.add(status)
+    persistTaskFilters()
+  }
+
+  function toggleTaskSprint(sprint: string): void {
+    if (excludedSprints.has(sprint)) excludedSprints.delete(sprint)
+    else excludedSprints.add(sprint)
+    persistTaskFilters()
+  }
+
+  let availableTaskStatuses = $derived.by(() => {
+    const seen = new SvelteSet<string>()
+    for (const task of tasks) if (task.status) seen.add(task.status)
+    return Array.from(seen).sort()
+  })
+
+  let availableTaskSprints = $derived.by(() => {
+    const seen = new SvelteSet<string>()
+    let hasNoSprint = false
+    for (const task of tasks) {
+      if (task.sprintName) seen.add(task.sprintName)
+      else hasNoSprint = true
+    }
+    const sorted = Array.from(seen).sort()
+    return hasNoSprint ? [...sorted, NO_SPRINT] : sorted
+  })
+
+  const TASK_DISPLAY_LIMIT = 50
+  let filteredTaskList = $derived.by(() => {
+    let result = tasks
+    if (taskAssignedToMe && currentUserName) {
+      result = result.filter((t) => t.assignee === currentUserName)
+    }
+    if (excludedStatuses.size > 0) {
+      result = result.filter((t) => !excludedStatuses.has(t.status))
+    }
+    if (excludedSprints.size > 0) {
+      result = result.filter((t) => !excludedSprints.has(t.sprintName || NO_SPRINT))
+    }
+    const q = taskQuery.toLowerCase()
+    if (q) {
+      result = result.filter(
+        (t) => t.key.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q),
+      )
+    }
+    return result.slice(0, TASK_DISPLAY_LIMIT)
+  })
+
+  async function pickTask(task: TrackerTaskLite): Promise<void> {
+    selectedTask = $state.snapshot(task) as TrackerTaskLite
+    taskBranchEdited = false
+    await updateTaskBranchPreview()
+  }
+
+  async function updateTaskBranchPreview(): Promise<void> {
+    if (!selectedTask || taskBranchEdited) return
+    try {
+      const result = await window.api.taskTrackerPrepareBranchFromTask({
+        connectionId: taskModeState.trackerId,
+        task: $state.snapshot(selectedTask) as TrackerTaskLite,
+        boardId: taskBoardId || undefined,
+        repoRoot: trackerRepoRoot,
+      })
+      taskBranchName = result.branchName
+    } catch {
+      taskBranchName = selectedTask.key
+    }
+  }
+
+  async function createWorktreeFromTask(): Promise<void> {
+    if (!selectedTask || !taskBranchName || taskBranchNameError || !selectedBase) return
+    step = 'creating'
+    try {
+      // taskTracker:createWorktreeFromTask does not expand `~` — resolve it here.
+      const worktreePath = worktreeDir.startsWith('~/')
+        ? (homedir + worktreeDir.slice(1)).replace(/\\/g, '/')
+        : worktreeDir
+      const created = await window.api.taskTrackerCreateWorktreeFromTask({
+        connectionId: taskModeState.trackerId,
+        task: $state.snapshot(selectedTask) as TrackerTaskLite,
+        boardId: taskBoardId || undefined,
+        repoRoot,
+        worktreePath,
+        baseBranch: selectedBase,
+        branchName: taskBranchName,
+      })
+      createdPath = created.worktreePath
+      await setActiveTask(created.worktreePath, {
+        taskKey: selectedTask.key,
+        summary: selectedTask.summary,
+        connectionId: taskModeState.trackerId,
+        boardId: taskBoardId || undefined,
+      })
+
+      if (hasSetupConfig() && workspaceId) {
+        step = 'setup'
+        await runSetup()
+      } else {
+        finishCreation()
+      }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err)
+      step = 'error'
+    }
   }
 
   async function createWorktree(): Promise<void> {
@@ -196,7 +522,7 @@
   }
 
   async function createWorktreeFromExisting(): Promise<void> {
-    if (!selectedBase) return
+    if (!selectedBase || existingModeError) return
     step = 'creating'
     try {
       const createLocalTracking = isRemoteOnly(selectedBase, branches)
@@ -330,7 +656,8 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
-    class="outline-none w-[480px] max-h-[560px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_oklch(0_0_0/0.6)] overflow-hidden"
+    class="outline-none resize w-[576px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[680px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_oklch(0_0_0/0.6)] overflow-hidden"
+    use:unlockSizeOnResize
     role="dialog"
     aria-modal="true"
     aria-labelledby="create-worktree-title"
@@ -351,95 +678,388 @@
         <p class="text-md text-text-secondary m-0">Loading branches...</p>
       </div>
     {:else if step === 'pickBase'}
-      {#if mode === 'new' && selectedBase}
-        <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0">
-          <p class="m-0 mb-3 text-md text-text-secondary">
-            Base: <strong class="text-text">{selectedBase}</strong>
-          </p>
-          <label
-            for="create-wt-branch-name"
-            class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase"
+      <div class="px-5 pb-5 flex-1 min-h-0 flex flex-col">
+        <!-- The mode switch stays visible on every pick-base screen — also when the default base
+             branch skipped the picker — so the creation type can always be changed. -->
+        <div
+          class="flex gap-0.5 p-0.5 mb-3 bg-active rounded-lg shrink-0"
+          role="radiogroup"
+          aria-label="Branch mode"
+        >
+          <button
+            class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
+            'new'
+              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+              : 'bg-transparent text-text-muted hover:text-text-secondary'}"
+            onclick={() => setMode('new')}
+            role="radio"
+            aria-checked={mode === 'new'}
+            type="button"
           >
-            New branch name
-          </label>
-          <input
-            id="create-wt-branch-name"
-            class={inputCls}
-            type="text"
-            bind:value={newBranchName}
-            placeholder="feature/my-branch"
-            spellcheck="false"
-            autocomplete="off"
-            onkeydown={(e) => {
-              if (e.key === 'Enter' && newBranchName && !branchNameError) {
-                e.preventDefault()
-                createWorktree()
-              }
-            }}
-          />
-          {#if branchNameError}
-            <p class="mt-1.5 mb-0 text-sm text-danger-text">{branchNameError}</p>
-          {/if}
-          {#if worktreeDir}
-            <p class="mt-1.5 mb-0 text-xs text-text-faint font-mono break-all">
-              Path: {worktreeDirDisplay}
+            New branch
+          </button>
+          <button
+            class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
+            'existing'
+              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+              : 'bg-transparent text-text-muted hover:text-text-secondary'}"
+            onclick={() => setMode('existing')}
+            role="radio"
+            aria-checked={mode === 'existing'}
+            type="button"
+          >
+            From existing branch
+          </button>
+          <button
+            class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit transition-all duration-fast enabled:cursor-pointer disabled:opacity-40 disabled:cursor-default {mode ===
+            'task'
+              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+              : 'bg-transparent text-text-muted enabled:hover:text-text-secondary'}"
+            onclick={() => setMode('task')}
+            disabled={taskModeState.disabled}
+            role="radio"
+            aria-checked={mode === 'task'}
+            type="button"
+            title={taskModeState.disabled
+              ? taskModeState.reason
+              : 'Pick a tracker task — the branch name is generated from it'}
+          >
+            From task
+          </button>
+        </div>
+        {#if mode === 'new' && selectedBase}
+          <div class="flex-1 overflow-y-auto min-h-0">
+            <p
+              class="m-0 mb-3 pb-2 border-b border-border-subtle text-md text-text-secondary flex items-center gap-1.5"
+            >
+              <span>Base branch: <strong class="text-text">{selectedBase}</strong></span>
+              <button
+                type="button"
+                class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+                onclick={() => (selectedBase = '')}
+                aria-label="Change base branch"
+                title="Change the base branch — the default is set in Settings → Git → Worktrees"
+              >
+                <Pencil size={12} />
+              </button>
+            </p>
+            <label
+              for="create-wt-branch-name"
+              class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase"
+            >
+              New branch name
+            </label>
+            <input
+              id="create-wt-branch-name"
+              class={inputCls}
+              type="text"
+              bind:value={newBranchName}
+              placeholder="feature/my-branch"
+              spellcheck="false"
+              autocomplete="off"
+              onkeydown={(e) => {
+                if (e.key === 'Enter' && newBranchName && !branchNameError) {
+                  e.preventDefault()
+                  createWorktree()
+                }
+              }}
+            />
+            {#if branchNameError}
+              <p class="mt-1.5 mb-0 text-sm text-danger-text">{branchNameError}</p>
+            {/if}
+            {#if worktreeDir}
+              <p class="mt-1.5 mb-0 text-xs text-text-faint font-mono break-all">
+                Path: {worktreeDirDisplay}
+              </p>
+            {/if}
+            <div class="flex justify-end gap-2 mt-4">
+              <button
+                class={btnPrimaryCls}
+                onclick={createWorktree}
+                disabled={!newBranchName || !!branchNameError}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        {:else if mode === 'task' && selectedBase}
+          <div class="flex-1 min-h-0 flex flex-col gap-2">
+            <p
+              class="m-0 mb-1 pb-2 border-b border-border-subtle text-md text-text-secondary flex items-center gap-1.5"
+            >
+              <span>Base branch: <strong class="text-text">{selectedBase}</strong></span>
+              <button
+                type="button"
+                class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+                onclick={() => (selectedBase = '')}
+                aria-label="Change base branch"
+                title="Change the base branch — the default is set in Settings → Git → Worktrees"
+              >
+                <Pencil size={12} />
+              </button>
+            </p>
+            {#if !selectedTask}
+              <p class="m-0 text-md text-text-secondary">Select task</p>
+              <!-- One frame around filters AND the task list. Filters are fixed; only the task
+                   list scrolls, so there is a single scrollbar. -->
+              <div
+                class="flex-1 min-h-0 rounded-lg border border-border-subtle p-2.5 flex flex-col gap-2"
+              >
+                {#if taskBoards.length > 1}
+                  <div class="flex flex-col gap-1">
+                    <span
+                      class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                      >Board</span
+                    >
+                    <CustomSelect
+                      value={taskBoardId}
+                      options={taskBoards.map((b) => ({ value: b.id, label: b.name }))}
+                      onchange={(v) => void onTaskBoardChange(v)}
+                      maxWidth="none"
+                    />
+                  </div>
+                {:else if tasksLoading && taskBoards.length === 0}
+                  <div class="flex items-center gap-2 text-xs text-text-muted py-0.5">
+                    <LoaderCircle size={12} class="animate-spin" />
+                    <span>Loading boards…</span>
+                  </div>
+                {/if}
+                <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
+                  <CustomCheckbox
+                    checked={taskAssignedToMe}
+                    onchange={() => {
+                      taskAssignedToMe = !taskAssignedToMe
+                      persistTaskFilters()
+                    }}
+                  />
+                  <span>Only tasks assigned to me</span>
+                </label>
+                {#if tasksLoading && availableTaskStatuses.length === 0}
+                  <div class="flex items-center gap-2 text-xs text-text-muted py-0.5">
+                    <LoaderCircle size={12} class="animate-spin" />
+                    <span>Loading filters…</span>
+                  </div>
+                {/if}
+                {#if availableTaskStatuses.length > 0}
+                  <div class="flex flex-col gap-1">
+                    <span
+                      class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                      >Status</span
+                    >
+                    <div class="flex flex-wrap gap-1">
+                      {#each availableTaskStatuses as status (status)}
+                        <button
+                          class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
+                          class:!bg-accent-bg={!excludedStatuses.has(status)}
+                          class:!border-accent-muted={!excludedStatuses.has(status)}
+                          class:!text-accent-text={!excludedStatuses.has(status)}
+                          class:!opacity-40={excludedStatuses.has(status)}
+                          class:line-through={excludedStatuses.has(status)}
+                          onclick={() => toggleTaskStatus(status)}
+                        >
+                          {status}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+                {#if availableTaskSprints.length > 0}
+                  <div class="flex flex-col gap-1">
+                    <span
+                      class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                      >Sprint</span
+                    >
+                    <div class="flex flex-wrap gap-1">
+                      {#each availableTaskSprints as sprint (sprint)}
+                        <button
+                          class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
+                          class:!bg-accent-bg={!excludedSprints.has(sprint)}
+                          class:!border-accent-muted={!excludedSprints.has(sprint)}
+                          class:!text-accent-text={!excludedSprints.has(sprint)}
+                          class:!opacity-40={excludedSprints.has(sprint)}
+                          class:line-through={excludedSprints.has(sprint)}
+                          onclick={() => toggleTaskSprint(sprint)}
+                        >
+                          {sprint}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+                <input
+                  id="create-wt-task-search"
+                  class={inputCls}
+                  type="text"
+                  aria-label="Search tasks"
+                  bind:value={taskQuery}
+                  placeholder="Search by key or title..."
+                  spellcheck="false"
+                  autocomplete="off"
+                />
+                <span
+                  class="mt-1 pt-2 border-t border-border-subtle text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                >
+                  Available tasks
+                </span>
+                {#if tasksLoading}
+                  <div
+                    class="flex items-center justify-center gap-2 min-h-[164px] text-md text-text-muted"
+                  >
+                    <LoaderCircle size={14} class="animate-spin" />
+                    <span>Loading tasks…</span>
+                  </div>
+                {:else if tasksError}
+                  <div class="flex flex-col items-center gap-2 py-4 text-sm text-danger-text">
+                    <span class="break-all">{tasksError}</span>
+                    <button class={btnCancelCls} onclick={loadTasks}>Retry</button>
+                  </div>
+                {:else}
+                  <!-- Tall enough for 5 rows (fewer when the filtered list itself is shorter). -->
+                  <div
+                    class="flex-1 overflow-y-auto border border-border-subtle rounded-lg"
+                    style:min-height="{Math.min(Math.max(filteredTaskList.length, 1), 5) * 32 +
+                      4}px"
+                    role="listbox"
+                    aria-label="Tasks"
+                  >
+                    {#if filteredTaskList.length === 0}
+                      <div class="px-2.5 py-4 text-center text-md text-text-faint">
+                        No tasks found
+                      </div>
+                    {:else}
+                      {#each filteredTaskList as task (task.key)}
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <div
+                          class="flex items-center gap-2 px-2.5 py-1.5 text-sm text-text cursor-pointer transition-colors duration-fast hover:bg-active"
+                          role="option"
+                          aria-selected="false"
+                          onclick={() => pickTask(task)}
+                        >
+                          <span class="flex-shrink-0 font-semibold text-accent-text"
+                            >{taskDisplayKey(task)}</span
+                          >
+                          <span
+                            class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+                            title={task.summary}>{task.summary}</span
+                          >
+                          <span
+                            class="flex-shrink-0 px-1.5 py-px rounded-md text-2xs {statusChipClass(
+                              task.statusCategory,
+                            )}">{task.status}</span
+                          >
+                        </div>
+                      {/each}
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {:else}
+              <p
+                class="m-0 text-md text-text-secondary cursor-help"
+                title="This task will be linked to the new worktree — the Task panel tracks it by default (status, comments)"
+              >
+                Selected task
+              </p>
+              <div
+                class="px-3 py-2.5 bg-bg-input border border-border rounded-xl"
+                title="This task will be linked to the new worktree — the Task panel tracks it by default (status, comments)"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-sm text-accent-text"
+                    >{taskDisplayKey(selectedTask)}</span
+                  >
+                  {#if selectedTask.status}
+                    <span
+                      class="text-2xs px-1.5 py-px rounded-md {statusChipClass(
+                        selectedTask.statusCategory,
+                      )}">{selectedTask.status}</span
+                    >
+                  {/if}
+                  <span class="flex-1"></span>
+                  <button
+                    class="flex items-center justify-center size-5 border-0 rounded-md bg-transparent text-text-muted text-sm leading-none cursor-pointer p-0 hover:bg-hover hover:text-text"
+                    onclick={() => {
+                      selectedTask = null
+                      taskBranchName = ''
+                      taskBranchEdited = false
+                    }}
+                    title="Choose a different task"
+                    aria-label="Change task">×</button
+                  >
+                </div>
+                <p class="m-0 mt-1 text-md text-text leading-snug">{selectedTask.summary}</p>
+              </div>
+              <label
+                for="create-wt-task-branch"
+                class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase"
+              >
+                Branch name
+              </label>
+              <input
+                id="create-wt-task-branch"
+                class="{inputCls} font-mono"
+                type="text"
+                bind:value={taskBranchName}
+                oninput={() => (taskBranchEdited = true)}
+                spellcheck="false"
+                autocomplete="off"
+                onkeydown={(e) => {
+                  if (e.key === 'Enter' && taskBranchName && !taskBranchNameError) {
+                    e.preventDefault()
+                    createWorktreeFromTask()
+                  }
+                }}
+              />
+              {#if taskBranchNameError}
+                <p class="m-0 text-sm text-danger-text">{taskBranchNameError}</p>
+              {/if}
+              <p class="m-0 text-xs text-text-muted leading-snug">
+                Generated from the branch naming template in this project's tracker configuration
+                (Project management → ⚙ in the sidebar). Edit freely — the template is just the
+                default.
+              </p>
+              {#if worktreeDir}
+                <p class="m-0 text-xs text-text-faint font-mono break-all">
+                  Path: {worktreeDirDisplay}
+                </p>
+              {/if}
+              <div class="flex justify-end gap-2 mt-2">
+                <button
+                  class={btnPrimaryCls}
+                  onclick={createWorktreeFromTask}
+                  disabled={!taskBranchName || !!taskBranchNameError}
+                >
+                  Create
+                </button>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          {#if defaultBaseMissing && mode !== 'existing'}
+            <p
+              class="m-0 mb-2 px-2.5 py-2 rounded-md border border-experimental-border bg-experimental-bg text-xs text-text-secondary leading-snug"
+            >
+              The default base branch <strong class="font-mono">{defaultBaseMissing}</strong> doesn't
+              exist in this repository — pick a base branch below. The default is set in Settings → Git
+              → Worktrees.
             </p>
           {/if}
-          <div class="flex justify-end gap-2 mt-4">
-            <button class={btnCancelCls} onclick={() => (selectedBase = '')}>Back</button>
-            <button
-              class={btnPrimaryCls}
-              onclick={createWorktree}
-              disabled={!newBranchName || !!branchNameError}
-            >
-              Create
-            </button>
-          </div>
-        </div>
-      {:else}
-        <div class="px-5 pb-5 flex-1 overflow-y-auto min-h-0">
-          <div
-            class="flex gap-0.5 p-0.5 mb-3 bg-active rounded-lg"
-            role="radiogroup"
-            aria-label="Branch mode"
-          >
-            <button
-              class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
-              'new'
-                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
-                : 'bg-transparent text-text-muted hover:text-text-secondary'}"
-              onclick={() => setMode('new')}
-              role="radio"
-              aria-checked={mode === 'new'}
-              type="button"
-            >
-              New branch
-            </button>
-            <button
-              class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
-              'existing'
-                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
-                : 'bg-transparent text-text-muted hover:text-text-secondary'}"
-              onclick={() => setMode('existing')}
-              role="radio"
-              aria-checked={mode === 'existing'}
-              type="button"
-            >
-              From existing branch
-            </button>
-          </div>
           <BranchPicker
             {branches}
             bind:query={branchQuery}
             bind:selectedBranch={selectedBase}
             {refreshing}
             onRefresh={refreshBranches}
-            label={mode === 'new' ? 'Base branch' : 'Branch to check out'}
+            label={mode === 'existing' ? 'Branch to check out' : 'Base branch'}
             showRemoteOnlyTag={mode === 'existing'}
             highlightPicked={mode === 'existing'}
+            fillQueryOnPick={mode === 'existing'}
             onCommit={mode === 'existing' ? createWorktreeFromExisting : undefined}
           />
           {#if mode === 'existing'}
+            {#if existingModeError}
+              <p class="mt-1.5 mb-0 text-sm text-danger-text">{existingModeError}</p>
+            {/if}
             {#if selectedBase && worktreeDir}
               <p class="mt-1.5 mb-0 text-xs text-text-faint font-mono break-all">
                 Path: {worktreeDirDisplay}
@@ -450,14 +1070,14 @@
               <button
                 class={btnPrimaryCls}
                 onclick={createWorktreeFromExisting}
-                disabled={!selectedBase}
+                disabled={!selectedBase || !!existingModeError}
               >
                 Create
               </button>
             </div>
           {/if}
-        </div>
-      {/if}
+        {/if}
+      </div>
     {:else if step === 'creating'}
       <div
         class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
