@@ -81,6 +81,10 @@
     return tools.filter((t) => isAiToolId(t.id) && avail[t.id])
   })
 
+  // Tracker config (.canopy/config.json) lives in the ACTIVE WORKTREE — same path the Project
+  // tracker modal edits; the main repo root may hold a stale copy from the default branch.
+  let cfgRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
+
   async function init(): Promise<void> {
     const repoRoot = workspaceState.repoRoot
     const [typeInfo, foundTask, branchList] = await Promise.all([
@@ -89,7 +93,7 @@
           task.type,
           connectionId,
           selectedBoardId || undefined,
-          repoRoot || undefined,
+          cfgRoot || undefined,
         )
         .catch(() => null),
       window.api.taskTrackerFindTaskByKey(task.key).catch(() => null),
@@ -132,7 +136,7 @@
         task: plain,
         boardId: selectedBoardId || undefined,
         branchType: templateHasBranchType ? selectedBranchType : undefined,
-        repoRoot: workspaceState.repoRoot || '',
+        repoRoot: cfgRoot || '',
       })
       resolvedBranchName = result.branchName
     } catch {

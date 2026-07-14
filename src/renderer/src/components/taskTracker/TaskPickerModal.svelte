@@ -3,7 +3,7 @@
   import { SvelteSet } from 'svelte/reactivity'
   import { Search, X, LoaderCircle, Copy, Funnel, Send } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
-  import { setPref, getPref, prefs } from '../../lib/stores/preferences.svelte'
+  import { setPref, getPref } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
@@ -14,17 +14,27 @@
     tabFocusFailedOutcome,
     taskToAgentUserMessage,
   } from '../../lib/taskTracker/taskToAgent'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
+  import { statusChipClass } from '../../lib/taskTracker/statusChip'
+  import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
-  const DONE_STATUS_PATTERN = /^(done|closed|resolved|cancelled|rejected|complete|gotowe|zamkni)/i
+  import {
+    DONE_STATUS_PATTERN,
+    NO_SPRINT,
+    loadSavedTaskFilters,
+    saveTaskFilters,
+    taskDisplayKey,
+  } from '../../lib/taskTracker/taskFilterPrefs'
 
   interface Task {
     key: string
     summary: string
     description: string
     status: string
+    statusCategory?: string
     priority: string
     type: string
     parentKey?: string
@@ -40,34 +50,12 @@
     projectKey?: string
   }
 
-  function filterPrefKey(connId: string, boardId: string): string {
-    return `taskTracker.pickerFilters.${connId}.${boardId}`
-  }
-
-  interface SavedFilters {
-    excludedStatuses: string[]
-    assignedToMe: boolean
-    showFilters: boolean
-  }
-
-  function loadSavedFilters(connId: string, boardId: string): SavedFilters | null {
-    const raw = prefs[filterPrefKey(connId, boardId)]
-    if (!raw) return null
-    try {
-      return JSON.parse(raw) as SavedFilters
-    } catch {
-      return null
-    }
-  }
-
   function saveFilters(): void {
-    if (!selectedBoardId) return
-    const data: SavedFilters = {
+    saveTaskFilters(connectionId, selectedBoardId, {
       excludedStatuses: [...excludedStatuses],
+      excludedSprints: [...excludedSprints],
       assignedToMe,
-      showFilters,
-    }
-    setPref(filterPrefKey(connectionId, selectedBoardId), JSON.stringify(data))
+    })
   }
 
   let { connectionId }: { connectionId: string } = $props()
@@ -88,8 +76,20 @@
     }
     return Array.from(seen).sort()
   })
+  let availableSprints: string[] = $derived.by(() => {
+    const seen = new SvelteSet<string>()
+    let hasNoSprint = false
+    for (const task of allTasks) {
+      if (task.sprintName) seen.add(task.sprintName)
+      else hasNoSprint = true
+    }
+    const sorted = Array.from(seen).sort()
+    return hasNoSprint ? [...sorted, NO_SPRINT] : sorted
+  })
   let excludedStatuses = new SvelteSet<string>()
-  let showFilters = $state(false)
+  let excludedSprints = new SvelteSet<string>()
+  // Filters start expanded — hiding them made the default status/assignee filtering invisible.
+  let showFilters = $state(true)
   let assignedToMe = $state(false)
   let currentUserName = $state('')
   let hasSavedFilters = $state(false)
@@ -109,6 +109,9 @@
     }
     if (excludedStatuses.size > 0) {
       result = result.filter((i) => !excludedStatuses.has(i.status))
+    }
+    if (excludedSprints.size > 0) {
+      result = result.filter((i) => !excludedSprints.has(i.sprintName || NO_SPRINT))
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -135,9 +138,15 @@
     await loadBoards()
   })
 
+  // Tracker config (.canopy/config.json) lives in the ACTIVE WORKTREE — same path the Project
+  // tracker modal edits. The main repo root may hold a stale copy from the default branch.
+  let cfgRoot = $derived(
+    workspaceState.selectedWorktreePath ?? workspaceState.repoRoot ?? undefined,
+  )
+
   async function loadBoards(): Promise<void> {
     try {
-      const repoRoot = workspaceState.repoRoot ?? undefined
+      const repoRoot = cfgRoot
       const [boardList, userName] = await Promise.all([
         window.api.trackerConfigFetchBoards(repoRoot, connectionId),
         window.api.trackerConfigGetCurrentUser(repoRoot, connectionId).catch(() => ''),
@@ -150,22 +159,22 @@
         restoreSavedFilters()
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load boards'
+      error = ipcErrorMessage(e, 'Failed to load boards')
     }
     await fetchTasks()
   }
 
   function restoreSavedFilters(): void {
     excludedStatuses.clear()
-    const saved = loadSavedFilters(connectionId, selectedBoardId)
+    excludedSprints.clear()
+    const saved = loadSavedTaskFilters(connectionId, selectedBoardId)
     if (saved) {
       for (const s of saved.excludedStatuses) excludedStatuses.add(s)
+      for (const s of saved.excludedSprints ?? []) excludedSprints.add(s)
       assignedToMe = saved.assignedToMe
-      showFilters = saved.showFilters
       hasSavedFilters = true
     } else {
       assignedToMe = false
-      showFilters = false
       hasSavedFilters = false
     }
   }
@@ -181,11 +190,9 @@
     loading = true
     error = ''
     try {
-      allTasks = await window.api.trackerConfigFetchTasks(
-        workspaceState.repoRoot ?? undefined,
-        connectionId,
-        { boardId: selectedBoardId || undefined },
-      )
+      allTasks = await window.api.trackerConfigFetchTasks(cfgRoot, connectionId, {
+        boardId: selectedBoardId || undefined,
+      })
       if (!hasSavedFilters && excludedStatuses.size === 0 && allTasks.length > 0) {
         for (const task of allTasks) {
           if (DONE_STATUS_PATTERN.test(task.status)) {
@@ -195,7 +202,7 @@
         saveFilters()
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to fetch tasks'
+      error = ipcErrorMessage(e, 'Failed to fetch tasks')
     } finally {
       loading = false
     }
@@ -206,6 +213,15 @@
       excludedStatuses.delete(status)
     } else {
       excludedStatuses.add(status)
+    }
+    saveFilters()
+  }
+
+  function toggleSprint(sprint: string): void {
+    if (excludedSprints.has(sprint)) {
+      excludedSprints.delete(sprint)
+    } else {
+      excludedSprints.add(sprint)
     }
     saveFilters()
   }
@@ -371,7 +387,8 @@
 >
   <div
     bind:this={dialogEl}
-    class="w-[600px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
+    class="resize w-[600px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
+    use:unlockSizeOnResize
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
@@ -431,23 +448,50 @@
         <div class="px-4 py-2 border-b border-border-subtle flex flex-col gap-2">
           <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
             <CustomCheckbox checked={assignedToMe} onchange={toggleAssignedToMe} />
-            <span>Only assigned to me</span>
+            <span>Only tasks assigned to me</span>
           </label>
           {#if availableStatuses.length > 0}
-            <div class="flex flex-wrap gap-1">
-              {#each availableStatuses as status (status)}
-                <button
-                  class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
-                  class:!bg-accent-bg={!excludedStatuses.has(status)}
-                  class:!border-accent-muted={!excludedStatuses.has(status)}
-                  class:!text-accent-text={!excludedStatuses.has(status)}
-                  class:!opacity-40={excludedStatuses.has(status)}
-                  class:line-through={excludedStatuses.has(status)}
-                  onclick={() => toggleStatus(status)}
-                >
-                  {status}
-                </button>
-              {/each}
+            <div class="flex flex-col gap-1">
+              <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                >Status</span
+              >
+              <div class="flex flex-wrap gap-1">
+                {#each availableStatuses as status (status)}
+                  <button
+                    class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
+                    class:!bg-accent-bg={!excludedStatuses.has(status)}
+                    class:!border-accent-muted={!excludedStatuses.has(status)}
+                    class:!text-accent-text={!excludedStatuses.has(status)}
+                    class:!opacity-40={excludedStatuses.has(status)}
+                    class:line-through={excludedStatuses.has(status)}
+                    onclick={() => toggleStatus(status)}
+                  >
+                    {status}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+          {#if availableSprints.length > 0}
+            <div class="flex flex-col gap-1">
+              <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                >Sprint</span
+              >
+              <div class="flex flex-wrap gap-1">
+                {#each availableSprints as sprint (sprint)}
+                  <button
+                    class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
+                    class:!bg-accent-bg={!excludedSprints.has(sprint)}
+                    class:!border-accent-muted={!excludedSprints.has(sprint)}
+                    class:!text-accent-text={!excludedSprints.has(sprint)}
+                    class:!opacity-40={excludedSprints.has(sprint)}
+                    class:line-through={excludedSprints.has(sprint)}
+                    onclick={() => toggleSprint(sprint)}
+                  >
+                    {sprint}
+                  </button>
+                {/each}
+              </div>
             </div>
           {/if}
         </div>
@@ -527,11 +571,19 @@
               }}
               onmouseenter={() => (selectedIndex = i)}
             >
-              <span class="flex-shrink-0 font-semibold text-accent-text min-w-20">{task.key}</span>
+              <span class="flex-shrink-0 font-semibold text-accent-text min-w-20"
+                >{taskDisplayKey(task)}</span
+              >
               <span
                 class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
                 title={task.summary}>{task.summary}</span
               >
+              {#if task.sprintName}
+                <span
+                  class="flex-shrink-0 max-w-24 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-px rounded-md border border-border-subtle text-2xs text-text-faint"
+                  title={`Sprint: ${task.sprintName}`}>{task.sprintName}</span
+                >
+              {/if}
               {#if task.assignee}
                 <span
                   class="flex-shrink-0 max-w-28 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
@@ -539,8 +591,10 @@
                   title={`Assignee: ${task.assignee}`}>{task.assignee}</span
                 >
               {/if}
-              <span class="flex-shrink-0 px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
-                >{task.status}</span
+              <span
+                class="flex-shrink-0 px-1.5 py-px rounded-md text-2xs {statusChipClass(
+                  task.statusCategory,
+                )}">{task.status}</span
               >
               <span
                 class="flex-shrink-0 text-[8px] leading-none"
