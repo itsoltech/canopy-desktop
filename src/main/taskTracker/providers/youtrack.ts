@@ -104,16 +104,18 @@ function fetchAvailableStates(
   connection: TaskTrackerConnection,
   token: string,
   taskKey: string,
-): ResultAsync<string[], TaskTrackerError> {
+): ResultAsync<Array<{ name: string; resolved: boolean }>, TaskTrackerError> {
   const fields =
-    'customFields(name,value(name),projectCustomField(field(name),bundle(values(name,archived))))'
+    'customFields(name,value(name),projectCustomField(field(name),bundle(values(name,archived,isResolved))))'
   return ytFetch<{
     customFields?: Array<{
       name?: string
       value?: { name?: string }
       projectCustomField?: {
         field?: { name?: string }
-        bundle?: { values?: Array<{ name?: string; archived?: boolean }> }
+        bundle?: {
+          values?: Array<{ name?: string; archived?: boolean; isResolved?: boolean }>
+        }
       }
     }>
   }>(
@@ -126,7 +128,9 @@ function fetchAvailableStates(
     )
     const current = stateField?.value?.name ?? ''
     const values = stateField?.projectCustomField?.bundle?.values ?? []
-    return values.filter((v) => v.name && !v.archived && v.name !== current).map((v) => v.name!)
+    return values
+      .filter((v) => v.name && !v.archived && v.name !== current)
+      .map((v) => ({ name: v.name!, resolved: v.isResolved ?? false }))
   })
 }
 
@@ -372,10 +376,12 @@ export const youtrackClient: TaskTrackerProviderClient = {
 
   fetchTransitions(connection, token, taskKey) {
     return fetchAvailableStates(connection, token, taskKey).map((states) =>
-      states.map((name): TrackerTransition => ({
-        id: name,
-        name,
-        toStatus: name,
+      states.map((s): TrackerTransition => ({
+        id: s.name,
+        name: s.name,
+        toStatus: s.name,
+        // YouTrack has no Jira-style categories; resolved states are the closest signal.
+        toStatusCategory: s.resolved ? 'done' : undefined,
         fields: [],
       })),
     )
@@ -386,14 +392,14 @@ export const youtrackClient: TaskTrackerProviderClient = {
     // (a crafted string could smuggle extra commands executed with the user's token). Only accept
     // ids that match a state the tracker actually offers for this task right now.
     return fetchAvailableStates(connection, token, taskKey).andThen((states) => {
-      const state = states.find((name) => name === transitionId)
+      const state = states.find((s) => s.name === transitionId)
       if (!state) {
         return errAsync(apiError(400, `Unknown transition for ${taskKey}: ${transitionId}`))
       }
       // Commands API applies the state change and (optionally) a comment atomically; workflow
       // violations come back as a 4xx whose message we surface verbatim.
       const body: Record<string, unknown> = {
-        query: `State "${state.replace(/"/g, '')}"`,
+        query: `State "${state.name.replace(/"/g, '')}"`,
         issues: [{ idReadable: taskKey }],
       }
       if (opts.comment) body.comment = opts.comment

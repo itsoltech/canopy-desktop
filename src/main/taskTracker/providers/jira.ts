@@ -11,6 +11,7 @@ import type {
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
+  TrackerStatusCategory,
   TrackerTransition,
   TrackerTransitionField,
 } from '../types'
@@ -18,7 +19,7 @@ import type {
 interface JiraTaskFields {
   summary?: string
   description?: string
-  status?: { name?: string }
+  status?: { name?: string; statusCategory?: { key?: string } }
   priority?: { name?: string }
   issuetype?: { name?: string; subtask?: boolean }
   parent?: { key?: string }
@@ -120,11 +121,18 @@ function toAdf(text: string): unknown {
   }
 }
 
+// Jira's three fixed status categories; every status belongs to exactly one.
+const STATUS_CATEGORY_MAP: Record<string, TrackerStatusCategory> = {
+  new: 'todo',
+  indeterminate: 'in-progress',
+  done: 'done',
+}
+
 interface JiraTransitionsResponse {
   transitions?: Array<{
     id: string
     name?: string
-    to?: { name?: string }
+    to?: { name?: string; statusCategory?: { key?: string } }
     fields?: Record<
       string,
       {
@@ -190,6 +198,7 @@ function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {
         ? normalizeTrackerText(f.description)
         : normalizeTrackerText(adfToPlainText(f.description)),
     status: f.status?.name ?? '',
+    statusCategory: STATUS_CATEGORY_MAP[f.status?.statusCategory?.key ?? ''],
     priority: f.priority?.name ?? '',
     type: mapTaskType(f),
     parentKey: f.parent?.key,
@@ -398,6 +407,7 @@ export const jiraClient: TaskTrackerProviderClient = {
         id: t.id,
         name: t.name ?? t.to?.name ?? t.id,
         toStatus: t.to?.name ?? '',
+        toStatusCategory: STATUS_CATEGORY_MAP[t.to?.statusCategory?.key ?? ''],
         fields: Object.entries(t.fields ?? {}).map(([key, f]): TrackerTransitionField => ({
           key,
           name: f.name ?? key,

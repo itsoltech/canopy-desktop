@@ -387,15 +387,30 @@ export const githubClient: TaskTrackerProviderClient = {
     return fetchIssueId(connection, token, taskKey).map((issue): TrackerTransition[] =>
       issue.state === 'OPEN'
         ? [
-            { id: 'close:COMPLETED', name: 'Close (completed)', toStatus: 'closed', fields: [] },
+            {
+              id: 'close:COMPLETED',
+              name: 'Close (completed)',
+              toStatus: 'closed',
+              toStatusCategory: 'done',
+              fields: [],
+            },
             {
               id: 'close:NOT_PLANNED',
               name: 'Close (not planned)',
               toStatus: 'closed',
+              toStatusCategory: 'done',
               fields: [],
             },
           ]
-        : [{ id: 'reopen', name: 'Reopen', toStatus: 'open', fields: [] }],
+        : [
+            {
+              id: 'reopen',
+              name: 'Reopen',
+              toStatus: 'open',
+              toStatusCategory: 'todo',
+              fields: [],
+            },
+          ],
     )
   },
 

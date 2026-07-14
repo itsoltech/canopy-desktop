@@ -4,6 +4,10 @@
   interface Option {
     value: string
     label: string
+    /** Optional chip rendered after the label (e.g. a target status). */
+    badge?: string
+    /** Tailwind classes for the badge chip; a neutral chip when omitted. */
+    badgeClass?: string
   }
 
   interface OptionGroup {
@@ -34,6 +38,8 @@
     type: 'option' | 'group'
     value?: string
     label: string
+    badge?: string
+    badgeClass?: string
   }
 
   const flatItems = $derived.by((): FlatItem[] => {
@@ -47,15 +53,21 @@
       }
       return items
     }
-    return (options ?? []).map((o) => ({ type: 'option' as const, value: o.value, label: o.label }))
+    return (options ?? []).map((o) => ({
+      type: 'option' as const,
+      value: o.value,
+      label: o.label,
+      badge: o.badge,
+      badgeClass: o.badgeClass,
+    }))
   })
 
   const selectableIndices = $derived(
     flatItems.map((item, i) => (item.type === 'option' ? i : -1)).filter((i) => i >= 0),
   )
 
-  const selectedLabel = $derived(
-    flatItems.find((i) => i.type === 'option' && i.value === value)?.label ?? '',
+  const selectedItem = $derived(
+    flatItems.find((i) => i.type === 'option' && i.value === value) ?? null,
   )
 
   function portal(node: HTMLElement): { destroy(): void } {
@@ -158,7 +170,14 @@
   aria-haspopup="listbox"
   aria-expanded={open}
 >
-  <span class="flex-1 truncate">{selectedLabel}</span>
+  <span class="flex-1 truncate">
+    {selectedItem?.label ?? ''}{#if selectedItem?.badge}
+      <span
+        class="ml-1 inline-flex items-center px-1.5 py-px rounded-md text-2xs align-middle {selectedItem.badgeClass ??
+          'bg-active text-text-muted'}">{selectedItem.badge}</span
+      >
+    {/if}
+  </span>
   <svg
     class="flex-shrink-0 opacity-50"
     width="12"
@@ -205,7 +224,12 @@
             onclick={() => select(item.value!)}
             onpointerenter={() => (focusedIndex = i)}
           >
-            {item.label}
+            {item.label}{#if item.badge}
+              <span
+                class="ml-1 inline-flex items-center px-1.5 py-px rounded-md text-2xs align-middle {item.badgeClass ??
+                  'bg-active text-text-muted'}">{item.badge}</span
+              >
+            {/if}
           </div>
         {/if}
       {/each}

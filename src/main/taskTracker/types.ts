@@ -14,11 +14,16 @@ export interface TaskTrackerConnection {
   username?: string
 }
 
+/** Normalized status category — drives status chip colors in the UI. Jira reports it directly
+ *  (statusCategory); other providers approximate (e.g. YouTrack resolved states → 'done'). */
+export type TrackerStatusCategory = 'todo' | 'in-progress' | 'done'
+
 export interface TrackerTask {
   key: string
   summary: string
   description: string
   status: string
+  statusCategory?: TrackerStatusCategory
   priority: string
   type: 'task' | 'story' | 'subtask' | 'bug' | 'epic' | string
   parentKey?: string
@@ -222,6 +227,7 @@ export interface TrackerTransition {
   name: string
   /** Status the task will be in after the transition. */
   toStatus: string
+  toStatusCategory?: TrackerStatusCategory
   /** Empty when the provider cannot introspect workflow requirements (YouTrack, GitHub). */
   fields: TrackerTransitionField[]
 }
