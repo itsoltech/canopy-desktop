@@ -1,6 +1,6 @@
 import { setPref } from './preferences.svelte'
 import { trackersNeedingCredentials } from '../../components/preferences/_partials/configScopeLabels'
-import { extractTaskKey } from '../taskTracker/branchTaskKey'
+import { extractTaskKeys } from '../taskTracker/branchTaskKey'
 
 export interface ActiveTaskContext {
   taskKey: string
@@ -110,6 +110,14 @@ async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
 // Errors that mean the tracker rejected the token itself (vs. network being down etc.).
 const AUTH_ERROR_RE = /\b(401|403)\b|unauthoriz|authenticat|forbidden|invalid token/i
 
+// Verification runs fire-and-forget after config loads; the UI shows a "checking credentials"
+// hint instead of having the expired-credentials banner pop in unannounced seconds later.
+let verifyCount = $state(0)
+
+export function isVerifyingCredentials(): boolean {
+  return verifyCount > 0
+}
+
 /**
  * Verify stored tokens against the tracker API (lightweight getCurrentUser call) and flag the ones
  * the tracker rejects as `valid: false`. A token merely existing in the keychain says nothing about
@@ -117,23 +125,28 @@ const AUTH_ERROR_RE = /\b(401|403)\b|unauthoriz|authenticat|forbidden|invalid to
  * Non-auth failures (offline, DNS) leave `valid` undefined so we don't cry wolf.
  */
 async function verifyCredentials(trackers: TrackerConfig[], repoRoot?: string): Promise<void> {
-  await Promise.all(
-    trackers
-      .filter((t) => trackerCredentials[t.id]?.hasToken)
-      .map(async (t) => {
-        try {
-          await window.api.trackerConfigGetCurrentUser(repoRoot, t.id)
-          const cur = trackerCredentials[t.id]
-          if (cur?.hasToken) trackerCredentials[t.id] = { ...cur, valid: true }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          const cur = trackerCredentials[t.id]
-          if (AUTH_ERROR_RE.test(msg) && cur?.hasToken) {
-            trackerCredentials[t.id] = { ...cur, valid: false }
+  verifyCount++
+  try {
+    await Promise.all(
+      trackers
+        .filter((t) => trackerCredentials[t.id]?.hasToken)
+        .map(async (t) => {
+          try {
+            await window.api.trackerConfigGetCurrentUser(repoRoot, t.id)
+            const cur = trackerCredentials[t.id]
+            if (cur?.hasToken) trackerCredentials[t.id] = { ...cur, valid: true }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            const cur = trackerCredentials[t.id]
+            if (AUTH_ERROR_RE.test(msg) && cur?.hasToken) {
+              trackerCredentials[t.id] = { ...cur, valid: false }
+            }
           }
-        }
-      }),
-  )
+        }),
+    )
+  } finally {
+    verifyCount--
+  }
 }
 
 export async function loadRepoConfig(repoRoot: string): Promise<void> {
@@ -253,18 +266,40 @@ export async function clearActiveTask(worktreePath: string): Promise<void> {
   await setPref(activeTaskKey(worktreePath), '')
 }
 
-// --- Panel task (worktree → task resolution for the Task inspector tab) ---
+// --- Panel tasks (worktree → task resolution for the Task inspector tab) ---
 
-let panelTask = $state<PanelTaskContext | null>(null)
+// A branch can reference several tasks (parent/subtask conventions) — all of them are tracked,
+// with one selected for display in the panel.
+let panelTasks = $state<PanelTaskContext[]>([])
+let panelTaskIndex = $state(0)
+// Worktree path the current panelTasks were resolved FOR. Resolution runs at the end of worktree
+// hydration, so comparing this against the currently selected worktree tells the panel "these are
+// still the previous worktree's tasks — show a loader instead".
+let panelTaskPath = $state<string | null>(null)
 
 export function getPanelTask(): PanelTaskContext | null {
-  return panelTask
+  return panelTasks[panelTaskIndex] ?? null
+}
+
+export function getPanelTasks(): PanelTaskContext[] {
+  return panelTasks
+}
+
+export function selectPanelTask(taskKey: string): void {
+  const i = panelTasks.findIndex((t) => t.taskKey === taskKey)
+  if (i >= 0) panelTaskIndex = i
+}
+
+export function getPanelTaskResolvedPath(): string | null {
+  return panelTaskPath
 }
 
 /**
- * Resolve the task backing the current worktree. Preference order: the persisted activeTask
- * (written at branch creation), then a task key parsed from the branch name and validated against
- * the tracker (branches created outside Canopy). Nothing is persisted for the fallback.
+ * Resolve the tasks backing the current worktree: every task key found in the branch name,
+ * validated against the tracker (keys the tracker doesn't know are dropped; bare keys are kept
+ * when the tracker is unreachable), plus the persisted activeTask (written at branch creation).
+ * The activeTask is selected when present; otherwise the last branch key wins — parent/subtask
+ * branches name the parent first, and work happens on the most specific task.
  */
 export async function resolvePanelTask(
   worktreePath: string,
@@ -272,30 +307,47 @@ export async function resolvePanelTask(
   options: { shouldApply?: () => boolean } = {},
 ): Promise<void> {
   const apply = (): boolean => !options.shouldApply || options.shouldApply()
-
-  if (activeTask) {
-    if (apply()) panelTask = { ...activeTask, source: 'active' }
-    return
-  }
-
-  const key = branch ? extractTaskKey(branch) : null
-  if (!key) {
-    if (apply()) panelTask = null
-    return
-  }
-
+  const normPath = worktreePath.replace(/\\/g, '/')
   const trackerId = resolvedConfig?.config.trackers[0]?.id ?? ''
-  try {
-    const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key)
-    if (!apply()) return
-    panelTask = task
-      ? { taskKey: task.key, summary: task.summary, connectionId: trackerId, source: 'branch' }
-      : null
-  } catch {
-    // Offline / expired credentials: keep the bare key so the panel can still render it.
-    if (apply())
-      panelTask = { taskKey: key, summary: '', connectionId: trackerId, source: 'branch' }
+
+  const keys = branch ? extractTaskKeys(branch) : []
+  if (activeTask && !keys.includes(activeTask.taskKey)) keys.unshift(activeTask.taskKey)
+
+  if (keys.length === 0) {
+    if (apply()) {
+      panelTasks = []
+      panelTaskIndex = 0
+      panelTaskPath = normPath
+    }
+    return
   }
+
+  const contexts = await Promise.all(
+    keys.map(async (key): Promise<PanelTaskContext | null> => {
+      if (activeTask?.taskKey === key) return { ...activeTask, source: 'active' }
+      try {
+        const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key)
+        // The tracker answered and doesn't know this key — a false match, drop it.
+        if (!task) return null
+        return {
+          taskKey: task.key,
+          summary: task.summary,
+          connectionId: trackerId,
+          source: 'branch',
+        }
+      } catch {
+        // Offline / expired credentials: keep the bare key so the panel can still render it.
+        return { taskKey: key, summary: '', connectionId: trackerId, source: 'branch' }
+      }
+    }),
+  )
+
+  if (!apply()) return
+  const list = contexts.filter((c): c is PanelTaskContext => c !== null)
+  panelTasks = list
+  const activeIdx = list.findIndex((c) => c.source === 'active')
+  panelTaskIndex = activeIdx >= 0 ? activeIdx : Math.max(0, list.length - 1)
+  panelTaskPath = normPath
 }
 
 export async function loadConnections(): Promise<void> {

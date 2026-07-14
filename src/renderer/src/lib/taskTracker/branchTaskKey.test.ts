@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest'
-import { extractTaskKey } from './branchTaskKey'
+import { extractTaskKey, extractTaskKeys } from './branchTaskKey'
+
+describe('extractTaskKeys', () => {
+  it('returns every key in order of appearance (parent/subtask branches)', () => {
+    expect(extractTaskKeys('s115/GAKKO-100/GAKKO-123-poprawka')).toEqual(['GAKKO-100', 'GAKKO-123'])
+  })
+
+  it('deduplicates repeated keys', () => {
+    expect(extractTaskKeys('GAKKO-1/GAKKO-1-retry')).toEqual(['GAKKO-1'])
+  })
+
+  it('returns a single-element list for one key', () => {
+    expect(extractTaskKeys('s102/GAKKO-2754/nowy-panel-wpisow')).toEqual(['GAKKO-2754'])
+  })
+
+  it('returns an empty list when no key is present', () => {
+    expect(extractTaskKeys('master')).toEqual([])
+    expect(extractTaskKeys('')).toEqual([])
+  })
+})
 
 describe('extractTaskKey', () => {
   it('finds the key in template-shaped branch names', () => {
