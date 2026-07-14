@@ -20,8 +20,32 @@
     autoSeparators?: boolean
   } = $props()
 
+  import { tick } from 'svelte'
+
   // Default separator inserted when a field is appended right after another one.
   let defaultSep = $derived(autoSeparators ? '/' : ' ')
+
+  let trackEl: HTMLElement | undefined = $state()
+
+  // Typing in a text segment updates the template on every keystroke; persisting each keystroke
+  // would hammer the config file, so those saves are debounced. Discrete actions (add/remove/move
+  // a chip) save immediately and flush anything pending.
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+  let savePending = false
+
+  function flushSave(): void {
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    if (!savePending) return
+    savePending = false
+    onSave()
+  }
+
+  $effect(() => {
+    return () => flushSave()
+  })
 
   function parseSegments(tpl: string): { fields: string[]; texts: string[] } {
     const fields: string[] = []
@@ -44,15 +68,21 @@
   let dragFromPalette = $state<string | null>(null)
   let dragOverIdx = $state<number | null>(null)
 
-  function rebuild(nextFields: string[], nextTexts: string[]): void {
+  function rebuild(nextFields: string[], nextTexts: string[], debounce = false): void {
     templateInput = nextTexts[0] + nextFields.map((f, i) => `{${f}}` + nextTexts[i + 1]).join('')
-    onSave()
+    savePending = true
+    if (debounce) {
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = setTimeout(flushSave, 400)
+    } else {
+      flushSave()
+    }
   }
 
   function updateText(i: number, value: string): void {
     const t = [...texts]
     t[i] = value
-    rebuild([...fields], t)
+    rebuild([...fields], t, true)
   }
 
   function appendField(key: string): void {
@@ -100,6 +130,15 @@
     rebuild(f, [...texts])
   }
 
+  // Chips are keyed by position, so a move re-creates the DOM node — re-focus it by field name.
+  async function moveFieldByKeyboard(i: number, dir: -1 | 1): Promise<void> {
+    if (dir === -1 ? i === 0 : i === fields.length - 1) return
+    const key = fields[i]
+    moveField(i, dir === -1 ? i - 1 : i + 2)
+    await tick()
+    trackEl?.querySelector<HTMLElement>(`[data-chip-field="${key}"]`)?.focus()
+  }
+
   function onChipDrop(index: number): void {
     if (dragFromPalette) {
       insertFieldBefore(dragFromPalette, index)
@@ -130,6 +169,7 @@
     <span class="text-sm text-text-secondary w-20 shrink-0">{label}</span>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
+      bind:this={trackEl}
       class="flex flex-wrap items-center gap-y-1 flex-1 min-h-8 px-1.5 py-1 border border-border rounded-md bg-bg-input"
       ondragover={(e) => {
         e.preventDefault()
@@ -168,8 +208,20 @@
             onChipDrop(i)
           }}
           ondragend={resetDrag}
-          role="listitem"
-          title="Drag to reorder · remove with ×"
+          onkeydown={(e) => {
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault()
+              void moveFieldByKeyboard(i, -1)
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault()
+              void moveFieldByKeyboard(i, 1)
+            }
+          }}
+          role="button"
+          tabindex="0"
+          data-chip-field={field}
+          aria-label={`{${field}} — arrow keys reorder`}
+          title="Drag or use ←/→ to reorder · remove with ×"
         >
           {`{${field}}`}
           <button

@@ -3419,6 +3419,20 @@ export function registerIpcHandlers(
       if (!payload.transitionId || typeof payload.transitionId !== 'string') {
         throw new Error('Invalid transition')
       }
+      // The renderer is the untrusted boundary: only plain string→string field values may cross.
+      if (payload.fields !== undefined) {
+        if (
+          typeof payload.fields !== 'object' ||
+          payload.fields === null ||
+          Array.isArray(payload.fields) ||
+          Object.values(payload.fields).some((v) => typeof v !== 'string')
+        ) {
+          throw new Error('Invalid transition fields')
+        }
+      }
+      if (payload.comment !== undefined && typeof payload.comment !== 'string') {
+        throw new Error('Invalid transition comment')
+      }
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.applyTransitionFromConfig(

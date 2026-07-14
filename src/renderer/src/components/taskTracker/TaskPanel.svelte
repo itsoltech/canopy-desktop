@@ -93,7 +93,12 @@
     }
   })
 
+  // Monotonic token: switching worktrees mid-flight starts a new refresh, and a slow response for
+  // the previous task must not overwrite the newer task's data when it finally lands.
+  let refreshSeq = 0
+
   async function refresh(taskKey: string): Promise<void> {
+    const seq = ++refreshSeq
     loading = true
     loadError = ''
     selectedTransitionId = ''
@@ -106,6 +111,7 @@
         window.api.trackerConfigFetchTransitions(worktreePath, taskKey),
         window.api.trackerConfigFetchTaskComments(worktreePath, taskKey),
       ])
+      if (seq !== refreshSeq) return
       task = fullTask
         ? {
             key: fullTask.key,
@@ -119,9 +125,10 @@
       transitions = trans
       comments = comm
     } catch (e) {
+      if (seq !== refreshSeq) return
       loadError = e instanceof Error ? e.message : String(e)
     } finally {
-      loading = false
+      if (seq === refreshSeq) loading = false
     }
   }
 
@@ -156,7 +163,8 @@
       await window.api.trackerConfigAddComment({ repoRoot: worktreePath, taskKey: key, body })
       newComment = ''
       addToast('Comment added')
-      comments = await window.api.trackerConfigFetchTaskComments(worktreePath, key)
+      const refreshed = await window.api.trackerConfigFetchTaskComments(worktreePath, key)
+      if (panel?.taskKey === key) comments = refreshed
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to add comment')
     } finally {

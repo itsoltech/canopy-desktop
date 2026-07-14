@@ -1,5 +1,5 @@
 import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
-import type { TaskTrackerError } from '../errors'
+import { taskTrackerErrorMessage, type TaskTrackerError } from '../errors'
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
@@ -415,13 +415,22 @@ export const githubClient: TaskTrackerProviderClient = {
       })
       .andThen((issueId) => {
         if (!opts.comment) return okAsync(undefined)
+        // The state change already happened — a failed comment must not fail the transition,
+        // or the caller would retry a close/reopen that has in fact been applied.
         return mapGitHubError(
           graphqlFetch<unknown>(apiUrl, token, ADD_COMMENT_MUTATION, {
             id: issueId,
             body: opts.comment,
           }),
-        ).map(() => undefined)
+        ).orElse((err) => {
+          console.warn(
+            '[github] transition applied but comment failed:',
+            taskTrackerErrorMessage(err),
+          )
+          return okAsync(undefined)
+        })
       })
+      .map(() => undefined)
   },
 
   addComment(connection, token, taskKey, body) {

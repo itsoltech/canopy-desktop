@@ -94,6 +94,42 @@ function ytSend(
   })
 }
 
+/**
+ * State bundle values the tracker offers for this task (minus the current one). YouTrack has no
+ * transition introspection — workflow rules live in scripts and only surface as errors on apply —
+ * so these plain state names are both the "transitions" we present and the whitelist we validate
+ * an apply request against.
+ */
+function fetchAvailableStates(
+  connection: TaskTrackerConnection,
+  token: string,
+  taskKey: string,
+): ResultAsync<string[], TaskTrackerError> {
+  const fields =
+    'customFields(name,value(name),projectCustomField(field(name),bundle(values(name,archived))))'
+  return ytFetch<{
+    customFields?: Array<{
+      name?: string
+      value?: { name?: string }
+      projectCustomField?: {
+        field?: { name?: string }
+        bundle?: { values?: Array<{ name?: string; archived?: boolean }> }
+      }
+    }>
+  }>(
+    connection,
+    token,
+    `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
+  ).map((data) => {
+    const stateField = (data.customFields ?? []).find(
+      (f) => (f.projectCustomField?.field?.name ?? f.name) === 'State',
+    )
+    const current = stateField?.value?.name ?? ''
+    const values = stateField?.projectCustomField?.bundle?.values ?? []
+    return values.filter((v) => v.name && !v.archived && v.name !== current).map((v) => v.name!)
+  })
+}
+
 function extractField(task: YTTask, fieldName: string): string {
   const field = task.fields?.find(
     (f) => f.name === fieldName || f.projectCustomField?.field?.name === fieldName,
@@ -335,49 +371,34 @@ export const youtrackClient: TaskTrackerProviderClient = {
   },
 
   fetchTransitions(connection, token, taskKey) {
-    // YouTrack has no transition introspection — workflow rules live in scripts and only surface
-    // as errors on apply. Offer the State bundle values (minus the current one) as plain targets.
-    const fields =
-      'customFields(name,value(name),projectCustomField(field(name),bundle(values(name,archived))))'
-    return ytFetch<{
-      customFields?: Array<{
-        name?: string
-        value?: { name?: string }
-        projectCustomField?: {
-          field?: { name?: string }
-          bundle?: { values?: Array<{ name?: string; archived?: boolean }> }
-        }
-      }>
-    }>(
-      connection,
-      token,
-      `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
-    ).map((data) => {
-      const stateField = (data.customFields ?? []).find(
-        (f) => (f.projectCustomField?.field?.name ?? f.name) === 'State',
-      )
-      const current = stateField?.value?.name ?? ''
-      const values = stateField?.projectCustomField?.bundle?.values ?? []
-      return values
-        .filter((v) => v.name && !v.archived && v.name !== current)
-        .map((v): TrackerTransition => ({
-          id: v.name!,
-          name: v.name!,
-          toStatus: v.name!,
-          fields: [],
-        }))
-    })
+    return fetchAvailableStates(connection, token, taskKey).map((states) =>
+      states.map((name): TrackerTransition => ({
+        id: name,
+        name,
+        toStatus: name,
+        fields: [],
+      })),
+    )
   },
 
   applyTransition(connection, token, taskKey, transitionId, opts) {
-    // Commands API applies the state change and (optionally) a comment atomically; workflow
-    // violations come back as a 4xx whose message we surface verbatim.
-    const body: Record<string, unknown> = {
-      query: `State "${transitionId.replace(/"/g, '')}"`,
-      issues: [{ idReadable: taskKey }],
-    }
-    if (opts.comment) body.comment = opts.comment
-    return ytSend(connection, token, `/api/commands`, body)
+    // `transitionId` crosses the renderer IPC boundary, and the Commands API query is free-text
+    // (a crafted string could smuggle extra commands executed with the user's token). Only accept
+    // ids that match a state the tracker actually offers for this task right now.
+    return fetchAvailableStates(connection, token, taskKey).andThen((states) => {
+      const state = states.find((name) => name === transitionId)
+      if (!state) {
+        return errAsync(apiError(400, `Unknown transition for ${taskKey}: ${transitionId}`))
+      }
+      // Commands API applies the state change and (optionally) a comment atomically; workflow
+      // violations come back as a 4xx whose message we surface verbatim.
+      const body: Record<string, unknown> = {
+        query: `State "${state.replace(/"/g, '')}"`,
+        issues: [{ idReadable: taskKey }],
+      }
+      if (opts.comment) body.comment = opts.comment
+      return ytSend(connection, token, `/api/commands`, body)
+    })
   },
 
   addComment(connection, token, taskKey, body) {

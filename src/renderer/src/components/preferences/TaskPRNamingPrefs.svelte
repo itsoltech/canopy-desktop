@@ -94,17 +94,50 @@
     await saveRepoConfig(repoRoot, updated!)
   }
 
+  // The body textarea and target input persist per keystroke — debounce the config write while the
+  // on-screen value (bind:value) stays immediate. Flushed on unmount so nothing typed is lost.
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+  let pendingSave: (() => void) | null = null
+  let pendingField = ''
+
+  function flushSave(): void {
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    const run = pendingSave
+    pendingSave = null
+    pendingField = ''
+    run?.()
+  }
+
+  function debouncedSave(field: string, run: () => void): void {
+    // Switching to a different field flushes the previous one instead of dropping it.
+    if (pendingSave && pendingField !== field) flushSave()
+    pendingField = field
+    pendingSave = run
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(flushSave, 400)
+  }
+
+  $effect(() => {
+    return () => flushSave()
+  })
+
   function onTitleTemplateSave(): void {
     savePRField('titleTemplate', titleTemplateInput)
   }
 
   function onBodyTemplateSave(): void {
-    savePRField('bodyTemplate', bodyTemplateInput)
+    debouncedSave('bodyTemplate', () => savePRField('bodyTemplate', bodyTemplateInput))
   }
 
   function insertBodyField(key: string): void {
     bodyTemplateInput = bodyTemplateInput + `{${key}}`
-    onBodyTemplateSave()
+    // Discrete action — persist now (also flushes any pending keystroke save).
+    pendingSave = () => savePRField('bodyTemplate', bodyTemplateInput)
+    pendingField = 'bodyTemplate'
+    flushSave()
   }
 
   // Restore the base PR template to the built-in default by removing the project value.
@@ -229,7 +262,10 @@
         name="defaultTargetBranch"
         aria-label="Default target branch"
         bind:value={defaultTargetBranch}
-        oninput={() => savePRField('defaultTargetBranch', defaultTargetBranch)}
+        oninput={() =>
+          debouncedSave('defaultTargetBranch', () =>
+            savePRField('defaultTargetBranch', defaultTargetBranch),
+          )}
         placeholder="develop"
         spellcheck="false"
       />
