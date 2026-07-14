@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Pencil, Plus, Check, X } from '@lucide/svelte'
+  import { Pencil, Plus, Check, X, Trash2 } from '@lucide/svelte'
   import {
     getResolvedConfig,
     getRepoConfig,
@@ -92,6 +92,22 @@
   }
 
   function doneEdit(): void {
+    editing = null
+    editSnapshot = null
+  }
+
+  // Delete the edited board's override (branch or PR part) — it falls back to the base template.
+  async function removeOverride(type: Group, scope: string): Promise<void> {
+    const cfg = getRepoConfig()
+    if (!cfg || scope === 'default') return
+    const updated = $state.snapshot(cfg) as typeof cfg
+    const entry = updated!.boardOverrides[scope]
+    if (entry) {
+      if (type === 'branch') delete entry.branchTemplate
+      else delete entry.prTemplate
+      if (Object.keys(entry).length === 0) delete updated!.boardOverrides[scope]
+    }
+    await saveRepoConfig(repoRoot, updated!)
     editing = null
     editSnapshot = null
   }
@@ -191,9 +207,23 @@
 )}
   {#if editing?.type === type && editing.scope === scope}
     <div class="py-2 border-t border-border-subtle first:border-t-0 first:pt-0">
-      <span class="text-sm font-medium text-text-secondary" title={tooltip || undefined}
-        >Editing: {label}</span
-      >
+      <div class="flex items-center gap-2">
+        <span
+          class="flex-1 min-w-0 text-sm font-medium text-text-secondary"
+          title={tooltip || undefined}>Editing: {label}</span
+        >
+        {#if scope !== 'default'}
+          <button
+            type="button"
+            class="shrink-0 flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+            onclick={() => removeOverride(type, scope)}
+            aria-label="Remove board override"
+            title="Remove this board override — the base template will apply"
+          >
+            <Trash2 size={13} />
+          </button>
+        {/if}
+      </div>
       {@render editorFor(type, scope)}
     </div>
   {:else}
@@ -249,15 +279,28 @@
 
       {#if editing?.type === type && editing.scope !== 'default' && !rows.some((r) => r.id === editing?.scope)}
         <div class="py-2 border-t border-border-subtle">
-          <span class="text-xs text-text-faint"
-            >New override · {boardName(editing.scope) ?? editing.scope}</span
-          >
+          <div class="flex items-center gap-2">
+            <span class="flex-1 min-w-0 text-xs text-text-faint"
+              >New override · {boardName(editing.scope) ?? editing.scope}</span
+            >
+            <button
+              type="button"
+              class="shrink-0 flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+              onclick={() => editing && removeOverride(type, editing.scope)}
+              aria-label="Remove board override"
+              title="Remove this board override — the base template will apply"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
           {@render editorFor(type, editing.scope)}
         </div>
       {/if}
     </div>
 
-    {#if !connected}
+    {#if editing}
+      <!-- Adding another override mid-edit would silently drop the current edit — hide it. -->
+    {:else if !connected}
       <button
         type="button"
         class="self-start mt-1 flex items-center gap-1 px-2 py-0.5 rounded-md bg-transparent border-0 text-text-faint text-xs font-inherit cursor-not-allowed opacity-60"

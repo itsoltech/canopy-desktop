@@ -91,20 +91,6 @@
     updatePreview()
   }
 
-  // Drop this board's override so it falls back to the base template.
-  async function clearBoardOverride(): Promise<void> {
-    if (!config || pinnedScope === 'default') return
-    const updated = $state.snapshot(config) as typeof config
-    const entry = updated!.boardOverrides[pinnedScope]
-    if (entry?.branchTemplate) {
-      delete entry.branchTemplate
-      if (Object.keys(entry).length === 0) delete updated!.boardOverrides[pinnedScope]
-    }
-    await persistConfig(updated)
-    templateInput = branchTemplate.template || RENDERER_DEFAULT_BRANCH_TEMPLATE
-    updatePreview()
-  }
-
   onMount(() => {
     templateInput = branchTemplate.template || RENDERER_DEFAULT_BRANCH_TEMPLATE
     updatePreview()
@@ -127,15 +113,6 @@
       title="Remove the project template — the built-in default will apply"
     >
       Reset to default
-    </button>
-  {:else if pinnedScope !== 'default' && config?.boardOverrides[pinnedScope]?.branchTemplate}
-    <button
-      type="button"
-      class="self-start px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
-      onclick={clearBoardOverride}
-      title="Remove this board override; fall back to the base template"
-    >
-      Clear board override
     </button>
   {/if}
 

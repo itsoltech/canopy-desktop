@@ -155,19 +155,6 @@
     await saveRepoConfig(repoRoot, updated!)
     initialized = false
   }
-
-  // Drop this board's PR override so it falls back to the base template.
-  async function clearBoardOverride(): Promise<void> {
-    if (!config || pinnedScope === 'default') return
-    const updated = $state.snapshot(config) as typeof config
-    const entry = updated!.boardOverrides[pinnedScope]
-    if (entry?.prTemplate) {
-      delete entry.prTemplate
-      if (Object.keys(entry).length === 0) delete updated!.boardOverrides[pinnedScope]
-    }
-    await saveRepoConfig(repoRoot, updated!)
-    initialized = false
-  }
 </script>
 
 <div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
@@ -186,15 +173,6 @@
       title="Remove the project PR template — the built-in default will apply"
     >
       Reset to default
-    </button>
-  {:else if pinnedScope !== 'default' && config?.boardOverrides[pinnedScope]?.prTemplate}
-    <button
-      type="button"
-      class="self-start px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
-      onclick={clearBoardOverride}
-      title="Remove this board override; fall back to the base template"
-    >
-      Clear board override
     </button>
   {/if}
 
