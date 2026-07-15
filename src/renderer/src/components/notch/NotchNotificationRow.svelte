@@ -8,13 +8,7 @@
       workspaceName: string
       branch: string | null
       status:
-        | 'idle'
-        | 'thinking'
-        | 'toolCalling'
-        | 'compacting'
-        | 'waitingPermission'
-        | 'error'
-        | 'ended'
+        'idle' | 'thinking' | 'toolCalling' | 'compacting' | 'waitingPermission' | 'error' | 'ended'
       toolName?: string
       detail?: string
       title?: string
@@ -60,6 +54,7 @@
   class="notch-row flex items-center gap-2.5 h-12 box-border px-3 py-2 w-full border-0 bg-transparent rounded-2xl last:rounded-b-notch-row cursor-pointer text-left text-notch-text transition duration-base motion-reduce:transition-none hover:bg-notch-row-hover active:scale-98 motion-reduce:active:scale-100"
   class:animate-peek-pulse={highlight}
   class:motion-reduce:animate-none={highlight}
+  title={`${session.workspaceName}${session.branch ? ' ' + session.branch : ''}${session.title ? ' · ' + session.title : ''}`}
   {onclick}
 >
   <span
