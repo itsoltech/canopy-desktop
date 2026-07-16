@@ -15,6 +15,39 @@ export interface CreatePRParams {
   sourceBranch: string
   prConfig: PRTemplateConfig
   existingBranches?: string[]
+  /** User-edited values from the create-PR form; template rendering is skipped where provided. */
+  overrides?: {
+    title?: string
+    body?: string
+    targetBranch?: string
+    reviewers?: string[]
+    /** undefined → default `@me`; empty array → no assignee; otherwise these logins. */
+    assignees?: string[]
+  }
+}
+
+export interface PreparedPR {
+  title: string
+  body: string
+  targetBranch: string
+}
+
+/** Render the PR pieces from the template WITHOUT creating anything — feeds the edit form. */
+export function preparePullRequest(
+  task: TrackerTask,
+  prConfig: PRTemplateConfig,
+  existingBranches?: string[],
+): PreparedPR {
+  return {
+    title: renderPRTitle(prConfig.titleTemplate, task),
+    body: renderPRBody(prConfig.bodyTemplate, task),
+    targetBranch: resolveTargetBranch(
+      task,
+      prConfig.defaultTargetBranch,
+      prConfig.targetRules,
+      existingBranches,
+    ),
+  }
 }
 
 export interface CreatePRResult {
@@ -41,10 +74,25 @@ function findExistingPR(
   // CLI flag. sanitizeBranchName already strips leading `-` from generated
   // names, but `sourceBranch` here can be any string passed over IPC.
   if (sourceBranch.startsWith('-')) return okAsync(null)
+  // Only an OPEN PR blocks creating another one — a branch may accumulate merged/closed PRs
+  // (gh pr view would happily return those), and a new PR is legitimate then.
   return fromExternalCall(
-    execFileAsync('gh', ['pr', 'view', '--json', 'url', '--jq', '.url', '--', sourceBranch], {
-      cwd: repoRoot,
-    }),
+    execFileAsync(
+      'gh',
+      [
+        'pr',
+        'list',
+        '--state',
+        'open',
+        '--json',
+        'url',
+        '--jq',
+        '.[0].url // empty',
+        '--head',
+        sourceBranch,
+      ],
+      { cwd: repoRoot },
+    ),
     () => prErr('Failed to check existing PR'),
   )
     .map((result) => result.stdout.trim() || null)
@@ -54,7 +102,7 @@ function findExistingPR(
 export function createPullRequest(
   params: CreatePRParams,
 ): ResultAsync<CreatePRResult, TaskTrackerError> {
-  const { repoRoot, task, sourceBranch, prConfig, existingBranches } = params
+  const { repoRoot, task, sourceBranch, prConfig, existingBranches, overrides } = params
 
   // Reject branch names that could be consumed as a gh CLI flag. sourceBranch is
   // passed as the value to `--head` below; `--` separators don't help in that
@@ -63,14 +111,16 @@ export function createPullRequest(
     return errAsync(prErr('Invalid source branch name'))
   }
 
-  const title = renderPRTitle(prConfig.titleTemplate, task)
-  const body = renderPRBody(prConfig.bodyTemplate, task)
-  const targetBranch = resolveTargetBranch(
-    task,
-    prConfig.defaultTargetBranch,
-    prConfig.targetRules,
-    existingBranches,
-  )
+  const rendered = preparePullRequest(task, prConfig, existingBranches)
+  const title = overrides?.title?.trim() || rendered.title
+  const body = overrides?.body ?? rendered.body
+  const targetBranch = overrides?.targetBranch?.trim() || rendered.targetBranch
+  // Reviewer/assignee logins become `--reviewer`/`--assignee` values — same leading-`-` defense
+  // as branches.
+  const safeLogins = (logins: string[]): string[] =>
+    logins.filter((r) => typeof r === 'string' && r.trim() !== '' && !r.trim().startsWith('-'))
+  const reviewers = safeLogins(overrides?.reviewers ?? [])
+  const assignees = overrides?.assignees === undefined ? ['@me'] : safeLogins(overrides.assignees)
 
   // Same defense for the resolved target branch — it comes from the PR config
   // (defaultTargetBranch / targetRules) which a renderer or repo file can set.
@@ -93,36 +143,112 @@ export function createPullRequest(
             targetBranch,
           })
         }
-        // Create new PR
-        return fromExternalCall(
-          execFileAsync(
-            'gh',
-            [
-              'pr',
-              'create',
-              '--title',
-              title,
-              '--body',
-              body,
-              '--base',
-              targetBranch,
-              '--head',
-              sourceBranch,
-              '--assignee',
-              '@me',
-            ],
-            { cwd: repoRoot },
-          ),
-          (e) => prErr(errorMessage(e)),
-        ).map(
-          (result): CreatePRResult => ({
-            url: result.stdout.trim(),
-            title,
-            targetBranch,
-          }),
-        )
+        // Create new PR — assigned to the creating user unless the form said otherwise.
+        const args = [
+          'pr',
+          'create',
+          '--title',
+          title,
+          '--body',
+          body,
+          '--base',
+          targetBranch,
+          '--head',
+          sourceBranch,
+        ]
+        for (const assignee of assignees) {
+          args.push('--assignee', assignee.trim())
+        }
+        for (const reviewer of reviewers) {
+          args.push('--reviewer', reviewer.trim())
+        }
+        return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
+          prErr(errorMessage(e)),
+        ).map((result): CreatePRResult => ({
+          url: result.stdout.trim(),
+          title,
+          targetBranch,
+        }))
       })
   )
+}
+
+export type PRMergeStrategy = 'merge' | 'squash' | 'rebase'
+
+const MERGE_STRATEGIES: readonly PRMergeStrategy[] = ['merge', 'squash', 'rebase']
+
+function validPRNumber(prNumber: number): boolean {
+  return Number.isInteger(prNumber) && prNumber > 0
+}
+
+/** Merge an open PR via the gh CLI. Strategy is whitelisted; gh enforces branch protections. */
+export function mergePullRequest(
+  repoRoot: string,
+  prNumber: number,
+  strategy: PRMergeStrategy,
+  deleteBranch: boolean,
+): ResultAsync<void, TaskTrackerError> {
+  if (!validPRNumber(prNumber)) return errAsync(prErr('Invalid PR number'))
+  if (!MERGE_STRATEGIES.includes(strategy)) return errAsync(prErr('Invalid merge strategy'))
+  const args = ['pr', 'merge', String(prNumber), `--${strategy}`]
+  if (deleteBranch) args.push('--delete-branch')
+  return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
+    prErr(errorMessage(e)),
+  ).map(() => undefined)
+}
+
+/** Close an open PR without merging. */
+export function closePullRequest(
+  repoRoot: string,
+  prNumber: number,
+  deleteBranch: boolean,
+): ResultAsync<void, TaskTrackerError> {
+  if (!validPRNumber(prNumber)) return errAsync(prErr('Invalid PR number'))
+  const args = ['pr', 'close', String(prNumber)]
+  if (deleteBranch) args.push('--delete-branch')
+  return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
+    prErr(errorMessage(e)),
+  ).map(() => undefined)
+}
+
+/**
+ * Does the branch still exist on the remote? 404 → false; any other failure (network, auth) →
+ * true, so the delete action stays available and its own error surfaces the real problem.
+ */
+export function remoteBranchExists(
+  repoRoot: string,
+  branch: string,
+): ResultAsync<boolean, TaskTrackerError> {
+  if (typeof branch !== 'string' || branch.trim() === '' || branch.startsWith('-')) {
+    return okAsync(false)
+  }
+  return fromExternalCall(
+    execFileAsync('gh', ['api', `repos/{owner}/{repo}/branches/${branch.trim()}`], {
+      cwd: repoRoot,
+      maxBuffer: 1024 * 1024,
+    }),
+    (e) => prErr(errorMessage(e)),
+  )
+    .map(() => true)
+    .orElse((e) => okAsync(!/HTTP 404|Not Found/i.test('reason' in e ? String(e.reason) : '')))
+}
+
+/** Delete the remote head branch of a merged/closed PR ({owner}/{repo} resolved by gh from cwd). */
+export function deleteRemoteBranch(
+  repoRoot: string,
+  branch: string,
+): ResultAsync<void, TaskTrackerError> {
+  if (typeof branch !== 'string' || branch.trim() === '' || branch.startsWith('-')) {
+    return errAsync(prErr('Invalid branch name'))
+  }
+  return fromExternalCall(
+    execFileAsync(
+      'gh',
+      ['api', '-X', 'DELETE', `repos/{owner}/{repo}/git/refs/heads/${branch.trim()}`],
+      { cwd: repoRoot },
+    ),
+    (e) => prErr(errorMessage(e)),
+  ).map(() => undefined)
 }
 
 export function buildPRConfig(

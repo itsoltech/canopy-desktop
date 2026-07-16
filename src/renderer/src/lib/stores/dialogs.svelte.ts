@@ -49,6 +49,9 @@ interface PreferencesState {
 interface TaskPickerState {
   type: 'taskPicker'
   connectionId: string
+  /** 'browse' (default) → picking a task opens branch creation; 'link' → picking a task links it
+   *  to the current worktree (activeTask) without creating anything. */
+  mode?: 'browse' | 'link'
 }
 
 interface ProjectTrackerState {
@@ -105,6 +108,19 @@ interface CrashReportState {
   data: CrashReportData
 }
 
+interface PRDetailsState {
+  type: 'prDetails'
+  repoRoot: string
+  branch: string
+}
+
+interface CreateTaskPRState {
+  type: 'createTaskPR'
+  repoRoot: string
+  branch: string
+  task: { taskKey: string; summary: string; connectionId?: string; boardId?: string }
+}
+
 interface NoneState {
   type: 'none'
 }
@@ -116,6 +132,8 @@ type DialogState =
   | PreferencesState
   | TaskPickerState
   | ProjectTrackerState
+  | PRDetailsState
+  | CreateTaskPRState
   | AboutState
   | ChangelogState
   | OnboardingWizardState
@@ -187,12 +205,26 @@ export function showPreferences(section?: string): void {
   dialogState.current = { type: 'preferences', section }
 }
 
-export function showTaskPicker(connectionId: string): void {
-  dialogState.current = { type: 'taskPicker', connectionId }
+export function showTaskPicker(connectionId: string, mode: 'browse' | 'link' = 'browse'): void {
+  dialogState.current = { type: 'taskPicker', connectionId, mode }
 }
 
 export function showProjectTracker(): void {
   dialogState.current = { type: 'projectTracker' }
+}
+
+/** Native PR panel — details fetched via the authenticated gh CLI, no browser login needed. */
+export function showPRDetails(repoRoot: string, branch: string): void {
+  dialogState.current = { type: 'prDetails', repoRoot, branch }
+}
+
+/** Native create-PR form: template-rendered title/body editable before anything is created. */
+export function showCreateTaskPR(
+  repoRoot: string,
+  branch: string,
+  task: { taskKey: string; summary: string; connectionId?: string; boardId?: string },
+): void {
+  dialogState.current = { type: 'createTaskPR', repoRoot, branch, task }
 }
 
 export function showAbout(): void {

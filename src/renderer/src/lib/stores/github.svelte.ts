@@ -4,6 +4,9 @@ import { addToast } from './toast.svelte'
 let branchPRs: GitHubBranchPRMap = $state({})
 let repoInfo: GitHubRepoInfo | null = $state(null)
 let loading = $state(false)
+// Bumped on every loadBranchPRs call so gh-CLI fallbacks (no GitHub API integration) can
+// re-check after a PR is created/mutated — the branchPRs map alone never changes for them.
+let refreshTick = $state(0)
 const lastFetchByRepo: Record<string, number> = {}
 
 const DEBOUNCE_MS = 30_000
@@ -24,7 +27,12 @@ export function isGitHubLoading(): boolean {
   return loading
 }
 
+export function getPRRefreshTick(): number {
+  return refreshTick
+}
+
 export async function loadBranchPRs(repoRoot: string, force = false): Promise<void> {
+  refreshTick += 1
   const now = Date.now()
   const lastFetch = lastFetchByRepo[repoRoot] ?? 0
   if (!force && now - lastFetch < DEBOUNCE_MS) return

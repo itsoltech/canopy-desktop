@@ -15,6 +15,8 @@
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
+  import PRDetailsModal from '../github/PRDetailsModal.svelte'
+  import CreateTaskPRModal from '../github/CreateTaskPRModal.svelte'
   import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
@@ -582,7 +584,18 @@
 {:else if dialogState.current.type === 'preferences'}
   <PreferencesModal section={dialogState.current.section} />
 {:else if dialogState.current.type === 'taskPicker'}
-  <TaskPickerModal connectionId={dialogState.current.connectionId} />
+  <TaskPickerModal
+    connectionId={dialogState.current.connectionId}
+    mode={dialogState.current.mode ?? 'browse'}
+  />
+{:else if dialogState.current.type === 'prDetails'}
+  <PRDetailsModal repoRoot={dialogState.current.repoRoot} branch={dialogState.current.branch} />
+{:else if dialogState.current.type === 'createTaskPR'}
+  <CreateTaskPRModal
+    repoRoot={dialogState.current.repoRoot}
+    branch={dialogState.current.branch}
+    task={dialogState.current.task}
+  />
 {:else if dialogState.current.type === 'projectTracker'}
   <ProjectTrackerModal />
 {:else if dialogState.current.type === 'about'}

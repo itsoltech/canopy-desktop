@@ -54,6 +54,7 @@ import type {
   TrackerTask,
   RepoConfig,
   ResolvedConfig,
+  PRTemplateConfig,
 } from '../taskTracker/types'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
@@ -76,7 +77,15 @@ import {
   sanitizeBranchName,
   BRANCH_TYPE_OPTIONS,
 } from '../taskTracker/branchTemplate'
-import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
+import {
+  createPullRequest,
+  buildPRConfig,
+  preparePullRequest,
+  mergePullRequest,
+  closePullRequest,
+  deleteRemoteBranch,
+  remoteBranchExists,
+} from '../taskTracker/prCreation'
 import {
   formatTaskContext,
   type TaskAttachmentPath,
@@ -3860,6 +3869,114 @@ export function registerIpcHandlers(
     },
   )
 
+  // Shared by taskTracker:preparePR and taskTracker:createPR: resolve the effective PR template
+  // for the repo/board and the branch list used by target rules.
+  async function resolvePRContext(
+    resolvedRepo: string,
+    task: TrackerTask,
+    boardId?: string,
+  ): Promise<{
+    task: TrackerTask
+    prConfig: PRTemplateConfig
+    existingBranches: string[]
+    localBranches: string[]
+    remoteBranches: string[]
+  }> {
+    const resolved = await resolveEffectiveConfig(resolvedRepo)
+
+    let fullTask = task
+    if (fullTask.key && !fullTask.summary && resolved) {
+      const found = await taskTrackerManager
+        .findTaskByKeyFromConfig(resolved.config, fullTask.key, undefined, resolvedRepo)
+        .unwrapOr(null)
+      if (found) fullTask = found
+    }
+    // Template rendering calls string methods on these — never let them be undefined.
+    fullTask = {
+      ...fullTask,
+      summary: fullTask.summary || fullTask.key,
+      description: fullTask.description ?? '',
+      status: fullTask.status ?? '',
+      priority: fullTask.priority ?? '',
+      type: fullTask.type || 'task',
+    }
+    const prTpl = resolved
+      ? getPRTemplate(resolved.config, boardId)
+      : {
+          titleTemplate: '[{taskKey}] {taskTitle}',
+          bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
+          defaultTargetBranch: 'develop',
+          targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
+        }
+
+    const branchResult = await GitRepository.listBranches(resolvedRepo)
+    const branches = unwrapOrThrow(branchResult, gitErrorMessage)
+    const existingBranches = [...branches.local, ...branches.remote]
+
+    const prConfig = buildPRConfig(
+      prTpl.titleTemplate,
+      prTpl.bodyTemplate,
+      prTpl.defaultTargetBranch || 'develop',
+      prTpl.targetRules,
+    )
+    return {
+      task: fullTask,
+      prConfig,
+      existingBranches,
+      localBranches: branches.local,
+      remoteBranches: branches.remote,
+    }
+  }
+
+  // Rendered PR pieces WITHOUT creating anything — feeds the native create-PR form.
+  ipcMain.handle(
+    'taskTracker:preparePR',
+    async (event, payload: { repoRoot: string; task: TrackerTask; boardId?: string }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const ctx = await resolvePRContext(resolvedRepo, payload.task, payload.boardId)
+      const prepared = preparePullRequest(ctx.task, ctx.prConfig, ctx.existingBranches)
+
+      // Candidate target branches for the form's selector: local names + remote names with the
+      // remote prefix stripped, deduped and sorted.
+      const branchSet = new Set<string>(ctx.localBranches)
+      for (const b of ctx.remoteBranches) {
+        branchSet.add(b.replace(/^[^/]+\//, ''))
+      }
+      const branches = [...branchSet].sort((a, b) => a.localeCompare(b))
+
+      // Repo slug, assignable users (reviewer/assignee search) and the authenticated login
+      // (default assignee) — each optional: no gh / not a GitHub repo just degrades the form.
+      const gh = async (args: string[]): Promise<string> => {
+        try {
+          const { stdout } = await execFileAsync('gh', args, {
+            cwd: resolvedRepo,
+            maxBuffer: 1024 * 1024,
+          })
+          return stdout.trim()
+        } catch {
+          return ''
+        }
+      }
+      const [repoSlug, usersRaw, viewer] = await Promise.all([
+        gh(['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']),
+        gh(['api', 'repos/{owner}/{repo}/assignees?per_page=100', '--jq', '.[].login']),
+        gh(['api', 'user', '--jq', '.login']),
+      ])
+      const users = usersRaw.split('\n').filter(Boolean)
+
+      return {
+        ...prepared,
+        repo: repoSlug,
+        task: ctx.task,
+        branches,
+        users,
+        viewer,
+        // Surfaced so the form can explain WHERE the pre-filled title comes from.
+        titleTemplate: ctx.prConfig.titleTemplate,
+      }
+    },
+  )
+
   ipcMain.handle(
     'taskTracker:createPR',
     async (
@@ -3870,44 +3987,44 @@ export function registerIpcHandlers(
         sourceBranch: string
         connectionId?: string
         boardId?: string
+        overrides?: {
+          title?: string
+          body?: string
+          targetBranch?: string
+          reviewers?: string[]
+          assignees?: string[]
+        }
       },
     ) => {
       // The renderer is untrusted: confine repoRoot to a path this window owns
       // before reading tracker config, listing branches, pushing, or opening a
       // PR from it. Mirrors taskTracker:findPR, git:createPR and github:createPR.
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      let task = payload.task
-      if (task.key && !task.summary) {
-        const found = await taskTrackerManager.findTaskByKey(task.key)
-        if (found) task = found
-      }
+      const ctx = await resolvePRContext(resolvedRepo, payload.task, payload.boardId)
 
-      const resolved = await resolveEffectiveConfig(resolvedRepo)
-      const prTpl = resolved
-        ? getPRTemplate(resolved.config, payload.boardId)
-        : {
-            titleTemplate: '[{taskKey}] {taskTitle}',
-            bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-            defaultTargetBranch: 'develop',
-            targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
+      // Normalize renderer-provided overrides: strings only, login lists capped.
+      const o = payload.overrides
+      const loginList = (v: unknown): string[] | undefined =>
+        Array.isArray(v)
+          ? v.filter((r): r is string => typeof r === 'string').slice(0, 15)
+          : undefined
+      const overrides = o
+        ? {
+            title: typeof o.title === 'string' ? o.title : undefined,
+            body: typeof o.body === 'string' ? o.body : undefined,
+            targetBranch: typeof o.targetBranch === 'string' ? o.targetBranch : undefined,
+            reviewers: loginList(o.reviewers),
+            assignees: loginList(o.assignees),
           }
+        : undefined
 
-      const branchResult = await GitRepository.listBranches(resolvedRepo)
-      const branches = unwrapOrThrow(branchResult, gitErrorMessage)
-      const existingBranches = [...branches.local, ...branches.remote]
-
-      const prConfig = buildPRConfig(
-        prTpl.titleTemplate,
-        prTpl.bodyTemplate,
-        prTpl.defaultTargetBranch || 'develop',
-        prTpl.targetRules,
-      )
       const result = await createPullRequest({
         repoRoot: resolvedRepo,
-        task,
+        task: ctx.task,
         sourceBranch: payload.sourceBranch,
-        prConfig,
-        existingBranches,
+        prConfig: ctx.prConfig,
+        existingBranches: ctx.existingBranches,
+        overrides,
       })
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3928,6 +4045,142 @@ export function registerIpcHandlers(
         return stdout.trim() || null
       } catch {
         return null
+      }
+    },
+  )
+
+  // Full PR details for the native in-app PR panel — fetched via the authenticated gh CLI, so
+  // no separate login is needed (the embedded browser has no GitHub session).
+  ipcMain.handle(
+    'taskTracker:prDetails',
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      // Reject leading-`-` branch names so they can't be consumed as gh flags.
+      if (typeof payload.branch !== 'string' || payload.branch.startsWith('-')) return null
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      try {
+        const { stdout } = await execFileAsync(
+          'gh',
+          [
+            'pr',
+            'view',
+            payload.branch,
+            '--json',
+            'number,title,state,url,body,baseRefName,headRefName,isDraft,reviewDecision,author,createdAt,additions,deletions,changedFiles,statusCheckRollup,mergedAt,closedAt,mergedBy,mergeable,mergeStateStatus,assignees,reviewRequests,latestReviews',
+          ],
+          { cwd: resolvedRepo, maxBuffer: 4 * 1024 * 1024 },
+        )
+        return JSON.parse(stdout)
+      } catch {
+        return null
+      }
+    },
+  )
+
+  // --- PR mutations (native PR panel) — all gated by gh's own permissions/branch protections ---
+
+  ipcMain.handle(
+    'taskTracker:prMerge',
+    async (
+      event,
+      payload: {
+        repoRoot: string
+        prNumber: number
+        strategy: 'merge' | 'squash' | 'rebase'
+        deleteBranch?: boolean
+      },
+    ) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await mergePullRequest(
+        resolvedRepo,
+        payload.prNumber,
+        payload.strategy,
+        payload.deleteBranch === true,
+      )
+      unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:prClose',
+    async (event, payload: { repoRoot: string; prNumber: number; deleteBranch?: boolean }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await closePullRequest(
+        resolvedRepo,
+        payload.prNumber,
+        payload.deleteBranch === true,
+      )
+      unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:prDeleteBranch',
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await deleteRemoteBranch(resolvedRepo, payload.branch)
+      unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:remoteBranchExists',
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await remoteBranchExists(resolvedRepo, payload.branch)
+      return result.unwrapOr(false)
+    },
+  )
+
+  // Persist a user-provided image (compose box in the Task panel) to a temp file so the agent
+  // can read it by path — clipboard + Ctrl+V delivery proved unreliable across terminals.
+  ipcMain.handle('taskTracker:saveAgentImage', async (_event, payload: { bytes: ArrayBuffer }) => {
+    const bytes = payload?.bytes
+    if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0) throw new Error('Invalid image')
+    if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('Image too large (max 20 MB)')
+    const dir = path.join(os.tmpdir(), 'canopy-agent-images')
+    await fs.promises.mkdir(dir, { recursive: true })
+    const filePath = path.join(dir, `image-${Date.now()}.png`)
+    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)))
+    return filePath
+  })
+
+  // Inline thumbnail for an image attachment: download via the tracker connection, return the
+  // bytes as a data: URL (the renderer CSP allows img-src data:), then drop the temp file.
+  ipcMain.handle(
+    'taskTracker:attachmentPreview',
+    async (
+      _event,
+      payload: {
+        repoRoot?: string
+        trackerId?: string
+        url: string
+        filename: string
+        mimeType?: string
+      },
+    ) => {
+      if (!payload.url || !/^https?:\/\//.test(payload.url)) throw new Error('Invalid URL')
+      if (!payload.filename || /[\0/\\]/.test(payload.filename)) throw new Error('Invalid filename')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.downloadAttachmentFromConfig(
+        resolved.config,
+        payload.url,
+        payload.filename,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      const localPath = unwrapOrThrow(result, taskTrackerErrorMessage)
+      try {
+        const stat = await fs.promises.stat(localPath)
+        if (stat.size > 8 * 1024 * 1024) throw new Error('Attachment too large to preview')
+        const buf = await fs.promises.readFile(localPath)
+        const mime =
+          typeof payload.mimeType === 'string' && /^image\/[\w.+-]+$/.test(payload.mimeType)
+            ? payload.mimeType
+            : 'image/png'
+        return `data:${mime};base64,${buf.toString('base64')}`
+      } finally {
+        taskTrackerManager.cleanupAttachmentDir(localPath)
       }
     },
   )

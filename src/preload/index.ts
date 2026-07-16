@@ -1481,6 +1481,13 @@ const api = {
     sourceBranch: string,
     connectionId?: string,
     boardId?: string,
+    overrides?: {
+      title?: string
+      body?: string
+      targetBranch?: string
+      reviewers?: string[]
+      assignees?: string[]
+    },
   ) =>
     ipcRenderer.invoke('taskTracker:createPR', {
       repoRoot,
@@ -1488,10 +1495,88 @@ const api = {
       sourceBranch,
       connectionId,
       boardId,
+      overrides,
     }),
+
+  taskTrackerPreparePR: (
+    repoRoot: string,
+    task: { key: string; [k: string]: unknown },
+    boardId?: string,
+  ) => ipcRenderer.invoke('taskTracker:preparePR', { repoRoot, task, boardId }),
 
   taskTrackerFindPR: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,
+
+  taskTrackerPRDetails: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:prDetails', { repoRoot, branch }) as Promise<{
+      number: number
+      title: string
+      state: string
+      url: string
+      body: string
+      baseRefName: string
+      headRefName: string
+      isDraft: boolean
+      reviewDecision: string | null
+      author?: { login?: string; name?: string }
+      createdAt?: string
+      additions?: number
+      deletions?: number
+      changedFiles?: number
+      statusCheckRollup?: Array<{ status?: string; conclusion?: string; state?: string }>
+      mergedAt?: string | null
+      closedAt?: string | null
+      mergedBy?: { login?: string; name?: string } | null
+      mergeable?: string
+      mergeStateStatus?: string
+      assignees?: Array<{ login?: string; name?: string }>
+      reviewRequests?: Array<{ login?: string; name?: string; slug?: string }>
+      latestReviews?: Array<{ author?: { login?: string }; state?: string }>
+    } | null>,
+
+  taskTrackerPRMerge: (
+    repoRoot: string,
+    prNumber: number,
+    strategy: 'merge' | 'squash' | 'rebase',
+    deleteBranch?: boolean,
+  ) =>
+    ipcRenderer.invoke('taskTracker:prMerge', {
+      repoRoot,
+      prNumber,
+      strategy,
+      deleteBranch,
+    }) as Promise<void>,
+
+  taskTrackerPRClose: (repoRoot: string, prNumber: number, deleteBranch?: boolean) =>
+    ipcRenderer.invoke('taskTracker:prClose', {
+      repoRoot,
+      prNumber,
+      deleteBranch,
+    }) as Promise<void>,
+
+  taskTrackerPRDeleteBranch: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:prDeleteBranch', { repoRoot, branch }) as Promise<void>,
+
+  taskTrackerRemoteBranchExists: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:remoteBranchExists', { repoRoot, branch }) as Promise<boolean>,
+
+  taskTrackerSaveAgentImage: (bytes: ArrayBuffer) =>
+    ipcRenderer.invoke('taskTracker:saveAgentImage', { bytes }) as Promise<string>,
+
+  trackerConfigAttachmentPreview: (
+    repoRoot: string | undefined,
+    url: string,
+    filename: string,
+    mimeType?: string,
+    trackerId?: string,
+  ) =>
+    ipcRenderer.invoke('taskTracker:attachmentPreview', {
+      repoRoot,
+      url,
+      filename,
+      mimeType,
+      trackerId,
+    }) as Promise<string>,
 
   // GitHub PR features
   githubFetchBranchPRs: (repoRoot: string) =>

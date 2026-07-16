@@ -1125,9 +1125,79 @@ interface CanopyAPI {
     sourceBranch: string,
     connectionId?: string,
     boardId?: string,
+    overrides?: {
+      title?: string
+      body?: string
+      targetBranch?: string
+      reviewers?: string[]
+      assignees?: string[]
+    },
   ) => Promise<{ url: string; title: string; targetBranch: string }>
 
+  taskTrackerPreparePR: (
+    repoRoot: string,
+    task: { key: string; [k: string]: unknown },
+    boardId?: string,
+  ) => Promise<{
+    title: string
+    body: string
+    targetBranch: string
+    repo: string
+    task: TrackerTask
+    branches: string[]
+    users: string[]
+    viewer: string
+    titleTemplate: string
+  }>
+
   taskTrackerFindPR: (repoRoot: string, branch: string) => Promise<string | null>
+
+  taskTrackerPRDetails: (
+    repoRoot: string,
+    branch: string,
+  ) => Promise<{
+    number: number
+    title: string
+    state: string
+    url: string
+    body: string
+    baseRefName: string
+    headRefName: string
+    isDraft: boolean
+    reviewDecision: string | null
+    author?: { login?: string; name?: string }
+    createdAt?: string
+    additions?: number
+    deletions?: number
+    changedFiles?: number
+    statusCheckRollup?: Array<{ status?: string; conclusion?: string; state?: string }>
+    mergedAt?: string | null
+    closedAt?: string | null
+    mergedBy?: { login?: string; name?: string } | null
+    mergeable?: string
+    mergeStateStatus?: string
+    assignees?: Array<{ login?: string; name?: string }>
+    reviewRequests?: Array<{ login?: string; name?: string; slug?: string }>
+    latestReviews?: Array<{ author?: { login?: string }; state?: string }>
+  } | null>
+
+  taskTrackerPRMerge: (
+    repoRoot: string,
+    prNumber: number,
+    strategy: 'merge' | 'squash' | 'rebase',
+    deleteBranch?: boolean,
+  ) => Promise<void>
+  taskTrackerPRClose: (repoRoot: string, prNumber: number, deleteBranch?: boolean) => Promise<void>
+  taskTrackerPRDeleteBranch: (repoRoot: string, branch: string) => Promise<void>
+  taskTrackerRemoteBranchExists: (repoRoot: string, branch: string) => Promise<boolean>
+  taskTrackerSaveAgentImage: (bytes: ArrayBuffer) => Promise<string>
+  trackerConfigAttachmentPreview: (
+    repoRoot: string | undefined,
+    url: string,
+    filename: string,
+    mimeType?: string,
+    trackerId?: string,
+  ) => Promise<string>
 
   // GitHub PR features
   githubFetchBranchPRs: (repoRoot: string) => Promise<GitHubBranchPRMap>
@@ -1321,6 +1391,8 @@ interface ResolvedConfig {
   }
   hasGlobal: boolean
   hasRepo: boolean
+  /** Trackers declared by the repo's own config — merged trackers outside this list are personal. */
+  repoTrackerIds: string[]
 }
 
 interface TaskTrackerConnectionInfo {
@@ -1392,6 +1464,7 @@ interface TrackerBoard {
 interface TrackerStatus {
   id: string
   name: string
+  statusCategory?: 'todo' | 'in-progress' | 'done'
 }
 
 interface TrackerTransitionField {
