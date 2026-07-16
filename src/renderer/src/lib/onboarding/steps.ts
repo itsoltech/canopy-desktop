@@ -194,6 +194,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.13.0',
     category: 'feature',
   },
+  {
+    id: 'task-tracker-panel',
+    title: 'Work with tracker tasks and PRs in place',
+    description:
+      'The sidebar Project Management section links tracker tasks to worktrees and shows the branch pull request. The right panel gains a Task tab: change status, read and add comments, preview attachments, and send the task or a comment — with your own notes or an image — to the active agent. Create and inspect GitHub PRs without leaving Canopy.',
+    introducedIn: '0.13.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

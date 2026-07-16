@@ -115,7 +115,7 @@ Templates use `{placeholder}` syntax. Built-in placeholders:
 | `{sprintName}` | Sprint name                            | `Sprint 10`     |
 | `{boardKey}`   | Board/project key (prefix of task key) | `GAKKO`         |
 
-Conditional sections use `{?varName}content{/varName}` - the content is included only when the variable has a value.
+Legacy conditional markers (`{?varName}`/`{/varName}`) are stripped during rendering and their inner content is treated as normal text. Instead, a placeholder with no value renders to nothing **and removes its immediately preceding separator** (`/`, `-` or `_`), so empty fields never leave a dangling separator; duplicate slashes are then collapsed and leading/trailing separators trimmed.
 
 Templates must contain `{taskKey}`. The slugify function lowercases, strips non-alphanumeric characters, replaces spaces with hyphens, and caps at 50 characters. The result is sanitized as a valid Git branch name (no `..`, `~`, `^`, `:`, `?`, `*`, `[`, `]`, `\`, `@`, `#`, `{`, `}`, spaces).
 
@@ -123,11 +123,11 @@ Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`.
 
 ### Creating a pull request from a task
 
-1. User triggers PR creation for the current branch/task.
+1. User triggers PR creation for the current branch/task. A native form shows the template-rendered title and description for editing, a target-branch select, a reviewer search picker, and an assignee field defaulting to the authenticated `gh` user.
 2. Canopy pushes the current branch to the remote (failure is non-fatal).
 3. Canopy checks that the GitHub CLI (`gh`) is installed. If not, the operation fails with a `PRCreationFailed` error.
-4. Canopy checks for an existing PR on the branch using `gh pr view`. If one exists, its URL is returned without creating a duplicate.
-5. If no existing PR, Canopy runs `gh pr create` with the rendered title, body, base branch, head branch, and `--assignee @me`.
+4. Canopy checks for an existing **open** PR on the branch using `gh pr list --state open --head`. If one exists, its URL is returned without creating a duplicate; merged/closed PRs do not block a new one.
+5. If no open PR exists, Canopy runs `gh pr create` with the (possibly user-edited) title, body, base branch, head branch, `--assignee` (the form's assignee, `@me` by default) and any `--reviewer` entries.
 6. PR title and body are rendered from the `prTemplate` config using `{taskKey}`, `{taskTitle}`, `{taskType}`, `{parentKey}`, `{boardKey}`, `{taskUrl}`, and `{taskDescription}` placeholders.
 7. The target branch is resolved from `targetRules`: if a rule matches the task's type, the rule's `targetPattern` is used (with placeholder substitution and optional lookup against existing branches). Otherwise, `defaultTargetBranch` is used.
 8. The source branch and resolved target branch are rejected if they start with `-`, so renderer-provided branch names or repository PR config cannot be interpreted as `gh` CLI flags.

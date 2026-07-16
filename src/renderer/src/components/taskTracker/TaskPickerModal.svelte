@@ -216,13 +216,20 @@
     await fetchTasks()
   }
 
+  // Monotonic token: rapid board switches must not let a slow older response overwrite the
+  // newer list (same pattern as TaskPanel.refresh).
+  let fetchSeq = 0
+
   async function fetchTasks(): Promise<void> {
+    const seq = ++fetchSeq
     loading = true
     error = ''
     try {
-      allTasks = await window.api.trackerConfigFetchTasks(cfgRoot, connectionId, {
+      const fetched = await window.api.trackerConfigFetchTasks(cfgRoot, connectionId, {
         boardId: selectedBoardId || undefined,
       })
+      if (seq !== fetchSeq) return
+      allTasks = fetched
       if (!hasSavedFilters && excludedStatuses.size === 0 && allTasks.length > 0) {
         for (const task of allTasks) {
           if (DONE_STATUS_PATTERN.test(task.status)) {
@@ -232,9 +239,10 @@
         saveFilters()
       }
     } catch (e) {
+      if (seq !== fetchSeq) return
       error = ipcErrorMessage(e, 'Failed to fetch tasks')
     } finally {
-      loading = false
+      if (seq === fetchSeq) loading = false
     }
   }
 
