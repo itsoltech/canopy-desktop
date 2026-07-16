@@ -347,10 +347,24 @@ export class TaskTrackerManager {
 
     const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
-    return fromExternalCall(
-      fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(60_000) }),
-      (e) => dlErr(errorMessage(e)),
-    )
+    // Jira answers attachment-content requests with a 303 redirect to a pre-signed media URL on
+    // ANOTHER origin — follow it manually so the tracker credentials are not forwarded there
+    // (redirect:'error' made every Jira attachment download fail with "fetch failed").
+    const fetchAttachment = async (): Promise<Response> => {
+      const first = await fetch(url, {
+        headers,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(60_000),
+      })
+      if (first.status >= 300 && first.status < 400) {
+        const location = first.headers.get('location')
+        if (!location) throw new Error(`Redirect without Location (HTTP ${first.status})`)
+        return fetch(location, { redirect: 'follow', signal: AbortSignal.timeout(60_000) })
+      }
+      return first
+    }
+
+    return fromExternalCall(fetchAttachment(), (e) => dlErr(errorMessage(e)))
       .andThen((res) => {
         if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
         if (!res.body) return errAsync(dlErr('Empty response body'))

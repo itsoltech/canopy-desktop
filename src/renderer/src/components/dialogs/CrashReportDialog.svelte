@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { TriangleAlert } from '@lucide/svelte'
   import type { CrashReportData } from '../../lib/stores/dialogs.svelte'
+  import { formatDateTime } from '../../lib/formatDate'
 
   let {
     data,
@@ -61,12 +62,7 @@
     }
   }
 
-  const formattedTime = $derived(
-    new Date(data.timestamp).toLocaleString(undefined, {
-      dateStyle: 'medium',
-      timeStyle: 'medium',
-    }),
-  )
+  const formattedTime = $derived(formatDateTime(new Date(data.timestamp).toISOString()))
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
