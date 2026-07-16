@@ -9,11 +9,14 @@
   // file in the repositories. When a specific connection is in context, its provider + URL are named.
   // `sharingNote: false` drops the "all connections … will use those credentials" sentence when the
   // surrounding UI already says it.
+  // `stored: true` switches to present tense — the note then describes credentials that already
+  // exist rather than ones about to be saved.
   let {
     provider,
     baseUrl,
     sharingNote = true,
-  }: { provider?: string; baseUrl?: string; sharingNote?: boolean } = $props()
+    stored = false,
+  }: { provider?: string; baseUrl?: string; sharingNote?: boolean; stored?: boolean } = $props()
 
   let encryptionAvailable = $state(true)
   let checked = $state(false)
@@ -47,9 +50,9 @@
         </span>
       {/if}
       <span>
-        Your credentials will be stored <strong>unencrypted</strong> in Canopy's
-        <strong>local database on this machine</strong> (no OS keyring is available). Credentials are
-        never written in the files within the repositories.
+        Your credentials {stored ? 'are' : 'will be'} stored <strong>unencrypted</strong> in
+        Canopy's <strong>local database on this machine</strong> (no OS keyring is available). Credentials
+        are never written in the files within the repositories.
       </span>
     </div>
   </div>
@@ -68,7 +71,7 @@
         </span>
       {/if}
       <span>
-        Your credentials will be encrypted with {mechanism} and stored in Canopy's
+        Your credentials {stored ? 'are' : 'will be'} encrypted with {mechanism} and stored in Canopy's
         <strong>local database on this machine</strong>. Credentials are never written in the files
         within the repositories.
       </span>

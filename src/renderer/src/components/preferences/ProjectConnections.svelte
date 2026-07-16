@@ -5,6 +5,10 @@
     getRepoConfig,
     getTrackerCredentials,
     loadRepoConfig,
+    getGlobalConfig,
+    loadGlobalConfig,
+    saveGlobalConfig,
+    initGlobalConfig,
   } from '../../lib/stores/taskTracker.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -85,6 +89,31 @@
     }
   }
 
+  /**
+   * Every saved credential is also a personal connection — Settings can then list and manage it
+   * without any project open, and there is no separate "project-only" credential to promote.
+   */
+  async function ensurePersonalConnection(
+    provider: 'jira' | 'youtrack' | 'github',
+    baseUrl: string,
+    projectKey?: string,
+  ): Promise<void> {
+    if (!getGlobalConfig()) await loadGlobalConfig()
+    const cfg = getGlobalConfig() ?? (await initGlobalConfig())
+    const norm = (u: string): string => u.replace(/\/$/, '')
+    if (cfg.trackers.some((t) => t.provider === provider && norm(t.baseUrl) === norm(baseUrl))) {
+      return
+    }
+    const updated = $state.snapshot(cfg) as typeof cfg
+    updated.trackers.push({
+      id: `${provider}-${crypto.randomUUID().slice(0, 8)}`,
+      provider,
+      baseUrl: norm(baseUrl),
+      projectKey: projectKey || undefined,
+    })
+    await saveGlobalConfig(updated)
+  }
+
   // The dialog itself (explicit "Save credentials" button + storage note) is the deliberate step,
   // so there's no extra confirm here.
   async function saveCredentials(): Promise<void> {
@@ -96,6 +125,7 @@
         formToken,
         formUsername || undefined,
       )
+      await ensurePersonalConnection(formProvider, url, formProjectKey || undefined)
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to save credentials')
       return
