@@ -10,9 +10,12 @@ export interface ActiveTaskContext {
 }
 
 /** Task backing the current worktree for the Task panel: the persisted activeTask, or a task
- *  resolved from the branch name (worktrees created outside Canopy). */
+ *  resolved from the branch name (worktrees created outside Canopy). Status fields are filled
+ *  from the tracker during resolution (absent when offline). */
 export interface PanelTaskContext extends ActiveTaskContext {
   source: 'active' | 'branch'
+  status?: string
+  statusCategory?: string
 }
 
 export interface TrackerCredentialState {
@@ -32,7 +35,7 @@ let resolvedConfig: ResolvedConfig | null = $state(null)
 let lastRepoRoot: string | undefined = $state(undefined)
 // Per-tracker credentials: keyed by trackerId
 let trackerCredentials = $state<Record<string, TrackerCredentialState>>({})
-let activeTask: ActiveTaskContext | null = $state(null)
+let activeTasks = $state<ActiveTaskContext[]>([])
 
 export function getTaskTrackerConnections(): TaskTrackerConnectionInfo[] {
   return connections
@@ -184,6 +187,16 @@ export async function initRepoConfig(repoRoot: string): Promise<RepoConfig> {
   return config
 }
 
+// The merged view drops personal trackers that duplicate a repo tracker (same provider + URL),
+// but Settings still lists them under their own ids — refresh credentials for both.
+function allKnownTrackers(resolved: ResolvedConfig | null): TrackerConfig[] {
+  const result: TrackerConfig[] = [...(resolved?.config.trackers ?? [])]
+  for (const t of globalConfig?.trackers ?? []) {
+    if (!result.some((r) => r.id === t.id)) result.push(t)
+  }
+  return result
+}
+
 export async function loadGlobalConfig(): Promise<void> {
   loadCount++
   try {
@@ -193,8 +206,9 @@ export async function loadGlobalConfig(): Promise<void> {
     const resolved = await window.api.trackerResolvedConfig(lastRepoRoot)
     if (resolved) {
       resolvedConfig = resolved
-      await refreshCredentials(resolved.config.trackers)
-      void verifyCredentials(resolved.config.trackers, lastRepoRoot)
+      const trackers = allKnownTrackers(resolved)
+      await refreshCredentials(trackers)
+      void verifyCredentials(trackers, lastRepoRoot)
     } else if (globalConfig) {
       await refreshCredentials(globalConfig.trackers)
     }
@@ -211,8 +225,7 @@ export async function saveGlobalConfig(config: RepoConfig): Promise<void> {
   globalConfig = plain
   // Re-resolve merged config so sidebar reflects the change
   resolvedConfig = await window.api.trackerResolvedConfig(lastRepoRoot)
-  const allTrackers = resolvedConfig?.config.trackers ?? plain.trackers
-  await refreshCredentials(allTrackers)
+  await refreshCredentials(allKnownTrackers(resolvedConfig))
 }
 
 export async function initGlobalConfig(): Promise<RepoConfig> {
@@ -227,7 +240,7 @@ export async function initGlobalConfig(): Promise<RepoConfig> {
   return config
 }
 
-// --- Active Task ---
+// --- Active Tasks (explicitly linked to a worktree, persisted per worktree path) ---
 
 // Worktree paths reach this store with either separator (main returns backslashes on Windows, the
 // sidebar uses forward slashes) — normalize so the writer and the reader agree on the pref key.
@@ -235,13 +248,34 @@ function activeTaskKey(worktreePath: string): string {
   return `activeTask.${worktreePath.replace(/\\/g, '/')}`
 }
 
-export function getActiveTask(): ActiveTaskContext | null {
-  return activeTask
+export function getActiveTasks(): ActiveTaskContext[] {
+  return activeTasks
 }
 
+async function persistActiveTasks(worktreePath: string): Promise<void> {
+  await setPref(
+    activeTaskKey(worktreePath),
+    activeTasks.length > 0 ? JSON.stringify(activeTasks) : '',
+  )
+}
+
+/** Replace the linked tasks with a single one — used right after creating a worktree from a task. */
 export async function setActiveTask(worktreePath: string, task: ActiveTaskContext): Promise<void> {
-  activeTask = task
-  await setPref(activeTaskKey(worktreePath), JSON.stringify(task))
+  activeTasks = [task]
+  await persistActiveTasks(worktreePath)
+}
+
+/** Link an additional task to the worktree (no-op when already linked). */
+export async function addActiveTask(worktreePath: string, task: ActiveTaskContext): Promise<void> {
+  if (!activeTasks.some((t) => t.taskKey === task.taskKey)) {
+    activeTasks = [...activeTasks, task]
+  }
+  await persistActiveTasks(worktreePath)
+}
+
+export async function removeActiveTask(worktreePath: string, taskKey: string): Promise<void> {
+  activeTasks = activeTasks.filter((t) => t.taskKey !== taskKey)
+  await persistActiveTasks(worktreePath)
 }
 
 export async function loadActiveTask(
@@ -252,18 +286,20 @@ export async function loadActiveTask(
   if (options.shouldApply && !options.shouldApply()) return
   if (raw) {
     try {
-      activeTask = JSON.parse(raw) as ActiveTaskContext
+      const parsed = JSON.parse(raw) as ActiveTaskContext | ActiveTaskContext[]
+      // Legacy prefs stored a single object; the store now keeps a list.
+      activeTasks = Array.isArray(parsed) ? parsed : [parsed]
     } catch {
-      activeTask = null
+      activeTasks = []
     }
   } else {
-    activeTask = null
+    activeTasks = []
   }
 }
 
 export async function clearActiveTask(worktreePath: string): Promise<void> {
-  activeTask = null
-  await setPref(activeTaskKey(worktreePath), '')
+  activeTasks = []
+  await persistActiveTasks(worktreePath)
 }
 
 // --- Panel tasks (worktree → task resolution for the Task inspector tab) ---
@@ -310,8 +346,11 @@ export async function resolvePanelTask(
   const normPath = worktreePath.replace(/\\/g, '/')
   const trackerId = resolvedConfig?.config.trackers[0]?.id ?? ''
 
-  const keys = branch ? extractTaskKeys(branch) : []
-  if (activeTask && !keys.includes(activeTask.taskKey)) keys.unshift(activeTask.taskKey)
+  const branchKeys = branch ? extractTaskKeys(branch) : []
+  const keys = [
+    ...activeTasks.map((t) => t.taskKey).filter((k) => !branchKeys.includes(k)),
+    ...branchKeys,
+  ]
 
   if (keys.length === 0) {
     if (apply()) {
@@ -324,20 +363,29 @@ export async function resolvePanelTask(
 
   const contexts = await Promise.all(
     keys.map(async (key): Promise<PanelTaskContext | null> => {
-      if (activeTask?.taskKey === key) return { ...activeTask, source: 'active' }
+      // Persisted linked-task contexts survive tracker failures; branch-derived keys fall
+      // back to a bare-key context. Both are hydrated with the live status when reachable.
+      const storedTask = activeTasks.find((t) => t.taskKey === key)
+      const stored: PanelTaskContext | null = storedTask
+        ? { ...storedTask, source: 'active' }
+        : null
       try {
         const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key)
-        // The tracker answered and doesn't know this key — a false match, drop it.
-        if (!task) return null
+        // The tracker answered and doesn't know this key — a false match, drop it (unless it is
+        // the explicitly linked task, which we keep as stored).
+        if (!task) return stored
         return {
           taskKey: task.key,
           summary: task.summary,
-          connectionId: trackerId,
-          source: 'branch',
+          connectionId: stored?.connectionId || trackerId,
+          boardId: stored?.boardId,
+          source: stored ? 'active' : 'branch',
+          status: task.status,
+          statusCategory: task.statusCategory,
         }
       } catch {
         // Offline / expired credentials: keep the bare key so the panel can still render it.
-        return { taskKey: key, summary: '', connectionId: trackerId, source: 'branch' }
+        return stored ?? { taskKey: key, summary: '', connectionId: trackerId, source: 'branch' }
       }
     }),
   )

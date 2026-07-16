@@ -15,7 +15,43 @@ export const DONE_STATUS_PATTERN =
   /^(done|closed|resolved|cancelled|rejected|complete|gotowe|zamkni)/i
 
 /** Bucket for tasks without a sprint so they can be filtered like any other sprint value. */
-export const NO_SPRINT = '(no sprint)'
+export const NO_SPRINT = '(backlog)'
+/** The bucket's previous label — mapped on read so saved filters keep working. */
+const LEGACY_NO_SPRINT = '(no sprint)'
+
+/** Sort order for status chips: workflow direction (to-do → in progress → done), then the
+ *  tracker's own configured order within a category, then alphabetically. */
+const CATEGORY_RANK: Record<string, number> = { todo: 0, 'in-progress': 1, done: 2 }
+
+export interface StatusMeta {
+  category?: string
+  order: number
+}
+
+/** name → {category, order} from the tracker's configured status list. */
+export function buildStatusMeta(
+  statuses: Array<{ name: string; statusCategory?: string }>,
+): Map<string, StatusMeta> {
+  const meta = new Map<string, StatusMeta>()
+  statuses.forEach((s, i) => {
+    if (!meta.has(s.name)) meta.set(s.name, { category: s.statusCategory, order: i })
+  })
+  return meta
+}
+
+export function sortStatuses(names: string[], meta: Map<string, StatusMeta>): string[] {
+  return [...names].sort((a, b) => {
+    const ma = meta.get(a)
+    const mb = meta.get(b)
+    const ra = CATEGORY_RANK[ma?.category ?? ''] ?? 99
+    const rb = CATEGORY_RANK[mb?.category ?? ''] ?? 99
+    if (ra !== rb) return ra - rb
+    const oa = ma?.order ?? Number.MAX_SAFE_INTEGER
+    const ob = mb?.order ?? Number.MAX_SAFE_INTEGER
+    if (oa !== ob) return oa - ob
+    return a.localeCompare(b)
+  })
+}
 
 function prefKey(connectionId: string, boardId: string): string {
   return `taskTracker.pickerFilters.${connectionId}.${boardId}`
@@ -28,7 +64,11 @@ export function loadSavedTaskFilters(
   const raw = getPref(prefKey(connectionId, boardId))
   if (!raw) return null
   try {
-    return JSON.parse(raw) as SavedTaskFilters
+    const parsed = JSON.parse(raw) as SavedTaskFilters
+    parsed.excludedSprints = parsed.excludedSprints?.map((s) =>
+      s === LEGACY_NO_SPRINT ? NO_SPRINT : s,
+    )
+    return parsed
   } catch {
     return null
   }

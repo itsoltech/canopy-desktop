@@ -19,8 +19,10 @@
   import {
     DONE_STATUS_PATTERN,
     NO_SPRINT,
+    buildStatusMeta,
     loadSavedTaskFilters,
     saveTaskFilters,
+    sortStatuses,
     taskDisplayKey,
   } from '../../lib/taskTracker/taskFilterPrefs'
   import { SvelteSet } from 'svelte/reactivity'
@@ -28,6 +30,7 @@
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { getTheme } from '../../lib/terminal/themes'
   import { safeDirName } from '../../lib/sanitize'
+  import { prStateChip } from '../../lib/github/prState'
   import BranchPicker from './BranchPicker.svelte'
   import { isRemoteOnly } from './utils'
 
@@ -264,7 +267,9 @@
   // Branches already checked out by this project's worktrees — git refuses to check them out
   // twice, so creation is blocked up front.
   let worktreeBranches = $derived.by(() => {
-    const norm = (p: string | null | undefined): string => (p ?? '').replace(/\\/g, '/')
+    // Case-insensitive: Windows paths arrive with mixed drive-letter casing depending on source.
+    const norm = (p: string | null | undefined): string =>
+      (p ?? '').replace(/\\/g, '/').toLowerCase()
     if (norm(repoRoot) !== norm(workspaceState.repoRoot)) return new Set<string>()
     return new Set(workspaceState.worktrees.map((w) => w.branch).filter((b): b is string => !!b))
   })
@@ -329,14 +334,18 @@
     tasksError = ''
     try {
       if (taskBoards.length === 0) {
-        const [boards, userName] = await Promise.all([
+        const [boards, userName, statuses] = await Promise.all([
           window.api
             .trackerConfigFetchBoards(trackerRepoRoot, trackerId)
             .catch(() => [] as Array<{ id: string; name: string }>),
           window.api.trackerConfigGetCurrentUser(trackerRepoRoot, trackerId).catch(() => ''),
+          window.api
+            .trackerConfigFetchStatuses(trackerRepoRoot, trackerId)
+            .catch(() => [] as Array<{ id: string; name: string; statusCategory?: string }>),
         ])
         taskBoards = boards
         currentUserName = userName
+        trackerStatuses = statuses
         const last = getPref(`taskTracker.lastBoard.${trackerId}`)
         taskBoardId = boards.some((b) => b.id === last) ? last : (boards[0]?.id ?? '')
       }
@@ -400,10 +409,24 @@
     persistTaskFilters()
   }
 
+  // Tracker's configured status list — drives chip colors and ordering (same as the task picker).
+  let trackerStatuses = $state<Array<{ id: string; name: string; statusCategory?: string }>>([])
+  let statusMeta = $derived(buildStatusMeta(trackerStatuses))
+  let taskStatusCategories = $derived.by(() => {
+    const cats: Record<string, string | undefined> = {}
+    for (const t of tasks) {
+      if (t.status && !(t.status in cats)) cats[t.status] = t.statusCategory
+    }
+    return cats
+  })
+  function statusCategoryOf(status: string): string | undefined {
+    return statusMeta.get(status)?.category ?? taskStatusCategories[status]
+  }
+
   let availableTaskStatuses = $derived.by(() => {
     const seen = new SvelteSet<string>()
     for (const task of tasks) if (task.status) seen.add(task.status)
-    return Array.from(seen).sort()
+    return sortStatuses(Array.from(seen), statusMeta)
   })
 
   let availableTaskSprints = $derived.by(() => {
@@ -414,7 +437,8 @@
       else hasNoSprint = true
     }
     const sorted = Array.from(seen).sort()
-    return hasNoSprint ? [...sorted, NO_SPRINT] : sorted
+    // The backlog bucket always leads — it is the "not planned yet" home position.
+    return hasNoSprint ? [NO_SPRINT, ...sorted] : sorted
   })
 
   const TASK_DISPLAY_LIMIT = 50
@@ -444,6 +468,33 @@
     await updateTaskBranchPreview()
   }
 
+  // Keyboard navigation for the task list, driven from the search input (like BranchPicker).
+  let taskSelIdx = $state(0)
+  $effect(() => {
+    if (taskSelIdx >= filteredTaskList.length) taskSelIdx = Math.max(0, filteredTaskList.length - 1)
+  })
+
+  function scrollTaskIntoView(): void {
+    requestAnimationFrame(() => {
+      document.querySelector('[data-wt-task-selected="true"]')?.scrollIntoView({ block: 'nearest' })
+    })
+  }
+
+  function handleTaskSearchKeydown(e: KeyboardEvent): void {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      taskSelIdx = Math.min(taskSelIdx + 1, Math.max(0, filteredTaskList.length - 1))
+      scrollTaskIntoView()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      taskSelIdx = Math.max(taskSelIdx - 1, 0)
+      scrollTaskIntoView()
+    } else if (e.key === 'Enter' && filteredTaskList[taskSelIdx]) {
+      e.preventDefault()
+      void pickTask(filteredTaskList[taskSelIdx])
+    }
+  }
+
   async function updateTaskBranchPreview(): Promise<void> {
     if (!selectedTask || taskBranchEdited) return
     try {
@@ -456,6 +507,92 @@
       taskBranchName = result.branchName
     } catch {
       taskBranchName = selectedTask.key
+    }
+  }
+
+  // Branches (local + remote) that already reference the selected task's key — creating another
+  // branch for the same task silently forks the work, so surface them with a checkout option.
+  let taskExistingBranches = $derived.by(() => {
+    if (!selectedTask?.key) return []
+    // Boundary match so GAKKO-74 does not hit GAKKO-743.
+    const re = new RegExp(
+      `(^|[^A-Za-z0-9])${selectedTask.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![0-9])`,
+      'i',
+    )
+    const found: Record<string, { name: string; ref: string; remoteOnly: boolean }> = {}
+    for (const b of branches.local) {
+      if (re.test(b)) found[b] = { name: b, ref: b, remoteOnly: false }
+    }
+    for (const r of branches.remote) {
+      const name = r.slice(r.indexOf('/') + 1)
+      if (re.test(name) && !(name in found)) found[name] = { name, ref: r, remoteOnly: true }
+    }
+    return Object.values(found).slice(0, 5)
+  })
+
+  // PR state chips for those branches, via the gh CLI (best effort).
+  let taskBranchPRs = $state<Record<string, { number: number; state: string; isDraft: boolean }>>(
+    {},
+  )
+  $effect(() => {
+    const list = taskExistingBranches
+    taskBranchPRs = {}
+    if (list.length === 0) return
+    let cancelled = false
+    for (const b of list.slice(0, 3)) {
+      void window.api
+        .taskTrackerPRDetails(trackerRepoRoot, b.name)
+        .then((pr) => {
+          if (!cancelled && pr) {
+            taskBranchPRs = {
+              ...taskBranchPRs,
+              [b.name]: { number: pr.number, state: pr.state, isDraft: pr.isDraft },
+            }
+          }
+        })
+        .catch(() => {})
+    }
+    return () => {
+      cancelled = true
+    }
+  })
+
+  // Check out an existing task branch instead of creating a duplicate — same path as the
+  // "From existing branch" mode, plus the task link.
+  async function checkoutExistingTaskBranch(b: {
+    name: string
+    ref: string
+    remoteOnly: boolean
+  }): Promise<void> {
+    if (!selectedTask || worktreeBranches.has(b.name)) return
+    step = 'creating'
+    try {
+      const baseDir = getPref('worktrees.baseDir', '~/canopy/worktrees')
+      let path = `${baseDir}/${projectName}/${safeDirName(b.name)}`
+      if (path.startsWith('~/')) path = (homedir + path.slice(1)).replace(/\\/g, '/')
+      const created = await window.api.worktreeCreate({
+        repoRoot,
+        worktreePath: path,
+        mode: 'existing',
+        branch: b.remoteOnly ? b.ref : b.name,
+        createLocalTracking: b.remoteOnly,
+      })
+      createdPath = created.worktreePath
+      await setActiveTask(created.worktreePath, {
+        taskKey: selectedTask.key,
+        summary: selectedTask.summary,
+        connectionId: taskModeState.trackerId,
+        boardId: taskBoardId || undefined,
+      })
+      if (hasSetupConfig() && workspaceId) {
+        step = 'setup'
+        await runSetup()
+      } else {
+        finishCreation()
+      }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err)
+      step = 'error'
     }
   }
 
@@ -849,12 +986,11 @@
                     <div class="flex flex-wrap gap-1">
                       {#each availableTaskStatuses as status (status)}
                         <button
-                          class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
-                          class:!bg-accent-bg={!excludedStatuses.has(status)}
-                          class:!border-accent-muted={!excludedStatuses.has(status)}
-                          class:!text-accent-text={!excludedStatuses.has(status)}
-                          class:!opacity-40={excludedStatuses.has(status)}
-                          class:line-through={excludedStatuses.has(status)}
+                          class="px-2 py-0.5 border rounded-xl text-xs font-inherit cursor-pointer transition-colors duration-fast {excludedStatuses.has(
+                            status,
+                          )
+                            ? 'bg-transparent border-border text-text-muted opacity-40 line-through hover:text-text-secondary'
+                            : `border-transparent ${statusChipClass(statusCategoryOf(status))}`}"
                           onclick={() => toggleTaskStatus(status)}
                         >
                           {status}
@@ -892,7 +1028,9 @@
                   type="text"
                   aria-label="Search tasks"
                   bind:value={taskQuery}
-                  placeholder="Search by key or title..."
+                  oninput={() => (taskSelIdx = 0)}
+                  onkeydown={handleTaskSearchKeydown}
+                  placeholder="Search by key or title... (↑↓ + Enter to pick)"
                   spellcheck="false"
                   autocomplete="off"
                 />
@@ -927,13 +1065,16 @@
                         No tasks found
                       </div>
                     {:else}
-                      {#each filteredTaskList as task (task.key)}
+                      {#each filteredTaskList as task, i (task.key)}
                         <!-- svelte-ignore a11y_click_events_have_key_events -->
                         <div
                           class="flex items-center gap-2 px-2.5 py-1.5 text-sm text-text cursor-pointer transition-colors duration-fast hover:bg-active"
+                          class:!bg-active={i === taskSelIdx}
+                          data-wt-task-selected={i === taskSelIdx}
                           role="option"
-                          aria-selected="false"
+                          aria-selected={i === taskSelIdx}
                           onclick={() => pickTask(task)}
+                          onpointerenter={() => (taskSelIdx = i)}
                         >
                           <span class="flex-shrink-0 font-semibold text-accent-text"
                             >{taskDisplayKey(task)}</span
@@ -989,6 +1130,51 @@
                 </div>
                 <p class="m-0 mt-1 text-md text-text leading-snug">{selectedTask.summary}</p>
               </div>
+              {#if taskExistingBranches.length > 0}
+                <!-- The task already has work on a branch — creating a fresh one from the template
+                     would silently fork it (and orphan any open PR). -->
+                <div
+                  class="flex flex-col gap-1.5 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+                >
+                  <span class="text-xs text-text-secondary leading-snug">
+                    This task already has {taskExistingBranches.length === 1
+                      ? 'a branch'
+                      : 'branches'} — check it out instead of creating a duplicate that will diverge:
+                  </span>
+                  {#each taskExistingBranches as b (b.ref)}
+                    {@const pr = taskBranchPRs[b.name]}
+                    {@const checkedOut = worktreeBranches.has(b.name)}
+                    <div class="flex items-center gap-2 min-w-0">
+                      <span class="font-mono text-xs text-text truncate" title={b.ref}
+                        >{b.name}</span
+                      >
+                      {#if b.remoteOnly}
+                        <span
+                          class="px-1.5 py-px rounded-md text-2xs bg-active text-text-muted shrink-0"
+                          >remote</span
+                        >
+                      {/if}
+                      {#if pr}
+                        {@const chip = prStateChip(pr.state, pr.isDraft)}
+                        <span class="px-1.5 py-px rounded-md text-2xs shrink-0 {chip.cls}"
+                          >PR #{pr.number} · {chip.label}</span
+                        >
+                      {/if}
+                      <span class="flex-1"></span>
+                      <button
+                        class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit enabled:cursor-pointer enabled:hover:border-accent-muted enabled:hover:text-accent-text disabled:opacity-50 disabled:cursor-default"
+                        onclick={() => checkoutExistingTaskBranch(b)}
+                        disabled={checkedOut}
+                        title={checkedOut
+                          ? 'Already checked out in an existing worktree'
+                          : `Create the worktree on ${b.name} instead of a new branch`}
+                      >
+                        Check out
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
               <label
                 for="create-wt-task-branch"
                 class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase"

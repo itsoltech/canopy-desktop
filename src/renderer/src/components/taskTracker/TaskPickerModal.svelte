@@ -1,9 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { Search, X, LoaderCircle, Copy, Funnel, Send } from '@lucide/svelte'
+  import { Search, X, LoaderCircle, Copy, Funnel, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { setPref, getPref } from '../../lib/stores/preferences.svelte'
+  import {
+    addActiveTask,
+    getActiveTasks,
+    removeActiveTask,
+    resolvePanelTask,
+  } from '../../lib/stores/taskTracker.svelte'
+  import { extractTaskKeys } from '../../lib/taskTracker/branchTaskKey'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
@@ -24,8 +31,10 @@
   import {
     DONE_STATUS_PATTERN,
     NO_SPRINT,
+    buildStatusMeta,
     loadSavedTaskFilters,
     saveTaskFilters,
+    sortStatuses,
     taskDisplayKey,
   } from '../../lib/taskTracker/taskFilterPrefs'
 
@@ -58,7 +67,8 @@
     })
   }
 
-  let { connectionId }: { connectionId: string } = $props()
+  let { connectionId, mode = 'browse' }: { connectionId: string; mode?: 'browse' | 'link' } =
+    $props()
 
   let allTasks: Task[] = $state([])
   let loading = $state(true)
@@ -69,12 +79,27 @@
   let boards: Board[] = $state([])
   let selectedBoardId = $state('')
 
+  // Tracker's configured status list — drives chip colors and ordering in the filter.
+  let trackerStatuses = $state<Array<{ id: string; name: string; statusCategory?: string }>>([])
+  let statusMeta = $derived(buildStatusMeta(trackerStatuses))
+  // Fallback categories from the loaded tasks (covers statuses missing from the tracker list).
+  let taskStatusCategories = $derived.by(() => {
+    const cats: Record<string, string | undefined> = {}
+    for (const t of allTasks) {
+      if (t.status && !(t.status in cats)) cats[t.status] = t.statusCategory
+    }
+    return cats
+  })
+  function statusCategoryOf(status: string): string | undefined {
+    return statusMeta.get(status)?.category ?? taskStatusCategories[status]
+  }
+
   let availableStatuses: string[] = $derived.by(() => {
     const seen = new SvelteSet<string>()
     for (const task of allTasks) {
       if (task.status) seen.add(task.status)
     }
-    return Array.from(seen).sort()
+    return sortStatuses(Array.from(seen), statusMeta)
   })
   let availableSprints: string[] = $derived.by(() => {
     const seen = new SvelteSet<string>()
@@ -84,7 +109,8 @@
       else hasNoSprint = true
     }
     const sorted = Array.from(seen).sort()
-    return hasNoSprint ? [...sorted, NO_SPRINT] : sorted
+    // The backlog bucket always leads — it is the "not planned yet" home position.
+    return hasNoSprint ? [NO_SPRINT, ...sorted] : sorted
   })
   let excludedStatuses = new SvelteSet<string>()
   let excludedSprints = new SvelteSet<string>()
@@ -147,12 +173,16 @@
   async function loadBoards(): Promise<void> {
     try {
       const repoRoot = cfgRoot
-      const [boardList, userName] = await Promise.all([
+      const [boardList, userName, statuses] = await Promise.all([
         window.api.trackerConfigFetchBoards(repoRoot, connectionId),
         window.api.trackerConfigGetCurrentUser(repoRoot, connectionId).catch(() => ''),
+        window.api
+          .trackerConfigFetchStatuses(repoRoot, connectionId)
+          .catch(() => [] as Array<{ id: string; name: string; statusCategory?: string }>),
       ])
       boards = boardList
       currentUserName = userName
+      trackerStatuses = statuses
       if (boards.length > 0) {
         const lastBoard = getPref(`taskTracker.lastBoard.${connectionId}`)
         selectedBoardId = boards.some((b) => b.id === lastBoard) ? lastBoard : boards[0].id
@@ -270,7 +300,11 @@
       selectedIndex = Math.max(selectedIndex - 1, 0)
       scrollToSelected()
     } else if (e.key === 'Enter' && displayedTasks[selectedIndex]) {
-      selectTask(displayedTasks[selectedIndex])
+      if (mode === 'link') {
+        void linkTask($state.snapshot(displayedTasks[selectedIndex]) as Task)
+      } else {
+        selectTask(displayedTasks[selectedIndex])
+      }
     }
   }
 
@@ -282,7 +316,60 @@
   function selectTask(task: Task): void {
     if (!workspaceState.repoRoot || !workspaceState.branch) return
     clearTaskSendFeedback()
+    if (mode === 'link') {
+      // Linking happens via the row's link button (or Enter) — a row click only highlights.
+      return
+    }
     selectedTask = $state.snapshot(task) as Task
+  }
+
+  // Link mode: attach the task to the CURRENT worktree (persisted linked task) — no branch is
+  // created. The picker stays open so more tasks can be linked in one go.
+  let linking = $state(false)
+  let linkedKeys = $derived(new SvelteSet(getActiveTasks().map((t) => t.taskKey)))
+  // Keys embedded in the branch name are tracked by the branch itself — same rule as the sidebar
+  // tiles: they read as linked and cannot be unlinked.
+  let branchTaskKeys = $derived(
+    new SvelteSet(workspaceState.branch ? extractTaskKeys(workspaceState.branch) : []),
+  )
+
+  async function unlinkTask(task: Task): Promise<void> {
+    const worktreePath = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!worktreePath || linking || branchTaskKeys.has(task.key)) return
+    linking = true
+    try {
+      await removeActiveTask(worktreePath, task.key)
+      await resolvePanelTask(worktreePath, workspaceState.branch)
+    } catch (e) {
+      addToast(ipcErrorMessage(e, 'Failed to unlink task'))
+      return
+    } finally {
+      linking = false
+    }
+    addToast(`${task.key} unlinked from this worktree`)
+  }
+
+  async function linkTask(task: Task): Promise<void> {
+    const worktreePath = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!worktreePath || linking || linkedKeys.has(task.key)) return
+    linking = true
+    try {
+      await addActiveTask(worktreePath, {
+        taskKey: task.key,
+        summary: task.summary,
+        connectionId,
+        boardId: selectedBoardId || undefined,
+      })
+      await resolvePanelTask(worktreePath, workspaceState.branch)
+    } catch (e) {
+      addToast(ipcErrorMessage(e, 'Failed to link task'))
+      return
+    } finally {
+      linking = false
+    }
+    addToast(`${task.key} linked to this worktree`)
+    workspaceState.rightPanelOpen = true
+    workspaceState.rightPanelTab = 'task'
   }
 
   function cancelBranchCreation(): void {
@@ -380,16 +467,18 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+<!-- Close on mousedown (not click): a resize-handle drag that ends outside the dialog synthesizes
+     a click on this overlay (common ancestor of mousedown/mouseup) and would close it. -->
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
-  onclick={closeDialog}
+  onmousedown={closeDialog}
   role="presentation"
 >
   <div
     bind:this={dialogEl}
     class="resize w-[600px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
     use:unlockSizeOnResize
-    onclick={(e) => e.stopPropagation()}
+    onmousedown={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
     aria-label="Task Picker"
@@ -405,7 +494,9 @@
       <div
         class="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-border-subtle"
       >
-        <h3 class="m-0 text-lg font-semibold text-text">Select Task</h3>
+        <h3 class="m-0 text-lg font-semibold text-text">
+          {mode === 'link' ? 'Link task to this worktree' : 'Select Task'}
+        </h3>
         <div class="flex items-center gap-1">
           <button
             class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text-secondary"
@@ -458,12 +549,11 @@
               <div class="flex flex-wrap gap-1">
                 {#each availableStatuses as status (status)}
                   <button
-                    class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
-                    class:!bg-accent-bg={!excludedStatuses.has(status)}
-                    class:!border-accent-muted={!excludedStatuses.has(status)}
-                    class:!text-accent-text={!excludedStatuses.has(status)}
-                    class:!opacity-40={excludedStatuses.has(status)}
-                    class:line-through={excludedStatuses.has(status)}
+                    class="px-2 py-0.5 border rounded-xl text-xs font-inherit cursor-pointer transition-colors duration-fast {excludedStatuses.has(
+                      status,
+                    )
+                      ? 'bg-transparent border-border text-text-muted opacity-40 line-through hover:text-text-secondary'
+                      : `border-transparent ${statusChipClass(statusCategoryOf(status))}`}"
                     onclick={() => toggleStatus(status)}
                   >
                     {status}
@@ -566,7 +656,8 @@
               onkeydown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
-                  selectTask(task)
+                  if (mode === 'link') void linkTask($state.snapshot(task) as Task)
+                  else selectTask(task)
                 }
               }}
               onmouseenter={() => (selectedIndex = i)}
@@ -574,6 +665,14 @@
               <span class="flex-shrink-0 font-semibold text-accent-text min-w-20"
                 >{taskDisplayKey(task)}</span
               >
+              {#if mode === 'link' && (linkedKeys.has(task.key) || branchTaskKeys.has(task.key))}
+                <span
+                  class="flex-shrink-0 px-1.5 py-px rounded-md bg-success-bg text-2xs text-success-text"
+                  title={branchTaskKeys.has(task.key)
+                    ? 'Tracked via the branch name of this worktree'
+                    : 'Already linked to this worktree'}>Linked</span
+                >
+              {/if}
               <span
                 class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
                 title={task.summary}>{task.summary}</span
@@ -603,39 +702,80 @@
                 aria-label="Priority: {task.priority}"
                 title={task.priority}>●</span
               >
-              {#if hasActiveAgent}
+              {#if mode === 'link'}
+                {#if linkedKeys.has(task.key) || branchTaskKeys.has(task.key)}
+                  <button
+                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint flex-shrink-0 opacity-60 transition-opacity duration-fast enabled:cursor-pointer enabled:hover:opacity-100 enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-30"
+                    onclick={(e) => {
+                      e.stopPropagation()
+                      void unlinkTask($state.snapshot(task) as Task)
+                    }}
+                    disabled={linking || branchTaskKeys.has(task.key)}
+                    title={branchTaskKeys.has(task.key)
+                      ? 'This task key is part of the branch name — the link comes from the branch and cannot be removed'
+                      : 'Unlink this task from the worktree'}
+                    aria-label="Unlink task"
+                  >
+                    <Unlink size={12} />
+                  </button>
+                {:else}
+                  <!-- Prominent on the hovered/highlighted row — a bare icon was too easy to miss. -->
+                  <button
+                    class="flex items-center gap-1 px-2 py-0.5 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-inherit flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 enabled:cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50"
+                    class:!opacity-100={i === selectedIndex}
+                    onclick={(e) => {
+                      e.stopPropagation()
+                      void linkTask($state.snapshot(task) as Task)
+                    }}
+                    disabled={linking}
+                    title="Link this task to the current worktree (Enter)"
+                    aria-label="Link task"
+                  >
+                    {#if linking}
+                      <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
+                    {:else}
+                      <Link2 size={12} />
+                    {/if}
+                    Link
+                  </button>
+                {/if}
+              {:else}
+                {#if hasActiveAgent}
+                  <button
+                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                    onclick={(e) => sendTaskToAgent(task, e)}
+                    disabled={Boolean(sendingTaskKey)}
+                    title="Send to agent"
+                    aria-label="Send to agent"
+                  >
+                    {#if sendingTaskKey === task.key}
+                      <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
+                    {:else}
+                      <Send size={12} />
+                    {/if}
+                  </button>
+                {/if}
                 <button
                   class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
-                  onclick={(e) => sendTaskToAgent(task, e)}
-                  disabled={Boolean(sendingTaskKey)}
-                  title="Send to agent"
-                  aria-label="Send to agent"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    copyTaskToClipboard(task, e)
+                  }}
+                  title="Copy to clipboard"
+                  aria-label="Copy task to clipboard"
                 >
-                  {#if sendingTaskKey === task.key}
-                    <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
-                  {:else}
-                    <Send size={12} />
-                  {/if}
+                  <Copy size={12} />
                 </button>
               {/if}
-              <button
-                class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
-                onclick={(e) => {
-                  e.stopPropagation()
-                  copyTaskToClipboard(task, e)
-                }}
-                title="Copy to clipboard"
-                aria-label="Copy task to clipboard"
-              >
-                <Copy size={12} />
-              </button>
             </div>
           {/each}
         {/if}
       </div>
 
       <div class="flex items-center justify-between px-4 py-2 border-t border-border-subtle">
-        <span class="text-xs text-text-faint">↑↓ navigate · Enter select · Esc close</span>
+        <span class="text-xs text-text-faint"
+          >↑↓ navigate · Enter {mode === 'link' ? 'link' : 'select'} · Esc close</span
+        >
         <span class="text-xs text-text-muted"
           >{filteredTasks.length > DISPLAY_LIMIT
             ? `${DISPLAY_LIMIT} of ${filteredTasks.length} tasks`

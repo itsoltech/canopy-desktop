@@ -227,12 +227,12 @@ export const youtrackClient: TaskTrackerProviderClient = {
       Array<{
         id: string
         name: string
-        values?: Array<{ name: string }>
+        values?: Array<{ name: string; isResolved?: boolean }>
       }>
     >(
       connection,
       token,
-      `/api/admin/projects/${encodeURIComponent(projectKey)}/customFields?fields=id,name,bundle(values(name))&$top=50`,
+      `/api/admin/projects/${encodeURIComponent(projectKey)}/customFields?fields=id,name,bundle(values(name,isResolved))&$top=50`,
     ).map((data) => {
       const stateField = data.find(
         (f) => f.name === 'State' || f.name.toLowerCase().includes('state'),
@@ -242,6 +242,7 @@ export const youtrackClient: TaskTrackerProviderClient = {
       return stateField.values.map((v): TrackerStatus => ({
         id: v.name,
         name: v.name,
+        statusCategory: v.isResolved ? 'done' : undefined,
       }))
     })
   },

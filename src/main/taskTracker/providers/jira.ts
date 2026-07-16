@@ -249,10 +249,12 @@ export const jiraClient: TaskTrackerProviderClient = {
   },
 
   fetchStatuses(connection, token) {
+    // `/rest/api/3/status` (singular) lists ALL statuses with their category; the plural
+    // `/statuses` endpoint requires explicit status ids and 400s without them.
     return jiraFetch<Array<{ id: string; name: string; statusCategory?: { key?: string } }>>(
       connection,
       token,
-      '/rest/api/3/statuses',
+      '/rest/api/3/status',
     )
       .map((data) => {
         const seen = new Set<string>()
@@ -260,14 +262,22 @@ export const jiraClient: TaskTrackerProviderClient = {
         for (const s of data) {
           if (!seen.has(s.name)) {
             seen.add(s.name)
-            statuses.push({ id: s.id, name: s.name })
+            statuses.push({
+              id: s.id,
+              name: s.name,
+              statusCategory: STATUS_CATEGORY_MAP[s.statusCategory?.key ?? ''],
+            })
           }
         }
         return statuses
       })
       .orElse(() => {
         if (connection.projectKey) {
-          return jiraFetch<Array<{ statuses?: Array<{ id: string; name: string }> }>>(
+          return jiraFetch<
+            Array<{
+              statuses?: Array<{ id: string; name: string; statusCategory?: { key?: string } }>
+            }>
+          >(
             connection,
             token,
             `/rest/api/3/project/${encodeURIComponent(connection.projectKey)}/statuses`,
@@ -278,7 +288,11 @@ export const jiraClient: TaskTrackerProviderClient = {
               for (const s of category.statuses ?? []) {
                 if (!seen.has(s.name)) {
                   seen.add(s.name)
-                  statuses.push({ id: s.id, name: s.name })
+                  statuses.push({
+                    id: s.id,
+                    name: s.name,
+                    statusCategory: STATUS_CATEGORY_MAP[s.statusCategory?.key ?? ''],
+                  })
                 }
               }
             }

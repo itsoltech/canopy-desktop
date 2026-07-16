@@ -275,8 +275,8 @@ export const githubClient: TaskTrackerProviderClient = {
 
   fetchStatuses() {
     return okAsync([
-      { id: 'OPEN', name: 'Open' },
-      { id: 'CLOSED', name: 'Closed' },
+      { id: 'OPEN', name: 'Open', statusCategory: 'todo' },
+      { id: 'CLOSED', name: 'Closed', statusCategory: 'done' },
     ] satisfies TrackerStatus[])
   },
 
