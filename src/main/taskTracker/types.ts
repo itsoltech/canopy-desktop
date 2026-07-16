@@ -42,6 +42,7 @@ export interface TrackerBoard {
 export interface TrackerStatus {
   id: string
   name: string
+  statusCategory?: TrackerStatusCategory
 }
 
 export interface TrackerComment {
@@ -116,6 +117,13 @@ export interface RepoConfig {
   prTemplate?: PRTemplateConfig
   boardOverrides: Record<string, BoardOverride>
   filters: TaskFilterConfig
+  /**
+   * Guidance for AI agents working in this repository, stored verbatim in config.json so any
+   * agent reading the file sees it. Canopy itself never interprets these strings.
+   */
+  agents?: {
+    instructions: string[]
+  }
 }
 
 // --- Resolved config (merged global + repo) ---
@@ -131,6 +139,12 @@ export interface ResolvedConfig {
   }
   hasGlobal: boolean
   hasRepo: boolean
+  /**
+   * Ids of trackers declared by the REPO's own config. The merged `config.trackers` also carries
+   * personal (global) connections for credential reuse — project-scoped UI (e.g. the sidebar
+   * PROJECT MANAGEMENT section) must not present those as the project's trackers.
+   */
+  repoTrackerIds: string[]
 }
 
 export interface TaskTrackerExportData {

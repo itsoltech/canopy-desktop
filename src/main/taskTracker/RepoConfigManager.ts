@@ -46,8 +46,7 @@ export class RepoConfigManager {
 
         // Backward compat: convert old single `tracker` to `trackers` array
         let trackers = (parsed as Record<string, unknown>).trackers as
-          | RepoConfig['trackers']
-          | undefined
+          RepoConfig['trackers'] | undefined
         const VALID_PROVIDERS = new Set(['jira', 'youtrack', 'github'])
         if (!trackers && (parsed as Record<string, unknown>).tracker) {
           const old = (parsed as Record<string, unknown>).tracker as {
@@ -78,6 +77,8 @@ export class RepoConfigManager {
           boardOverrides: (parsed.boardOverrides ??
             defaults.boardOverrides) as RepoConfig['boardOverrides'],
           filters: (parsed.filters ?? defaults.filters) as RepoConfig['filters'],
+          // Older files gain the default agent guidance on their next save.
+          agents: (parsed.agents as RepoConfig['agents']) ?? defaults.agents,
         }
         return ok(normalized)
       } catch (e) {

@@ -10,6 +10,7 @@
     initRepoConfig,
   } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { buildAgentSetupPrompt } from '../../lib/taskTracker/agentPrompt'
   import ProjectConnections from './ProjectConnections.svelte'
   import ProjectNamingSection from './ProjectNamingSection.svelte'
 
@@ -60,6 +61,15 @@
       addToast('Project tracker configuration initialized')
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to initialize config')
+    }
+  }
+
+  async function copyAgentPrompt(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(buildAgentSetupPrompt())
+      addToast('Agent prompt copied — paste it into your agent session')
+    } catch {
+      addToast('Failed to copy the agent prompt')
     }
   }
 </script>
@@ -118,6 +128,27 @@
 
         {#if repoCfg}
           <ProjectNamingSection {repoRoot} />
+
+          <!-- AI agents: hand the naming conventions to coding agents without duplicating them —
+               the generated prompt references .canopy/config.json as the source of truth. -->
+          <section class="rounded-lg border border-border-subtle p-4 flex flex-col gap-2">
+            <h3 class="m-0 text-sm font-semibold text-text">AI agents</h3>
+            <p class="m-0 text-xs text-text-muted leading-snug">
+              Generate a prompt that teaches a coding agent (Claude Code, Codex, …) to follow this
+              project's branch and PR conventions. The agent stores rules that point at
+              <code class="font-mono">.canopy/config.json</code>, so later template changes apply
+              without regenerating, and it is explicitly forbidden from editing Canopy config files.
+            </p>
+            <div>
+              <button
+                type="button"
+                class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover"
+                onclick={copyAgentPrompt}
+              >
+                Copy agent prompt
+              </button>
+            </div>
+          </section>
         {:else}
           <section class="rounded-lg border border-border-subtle p-4">
             <div class="flex flex-col gap-2 items-start">

@@ -1,8 +1,17 @@
 import type { RepoConfig, ResolvedConfig, ConfigSource, TrackerConfig } from './types'
 
 function mergeTrackers(global: TrackerConfig[], repo: TrackerConfig[]): TrackerConfig[] {
+  // Personal connections are auto-created for every credential, so the same tracker often exists
+  // in both stores (different ids, same provider + URL). The repo entry wins — board overrides
+  // and projectKey bind to its id — and the personal duplicate is dropped from the merged view.
+  const urlKey = (t: TrackerConfig): string =>
+    `${t.provider}:${(t.baseUrl ?? '').replace(/\/$/, '')}`
+  const repoUrlKeys = new Set(repo.map(urlKey))
   const byId = new Map<string, TrackerConfig>()
-  for (const t of global) byId.set(t.id, t)
+  for (const t of global) {
+    if (repoUrlKeys.has(urlKey(t))) continue
+    byId.set(t.id, t)
+  }
   for (const t of repo) byId.set(t.id, t) // repo wins on same id
   return [...byId.values()]
 }
@@ -26,6 +35,7 @@ export function mergeConfigs(
       },
       hasGlobal: false,
       hasRepo: true,
+      repoTrackerIds: repo.trackers.map((t) => t.id),
     }
   }
 
@@ -44,6 +54,8 @@ export function mergeConfigs(
       },
       hasGlobal: true,
       hasRepo: false,
+      // No repo config — the merged trackers are all personal; none belong to this project.
+      repoTrackerIds: [],
     }
   }
 
@@ -66,6 +78,8 @@ export function mergeConfigs(
     prTemplate: r.prTemplate,
     boardOverrides: r.boardOverrides,
     filters: r.filters,
+    // Agent guidance is project-owned, like the naming templates.
+    agents: r.agents,
   }
 
   return {
@@ -77,5 +91,6 @@ export function mergeConfigs(
     },
     hasGlobal: true,
     hasRepo: true,
+    repoTrackerIds: r.trackers.map((t) => t.id),
   }
 }
