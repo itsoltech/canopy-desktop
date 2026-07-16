@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { X, GitPullRequest, LoaderCircle, Info } from '@lucide/svelte'
   import { closeDialog, showPRDetails, showProjectTracker } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -24,6 +24,17 @@
   let loading = $state(true)
   let loadError = $state('')
   let creating = $state(false)
+
+  // Focus containment (same pattern as CreatePRModal/ProjectTrackerModal): focus moves into the
+  // dialog on mount, Tab wraps at the boundaries, and the previous element gets focus back.
+  let containerEl: HTMLDivElement | undefined = $state()
+  let previouslyFocused: HTMLElement | null = null
+
+  onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null
+    containerEl?.focus()
+  })
+  onDestroy(() => previouslyFocused?.focus?.())
 
   let title = $state('')
   let body = $state('')
@@ -106,10 +117,34 @@
     }
   }
 
+  // The title input only exists once prepare finishes — move focus there when the form appears.
+  $effect(() => {
+    if (!loading && !loadError) {
+      containerEl?.querySelector<HTMLInputElement>('#create-pr-title')?.focus()
+    }
+  })
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
       closeDialog()
+      return
+    }
+    if (e.key === 'Tab' && containerEl) {
+      const focusable = containerEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
   }
 
@@ -125,12 +160,14 @@
   onkeydown={handleKeydown}
 >
   <div
-    class="resize w-[640px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[720px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-modal overflow-hidden"
+    bind:this={containerEl}
+    class="resize outline-none w-[640px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[720px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-modal overflow-hidden"
     use:unlockSizeOnResize
     onmousedown={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
     aria-label="Create pull request"
+    tabindex="-1"
   >
     <header
       class="flex items-start gap-2 px-4 pt-3.5 pb-2.5 border-b border-border-subtle shrink-0"

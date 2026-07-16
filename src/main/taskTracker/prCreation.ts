@@ -212,6 +212,25 @@ export function closePullRequest(
 }
 
 /**
+ * Renderer-supplied branch names end up interpolated into the PATH of authenticated `gh api`
+ * calls (including a DELETE). Validate against git ref-name rules plus URL metacharacters so a
+ * crafted value cannot retarget the request — legitimate branch names keep their `/` segments,
+ * so validation is preferred over encoding here.
+ */
+function isSafeBranchRef(branch: unknown): branch is string {
+  if (typeof branch !== 'string') return false
+  const b = branch.trim()
+  if (b === '' || b.length > 255) return false
+  if (b.startsWith('-') || b.startsWith('/') || b.endsWith('/') || b.includes('//')) return false
+  if (b.includes('..') || b.endsWith('.') || b.endsWith('.lock')) return false
+  // Control chars, characters git forbids in ref names, and URL path/query metacharacters.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f ~^:?*[\\#%]/.test(b)) return false
+  if (b.includes('@{')) return false
+  return true
+}
+
+/**
  * Does the branch still exist on the remote? 404 → false; any other failure (network, auth) →
  * true, so the delete action stays available and its own error surfaces the real problem.
  */
@@ -219,7 +238,7 @@ export function remoteBranchExists(
   repoRoot: string,
   branch: string,
 ): ResultAsync<boolean, TaskTrackerError> {
-  if (typeof branch !== 'string' || branch.trim() === '' || branch.startsWith('-')) {
+  if (!isSafeBranchRef(branch)) {
     return okAsync(false)
   }
   return fromExternalCall(
@@ -238,7 +257,7 @@ export function deleteRemoteBranch(
   repoRoot: string,
   branch: string,
 ): ResultAsync<void, TaskTrackerError> {
-  if (typeof branch !== 'string' || branch.trim() === '' || branch.startsWith('-')) {
+  if (!isSafeBranchRef(branch)) {
     return errAsync(prErr('Invalid branch name'))
   }
   return fromExternalCall(
