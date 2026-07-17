@@ -69,7 +69,9 @@
     if (prTemplate && !initialized) {
       titleTemplateInput = prTemplate.titleTemplate || RENDERER_DEFAULT_PR_TITLE
       bodyTemplateInput = prTemplate.bodyTemplate || RENDERER_DEFAULT_PR_BODY
-      defaultTargetBranch = prTemplate.defaultTargetBranch || 'develop'
+      // Unset stays VISIBLY unset (placeholder shows the develop fallback) — injecting 'develop'
+      // here made the fallback look like a stored value and clearing it impossible.
+      defaultTargetBranch = prTemplate.defaultTargetBranch || ''
       initialized = true
     }
   })
@@ -80,15 +82,23 @@
   async function savePRField(field: string, value: string): Promise<void> {
     if (!config) return
     const updated = $state.snapshot(config) as typeof config
+    // Clearing a field REMOVES it from the config (fall back to the default) — storing '' would
+    // keep a phantom key that still resolves to the fallback anyway.
+    const apply = (tpl: Record<string, unknown>): Record<string, unknown> | undefined => {
+      if (value.trim() === '') delete tpl[field]
+      else tpl[field] = value
+      return Object.keys(tpl).length > 0 ? tpl : undefined
+    }
     if (pinnedScope === 'default') {
-      updated!.prTemplate = { ...(updated!.prTemplate ?? {}), [field]: value }
+      updated!.prTemplate = apply({ ...(updated!.prTemplate ?? {}) }) as typeof updated.prTemplate
     } else {
       if (!updated!.projectOverrides[pinnedScope]) {
         updated!.projectOverrides[pinnedScope] = {}
       }
-      updated!.projectOverrides[pinnedScope].prTemplate = {
-        ...updated!.projectOverrides[pinnedScope].prTemplate,
-        [field]: value,
+      const override = updated!.projectOverrides[pinnedScope]
+      override.prTemplate = apply({ ...override.prTemplate }) as typeof override.prTemplate
+      if (!override.prTemplate && !override.branchTemplate) {
+        delete updated!.projectOverrides[pinnedScope]
       }
     }
     await saveRepoConfig(repoRoot, updated!)
@@ -157,14 +167,7 @@
   }
 </script>
 
-<div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
-  <div class="flex items-center gap-3">
-    <span class="text-sm text-text-secondary w-20 shrink-0">Preview</span>
-    <code class="text-sm text-accent-text bg-bg-input px-2 py-0.5 rounded-md font-mono"
-      >{titleExample || '—'}</code
-    >
-  </div>
-
+<div class="flex flex-col gap-4 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
   {#if pinnedScope === 'default' && config?.prTemplate}
     <button
       type="button"
@@ -182,12 +185,20 @@
     </p>
   {/if}
 
-  <div class="flex flex-col gap-1">
+  <!-- TITLE: preview directly above the editable template, the hint directly below it. -->
+  <div class="flex flex-col gap-1.5">
+    <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">Title</span>
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-text-secondary w-20 shrink-0">Preview</span>
+      <code class="text-sm text-accent-text bg-bg-input px-2 py-0.5 rounded-md font-mono"
+        >{titleExample || '—'}</code
+      >
+    </div>
     <BranchTokenBuilder
       bind:templateInput={titleTemplateInput}
       placeholders={PR_TAGS}
       onSave={onTitleTemplateSave}
-      label="Title"
+      label="Template"
       autoSeparators={false}
     />
     <p class="text-xs text-text-muted m-0 pl-23">
@@ -195,9 +206,17 @@
     </p>
   </div>
 
-  <div class="flex flex-col gap-1">
+  <!-- BODY: resizable preview frame above the editable textarea, hint below, insert chips last. -->
+  <div class="flex flex-col gap-1.5 pt-3 border-t border-border-subtle">
+    <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">Body</span>
     <div class="flex items-start gap-3">
-      <span class="text-sm text-text-secondary w-20 shrink-0 pt-1">Body</span>
+      <span class="text-sm text-text-secondary w-20 shrink-0 pt-1">Preview</span>
+      <pre
+        class="flex-1 m-0 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-2xs text-accent-text font-mono whitespace-pre-wrap break-words leading-4 resize-y overflow-auto min-h-15">{bodyExample ||
+          '—'}</pre>
+    </div>
+    <div class="flex items-start gap-3">
+      <span class="text-sm text-text-secondary w-20 shrink-0 pt-1">Template</span>
       <textarea
         class="flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring resize-y min-h-15 placeholder:text-text-faint"
         name="prBody"
@@ -208,6 +227,9 @@
         placeholder="PR description — type freely, click fields below to insert"
         spellcheck="false"></textarea>
     </div>
+    <p class="text-xs text-text-muted m-0 pl-23">
+      The pull request description (multi-line, Markdown works).
+    </p>
     <div class="flex flex-wrap items-center gap-1 pl-23">
       <span class="text-2xs uppercase tracking-caps-tight text-text-faint mr-1"
         >Available fields</span
@@ -223,18 +245,15 @@
         </button>
       {/each}
     </div>
-    {#if bodyExample}
-      <pre
-        class="text-2xs text-accent-text font-mono break-all leading-4 pl-23 m-0 whitespace-pre-wrap">{bodyExample}</pre>
-    {/if}
-    <p class="text-xs text-text-muted m-0 pl-23">
-      The pull request description (multi-line, Markdown works).
-    </p>
   </div>
 
-  <div class="flex flex-col gap-1">
+  <!-- TARGET BRANCH -->
+  <div class="flex flex-col gap-1.5 pt-3 border-t border-border-subtle">
+    <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+      >Target branch</span
+    >
     <div class="flex items-center gap-3">
-      <span class="text-sm text-text-secondary w-20 shrink-0">Target branch</span>
+      <span class="text-sm text-text-secondary w-20 shrink-0">Branch</span>
       <input
         class="flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
         name="defaultTargetBranch"
@@ -244,12 +263,12 @@
           debouncedSave('defaultTargetBranch', () =>
             savePRField('defaultTargetBranch', defaultTargetBranch),
           )}
-        placeholder="develop"
+        placeholder="develop (default)"
         spellcheck="false"
       />
     </div>
     <p class="text-xs text-text-muted m-0 pl-23">
-      The branch pull requests are created into by default (e.g. develop).
+      The branch pull requests are created into by default. Leave empty to use develop.
     </p>
   </div>
 </div>

@@ -254,7 +254,7 @@
             target:
             <span class="font-mono text-text-secondary">{meta.target || 'develop'}</span
             >{#if !meta.target}
-              <span class="text-text-faint"> (fallback — not set)</span>{/if}
+              <span class="text-text-faint"> (default)</span>{/if}
           </span>
           <details class="px-1.5">
             <summary
