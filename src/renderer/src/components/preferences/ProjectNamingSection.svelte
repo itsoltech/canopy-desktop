@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Pencil, Plus, Check, X, Trash2 } from '@lucide/svelte'
+  import { Pencil, Plus, Check, X, Trash2, RotateCcw } from '@lucide/svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import {
     getResolvedConfig,
     getRepoConfig,
@@ -97,6 +98,27 @@
     editSnapshot = null
   }
 
+  // Reset lives in the editor's ACTION ROW (next to Cancel/Done); bumping the tick remounts the
+  // child editor so its inputs re-read the config after the template is removed.
+  let resetTick = $state(0)
+
+  async function resetToBuiltIn(type: Group): Promise<void> {
+    const cfg = getRepoConfig()
+    if (!cfg) return
+    const ok = await confirm({
+      title: 'Reset to default',
+      message: `Reset the ${type === 'branch' ? 'branch' : 'PR'} template to the built-in default?`,
+      details: `Removes the project ${type === 'branch' ? 'branch' : 'PR'} template from .canopy/config.json — the built-in default will apply.`,
+      confirmLabel: 'Reset',
+    })
+    if (!ok) return
+    const updated = $state.snapshot(cfg) as typeof cfg
+    if (type === 'branch') updated!.branchTemplate = undefined
+    else updated!.prTemplate = undefined
+    await saveRepoConfig(repoRoot, updated!)
+    resetTick++
+  }
+
   // Delete the edited project's override (branch or PR part) — it falls back to the base template.
   async function removeOverride(type: Group, scope: string): Promise<void> {
     const cfg = getRepoConfig()
@@ -178,14 +200,26 @@
 
 {#snippet editorFor(type: Group, scope: 'default' | string)}
   <div class="flex flex-col gap-2 pt-1">
-    {#key `${type}:${scope}`}
+    {#key `${type}:${scope}:${resetTick}`}
       {#if type === 'branch'}
         <TaskBranchNamingPrefs {repoRoot} {placeholders} pinnedScope={scope} />
       {:else}
         <TaskPRNamingPrefs {repoRoot} pinnedScope={scope} />
       {/if}
     {/key}
-    <div class="flex items-center gap-2 self-start">
+    <div class="flex items-center gap-2">
+      {#if scope === 'default' && (type === 'branch' ? resolved?.config.branchTemplate : resolved?.config.prTemplate)}
+        <button
+          type="button"
+          class="flex items-center gap-1 px-2.5 py-1 rounded-md border border-border bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
+          onclick={() => resetToBuiltIn(type)}
+          title="Remove the project template — the built-in default will apply"
+        >
+          <RotateCcw size={13} />
+          Reset to default
+        </button>
+      {/if}
+      <span class="flex-1"></span>
       <button
         type="button"
         class="flex items-center gap-1 px-2.5 py-1 rounded-md border border-border bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"

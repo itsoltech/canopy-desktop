@@ -3,7 +3,6 @@
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
   import { RENDERER_DEFAULT_BRANCH_TEMPLATE } from './_partials/configScopeLabels'
-  import { confirm } from '../../lib/stores/dialogs.svelte'
 
   // Branch template editor for ONE project scope of the repo config. Naming is owned by the
   // project alone — "Reset to default" restores the built-in preset (there is no other tier).
@@ -74,23 +73,6 @@
     updatePreview()
   }
 
-  // Restore the base template to the built-in default by removing the project value.
-  async function resetToBuiltIn(): Promise<void> {
-    if (!config || pinnedScope !== 'default') return
-    const ok = await confirm({
-      title: 'Reset to default',
-      message: 'Reset the branch template to the built-in default?',
-      details: `Removes the project template from .canopy/config.json — the built-in ${RENDERER_DEFAULT_BRANCH_TEMPLATE} will apply.`,
-      confirmLabel: 'Reset',
-    })
-    if (!ok) return
-    const updated = $state.snapshot(config) as typeof config
-    updated!.branchTemplate = undefined
-    await persistConfig(updated)
-    templateInput = RENDERER_DEFAULT_BRANCH_TEMPLATE
-    updatePreview()
-  }
-
   onMount(() => {
     templateInput = branchTemplate.template || RENDERER_DEFAULT_BRANCH_TEMPLATE
     updatePreview()
@@ -140,17 +122,6 @@
       >{branchPreview || '—'}</code
     >
   </div>
-
-  {#if pinnedScope === 'default' && config?.branchTemplate}
-    <button
-      type="button"
-      class="self-start px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
-      onclick={resetToBuiltIn}
-      title="Remove the project template — the built-in default will apply"
-    >
-      Reset to default
-    </button>
-  {/if}
 
   {#if pinnedScope !== 'default' && !config?.projectOverrides[pinnedScope]?.branchTemplate}
     <p class="text-xs text-text-faint m-0">

@@ -7,7 +7,6 @@
     PR_EXAMPLE_VALUES,
     renderTemplateExample,
   } from './_partials/configScopeLabels'
-  import { confirm } from '../../lib/stores/dialogs.svelte'
 
   // PR template editor (title, body, target branch) for ONE project scope of the repo config.
   // Naming is owned by the project alone — "Reset to default" restores the built-in preset.
@@ -149,36 +148,9 @@
     pendingField = 'bodyTemplate'
     flushSave()
   }
-
-  // Restore the base PR template to the built-in default by removing the project value.
-  async function resetToBuiltIn(): Promise<void> {
-    if (!config || pinnedScope !== 'default') return
-    const ok = await confirm({
-      title: 'Reset to default',
-      message: 'Reset the PR template to the built-in default?',
-      details: `Removes the project PR template from .canopy/config.json — the built-in title ${RENDERER_DEFAULT_PR_TITLE} will apply.`,
-      confirmLabel: 'Reset',
-    })
-    if (!ok) return
-    const updated = $state.snapshot(config) as typeof config
-    updated!.prTemplate = undefined
-    await saveRepoConfig(repoRoot, updated!)
-    initialized = false
-  }
 </script>
 
 <div class="flex flex-col gap-4 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
-  {#if pinnedScope === 'default' && config?.prTemplate}
-    <button
-      type="button"
-      class="self-start px-2.5 py-1 rounded-md bg-transparent border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
-      onclick={resetToBuiltIn}
-      title="Remove the project PR template — the built-in default will apply"
-    >
-      Reset to default
-    </button>
-  {/if}
-
   {#if pinnedScope !== 'default' && !config?.projectOverrides[pinnedScope]?.prTemplate}
     <p class="text-xs text-text-faint m-0">
       No override yet — uses the base template. Edit below to create one for this project.
