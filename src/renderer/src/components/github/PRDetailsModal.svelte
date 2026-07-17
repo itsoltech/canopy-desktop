@@ -418,17 +418,7 @@
                   Delete source branch
                 </label>
                 <span class="flex-1"></span>
-                <button
-                  class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm font-inherit enabled:cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
-                  onclick={() => runAction('merge')}
-                  disabled={!!mergeBlockReason || acting !== null}
-                  title={mergeBlockReason ?? 'Merge this pull request'}
-                >
-                  {#if acting === 'merge'}
-                    <LoaderCircle size={13} class="animate-spin" />
-                  {/if}
-                  {armed === 'merge' ? 'Confirm merge' : 'Merge'}
-                </button>
+                <!-- Destructive action on the left, the primary (green) merge on the right. -->
                 <button
                   class={dangerBtnCls}
                   onclick={() => runAction('close')}
@@ -439,6 +429,17 @@
                     <LoaderCircle size={13} class="animate-spin" />
                   {/if}
                   {armed === 'close' ? 'Confirm close' : 'Close PR'}
+                </button>
+                <button
+                  class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border-0 bg-success-bg text-success-text text-sm font-inherit enabled:cursor-pointer enabled:hover:bg-success/30 disabled:opacity-50 disabled:cursor-default"
+                  onclick={() => runAction('merge')}
+                  disabled={!!mergeBlockReason || acting !== null}
+                  title={mergeBlockReason ?? 'Merge this pull request'}
+                >
+                  {#if acting === 'merge'}
+                    <LoaderCircle size={13} class="animate-spin" />
+                  {/if}
+                  {armed === 'merge' ? 'Confirm merge' : 'Merge'}
                 </button>
               </div>
             {:else}
