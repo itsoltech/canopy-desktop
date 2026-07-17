@@ -75,6 +75,17 @@
     captureDropdownOpen = false
   }
 
+  // Escape closes whichever popover is open. The backdrops only handle click,
+  // so without this a keyboard-only user cannot dismiss these menus.
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape') return
+    if (captureDropdownOpen) {
+      captureDropdownOpen = false
+    } else if (deviceDropdownOpen) {
+      deviceDropdownOpen = false
+    }
+  }
+
   let inputValue = $state('')
   let urlInput: HTMLInputElement | undefined = $state()
 
@@ -104,6 +115,8 @@
     urlInput?.select()
   }
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="flex items-center gap-1 h-9 px-1.5 bg-bg-input border-b border-active flex-shrink-0">
   <div class="flex items-center gap-0.5 flex-shrink-0">

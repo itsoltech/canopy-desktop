@@ -123,6 +123,12 @@ export class BrowserManager {
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
 
+    // A re-mount / crash-recovery re-registers the same browserId with a new
+    // guest wcId. Tear the stale entry down first — otherwise its DevTools
+    // WebContentsView (added to the window's contentView) and any attached
+    // debugger are orphaned until the window itself is destroyed.
+    if (existing) this.teardown(browserId)
+
     const entry: WebviewEntry = {
       webContentsId: wcId,
       win,
@@ -478,6 +484,19 @@ export class BrowserManager {
     for (const id of ids) {
       this.teardown(id)
     }
+  }
+
+  /**
+   * True when `sender` is the renderer that registered `browserId` via setup().
+   * The browser control channels (teardown / devtools / device-emulation /
+   * background-throttling / fillCredential) take an opaque, renderer-supplied
+   * browserId that keys this process-global map, so without an ownership check
+   * any window's renderer could drive another window's embedded <webview> —
+   * open DevTools on it, attach the CDP debugger, or inject credentials — just
+   * by supplying its id. IPC handlers gate every such channel on this.
+   */
+  isOwnedBy(browserId: string, sender: WebContents): boolean {
+    return this.entries.get(browserId)?.sender === sender
   }
 
   private sendToRenderer(browserId: string, channel: string, data: unknown): void {

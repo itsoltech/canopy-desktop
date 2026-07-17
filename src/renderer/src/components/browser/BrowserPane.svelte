@@ -1072,6 +1072,21 @@
     return () => window.removeEventListener('keydown', handler)
   })
 
+  // Escape closes the star dropdown / favorites context menu — their backdrops
+  // only handle click, so keyboard users otherwise can't dismiss them.
+  $effect(() => {
+    if (!starDropdownOpen && !favCtxMenu) return
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        starDropdownOpen = false
+        favCtxMenu = null
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  })
+
   // Listen for Cmd+L focus event — only focused pane responds
   $effect(() => {
     if (!active || !focused) return
