@@ -195,6 +195,14 @@
     dragFromPalette = null
     dragOverIdx = null
   }
+
+  // Branch templates drop a separator automatically when the field AFTER it renders empty
+  // (renderBranchName collapses it) — surface that rule on the separator slots themselves.
+  let separatorTitle = $derived(
+    autoSeparators
+      ? 'Editable text — click and type any separator; fields from below insert at the cursor. A separator is dropped automatically when the field after it renders empty (e.g. a task without {parentKey}).'
+      : 'Editable text — click and type any separator; fields from below insert at the cursor',
+  )
 </script>
 
 <div class="flex flex-col gap-1.5">
@@ -228,7 +236,7 @@
           aria-label={`Text before {${field}}`}
           spellcheck="false"
           autocomplete="off"
-          title="Editable text — click and type any separator; fields from below insert at the cursor"
+          title={separatorTitle}
         />
         <span
           class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-xs font-mono cursor-grab select-none bg-accent-bg text-accent-text border active:cursor-grabbing hover:border-focus-ring {dragOverIdx ===
@@ -294,10 +302,17 @@
           : undefined}
         spellcheck="false"
         autocomplete="off"
-        title="Editable text — click and type any separator; fields from below insert at the cursor"
+        title={separatorTitle}
       />
     </div>
   </div>
+
+  {#if autoSeparators}
+    <p class="text-2xs text-text-faint m-0 pl-23 leading-4">
+      A separator is dropped automatically when the field after it renders empty — e.g. a task
+      without {'{parentKey}'} produces no double slash.
+    </p>
+  {/if}
 
   <div class="flex items-start gap-3">
     <span class="text-sm text-text-secondary w-20 shrink-0 pt-1">Available fields</span>

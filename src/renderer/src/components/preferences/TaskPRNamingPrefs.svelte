@@ -1,5 +1,4 @@
 <script lang="ts">
-  import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
   import {
     RENDERER_DEFAULT_PR_TITLE,
@@ -133,11 +132,8 @@
     return () => flushSave()
   })
 
-  function onTitleTemplateSave(): void {
-    savePRField('titleTemplate', titleTemplateInput)
-  }
-
   function onBodyTemplateSave(): void {
+    requestAnimationFrame(syncBodyScroll)
     debouncedSave('bodyTemplate', () => savePRField('bodyTemplate', bodyTemplateInput))
   }
 
@@ -165,21 +161,57 @@
   }
 
   // Recognized {placeholder} tokens render highlighted in a mirrored backdrop behind the
-  // textarea — the textarea itself keeps transparent text, so editing stays purely textual.
-  const KNOWN_BODY_KEYS = new Set(PR_BODY_TAGS.map((t) => t.key))
-  let bodySegments = $derived.by(() => {
+  // text control — the control itself keeps transparent glyphs, so editing stays purely textual.
+  function segmentsOf(text: string, known: Set<string>): Array<{ text: string; field: boolean }> {
     const segs: Array<{ text: string; field: boolean }> = []
     let last = 0
-    for (const m of bodyTemplateInput.matchAll(/\{(\w+)\}/g)) {
-      if (m.index > last) segs.push({ text: bodyTemplateInput.slice(last, m.index), field: false })
-      segs.push({ text: m[0], field: KNOWN_BODY_KEYS.has(m[1]) })
+    for (const m of text.matchAll(/\{(\w+)\}/g)) {
+      if (m.index > last) segs.push({ text: text.slice(last, m.index), field: false })
+      segs.push({ text: m[0], field: known.has(m[1]) })
       last = m.index + m[0].length
     }
-    if (last < bodyTemplateInput.length) {
-      segs.push({ text: bodyTemplateInput.slice(last), field: false })
-    }
+    if (last < text.length) segs.push({ text: text.slice(last), field: false })
     return segs
-  })
+  }
+
+  const KNOWN_TITLE_KEYS = new Set(PR_TAGS.map((t) => t.key))
+  const KNOWN_BODY_KEYS = new Set(PR_BODY_TAGS.map((t) => t.key))
+  let titleSegments = $derived(segmentsOf(titleTemplateInput, KNOWN_TITLE_KEYS))
+  let bodySegments = $derived(segmentsOf(bodyTemplateInput, KNOWN_BODY_KEYS))
+
+  let titleEl = $state<HTMLInputElement | undefined>()
+  let titleBackdropEl = $state<HTMLDivElement | undefined>()
+
+  function syncTitleScroll(): void {
+    if (titleBackdropEl && titleEl) titleBackdropEl.scrollLeft = titleEl.scrollLeft
+  }
+
+  function onTitleInput(): void {
+    // Single-line control — anything pasted with newlines collapses to one line.
+    titleTemplateInput = titleTemplateInput.replace(/[\r\n]+/g, ' ')
+    // Typing at the right edge auto-scrolls the input without a scroll event — re-sync after paint.
+    requestAnimationFrame(syncTitleScroll)
+    debouncedSave('titleTemplate', () => savePRField('titleTemplate', titleTemplateInput))
+  }
+
+  function insertTitleField(key: string): void {
+    const token = `{${key}}`
+    if (titleEl) {
+      const start = titleEl.selectionStart ?? titleTemplateInput.length
+      const end = titleEl.selectionEnd ?? start
+      titleTemplateInput =
+        titleTemplateInput.slice(0, start) + token + titleTemplateInput.slice(end)
+      requestAnimationFrame(() => {
+        titleEl?.focus()
+        titleEl?.setSelectionRange(start + token.length, start + token.length)
+      })
+    } else {
+      titleTemplateInput = titleTemplateInput + token
+    }
+    pendingSave = () => savePRField('titleTemplate', titleTemplateInput)
+    pendingField = 'titleTemplate'
+    flushSave()
+  }
 
   function syncBodyScroll(): void {
     if (bodyBackdropEl && bodyEl) {
@@ -205,16 +237,61 @@
         >{titleExample || '—'}</code
       >
     </div>
-    <BranchTokenBuilder
-      bind:templateInput={titleTemplateInput}
-      placeholders={PR_TAGS}
-      onSave={onTitleTemplateSave}
-      label="Template"
-      autoSeparators={false}
-    />
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-text-secondary w-20 shrink-0">Template</span>
+      <!-- Same highlight-overlay technique as the body, constrained to a single line. -->
+      <div
+        class="relative flex-1 min-w-0 border border-border rounded-md bg-bg-input focus-within:border-focus-ring"
+      >
+        <div
+          bind:this={titleBackdropEl}
+          aria-hidden="true"
+          class="absolute inset-0 px-2.5 py-1.5 font-mono text-md text-text whitespace-pre overflow-hidden pointer-events-none"
+        >
+          {#each titleSegments as seg, i (i)}{#if seg.field}<span
+                class="rounded-sm bg-accent-bg text-accent-text">{seg.text}</span
+              >{:else}{seg.text}{/if}{/each}
+        </div>
+        <input
+          bind:this={titleEl}
+          class="relative block w-full px-2.5 py-1.5 border-0 bg-transparent text-transparent caret-text text-md font-mono outline-none placeholder:text-text-faint"
+          name="prTitle"
+          aria-label="PR title template"
+          bind:value={titleTemplateInput}
+          oninput={onTitleInput}
+          onscroll={syncTitleScroll}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') e.preventDefault()
+          }}
+          placeholder="PR title — type freely, click or drag fields below to insert"
+          spellcheck="false"
+          autocomplete="off"
+        />
+      </div>
+    </div>
     <p class="text-xs text-text-muted m-0 pl-23">
       The pull request title, rendered from the task when the PR is created.
     </p>
+    <div class="flex flex-wrap items-center gap-1 pl-23">
+      <span class="text-2xs uppercase tracking-caps-tight text-text-faint mr-1"
+        >Available fields</span
+      >
+      {#each PR_TAGS as ph (ph.key)}
+        <button
+          type="button"
+          class="text-xs px-1.5 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary font-mono cursor-grab active:cursor-grabbing hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+          title={ph.description +
+            ' (e.g. ' +
+            ph.example +
+            ') — click to insert at the cursor, drag into the template'}
+          draggable="true"
+          ondragstart={(e) => e.dataTransfer?.setData('text/plain', `{${ph.key}}`)}
+          onclick={() => insertTitleField(ph.key)}
+        >
+          {`{${ph.key}}`}
+        </button>
+      {/each}
+    </div>
   </div>
 
   <!-- BODY: resizable preview frame above the editable textarea, hint below, insert chips last. -->
