@@ -26,6 +26,10 @@ export interface TrackerTask {
   statusCategory?: TrackerStatusCategory
   priority: string
   type: 'task' | 'story' | 'subtask' | 'bug' | 'epic' | string
+  /** The tracker's OWN name for the type (e.g. Jira "User Story") — `type` is normalized. */
+  typeName?: string
+  /** Tracker-hosted icon for the task type (authenticated URL — proxy before rendering). */
+  typeIconUrl?: string
   parentKey?: string
   sprintName?: string
   sprintNumber?: number

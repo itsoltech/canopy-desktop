@@ -4180,6 +4180,29 @@ export function registerIpcHandlers(
     return filePath
   })
 
+  // Task-type icons (tiny, immutable per URL) — fetched once via the tracker connection and
+  // cached for the app's lifetime; the renderer CSP allows only data: images.
+  const typeIconCache = new Map<string, string>()
+  ipcMain.handle(
+    'taskTracker:typeIcon',
+    async (_event, payload: { repoRoot?: string; url: string }) => {
+      if (!payload.url || !/^https:\/\//.test(payload.url)) return null
+      const cached = typeIconCache.get(payload.url)
+      if (cached) return cached
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) return null
+      const result = await taskTrackerManager.fetchImageAsDataUrlFromConfig(
+        resolved.config,
+        payload.url,
+        undefined,
+        payload.repoRoot,
+      )
+      const dataUrl = result.unwrapOr(null)
+      if (dataUrl) typeIconCache.set(payload.url, dataUrl)
+      return dataUrl
+    },
+  )
+
   // Inline thumbnail for an image attachment: download via the tracker connection, return the
   // bytes as a data: URL (the renderer CSP allows img-src data:), then drop the temp file.
   ipcMain.handle(

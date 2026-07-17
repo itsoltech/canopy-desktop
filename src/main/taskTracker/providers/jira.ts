@@ -21,7 +21,7 @@ interface JiraTaskFields {
   description?: string
   status?: { name?: string; statusCategory?: { key?: string } }
   priority?: { name?: string }
-  issuetype?: { name?: string; subtask?: boolean }
+  issuetype?: { name?: string; subtask?: boolean; iconUrl?: string }
   parent?: { key?: string }
   assignee?: { displayName?: string; accountId?: string }
   sprint?: { id?: number; name?: string; state?: string }
@@ -201,6 +201,8 @@ function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {
     statusCategory: STATUS_CATEGORY_MAP[f.status?.statusCategory?.key ?? ''],
     priority: f.priority?.name ?? '',
     type: mapTaskType(f),
+    typeName: f.issuetype?.name,
+    typeIconUrl: f.issuetype?.iconUrl,
     parentKey: f.parent?.key,
     sprintName: f.sprint?.name,
     sprintNumber: f.sprint?.name ? parseSprintNumber(f.sprint.name) : undefined,

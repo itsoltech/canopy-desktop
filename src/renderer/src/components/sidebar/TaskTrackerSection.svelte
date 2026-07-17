@@ -201,6 +201,14 @@
               ? `${t.taskKey} — ${t.summary}\nOpen the task panel (status, comments)`
               : 'Open the task panel (status, comments)'}
           >
+            {#if t.typeIcon}
+              <img
+                src={t.typeIcon}
+                alt={t.typeName ?? t.type ?? 'task type'}
+                title={t.typeName ?? t.type}
+                class="size-3.5 shrink-0 rounded-sm"
+              />
+            {/if}
             <span class="text-xs font-semibold text-accent-text flex-shrink-0">{t.taskKey}</span>
             <span
               class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted"

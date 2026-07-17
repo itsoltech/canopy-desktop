@@ -542,6 +542,15 @@
     <!-- Header -->
     <div class="flex flex-col gap-1.5">
       <div class="flex items-center gap-2">
+        {#if panel.typeIcon}
+          <!-- Type communicated by the tracker's own icon; the name lives in the tooltip. -->
+          <img
+            src={panel.typeIcon}
+            alt={panel.typeName ?? panel.type ?? 'task type'}
+            title={panel.typeName ?? panel.type}
+            class="size-4 shrink-0 rounded-sm"
+          />
+        {/if}
         {#if task?.url}
           <button
             class="inline-flex items-center gap-1 font-semibold text-sm text-accent-text bg-transparent border-0 p-0 cursor-pointer font-inherit hover:underline"
@@ -553,6 +562,12 @@
           </button>
         {:else}
           <span class="font-semibold text-sm text-accent-text">{panel.taskKey}</span>
+        {/if}
+        {#if !panel.typeIcon && (panel.typeName || panel.type)}
+          <!-- No icon from the tracker — show the type textually instead. -->
+          <span class="px-1.5 py-px rounded-md text-2xs bg-active text-text-muted" title="Task type"
+            >{panel.typeName ?? panel.type}</span
+          >
         {/if}
         {#if task?.status}
           <span class="px-1.5 py-px rounded-md text-2xs {statusChipClass(task.statusCategory)}"
@@ -566,18 +581,6 @@
           />
         {/if}
         <span class="flex-1"></span>
-        <button
-          class="flex items-center gap-1 h-6 px-2 rounded-md border-0 cursor-pointer text-xs font-inherit {composeTarget?.kind ===
-          'task'
-            ? 'bg-accent text-bg'
-            : 'bg-accent-bg text-accent-text hover:bg-accent-bg-hover'}"
-          onclick={() => openCompose({ kind: 'task' })}
-          aria-label="Send task to agent"
-          title="Send this task to the active agent — with your own instructions or an image"
-        >
-          <Bot size={13} />
-          Agent
-        </button>
         <button
           class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-50"
           onclick={() => panel && refresh(panel.taskKey)}
@@ -602,6 +605,19 @@
         {:else}
           <span title="Assignee">{task?.assignee || 'Unassigned'}</span>
         {/if}
+        <span class="flex-1"></span>
+        <button
+          class="flex items-center gap-1 h-6 px-2 rounded-md border-0 cursor-pointer text-xs font-inherit shrink-0 {composeTarget?.kind ===
+          'task'
+            ? 'bg-accent text-bg'
+            : 'bg-accent-bg text-accent-text hover:bg-accent-bg-hover'}"
+          onclick={() => openCompose({ kind: 'task' })}
+          aria-label="Send task to agent"
+          title="Send this task to the active agent — with your own instructions or an image"
+        >
+          <Bot size={13} />
+          Agent
+        </button>
       </div>
       {#if task?.description}
         {#key task.description}

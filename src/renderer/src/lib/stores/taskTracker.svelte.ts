@@ -16,6 +16,11 @@ export interface PanelTaskContext extends ActiveTaskContext {
   source: 'active' | 'branch'
   status?: string
   statusCategory?: string
+  /** Normalized type (task/bug/…) and the tracker's own type name, when resolution succeeded. */
+  type?: string
+  typeName?: string
+  /** Task-type icon as a data: URL (proxied — tracker icon URLs are authenticated). */
+  typeIcon?: string
 }
 
 export interface TrackerCredentialState {
@@ -374,6 +379,10 @@ export async function resolvePanelTask(
         // The tracker answered and doesn't know this key — a false match, drop it (unless it is
         // the explicitly linked task, which we keep as stored).
         if (!task) return stored
+        // Type icon proxied to a data: URL (authenticated tracker URL + CSP); cached in main.
+        const typeIcon = task.typeIconUrl
+          ? await window.api.taskTrackerTypeIcon(worktreePath, task.typeIconUrl).catch(() => null)
+          : null
         return {
           taskKey: task.key,
           summary: task.summary,
@@ -382,6 +391,9 @@ export async function resolvePanelTask(
           source: stored ? 'active' : 'branch',
           status: task.status,
           statusCategory: task.statusCategory,
+          type: task.type,
+          typeName: task.typeName,
+          typeIcon: typeIcon ?? undefined,
         }
       } catch {
         // Offline / expired credentials: keep the bare key so the panel can still render it.

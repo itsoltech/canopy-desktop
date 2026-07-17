@@ -330,6 +330,57 @@ export class TaskTrackerManager {
     )
   }
 
+  /**
+   * Small tracker-hosted images (task-type icons) as a data: URL — the renderer CSP forbids
+   * remote img-src and the URLs are authenticated, so they cannot be rendered directly.
+   */
+  fetchImageAsDataUrlFromConfig(
+    config: RepoConfig,
+    url: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<string, TaskTrackerError> {
+    const imgErr = (reason: string): TaskTrackerError => ({
+      _tag: 'AttachmentDownloadFailed',
+      filename: url,
+      reason,
+    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot)
+      .andThen(({ conn, token }) => {
+        if (!isSameOriginAs(url, conn.baseUrl)) {
+          return err(imgErr('URL does not match connection base URL'))
+        }
+        return ok({ conn, token })
+      })
+      .andThen(({ conn, token }) => {
+        const headers: Record<string, string> = {
+          Authorization: conn.username
+            ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
+            : `Bearer ${token}`,
+        }
+        const fetchIcon = async (): Promise<string> => {
+          let res = await fetch(url, {
+            headers,
+            redirect: 'manual',
+            signal: AbortSignal.timeout(15_000),
+          })
+          if (res.status >= 300 && res.status < 400) {
+            const location = res.headers.get('location')
+            if (!location) throw new Error(`Redirect without Location (HTTP ${res.status})`)
+            // Pre-signed media URL on another origin — never forward the tracker credentials.
+            res = await fetch(location, { redirect: 'follow', signal: AbortSignal.timeout(15_000) })
+          }
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const buf = Buffer.from(await res.arrayBuffer())
+          if (buf.byteLength > 512 * 1024) throw new Error('Image too large')
+          const mime = res.headers.get('content-type')?.split(';')[0] || 'image/png'
+          if (!/^image\/[\w.+-]+$/.test(mime)) throw new Error(`Not an image: ${mime}`)
+          return `data:${mime};base64,${buf.toString('base64')}`
+        }
+        return fromExternalCall(fetchIcon(), (e) => imgErr(errorMessage(e)))
+      })
+  }
+
   downloadAttachmentFromConfig(
     config: RepoConfig,
     url: string,
