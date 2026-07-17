@@ -232,7 +232,7 @@ export async function initGlobalConfig(): Promise<RepoConfig> {
   const config: RepoConfig = {
     version: 1,
     trackers: [],
-    boardOverrides: {},
+    projectOverrides: {},
     filters: { assignedToMe: true, statuses: [] },
   }
   await window.api.globalConfigSave(config)

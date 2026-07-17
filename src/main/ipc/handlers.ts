@@ -91,7 +91,7 @@ import {
   type TaskAttachmentPath,
   type TaskContextInput,
 } from '../taskTracker/taskContext'
-import { getBranchTemplate, getPRTemplate } from '../taskTracker/configDefaults'
+import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTracker/configDefaults'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
@@ -2964,7 +2964,7 @@ export function registerIpcHandlers(
       ((o.filters as Record<string, unknown>).statuses as unknown[]).every(
         (s) => typeof s === 'string',
       ) &&
-      typeof o.boardOverrides === 'object' &&
+      typeof o.projectOverrides === 'object' &&
       (!o.branchTemplate ||
         typeof (o.branchTemplate as Record<string, unknown>).template === 'string') &&
       (!o.prTemplate || typeof (o.prTemplate as Record<string, unknown>).titleTemplate === 'string')
@@ -3035,7 +3035,7 @@ export function registerIpcHandlers(
   ): Promise<string> {
     const resolved = await resolveEffectiveConfig(payload.repoRoot)
     const branchTpl = resolved
-      ? getBranchTemplate(resolved.config, payload.boardId)
+      ? getBranchTemplate(resolved.config, projectKeyOfTask(payload.task.key))
       : { template: '{taskKey}', customVars: {} }
 
     const sprint = resolved
@@ -3333,6 +3333,34 @@ export function registerIpcHandlers(
       const result = await taskTrackerManager.fetchStatusesFromConfig(
         resolved.config,
         payload.boardId,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchProjects',
+    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchProjectsFromConfig(
+        resolved.config,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchTaskTypes',
+    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchTaskTypesFromConfig(
+        resolved.config,
         payload.trackerId,
         payload.repoRoot,
       )
@@ -3800,6 +3828,7 @@ export function registerIpcHandlers(
       _event,
       payload: {
         taskType: string
+        taskKey?: string
         connectionId?: string
         boardId?: string
         repoRoot?: string
@@ -3810,7 +3839,7 @@ export function registerIpcHandlers(
       let hasBranchType = false
 
       if (resolved) {
-        const branchTpl = getBranchTemplate(resolved.config, payload.boardId)
+        const branchTpl = getBranchTemplate(resolved.config, projectKeyOfTask(payload.taskKey))
         hasBranchType = branchTpl.template.includes('{branchType}')
         typeMapping = branchTpl.typeMapping
       }
@@ -3848,7 +3877,7 @@ export function registerIpcHandlers(
 
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       const prTpl = resolved
-        ? getPRTemplate(resolved.config, payload.boardId)
+        ? getPRTemplate(resolved.config, projectKeyOfTask(payload.taskKey))
         : {
             titleTemplate: '[{taskKey}] {taskTitle}',
             bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
@@ -3870,11 +3899,10 @@ export function registerIpcHandlers(
   )
 
   // Shared by taskTracker:preparePR and taskTracker:createPR: resolve the effective PR template
-  // for the repo/board and the branch list used by target rules.
+  // (project override derived from the task-key prefix) and the branch list for target rules.
   async function resolvePRContext(
     resolvedRepo: string,
     task: TrackerTask,
-    boardId?: string,
   ): Promise<{
     task: TrackerTask
     prConfig: PRTemplateConfig
@@ -3901,7 +3929,7 @@ export function registerIpcHandlers(
       type: fullTask.type || 'task',
     }
     const prTpl = resolved
-      ? getPRTemplate(resolved.config, boardId)
+      ? getPRTemplate(resolved.config, projectKeyOfTask(fullTask.key))
       : {
           titleTemplate: '[{taskKey}] {taskTitle}',
           bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
@@ -3933,17 +3961,10 @@ export function registerIpcHandlers(
   // the title from the branch name instead.
   ipcMain.handle(
     'taskTracker:preparePR',
-    async (
-      event,
-      payload: { repoRoot: string; task?: TrackerTask; boardId?: string; branch?: string },
-    ) => {
+    async (event, payload: { repoRoot: string; task?: TrackerTask; branch?: string }) => {
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       const hasTask = !!payload.task?.key
-      const ctx = await resolvePRContext(
-        resolvedRepo,
-        payload.task ?? ({ key: '' } as TrackerTask),
-        payload.boardId,
-      )
+      const ctx = await resolvePRContext(resolvedRepo, payload.task ?? ({ key: '' } as TrackerTask))
       const prepared = hasTask
         ? preparePullRequest(ctx.task, ctx.prConfig, ctx.existingBranches)
         : {
@@ -4002,7 +4023,6 @@ export function registerIpcHandlers(
         task: TrackerTask
         sourceBranch: string
         connectionId?: string
-        boardId?: string
         overrides?: {
           title?: string
           body?: string
@@ -4016,7 +4036,7 @@ export function registerIpcHandlers(
       // before reading tracker config, listing branches, pushing, or opening a
       // PR from it. Mirrors taskTracker:findPR, git:createPR and github:createPR.
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      const ctx = await resolvePRContext(resolvedRepo, payload.task, payload.boardId)
+      const ctx = await resolvePRContext(resolvedRepo, payload.task)
 
       // Normalize renderer-provided overrides: strings only, login lists capped.
       const o = payload.overrides

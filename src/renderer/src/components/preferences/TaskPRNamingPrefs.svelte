@@ -9,11 +9,11 @@
   } from './_partials/configScopeLabels'
   import { confirm } from '../../lib/stores/dialogs.svelte'
 
-  // PR template editor (title, body, target branch) for ONE board scope of the project config.
+  // PR template editor (title, body, target branch) for ONE project scope of the repo config.
   // Naming is owned by the project alone — "Reset to default" restores the built-in preset.
   interface Props {
     repoRoot: string
-    /** Board scope this editor is pinned to: 'default' = base template, otherwise a board id. */
+    /** Project scope this editor is pinned to: 'default' = base template, otherwise a project key. */
     pinnedScope?: 'default' | string
   }
 
@@ -47,7 +47,7 @@
       targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
     }
     if (config && pinnedScope !== 'default') {
-      const override = config.boardOverrides[pinnedScope]?.prTemplate
+      const override = config.projectOverrides[pinnedScope]?.prTemplate
       if (override) {
         return {
           titleTemplate: override.titleTemplate ?? base.titleTemplate,
@@ -83,11 +83,11 @@
     if (pinnedScope === 'default') {
       updated!.prTemplate = { ...(updated!.prTemplate ?? {}), [field]: value }
     } else {
-      if (!updated!.boardOverrides[pinnedScope]) {
-        updated!.boardOverrides[pinnedScope] = {}
+      if (!updated!.projectOverrides[pinnedScope]) {
+        updated!.projectOverrides[pinnedScope] = {}
       }
-      updated!.boardOverrides[pinnedScope].prTemplate = {
-        ...updated!.boardOverrides[pinnedScope].prTemplate,
+      updated!.projectOverrides[pinnedScope].prTemplate = {
+        ...updated!.projectOverrides[pinnedScope].prTemplate,
         [field]: value,
       }
     }
@@ -176,9 +176,9 @@
     </button>
   {/if}
 
-  {#if pinnedScope !== 'default' && !config?.boardOverrides[pinnedScope]?.prTemplate}
+  {#if pinnedScope !== 'default' && !config?.projectOverrides[pinnedScope]?.prTemplate}
     <p class="text-xs text-text-faint m-0">
-      No override yet — uses the base template. Edit below to create one for this board.
+      No override yet — uses the base template. Edit below to create one for this project.
     </p>
   {/if}
 

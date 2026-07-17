@@ -22,6 +22,7 @@ import type {
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
+  TrackerProject,
   TrackerTransition,
 } from './types'
 
@@ -172,6 +173,32 @@ export class TaskTrackerManager {
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
         return client.fetchStatuses(conn, token, boardId)
+      },
+    )
+  }
+
+  fetchProjectsFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerProject[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchProjects(conn, token)
+      },
+    )
+  }
+
+  fetchTaskTypesFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<string[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskTypes(conn, token)
       },
     )
   }

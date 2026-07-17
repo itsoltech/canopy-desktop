@@ -169,12 +169,7 @@
       worktreePath(),
       workspaceState.branch,
       t
-        ? {
-            taskKey: t.taskKey,
-            summary: t.summary,
-            connectionId: t.connectionId || undefined,
-            boardId: t.boardId,
-          }
+        ? { taskKey: t.taskKey, summary: t.summary, connectionId: t.connectionId || undefined }
         : undefined,
     )
   }

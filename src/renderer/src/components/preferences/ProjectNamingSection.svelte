@@ -19,9 +19,10 @@
   import TaskPRNamingPrefs from './TaskPRNamingPrefs.svelte'
 
   // Merged read-only overview + in-place editor for branch/PR naming in the project modal. The
-  // project config always applies; "Branch naming" and "PR title" are shown per board (a base for
-  // all boards, plus any board-specific overrides). Clicking Edit swaps a read-only row for the
-  // existing builder, pinned to that board. One row is editable at a time.
+  // repo config always applies; "Branch naming" and "PR title" are shown per tracker PROJECT
+  // (a base for all projects, plus per-project overrides keyed by the task-key prefix). Clicking
+  // Edit swaps a read-only row for the existing builder, pinned to that project. One row is
+  // editable at a time.
   let { repoRoot }: { repoRoot: string } = $props()
 
   type Group = 'branch' | 'pr'
@@ -30,7 +31,7 @@
   let creds = $derived(getTrackerCredentials())
 
   // Editing naming is only meaningful once a tracker is connected with WORKING credentials
-  // (boards require a token the tracker accepts); until then everything stays read-only.
+  // (project lists require a token the tracker accepts); until then everything stays read-only.
   let connected = $derived(
     (resolved?.config.trackers ?? []).some(
       (t) => creds[t.id]?.hasToken && creds[t.id]?.valid !== false,
@@ -43,10 +44,10 @@
     ),
   )
 
-  let boards = $state<Array<{ id: string; name: string }>>([])
+  let projects = $state<Array<{ key: string; name: string }>>([])
   let placeholders = $state<Array<{ key: string; description: string; example: string }>>([])
   let editing = $state<{ type: Group; scope: 'default' | string } | null>(null)
-  // Which group's "Add board override" picker is currently open.
+  // Which group's "Add project override" picker is currently open.
   let addingOverrideFor = $state<Group | null>(null)
   // Snapshot of the repo config taken when an edit starts, so Cancel can revert the auto-saved edits.
   let editSnapshot = $state<ReturnType<typeof getRepoConfig>>(null)
@@ -59,21 +60,21 @@
     }
   })
 
-  // Board names require credentials, so (re)fetch them whenever a tracker becomes connected — not
+  // Project lists require credentials, so (re)fetch whenever a tracker becomes connected — not
   // just on mount (the user may connect after this panel is already open).
   $effect(() => {
     if (!connected) {
-      boards = []
+      projects = []
       return
     }
     let cancelled = false
     window.api
-      .trackerConfigFetchBoards(repoRoot ?? undefined)
-      .then((b) => {
-        if (!cancelled) boards = b
+      .trackerConfigFetchProjects(repoRoot ?? undefined)
+      .then((p) => {
+        if (!cancelled) projects = p
       })
       .catch(() => {
-        if (!cancelled) boards = []
+        if (!cancelled) projects = []
       })
     return () => {
       cancelled = true
@@ -96,44 +97,38 @@
     editSnapshot = null
   }
 
-  // Delete the edited board's override (branch or PR part) — it falls back to the base template.
+  // Delete the edited project's override (branch or PR part) — it falls back to the base template.
   async function removeOverride(type: Group, scope: string): Promise<void> {
     const cfg = getRepoConfig()
     if (!cfg || scope === 'default') return
     const updated = $state.snapshot(cfg) as typeof cfg
-    const entry = updated!.boardOverrides[scope]
+    const entry = updated!.projectOverrides[scope]
     if (entry) {
       if (type === 'branch') delete entry.branchTemplate
       else delete entry.prTemplate
-      if (Object.keys(entry).length === 0) delete updated!.boardOverrides[scope]
+      if (Object.keys(entry).length === 0) delete updated!.projectOverrides[scope]
     }
     await saveRepoConfig(repoRoot, updated!)
     editing = null
     editSnapshot = null
   }
 
-  // Board names come from the provider and need credentials. Without them, label rows by a stable
-  // 1-based ordinal (over the override keys) so the same board reads the same in both groups.
-  let overrideKeys = $derived(Object.keys(resolved?.config.boardOverrides ?? {}))
-  function boardName(id: string): string | null {
-    return boards.find((b) => b.id === id)?.name ?? null
+  // Rows are keyed by the PROJECT KEY (task-key prefix) — readable on its own, so no credential
+  // fallback is needed; the tracker's project name enriches the tooltip when available.
+  function projectName(key: string): string | null {
+    return projects.find((p) => p.key === key)?.name ?? null
   }
-  function rowLabel(id: string): { label: string; tooltip: string } {
-    const name = boardName(id)
-    if (name) return { label: name, tooltip: name }
-    const ordinal = overrideKeys.indexOf(id) + 1
-    return {
-      label: `Board #${ordinal || '?'}`,
-      tooltip: 'Connect this tracker to see the real board name',
-    }
+  function rowLabel(key: string): { label: string; tooltip: string } {
+    const name = projectName(key)
+    return { label: key, tooltip: name ? `${key} — ${name}` : key }
   }
 
-  // Tooltip for the base "All boards (default)" row, explaining it's the fallback for boards without
-  // their own override below.
+  // Tooltip for the base "All projects (default)" row, explaining it's the fallback for projects
+  // without their own override below.
   function defaultTooltip(type: Group): string {
     return type === 'branch'
-      ? "Used for branches created from tasks on boards that don't have their own override below."
-      : "Used for PR titles from tasks on boards that don't have their own override below."
+      ? "Used for branches created from tasks whose project (task-key prefix) doesn't have its own override below."
+      : "Used for PR titles from tasks whose project (task-key prefix) doesn't have its own override below."
   }
 
   // Illustrative example of a rendered template (shared sample values; branch titles are slugified).
@@ -148,23 +143,25 @@
     resolved?.config.branchTemplate?.template ?? RENDERER_DEFAULT_BRANCH_TEMPLATE,
   )
   let branchRows = $derived(
-    Object.entries(resolved?.config.boardOverrides ?? {})
+    Object.entries(resolved?.config.projectOverrides ?? {})
       .filter(([, o]) => o?.branchTemplate)
       .map(([id, o]) => ({ id, template: o?.branchTemplate?.template || branchBase })),
   )
   let branchAddable = $derived(
-    boards.filter((b) => !resolved?.config.boardOverrides[b.id]?.branchTemplate),
+    projects.filter((p) => !resolved?.config.projectOverrides[p.key]?.branchTemplate),
   )
 
-  // PR rows mirror the branch pattern: the read-only row shows the TITLE template per board; the
-  // in-place editor exposes the full set (title, body, target branch).
+  // PR rows mirror the branch pattern: the read-only row shows the TITLE template per project;
+  // the in-place editor exposes the full set (title, body, target branch).
   let prBase = $derived(resolved?.config.prTemplate?.titleTemplate ?? RENDERER_DEFAULT_PR_TITLE)
   let prRows = $derived(
-    Object.entries(resolved?.config.boardOverrides ?? {})
+    Object.entries(resolved?.config.projectOverrides ?? {})
       .filter(([, o]) => o?.prTemplate)
       .map(([id, o]) => ({ id, template: o?.prTemplate?.titleTemplate || prBase })),
   )
-  let prAddable = $derived(boards.filter((b) => !resolved?.config.boardOverrides[b.id]?.prTemplate))
+  let prAddable = $derived(
+    projects.filter((p) => !resolved?.config.projectOverrides[p.key]?.prTemplate),
+  )
 </script>
 
 {#snippet editorFor(type: Group, scope: 'default' | string)}
@@ -217,8 +214,8 @@
             type="button"
             class="shrink-0 flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
             onclick={() => removeOverride(type, scope)}
-            aria-label="Remove board override"
-            title="Remove this board override — the base template will apply"
+            aria-label="Remove project override"
+            title="Remove this project override — the base template will apply"
           >
             <Trash2 size={13} />
           </button>
@@ -271,7 +268,7 @@
       <p class="text-xs text-text-muted leading-snug m-0">{description}</p>
     </div>
     <div class="flex flex-col">
-      {@render row(type, 'default', 'All boards (default)', defaultTooltip(type), base)}
+      {@render row(type, 'default', 'All projects (default)', defaultTooltip(type), base)}
       {#each rows as r (r.id)}
         {@const meta = rowLabel(r.id)}
         {@render row(type, r.id, meta.label, meta.tooltip, r.template)}
@@ -281,14 +278,14 @@
         <div class="py-2 border-t border-border-subtle">
           <div class="flex items-center gap-2">
             <span class="flex-1 min-w-0 text-xs text-text-faint"
-              >New override · {boardName(editing.scope) ?? editing.scope}</span
+              >New override · {rowLabel(editing.scope).label}</span
             >
             <button
               type="button"
               class="shrink-0 flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
               onclick={() => editing && removeOverride(type, editing.scope)}
-              aria-label="Remove board override"
-              title="Remove this board override — the base template will apply"
+              aria-label="Remove project override"
+              title="Remove this project override — the base template will apply"
             >
               <Trash2 size={13} />
             </button>
@@ -305,17 +302,20 @@
         type="button"
         class="self-start mt-1 flex items-center gap-1 px-2 py-0.5 rounded-md bg-transparent border-0 text-text-faint text-xs font-inherit cursor-not-allowed opacity-60"
         disabled
-        title="Connect this tracker (add credentials) to add a board-specific override"
+        title="Connect this tracker (add credentials) to add a project-specific override"
       >
         <Plus size={12} />
-        Add board override
+        Add project override
       </button>
     {:else if addable.length > 0}
       {#if addingOverrideFor === type}
         <div class="flex items-center gap-2 mt-1">
           <CustomSelect
             value=""
-            options={addable.map((b) => ({ value: b.id, label: b.name }))}
+            options={addable.map((p) => ({
+              value: p.key,
+              label: p.name && p.name !== p.key ? p.key + ' — ' + p.name : p.key,
+            }))}
             onchange={(id) => {
               addingOverrideFor = null
               startEdit(type, id)
@@ -338,7 +338,7 @@
           onclick={() => (addingOverrideFor = type)}
         >
           <Plus size={12} />
-          Add board override
+          Add project override
         </button>
       {/if}
     {/if}
@@ -363,7 +363,7 @@
     {@render group(
       'branch',
       'Branch naming',
-      'Templates for branch names created from tasks — per board, with a default for the rest.',
+      'Templates for branch names created from tasks — per tracker project (task-key prefix), with a default for the rest.',
       branchBase,
       branchRows,
       branchAddable,
@@ -371,7 +371,7 @@
     {@render group(
       'pr',
       'Pull request naming',
-      'PR title, description and target branch used when creating a PR from a task — per board. Rows show the title; edit to see all fields.',
+      'PR title, description and target branch used when creating a PR from a task — per tracker project. Rows show the title; edit to see all fields.',
       prBase,
       prRows,
       prAddable,

@@ -219,6 +219,32 @@ export const youtrackClient: TaskTrackerProviderClient = {
     )
   },
 
+  fetchProjects(connection, token) {
+    // shortName is the issue-id prefix (PROJ in PROJ-123) — the project key in Canopy terms.
+    return ytFetch<Array<{ shortName?: string; name?: string }>>(
+      connection,
+      token,
+      '/api/admin/projects?fields=shortName,name&$top=100',
+    ).map((data) =>
+      data
+        .filter((p) => p.shortName)
+        .map((p) => ({ key: p.shortName as string, name: p.name || (p.shortName as string) })),
+    )
+  },
+
+  fetchTaskTypes(connection, token) {
+    const projectKey = connection.projectKey
+    if (!projectKey) return okAsync([])
+    return ytFetch<Array<{ name: string; values?: Array<{ name: string }> }>>(
+      connection,
+      token,
+      `/api/admin/projects/${encodeURIComponent(projectKey)}/customFields?fields=name,bundle(values(name))&$top=50`,
+    ).map((data) => {
+      const typeField = data.find((f) => f.name === 'Type' || f.name.toLowerCase() === 'type')
+      return (typeField?.values ?? []).map((v) => v.name).filter(Boolean)
+    })
+  },
+
   fetchStatuses(connection, token) {
     const projectKey = connection.projectKey
     if (!projectKey) return okAsync([])

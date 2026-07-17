@@ -273,6 +273,16 @@ export const githubClient: TaskTrackerProviderClient = {
     return okAsync([{ id: 'repo', name: `${owner}/${repo}` }] satisfies TrackerBoard[])
   },
 
+  fetchProjects() {
+    // GitHub issue keys (#123) carry no project prefix, so per-project template overrides can
+    // never match them — expose no projects rather than offer overrides that would never apply.
+    return okAsync([])
+  },
+
+  fetchTaskTypes() {
+    return okAsync(['issue'])
+  },
+
   fetchStatuses() {
     return okAsync([
       { id: 'OPEN', name: 'Open', statusCategory: 'todo' },

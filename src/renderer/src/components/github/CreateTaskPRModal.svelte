@@ -19,7 +19,7 @@
   }: {
     repoRoot: string
     branch: string
-    task?: { taskKey: string; summary: string; connectionId?: string; boardId?: string }
+    task?: { taskKey: string; summary: string; connectionId?: string }
   } = $props()
 
   let loading = $state(true)
@@ -54,7 +54,6 @@
       const prepared = await window.api.taskTrackerPreparePR(
         repoRoot,
         task ? { key: task.taskKey } : undefined,
-        task?.boardId,
         branch,
       )
       title = prepared.title
@@ -99,7 +98,6 @@
         >[1],
         branch,
         task?.connectionId || undefined,
-        task?.boardId,
         {
           title: title.trim(),
           body,

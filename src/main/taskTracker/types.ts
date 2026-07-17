@@ -105,9 +105,15 @@ export interface TrackerConfig {
   projectKey?: string
 }
 
-export interface BoardOverride {
+export interface ProjectOverride {
   branchTemplate?: Partial<BranchTemplateConfig & { typeMapping: Record<string, string> }>
   prTemplate?: Partial<PRTemplateConfig>
+}
+
+/** A tracker project (Jira project / YouTrack project) — `key` is the task-key prefix. */
+export interface TrackerProject {
+  key: string
+  name: string
 }
 
 export interface RepoConfig {
@@ -115,7 +121,11 @@ export interface RepoConfig {
   trackers: TrackerConfig[]
   branchTemplate?: BranchTemplateConfig & { typeMapping?: Record<string, string> }
   prTemplate?: PRTemplateConfig
-  boardOverrides: Record<string, BoardOverride>
+  /**
+   * Template overrides keyed by the tracker PROJECT key — the task-key prefix (`GAKKO-1` →
+   * `GAKKO`), an intrinsic property of every task. Boards are only a browsing filter.
+   */
+  projectOverrides: Record<string, ProjectOverride>
   filters: TaskFilterConfig
   /**
    * Guidance for AI agents working in this repository, stored verbatim in config.json so any
@@ -181,6 +191,16 @@ export interface TaskTrackerProviderClient {
     connection: TaskTrackerConnection,
     token: string,
   ): ResultAsync<TrackerBoard[], TaskTrackerError>
+  /** Tracker projects (task-key prefixes). Providers without the concept (GitHub) return []. */
+  fetchProjects(
+    connection: TaskTrackerConnection,
+    token: string,
+  ): ResultAsync<TrackerProject[], TaskTrackerError>
+  /** Task type names as the tracker defines them (bug/story/…), for type-mapping editors. */
+  fetchTaskTypes(
+    connection: TaskTrackerConnection,
+    token: string,
+  ): ResultAsync<string[], TaskTrackerError>
   fetchStatuses(
     connection: TaskTrackerConnection,
     token: string,

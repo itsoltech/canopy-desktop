@@ -1257,6 +1257,14 @@ const api = {
     ipcRenderer.invoke('trackerConfig:fetchBoards', { repoRoot, trackerId }),
   trackerConfigFetchStatuses: (repoRoot?: string, trackerId?: string, boardId?: string) =>
     ipcRenderer.invoke('trackerConfig:fetchStatuses', { repoRoot, trackerId, boardId }),
+  trackerConfigFetchProjects: (repoRoot?: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchProjects', { repoRoot, trackerId }) as Promise<
+      Array<{ key: string; name: string }>
+    >,
+  trackerConfigFetchTaskTypes: (repoRoot?: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchTaskTypes', { repoRoot, trackerId }) as Promise<
+      string[]
+    >,
   trackerConfigFetchTasks: (
     repoRoot?: string,
     trackerId?: string,
@@ -1480,7 +1488,6 @@ const api = {
     task: { key: string; [k: string]: unknown },
     sourceBranch: string,
     connectionId?: string,
-    boardId?: string,
     overrides?: {
       title?: string
       body?: string
@@ -1494,16 +1501,14 @@ const api = {
       task,
       sourceBranch,
       connectionId,
-      boardId,
       overrides,
     }),
 
   taskTrackerPreparePR: (
     repoRoot: string,
     task?: { key: string; [k: string]: unknown },
-    boardId?: string,
     branch?: string,
-  ) => ipcRenderer.invoke('taskTracker:preparePR', { repoRoot, task, boardId, branch }),
+  ) => ipcRenderer.invoke('taskTracker:preparePR', { repoRoot, task, branch }),
 
   taskTrackerFindPR: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,

@@ -10,7 +10,7 @@
 
 The task tracker lets users connect one or more issue trackers (Jira Cloud, YouTrack, GitHub Issues) and work with tasks without leaving Canopy. A user can browse tasks filtered by status or assignee, create a Git branch named from a configurable template, and open a pull request whose title and body are also template-driven.
 
-Configuration lives in two stores: a personal store in Canopy preferences (tracker connections, private to the user) and the per-repository config in `.canopy/config.json` (naming configuration, shared via git). Tracker definitions are merged additively (repo overrides personal on the same `id`); branch/PR templates and board overrides come from the repo config alone, falling back to built-in defaults when unset. Board-level overrides customize branch and PR templates per board.
+Configuration lives in two stores: a personal store in Canopy preferences (tracker connections, private to the user) and the per-repository config in `.canopy/config.json` (naming configuration, shared via git). Tracker definitions are merged additively (repo overrides personal on the same `id`); branch/PR templates and project overrides come from the repo config alone, falling back to built-in defaults when unset. Project-level overrides customize branch and PR templates per tracker project, keyed by the task-key prefix.
 
 Authentication tokens are stored locally on the user's machine in Canopy's SQLite database (`canopy.db` under `app.getPath('userData')`), keyed by `provider:baseUrl`, and encrypted at rest via Electron `safeStorage` (Windows DPAPI / macOS Keychain / Linux keyring; plaintext fallback when no OS keyring is available). They are never written to `.canopy/config.json` and never committed to git. Legacy connections that stored tokens directly in preferences are automatically migrated on first load.
 
@@ -119,7 +119,7 @@ Legacy conditional markers (`{?varName}`/`{/varName}`) are stripped during rende
 
 Templates must contain `{taskKey}`. The slugify function lowercases, strips non-alphanumeric characters, replaces spaces with hyphens, and caps at 50 characters. The result is sanitized as a valid Git branch name (no `..`, `~`, `^`, `:`, `?`, `*`, `[`, `]`, `\`, `@`, `#`, `{`, `}`, spaces).
 
-Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`. Custom type mappings can override this per config level or per board.
+Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`. Custom type mappings can override this at the base template or per project override; the settings editor lists the tracker's own task types.
 
 ### Creating a pull request from a task
 
@@ -184,8 +184,8 @@ Each provider exposes sprint/milestone information differently:
     "defaultTargetBranch": "main",
     "targetRules": [{ "taskType": "subtask", "targetPattern": "feat/{parentKey}" }]
   },
-  "boardOverrides": {
-    "board-123": {
+  "projectOverrides": {
+    "GAKKO": {
       "branchTemplate": { "template": "custom/{taskKey}" },
       "prTemplate": { "defaultTargetBranch": "develop" }
     }
@@ -203,7 +203,7 @@ Naming configuration is owned by the **project alone**; the personal (global) st
 tracker connections. `mergeConfigs()` applies these rules:
 
 1. **Trackers**: Additive merge by `id` (personal + repo). If both define a tracker with the same `id`, repo wins.
-2. **Branch template / PR template / board overrides**: From the repo config only; when unset, the built-in defaults (`configDefaults.ts`) apply. The personal store is never a template fallback.
+2. **Branch template / PR template / project overrides**: From the repo config only; when unset, the built-in defaults (`configDefaults.ts`) apply. The personal store is never a template fallback.
 3. **Filters**: Repo always wins when repo config exists.
 
 The `ResolvedConfig` includes a `source` object indicating where each field came from (`'repo'` or `'default'`; templates never resolve as `'global'`).
@@ -215,17 +215,17 @@ Two separate surfaces, deliberately not mixed:
 - **Settings → Project management → Your connections** — your personal tracker connections (stored in the preferences DB, private to you, reused across projects) with full add/edit/delete and credential management. This is the authoritative place to change or remove a token. An **OS-aware** note states where credentials are kept — encrypted via Windows DPAPI / macOS Keychain / Linux keyring in Canopy's local database, keyed by provider + URL, never written to the repository (and warns when OS encryption is unavailable).
 - **Project tracker modal** — opened from the left sidebar's **Project management** section; scoped to the **active worktree** and edits its `.canopy/config.json` (shared with the team via git). Sections:
   - **Connections** — trackers defined in the repo config; here you only _connect_ them (enter credentials in a dedicated dialog). Credentials are global per provider + URL. Stored tokens are **verified** against the tracker API on config load; a token the tracker rejects (401/403) shows a `Credentials expired` badge with a **Reconnect** action (in the modal, in Settings, and in the sidebar), and blocks task browsing until replaced.
-  - **Branch naming** and **Pull request naming** — per-board rows (`All boards (default)` + one row per board override), each showing the template plus a rendered example. Editing happens in place (Cancel reverts, Done collapses); **Add board override** creates a new per-board template. PR rows show the title; the editor exposes title, body (multi-line) and the default target branch. Board names require working credentials — without them rows fall back to `Board #N` labels. Editing is read-only until a tracker is connected.
-- **Reset to default** — removes the project value from `.canopy/config.json` so the **built-in** template applies (there is no other tier). **Clear board override** drops a board-specific override so the board falls back to the base template.
+  - **Branch naming** and **Pull request naming** — per-project rows (`All projects (default)` + one row per project override), each showing the template plus a rendered example. Editing happens in place (Cancel reverts, Done collapses); **Add project override** creates a new per-project template, picking from the tracker's project list. PR rows show the title; the editor exposes title, body (multi-line) and the default target branch. The base branch editor also maps the tracker's task types to {branchType}. Editing is read-only until a tracker is connected.
+- **Reset to default** — removes the project value from `.canopy/config.json` so the **built-in** template applies (there is no other tier). **Remove project override** drops a project-specific override so tasks from that project fall back to the base template.
 - **Template editor** — hybrid: `{field}` placeholders are draggable chips; everything between them is plain text edited in place (any separator works). Renderer-side helpers in `src/renderer/src/components/preferences/_partials/configScopeLabels.ts` (unit-tested with Vitest, `npm test`).
 - **Needs-credentials surfacing** — when the repo config defines a tracker with no usable credentials (missing or expired), it is listed in the left sidebar's **Project management** section with an "Add credentials" action.
 
-### Board-level overrides
+### Project-level overrides
 
-Board overrides are keyed by board ID within `boardOverrides`. When fetching the effective branch or PR template for a specific board:
+Project overrides are keyed by the tracker PROJECT key — the task-key prefix (`GAKKO-1` → `GAKKO`) — within `projectOverrides`. The key is derived from the task itself, so overrides also apply to tasks resolved from a branch name. When fetching the effective template:
 
 1. Start with the base template (from the repo config, or the built-in default when unset).
-2. If a `boardOverrides[boardId]` entry exists, apply its partial override:
+2. If a `projectOverrides[projectKey]` entry exists, apply its partial override:
    - For branch templates: override `template`, merge `customVars` (override wins on same key), override `typeMapping`.
    - For PR templates: override individual fields (`titleTemplate`, `bodyTemplate`, `defaultTargetBranch`, `targetRules`).
 
@@ -272,7 +272,7 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
   - `GlobalConfigManager.ts` - global config persistence with legacy migration
   - `RepoConfigManager.ts` - per-repo `.canopy/config.json` management
   - `configMerge.ts` - three-tier config merge logic
-  - `configDefaults.ts` - built-in defaults, board-aware template resolution
+  - `configDefaults.ts` - built-in defaults, project-aware template resolution
   - `branchTemplate.ts` - template rendering, slugification, validation, type mapping
   - `prTemplate.ts` - PR title/body rendering, target branch resolution
   - `prCreation.ts` - `gh` CLI integration for push + PR creation

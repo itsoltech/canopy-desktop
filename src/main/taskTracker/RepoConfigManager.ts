@@ -74,8 +74,10 @@ export class RepoConfigManager {
           trackers: trackers ?? defaults.trackers,
           branchTemplate: parsed.branchTemplate as RepoConfig['branchTemplate'],
           prTemplate: parsed.prTemplate as RepoConfig['prTemplate'],
-          boardOverrides: (parsed.boardOverrides ??
-            defaults.boardOverrides) as RepoConfig['boardOverrides'],
+          // Legacy `boardOverrides` are intentionally dropped — overrides are keyed by the
+          // tracker PROJECT key (task-key prefix) now.
+          projectOverrides: (parsed.projectOverrides ??
+            defaults.projectOverrides) as RepoConfig['projectOverrides'],
           filters: (parsed.filters ?? defaults.filters) as RepoConfig['filters'],
           // Older files gain the default agent guidance on their next save.
           agents: (parsed.agents as RepoConfig['agents']) ?? defaults.agents,

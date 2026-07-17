@@ -938,6 +938,11 @@ interface CanopyAPI {
 
   // Config-based tracker methods
   trackerConfigFetchBoards: (repoRoot?: string, trackerId?: string) => Promise<TrackerBoard[]>
+  trackerConfigFetchProjects: (
+    repoRoot?: string,
+    trackerId?: string,
+  ) => Promise<Array<{ key: string; name: string }>>
+  trackerConfigFetchTaskTypes: (repoRoot?: string, trackerId?: string) => Promise<string[]>
   trackerConfigFetchStatuses: (
     repoRoot?: string,
     trackerId?: string,
@@ -1124,7 +1129,6 @@ interface CanopyAPI {
     task: TrackerTask,
     sourceBranch: string,
     connectionId?: string,
-    boardId?: string,
     overrides?: {
       title?: string
       body?: string
@@ -1137,7 +1141,6 @@ interface CanopyAPI {
   taskTrackerPreparePR: (
     repoRoot: string,
     task?: { key: string; [k: string]: unknown },
-    boardId?: string,
     branch?: string,
   ) => Promise<{
     title: string
@@ -1367,7 +1370,7 @@ interface TaskFilterConfig {
   statuses: string[]
 }
 
-interface BoardOverride {
+interface ProjectOverride {
   branchTemplate?: Partial<BranchTemplateConfig>
   prTemplate?: Partial<PRTemplateConfig>
 }
@@ -1377,7 +1380,8 @@ interface RepoConfig {
   trackers: TrackerConfig[]
   branchTemplate?: BranchTemplateConfig
   prTemplate?: PRTemplateConfig
-  boardOverrides: Record<string, BoardOverride>
+  /** Template overrides keyed by tracker project key (the task-key prefix, e.g. GAKKO). */
+  projectOverrides: Record<string, ProjectOverride>
   filters: TaskFilterConfig
 }
 

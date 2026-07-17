@@ -248,6 +248,21 @@ export const jiraClient: TaskTrackerProviderClient = {
     )
   },
 
+  fetchProjects(connection, token) {
+    return jiraFetch<{ values: Array<{ key: string; name: string }> }>(
+      connection,
+      token,
+      '/rest/api/3/project/search?maxResults=100',
+    ).map((data) => data.values.map((p) => ({ key: p.key, name: p.name })))
+  },
+
+  fetchTaskTypes(connection, token) {
+    // Global issue-type list; names are deduped (Jira repeats them per project scope).
+    return jiraFetch<Array<{ name: string }>>(connection, token, '/rest/api/3/issuetype').map(
+      (data) => [...new Set(data.map((t) => t.name).filter(Boolean))],
+    )
+  },
+
   fetchStatuses(connection, token) {
     // `/rest/api/3/status` (singular) lists ALL statuses with their category; the plural
     // `/statuses` endpoint requires explicit status ids and 400s without them.

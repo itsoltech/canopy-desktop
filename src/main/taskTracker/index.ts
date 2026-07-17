@@ -21,7 +21,7 @@ export type {
   TaskTrackerExportData,
   TrackerConfig,
   RepoConfig,
-  BoardOverride,
+  ProjectOverride,
   ResolvedConfig,
   ConfigSource,
 } from './types'

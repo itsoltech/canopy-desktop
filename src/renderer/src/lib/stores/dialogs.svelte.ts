@@ -115,7 +115,7 @@ interface CreateTaskPRState {
   repoRoot: string
   branch: string
   /** Linked task providing template context — absent for a plain branch-level PR. */
-  task?: { taskKey: string; summary: string; connectionId?: string; boardId?: string }
+  task?: { taskKey: string; summary: string; connectionId?: string }
 }
 
 interface NoneState {
@@ -218,7 +218,7 @@ export function showPRDetails(repoRoot: string, branch: string): void {
 export function showCreateTaskPR(
   repoRoot: string,
   branch: string,
-  task?: { taskKey: string; summary: string; connectionId?: string; boardId?: string },
+  task?: { taskKey: string; summary: string; connectionId?: string },
 ): void {
   dialogState.current = { type: 'createTaskPR', repoRoot, branch, task }
 }

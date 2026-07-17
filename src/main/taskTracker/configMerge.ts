@@ -44,7 +44,7 @@ export function mergeConfigs(
       config: {
         version: 1,
         trackers: global.trackers,
-        boardOverrides: {},
+        projectOverrides: {},
         filters: global.filters,
       },
       source: {
@@ -76,7 +76,7 @@ export function mergeConfigs(
     trackers,
     branchTemplate: r.branchTemplate,
     prTemplate: r.prTemplate,
-    boardOverrides: r.boardOverrides,
+    projectOverrides: r.projectOverrides,
     filters: r.filters,
     // Agent guidance is project-owned, like the naming templates.
     agents: r.agents,

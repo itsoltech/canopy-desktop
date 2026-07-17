@@ -50,7 +50,7 @@ export class GlobalConfigManager {
           ],
           branchTemplate: parsed.branchTemplate as RepoConfig['branchTemplate'],
           prTemplate: parsed.prTemplate as RepoConfig['prTemplate'],
-          boardOverrides: (parsed.boardOverrides ?? {}) as RepoConfig['boardOverrides'],
+          projectOverrides: (parsed.projectOverrides ?? {}) as RepoConfig['projectOverrides'],
           filters: (parsed.filters ?? {
             assignedToMe: true,
             statuses: [],
@@ -72,7 +72,7 @@ export class GlobalConfigManager {
         trackers: parsed.trackers as RepoConfig['trackers'],
         branchTemplate: parsed.branchTemplate as RepoConfig['branchTemplate'],
         prTemplate: parsed.prTemplate as RepoConfig['prTemplate'],
-        boardOverrides: (parsed.boardOverrides ?? {}) as RepoConfig['boardOverrides'],
+        projectOverrides: (parsed.projectOverrides ?? {}) as RepoConfig['projectOverrides'],
         filters: parsed.filters as RepoConfig['filters'],
       }
       this.cached = result
@@ -103,7 +103,7 @@ export class GlobalConfigManager {
     const config: RepoConfig = this.load() ?? {
       version: 1,
       trackers: [],
-      boardOverrides: {},
+      projectOverrides: {},
       filters: { assignedToMe: true, statuses: [] },
     }
     const norm = (u: string): string => u.replace(/\/$/, '')
@@ -171,7 +171,7 @@ export class GlobalConfigManager {
       const config: RepoConfig = {
         version: 1,
         trackers,
-        boardOverrides: {},
+        projectOverrides: {},
         filters: {
           assignedToMe: true,
           statuses: [],
