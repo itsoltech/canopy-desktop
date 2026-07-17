@@ -1,15 +1,18 @@
 <script lang="ts">
-  import { Check, Unlink, KeyRound, Settings, X, Pencil } from '@lucide/svelte'
+  import { Check, Unlink, KeyRound, Settings, X, Pencil, FolderKanban } from '@lucide/svelte'
   import { confirm, showPreferences } from '../../lib/stores/dialogs.svelte'
   import {
     getRepoConfig,
     getTrackerCredentials,
     loadRepoConfig,
+    saveRepoConfig,
     getGlobalConfig,
     loadGlobalConfig,
     saveGlobalConfig,
     initGlobalConfig,
   } from '../../lib/stores/taskTracker.svelte'
+  import { SvelteSet } from 'svelte/reactivity'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
@@ -36,6 +39,57 @@
   let dialogEl = $state<HTMLElement>()
 
   let connectingCreds = $derived(connectingId ? trackerCreds[connectingId] : undefined)
+
+  // --- Per-tracker project selection: which tracker projects belong to THIS repository.
+  // Drives the task pickers and which projects can carry custom branch/PR template overrides.
+  let editingProjectsFor = $state<string | null>(null)
+  let projectOptions = $state<Array<{ key: string; name: string }>>([])
+  let projectsLoading = $state(false)
+  let projectsError = $state('')
+  let selectedProjects = new SvelteSet<string>()
+
+  async function startEditProjects(trackerId: string): Promise<void> {
+    editingProjectsFor = trackerId
+    projectsError = ''
+    projectsLoading = true
+    selectedProjects.clear()
+    for (const k of trackers.find((t) => t.id === trackerId)?.projects ?? []) {
+      selectedProjects.add(k)
+    }
+    try {
+      // `all: true` bypasses the whitelist so deselected projects stay visible for re-adding.
+      projectOptions = await window.api.trackerConfigFetchProjects(
+        repoRoot ?? undefined,
+        trackerId,
+        true,
+      )
+    } catch (e) {
+      projectsError = e instanceof Error ? e.message : 'Failed to load projects'
+      projectOptions = []
+    } finally {
+      projectsLoading = false
+    }
+  }
+
+  function toggleProject(key: string): void {
+    if (selectedProjects.has(key)) selectedProjects.delete(key)
+    else selectedProjects.add(key)
+  }
+
+  async function saveProjects(): Promise<void> {
+    const cfg = getRepoConfig()
+    if (!cfg || !editingProjectsFor || !repoRoot) return
+    const updated = $state.snapshot(cfg) as typeof cfg
+    const tracker = updated!.trackers.find((t) => t.id === editingProjectsFor)
+    if (!tracker) return
+    const picked = [...selectedProjects]
+    // Everything (or nothing) selected = no whitelist — the field disappears from config.json.
+    tracker.projects =
+      picked.length === 0 || picked.length === projectOptions.length ? undefined : picked.sort()
+    await saveRepoConfig(repoRoot, updated!)
+    editingProjectsFor = null
+    addToast('Project selection saved')
+  }
 
   // Token entry happens in a focused dialog (not inline), so move focus there when it opens.
   $effect(() => {
@@ -187,6 +241,14 @@
           {#if tracker.projectKey}
             <span class="font-mono text-xs text-text-muted shrink-0">{tracker.projectKey}</span>
           {/if}
+          {#if tracker.projects?.length}
+            <span
+              class="text-2xs px-1.5 py-px rounded-md bg-active text-text-muted shrink-0"
+              title={`Repository uses only: ${tracker.projects.join(', ')}`}
+              >{tracker.projects.length}
+              {tracker.projects.length === 1 ? 'project' : 'projects'}</span
+            >
+          {/if}
           {#if creds?.hasToken && creds.valid === false}
             <span
               class="text-2xs text-warning-text shrink-0"
@@ -249,7 +311,77 @@
             Connect
           </button>
         {/if}
+        {#if creds?.hasToken && creds.valid !== false}
+          <button
+            type="button"
+            class="flex items-center justify-center size-7 rounded-md border-0 cursor-pointer {editingProjectsFor ===
+            tracker.id
+              ? 'bg-accent-bg text-accent-text'
+              : 'bg-transparent text-text-muted hover:bg-hover hover:text-text'}"
+            onclick={() =>
+              editingProjectsFor === tracker.id
+                ? (editingProjectsFor = null)
+                : startEditProjects(tracker.id)}
+            aria-label="Select tracker projects for this repository"
+            title="Which tracker projects belong to this repository — filters the task pickers and decides which projects can get custom branch/PR naming overrides. None selected = all."
+          >
+            <FolderKanban size={13} />
+          </button>
+        {/if}
       </div>
+      {#if editingProjectsFor === tracker.id}
+        <div
+          class="flex flex-col gap-1.5 mx-1 px-3 py-2 rounded-md border border-border-subtle bg-bg-input"
+        >
+          <p class="m-0 text-xs text-text-muted leading-snug">
+            Projects of this tracker that belong to this repository. Affects the task pickers and
+            which projects can carry custom branch/PR naming overrides. Leave all unchecked to use
+            every project.
+          </p>
+          {#if projectsLoading}
+            <span class="text-xs text-text-faint">Loading projects…</span>
+          {:else if projectsError}
+            <span class="text-xs text-danger-text">{projectsError}</span>
+          {:else if projectOptions.length === 0}
+            <span class="text-xs text-text-faint"
+              >This tracker does not expose projects (GitHub uses the repository itself).</span
+            >
+          {:else}
+            <div class="flex flex-col gap-1">
+              {#each projectOptions as p (p.key)}
+                <label
+                  class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none"
+                >
+                  <CustomCheckbox
+                    checked={selectedProjects.has(p.key)}
+                    onchange={() => toggleProject(p.key)}
+                  />
+                  <span class="font-mono text-xs text-accent-text">{p.key}</span>
+                  {#if p.name && p.name !== p.key}
+                    <span class="text-xs text-text-muted truncate">{p.name}</span>
+                  {/if}
+                </label>
+              {/each}
+            </div>
+            <div class="flex items-center gap-2 mt-1">
+              <button
+                type="button"
+                class="px-2.5 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-inherit cursor-pointer hover:bg-accent-bg-hover"
+                onclick={saveProjects}
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                class="px-2.5 py-1 rounded-md border border-border bg-transparent text-text-secondary text-xs font-inherit cursor-pointer hover:bg-hover hover:text-text"
+                onclick={() => (editingProjectsFor = null)}
+              >
+                Cancel
+              </button>
+            </div>
+          {/if}
+        </div>
+      {/if}
     {/each}
 
     <button

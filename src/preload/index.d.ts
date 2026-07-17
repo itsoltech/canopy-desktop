@@ -941,6 +941,7 @@ interface CanopyAPI {
   trackerConfigFetchProjects: (
     repoRoot?: string,
     trackerId?: string,
+    all?: boolean,
   ) => Promise<Array<{ key: string; name: string }>>
   trackerConfigFetchTaskTypes: (repoRoot?: string, trackerId?: string) => Promise<string[]>
   trackerConfigFetchStatuses: (
@@ -1346,6 +1347,8 @@ interface TrackerConfig {
   provider: TaskTrackerProvider
   baseUrl: string
   projectKey?: string
+  /** Tracker projects belonging to this repo (whitelist for pickers/overrides); empty = all. */
+  projects?: string[]
 }
 
 interface BranchTemplateConfig {

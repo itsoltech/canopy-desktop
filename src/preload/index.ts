@@ -1257,8 +1257,8 @@ const api = {
     ipcRenderer.invoke('trackerConfig:fetchBoards', { repoRoot, trackerId }),
   trackerConfigFetchStatuses: (repoRoot?: string, trackerId?: string, boardId?: string) =>
     ipcRenderer.invoke('trackerConfig:fetchStatuses', { repoRoot, trackerId, boardId }),
-  trackerConfigFetchProjects: (repoRoot?: string, trackerId?: string) =>
-    ipcRenderer.invoke('trackerConfig:fetchProjects', { repoRoot, trackerId }) as Promise<
+  trackerConfigFetchProjects: (repoRoot?: string, trackerId?: string, all?: boolean) =>
+    ipcRenderer.invoke('trackerConfig:fetchProjects', { repoRoot, trackerId, all }) as Promise<
       Array<{ key: string; name: string }>
     >,
   trackerConfigFetchTaskTypes: (repoRoot?: string, trackerId?: string) =>

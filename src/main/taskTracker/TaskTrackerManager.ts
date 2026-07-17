@@ -182,11 +182,20 @@ export class TaskTrackerManager {
     config: RepoConfig,
     trackerId?: string,
     repoRoot?: string,
+    includeAll = false,
   ): ResultAsync<TrackerProject[], TaskTrackerError> {
+    // The tracker entry may whitelist which projects belong to this repo; `includeAll` bypasses
+    // the filter so the config editor can still offer everything for (de)selection.
+    const tracker = this.findTracker(config, trackerId)
     return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
-        return client.fetchProjects(conn, token)
+        return client.fetchProjects(conn, token).map((list) => {
+          const allow = tracker?.projects
+          if (includeAll || !allow || allow.length === 0) return list
+          const set = new Set(allow.map((k) => k.toUpperCase()))
+          return list.filter((p) => set.has(p.key.toUpperCase()))
+        })
       },
     )
   }

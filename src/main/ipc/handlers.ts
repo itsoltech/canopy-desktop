@@ -3342,13 +3342,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchProjects',
-    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
+    async (_event, payload: { repoRoot?: string; trackerId?: string; all?: boolean }) => {
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchProjectsFromConfig(
         resolved.config,
         payload.trackerId,
         payload.repoRoot,
+        payload.all === true,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },

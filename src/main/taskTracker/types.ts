@@ -109,6 +109,12 @@ export interface TrackerConfig {
   provider: TaskTrackerProvider
   baseUrl: string
   projectKey?: string
+  /**
+   * Tracker projects (task-key prefixes) that belong to THIS repository. When non-empty it acts
+   * as a whitelist for the task pickers and for which projects can carry template overrides.
+   * Empty/absent = all projects the credentials can see.
+   */
+  projects?: string[]
 }
 
 export interface ProjectOverride {
