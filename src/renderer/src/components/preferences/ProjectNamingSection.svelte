@@ -151,9 +151,21 @@
     projects.filter((p) => !resolved?.config.projectOverrides[p.key]?.branchTemplate),
   )
 
-  // PR rows mirror the branch pattern: the read-only row shows the TITLE template per project;
-  // the in-place editor exposes the full set (title, body, target branch).
+  // PR rows mirror the branch pattern: the read-only row shows the TITLE template per project,
+  // plus the resolved target branch and a collapsible body preview; the in-place editor exposes
+  // the full set (title, body, target branch).
   let prBase = $derived(resolved?.config.prTemplate?.titleTemplate ?? RENDERER_DEFAULT_PR_TITLE)
+  const DEFAULT_PR_BODY = '## {taskKey}: {taskTitle}\n\n{taskUrl}'
+  let prBaseTarget = $derived(resolved?.config.prTemplate?.defaultTargetBranch ?? '')
+  let prBaseBody = $derived(resolved?.config.prTemplate?.bodyTemplate || DEFAULT_PR_BODY)
+  function prMetaFor(scope: 'default' | string): { target: string; body: string } {
+    if (scope === 'default') return { target: prBaseTarget, body: prBaseBody }
+    const o = resolved?.config.projectOverrides[scope]?.prTemplate
+    return {
+      target: o?.defaultTargetBranch || prBaseTarget,
+      body: o?.bodyTemplate || prBaseBody,
+    }
+  }
   let prRows = $derived(
     Object.entries(resolved?.config.projectOverrides ?? {})
       .filter(([, o]) => o?.prTemplate)
@@ -236,6 +248,23 @@
         <span class="text-2xs text-accent-text font-mono break-all leading-4 px-1.5"
           >{exampleFor(type, template)}</span
         >
+        {#if type === 'pr'}
+          {@const meta = prMetaFor(scope)}
+          <span class="text-2xs text-text-muted leading-4 px-1.5">
+            target:
+            <span class="font-mono text-text-secondary">{meta.target || 'develop'}</span
+            >{#if !meta.target}
+              <span class="text-text-faint"> (fallback — not set)</span>{/if}
+          </span>
+          <details class="px-1.5">
+            <summary
+              class="text-2xs text-text-faint cursor-pointer select-none hover:text-text-secondary"
+              >body template</summary
+            >
+            <pre
+              class="m-0 mt-0.5 px-2 py-1.5 rounded-md bg-bg text-2xs text-text-secondary font-mono whitespace-pre-wrap break-words leading-4">{meta.body}</pre>
+          </details>
+        {/if}
       </div>
       {#if connected}
         <button
