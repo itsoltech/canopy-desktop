@@ -3046,7 +3046,13 @@ export function registerIpcHandlers(
           .getCurrentSprint(payload.connectionId, payload.boardId)
           .unwrapOr(null)
 
-    const variables = buildVariables(payload.task, sprint, branchTpl.customVars, payload.branchType)
+    // Callers that offer a branch-type picker pass branchType explicitly; everyone else still
+    // gets one derived from the task type, so {branchType} never silently renders empty.
+    const branchType =
+      payload.branchType ??
+      (payload.task.type ? resolveBranchType(payload.task.type, branchTpl.typeMapping) : undefined)
+
+    const variables = buildVariables(payload.task, sprint, branchTpl.customVars, branchType)
     return renderBranchName(branchTpl.template, variables)
   }
 
