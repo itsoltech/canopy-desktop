@@ -11,6 +11,7 @@
 
   // Native create-PR form: the template-rendered title/description are editable BEFORE anything
   // is created. Data flows through the authenticated gh CLI — no browser, no extra login.
+  // Without a linked task the form degrades to a plain branch-level PR (title from the branch).
   let {
     repoRoot,
     branch,
@@ -18,7 +19,7 @@
   }: {
     repoRoot: string
     branch: string
-    task: { taskKey: string; summary: string; connectionId?: string; boardId?: string }
+    task?: { taskKey: string; summary: string; connectionId?: string; boardId?: string }
   } = $props()
 
   let loading = $state(true)
@@ -52,8 +53,9 @@
     try {
       const prepared = await window.api.taskTrackerPreparePR(
         repoRoot,
-        { key: task.taskKey },
-        task.boardId,
+        task ? { key: task.taskKey } : undefined,
+        task?.boardId,
+        branch,
       )
       title = prepared.title
       body = prepared.body
@@ -84,17 +86,20 @@
   })
 
   async function create(): Promise<void> {
-    if (creating || !title.trim() || !fullTask) return
+    // A linked task must have resolved before creating; a branch-level PR has no task at all.
+    if (creating || !title.trim() || (task && !fullTask)) return
     creating = true
     try {
       // $state values are proxies and fail Electron's structured clone ("An object could not be
       // cloned") — snapshot everything non-primitive before it crosses the IPC boundary.
       const result = await window.api.taskTrackerCreatePR(
         repoRoot,
-        $state.snapshot(fullTask) as Parameters<typeof window.api.taskTrackerCreatePR>[1],
+        (fullTask ? $state.snapshot(fullTask) : { key: '' }) as Parameters<
+          typeof window.api.taskTrackerCreatePR
+        >[1],
         branch,
-        task.connectionId || undefined,
-        task.boardId,
+        task?.connectionId || undefined,
+        task?.boardId,
         {
           title: title.trim(),
           body,
@@ -176,8 +181,8 @@
       <div class="flex-1 min-w-0 flex flex-col gap-1">
         <h3 class="m-0 text-md font-semibold text-text">Create pull request</h3>
         <p class="m-0 text-xs text-text-muted truncate">
-          {#if repoSlug}<span class="text-text-secondary">{repoSlug}</span> ·{/if}
-          for {task.taskKey}
+          {#if repoSlug}<span class="text-text-secondary">{repoSlug}</span>{/if}
+          {#if task}· for {task.taskKey}{/if}
         </p>
         <p
           class="m-0 text-xs text-text-faint truncate"
@@ -209,7 +214,7 @@
       {#if loading}
         <div class="flex items-center justify-center gap-2 py-8 text-md text-text-muted">
           <LoaderCircle size={16} class="animate-spin" />
-          <span>Rendering from the PR template…</span>
+          <span>{task ? 'Rendering from the PR template…' : 'Preparing the form…'}</span>
         </div>
       {:else if loadError}
         <div
@@ -221,19 +226,21 @@
         <div class="flex flex-col gap-1">
           <span class="flex items-center gap-1">
             <label class={labelCls} for="create-pr-title">Title</label>
-            <button
-              type="button"
-              class="flex items-center justify-center size-4 rounded-sm border-0 bg-transparent text-text-faint p-0 cursor-pointer hover:text-accent-text"
-              onclick={() => {
-                // Jump straight to where the template can be edited.
-                closeDialog()
-                showProjectTracker()
-              }}
-              aria-label="Where does this title come from?"
-              title={`Pre-filled from the PR title template${titleTemplate ? ` "${titleTemplate}"` : ''} in .canopy/config.json (board overrides apply).\nClick to edit it in the Project tracker settings.`}
-            >
-              <Info size={12} />
-            </button>
+            {#if task}
+              <button
+                type="button"
+                class="flex items-center justify-center size-4 rounded-sm border-0 bg-transparent text-text-faint p-0 cursor-pointer hover:text-accent-text"
+                onclick={() => {
+                  // Jump straight to where the template can be edited.
+                  closeDialog()
+                  showProjectTracker()
+                }}
+                aria-label="Where does this title come from?"
+                title={`Pre-filled from the PR title template${titleTemplate ? ` "${titleTemplate}"` : ''} in .canopy/config.json (board overrides apply).\nClick to edit it in the Project tracker settings.`}
+              >
+                <Info size={12} />
+              </button>
+            {/if}
           </span>
           <input
             id="create-pr-title"
@@ -287,8 +294,10 @@
         </div>
 
         <p class="m-0 text-xs text-text-muted leading-snug">
-          Rendered from this project's PR template (board overrides apply). The branch is pushed to
-          the remote first.
+          {task
+            ? "Rendered from this project's PR template (board overrides apply)."
+            : 'No task linked to this branch — title pre-filled from the branch name.'} The branch is
+          pushed to the remote first.
         </p>
       {/if}
     </div>

@@ -7,7 +7,6 @@
     Link2,
     Settings,
     Unlink,
-    GitPullRequest,
   } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
@@ -16,7 +15,6 @@
     getProjectTrackersNeedingCredentials,
     isTaskTrackerLoading,
     isVerifyingCredentials,
-    getPanelTask,
     getPanelTasks,
     getPanelTaskResolvedPath,
     selectPanelTask,
@@ -25,14 +23,7 @@
   } from '../../lib/stores/taskTracker.svelte'
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
   import { extractTaskKeys } from '../../lib/taskTracker/branchTaskKey'
-  import {
-    showProjectTracker,
-    showTaskPicker,
-    showPRDetails,
-    showCreateTaskPR,
-  } from '../../lib/stores/dialogs.svelte'
-  import { getPRForBranch, getPRRefreshTick } from '../../lib/stores/github.svelte'
-  import { prStateChip } from '../../lib/github/prState'
+  import { showProjectTracker, showTaskPicker } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
 
@@ -77,66 +68,6 @@
     if (!path) return
     await removeActiveTask(path, taskKey)
     await resolvePanelTask(path, workspaceState.branch)
-  }
-
-  // Create a PR from the current branch using the project's PR template (title, description,
-  // target branch, board overrides) rendered from the SELECTED linked task. When the branch
-  // already has a PR (per the github store map the sidebar keeps fresh), the button flips to
-  // opening it instead.
-  let branchPR = $derived(workspaceState.branch ? getPRForBranch(workspaceState.branch) : undefined)
-  // The github store map needs the GitHub API integration; fall back to the gh CLI (same auth as
-  // PR creation) so the button flips to "Open PR" even without it — with the PR state for a chip.
-  let fallbackPR = $state<{ number: number; state: string; isDraft: boolean } | null>(null)
-  $effect(() => {
-    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
-    const branch = workspaceState.branch
-    // Re-check after any PR mutation elsewhere in the app (create/merge/close bump the tick).
-    void getPRRefreshTick()
-    fallbackPR = null
-    if (!path || !branch || branchPR) return
-    let cancelled = false
-    window.api
-      .taskTrackerPRDetails(path, branch)
-      .then((pr) => {
-        if (!cancelled && pr) {
-          fallbackPR = { number: pr.number, state: pr.state, isDraft: pr.isDraft }
-        }
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  })
-  let existingPR = $derived.by(() => {
-    if (branchPR) {
-      return { number: branchPR.number, state: branchPR.state, isDraft: branchPR.isDraft }
-    }
-    return fallbackPR
-  })
-  // A branch can accumulate merged/closed PRs — creating a new one is only blocked while an
-  // ACTIVE (open/draft) PR exists. Creating needs a linked task to render the template from.
-  let showCreatePRRow = $derived(
-    panelTasks.length > 0 && (!existingPR || existingPR.state !== 'OPEN'),
-  )
-
-  function createPRFromTask(): void {
-    const t = getPanelTask()
-    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
-    const branch = workspaceState.branch
-    if (!t || !path || !branch) return
-    // Native create-PR form: template-rendered title/description are editable before creation.
-    showCreateTaskPR(path, branch, {
-      taskKey: t.taskKey,
-      summary: t.summary,
-      connectionId: t.connectionId || undefined,
-      boardId: t.boardId,
-    })
-  }
-
-  function openExistingPR(): void {
-    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
-    if (!path || !workspaceState.branch) return
-    showPRDetails(path, workspaceState.branch)
   }
 
   // No task linked yet: open the task picker in LINK mode — picking a task attaches it to the
@@ -323,55 +254,6 @@
           />
           <span class="flex-1">Link task</span>
         </button>
-      {/if}
-
-      {#if existingPR || showCreatePRRow}
-        <div
-          class="h-px mx-3 my-1 bg-border-subtle"
-          role="separator"
-          aria-orientation="horizontal"
-        ></div>
-
-        <!-- Pull requests for the current branch. -->
-        {#if existingPR}
-          {@const chip = prStateChip(existingPR.state, existingPR.isDraft)}
-          <button
-            class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-            onclick={openExistingPR}
-            title={branchPR
-              ? `View PR #${branchPR.number} — ${branchPR.title}`
-              : 'View the latest pull request for this branch'}
-          >
-            <GitPullRequest
-              size={13}
-              class="text-text-faint group-enabled:group-hover:text-accent-text flex-shrink-0"
-            />
-            <span class="flex-1">View PR #{existingPR.number}</span>
-            {#if chip.label}
-              <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}"
-                >{chip.label}</span
-              >
-            {/if}
-          </button>
-        {/if}
-        {#if showCreatePRRow}
-          <button
-            class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-            onclick={createPRFromTask}
-            disabled={!workspaceState.branch}
-            title="Create a pull request from this branch — edit the template-rendered title and description before it is created"
-          >
-            <GitPullRequest
-              size={13}
-              class="text-text-faint group-enabled:group-hover:text-accent-text flex-shrink-0"
-            />
-            <span class="flex-1"
-              >Create PR{panelTasks.length > 1 && getPanelTask()
-                ? ` (${getPanelTask()?.taskKey})`
-                : ''}</span
-            >
-          </button>
-        {/if}
       {/if}
     </div>
   {:else}

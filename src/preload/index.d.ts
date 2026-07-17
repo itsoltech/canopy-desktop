@@ -1136,14 +1136,15 @@ interface CanopyAPI {
 
   taskTrackerPreparePR: (
     repoRoot: string,
-    task: { key: string; [k: string]: unknown },
+    task?: { key: string; [k: string]: unknown },
     boardId?: string,
+    branch?: string,
   ) => Promise<{
     title: string
     body: string
     targetBranch: string
     repo: string
-    task: TrackerTask
+    task: TrackerTask | null
     branches: string[]
     users: string[]
     viewer: string

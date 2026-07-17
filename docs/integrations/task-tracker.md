@@ -123,7 +123,7 @@ Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`.
 
 ### Creating a pull request from a task
 
-1. User triggers PR creation for the current branch/task. A native form shows the template-rendered title and description for editing, a target-branch select, a reviewer search picker, and an assignee field defaulting to the authenticated `gh` user.
+1. User triggers PR creation from the sidebar **GIT** section (`Create PR` row; an existing PR shows as `View PR #N` with a state chip instead). A native form shows the title and description for editing — rendered from the PR template when a tracker task is linked to the worktree, otherwise pre-filled from the branch name — plus a target-branch select, a reviewer search picker, and an assignee field defaulting to the authenticated `gh` user.
 2. Canopy pushes the current branch to the remote (failure is non-fatal).
 3. Canopy checks that the GitHub CLI (`gh`) is installed. If not, the operation fails with a `PRCreationFailed` error.
 4. Canopy checks for an existing **open** PR on the branch using `gh pr list --state open --head`. If one exists, its URL is returned without creating a duplicate; merged/closed PRs do not block a new one.

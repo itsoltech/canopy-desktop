@@ -1500,9 +1500,10 @@ const api = {
 
   taskTrackerPreparePR: (
     repoRoot: string,
-    task: { key: string; [k: string]: unknown },
+    task?: { key: string; [k: string]: unknown },
     boardId?: string,
-  ) => ipcRenderer.invoke('taskTracker:preparePR', { repoRoot, task, boardId }),
+    branch?: string,
+  ) => ipcRenderer.invoke('taskTracker:preparePR', { repoRoot, task, boardId, branch }),
 
   taskTrackerFindPR: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,

@@ -3928,13 +3928,29 @@ export function registerIpcHandlers(
     }
   }
 
-  // Rendered PR pieces WITHOUT creating anything — feeds the native create-PR form.
+  // Rendered PR pieces WITHOUT creating anything — feeds the native create-PR form. `task` is
+  // optional: a plain branch-level PR (no linked task) skips template rendering and pre-fills
+  // the title from the branch name instead.
   ipcMain.handle(
     'taskTracker:preparePR',
-    async (event, payload: { repoRoot: string; task: TrackerTask; boardId?: string }) => {
+    async (
+      event,
+      payload: { repoRoot: string; task?: TrackerTask; boardId?: string; branch?: string },
+    ) => {
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      const ctx = await resolvePRContext(resolvedRepo, payload.task, payload.boardId)
-      const prepared = preparePullRequest(ctx.task, ctx.prConfig, ctx.existingBranches)
+      const hasTask = !!payload.task?.key
+      const ctx = await resolvePRContext(
+        resolvedRepo,
+        payload.task ?? ({ key: '' } as TrackerTask),
+        payload.boardId,
+      )
+      const prepared = hasTask
+        ? preparePullRequest(ctx.task, ctx.prConfig, ctx.existingBranches)
+        : {
+            title: typeof payload.branch === 'string' ? payload.branch : '',
+            body: '',
+            targetBranch: ctx.prConfig.defaultTargetBranch || 'develop',
+          }
 
       // Candidate target branches for the form's selector: local names + remote names with the
       // remote prefix stripped, deduped and sorted.
@@ -3967,12 +3983,12 @@ export function registerIpcHandlers(
       return {
         ...prepared,
         repo: repoSlug,
-        task: ctx.task,
+        task: hasTask ? ctx.task : null,
         branches,
         users,
         viewer,
         // Surfaced so the form can explain WHERE the pre-filled title comes from.
-        titleTemplate: ctx.prConfig.titleTemplate,
+        titleTemplate: hasTask ? ctx.prConfig.titleTemplate : '',
       }
     },
   )

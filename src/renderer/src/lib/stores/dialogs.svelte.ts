@@ -80,10 +80,6 @@ interface TmuxBrowserState {
   type: 'tmuxBrowser'
 }
 
-interface CreateGitHubPRState {
-  type: 'createGitHubPR'
-}
-
 interface RemoteAcceptDeviceState {
   type: 'remoteAcceptDevice'
   deviceId: string
@@ -118,7 +114,8 @@ interface CreateTaskPRState {
   type: 'createTaskPR'
   repoRoot: string
   branch: string
-  task: { taskKey: string; summary: string; connectionId?: string; boardId?: string }
+  /** Linked task providing template context — absent for a plain branch-level PR. */
+  task?: { taskKey: string; summary: string; connectionId?: string; boardId?: string }
 }
 
 interface NoneState {
@@ -139,7 +136,6 @@ type DialogState =
   | OnboardingWizardState
   | FeatureOnboardingState
   | TmuxBrowserState
-  | CreateGitHubPRState
   | RemoteAcceptDeviceState
   | RunConfigEditorState
   | RunConfigManagerState
@@ -222,7 +218,7 @@ export function showPRDetails(repoRoot: string, branch: string): void {
 export function showCreateTaskPR(
   repoRoot: string,
   branch: string,
-  task: { taskKey: string; summary: string; connectionId?: string; boardId?: string },
+  task?: { taskKey: string; summary: string; connectionId?: string; boardId?: string },
 ): void {
   dialogState.current = { type: 'createTaskPR', repoRoot, branch, task }
 }
@@ -245,10 +241,6 @@ export function showFeatureOnboarding(fromVersion: string): void {
 
 export function showTmuxBrowser(): void {
   dialogState.current = { type: 'tmuxBrowser' }
-}
-
-export function showCreateGitHubPR(): void {
-  dialogState.current = { type: 'createGitHubPR' }
 }
 
 export function showRemoteAcceptDevice(device: {
