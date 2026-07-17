@@ -363,20 +363,22 @@
                 </label>
               {/each}
             </div>
-            <div class="flex items-center gap-2 mt-1">
+            <div class="flex items-center justify-end gap-2 mt-1">
               <button
                 type="button"
-                class="px-2.5 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-inherit cursor-pointer hover:bg-accent-bg-hover"
-                onclick={saveProjects}
+                class="flex items-center gap-1 px-2.5 py-1 rounded-md border border-border bg-transparent text-text-secondary text-xs font-inherit cursor-pointer hover:bg-hover hover:text-text"
+                onclick={() => (editingProjectsFor = null)}
               >
-                Save
+                <X size={12} />
+                Cancel
               </button>
               <button
                 type="button"
-                class="px-2.5 py-1 rounded-md border border-border bg-transparent text-text-secondary text-xs font-inherit cursor-pointer hover:bg-hover hover:text-text"
-                onclick={() => (editingProjectsFor = null)}
+                class="flex items-center gap-1 px-2.5 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-inherit cursor-pointer hover:bg-accent-bg-hover"
+                onclick={saveProjects}
               >
-                Cancel
+                <Check size={12} />
+                Save
               </button>
             </div>
           {/if}

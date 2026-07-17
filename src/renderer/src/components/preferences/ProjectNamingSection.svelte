@@ -235,7 +235,7 @@
         onclick={doneEdit}
       >
         <Check size={13} />
-        Done
+        Save
       </button>
     </div>
   </div>
