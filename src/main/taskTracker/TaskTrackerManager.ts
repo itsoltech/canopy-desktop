@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
+import { isPublicHttpUrl } from '../security/validateUrl'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { KeychainTokenStore } from './KeychainTokenStore'
 import type { TaskTrackerError } from './errors'
@@ -357,6 +358,12 @@ export class TaskTrackerManager {
             }
           : {}
         const fetchIcon = async (): Promise<string> => {
+          // SSRF gate: the URL is renderer/tracker-supplied. The tracker's own origin is trusted
+          // (the user configured it); anything else must resolve to a PUBLIC address — otherwise
+          // a compromised renderer or malicious tracker could probe internal hosts through us.
+          if (!isSameOriginAs(url, conn.baseUrl) && !(await isPublicHttpUrl(url))) {
+            throw new Error('URL does not resolve to a public host')
+          }
           let res = await fetch(url, {
             headers,
             redirect: 'manual',
@@ -365,7 +372,11 @@ export class TaskTrackerManager {
           if (res.status >= 300 && res.status < 400) {
             const location = res.headers.get('location')
             if (!location) throw new Error(`Redirect without Location (HTTP ${res.status})`)
-            // Pre-signed media URL on another origin — never forward the tracker credentials.
+            // Pre-signed media URL on another origin — never forward the tracker credentials,
+            // and hold the redirect target to the same public-address bar as the original URL.
+            if (!(await isPublicHttpUrl(location))) {
+              throw new Error('Redirect target does not resolve to a public host')
+            }
             res = await fetch(location, { redirect: 'follow', signal: AbortSignal.timeout(15_000) })
           }
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -436,6 +447,10 @@ export class TaskTrackerManager {
       if (first.status >= 300 && first.status < 400) {
         const location = first.headers.get('location')
         if (!location) throw new Error(`Redirect without Location (HTTP ${first.status})`)
+        // Same SSRF bar as the image proxy: the pre-signed media target must be a public host.
+        if (!(await isPublicHttpUrl(location))) {
+          throw new Error('Redirect target does not resolve to a public host')
+        }
         return fetch(location, { redirect: 'follow', signal: AbortSignal.timeout(60_000) })
       }
       return first

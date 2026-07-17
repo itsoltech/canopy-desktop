@@ -234,7 +234,7 @@
                   showProjectTracker()
                 }}
                 aria-label="Where does this title come from?"
-                title={`Pre-filled from the PR title template${titleTemplate ? ` "${titleTemplate}"` : ''} in .canopy/config.json (board overrides apply).\nClick to edit it in the Project tracker settings.`}
+                title={`Pre-filled from the PR title template${titleTemplate ? ` "${titleTemplate}"` : ''} in .canopy/config.json (project overrides apply).\nClick to edit it in the Project tracker settings.`}
               >
                 <Info size={12} />
               </button>
@@ -293,7 +293,7 @@
 
         <p class="m-0 text-xs text-text-muted leading-snug">
           {task
-            ? "Rendered from this project's PR template (board overrides apply)."
+            ? "Rendered from this project's PR template (project overrides apply)."
             : 'No task linked to this branch — title pre-filled from the branch name.'} The branch is
           pushed to the remote first.
         </p>

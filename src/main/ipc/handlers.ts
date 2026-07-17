@@ -4180,15 +4180,23 @@ export function registerIpcHandlers(
     return filePath
   })
 
-  // Task-type icons (tiny, immutable per URL) — fetched once via the tracker connection and
-  // cached for the app's lifetime; the renderer CSP allows only data: images.
-  const typeIconCache = new Map<string, string>()
+  // Tracker images (task-type icons, avatars) — fetched via the tracker connection and cached
+  // as an LRU keyed by repo+URL: renderer-driven, so an unbounded map would be a memory-
+  // exhaustion path, and keying by URL alone would share authenticated responses across repos.
+  const IMAGE_CACHE_MAX = 256
+  const imageDataUrlCache = new Map<string, string>()
   ipcMain.handle(
     'taskTracker:imageAsDataUrl',
     async (_event, payload: { repoRoot?: string; url: string }) => {
       if (!payload.url || !/^https:\/\//.test(payload.url)) return null
-      const cached = typeIconCache.get(payload.url)
-      if (cached) return cached
+      const cacheKey = `${payload.repoRoot ?? ''}::${payload.url}`
+      const cached = imageDataUrlCache.get(cacheKey)
+      if (cached) {
+        // Refresh recency (Map iterates in insertion order — re-insert moves it to the back).
+        imageDataUrlCache.delete(cacheKey)
+        imageDataUrlCache.set(cacheKey, cached)
+        return cached
+      }
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) return null
       const result = await taskTrackerManager.fetchImageAsDataUrlFromConfig(
@@ -4198,7 +4206,14 @@ export function registerIpcHandlers(
         payload.repoRoot,
       )
       const dataUrl = result.unwrapOr(null)
-      if (dataUrl) typeIconCache.set(payload.url, dataUrl)
+      if (dataUrl) {
+        imageDataUrlCache.set(cacheKey, dataUrl)
+        while (imageDataUrlCache.size > IMAGE_CACHE_MAX) {
+          const oldest = imageDataUrlCache.keys().next().value
+          if (oldest === undefined) break
+          imageDataUrlCache.delete(oldest)
+        }
+      }
       return dataUrl
     },
   )
