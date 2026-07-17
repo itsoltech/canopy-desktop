@@ -1569,8 +1569,8 @@ const api = {
   taskTrackerSaveAgentImage: (bytes: ArrayBuffer) =>
     ipcRenderer.invoke('taskTracker:saveAgentImage', { bytes }) as Promise<string>,
 
-  taskTrackerTypeIcon: (repoRoot: string | undefined, url: string) =>
-    ipcRenderer.invoke('taskTracker:typeIcon', { repoRoot, url }) as Promise<string | null>,
+  taskTrackerImageAsDataUrl: (repoRoot: string | undefined, url: string) =>
+    ipcRenderer.invoke('taskTracker:imageAsDataUrl', { repoRoot, url }) as Promise<string | null>,
 
   trackerConfigAttachmentPreview: (
     repoRoot: string | undefined,

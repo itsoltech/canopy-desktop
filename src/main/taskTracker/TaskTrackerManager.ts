@@ -331,8 +331,10 @@ export class TaskTrackerManager {
   }
 
   /**
-   * Small tracker-hosted images (task-type icons) as a data: URL — the renderer CSP forbids
-   * remote img-src and the URLs are authenticated, so they cannot be rendered directly.
+   * Small tracker images (task-type icons, avatars) as a data: URL — the renderer CSP forbids
+   * remote img-src. Same-origin URLs get the connection's credentials; other https URLs (avatar
+   * CDNs like atl-paas/gravatar are pre-signed/public) are fetched WITHOUT any credentials, so
+   * the token can never leak to a third-party host. Responses must be image/* and small.
    */
   fetchImageAsDataUrlFromConfig(
     config: RepoConfig,
@@ -345,19 +347,15 @@ export class TaskTrackerManager {
       filename: url,
       reason,
     })
-    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot)
-      .andThen(({ conn, token }) => {
-        if (!isSameOriginAs(url, conn.baseUrl)) {
-          return err(imgErr('URL does not match connection base URL'))
-        }
-        return ok({ conn, token })
-      })
-      .andThen(({ conn, token }) => {
-        const headers: Record<string, string> = {
-          Authorization: conn.username
-            ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
-            : `Bearer ${token}`,
-        }
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const headers: Record<string, string> = isSameOriginAs(url, conn.baseUrl)
+          ? {
+              Authorization: conn.username
+                ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
+                : `Bearer ${token}`,
+            }
+          : {}
         const fetchIcon = async (): Promise<string> => {
           let res = await fetch(url, {
             headers,
@@ -378,7 +376,8 @@ export class TaskTrackerManager {
           return `data:${mime};base64,${buf.toString('base64')}`
         }
         return fromExternalCall(fetchIcon(), (e) => imgErr(errorMessage(e)))
-      })
+      },
+    )
   }
 
   downloadAttachmentFromConfig(

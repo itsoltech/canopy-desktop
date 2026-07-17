@@ -1195,7 +1195,7 @@ interface CanopyAPI {
   taskTrackerPRDeleteBranch: (repoRoot: string, branch: string) => Promise<void>
   taskTrackerRemoteBranchExists: (repoRoot: string, branch: string) => Promise<boolean>
   taskTrackerSaveAgentImage: (bytes: ArrayBuffer) => Promise<string>
-  taskTrackerTypeIcon: (repoRoot: string | undefined, url: string) => Promise<string | null>
+  taskTrackerImageAsDataUrl: (repoRoot: string | undefined, url: string) => Promise<string | null>
   trackerConfigAttachmentPreview: (
     repoRoot: string | undefined,
     url: string,

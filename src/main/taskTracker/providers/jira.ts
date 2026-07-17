@@ -23,7 +23,7 @@ interface JiraTaskFields {
   priority?: { name?: string }
   issuetype?: { name?: string; subtask?: boolean; iconUrl?: string }
   parent?: { key?: string }
-  assignee?: { displayName?: string; accountId?: string }
+  assignee?: { displayName?: string; accountId?: string; avatarUrls?: Record<string, string> }
   sprint?: { id?: number; name?: string; state?: string }
 }
 
@@ -207,6 +207,7 @@ function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {
     sprintName: f.sprint?.name,
     sprintNumber: f.sprint?.name ? parseSprintNumber(f.sprint.name) : undefined,
     assignee: f.assignee?.displayName,
+    assigneeAvatarUrl: f.assignee?.avatarUrls?.['24x24'] ?? f.assignee?.avatarUrls?.['48x48'],
     url: `${baseUrl.replace(/\/$/, '')}/browse/${task.key}`,
   }
 }

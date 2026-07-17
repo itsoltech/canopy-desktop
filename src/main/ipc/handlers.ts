@@ -4184,7 +4184,7 @@ export function registerIpcHandlers(
   // cached for the app's lifetime; the renderer CSP allows only data: images.
   const typeIconCache = new Map<string, string>()
   ipcMain.handle(
-    'taskTracker:typeIcon',
+    'taskTracker:imageAsDataUrl',
     async (_event, payload: { repoRoot?: string; url: string }) => {
       if (!payload.url || !/^https:\/\//.test(payload.url)) return null
       const cached = typeIconCache.get(payload.url)

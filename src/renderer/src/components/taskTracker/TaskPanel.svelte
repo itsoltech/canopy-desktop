@@ -39,6 +39,7 @@
     status: string
     statusCategory?: string
     assignee?: string
+    assigneeAvatarUrl?: string
     url?: string
   }
 
@@ -88,6 +89,8 @@
   )
 
   let task = $state<PanelFullTask | null>(null)
+  // Assignee avatar as a data: URL — empty until (and unless) the proxy fetch lands.
+  let assigneeAvatar = $state('')
   let transitions = $state<Transition[]>([])
   let comments = $state<Comment[]>([])
   let attachments = $state<Attachment[]>([])
@@ -189,9 +192,20 @@
             status: fullTask.status,
             statusCategory: fullTask.statusCategory,
             assignee: fullTask.assignee,
+            assigneeAvatarUrl: fullTask.assigneeAvatarUrl,
             url: fullTask.url,
           }
         : null
+      // Assignee avatar proxied to a data: URL (authenticated origin or public CDN + CSP).
+      assigneeAvatar = ''
+      if (fullTask?.assigneeAvatarUrl) {
+        void window.api
+          .taskTrackerImageAsDataUrl(worktreePath, fullTask.assigneeAvatarUrl)
+          .then((dataUrl) => {
+            if (seq === refreshSeq && dataUrl) assigneeAvatar = dataUrl
+          })
+          .catch(() => {})
+      }
       transitions = trans
       comments = comm
       attachments = (atts ?? []).map((a) => ({
@@ -596,7 +610,15 @@
       {/if}
       <p class="m-0 text-md text-text leading-snug">{task?.summary ?? panel.summary}</p>
       <div class="flex items-center gap-1.5 text-xs text-text-muted">
-        <User size={12} />
+        {#if assigneeAvatar}
+          <img
+            src={assigneeAvatar}
+            alt={task?.assignee ?? 'Assignee'}
+            class="size-4 shrink-0 rounded-full"
+          />
+        {:else}
+          <User size={12} />
+        {/if}
         {#if !task && loading}
           <span class="flex items-center gap-1.5 text-text-faint">
             <LoaderCircle size={11} class="animate-spin" />

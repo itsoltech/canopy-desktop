@@ -381,7 +381,9 @@ export async function resolvePanelTask(
         if (!task) return stored
         // Type icon proxied to a data: URL (authenticated tracker URL + CSP); cached in main.
         const typeIcon = task.typeIconUrl
-          ? await window.api.taskTrackerTypeIcon(worktreePath, task.typeIconUrl).catch(() => null)
+          ? await window.api
+              .taskTrackerImageAsDataUrl(worktreePath, task.typeIconUrl)
+              .catch(() => null)
           : null
         return {
           taskKey: task.key,

@@ -34,6 +34,8 @@ export interface TrackerTask {
   sprintName?: string
   sprintNumber?: number
   assignee?: string
+  /** Assignee avatar — may live on the tracker origin (authenticated) or a public CDN. */
+  assigneeAvatarUrl?: string
   url?: string
 }
 
