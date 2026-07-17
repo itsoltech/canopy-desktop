@@ -141,12 +141,51 @@
     debouncedSave('bodyTemplate', () => savePRField('bodyTemplate', bodyTemplateInput))
   }
 
+  let bodyEl = $state<HTMLTextAreaElement | undefined>()
+  let bodyBackdropEl = $state<HTMLDivElement | undefined>()
+
   function insertBodyField(key: string): void {
-    bodyTemplateInput = bodyTemplateInput + `{${key}}`
+    const token = `{${key}}`
+    if (bodyEl) {
+      // Insert at the caret (replacing any selection), then park the caret after the token.
+      const start = bodyEl.selectionStart ?? bodyTemplateInput.length
+      const end = bodyEl.selectionEnd ?? start
+      bodyTemplateInput = bodyTemplateInput.slice(0, start) + token + bodyTemplateInput.slice(end)
+      requestAnimationFrame(() => {
+        bodyEl?.focus()
+        bodyEl?.setSelectionRange(start + token.length, start + token.length)
+      })
+    } else {
+      bodyTemplateInput = bodyTemplateInput + token
+    }
     // Discrete action — persist now (also flushes any pending keystroke save).
     pendingSave = () => savePRField('bodyTemplate', bodyTemplateInput)
     pendingField = 'bodyTemplate'
     flushSave()
+  }
+
+  // Recognized {placeholder} tokens render highlighted in a mirrored backdrop behind the
+  // textarea — the textarea itself keeps transparent text, so editing stays purely textual.
+  const KNOWN_BODY_KEYS = new Set(PR_BODY_TAGS.map((t) => t.key))
+  let bodySegments = $derived.by(() => {
+    const segs: Array<{ text: string; field: boolean }> = []
+    let last = 0
+    for (const m of bodyTemplateInput.matchAll(/\{(\w+)\}/g)) {
+      if (m.index > last) segs.push({ text: bodyTemplateInput.slice(last, m.index), field: false })
+      segs.push({ text: m[0], field: KNOWN_BODY_KEYS.has(m[1]) })
+      last = m.index + m[0].length
+    }
+    if (last < bodyTemplateInput.length) {
+      segs.push({ text: bodyTemplateInput.slice(last), field: false })
+    }
+    return segs
+  })
+
+  function syncBodyScroll(): void {
+    if (bodyBackdropEl && bodyEl) {
+      bodyBackdropEl.scrollTop = bodyEl.scrollTop
+      bodyBackdropEl.scrollLeft = bodyEl.scrollLeft
+    }
   }
 </script>
 
@@ -189,15 +228,33 @@
     </div>
     <div class="flex items-start gap-3">
       <span class="text-sm text-text-secondary w-20 shrink-0 pt-1">Template</span>
-      <textarea
-        class="flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring resize-y min-h-15 placeholder:text-text-faint"
-        name="prBody"
-        aria-label="PR body template"
-        bind:value={bodyTemplateInput}
-        oninput={onBodyTemplateSave}
-        rows="4"
-        placeholder="PR description — type freely, click fields below to insert"
-        spellcheck="false"></textarea>
+      <!-- Highlight overlay: the backdrop mirrors the textarea (same font/padding/wrapping) and
+           colors recognized {placeholders}; the textarea's own glyphs are transparent, so what
+           you see is the backdrop while editing stays a plain textarea (typing, drops, IME). -->
+      <div
+        class="relative flex-1 min-w-0 border border-border rounded-md bg-bg-input focus-within:border-focus-ring"
+      >
+        <div
+          bind:this={bodyBackdropEl}
+          aria-hidden="true"
+          class="absolute inset-0 px-2.5 py-1.5 font-mono text-md text-text whitespace-pre-wrap break-words overflow-hidden pointer-events-none"
+        >
+          {#each bodySegments as seg, i (i)}{#if seg.field}<span
+                class="rounded-sm bg-accent-bg text-accent-text">{seg.text}</span
+              >{:else}{seg.text}{/if}{/each}{#if bodyTemplateInput.endsWith('\n')}&#8203;{/if}
+        </div>
+        <textarea
+          bind:this={bodyEl}
+          class="relative block w-full px-2.5 py-1.5 border-0 bg-transparent text-transparent caret-text text-md font-mono outline-none resize-y min-h-15 placeholder:text-text-faint"
+          name="prBody"
+          aria-label="PR body template"
+          bind:value={bodyTemplateInput}
+          oninput={onBodyTemplateSave}
+          onscroll={syncBodyScroll}
+          rows="4"
+          placeholder="PR description — type freely, click or drag fields below to insert"
+          spellcheck="false"></textarea>
+      </div>
     </div>
     <p class="text-xs text-text-muted m-0 pl-23">
       The pull request description (multi-line, Markdown works).
@@ -209,8 +266,13 @@
       {#each PR_BODY_TAGS as ph (ph.key)}
         <button
           type="button"
-          class="text-xs px-1.5 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary font-mono cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
-          title={ph.description + ' (e.g. ' + ph.example + ')'}
+          class="text-xs px-1.5 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary font-mono cursor-grab active:cursor-grabbing hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
+          title={ph.description +
+            ' (e.g. ' +
+            ph.example +
+            ') — click to insert at the cursor, drag into the template'}
+          draggable="true"
+          ondragstart={(e) => e.dataTransfer?.setData('text/plain', `{${ph.key}}`)}
           onclick={() => insertBodyField(ph.key)}
         >
           {`{${ph.key}}`}
