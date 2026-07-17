@@ -293,10 +293,13 @@
           <details class="px-1.5">
             <summary
               class="text-2xs text-text-faint cursor-pointer select-none hover:text-text-secondary"
-              >body template</summary
+              >body preview</summary
             >
             <pre
-              class="m-0 mt-0.5 px-2 py-1.5 rounded-md bg-bg text-2xs text-text-secondary font-mono whitespace-pre-wrap break-words leading-4">{meta.body}</pre>
+              class="m-0 mt-0.5 px-2 py-1.5 rounded-md bg-bg text-2xs text-accent-text font-mono whitespace-pre-wrap break-words leading-4">{renderTemplateExample(
+                meta.body,
+                PR_EXAMPLE_VALUES,
+              )}</pre>
           </details>
         {/if}
       </div>
