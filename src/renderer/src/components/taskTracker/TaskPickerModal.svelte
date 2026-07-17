@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { Search, X, LoaderCircle, Copy, Funnel, Send, Link2, Unlink } from '@lucide/svelte'
+  import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { setPref, getPref } from '../../lib/stores/preferences.svelte'
   import {
@@ -113,8 +113,6 @@
   })
   let excludedStatuses = new SvelteSet<string>()
   let excludedSprints = new SvelteSet<string>()
-  // Filters start expanded — hiding them made the default status/assignee filtering invisible.
-  let showFilters = $state(true)
   let assignedToMe = $state(false)
   let currentUserName = $state('')
   let hasSavedFilters = $state(false)
@@ -500,103 +498,95 @@
         <h3 class="m-0 text-lg font-semibold text-text">
           {mode === 'link' ? 'Link task to this worktree' : 'Select Task'}
         </h3>
-        <div class="flex items-center gap-1">
-          <button
-            class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text-secondary"
-            class:!bg-accent-bg={showFilters}
-            class:!text-accent-text={showFilters}
-            onclick={() => {
-              showFilters = !showFilters
-              saveFilters()
-            }}
-            title="Filters"
-            aria-label="Toggle filters"
-          >
-            <Funnel size={14} />
-          </button>
-          <button
-            class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
-            onclick={closeDialog}
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
-        </div>
+        <button
+          class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+          onclick={closeDialog}
+          aria-label="Close"
+        >
+          <X size={16} />
+        </button>
       </div>
 
-      {#if projects.length > 1}
-        <div class="px-4 py-1.5 border-b border-border-subtle">
-          <CustomSelect
-            value={selectedProjectKey}
-            options={projects.map((p) => ({
-              value: p.key,
-              label: p.name && p.name !== p.key ? `${p.key} — ${p.name}` : p.key,
-            }))}
-            onchange={(v) => {
-              selectedProjectKey = v
-              onProjectChange()
-            }}
-            maxWidth="none"
-          />
-        </div>
-      {/if}
+      <span class="sr-only" role="status" aria-live="polite">{sendError || sendStatus}</span>
 
-      {#if showFilters}
-        <div class="px-4 py-2 border-b border-border-subtle flex flex-col gap-2">
-          <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-            <CustomCheckbox checked={assignedToMe} onchange={toggleAssignedToMe} />
-            <span>Only tasks assigned to me</span>
-          </label>
-          {#if availableStatuses.length > 0}
-            <div class="flex flex-col gap-1">
-              <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                >Status</span
-              >
-              <div class="flex flex-wrap gap-1">
-                {#each availableStatuses as status (status)}
-                  <button
-                    class="px-2 py-0.5 border rounded-xl text-xs font-inherit cursor-pointer transition-colors duration-fast {excludedStatuses.has(
-                      status,
-                    )
-                      ? 'bg-transparent border-border text-text-muted opacity-40 line-through hover:text-text-secondary'
-                      : `border-transparent ${statusChipClass(statusCategoryOf(status))}`}"
-                    onclick={() => toggleStatus(status)}
-                  >
-                    {status}
-                  </button>
-                {/each}
-              </div>
+      <!-- Same selection layout as the "From task" mode of the branch/worktree dialogs: one frame
+           with Project, filters, search and the task list — only the row actions differ. -->
+      <div
+        class="flex-1 min-h-0 m-3 rounded-lg border border-border-subtle p-2.5 flex flex-col gap-2"
+      >
+        {#if projects.length > 1}
+          <div class="flex flex-col gap-1">
+            <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+              >Project</span
+            >
+            <CustomSelect
+              value={selectedProjectKey}
+              options={projects.map((p) => ({
+                value: p.key,
+                label: p.name && p.name !== p.key ? `${p.key} — ${p.name}` : p.key,
+              }))}
+              onchange={(v) => {
+                selectedProjectKey = v
+                onProjectChange()
+              }}
+              maxWidth="none"
+            />
+          </div>
+        {:else if loading && projects.length === 0}
+          <div class="flex items-center gap-2 text-xs text-text-muted py-0.5">
+            <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
+            <span>Loading projects…</span>
+          </div>
+        {/if}
+        <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
+          <CustomCheckbox checked={assignedToMe} onchange={toggleAssignedToMe} />
+          <span>Only tasks assigned to me</span>
+        </label>
+        {#if availableStatuses.length > 0}
+          <div class="flex flex-col gap-1">
+            <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+              >Status</span
+            >
+            <div class="flex flex-wrap gap-1">
+              {#each availableStatuses as status (status)}
+                <button
+                  class="px-2 py-0.5 border rounded-xl text-xs font-inherit cursor-pointer transition-colors duration-fast {excludedStatuses.has(
+                    status,
+                  )
+                    ? 'bg-transparent border-border text-text-muted opacity-40 line-through hover:text-text-secondary'
+                    : `border-transparent ${statusChipClass(statusCategoryOf(status))}`}"
+                  onclick={() => toggleStatus(status)}
+                >
+                  {status}
+                </button>
+              {/each}
             </div>
-          {/if}
-          {#if availableSprints.length > 0}
-            <div class="flex flex-col gap-1">
-              <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                >Sprint</span
-              >
-              <div class="flex flex-wrap gap-1">
-                {#each availableSprints as sprint (sprint)}
-                  <button
-                    class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
-                    class:!bg-accent-bg={!excludedSprints.has(sprint)}
-                    class:!border-accent-muted={!excludedSprints.has(sprint)}
-                    class:!text-accent-text={!excludedSprints.has(sprint)}
-                    class:!opacity-40={excludedSprints.has(sprint)}
-                    class:line-through={excludedSprints.has(sprint)}
-                    onclick={() => toggleSprint(sprint)}
-                  >
-                    {sprint}
-                  </button>
-                {/each}
-              </div>
+          </div>
+        {/if}
+        {#if availableSprints.length > 0}
+          <div class="flex flex-col gap-1">
+            <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+              >Sprint</span
+            >
+            <div class="flex flex-wrap gap-1">
+              {#each availableSprints as sprint (sprint)}
+                <button
+                  class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
+                  class:!bg-accent-bg={!excludedSprints.has(sprint)}
+                  class:!border-accent-muted={!excludedSprints.has(sprint)}
+                  class:!text-accent-text={!excludedSprints.has(sprint)}
+                  class:!opacity-40={excludedSprints.has(sprint)}
+                  class:line-through={excludedSprints.has(sprint)}
+                  onclick={() => toggleSprint(sprint)}
+                >
+                  {sprint}
+                </button>
+              {/each}
             </div>
-          {/if}
-        </div>
-      {/if}
-
-      <div class="flex items-center gap-2 px-4 py-2 border-b border-border-subtle text-text-muted">
-        <Search size={14} />
+          </div>
+        {/if}
         <input
-          class="flex-1 border-0 bg-transparent text-text text-md font-inherit outline-none placeholder:text-text-faint"
+          class="w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
           bind:this={searchInputEl}
           bind:value={searchQuery}
           aria-label="Search tasks"
@@ -605,177 +595,182 @@
             selectedIndex = 0
             clearTaskSendFeedback()
           }}
+          spellcheck="false"
+          autocomplete="off"
         />
-      </div>
-
-      <span class="sr-only" role="status" aria-live="polite">{sendError || sendStatus}</span>
-      {#if sendStatus || sendError}
-        <div
-          class="flex items-start gap-2 px-4 py-2 border-b border-border-subtle text-xs leading-snug"
-          class:bg-danger-bg={sendError}
-          class:text-danger-text={sendError}
-          class:bg-bg-input={!sendError}
-          class:text-text-muted={!sendError}
+        <span
+          class="mt-1 pt-2 border-t border-border-subtle text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
         >
-          <span class="flex-1">{sendError || sendStatus}</span>
-          {#if sendError}
-            <button
-              class="flex items-center justify-center w-5 h-5 -mr-1 border-0 rounded bg-transparent text-current cursor-pointer opacity-70 hover:opacity-100 hover:bg-hover"
-              onclick={clearTaskSendFeedback}
-              aria-label="Dismiss task send error"
-            >
-              <X size={12} />
-            </button>
-          {/if}
-        </div>
-      {/if}
-
-      <div class="flex-1 overflow-y-auto py-1">
-        {#if loading}
-          <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
-            <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
-            <span>Loading tasks...</span>
-          </div>
-        {:else if error}
+          Available tasks
+        </span>
+        {#if sendStatus || sendError}
           <div
-            class="flex flex-col items-center justify-center gap-3 px-4 py-6 text-md text-danger-text"
+            class="flex items-start gap-2 px-2.5 py-2 rounded-md text-xs leading-snug"
+            class:bg-danger-bg={sendError}
+            class:text-danger-text={sendError}
+            class:bg-bg-input={!sendError}
+            class:text-text-muted={!sendError}
           >
-            <span>{error}</span>
-            <button
-              class="px-3 py-1 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover"
-              onclick={fetchTasks}>Retry</button
-            >
+            <span class="flex-1">{sendError || sendStatus}</span>
+            {#if sendError}
+              <button
+                class="flex items-center justify-center w-5 h-5 -mr-1 border-0 rounded bg-transparent text-current cursor-pointer opacity-70 hover:opacity-100 hover:bg-hover"
+                onclick={clearTaskSendFeedback}
+                aria-label="Dismiss task send error"
+              >
+                <X size={12} />
+              </button>
+            {/if}
           </div>
-        {:else if displayedTasks.length === 0}
-          <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
-            No tasks found
-          </div>
-        {:else}
-          {#each displayedTasks as task, i (task.key)}
+        {/if}
+
+        <div class="flex-1 overflow-y-auto border border-border-subtle rounded-lg">
+          {#if loading}
+            <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
+              <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
+              <span>Loading tasks...</span>
+            </div>
+          {:else if error}
             <div
-              class="flex items-center gap-2 w-full px-4 py-1.5 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left transition-colors duration-fast group/task hover:bg-hover"
-              class:!bg-hover={i === selectedIndex}
-              data-task-selected={i === selectedIndex}
-              role="button"
-              tabindex="0"
-              onclick={() => selectTask(task)}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  if (mode === 'link') void linkTask($state.snapshot(task) as Task)
-                  else selectTask(task)
-                }
-              }}
-              onmouseenter={() => (selectedIndex = i)}
+              class="flex flex-col items-center justify-center gap-3 px-4 py-6 text-md text-danger-text"
             >
-              <span class="flex-shrink-0 font-semibold text-accent-text min-w-20"
-                >{taskDisplayKey(task)}</span
+              <span>{error}</span>
+              <button
+                class="px-3 py-1 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover"
+                onclick={fetchTasks}>Retry</button
               >
-              {#if mode === 'link' && (linkedKeys.has(task.key) || branchTaskKeys.has(task.key))}
-                <span
-                  class="flex-shrink-0 px-1.5 py-px rounded-md bg-success-bg text-2xs text-success-text"
-                  title={branchTaskKeys.has(task.key)
-                    ? 'Tracked via the branch name of this worktree'
-                    : 'Already linked to this worktree'}>Linked</span
+            </div>
+          {:else if displayedTasks.length === 0}
+            <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
+              No tasks found
+            </div>
+          {:else}
+            {#each displayedTasks as task, i (task.key)}
+              <div
+                class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left transition-colors duration-fast group/task hover:bg-hover"
+                class:!bg-hover={i === selectedIndex}
+                data-task-selected={i === selectedIndex}
+                role="button"
+                tabindex="0"
+                onclick={() => selectTask(task)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    if (mode === 'link') void linkTask($state.snapshot(task) as Task)
+                    else selectTask(task)
+                  }
+                }}
+                onmouseenter={() => (selectedIndex = i)}
+              >
+                <span class="flex-shrink-0 font-semibold text-accent-text min-w-20"
+                  >{taskDisplayKey(task)}</span
                 >
-              {/if}
-              <span
-                class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                title={task.summary}>{task.summary}</span
-              >
-              {#if task.sprintName}
-                <span
-                  class="flex-shrink-0 max-w-24 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-px rounded-md border border-border-subtle text-2xs text-text-faint"
-                  title={`Sprint: ${task.sprintName}`}>{task.sprintName}</span
-                >
-              {/if}
-              {#if task.assignee}
-                <span
-                  class="flex-shrink-0 max-w-28 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
-                  class:!text-accent-text={task.assignee === currentUserName}
-                  title={`Assignee: ${task.assignee}`}>{task.assignee}</span
-                >
-              {/if}
-              <span
-                class="flex-shrink-0 px-1.5 py-px rounded-md text-2xs {statusChipClass(
-                  task.statusCategory,
-                )}">{task.status}</span
-              >
-              <span
-                class="flex-shrink-0 text-[8px] leading-none"
-                style="color: {priorityColor(task.priority)}"
-                role="img"
-                aria-label="Priority: {task.priority}"
-                title={task.priority}>●</span
-              >
-              {#if mode === 'link'}
-                {#if linkedKeys.has(task.key) || branchTaskKeys.has(task.key)}
-                  <button
-                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint flex-shrink-0 opacity-60 transition-opacity duration-fast enabled:cursor-pointer enabled:hover:opacity-100 enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-30"
-                    onclick={(e) => {
-                      e.stopPropagation()
-                      void unlinkTask($state.snapshot(task) as Task)
-                    }}
-                    disabled={linking || branchTaskKeys.has(task.key)}
+                {#if mode === 'link' && (linkedKeys.has(task.key) || branchTaskKeys.has(task.key))}
+                  <span
+                    class="flex-shrink-0 px-1.5 py-px rounded-md bg-success-bg text-2xs text-success-text"
                     title={branchTaskKeys.has(task.key)
-                      ? 'This task key is part of the branch name — the link comes from the branch and cannot be removed'
-                      : 'Unlink this task from the worktree'}
-                    aria-label="Unlink task"
+                      ? 'Tracked via the branch name of this worktree'
+                      : 'Already linked to this worktree'}>Linked</span
                   >
-                    <Unlink size={12} />
-                  </button>
-                {:else}
-                  <!-- Prominent on the hovered/highlighted row — a bare icon was too easy to miss. -->
-                  <button
-                    class="flex items-center gap-1 px-2 py-0.5 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-inherit flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 enabled:cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50"
-                    class:!opacity-100={i === selectedIndex}
-                    onclick={(e) => {
-                      e.stopPropagation()
-                      void linkTask($state.snapshot(task) as Task)
-                    }}
-                    disabled={linking}
-                    title="Link this task to the current worktree (Enter)"
-                    aria-label="Link task"
-                  >
-                    {#if linking}
-                      <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
-                    {:else}
-                      <Link2 size={12} />
-                    {/if}
-                    Link
-                  </button>
                 {/if}
-              {:else}
-                {#if hasActiveAgent}
+                <span
+                  class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                  title={task.summary}>{task.summary}</span
+                >
+                {#if task.sprintName}
+                  <span
+                    class="flex-shrink-0 max-w-24 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-px rounded-md border border-border-subtle text-2xs text-text-faint"
+                    title={`Sprint: ${task.sprintName}`}>{task.sprintName}</span
+                  >
+                {/if}
+                {#if task.assignee}
+                  <span
+                    class="flex-shrink-0 max-w-28 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
+                    class:!text-accent-text={task.assignee === currentUserName}
+                    title={`Assignee: ${task.assignee}`}>{task.assignee}</span
+                  >
+                {/if}
+                <span
+                  class="flex-shrink-0 px-1.5 py-px rounded-md text-2xs {statusChipClass(
+                    task.statusCategory,
+                  )}">{task.status}</span
+                >
+                <span
+                  class="flex-shrink-0 text-[8px] leading-none"
+                  style="color: {priorityColor(task.priority)}"
+                  role="img"
+                  aria-label="Priority: {task.priority}"
+                  title={task.priority}>●</span
+                >
+                {#if mode === 'link'}
+                  {#if linkedKeys.has(task.key) || branchTaskKeys.has(task.key)}
+                    <button
+                      class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint flex-shrink-0 opacity-60 transition-opacity duration-fast enabled:cursor-pointer enabled:hover:opacity-100 enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-30"
+                      onclick={(e) => {
+                        e.stopPropagation()
+                        void unlinkTask($state.snapshot(task) as Task)
+                      }}
+                      disabled={linking || branchTaskKeys.has(task.key)}
+                      title={branchTaskKeys.has(task.key)
+                        ? 'This task key is part of the branch name — the link comes from the branch and cannot be removed'
+                        : 'Unlink this task from the worktree'}
+                      aria-label="Unlink task"
+                    >
+                      <Unlink size={12} />
+                    </button>
+                  {:else}
+                    <!-- Prominent on the hovered/highlighted row — a bare icon was too easy to miss. -->
+                    <button
+                      class="flex items-center gap-1 px-2 py-0.5 rounded-md border-0 bg-accent-bg text-accent-text text-xs font-inherit flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 enabled:cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50"
+                      class:!opacity-100={i === selectedIndex}
+                      onclick={(e) => {
+                        e.stopPropagation()
+                        void linkTask($state.snapshot(task) as Task)
+                      }}
+                      disabled={linking}
+                      title="Link this task to the current worktree (Enter)"
+                      aria-label="Link task"
+                    >
+                      {#if linking}
+                        <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
+                      {:else}
+                        <Link2 size={12} />
+                      {/if}
+                      Link
+                    </button>
+                  {/if}
+                {:else}
+                  {#if hasActiveAgent}
+                    <button
+                      class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                      onclick={(e) => sendTaskToAgent(task, e)}
+                      disabled={Boolean(sendingTaskKey)}
+                      title="Send to agent"
+                      aria-label="Send to agent"
+                    >
+                      {#if sendingTaskKey === task.key}
+                        <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
+                      {:else}
+                        <Send size={12} />
+                      {/if}
+                    </button>
+                  {/if}
                   <button
                     class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
-                    onclick={(e) => sendTaskToAgent(task, e)}
-                    disabled={Boolean(sendingTaskKey)}
-                    title="Send to agent"
-                    aria-label="Send to agent"
+                    onclick={(e) => {
+                      e.stopPropagation()
+                      copyTaskToClipboard(task, e)
+                    }}
+                    title="Copy to clipboard"
+                    aria-label="Copy task to clipboard"
                   >
-                    {#if sendingTaskKey === task.key}
-                      <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
-                    {:else}
-                      <Send size={12} />
-                    {/if}
+                    <Copy size={12} />
                   </button>
                 {/if}
-                <button
-                  class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
-                  onclick={(e) => {
-                    e.stopPropagation()
-                    copyTaskToClipboard(task, e)
-                  }}
-                  title="Copy to clipboard"
-                  aria-label="Copy task to clipboard"
-                >
-                  <Copy size={12} />
-                </button>
-              {/if}
-            </div>
-          {/each}
-        {/if}
+              </div>
+            {/each}
+          {/if}
+        </div>
       </div>
 
       <div class="flex items-center justify-between px-4 py-2 border-t border-border-subtle">
