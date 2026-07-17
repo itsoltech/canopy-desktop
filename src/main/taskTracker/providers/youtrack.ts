@@ -284,9 +284,11 @@ export const youtrackClient: TaskTrackerProviderClient = {
           .unwrapOr('')
       : Promise.resolve('')
 
-    const resolvedProject = connection.projectKey
-      ? Promise.resolve(connection.projectKey)
-      : projectFromBoard
+    const resolvedProject = params.projectKey
+      ? Promise.resolve(params.projectKey)
+      : connection.projectKey
+        ? Promise.resolve(connection.projectKey)
+        : projectFromBoard
 
     return fromExternalCall(resolvedProject, (e) => apiError(0, errorMessage(e))).andThen(
       (projectKey) => {

@@ -53,14 +53,13 @@
     url?: string
   }
 
-  interface Board {
-    id: string
+  interface TrackerProjectOption {
+    key: string
     name: string
-    projectKey?: string
   }
 
   function saveFilters(): void {
-    saveTaskFilters(connectionId, selectedBoardId, {
+    saveTaskFilters(connectionId, selectedProjectKey, {
       excludedStatuses: [...excludedStatuses],
       excludedSprints: [...excludedSprints],
       assignedToMe,
@@ -76,8 +75,8 @@
   let searchQuery = $state('')
   let selectedIndex = $state(0)
 
-  let boards: Board[] = $state([])
-  let selectedBoardId = $state('')
+  let projects: TrackerProjectOption[] = $state([])
+  let selectedProjectKey = $state('')
 
   // Tracker's configured status list — drives chip colors and ordering in the filter.
   let trackerStatuses = $state<Array<{ id: string; name: string; statusCategory?: string }>>([])
@@ -120,15 +119,10 @@
   let currentUserName = $state('')
   let hasSavedFilters = $state(false)
 
-  let selectedBoardProjectKey = $derived.by(() => {
-    const board = boards.find((b) => b.id === selectedBoardId)
-    return board?.projectKey ?? ''
-  })
-
   let filteredTasks = $derived.by(() => {
     let result = allTasks
-    if (selectedBoardProjectKey) {
-      result = result.filter((i) => i.key.startsWith(selectedBoardProjectKey + '-'))
+    if (selectedProjectKey) {
+      result = result.filter((i) => i.key.startsWith(selectedProjectKey + '-'))
     }
     if (assignedToMe && currentUserName) {
       result = result.filter((i) => i.assignee === currentUserName)
@@ -161,7 +155,7 @@
 
   onMount(async () => {
     searchInputEl?.focus()
-    await loadBoards()
+    await loadProjects()
   })
 
   // Tracker config (.canopy/config.json) lives in the ACTIVE WORKTREE — same path the Project
@@ -170,26 +164,28 @@
     workspaceState.selectedWorktreePath ?? workspaceState.repoRoot ?? undefined,
   )
 
-  async function loadBoards(): Promise<void> {
+  async function loadProjects(): Promise<void> {
     try {
       const repoRoot = cfgRoot
-      const [boardList, userName, statuses] = await Promise.all([
-        window.api.trackerConfigFetchBoards(repoRoot, connectionId),
+      const [projectList, userName, statuses] = await Promise.all([
+        window.api.trackerConfigFetchProjects(repoRoot, connectionId).catch(() => []),
         window.api.trackerConfigGetCurrentUser(repoRoot, connectionId).catch(() => ''),
         window.api
           .trackerConfigFetchStatuses(repoRoot, connectionId)
           .catch(() => [] as Array<{ id: string; name: string; statusCategory?: string }>),
       ])
-      boards = boardList
+      projects = projectList
       currentUserName = userName
       trackerStatuses = statuses
-      if (boards.length > 0) {
-        const lastBoard = getPref(`taskTracker.lastBoard.${connectionId}`)
-        selectedBoardId = boards.some((b) => b.id === lastBoard) ? lastBoard : boards[0].id
+      if (projects.length > 0) {
+        const lastProject = getPref(`taskTracker.lastProject.${connectionId}`)
+        selectedProjectKey = projects.some((p) => p.key === lastProject)
+          ? lastProject
+          : projects[0].key
         restoreSavedFilters()
       }
     } catch (e) {
-      error = ipcErrorMessage(e, 'Failed to load boards')
+      error = ipcErrorMessage(e, 'Failed to load projects')
     }
     await fetchTasks()
   }
@@ -197,7 +193,7 @@
   function restoreSavedFilters(): void {
     excludedStatuses.clear()
     excludedSprints.clear()
-    const saved = loadSavedTaskFilters(connectionId, selectedBoardId)
+    const saved = loadSavedTaskFilters(connectionId, selectedProjectKey)
     if (saved) {
       for (const s of saved.excludedStatuses) excludedStatuses.add(s)
       for (const s of saved.excludedSprints ?? []) excludedSprints.add(s)
@@ -209,9 +205,9 @@
     }
   }
 
-  async function onBoardChange(): Promise<void> {
+  async function onProjectChange(): Promise<void> {
     clearTaskSendFeedback()
-    setPref(`taskTracker.lastBoard.${connectionId}`, selectedBoardId)
+    setPref(`taskTracker.lastProject.${connectionId}`, selectedProjectKey)
     restoreSavedFilters()
     await fetchTasks()
   }
@@ -226,7 +222,7 @@
     error = ''
     try {
       const fetched = await window.api.trackerConfigFetchTasks(cfgRoot, connectionId, {
-        boardId: selectedBoardId || undefined,
+        projectKey: selectedProjectKey || undefined,
       })
       if (seq !== fetchSeq) return
       allTasks = fetched
@@ -366,7 +362,6 @@
         taskKey: task.key,
         summary: task.summary,
         connectionId,
-        boardId: selectedBoardId || undefined,
       })
       await resolvePanelTask(worktreePath, workspaceState.branch)
     } catch (e) {
@@ -494,7 +489,7 @@
     {#if selectedTask}
       <BranchCreateForm
         {connectionId}
-        {selectedBoardId}
+        selectedBoardId=""
         task={selectedTask}
         onBack={cancelBranchCreation}
       />
@@ -529,14 +524,17 @@
         </div>
       </div>
 
-      {#if boards.length > 1}
+      {#if projects.length > 1}
         <div class="px-4 py-1.5 border-b border-border-subtle">
           <CustomSelect
-            value={selectedBoardId}
-            options={boards.map((b) => ({ value: b.id, label: b.name }))}
+            value={selectedProjectKey}
+            options={projects.map((p) => ({
+              value: p.key,
+              label: p.name && p.name !== p.key ? `${p.key} — ${p.name}` : p.key,
+            }))}
             onchange={(v) => {
-              selectedBoardId = v
-              onBoardChange()
+              selectedProjectKey = v
+              onProjectChange()
             }}
             maxWidth="none"
           />

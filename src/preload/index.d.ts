@@ -951,7 +951,7 @@ interface CanopyAPI {
   trackerConfigFetchTasks: (
     repoRoot?: string,
     trackerId?: string,
-    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
   ) => Promise<TrackerTask[]>
   trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) => Promise<string>
   trackerConfigFetchTaskComments: (

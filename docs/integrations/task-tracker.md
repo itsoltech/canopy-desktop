@@ -30,12 +30,12 @@ Each provider implements a common `TaskTrackerProviderClient` interface. Jira us
 ### Browsing tasks
 
 1. User opens the task list for a connected tracker.
-2. Canopy calls `fetchTasks` with optional filters: `statuses`, `assignedToMe`, `boardId`.
-3. Jira queries via JQL (`assignee = currentUser()` when `assignedToMe` is true, filtered by board when a `boardId` is set). YouTrack uses its query syntax (`for: me`, `project: {KEY}`). GitHub fetches issues via GraphQL with `IssueFilters`.
+2. Canopy calls `fetchTasks` with optional filters: `statuses`, `assignedToMe`, `projectKey` (`boardId` remains as a legacy fallback).
+3. Jira queries via JQL (`project = KEY AND statusCategory != Done` for the selected project; `assignee = currentUser()` only in the legacy no-project fallback). YouTrack uses its query syntax (`for: me`, `project: {KEY}`). GitHub fetches issues via GraphQL with `IssueFilters`.
 4. Tasks are returned as `TrackerTask` objects with normalized fields: `key`, `summary`, `status`, `priority`, `type` (mapped from provider-specific values), `parentKey`, `sprintName`, `assignee`, and `url`.
 5. If no tasks match the filters, the UI shows an empty state.
 6. Jira and YouTrack fetch up to 200 tasks per request. GitHub fetches up to 100. Jira excludes issues in the "Done" status category by default.
-7. The picker opens with the filter panel expanded: "Only assigned to me", per-status chips, and per-sprint chips (tasks without a sprint fall into a "(no sprint)" bucket). Rows show the sprint name next to the assignee. Filter selections persist per connection + board.
+7. The picker opens with the filter panel expanded: "Only assigned to me", per-status chips, and per-sprint chips (tasks without a sprint fall into a "(no sprint)" bucket). Rows show the sprint name next to the assignee. Filter selections persist per connection + project; the pickers filter by tracker PROJECT (boards are no longer surfaced).
 8. The picker is also reachable from the Create Worktree modal ("+ new" → **From task**, disabled when no tracker is configured or its credentials are missing/expired) — picking a task continues into the branch-create form, where the base branch is chosen and the branch name is generated from the task.
 
 ### Task type mapping

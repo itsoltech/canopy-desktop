@@ -215,7 +215,7 @@ export interface TaskTrackerProviderClient {
   fetchTasks(
     connection: TaskTrackerConnection,
     token: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
   ): ResultAsync<TrackerTask[], TaskTrackerError>
   getCurrentSprint(
     connection: TaskTrackerConnection,

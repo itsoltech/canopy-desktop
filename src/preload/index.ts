@@ -1268,7 +1268,7 @@ const api = {
   trackerConfigFetchTasks: (
     repoRoot?: string,
     trackerId?: string,
-    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
   ) => ipcRenderer.invoke('trackerConfig:fetchTasks', { repoRoot, trackerId, ...params }),
   trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) =>
     ipcRenderer.invoke('trackerConfig:getCurrentUser', { repoRoot, trackerId }),
@@ -1375,7 +1375,13 @@ const api = {
     ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId, repoRoot }),
   taskTrackerFetchTasks: (
     connectionId: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; repoRoot?: string },
+    params: {
+      statuses?: string[]
+      assignedToMe?: boolean
+      boardId?: string
+      projectKey?: string
+      repoRoot?: string
+    },
   ) => ipcRenderer.invoke('taskTracker:fetchTasks', { connectionId, ...params }),
   taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string, repoRoot?: string) =>
     ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId, repoRoot }),

@@ -325,6 +325,17 @@ export const jiraClient: TaskTrackerProviderClient = {
     const resolvedBoardId = params.boardId || connection.boardId
     const fields = 'summary,status,priority,issuetype,parent,assignee,sprint'
 
+    // Explicit project filter (the pickers browse per PROJECT — boards are legacy/fallback):
+    // same semantics as the board path — everything not Done, newest first, no assignee cut.
+    if (params.projectKey && /^[A-Za-z0-9_-]+$/.test(params.projectKey)) {
+      const jql = `project = "${params.projectKey}" AND statusCategory != Done ORDER BY updated DESC`
+      return jiraFetch<{ issues: JiraTask[] }>(
+        connection,
+        token,
+        `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=200`,
+      ).map((data) => data.issues.map((i) => mapJiraTask(i, connection.baseUrl)))
+    }
+
     if (resolvedBoardId) {
       const jql = 'statusCategory != Done ORDER BY updated DESC'
       const jqlParam = `&jql=${encodeURIComponent(jql)}`

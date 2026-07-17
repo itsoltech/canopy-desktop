@@ -3378,6 +3378,7 @@ export function registerIpcHandlers(
         statuses?: string[]
         assignedToMe?: boolean
         boardId?: string
+        projectKey?: string
       },
     ) => {
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
@@ -3388,6 +3389,7 @@ export function registerIpcHandlers(
           statuses: payload.statuses,
           assignedToMe: payload.assignedToMe,
           boardId: payload.boardId,
+          projectKey: payload.projectKey,
         },
         payload.trackerId,
         payload.repoRoot,

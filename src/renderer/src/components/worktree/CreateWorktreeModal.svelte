@@ -82,8 +82,8 @@
   let tasksLoading = $state(false)
   let tasksError = $state('')
   let taskQuery = $state('')
-  let taskBoards = $state<Array<{ id: string; name: string }>>([])
-  let taskBoardId = $state('')
+  let taskProjects = $state<Array<{ key: string; name: string }>>([])
+  let taskProjectKey = $state('')
   let currentUserName = $state('')
   let taskAssignedToMe = $state(false)
   let hasSavedTaskFilters = $state(false)
@@ -338,25 +338,27 @@
     tasksLoading = true
     tasksError = ''
     try {
-      if (taskBoards.length === 0) {
-        const [boards, userName, statuses] = await Promise.all([
+      if (taskProjects.length === 0) {
+        const [projectList, userName, statuses] = await Promise.all([
           window.api
-            .trackerConfigFetchBoards(trackerRepoRoot, trackerId)
-            .catch(() => [] as Array<{ id: string; name: string }>),
+            .trackerConfigFetchProjects(trackerRepoRoot, trackerId)
+            .catch(() => [] as Array<{ key: string; name: string }>),
           window.api.trackerConfigGetCurrentUser(trackerRepoRoot, trackerId).catch(() => ''),
           window.api
             .trackerConfigFetchStatuses(trackerRepoRoot, trackerId)
             .catch(() => [] as Array<{ id: string; name: string; statusCategory?: string }>),
         ])
-        taskBoards = boards
+        taskProjects = projectList
         currentUserName = userName
         trackerStatuses = statuses
-        const last = getPref(`taskTracker.lastBoard.${trackerId}`)
-        taskBoardId = boards.some((b) => b.id === last) ? last : (boards[0]?.id ?? '')
+        const last = getPref(`taskTracker.lastProject.${trackerId}`)
+        taskProjectKey = projectList.some((p) => p.key === last)
+          ? last
+          : (projectList[0]?.key ?? '')
       }
       restoreTaskFilters()
       const fetched = await window.api.trackerConfigFetchTasks(trackerRepoRoot, trackerId, {
-        boardId: taskBoardId || undefined,
+        projectKey: taskProjectKey || undefined,
       })
       if (seq !== taskFetchSeq) return
       tasks = fetched
@@ -379,7 +381,7 @@
   function restoreTaskFilters(): void {
     excludedStatuses.clear()
     excludedSprints.clear()
-    const saved = loadSavedTaskFilters(taskModeState.trackerId, taskBoardId)
+    const saved = loadSavedTaskFilters(taskModeState.trackerId, taskProjectKey)
     if (saved) {
       for (const s of saved.excludedStatuses) excludedStatuses.add(s)
       for (const s of saved.excludedSprints ?? []) excludedSprints.add(s)
@@ -392,16 +394,16 @@
   }
 
   function persistTaskFilters(): void {
-    saveTaskFilters(taskModeState.trackerId, taskBoardId, {
+    saveTaskFilters(taskModeState.trackerId, taskProjectKey, {
       excludedStatuses: [...excludedStatuses],
       excludedSprints: [...excludedSprints],
       assignedToMe: taskAssignedToMe,
     })
   }
 
-  async function onTaskBoardChange(boardId: string): Promise<void> {
-    taskBoardId = boardId
-    setPref(`taskTracker.lastBoard.${taskModeState.trackerId}`, boardId)
+  async function onTaskProjectChange(projectKey: string): Promise<void> {
+    taskProjectKey = projectKey
+    setPref(`taskTracker.lastProject.${taskModeState.trackerId}`, projectKey)
     await loadTasks()
   }
 
@@ -509,7 +511,6 @@
       const result = await window.api.taskTrackerPrepareBranchFromTask({
         connectionId: taskModeState.trackerId,
         task: $state.snapshot(selectedTask) as TrackerTaskLite,
-        boardId: taskBoardId || undefined,
         repoRoot: trackerRepoRoot,
       })
       taskBranchName = result.branchName
@@ -590,7 +591,6 @@
         taskKey: selectedTask.key,
         summary: selectedTask.summary,
         connectionId: taskModeState.trackerId,
-        boardId: taskBoardId || undefined,
       })
       if (hasSetupConfig() && workspaceId) {
         step = 'setup'
@@ -615,7 +615,6 @@
       const created = await window.api.taskTrackerCreateWorktreeFromTask({
         connectionId: taskModeState.trackerId,
         task: $state.snapshot(selectedTask) as TrackerTaskLite,
-        boardId: taskBoardId || undefined,
         repoRoot,
         worktreePath,
         baseBranch: selectedBase,
@@ -626,7 +625,6 @@
         taskKey: selectedTask.key,
         summary: selectedTask.summary,
         connectionId: taskModeState.trackerId,
-        boardId: taskBoardId || undefined,
       })
 
       if (hasSetupConfig() && workspaceId) {
@@ -950,23 +948,26 @@
               <div
                 class="flex-1 min-h-0 rounded-lg border border-border-subtle p-2.5 flex flex-col gap-2"
               >
-                {#if taskBoards.length > 1}
+                {#if taskProjects.length > 1}
                   <div class="flex flex-col gap-1">
                     <span
                       class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                      >Board</span
+                      >Project</span
                     >
                     <CustomSelect
-                      value={taskBoardId}
-                      options={taskBoards.map((b) => ({ value: b.id, label: b.name }))}
-                      onchange={(v) => void onTaskBoardChange(v)}
+                      value={taskProjectKey}
+                      options={taskProjects.map((p) => ({
+                        value: p.key,
+                        label: p.name && p.name !== p.key ? `${p.key} — ${p.name}` : p.key,
+                      }))}
+                      onchange={(v) => void onTaskProjectChange(v)}
                       maxWidth="none"
                     />
                   </div>
-                {:else if tasksLoading && taskBoards.length === 0}
+                {:else if tasksLoading && taskProjects.length === 0}
                   <div class="flex items-center gap-2 text-xs text-text-muted py-0.5">
                     <LoaderCircle size={12} class="animate-spin" />
-                    <span>Loading boards…</span>
+                    <span>Loading projects…</span>
                   </div>
                 {/if}
                 <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">

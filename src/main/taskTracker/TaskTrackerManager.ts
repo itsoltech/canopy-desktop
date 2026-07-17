@@ -206,7 +206,7 @@ export class TaskTrackerManager {
 
   fetchTasksFromConfig(
     config: RepoConfig,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
     trackerId?: string,
     repoRoot?: string,
   ): ResultAsync<TrackerTask[], TaskTrackerError> {
@@ -699,7 +699,7 @@ export class TaskTrackerManager {
 
   fetchTasks(
     connectionId: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
     repoRoot?: string,
   ): ResultAsync<TrackerTask[], TaskTrackerError> {
     return this.getConnection(connectionId)
