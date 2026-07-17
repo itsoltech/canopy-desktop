@@ -166,7 +166,9 @@
     try {
       const repoRoot = cfgRoot
       const [projectList, userName, statuses] = await Promise.all([
-        window.api.trackerConfigFetchProjects(repoRoot, connectionId).catch(() => []),
+        // No .catch here — a projects-load failure (expired credentials, tracker down) must reach
+        // the outer catch and surface the error/Retry state instead of an empty silent picker.
+        window.api.trackerConfigFetchProjects(repoRoot, connectionId),
         window.api.trackerConfigGetCurrentUser(repoRoot, connectionId).catch(() => ''),
         window.api
           .trackerConfigFetchStatuses(repoRoot, connectionId)

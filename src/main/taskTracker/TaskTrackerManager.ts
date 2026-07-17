@@ -341,6 +341,37 @@ export class TaskTrackerManager {
   }
 
   /**
+   * Follow redirects manually so EVERY hop passes the public-address SSRF gate —
+   * `redirect: 'follow'` would bounce past `isPublicHttpUrl` on the second hop (a validated
+   * public host can 302 to an internal address). Credentials (if any) go only to the FIRST
+   * request; every subsequent hop is fetched bare, so tokens never leak across origins.
+   */
+  private async fetchFollowingPublicRedirects(
+    firstUrl: string,
+    headers: Record<string, string>,
+    timeoutMs: number,
+  ): Promise<Response> {
+    const MAX_REDIRECT_HOPS = 5
+    let currentUrl = firstUrl
+    let res = await fetch(currentUrl, {
+      headers,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    for (let hop = 0; res.status >= 300 && res.status < 400; hop++) {
+      if (hop >= MAX_REDIRECT_HOPS) throw new Error('Too many redirects')
+      const location = res.headers.get('location')
+      if (!location) throw new Error(`Redirect without Location (HTTP ${res.status})`)
+      currentUrl = new URL(location, currentUrl).href
+      if (!(await isPublicHttpUrl(currentUrl))) {
+        throw new Error('Redirect target does not resolve to a public host')
+      }
+      res = await fetch(currentUrl, { redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) })
+    }
+    return res
+  }
+
+  /**
    * Small tracker images (task-type icons, avatars) as a data: URL — the renderer CSP forbids
    * remote img-src. Same-origin URLs get the connection's credentials; other https URLs (avatar
    * CDNs like atl-paas/gravatar are pre-signed/public) are fetched WITHOUT any credentials, so
@@ -373,21 +404,7 @@ export class TaskTrackerManager {
           if (!isSameOriginAs(url, conn.baseUrl) && !(await isPublicHttpUrl(url))) {
             throw new Error('URL does not resolve to a public host')
           }
-          let res = await fetch(url, {
-            headers,
-            redirect: 'manual',
-            signal: AbortSignal.timeout(15_000),
-          })
-          if (res.status >= 300 && res.status < 400) {
-            const location = res.headers.get('location')
-            if (!location) throw new Error(`Redirect without Location (HTTP ${res.status})`)
-            // Pre-signed media URL on another origin — never forward the tracker credentials,
-            // and hold the redirect target to the same public-address bar as the original URL.
-            if (!(await isPublicHttpUrl(location))) {
-              throw new Error('Redirect target does not resolve to a public host')
-            }
-            res = await fetch(location, { redirect: 'follow', signal: AbortSignal.timeout(15_000) })
-          }
+          const res = await this.fetchFollowingPublicRedirects(url, headers, 15_000)
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           const buf = Buffer.from(await res.arrayBuffer())
           if (buf.byteLength > 512 * 1024) throw new Error('Image too large')
@@ -447,25 +464,9 @@ export class TaskTrackerManager {
     // Jira answers attachment-content requests with a 303 redirect to a pre-signed media URL on
     // ANOTHER origin — follow it manually so the tracker credentials are not forwarded there
     // (redirect:'error' made every Jira attachment download fail with "fetch failed").
-    const fetchAttachment = async (): Promise<Response> => {
-      const first = await fetch(url, {
-        headers,
-        redirect: 'manual',
-        signal: AbortSignal.timeout(60_000),
-      })
-      if (first.status >= 300 && first.status < 400) {
-        const location = first.headers.get('location')
-        if (!location) throw new Error(`Redirect without Location (HTTP ${first.status})`)
-        // Same SSRF bar as the image proxy: the pre-signed media target must be a public host.
-        if (!(await isPublicHttpUrl(location))) {
-          throw new Error('Redirect target does not resolve to a public host')
-        }
-        return fetch(location, { redirect: 'follow', signal: AbortSignal.timeout(60_000) })
-      }
-      return first
-    }
-
-    return fromExternalCall(fetchAttachment(), (e) => dlErr(errorMessage(e)))
+    return fromExternalCall(this.fetchFollowingPublicRedirects(url, headers, 60_000), (e) =>
+      dlErr(errorMessage(e)),
+    )
       .andThen((res) => {
         if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
         if (!res.body) return errAsync(dlErr('Empty response body'))

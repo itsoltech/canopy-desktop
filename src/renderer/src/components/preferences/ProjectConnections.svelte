@@ -48,7 +48,13 @@
   let projectsError = $state('')
   let selectedProjects = new SvelteSet<string>()
 
+  // Monotonic token: switching to another tracker's picker before the previous fetch resolves
+  // must not let the slower response overwrite projectOptions (and poison saveProjects'
+  // all-selected check) — same pattern as fetchSeq in the task pickers.
+  let projectsFetchSeq = 0
+
   async function startEditProjects(trackerId: string): Promise<void> {
+    const seq = ++projectsFetchSeq
     editingProjectsFor = trackerId
     projectsError = ''
     projectsLoading = true
@@ -58,16 +64,19 @@
     }
     try {
       // `all: true` bypasses the whitelist so deselected projects stay visible for re-adding.
-      projectOptions = await window.api.trackerConfigFetchProjects(
+      const fetched = await window.api.trackerConfigFetchProjects(
         repoRoot ?? undefined,
         trackerId,
         true,
       )
+      if (seq !== projectsFetchSeq) return
+      projectOptions = fetched
     } catch (e) {
+      if (seq !== projectsFetchSeq) return
       projectsError = e instanceof Error ? e.message : 'Failed to load projects'
       projectOptions = []
     } finally {
-      projectsLoading = false
+      if (seq === projectsFetchSeq) projectsLoading = false
     }
   }
 
