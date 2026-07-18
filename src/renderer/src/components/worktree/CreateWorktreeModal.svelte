@@ -5,29 +5,19 @@
   import { ProgressAddon, type IProgressState } from '@xterm/addon-progress'
   import '@xterm/xterm/css/xterm.css'
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
-  import { getPref, setPref, prefs } from '../../lib/stores/preferences.svelte'
+  import { getPref, prefs } from '../../lib/stores/preferences.svelte'
   import { openTool } from '../../lib/stores/tabs.svelte'
   import {
     getResolvedConfig,
     getTrackerCredentials,
     setActiveTask,
   } from '../../lib/stores/taskTracker.svelte'
-  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
   import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
-  import { Pencil, LoaderCircle } from '@lucide/svelte'
-  import {
-    DONE_STATUS_PATTERN,
-    NO_SPRINT,
-    buildStatusMeta,
-    loadSavedTaskFilters,
-    saveTaskFilters,
-    sortStatuses,
-    taskDisplayKey,
-  } from '../../lib/taskTracker/taskFilterPrefs'
-  import { SvelteSet } from 'svelte/reactivity'
-  import CustomSelect from '../shared/CustomSelect.svelte'
-  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import { Pencil } from '@lucide/svelte'
+  import { taskDisplayKey } from '../../lib/taskTracker/taskFilterPrefs'
+  import type { TrackerTaskLite } from '../../lib/taskTracker/types'
+  import TaskListPicker from '../taskTracker/TaskListPicker.svelte'
   import { getTheme } from '../../lib/terminal/themes'
   import { safeDirName } from '../../lib/sanitize'
   import { prStateChip } from '../../lib/github/prState'
@@ -49,21 +39,6 @@
   type Step = 'loading' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
   type Mode = 'new' | 'existing' | 'task'
 
-  interface TrackerTaskLite {
-    key: string
-    summary: string
-    description: string
-    status: string
-    statusCategory?: string
-    priority: string
-    type: string
-    parentKey?: string
-    sprintName?: string
-    sprintNumber?: number
-    assignee?: string
-    url?: string
-  }
-
   let step = $state<Step>('loading')
   let mode = $state<Mode>('new')
   let branches = $state<{ local: string[]; remote: string[] }>({ local: [], remote: [] })
@@ -76,19 +51,8 @@
   let refreshing = $state(false)
   let containerEl: HTMLDivElement | undefined = $state()
 
-  // "From task" mode: task list + the branch name generated from the picked task.
-  let tasks = $state<TrackerTaskLite[]>([])
-  let tasksLoaded = $state(false)
-  let tasksLoading = $state(false)
-  let tasksError = $state('')
-  let taskQuery = $state('')
-  let taskProjects = $state<Array<{ key: string; name: string }>>([])
-  let taskProjectKey = $state('')
-  let currentUserName = $state('')
-  let taskAssignedToMe = $state(false)
-  let hasSavedTaskFilters = $state(false)
-  let excludedStatuses = new SvelteSet<string>()
-  let excludedSprints = new SvelteSet<string>()
+  // "From task" mode: the picked task + the branch name generated from it (the task list
+  // itself — projects, filters, search — lives in the shared TaskListPicker).
   let selectedTask = $state<TrackerTaskLite | null>(null)
   let taskBranchName = $state('')
   let taskBranchEdited = $state(false)
@@ -301,9 +265,6 @@
     selectedTask = null
     taskBranchName = ''
     taskBranchEdited = false
-    taskQuery = ''
-    // Prefetch so the list is ready when the user reaches the task screen.
-    if (next === 'task' && !tasksLoaded && !tasksLoading) void loadTasks()
   }
 
   // "From task" availability. The task list binds to the ACTIVE project's tracker config, hence
@@ -327,182 +288,10 @@
     return { disabled: false, reason: '', trackerId: usable.id }
   })
 
-  // Monotonic token: rapid board switches must not let a slow older response overwrite the
-  // newer list (same pattern as TaskPanel.refresh).
-  let taskFetchSeq = 0
-
-  async function loadTasks(): Promise<void> {
-    const trackerId = taskModeState.trackerId
-    if (!trackerId) return
-    const seq = ++taskFetchSeq
-    tasksLoading = true
-    tasksError = ''
-    try {
-      if (taskProjects.length === 0) {
-        const [projectList, userName, statuses] = await Promise.all([
-          window.api
-            .trackerConfigFetchProjects(trackerRepoRoot, trackerId)
-            .catch(() => [] as Array<{ key: string; name: string }>),
-          window.api.trackerConfigGetCurrentUser(trackerRepoRoot, trackerId).catch(() => ''),
-          window.api
-            .trackerConfigFetchStatuses(trackerRepoRoot, trackerId)
-            .catch(() => [] as Array<{ id: string; name: string; statusCategory?: string }>),
-        ])
-        taskProjects = projectList
-        currentUserName = userName
-        trackerStatuses = statuses
-        const last = getPref(`taskTracker.lastProject.${trackerId}`)
-        taskProjectKey = projectList.some((p) => p.key === last)
-          ? last
-          : (projectList[0]?.key ?? '')
-      }
-      restoreTaskFilters()
-      const fetched = await window.api.trackerConfigFetchTasks(trackerRepoRoot, trackerId, {
-        projectKey: taskProjectKey || undefined,
-      })
-      if (seq !== taskFetchSeq) return
-      tasks = fetched
-      // First visit to a board: hide done-ish statuses by default (same as the task picker).
-      if (!hasSavedTaskFilters && excludedStatuses.size === 0 && tasks.length > 0) {
-        for (const task of tasks) {
-          if (DONE_STATUS_PATTERN.test(task.status)) excludedStatuses.add(task.status)
-        }
-        persistTaskFilters()
-      }
-      tasksLoaded = true
-    } catch (e) {
-      if (seq !== taskFetchSeq) return
-      tasksError = ipcErrorMessage(e, 'Failed to fetch tasks')
-    } finally {
-      if (seq === taskFetchSeq) tasksLoading = false
-    }
-  }
-
-  function restoreTaskFilters(): void {
-    excludedStatuses.clear()
-    excludedSprints.clear()
-    const saved = loadSavedTaskFilters(taskModeState.trackerId, taskProjectKey)
-    if (saved) {
-      for (const s of saved.excludedStatuses) excludedStatuses.add(s)
-      for (const s of saved.excludedSprints ?? []) excludedSprints.add(s)
-      taskAssignedToMe = saved.assignedToMe
-      hasSavedTaskFilters = true
-    } else {
-      taskAssignedToMe = false
-      hasSavedTaskFilters = false
-    }
-  }
-
-  function persistTaskFilters(): void {
-    saveTaskFilters(taskModeState.trackerId, taskProjectKey, {
-      excludedStatuses: [...excludedStatuses],
-      excludedSprints: [...excludedSprints],
-      assignedToMe: taskAssignedToMe,
-    })
-  }
-
-  async function onTaskProjectChange(projectKey: string): Promise<void> {
-    taskProjectKey = projectKey
-    setPref(`taskTracker.lastProject.${taskModeState.trackerId}`, projectKey)
-    await loadTasks()
-  }
-
-  function toggleTaskStatus(status: string): void {
-    if (excludedStatuses.has(status)) excludedStatuses.delete(status)
-    else excludedStatuses.add(status)
-    persistTaskFilters()
-  }
-
-  function toggleTaskSprint(sprint: string): void {
-    if (excludedSprints.has(sprint)) excludedSprints.delete(sprint)
-    else excludedSprints.add(sprint)
-    persistTaskFilters()
-  }
-
-  // Tracker's configured status list — drives chip colors and ordering (same as the task picker).
-  let trackerStatuses = $state<Array<{ id: string; name: string; statusCategory?: string }>>([])
-  let statusMeta = $derived(buildStatusMeta(trackerStatuses))
-  let taskStatusCategories = $derived.by(() => {
-    const cats: Record<string, string | undefined> = {}
-    for (const t of tasks) {
-      if (t.status && !(t.status in cats)) cats[t.status] = t.statusCategory
-    }
-    return cats
-  })
-  function statusCategoryOf(status: string): string | undefined {
-    return statusMeta.get(status)?.category ?? taskStatusCategories[status]
-  }
-
-  let availableTaskStatuses = $derived.by(() => {
-    const seen = new SvelteSet<string>()
-    for (const task of tasks) if (task.status) seen.add(task.status)
-    return sortStatuses(Array.from(seen), statusMeta)
-  })
-
-  let availableTaskSprints = $derived.by(() => {
-    const seen = new SvelteSet<string>()
-    let hasNoSprint = false
-    for (const task of tasks) {
-      if (task.sprintName) seen.add(task.sprintName)
-      else hasNoSprint = true
-    }
-    const sorted = Array.from(seen).sort()
-    // The backlog bucket always leads — it is the "not planned yet" home position.
-    return hasNoSprint ? [NO_SPRINT, ...sorted] : sorted
-  })
-
-  const TASK_DISPLAY_LIMIT = 50
-  let filteredTaskList = $derived.by(() => {
-    let result = tasks
-    if (taskAssignedToMe && currentUserName) {
-      result = result.filter((t) => t.assignee === currentUserName)
-    }
-    if (excludedStatuses.size > 0) {
-      result = result.filter((t) => !excludedStatuses.has(t.status))
-    }
-    if (excludedSprints.size > 0) {
-      result = result.filter((t) => !excludedSprints.has(t.sprintName || NO_SPRINT))
-    }
-    const q = taskQuery.toLowerCase()
-    if (q) {
-      result = result.filter(
-        (t) => t.key.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q),
-      )
-    }
-    return result.slice(0, TASK_DISPLAY_LIMIT)
-  })
-
   async function pickTask(task: TrackerTaskLite): Promise<void> {
     selectedTask = $state.snapshot(task) as TrackerTaskLite
     taskBranchEdited = false
     await updateTaskBranchPreview()
-  }
-
-  // Keyboard navigation for the task list, driven from the search input (like BranchPicker).
-  let taskSelIdx = $state(0)
-  $effect(() => {
-    if (taskSelIdx >= filteredTaskList.length) taskSelIdx = Math.max(0, filteredTaskList.length - 1)
-  })
-
-  function scrollTaskIntoView(): void {
-    requestAnimationFrame(() => {
-      document.querySelector('[data-wt-task-selected="true"]')?.scrollIntoView({ block: 'nearest' })
-    })
-  }
-
-  function handleTaskSearchKeydown(e: KeyboardEvent): void {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      taskSelIdx = Math.min(taskSelIdx + 1, Math.max(0, filteredTaskList.length - 1))
-      scrollTaskIntoView()
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      taskSelIdx = Math.max(taskSelIdx - 1, 0)
-      scrollTaskIntoView()
-    } else if (e.key === 'Enter' && filteredTaskList[taskSelIdx]) {
-      e.preventDefault()
-      void pickTask(filteredTaskList[taskSelIdx])
-    }
   }
 
   async function updateTaskBranchPreview(): Promise<void> {
@@ -943,166 +732,13 @@
             </p>
             {#if !selectedTask}
               <p class="m-0 text-md text-text-secondary">Select task</p>
-              <!-- One frame around filters AND the task list. Filters are fixed; only the task
-                   list scrolls, so there is a single scrollbar. -->
-              <div
-                class="flex-1 min-h-0 rounded-lg border border-border-subtle p-2.5 flex flex-col gap-2"
-              >
-                {#if taskProjects.length > 1}
-                  <div class="flex flex-col gap-1">
-                    <span
-                      class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                      >Project</span
-                    >
-                    <CustomSelect
-                      value={taskProjectKey}
-                      options={taskProjects.map((p) => ({
-                        value: p.key,
-                        label: p.name && p.name !== p.key ? `${p.key} — ${p.name}` : p.key,
-                      }))}
-                      onchange={(v) => void onTaskProjectChange(v)}
-                      maxWidth="none"
-                    />
-                  </div>
-                {:else if tasksLoading && taskProjects.length === 0}
-                  <div class="flex items-center gap-2 text-xs text-text-muted py-0.5">
-                    <LoaderCircle size={12} class="animate-spin" />
-                    <span>Loading projects…</span>
-                  </div>
-                {/if}
-                <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-                  <CustomCheckbox
-                    checked={taskAssignedToMe}
-                    onchange={() => {
-                      taskAssignedToMe = !taskAssignedToMe
-                      persistTaskFilters()
-                    }}
-                  />
-                  <span>Only tasks assigned to me</span>
-                </label>
-                {#if tasksLoading && availableTaskStatuses.length === 0}
-                  <div class="flex items-center gap-2 text-xs text-text-muted py-0.5">
-                    <LoaderCircle size={12} class="animate-spin" />
-                    <span>Loading filters…</span>
-                  </div>
-                {/if}
-                {#if availableTaskStatuses.length > 0}
-                  <div class="flex flex-col gap-1">
-                    <span
-                      class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                      >Status</span
-                    >
-                    <div class="flex flex-wrap gap-1">
-                      {#each availableTaskStatuses as status (status)}
-                        <button
-                          class="px-2 py-0.5 border rounded-xl text-xs font-inherit cursor-pointer transition-colors duration-fast {excludedStatuses.has(
-                            status,
-                          )
-                            ? 'bg-transparent border-border text-text-muted opacity-40 line-through hover:text-text-secondary'
-                            : `border-transparent ${statusChipClass(statusCategoryOf(status))}`}"
-                          onclick={() => toggleTaskStatus(status)}
-                        >
-                          {status}
-                        </button>
-                      {/each}
-                    </div>
-                  </div>
-                {/if}
-                {#if availableTaskSprints.length > 0}
-                  <div class="flex flex-col gap-1">
-                    <span
-                      class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                      >Sprint</span
-                    >
-                    <div class="flex flex-wrap gap-1">
-                      {#each availableTaskSprints as sprint (sprint)}
-                        <button
-                          class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
-                          class:!bg-accent-bg={!excludedSprints.has(sprint)}
-                          class:!border-accent-muted={!excludedSprints.has(sprint)}
-                          class:!text-accent-text={!excludedSprints.has(sprint)}
-                          class:!opacity-40={excludedSprints.has(sprint)}
-                          class:line-through={excludedSprints.has(sprint)}
-                          onclick={() => toggleTaskSprint(sprint)}
-                        >
-                          {sprint}
-                        </button>
-                      {/each}
-                    </div>
-                  </div>
-                {/if}
-                <input
-                  id="create-wt-task-search"
-                  class={inputCls}
-                  type="text"
-                  aria-label="Search tasks"
-                  bind:value={taskQuery}
-                  oninput={() => (taskSelIdx = 0)}
-                  onkeydown={handleTaskSearchKeydown}
-                  placeholder="Search by key or title... (↑↓ + Enter to pick)"
-                  spellcheck="false"
-                  autocomplete="off"
-                />
-                <span
-                  class="mt-1 pt-2 border-t border-border-subtle text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                >
-                  Available tasks
-                </span>
-                {#if tasksLoading}
-                  <div
-                    class="flex items-center justify-center gap-2 min-h-[164px] text-md text-text-muted"
-                  >
-                    <LoaderCircle size={14} class="animate-spin" />
-                    <span>Loading tasks…</span>
-                  </div>
-                {:else if tasksError}
-                  <div class="flex flex-col items-center gap-2 py-4 text-sm text-danger-text">
-                    <span class="break-all">{tasksError}</span>
-                    <button class={btnCancelCls} onclick={loadTasks}>Retry</button>
-                  </div>
-                {:else}
-                  <!-- Tall enough for 5 rows (fewer when the filtered list itself is shorter). -->
-                  <div
-                    class="flex-1 overflow-y-auto border border-border-subtle rounded-lg"
-                    style:min-height="{Math.min(Math.max(filteredTaskList.length, 1), 5) * 32 +
-                      4}px"
-                    role="listbox"
-                    aria-label="Tasks"
-                  >
-                    {#if filteredTaskList.length === 0}
-                      <div class="px-2.5 py-4 text-center text-md text-text-faint">
-                        No tasks found
-                      </div>
-                    {:else}
-                      {#each filteredTaskList as task, i (task.key)}
-                        <!-- svelte-ignore a11y_click_events_have_key_events -->
-                        <div
-                          class="flex items-center gap-2 px-2.5 py-1.5 text-sm text-text cursor-pointer transition-colors duration-fast hover:bg-active"
-                          class:!bg-active={i === taskSelIdx}
-                          data-wt-task-selected={i === taskSelIdx}
-                          role="option"
-                          aria-selected={i === taskSelIdx}
-                          onclick={() => pickTask(task)}
-                          onpointerenter={() => (taskSelIdx = i)}
-                        >
-                          <span class="flex-shrink-0 font-semibold text-accent-text"
-                            >{taskDisplayKey(task)}</span
-                          >
-                          <span
-                            class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-                            title={task.summary}>{task.summary}</span
-                          >
-                          <span
-                            class="flex-shrink-0 px-1.5 py-px rounded-md text-2xs {statusChipClass(
-                              task.statusCategory,
-                            )}">{task.status}</span
-                          >
-                        </div>
-                      {/each}
-                    {/if}
-                  </div>
-                {/if}
-              </div>
+              <TaskListPicker
+                trackerId={taskModeState.trackerId}
+                repoRoot={trackerRepoRoot}
+                onPick={(t) => void pickTask(t)}
+                showMeta={false}
+                displayLimit={50}
+              />
             {:else}
               <p
                 class="m-0 text-md text-text-secondary cursor-help"
