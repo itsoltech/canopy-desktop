@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import {
     GitCommitVertical,
     ArrowUpFromLine,
@@ -17,6 +18,49 @@
   import CollapsibleSection from './CollapsibleSection.svelte'
 
   let loading: string | null = $state(null)
+
+  // Number of files with uncommitted changes — shown on the Commit row and refreshed the same
+  // way the changes panel refreshes (git metadata events + debounced filesystem events).
+  let changeCount = $state(0)
+
+  async function refreshChangeCount(): Promise<void> {
+    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!path) {
+      changeCount = 0
+      return
+    }
+    try {
+      const status = await window.api.fileTreeGetGitStatus(path, path)
+      changeCount = Object.keys(status.statuses).length
+    } catch {
+      changeCount = 0
+    }
+  }
+
+  $effect(() => {
+    void workspaceState.selectedWorktreePath
+    void workspaceState.isDirty
+    void refreshChangeCount()
+  })
+
+  onMount(() => {
+    const unsubGit = window.api.onGitChanged(() => void refreshChangeCount())
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsubFiles = window.api.onFilesChanged((payload) => {
+      const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+      if (payload.repoRoot !== path) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        void refreshChangeCount()
+      }, 200)
+    })
+    return () => {
+      unsubGit()
+      unsubFiles()
+      if (timer != null) clearTimeout(timer)
+    }
+  })
 
   function worktreePath(): string {
     return workspaceState.selectedWorktreePath ?? workspaceState.repoRoot!
@@ -211,6 +255,13 @@
         />
       {/if}
       <span class="flex-1">Commit</span>
+      {#if changeCount > 0}
+        <span
+          class="flex-shrink-0 min-w-4 px-1 py-px rounded-md bg-active text-2xs text-text-muted text-center leading-tight"
+          title={`${changeCount} file${changeCount === 1 ? '' : 's'} with uncommitted changes`}
+          >{changeCount}</span
+        >
+      {/if}
     </button>
 
     <div

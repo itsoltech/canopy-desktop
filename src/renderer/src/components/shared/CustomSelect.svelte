@@ -28,6 +28,8 @@
     maxWidth?: string
     /** Renders the trigger inert (e.g. a sprint select before a board is picked). */
     disabled?: boolean
+    /** Faint text shown when no option matches the current value. */
+    placeholder?: string
   }
 
   let {
@@ -38,6 +40,7 @@
     id,
     maxWidth = 'none',
     disabled = false,
+    placeholder = '',
   }: Props = $props()
 
   let open = $state(false)
@@ -194,7 +197,11 @@
         src={selectedItem.icon}
         alt=""
         class="size-3.5 shrink-0 {selectedItem.iconClass ?? ''}"
-      />{/if}<span class="truncate">{selectedItem?.label ?? ''}</span>{#if selectedItem?.badge}
+      />{/if}<span class="truncate"
+      >{#if selectedItem}{selectedItem.label}{:else}<span class="text-text-faint"
+          >{placeholder}</span
+        >{/if}</span
+    >{#if selectedItem?.badge}
       <span
         class="ml-1 inline-flex items-center px-1.5 py-px rounded-md text-2xs align-middle {selectedItem.badgeClass ??
           'bg-active text-text-muted'}">{selectedItem.badge}</span

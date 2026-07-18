@@ -79,11 +79,16 @@ export function buildTypeOptions(
   }))
 }
 
+/** The backlog is an EXPLICIT choice (value 'none'), so an untouched select ('') still reads
+ *  as "not chosen yet" and keeps the create button locked. */
 export function buildSprintOptions(
   sprints: Array<{ id: string; name: string }>,
-  noneLabel: string,
+  backlogLabel: string,
 ): SelectOption[] {
-  return [{ value: '', label: noneLabel }, ...sprints.map((s) => ({ value: s.id, label: s.name }))]
+  return [
+    { value: 'none', label: backlogLabel },
+    ...sprints.map((s) => ({ value: s.id, label: s.name })),
+  ]
 }
 
 /** Returns a user-facing error, or null when the title is submittable. Mirrors the IPC limit. */

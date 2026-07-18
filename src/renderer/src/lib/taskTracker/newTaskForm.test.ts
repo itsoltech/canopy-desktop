@@ -114,15 +114,15 @@ describe('buildTypeOptions', () => {
 })
 
 describe('buildSprintOptions', () => {
-  it('prepends a none option with the provided label', () => {
+  it('always offers an explicit backlog choice next to the sprints', () => {
     const options = buildSprintOptions(
       [
         { id: 's1', name: 'Sprint 1', state: 'active' as const },
         { id: 's2', name: 'Sprint 2', state: 'future' as const },
       ],
-      'Backlog (none)',
+      'Backlog (no sprint)',
     )
-    expect(options[0]).toEqual({ value: '', label: 'Backlog (none)' })
+    expect(options[0]).toEqual({ value: 'none', label: 'Backlog (no sprint)' })
     expect(options.slice(1)).toEqual([
       { value: 's1', label: 'Sprint 1' },
       { value: 's2', label: 'Sprint 2' },

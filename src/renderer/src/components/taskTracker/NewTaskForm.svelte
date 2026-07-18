@@ -360,7 +360,7 @@
         description: description.trim() || undefined,
         assigneeId: assigneeId || undefined,
         boardId: fields.board ? boardId || undefined : undefined,
-        sprintId: sprintId || undefined,
+        sprintId: sprintId && sprintId !== 'none' ? sprintId : undefined,
         attachments:
           pendingImages.length > 0
             ? $state
@@ -573,7 +573,10 @@
                 {:else}
                   <CustomSelect
                     value={sprintId}
-                    options={buildSprintOptions(sprints, 'Select a sprint…')}
+                    options={buildSprintOptions(
+                      sprints,
+                      fields.board ? 'Backlog (no sprint)' : 'No milestone',
+                    )}
                     onchange={(v) => (sprintId = v)}
                     maxWidth="none"
                   />
