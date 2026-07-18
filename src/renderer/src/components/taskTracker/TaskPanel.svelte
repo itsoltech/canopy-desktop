@@ -23,6 +23,7 @@
   } from '../../lib/stores/taskTracker.svelte'
   import { showProjectTracker } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { extractTaskKeys } from '../../lib/taskTracker/branchTaskKey'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { formatDateTime } from '../../lib/formatDate'
@@ -103,6 +104,11 @@
   let loadError = $state('')
   // The tracker answered but doesn't know this key — the task was deleted (or became invisible).
   let notFound = $state(false)
+  let linkedFromBranch = $derived(
+    workspaceState.branch
+      ? extractTaskKeys(workspaceState.branch).includes(panel?.taskKey ?? '')
+      : false,
+  )
 
   async function unlinkMissingTask(): Promise<void> {
     const key = panel?.taskKey
@@ -650,18 +656,20 @@
           <span title="Assignee">{task?.assignee || 'Unassigned'}</span>
         {/if}
         <span class="flex-1"></span>
-        <button
-          class="flex items-center gap-1 h-6 px-2 rounded-md border-0 cursor-pointer text-xs font-inherit shrink-0 {composeTarget?.kind ===
-          'task'
-            ? 'bg-accent text-bg'
-            : 'bg-accent-bg text-accent-text hover:bg-accent-bg-hover'}"
-          onclick={() => openCompose({ kind: 'task' })}
-          aria-label="Send task to agent"
-          title="Send this task to the active agent — with your own instructions or an image"
-        >
-          <Bot size={13} />
-          Agent
-        </button>
+        {#if !notFound}
+          <button
+            class="flex items-center gap-1 h-6 px-2 rounded-md border-0 cursor-pointer text-xs font-inherit shrink-0 {composeTarget?.kind ===
+            'task'
+              ? 'bg-accent text-bg'
+              : 'bg-accent-bg text-accent-text hover:bg-accent-bg-hover'}"
+            onclick={() => openCompose({ kind: 'task' })}
+            aria-label="Send task to agent"
+            title="Send this task to the active agent — with your own instructions or an image"
+          >
+            <Bot size={13} />
+            Agent
+          </button>
+        {/if}
       </div>
       {#if task?.description}
         {#key task.description}
@@ -745,7 +753,7 @@
             This task no longer exists in the tracker — it may have been deleted, or your account
             lost access to it.
           </span>
-          {#if panel?.source === 'active'}
+          {#if panel?.source === 'active' && !linkedFromBranch}
             <button
               type="button"
               class="self-start px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
@@ -768,7 +776,7 @@
       {/if}
     </div>
 
-    {#if !credentialsBroken && !checkingCreds}
+    {#if !credentialsBroken && !checkingCreds && !notFound}
       <!-- Status change -->
       <div class="flex flex-col gap-2 pt-3 border-t border-border-subtle">
         <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">
