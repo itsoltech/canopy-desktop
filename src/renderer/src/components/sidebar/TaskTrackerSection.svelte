@@ -118,16 +118,16 @@
               : 'Credentials required'}
           >
             <span
-              class="overflow-hidden text-ellipsis whitespace-nowrap flex-1"
-              title={tracker.baseUrl || 'Not configured'}
-              >{tracker.baseUrl || 'Not configured'}</span
-            >
-            <span
               class="inline-flex items-center flex-shrink-0"
               title={providerLabel(tracker.provider)}
             >
               <TrackerProviderIcon provider={tracker.provider} size={13} />
             </span>
+            <span
+              class="overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+              title={tracker.baseUrl || 'Not configured'}
+              >{tracker.baseUrl || 'Not configured'}</span
+            >
           </button>
           {#if tracker.baseUrl}
             <button
