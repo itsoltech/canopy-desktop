@@ -231,6 +231,17 @@
         sprints.length === 0 ||
         !!sprintId),
   )
+  let missingRequired = $derived.by(() => {
+    const missing: string[] = []
+    if (!title.trim() || titleError) missing.push('title')
+    if (fields.project && projects.length > 1 && !projectKey) missing.push('project')
+    if (fields.type && types.length > 0 && !typeName) missing.push('type')
+    if (fields.board && projectBoards.length > 0 && !boardId) missing.push('board')
+    else if (fields.sprint && !loadingSprints && sprints.length > 0 && !sprintId) {
+      missing.push(fields.sprintLabel.toLowerCase())
+    }
+    return missing
+  })
 
   onMount(() => void loadMeta())
 
@@ -600,7 +611,7 @@
               disabled={!requiredReady}
               title={requiredReady
                 ? undefined
-                : 'Fill in the required fields (title) first — the name follows them'}
+                : `Fill in the required fields first: ${missingRequired.join(', ')} — the branch name follows them`}
               bind:value={branchDraft}
               oninput={() => {
                 branchDraftEdited = true
@@ -636,6 +647,9 @@
           class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border-0 bg-accent-bg text-accent-text text-md font-inherit enabled:cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
           onclick={() => void submit()}
           disabled={submitting || !requiredReady}
+          title={requiredReady
+            ? undefined
+            : `Fill in the required fields first: ${missingRequired.join(', ')}`}
         >
           {#if submitting}
             <LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />
