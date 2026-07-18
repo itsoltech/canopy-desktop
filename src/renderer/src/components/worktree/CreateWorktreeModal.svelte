@@ -303,22 +303,23 @@
       'jira') as TrackerProviderKind,
   )
 
-  // A freshly created task drops straight into the From-task flow: card + template-generated
-  // branch name. Post-create warnings (e.g. sprint not applied) surface as toasts.
+  // One click creates BOTH: the tracker task and the worktree named by the (pre-create) branch
+  // draft. The confirm pane is a fallback only — it appears when the resolved name turns out
+  // invalid or already exists, so the user can fix it and hit Create.
   async function handleTaskCreated(
     task: TrackerTaskLite,
     warnings: string[],
     branchDraft?: string,
   ): Promise<void> {
     for (const w of warnings) addToast(w)
-    if (branchDraft) {
-      // The user shaped the name pre-create — keep it (with the real key) instead of re-rendering.
-      selectedTask = $state.snapshot(task) as TrackerTaskLite
-      taskBranchName = branchDraft.replaceAll('{taskKey}', task.key)
-      taskBranchEdited = true
+    selectedTask = $state.snapshot(task) as TrackerTaskLite
+    taskBranchName = (branchDraft || task.key).replaceAll('{taskKey}', task.key)
+    taskBranchEdited = true
+    if (taskBranchNameError) {
+      addToast(`Task ${task.key} created — adjust the branch name: ${taskBranchNameError}`)
       return
     }
-    await pickTask(task)
+    await createWorktreeFromTask()
   }
 
   async function updateTaskBranchPreview(): Promise<void> {

@@ -384,7 +384,7 @@
           url: created.url,
         },
         created.warnings,
-        showBranchName && branchDraftEdited ? branchDraft : undefined,
+        showBranchName ? branchDraft : undefined,
       )
     } catch (e) {
       submitError = ipcErrorMessage(e, 'Failed to create the task')
