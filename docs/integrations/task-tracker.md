@@ -90,6 +90,41 @@ Requirement fields the panel cannot edit (required fields other than an option l
 disable Apply with a hint to set them in the tracker. IPC channels:
 `trackerConfig:fetchTransitions`, `trackerConfig:applyTransition`, `trackerConfig:addComment`.
 
+### Linking tasks to a worktree
+
+The link dialog (sidebar → "Link task" / "Link another task") has two tabs:
+
+- **Existing tasks** — the shared task-selection block (`TaskListPicker`: Project select, filters,
+  search, task list). Picking a task shows a confirmation card with **Cancel / Link**; linking
+  writes the `activeTask.{worktreePath}` preference, closes the dialog and opens the Task panel.
+  Already-linked rows carry a "Linked" chip and an Unlink action (keys embedded in the branch name
+  read as linked and cannot be unlinked).
+- **New task** — the shared create form (see below); the created task is linked automatically.
+
+### Creating a task in the tracker
+
+The **New task** form (`NewTaskForm.svelte`) is shared by the link dialog and the Create Worktree
+modal's fourth mode. Fields adapt per provider:
+
+| Field    | Jira                                                                 | YouTrack                                                      | GitHub Issues               |
+| -------- | -------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------- |
+| Project  | `project/search` (shown when tracking >1)                            | `/api/admin/projects`                                         | hidden                      |
+| Type     | per-project `createmeta` (global list on 403)                        | project Type bundle                                           | hidden                      |
+| Assignee | `user/assignable/search` (accountId)                                 | project team, global users fallback (login)                   | `assignableUsers` (node id) |
+| Board    | all boards (sprint source)                                           | agile boards                                                  | hidden                      |
+| Sprint   | board sprints (active+future), applied post-create via the agile API | board sprints via the Commands API (`Board {board} {sprint}`) | open milestones (node id)   |
+
+The current user is preselected as assignee when they appear in the assignable list. Create is
+single-fire; post-create steps that fail after the task exists (Jira sprint move, YouTrack
+type/assignee/sprint commands) surface as **warnings** (toasts), never as a failed create — a
+retry would duplicate the task. After creation the full task is re-fetched (`findTaskByKey`) so
+branch templates render from real data. IPC channels: `trackerConfig:fetchAssignableUsers`,
+`trackerConfig:fetchSprints`, `trackerConfig:fetchCreateTaskTypes`, `trackerConfig:createTask`.
+
+In the Create Worktree modal ("+ new" → **New task**, gated like From task) the created task drops
+straight into the From-task flow: selected-task card, template-generated editable branch name,
+base branch and Create.
+
 ### Creating a branch from a task
 
 1. User clicks "Create Branch" on a task.
