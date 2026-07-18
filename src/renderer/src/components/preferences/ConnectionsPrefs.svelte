@@ -11,6 +11,7 @@
   } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import TrackerEditForm from './_partials/TrackerEditForm.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
@@ -262,10 +263,9 @@
             onclick={() => startEdit(tracker)}
             title="Edit connection (provider, URL, project key, token)"
           >
-            <span
-              class="text-2xs font-semibold uppercase tracking-caps-tight text-accent-text bg-accent-bg px-1.5 py-px rounded-sm shrink-0"
-              >{providerLabel(tracker.provider)}</span
-            >
+            <span class="inline-flex items-center shrink-0" title={providerLabel(tracker.provider)}>
+              <TrackerProviderIcon provider={tracker.provider} size={14} />
+            </span>
             <span
               class="flex-1 text-text-secondary truncate"
               title={tracker.baseUrl || 'Not configured'}

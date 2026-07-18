@@ -346,6 +346,7 @@
             {provider}
             onCreated={handleCreatedForLink}
             onCancel={closeDialog}
+            submitLabel="Create and link task"
           />
         {:else if mode === 'link' && selectedLinkTask}
           <p

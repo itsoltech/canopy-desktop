@@ -3,6 +3,7 @@
   import { match } from 'ts-pattern'
   import CustomSelect from '../../shared/CustomSelect.svelte'
   import { providerLabel } from '../../../lib/taskTracker/providerLabel'
+  import TrackerProviderIcon from '../../shared/TrackerProviderIcon.svelte'
 
   type Provider = 'jira' | 'youtrack' | 'github'
 
@@ -58,7 +59,10 @@
       >Provider</span
     >
     {#if credentialsOnly}
-      <span class="px-2.5 py-1.5 text-sm text-text-secondary">{providerLabel(provider)}</span>
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-text-secondary">
+        <TrackerProviderIcon {provider} size={14} />
+        {providerLabel(provider)}
+      </span>
     {:else}
       <CustomSelect
         value={provider}

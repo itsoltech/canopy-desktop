@@ -26,6 +26,7 @@
   import { showProjectTracker, showTaskPicker } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
 
   let resolved = $derived(getResolvedConfig())
   // Only trackers declared by THIS project's .canopy/config.json — the merged config also carries
@@ -122,9 +123,11 @@
               >{tracker.baseUrl || 'Not configured'}</span
             >
             <span
-              class="inline-flex items-center h-4 px-1.5 rounded-md text-2xs font-semibold uppercase tracking-caps-tight bg-border-subtle text-text-muted leading-tight flex-shrink-0"
-              >{providerLabel(tracker.provider)}</span
+              class="inline-flex items-center flex-shrink-0"
+              title={providerLabel(tracker.provider)}
             >
+              <TrackerProviderIcon provider={tracker.provider} size={13} />
+            </span>
           </button>
           {#if tracker.baseUrl}
             <button
