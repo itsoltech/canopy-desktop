@@ -50,10 +50,6 @@
     showProjectTracker()
   }
 
-  function browseTasks(connectionId: string): void {
-    showTaskPicker(connectionId)
-  }
-
   function openTaskPanel(taskKey?: string): void {
     if (taskKey) selectPanelTask(taskKey)
     workspaceState.rightPanelOpen = true
@@ -105,17 +101,16 @@
     <div class="flex flex-col">
       <!-- Configuration: tracker connections and credential warnings. -->
       {#each trackers as tracker (tracker.id)}
-        {@const hasCreds =
-          (trackerCreds[tracker.id]?.hasToken ?? false) &&
-          trackerCreds[tracker.id]?.valid !== false}
+        <!-- The row opens the tracker itself — picking tasks has its own entries (task list,
+             link dialog, worktree modal), so a row click no longer pops the picker. -->
         <div class="flex items-center">
           <button
             class="group flex items-center gap-2.5 flex-1 min-w-0 h-7 pl-3 pr-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-            onclick={() => browseTasks(tracker.id)}
-            disabled={!hasCreds}
-            title={hasCreds
-              ? `Browse tasks — ${providerLabel(tracker.provider)}`
-              : 'Credentials required'}
+            onclick={() => window.api.openExternal(tracker.baseUrl)}
+            disabled={!tracker.baseUrl}
+            title={tracker.baseUrl
+              ? `Open ${providerLabel(tracker.provider)} in the browser`
+              : 'Not configured'}
           >
             <span
               class="inline-flex items-center flex-shrink-0"
@@ -128,17 +123,11 @@
               title={tracker.baseUrl || 'Not configured'}
               >{tracker.baseUrl || 'Not configured'}</span
             >
+            <ExternalLink
+              size={11}
+              class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
+            />
           </button>
-          {#if tracker.baseUrl}
-            <button
-              class="flex items-center justify-center size-6 mr-2 rounded-md border-0 bg-transparent text-text-muted cursor-pointer shrink-0 hover:bg-hover hover:text-text"
-              onclick={() => window.api.openExternal(tracker.baseUrl)}
-              aria-label="Open tracker in browser"
-              title="Open tracker in browser"
-            >
-              <ExternalLink size={12} />
-            </button>
-          {/if}
         </div>
       {/each}
 
