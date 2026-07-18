@@ -50,6 +50,82 @@
   let sprints = $state<Array<{ id: string; name: string }>>([])
   let sprintId = $state('')
 
+  // Images pasted/dropped into the description — uploaded as attachments after creation.
+  let pendingImages = $state<
+    Array<{ filename: string; mimeType: string; dataBase64: string; sizeKb: number }>
+  >([])
+  let imageError = $state('')
+  const MAX_IMAGES = 8
+  const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+  async function addImageFiles(list: FileList | File[]): Promise<void> {
+    imageError = ''
+    for (const f of [...list]) {
+      if (!f.type.startsWith('image/')) continue
+      if (pendingImages.length >= MAX_IMAGES) {
+        imageError = `Up to ${MAX_IMAGES} images per task`
+        break
+      }
+      if (f.size > MAX_IMAGE_BYTES) {
+        imageError = `${f.name || 'image'}: images up to 10 MB`
+        continue
+      }
+      const dataUrl = await new Promise<string>((resolve) => {
+        const r = new FileReader()
+        r.onload = () => resolve(String(r.result))
+        r.onerror = () => resolve('')
+        r.readAsDataURL(f)
+      })
+      const dataBase64 = dataUrl.split(',')[1]
+      if (!dataBase64) continue
+      const ext = (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '')
+      const fallback = `image-${pendingImages.length + 1}.${ext}`
+      const filename = (f.name || fallback).replace(/[^\w.\- ()[\]]/g, '-').slice(0, 200)
+      pendingImages.push({
+        filename,
+        mimeType: f.type,
+        dataBase64,
+        sizeKb: Math.round(f.size / 1024),
+      })
+    }
+  }
+
+  function onDescriptionPaste(e: ClipboardEvent): void {
+    const files = e.clipboardData?.files
+    if (files && files.length > 0) {
+      e.preventDefault()
+      void addImageFiles(files)
+    }
+  }
+
+  function onDescriptionDrop(e: DragEvent): void {
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      e.preventDefault()
+      void addImageFiles(e.dataTransfer.files)
+    }
+  }
+
+  // Dragging the description's resize handle grows the WHOLE dialog (up to the screen limit)
+  // instead of pushing the fields into their scroll area. The style write also trips the
+  // dialog's unlockSizeOnResize action, which lifts its max-height caps.
+  let descEl = $state<HTMLTextAreaElement | undefined>()
+  $effect(() => {
+    const el = descEl
+    if (!el) return
+    let lastH = el.offsetHeight
+    const ro = new ResizeObserver(() => {
+      const delta = el.offsetHeight - lastH
+      lastH = el.offsetHeight
+      if (delta <= 0) return
+      const dialog = el.closest('[role="dialog"]') as HTMLElement | null
+      if (!dialog) return
+      const target = Math.min(dialog.offsetHeight + delta, Math.round(window.innerHeight * 0.88))
+      if (target > dialog.offsetHeight) dialog.style.height = `${target}px`
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  })
+
   let loadingMeta = $state(true)
   let metaError = $state('')
   let loadingSprints = $state(false)
@@ -177,6 +253,12 @@
         assigneeId: assigneeId || undefined,
         boardId: fields.board ? boardId || undefined : undefined,
         sprintId: sprintId || undefined,
+        attachments:
+          pendingImages.length > 0
+            ? $state
+                .snapshot(pendingImages)
+                .map(({ filename, mimeType, dataBase64 }) => ({ filename, mimeType, dataBase64 }))
+            : undefined,
       })
       // The branch template renders from the full task (type, sprint, parent) — re-fetch it;
       // fall back to a minimal shape when the fresh task is not readable yet.
@@ -281,11 +363,35 @@
         <label class={labelCls} for="new-task-description">Description</label>
         <textarea
           id="new-task-description"
-          class="{inputCls} resize-y min-h-12 leading-snug"
+          bind:this={descEl}
+          class="{inputCls} resize-y min-h-24 leading-snug"
           bind:value={description}
-          rows="2"
-          placeholder="Optional details…"
-          spellcheck="false"></textarea>
+          rows="4"
+          placeholder="Optional details… (paste or drop images to attach them)"
+          spellcheck="false"
+          onpaste={onDescriptionPaste}
+          ondrop={onDescriptionDrop}
+          ondragover={(e) => e.preventDefault()}></textarea>
+        {#if pendingImages.length > 0}
+          <div class="flex flex-wrap gap-1">
+            {#each pendingImages as img, i (img.filename + i)}
+              <span
+                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-bg-input border border-border-subtle text-2xs text-text-secondary"
+                title={`${img.filename} — ${img.sizeKb} KB, attached to the task after creation`}
+              >
+                {img.filename}
+                <button
+                  class="flex items-center justify-center size-3.5 border-0 rounded bg-transparent text-text-faint cursor-pointer p-0 leading-none hover:text-danger-text"
+                  onclick={() => pendingImages.splice(i, 1)}
+                  aria-label={`Remove ${img.filename}`}>×</button
+                >
+              </span>
+            {/each}
+          </div>
+        {/if}
+        {#if imageError}
+          <p class="m-0 text-sm text-danger-text">{imageError}</p>
+        {/if}
       </div>
       {#if users.length > 0}
         <div class="flex flex-col gap-1">
@@ -302,7 +408,11 @@
         <div class="grid grid-cols-2 gap-2.5">
           {#if fields.board && projectBoards.length > 0}
             <div class="flex flex-col gap-1" class:col-span-2={!fields.sprint}>
-              <span class={labelCls}>Board</span>
+              <span
+                class="{labelCls} cursor-help"
+                title="Sprints live on agile boards (Jira/YouTrack) — pick the board to unlock the sprint list"
+                >Board</span
+              >
               <CustomSelect
                 value={boardId}
                 options={[

@@ -139,6 +139,52 @@ function jiraPost<T>(
   })
 }
 
+/** Upload pasted images as issue attachments — the issue already exists, so any failure is
+ *  reported as a warning on the created task rather than an error. */
+function jiraUploadAttachments(
+  connection: TaskTrackerConnection,
+  token: string,
+  issueKey: string,
+  attachments: Array<{ filename: string; mimeType: string; dataBase64: string }>,
+): ResultAsync<string[], never> {
+  if (attachments.length === 0) return okAsync([])
+  const url = `${connection.baseUrl.replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(issueKey)}/attachments`
+  const auth = connection.username
+    ? `Basic ${Buffer.from(`${connection.username}:${token}`).toString('base64')}`
+    : `Bearer ${token}`
+  const form = new FormData()
+  for (const a of attachments) {
+    form.append(
+      'file',
+      new Blob([Buffer.from(a.dataBase64, 'base64')], { type: a.mimeType }),
+      a.filename,
+    )
+  }
+  return fromExternalCall(
+    fetch(url, {
+      method: 'POST',
+      // No Content-Type here — fetch derives the multipart boundary from the FormData.
+      headers: { Authorization: auth, 'X-Atlassian-Token': 'no-check' },
+      body: form,
+      redirect: 'error',
+      signal: AbortSignal.timeout(60_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  )
+    .andThen((res) => {
+      if (!res.ok) {
+        return fromExternalCall(
+          res.text().catch(() => ''),
+          (e) => apiError(res.status, errorMessage(e)),
+        ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+      }
+      return okAsync([] as string[])
+    })
+    .orElse((e) =>
+      okAsync([`Task created, but attaching images failed: ${taskTrackerErrorMessage(e)}`]),
+    )
+}
+
 /** Jira Cloud v3 write endpoints take comment bodies in Atlassian Document Format. */
 function toAdf(text: string): unknown {
   return {
@@ -594,30 +640,32 @@ export const jiraClient: TaskTrackerProviderClient = {
     return jiraPost<{ key: string }>(connection, token, '/rest/api/3/issue', { fields }).andThen(
       (created) => {
         const base = connection.baseUrl.replace(/\/$/, '')
-        const result = {
-          key: created.key,
-          url: `${base}/browse/${created.key}`,
-          warnings: [] as string[],
-        }
-        if (!input.sprintId) return okAsync(result)
+        const warnings: string[] = []
         // The sprint field id (customfield_XXXXX) varies per instance — moving the issue via the
         // agile API avoids field discovery. The issue already exists here, so a failure (e.g.
         // team-managed boards rejecting the move) degrades to a warning, never a hard error.
-        return jiraSend(
-          connection,
-          token,
-          `/rest/agile/1.0/sprint/${encodeURIComponent(input.sprintId)}/issue`,
-          { issues: [created.key] },
-        )
-          .map(() => result)
-          .orElse((e) =>
-            okAsync({
-              ...result,
-              warnings: [
+        const applySprint: ResultAsync<void, never> = input.sprintId
+          ? jiraSend(
+              connection,
+              token,
+              `/rest/agile/1.0/sprint/${encodeURIComponent(input.sprintId)}/issue`,
+              { issues: [created.key] },
+            ).orElse((e) => {
+              warnings.push(
                 `Task created, but adding it to the sprint failed: ${taskTrackerErrorMessage(e)}`,
-              ],
-            }),
+              )
+              return okAsync(undefined)
+            })
+          : okAsync(undefined)
+        return applySprint
+          .andThen(() =>
+            jiraUploadAttachments(connection, token, created.key, input.attachments ?? []),
           )
+          .map((attachmentWarnings) => ({
+            key: created.key,
+            url: `${base}/browse/${created.key}`,
+            warnings: [...warnings, ...attachmentWarnings],
+          }))
       },
     )
   },

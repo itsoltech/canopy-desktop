@@ -1020,6 +1020,7 @@ interface CanopyAPI {
     assigneeId?: string
     boardId?: string
     sprintId?: string
+    attachments?: Array<{ filename: string; mimeType: string; dataBase64: string }>
   }) => Promise<CreatedTask>
 
   // Keychain

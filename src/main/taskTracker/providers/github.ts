@@ -576,7 +576,12 @@ export const githubClient: TaskTrackerProviderClient = {
       .andThen((data) => {
         const issue = data.createIssue.issue
         if (!issue) return errAsync(apiError(0, 'GitHub did not return the created issue'))
-        return okAsync({ key: `#${issue.number}`, url: issue.url, warnings: [] as string[] })
+        // The GitHub API has no issue-attachment upload — pasted images cannot be carried over.
+        const warnings =
+          (input.attachments?.length ?? 0) > 0
+            ? ['Task created, but GitHub does not support image attachments via the API']
+            : []
+        return okAsync({ key: `#${issue.number}`, url: issue.url, warnings })
       })
   },
 }

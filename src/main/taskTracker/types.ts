@@ -87,6 +87,14 @@ export interface TrackerCreateTaskType {
   iconUrl?: string
 }
 
+/** Image pasted/dropped into the create form — uploaded as a tracker attachment AFTER the task
+ *  exists (Jira/YouTrack; GitHub has no attachment API, surfaces a warning instead). */
+export interface CreateTaskAttachment {
+  filename: string
+  mimeType: string
+  dataBase64: string
+}
+
 export interface CreateTaskInput {
   /** Jira/YouTrack project key. Absent for GitHub. */
   projectKey?: string
@@ -101,6 +109,7 @@ export interface CreateTaskInput {
   /** TrackerSprint.id from fetchSprints — Jira agile sprint id, YouTrack sprint id,
    *  GitHub milestone GraphQL node id (NOT the numeric milestone number). */
   sprintId?: string
+  attachments?: CreateTaskAttachment[]
 }
 
 export interface CreatedTask {

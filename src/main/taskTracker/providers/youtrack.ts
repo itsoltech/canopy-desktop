@@ -94,6 +94,49 @@ function ytPost<T>(
   })
 }
 
+/** Upload pasted images as issue attachments — the issue already exists, so any failure is
+ *  reported as a warning on the created task rather than an error. */
+function ytUploadAttachments(
+  connection: TaskTrackerConnection,
+  token: string,
+  issueKey: string,
+  attachments: Array<{ filename: string; mimeType: string; dataBase64: string }>,
+): ResultAsync<string[], never> {
+  if (attachments.length === 0) return okAsync([])
+  const url = `${connection.baseUrl.replace(/\/$/, '')}/api/issues/${encodeURIComponent(issueKey)}/attachments?fields=id`
+  const form = new FormData()
+  for (const a of attachments) {
+    form.append(
+      'file',
+      new Blob([Buffer.from(a.dataBase64, 'base64')], { type: a.mimeType }),
+      a.filename,
+    )
+  }
+  return fromExternalCall(
+    fetch(url, {
+      method: 'POST',
+      // No Content-Type here — fetch derives the multipart boundary from the FormData.
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+      redirect: 'error',
+      signal: AbortSignal.timeout(60_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  )
+    .andThen((res) => {
+      if (!res.ok) {
+        return fromExternalCall(
+          res.text().catch(() => ''),
+          (e) => apiError(res.status, errorMessage(e)),
+        ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+      }
+      return okAsync([] as string[])
+    })
+    .orElse((e) =>
+      okAsync([`Task created, but attaching images failed: ${taskTrackerErrorMessage(e)}`]),
+    )
+}
+
 /** The issues API takes the INTERNAL project id, while Canopy works with the shortName prefix. */
 function resolveProjectId(
   connection: TaskTrackerConnection,
@@ -633,7 +676,13 @@ export const youtrackClient: TaskTrackerProviderClient = {
           )
         }
         const base = connection.baseUrl.replace(/\/$/, '')
-        return chain.map(() => ({ key, url: `${base}/issue/${key}`, warnings }))
+        return chain
+          .andThen(() => ytUploadAttachments(connection, token, key, input.attachments ?? []))
+          .map((attachmentWarnings) => ({
+            key,
+            url: `${base}/issue/${key}`,
+            warnings: [...warnings, ...attachmentWarnings],
+          }))
       })
   },
 }

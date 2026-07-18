@@ -3651,6 +3651,7 @@ export function registerIpcHandlers(
         assigneeId?: string
         boardId?: string
         sprintId?: string
+        attachments?: Array<{ filename: string; mimeType: string; dataBase64: string }>
       },
     ) => {
       const title = typeof payload.title === 'string' ? payload.title.trim() : ''
@@ -3675,6 +3676,25 @@ export function registerIpcHandlers(
       if (payload.sprintId !== undefined && !BOARD_SPRINT_ID_RE.test(payload.sprintId)) {
         throw new Error('Invalid sprint id')
       }
+      if (payload.attachments !== undefined) {
+        if (!Array.isArray(payload.attachments) || payload.attachments.length > 8) {
+          throw new Error('Invalid attachments (max 8)')
+        }
+        for (const a of payload.attachments) {
+          if (
+            !a ||
+            typeof a.filename !== 'string' ||
+            !/^[^/\\:*?"<>|\0]{1,200}$/.test(a.filename) ||
+            typeof a.mimeType !== 'string' ||
+            !/^image\/[\w.+-]+$/.test(a.mimeType) ||
+            typeof a.dataBase64 !== 'string' ||
+            // ~10 MB decoded per image.
+            a.dataBase64.length > 14_000_000
+          ) {
+            throw new Error('Invalid attachment (images up to 10 MB)')
+          }
+        }
+      }
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.createTaskFromConfig(
@@ -3687,6 +3707,7 @@ export function registerIpcHandlers(
           assigneeId: payload.assigneeId,
           boardId: payload.boardId,
           sprintId: payload.sprintId,
+          attachments: payload.attachments,
         },
         payload.trackerId,
         payload.repoRoot,
