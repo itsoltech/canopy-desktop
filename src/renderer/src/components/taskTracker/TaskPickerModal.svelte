@@ -345,6 +345,7 @@
             repoRoot={cfgRoot}
             {provider}
             onCreated={handleCreatedForLink}
+            onCancel={closeDialog}
           />
         {:else if mode === 'link' && selectedLinkTask}
           <p

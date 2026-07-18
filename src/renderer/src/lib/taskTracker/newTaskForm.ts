@@ -93,3 +93,43 @@ export function validateTitle(title: string): string | null {
   if (trimmed.length > 512) return 'Title is too long (max 512 characters)'
   return null
 }
+
+/** Renderer-side twin of the main process's slugify — used only for the pre-create draft. */
+export function slugifyTitle(text: string, maxLength = 50): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, maxLength)
+}
+
+interface BranchTemplateSource {
+  branchTemplate?: { template?: string }
+  projectOverrides?: Record<string, { branchTemplate?: { template?: string } } | undefined>
+}
+
+/** Effective branch template for a project — override first, then root, then the built-in. */
+export function branchTemplateFor(
+  config: BranchTemplateSource | undefined,
+  projectKey: string,
+): string {
+  const override = config?.projectOverrides?.[projectKey.toUpperCase()]?.branchTemplate?.template
+  return override || config?.branchTemplate?.template || '{branchType}/{taskKey}-{taskTitle}'
+}
+
+/**
+ * Render a branch-name DRAFT before the task exists: known variables are substituted (an empty
+ * value drops its preceding separator, like the real renderer), while unknown placeholders —
+ * {taskKey} above all — stay literal and are replaced after the tracker assigns the key.
+ */
+export function renderBranchDraft(template: string, vars: Record<string, string>): string {
+  let result = template.replace(/\{\?\w+\}/g, '').replace(/\{\/\w+\}/g, '')
+  result = result.replace(/([/_-]?)\{(\w+)\}/g, (match, sep: string, key: string) => {
+    if (!(key in vars)) return match
+    const value = vars[key]
+    return value ? `${sep}${value}` : ''
+  })
+  return result.replace(/\/{2,}/g, '/').replace(/^[/_-]+|[/_-]+$/g, '')
+}

@@ -14,7 +14,7 @@
   } from '../../lib/stores/taskTracker.svelte'
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
   import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
-  import { Pencil } from '@lucide/svelte'
+  import { Pencil, Plus, X } from '@lucide/svelte'
   import { taskDisplayKey } from '../../lib/taskTracker/taskFilterPrefs'
   import type { TrackerTaskLite } from '../../lib/taskTracker/types'
   import TaskListPicker from '../taskTracker/TaskListPicker.svelte'
@@ -304,8 +304,19 @@
 
   // A freshly created task drops straight into the From-task flow: card + template-generated
   // branch name. Post-create warnings (e.g. sprint not applied) surface as toasts.
-  async function handleTaskCreated(task: TrackerTaskLite, warnings: string[]): Promise<void> {
+  async function handleTaskCreated(
+    task: TrackerTaskLite,
+    warnings: string[],
+    branchDraft?: string,
+  ): Promise<void> {
     for (const w of warnings) addToast(w)
+    if (branchDraft) {
+      // The user shaped the name pre-create — keep it (with the real key) instead of re-rendering.
+      selectedTask = $state.snapshot(task) as TrackerTaskLite
+      taskBranchName = branchDraft.replaceAll('{taskKey}', task.key)
+      taskBranchEdited = true
+      return
+    }
     await pickTask(task)
   }
 
@@ -732,11 +743,16 @@
           </p>
         {/if}
         <div class="flex justify-end gap-2 mt-2">
+          <button class="{btnCancelCls} inline-flex items-center gap-1.5" onclick={onClose}>
+            <X size={14} />
+            Cancel
+          </button>
           <button
-            class={btnPrimaryCls}
+            class="{btnPrimaryCls} inline-flex items-center gap-1.5"
             onclick={createWorktreeFromTask}
             disabled={!taskBranchName || !!taskBranchNameError}
           >
+            <Plus size={14} />
             Create
           </button>
         </div>
@@ -863,11 +879,16 @@
               </p>
             {/if}
             <div class="flex justify-end gap-2 mt-4">
+              <button class="{btnCancelCls} inline-flex items-center gap-1.5" onclick={onClose}>
+                <X size={14} />
+                Cancel
+              </button>
               <button
-                class={btnPrimaryCls}
+                class="{btnPrimaryCls} inline-flex items-center gap-1.5"
                 onclick={createWorktree}
                 disabled={!newBranchName || !!branchNameError}
               >
+                <Plus size={14} />
                 Create
               </button>
             </div>
@@ -924,7 +945,9 @@
                 repoRoot={trackerRepoRoot}
                 provider={trackerProvider}
                 onCreated={handleTaskCreated}
+                onCancel={onClose}
                 submitLabel="Create task and worktree"
+                showBranchName
               />
             {:else}
               {@render selectedTaskPane()}
@@ -962,12 +985,16 @@
               </p>
             {/if}
             <div class="flex justify-end gap-2 mt-4">
-              <button class={btnCancelCls} onclick={onClose}>Cancel</button>
+              <button class="{btnCancelCls} inline-flex items-center gap-1.5" onclick={onClose}>
+                <X size={14} />
+                Cancel
+              </button>
               <button
-                class={btnPrimaryCls}
+                class="{btnPrimaryCls} inline-flex items-center gap-1.5"
                 onclick={createWorktreeFromExisting}
                 disabled={!selectedBase || !!existingModeError}
               >
+                <Plus size={14} />
                 Create
               </button>
             </div>

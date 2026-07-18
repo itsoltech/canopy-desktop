@@ -6,6 +6,9 @@ import {
   buildSprintOptions,
   buildTypeOptions,
   validateTitle,
+  slugifyTitle,
+  branchTemplateFor,
+  renderBranchDraft,
 } from './newTaskForm'
 
 describe('visibleFields', () => {
@@ -138,5 +141,57 @@ describe('validateTitle', () => {
 
   it('accepts a normal title', () => {
     expect(validateTitle('Fix the login flow')).toBeNull()
+  })
+})
+
+describe('slugifyTitle', () => {
+  it('lowercases, strips specials and joins with dashes', () => {
+    expect(slugifyTitle('Fix Login Bug!')).toBe('fix-login-bug')
+  })
+
+  it('caps the length at 50 characters', () => {
+    expect(slugifyTitle('x'.repeat(80)).length).toBe(50)
+  })
+})
+
+describe('branchTemplateFor', () => {
+  const config = {
+    branchTemplate: { template: 'root/{taskKey}' },
+    projectOverrides: {
+      GAKKO: { branchTemplate: { template: 's{sprint}/{taskKey}' } },
+    },
+  }
+
+  it('prefers the project override (case-insensitive key)', () => {
+    expect(branchTemplateFor(config, 'gakko')).toBe('s{sprint}/{taskKey}')
+  })
+
+  it('falls back to the root template', () => {
+    expect(branchTemplateFor(config, 'ISSUE')).toBe('root/{taskKey}')
+  })
+
+  it('falls back to the built-in default without any config', () => {
+    expect(branchTemplateFor(undefined, 'ISSUE')).toBe('{branchType}/{taskKey}-{taskTitle}')
+  })
+})
+
+describe('renderBranchDraft', () => {
+  it('fills known variables and keeps {taskKey} literally', () => {
+    expect(
+      renderBranchDraft('{branchType}/{taskKey}-{taskTitle}', {
+        branchType: 'feat',
+        taskTitle: 'fix-login',
+      }),
+    ).toBe('feat/{taskKey}-fix-login')
+  })
+
+  it('drops the separator before a known-but-empty variable', () => {
+    expect(
+      renderBranchDraft('s{sprint}/{parentKey}/{taskKey}', { sprint: '115', parentKey: '' }),
+    ).toBe('s115/{taskKey}')
+  })
+
+  it('trims dangling separators at the edges', () => {
+    expect(renderBranchDraft('{branchType}/{taskKey}', { branchType: '' })).toBe('{taskKey}')
   })
 })
