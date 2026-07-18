@@ -18,6 +18,9 @@
   import { taskDisplayKey } from '../../lib/taskTracker/taskFilterPrefs'
   import type { TrackerTaskLite } from '../../lib/taskTracker/types'
   import TaskListPicker from '../taskTracker/TaskListPicker.svelte'
+  import NewTaskForm from '../taskTracker/NewTaskForm.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
+  import type { TrackerProviderKind } from '../../lib/taskTracker/types'
   import { getTheme } from '../../lib/terminal/themes'
   import { safeDirName } from '../../lib/sanitize'
   import { prStateChip } from '../../lib/github/prState'
@@ -37,7 +40,7 @@
   } = $props()
 
   type Step = 'loading' | 'pickBase' | 'creating' | 'setup' | 'done' | 'error'
-  type Mode = 'new' | 'existing' | 'task'
+  type Mode = 'new' | 'existing' | 'task' | 'newTask'
 
   let step = $state<Step>('loading')
   let mode = $state<Mode>('new')
@@ -95,7 +98,7 @@
   let effectiveBranchName = $derived(
     mode === 'new'
       ? newBranchName
-      : mode === 'task'
+      : mode === 'task' || mode === 'newTask'
         ? taskBranchName
         : selectedBase && isRemoteOnly(selectedBase, branches)
           ? selectedBase.slice(selectedBase.indexOf('/') + 1)
@@ -292,6 +295,18 @@
     selectedTask = $state.snapshot(task) as TrackerTaskLite
     taskBranchEdited = false
     await updateTaskBranchPreview()
+  }
+
+  let trackerProvider = $derived(
+    (getResolvedConfig()?.config.trackers.find((t) => t.id === taskModeState.trackerId)?.provider ??
+      'jira') as TrackerProviderKind,
+  )
+
+  // A freshly created task drops straight into the From-task flow: card + template-generated
+  // branch name. Post-create warnings (e.g. sprint not applied) surface as toasts.
+  async function handleTaskCreated(task: TrackerTaskLite, warnings: string[]): Promise<void> {
+    for (const w of warnings) addToast(w)
+    await pickTask(task)
   }
 
   async function updateTaskBranchPreview(): Promise<void> {
@@ -603,6 +618,130 @@
       Create Worktree
     </h3>
 
+    <!-- Selected-task pane shared by the From-task and New-task modes: card, duplicate-branch
+       warning, template-generated (editable) branch name and the Create action. -->
+    {#snippet selectedTaskPane()}
+      {#if selectedTask}
+        <p
+          class="m-0 text-md text-text-secondary cursor-help"
+          title="This task will be linked to the new worktree — the Task panel tracks it by default (status, comments)"
+        >
+          Selected task
+        </p>
+        <div
+          class="px-3 py-2.5 bg-bg-input border border-border rounded-xl"
+          title="This task will be linked to the new worktree — the Task panel tracks it by default (status, comments)"
+        >
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-sm text-accent-text"
+              >{taskDisplayKey(selectedTask)}</span
+            >
+            {#if selectedTask.status}
+              <span
+                class="text-2xs px-1.5 py-px rounded-md {statusChipClass(
+                  selectedTask.statusCategory,
+                )}">{selectedTask.status}</span
+              >
+            {/if}
+            <span class="flex-1"></span>
+            <button
+              class="flex items-center justify-center size-5 border-0 rounded-md bg-transparent text-text-muted text-sm leading-none cursor-pointer p-0 hover:bg-hover hover:text-text"
+              onclick={() => {
+                selectedTask = null
+                taskBranchName = ''
+                taskBranchEdited = false
+              }}
+              title="Choose a different task"
+              aria-label="Change task">×</button
+            >
+          </div>
+          <p class="m-0 mt-1 text-md text-text leading-snug">{selectedTask.summary}</p>
+        </div>
+        {#if taskExistingBranches.length > 0}
+          <!-- The task already has work on a branch — creating a fresh one from the template
+                       would silently fork it (and orphan any open PR). -->
+          <div
+            class="flex flex-col gap-1.5 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+          >
+            <span class="text-xs text-text-secondary leading-snug">
+              This task already has {taskExistingBranches.length === 1 ? 'a branch' : 'branches'} — check
+              it out instead of creating a duplicate that will diverge:
+            </span>
+            {#each taskExistingBranches as b (b.ref)}
+              {@const pr = taskBranchPRs[b.name]}
+              {@const checkedOut = worktreeBranches.has(b.name)}
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="font-mono text-xs text-text truncate" title={b.ref}>{b.name}</span>
+                {#if b.remoteOnly}
+                  <span class="px-1.5 py-px rounded-md text-2xs bg-active text-text-muted shrink-0"
+                    >remote</span
+                  >
+                {/if}
+                {#if pr}
+                  {@const chip = prStateChip(pr.state, pr.isDraft)}
+                  <span class="px-1.5 py-px rounded-md text-2xs shrink-0 {chip.cls}"
+                    >PR #{pr.number} · {chip.label}</span
+                  >
+                {/if}
+                <span class="flex-1"></span>
+                <button
+                  class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit enabled:cursor-pointer enabled:hover:border-accent-muted enabled:hover:text-accent-text disabled:opacity-50 disabled:cursor-default"
+                  onclick={() => checkoutExistingTaskBranch(b)}
+                  disabled={checkedOut}
+                  title={checkedOut
+                    ? 'Already checked out in an existing worktree'
+                    : `Create the worktree on ${b.name} instead of a new branch`}
+                >
+                  Check out
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        <label
+          for="create-wt-task-branch"
+          class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase"
+        >
+          Branch name
+        </label>
+        <input
+          id="create-wt-task-branch"
+          class="{inputCls} font-mono"
+          type="text"
+          bind:value={taskBranchName}
+          oninput={() => (taskBranchEdited = true)}
+          spellcheck="false"
+          autocomplete="off"
+          onkeydown={(e) => {
+            if (e.key === 'Enter' && taskBranchName && !taskBranchNameError) {
+              e.preventDefault()
+              createWorktreeFromTask()
+            }
+          }}
+        />
+        {#if taskBranchNameError}
+          <p class="m-0 text-sm text-danger-text">{taskBranchNameError}</p>
+        {/if}
+        <p class="m-0 text-xs text-text-muted leading-snug">
+          Generated from the branch naming template in this project's tracker configuration (Project
+          management → ⚙ in the sidebar). Edit freely — the template is just the default.
+        </p>
+        {#if worktreeDir}
+          <p class="m-0 text-xs text-text-faint font-mono break-all">
+            Path: {worktreeDirDisplay}
+          </p>
+        {/if}
+        <div class="flex justify-end gap-2 mt-2">
+          <button
+            class={btnPrimaryCls}
+            onclick={createWorktreeFromTask}
+            disabled={!taskBranchName || !!taskBranchNameError}
+          >
+            Create
+          </button>
+        </div>
+      {/if}
+    {/snippet}
     {#if step === 'loading'}
       <div
         class="px-5 pb-5 flex-1 overflow-y-auto min-h-0 flex flex-col items-center justify-center py-8 gap-2"
@@ -657,6 +796,22 @@
               : 'Pick a tracker task — the branch name is generated from it'}
           >
             From task
+          </button>
+          <button
+            class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit transition-all duration-fast enabled:cursor-pointer disabled:opacity-40 disabled:cursor-default {mode ===
+            'newTask'
+              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+              : 'bg-transparent text-text-muted enabled:hover:text-text-secondary'}"
+            onclick={() => setMode('newTask')}
+            disabled={taskModeState.disabled}
+            role="radio"
+            aria-checked={mode === 'newTask'}
+            type="button"
+            title={taskModeState.disabled
+              ? taskModeState.reason
+              : 'Create a task in the tracker, then a worktree for it'}
+          >
+            New task
           </button>
         </div>
         {#if mode === 'new' && selectedBase}
@@ -740,129 +895,35 @@
                 displayLimit={50}
               />
             {:else}
-              <p
-                class="m-0 text-md text-text-secondary cursor-help"
-                title="This task will be linked to the new worktree — the Task panel tracks it by default (status, comments)"
+              {@render selectedTaskPane()}
+            {/if}
+          </div>
+        {:else if mode === 'newTask' && selectedBase}
+          <div class="flex-1 min-h-0 flex flex-col gap-2">
+            <p
+              class="m-0 mb-1 pb-2 border-b border-border-subtle text-md text-text-secondary flex items-center gap-1.5"
+            >
+              <span>Base branch: <strong class="text-text">{selectedBase}</strong></span>
+              <button
+                type="button"
+                class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+                onclick={() => (selectedBase = '')}
+                aria-label="Change base branch"
+                title="Change the base branch — the default is set in Settings → Git → Worktrees"
               >
-                Selected task
-              </p>
-              <div
-                class="px-3 py-2.5 bg-bg-input border border-border rounded-xl"
-                title="This task will be linked to the new worktree — the Task panel tracks it by default (status, comments)"
-              >
-                <div class="flex items-center gap-2">
-                  <span class="font-semibold text-sm text-accent-text"
-                    >{taskDisplayKey(selectedTask)}</span
-                  >
-                  {#if selectedTask.status}
-                    <span
-                      class="text-2xs px-1.5 py-px rounded-md {statusChipClass(
-                        selectedTask.statusCategory,
-                      )}">{selectedTask.status}</span
-                    >
-                  {/if}
-                  <span class="flex-1"></span>
-                  <button
-                    class="flex items-center justify-center size-5 border-0 rounded-md bg-transparent text-text-muted text-sm leading-none cursor-pointer p-0 hover:bg-hover hover:text-text"
-                    onclick={() => {
-                      selectedTask = null
-                      taskBranchName = ''
-                      taskBranchEdited = false
-                    }}
-                    title="Choose a different task"
-                    aria-label="Change task">×</button
-                  >
-                </div>
-                <p class="m-0 mt-1 text-md text-text leading-snug">{selectedTask.summary}</p>
-              </div>
-              {#if taskExistingBranches.length > 0}
-                <!-- The task already has work on a branch — creating a fresh one from the template
-                     would silently fork it (and orphan any open PR). -->
-                <div
-                  class="flex flex-col gap-1.5 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
-                >
-                  <span class="text-xs text-text-secondary leading-snug">
-                    This task already has {taskExistingBranches.length === 1
-                      ? 'a branch'
-                      : 'branches'} — check it out instead of creating a duplicate that will diverge:
-                  </span>
-                  {#each taskExistingBranches as b (b.ref)}
-                    {@const pr = taskBranchPRs[b.name]}
-                    {@const checkedOut = worktreeBranches.has(b.name)}
-                    <div class="flex items-center gap-2 min-w-0">
-                      <span class="font-mono text-xs text-text truncate" title={b.ref}
-                        >{b.name}</span
-                      >
-                      {#if b.remoteOnly}
-                        <span
-                          class="px-1.5 py-px rounded-md text-2xs bg-active text-text-muted shrink-0"
-                          >remote</span
-                        >
-                      {/if}
-                      {#if pr}
-                        {@const chip = prStateChip(pr.state, pr.isDraft)}
-                        <span class="px-1.5 py-px rounded-md text-2xs shrink-0 {chip.cls}"
-                          >PR #{pr.number} · {chip.label}</span
-                        >
-                      {/if}
-                      <span class="flex-1"></span>
-                      <button
-                        class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit enabled:cursor-pointer enabled:hover:border-accent-muted enabled:hover:text-accent-text disabled:opacity-50 disabled:cursor-default"
-                        onclick={() => checkoutExistingTaskBranch(b)}
-                        disabled={checkedOut}
-                        title={checkedOut
-                          ? 'Already checked out in an existing worktree'
-                          : `Create the worktree on ${b.name} instead of a new branch`}
-                      >
-                        Check out
-                      </button>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-              <label
-                for="create-wt-task-branch"
-                class="block text-xs font-semibold tracking-[0.5px] text-text-muted uppercase"
-              >
-                Branch name
-              </label>
-              <input
-                id="create-wt-task-branch"
-                class="{inputCls} font-mono"
-                type="text"
-                bind:value={taskBranchName}
-                oninput={() => (taskBranchEdited = true)}
-                spellcheck="false"
-                autocomplete="off"
-                onkeydown={(e) => {
-                  if (e.key === 'Enter' && taskBranchName && !taskBranchNameError) {
-                    e.preventDefault()
-                    createWorktreeFromTask()
-                  }
-                }}
+                <Pencil size={12} />
+              </button>
+            </p>
+            {#if !selectedTask}
+              <p class="m-0 text-md text-text-secondary">New task</p>
+              <NewTaskForm
+                trackerId={taskModeState.trackerId}
+                repoRoot={trackerRepoRoot}
+                provider={trackerProvider}
+                onCreated={handleTaskCreated}
               />
-              {#if taskBranchNameError}
-                <p class="m-0 text-sm text-danger-text">{taskBranchNameError}</p>
-              {/if}
-              <p class="m-0 text-xs text-text-muted leading-snug">
-                Generated from the branch naming template in this project's tracker configuration
-                (Project management → ⚙ in the sidebar). Edit freely — the template is just the
-                default.
-              </p>
-              {#if worktreeDir}
-                <p class="m-0 text-xs text-text-faint font-mono break-all">
-                  Path: {worktreeDirDisplay}
-                </p>
-              {/if}
-              <div class="flex justify-end gap-2 mt-2">
-                <button
-                  class={btnPrimaryCls}
-                  onclick={createWorktreeFromTask}
-                  disabled={!taskBranchName || !!taskBranchNameError}
-                >
-                  Create
-                </button>
-              </div>
+            {:else}
+              {@render selectedTaskPane()}
             {/if}
           </div>
         {:else}
