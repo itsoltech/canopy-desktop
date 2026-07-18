@@ -626,7 +626,7 @@
       id="create-worktree-title"
       class="m-0 px-5 pt-4 pb-3 text-[15px] font-semibold text-text flex-shrink-0"
     >
-      Create Worktree
+      Create Worktree From
     </h3>
 
     <!-- Selected-task pane shared by the From-task and New-task modes: card, duplicate-branch
@@ -796,7 +796,7 @@
             aria-checked={mode === 'existing'}
             type="button"
           >
-            From existing branch
+            Existing branch
           </button>
           <div class="w-px my-1 bg-border shrink-0" aria-hidden="true"></div>
           <button
@@ -813,7 +813,7 @@
               ? taskModeState.reason
               : 'Pick a tracker task — the branch name is generated from it'}
           >
-            From existing task
+            Existing task
           </button>
           <div class="w-px my-1 bg-border shrink-0" aria-hidden="true"></div>
           <button
