@@ -201,7 +201,17 @@
                 class="size-3.5 shrink-0 rounded-sm"
               />
             {/if}
-            <span class="text-xs font-semibold text-accent-text flex-shrink-0">{t.taskKey}</span>
+            <span
+              class="text-xs font-semibold flex-shrink-0 {t.missing
+                ? 'text-warning-text line-through'
+                : 'text-accent-text'}">{t.taskKey}</span
+            >
+            {#if t.missing}
+              <span
+                class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning/15 text-warning-text"
+                >not found</span
+              >
+            {/if}
             <span
               class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted"
               >{t.summary ?? ''}</span

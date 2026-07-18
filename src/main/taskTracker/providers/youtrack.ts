@@ -38,6 +38,18 @@ function apiError(status: number, message: string): TaskTrackerError {
   return { _tag: 'ProviderApiError', status, message, provider: 'youtrack' }
 }
 
+/** YouTrack error bodies are JSON ({error, error_description}) — surface the sentences. */
+function ytErrorText(body: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: string; error_description?: string }
+    const parts = [parsed.error, parsed.error_description].filter(Boolean)
+    if (parts.length > 0) return parts.join(': ')
+  } catch {
+    // Not JSON — use the raw body.
+  }
+  return body || fallback
+}
+
 function ytFetch<T>(
   connection: TaskTrackerConnection,
   token: string,
@@ -58,7 +70,7 @@ function ytFetch<T>(
       return fromExternalCall(
         res.text().catch(() => ''),
         (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((body) => errAsync(apiError(res.status, body || res.statusText)))
+      ).andThen((body) => errAsync(apiError(res.status, ytErrorText(body, res.statusText))))
     }
     return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
@@ -88,7 +100,7 @@ function ytPost<T>(
       return fromExternalCall(
         res.text().catch(() => ''),
         (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+      ).andThen((text) => errAsync(apiError(res.status, ytErrorText(text, res.statusText))))
     }
     return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
@@ -128,7 +140,7 @@ function ytUploadAttachments(
         return fromExternalCall(
           res.text().catch(() => ''),
           (e) => apiError(res.status, errorMessage(e)),
-        ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+        ).andThen((text) => errAsync(apiError(res.status, ytErrorText(text, res.statusText))))
       }
       return okAsync([] as string[])
     })
@@ -181,7 +193,7 @@ function ytSend(
       return fromExternalCall(
         res.text().catch(() => ''),
         (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+      ).andThen((text) => errAsync(apiError(res.status, ytErrorText(text, res.statusText))))
     }
     return okAsync(undefined)
   })
@@ -293,7 +305,12 @@ export const youtrackClient: TaskTrackerProviderClient = {
       connection,
       token,
       `/api/issues/${encodeURIComponent(taskKey)}?fields=${encodeURIComponent(fields)}`,
-    ).map((data) => mapYTTask(data, connection.baseUrl) as TrackerTask | null)
+    )
+      .map((data) => mapYTTask(data, connection.baseUrl) as TrackerTask | null)
+      .orElse((e) =>
+        // Deleted (or invisible) issue — report "not found" rather than an API failure.
+        e._tag === 'ProviderApiError' && e.status === 404 ? okAsync(null) : errAsync(e),
+      )
   },
 
   fetchBoards(connection, token) {

@@ -53,6 +53,24 @@ function apiError(status: number, message: string): TaskTrackerError {
   return { _tag: 'ProviderApiError', status, message, provider: 'jira' }
 }
 
+/** Jira error bodies are JSON ({errorMessages, errors}) — surface the human sentences instead
+ *  of the raw payload. Non-JSON bodies pass through untouched. */
+function jiraErrorText(body: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(body) as {
+      errorMessages?: string[]
+      errors?: Record<string, string>
+    }
+    const parts = [...(parsed.errorMessages ?? []), ...Object.values(parsed.errors ?? {})].filter(
+      Boolean,
+    )
+    if (parts.length > 0) return parts.join(' ')
+  } catch {
+    // Not JSON — use the raw body.
+  }
+  return body || fallback
+}
+
 function jiraFetch<T>(
   connection: TaskTrackerConnection,
   token: string,
@@ -73,7 +91,7 @@ function jiraFetch<T>(
       return fromExternalCall(
         res.text().catch(() => ''),
         (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((body) => errAsync(apiError(res.status, body || res.statusText)))
+      ).andThen((body) => errAsync(apiError(res.status, jiraErrorText(body, res.statusText))))
     }
     return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
@@ -85,11 +103,12 @@ function jiraSend(
   token: string,
   path: string,
   body: unknown,
+  method: 'POST' | 'PUT' = 'POST',
 ): ResultAsync<void, TaskTrackerError> {
   const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
   return fromExternalCall(
     fetch(url, {
-      method: 'POST',
+      method,
       headers: buildAuthHeaders(connection, token),
       body: JSON.stringify(body),
       // Do not follow redirects: baseUrl comes from repo config, and a redirect
@@ -103,7 +122,7 @@ function jiraSend(
       return fromExternalCall(
         res.text().catch(() => ''),
         (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+      ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
     }
     return okAsync(undefined)
   })
@@ -133,7 +152,7 @@ function jiraPost<T>(
       return fromExternalCall(
         res.text().catch(() => ''),
         (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+      ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
     }
     return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
@@ -176,7 +195,7 @@ function jiraUploadAttachments(
         return fromExternalCall(
           res.text().catch(() => ''),
           (e) => apiError(res.status, errorMessage(e)),
-        ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+        ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
       }
       return okAsync([] as string[])
     })
@@ -305,7 +324,12 @@ export const jiraClient: TaskTrackerProviderClient = {
       connection,
       token,
       `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=${fields}`,
-    ).map((data) => mapJiraTask(data, connection.baseUrl) as TrackerTask | null)
+    )
+      .map((data) => mapJiraTask(data, connection.baseUrl) as TrackerTask | null)
+      .orElse((e) =>
+        // Deleted (or invisible) issue — report "not found" rather than an API failure.
+        e._tag === 'ProviderApiError' && e.status === 404 ? okAsync(null) : errAsync(e),
+      )
   },
 
   fetchBoards(connection, token) {
@@ -657,10 +681,32 @@ export const jiraClient: TaskTrackerProviderClient = {
               return okAsync(undefined)
             })
           : okAsync(undefined)
+        const embedImages = (attachmentWarnings: string[]): ResultAsync<string[], never> => {
+          // Only worth a second write when images were actually attached and referenced text
+          // exists; the v2 endpoint converts wiki markup (incl. !image.png!) into ADF media.
+          if (!input.description || (input.attachments?.length ?? 0) === 0) {
+            return okAsync(attachmentWarnings)
+          }
+          return jiraSend(
+            connection,
+            token,
+            `/rest/api/2/issue/${encodeURIComponent(created.key)}`,
+            { fields: { description: input.description } },
+            'PUT',
+          )
+            .map(() => attachmentWarnings)
+            .orElse((e) =>
+              okAsync([
+                ...attachmentWarnings,
+                `Task created, but embedding the images in the description failed: ${taskTrackerErrorMessage(e)}`,
+              ]),
+            )
+        }
         return applySprint
           .andThen(() =>
             jiraUploadAttachments(connection, token, created.key, input.attachments ?? []),
           )
+          .andThen(embedImages)
           .map((attachmentWarnings) => ({
             key: created.key,
             url: `${base}/browse/${created.key}`,

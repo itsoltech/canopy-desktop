@@ -18,8 +18,11 @@
     selectPanelTask,
     getTrackerCredential,
     isVerifyingCredentials,
+    removeActiveTask,
+    resolvePanelTask,
   } from '../../lib/stores/taskTracker.svelte'
   import { showProjectTracker } from '../../lib/stores/dialogs.svelte'
+  import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { formatDateTime } from '../../lib/formatDate'
@@ -98,6 +101,15 @@
   let attachmentPreviews = $state<Record<string, string>>({})
   let loading = $state(false)
   let loadError = $state('')
+  // The tracker answered but doesn't know this key — the task was deleted (or became invisible).
+  let notFound = $state(false)
+
+  async function unlinkMissingTask(): Promise<void> {
+    const key = panel?.taskKey
+    if (!key) return
+    await removeActiveTask(worktreePath, key)
+    await resolvePanelTask(worktreePath, workspaceState.branch)
+  }
 
   let selectedTransitionId = $state('')
   let fieldValues = $state<Record<string, string>>({})
@@ -169,13 +181,25 @@
     const seq = ++refreshSeq
     loading = true
     loadError = ''
+    notFound = false
     selectedTransitionId = ''
     fieldValues = {}
     transitionComment = ''
     applyError = ''
     try {
-      const [fullTask, trans, comm, atts] = await Promise.all([
-        window.api.trackerConfigFindTaskByKey(worktreePath, taskKey),
+      const fullTask = await window.api.trackerConfigFindTaskByKey(worktreePath, taskKey)
+      if (seq !== refreshSeq) return
+      if (!fullTask) {
+        // Deleted (or invisible) in the tracker — a dedicated state, not an API error.
+        notFound = true
+        task = null
+        transitions = []
+        comments = []
+        attachments = []
+        attachmentPreviews = {}
+        return
+      }
+      const [trans, comm, atts] = await Promise.all([
         window.api.trackerConfigFetchTransitions(worktreePath, taskKey),
         window.api.trackerConfigFetchTaskComments(worktreePath, taskKey),
         // Attachments are best-effort decoration — a provider without them must not fail the load.
@@ -184,18 +208,16 @@
           .catch(() => [] as Attachment[]),
       ])
       if (seq !== refreshSeq) return
-      task = fullTask
-        ? {
-            key: fullTask.key,
-            summary: fullTask.summary,
-            description: fullTask.description,
-            status: fullTask.status,
-            statusCategory: fullTask.statusCategory,
-            assignee: fullTask.assignee,
-            assigneeAvatarUrl: fullTask.assigneeAvatarUrl,
-            url: fullTask.url,
-          }
-        : null
+      task = {
+        key: fullTask.key,
+        summary: fullTask.summary,
+        description: fullTask.description,
+        status: fullTask.status,
+        statusCategory: fullTask.statusCategory,
+        assignee: fullTask.assignee,
+        assigneeAvatarUrl: fullTask.assigneeAvatarUrl,
+        url: fullTask.url,
+      }
       // Assignee avatar proxied to a data: URL (authenticated origin or public CDN + CSP).
       assigneeAvatar = ''
       if (fullTask?.assigneeAvatarUrl) {
@@ -714,6 +736,28 @@
         <div class="flex items-center gap-2 text-xs text-text-faint">
           <LoaderCircle size={12} class="animate-spin" />
           <span>Checking credentials…</span>
+        </div>
+      {:else if notFound}
+        <div
+          class="flex flex-col gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+        >
+          <span class="text-xs text-text-secondary leading-snug">
+            This task no longer exists in the tracker — it may have been deleted, or your account
+            lost access to it.
+          </span>
+          {#if panel?.source === 'active'}
+            <button
+              type="button"
+              class="self-start px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+              onclick={() => void unlinkMissingTask()}
+            >
+              Unlink from this worktree
+            </button>
+          {:else}
+            <span class="text-2xs text-text-faint leading-snug">
+              The link comes from the branch name, so it cannot be removed here.
+            </span>
+          {/if}
         </div>
       {:else if loadError}
         <div

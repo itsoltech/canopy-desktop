@@ -14,6 +14,8 @@ export interface ActiveTaskContext {
  *  from the tracker during resolution (absent when offline). */
 export interface PanelTaskContext extends ActiveTaskContext {
   source: 'active' | 'branch'
+  /** The tracker answered but doesn't know this key — deleted or invisible task. */
+  missing?: boolean
   status?: string
   statusCategory?: string
   /** Normalized type (task/bug/…) and the tracker's own type name, when resolution succeeded. */
@@ -377,8 +379,8 @@ export async function resolvePanelTask(
       try {
         const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key)
         // The tracker answered and doesn't know this key — a false match, drop it (unless it is
-        // the explicitly linked task, which we keep as stored).
-        if (!task) return stored
+        // the explicitly linked task, which we keep as stored and flag as missing).
+        if (!task) return stored ? { ...stored, missing: true } : null
         // Type icon proxied to a data: URL (authenticated tracker URL + CSP); cached in main.
         const typeIcon = task.typeIconUrl
           ? await window.api
