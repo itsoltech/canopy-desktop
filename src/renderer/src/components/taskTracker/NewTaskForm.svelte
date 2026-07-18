@@ -217,6 +217,12 @@
 
   let projectBoards = $derived(filterBoardsForProject(boards, projectKey))
   let titleError = $derived(title ? validateTitle(title) : null)
+  let requiredReady = $derived(
+    !!title.trim() &&
+      !titleError &&
+      (!fields.project || projects.length <= 1 || !!projectKey) &&
+      (!fields.type || types.length === 0 || !!typeName),
+  )
 
   onMount(() => void loadMeta())
 
@@ -567,6 +573,7 @@
                {taskKey} token renders as a highlighted field behind a transparent input. -->
           <div
             class="relative w-full border border-border rounded-lg bg-bg-input focus-within:border-focus-ring"
+            class:opacity-50={!requiredReady}
           >
             <div
               bind:this={branchBackdropEl}
@@ -580,8 +587,12 @@
             <input
               id="new-task-branch"
               bind:this={branchInputEl}
-              class="relative block w-full px-2.5 py-2 border-0 bg-transparent text-transparent caret-text text-md font-mono outline-none box-border"
+              class="relative block w-full px-2.5 py-2 border-0 bg-transparent text-transparent caret-text text-md font-mono outline-none box-border disabled:cursor-not-allowed"
               type="text"
+              disabled={!requiredReady}
+              title={requiredReady
+                ? undefined
+                : 'Fill in the required fields (title) first — the name follows them'}
               bind:value={branchDraft}
               oninput={() => {
                 branchDraftEdited = true
@@ -616,7 +627,7 @@
         <button
           class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border-0 bg-accent-bg text-accent-text text-md font-inherit enabled:cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
           onclick={() => void submit()}
-          disabled={submitting || !title.trim() || !!titleError}
+          disabled={submitting || !requiredReady}
         >
           {#if submitting}
             <LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />
