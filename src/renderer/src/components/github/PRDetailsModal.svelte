@@ -233,7 +233,7 @@
 >
   <div
     bind:this={containerEl}
-    class="resize outline-none w-[640px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[700px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-modal overflow-hidden"
+    class="resize outline-none w-[640px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[75vh] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-modal overflow-hidden"
     use:unlockSizeOnResize
     onmousedown={(e) => e.stopPropagation()}
     role="dialog"
@@ -396,74 +396,76 @@
             <p class="m-0 text-xs text-text-faint">No description.</p>
           {/if}
         </div>
-
-        {#if pr.state === 'OPEN' || remoteBranchAlive === true}
-          <div class="flex flex-col gap-1.5">
-            <span class={sectionLabelCls}>Actions</span>
-            {#if pr.state === 'OPEN'}
-              <div class="flex items-center gap-2 flex-wrap">
-                <CustomSelect
-                  value={mergeStrategy}
-                  options={[
-                    { value: 'merge', label: 'Merge commit' },
-                    { value: 'squash', label: 'Squash' },
-                    { value: 'rebase', label: 'Rebase' },
-                  ]}
-                  onchange={(v) => (mergeStrategy = v as 'merge' | 'squash' | 'rebase')}
-                />
-                <label
-                  class="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none"
-                >
-                  <input type="checkbox" bind:checked={deleteBranchAfter} class="cursor-pointer" />
-                  Delete source branch
-                </label>
-                <span class="flex-1"></span>
-                <!-- Destructive action on the left, the primary (green) merge on the right. -->
-                <button
-                  class={dangerBtnCls}
-                  onclick={() => runAction('close')}
-                  disabled={acting !== null}
-                  title="Close this pull request without merging"
-                >
-                  {#if acting === 'close'}
-                    <LoaderCircle size={13} class="animate-spin" />
-                  {/if}
-                  {armed === 'close' ? 'Confirm close' : 'Close PR'}
-                </button>
-                <button
-                  class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border-0 bg-success-bg text-success-text text-sm font-inherit enabled:cursor-pointer enabled:hover:bg-success/30 disabled:opacity-50 disabled:cursor-default"
-                  onclick={() => runAction('merge')}
-                  disabled={!!mergeBlockReason || acting !== null}
-                  title={mergeBlockReason ?? 'Merge this pull request'}
-                >
-                  {#if acting === 'merge'}
-                    <LoaderCircle size={13} class="animate-spin" />
-                  {/if}
-                  {armed === 'merge' ? 'Confirm merge' : 'Merge'}
-                </button>
-              </div>
-            {:else}
-              <div class="flex items-center gap-2">
-                <button
-                  class={dangerBtnCls}
-                  onclick={() => runAction('delete')}
-                  disabled={acting !== null}
-                  title={`Delete the remote branch ${pr.headRefName}`}
-                >
-                  {#if acting === 'delete'}
-                    <LoaderCircle size={13} class="animate-spin" />
-                  {/if}
-                  {armed === 'delete' ? 'Confirm delete' : 'Delete source branch'}
-                </button>
-              </div>
-            {/if}
-            {#if mergeBlockReason && pr.state === 'OPEN'}
-              <p class="m-0 text-xs text-text-faint">{mergeBlockReason}.</p>
-            {/if}
-          </div>
-        {/if}
       {/if}
     </div>
+
+    <!-- Pinned below the scrolling body — merge/close must stay visible however long the
+         description gets (the dialog itself grows up to 75vh first). -->
+    {#if pr && (pr.state === 'OPEN' || remoteBranchAlive === true)}
+      <div class="shrink-0 border-t border-border-subtle px-4 py-2.5 flex flex-col gap-1.5">
+        <span class={sectionLabelCls}>Actions</span>
+        {#if pr.state === 'OPEN'}
+          <div class="flex items-center gap-2 flex-wrap">
+            <CustomSelect
+              value={mergeStrategy}
+              options={[
+                { value: 'merge', label: 'Merge commit' },
+                { value: 'squash', label: 'Squash' },
+                { value: 'rebase', label: 'Rebase' },
+              ]}
+              onchange={(v) => (mergeStrategy = v as 'merge' | 'squash' | 'rebase')}
+            />
+            <label
+              class="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none"
+            >
+              <input type="checkbox" bind:checked={deleteBranchAfter} class="cursor-pointer" />
+              Delete source branch
+            </label>
+            <span class="flex-1"></span>
+            <!-- Destructive action on the left, the primary (green) merge on the right. -->
+            <button
+              class={dangerBtnCls}
+              onclick={() => runAction('close')}
+              disabled={acting !== null}
+              title="Close this pull request without merging"
+            >
+              {#if acting === 'close'}
+                <LoaderCircle size={13} class="animate-spin" />
+              {/if}
+              {armed === 'close' ? 'Confirm close' : 'Close PR'}
+            </button>
+            <button
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border-0 bg-success-bg text-success-text text-sm font-inherit enabled:cursor-pointer enabled:hover:bg-success/30 disabled:opacity-50 disabled:cursor-default"
+              onclick={() => runAction('merge')}
+              disabled={!!mergeBlockReason || acting !== null}
+              title={mergeBlockReason ?? 'Merge this pull request'}
+            >
+              {#if acting === 'merge'}
+                <LoaderCircle size={13} class="animate-spin" />
+              {/if}
+              {armed === 'merge' ? 'Confirm merge' : 'Merge'}
+            </button>
+          </div>
+        {:else}
+          <div class="flex items-center gap-2">
+            <button
+              class={dangerBtnCls}
+              onclick={() => runAction('delete')}
+              disabled={acting !== null}
+              title={`Delete the remote branch ${pr.headRefName}`}
+            >
+              {#if acting === 'delete'}
+                <LoaderCircle size={13} class="animate-spin" />
+              {/if}
+              {armed === 'delete' ? 'Confirm delete' : 'Delete source branch'}
+            </button>
+          </div>
+        {/if}
+        {#if mergeBlockReason && pr.state === 'OPEN'}
+          <p class="m-0 text-xs text-text-faint">{mergeBlockReason}.</p>
+        {/if}
+      </div>
+    {/if}
 
     <footer
       class="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-border-subtle shrink-0"
