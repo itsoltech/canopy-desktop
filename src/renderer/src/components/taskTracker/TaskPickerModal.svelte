@@ -308,7 +308,7 @@
             <button
               class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {linkTab ===
               'existing'
-                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_var(--color-scrim)]'
                 : 'bg-transparent text-text-muted hover:text-text-secondary'}"
               onclick={() => {
                 linkTab = 'existing'
@@ -324,7 +324,7 @@
             <button
               class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {linkTab ===
               'newTask'
-                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_var(--color-scrim)]'
                 : 'bg-transparent text-text-muted hover:text-text-secondary'}"
               onclick={() => {
                 linkTab = 'newTask'

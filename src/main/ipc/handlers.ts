@@ -3680,6 +3680,15 @@ export function registerIpcHandlers(
         if (!Array.isArray(payload.attachments) || payload.attachments.length > 8) {
           throw new Error('Invalid attachments (max 8)')
         }
+        // Aggregate cap: per-item limits alone would still let one IPC call carry ~80 MB of
+        // base64 into main-process memory (~30 MB decoded total is plenty for pasted images).
+        const totalBase64 = payload.attachments.reduce(
+          (sum, a) => sum + (typeof a?.dataBase64 === 'string' ? a.dataBase64.length : 0),
+          0,
+        )
+        if (totalBase64 > 40_000_000) {
+          throw new Error('Attachments too large (max ~30 MB total)')
+        }
         for (const a of payload.attachments) {
           if (
             !a ||

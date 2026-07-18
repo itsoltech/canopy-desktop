@@ -108,7 +108,10 @@
         r.readAsDataURL(f)
       })
       const dataBase64 = dataUrl.split(',')[1]
-      if (!dataBase64) continue
+      if (!dataBase64) {
+        imageError = `${f.name || 'image'}: could not read the file`
+        continue
+      }
       const ext = (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '')
       const fallback = `image-${pendingImages.length + 1}.${ext}`
       const filename = (f.name || fallback).replace(/[^\w.\- ()[\]]/g, '-').slice(0, 200)
@@ -277,28 +280,41 @@
   }
 
   // Types and assignable users are project-scoped; reloaded when the project changes.
+  // Monotonic token: two quick project switches must not let the slower older response
+  // overwrite the newer project's metadata (same fetchSeq pattern as the task pickers).
+  let metaSeq = 0
+  let projectMetaError = $state('')
+
   async function loadProjectMeta(currentUserName = ''): Promise<void> {
-    const [typeList, userList] = await Promise.all([
-      fields.type
-        ? window.api
-            .trackerConfigFetchCreateTaskTypes(repoRoot, trackerId, projectKey)
-            .catch(() => [] as Array<{ name: string; iconUrl?: string }>)
-        : Promise.resolve([] as Array<{ name: string; iconUrl?: string }>),
-      window.api
-        .trackerConfigFetchAssignableUsers(repoRoot, trackerId, projectKey)
-        .catch(() => [] as Array<{ id: string; displayName: string; avatarUrl?: string }>),
-    ])
-    types = typeList
-    users = userList
-    typeName = types.find((t) => t.name.toLowerCase() === 'task')?.name ?? types[0]?.name ?? ''
-    // Creating a task for yourself is the common case — preselect the current user when we
-    // can match them in the assignable list.
-    if (currentUserName) {
-      assigneeId = users.find((u) => u.displayName === currentUserName)?.id ?? ''
-    } else if (assigneeId && !users.some((u) => u.id === assigneeId)) {
-      assigneeId = ''
+    const seq = ++metaSeq
+    projectMetaError = ''
+    try {
+      const [typeList, userList] = await Promise.all([
+        // No .catch — a failure (expired credentials, permissions) must surface, not silently
+        // hide the type/assignee fields while the form stays submittable.
+        fields.type
+          ? window.api.trackerConfigFetchCreateTaskTypes(repoRoot, trackerId, projectKey)
+          : Promise.resolve([] as Array<{ name: string; iconUrl?: string }>),
+        window.api.trackerConfigFetchAssignableUsers(repoRoot, trackerId, projectKey),
+      ])
+      if (seq !== metaSeq) return
+      types = typeList
+      users = userList
+      typeName = types.find((t) => t.name.toLowerCase() === 'task')?.name ?? types[0]?.name ?? ''
+      // Creating a task for yourself is the common case — preselect the current user when we
+      // can match them in the assignable list.
+      if (currentUserName) {
+        assigneeId = users.find((u) => u.displayName === currentUserName)?.id ?? ''
+      } else if (assigneeId && !users.some((u) => u.id === assigneeId)) {
+        assigneeId = ''
+      }
+      void resolveIcons()
+    } catch (e) {
+      if (seq !== metaSeq) return
+      types = []
+      users = []
+      projectMetaError = ipcErrorMessage(e, 'Failed to load task types and assignees')
     }
-    void resolveIcons()
   }
 
   // Best-effort, fire-and-forget: type icons and avatars render as they resolve through the
@@ -449,6 +465,22 @@
                 />
               </div>
             {/if}
+          </div>
+        {/if}
+        {#if projectMetaError}
+          <div
+            class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+          >
+            <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug break-words"
+              >{projectMetaError}</span
+            >
+            <button
+              type="button"
+              class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+              onclick={() => void loadProjectMeta()}
+            >
+              Retry
+            </button>
           </div>
         {/if}
         <div class="flex flex-col gap-1">

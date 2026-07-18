@@ -145,6 +145,8 @@
     }
   })
 
+  // Unique per instance — aria-activedescendant ids must not collide across pickers.
+  const listboxId = $props.id()
   let searchInputEl: HTMLInputElement | null = $state(null)
   let listEl: HTMLDivElement | undefined = $state()
 
@@ -365,6 +367,12 @@
     bind:this={searchInputEl}
     bind:value={searchQuery}
     aria-label="Search tasks"
+    role="combobox"
+    aria-expanded="true"
+    aria-controls={listboxId}
+    aria-activedescendant={displayedTasks.length > 0
+      ? `${listboxId}-opt-${selectedIndex}`
+      : undefined}
     placeholder="Search by key or title... (↑↓ + Enter to pick)"
     oninput={() => {
       selectedIndex = 0
@@ -381,7 +389,13 @@
   </span>
   {@render banner?.()}
 
-  <div bind:this={listEl} class="flex-1 overflow-y-auto border border-border-subtle rounded-lg">
+  <div
+    bind:this={listEl}
+    id={listboxId}
+    role="listbox"
+    aria-label="Available tasks"
+    class="flex-1 overflow-y-auto border border-border-subtle rounded-lg"
+  >
     {#if loading}
       <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
         <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
@@ -403,19 +417,15 @@
       </div>
     {:else}
       {#each displayedTasks as task, i (task.key)}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
+          id={`${listboxId}-opt-${i}`}
           class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left transition-colors duration-fast group/task hover:bg-hover"
           class:!bg-hover={i === selectedIndex}
           data-task-selected={i === selectedIndex}
-          role="button"
-          tabindex="0"
+          role="option"
+          aria-selected={i === selectedIndex}
           onclick={() => onPick($state.snapshot(task) as TrackerTaskLite)}
-          onkeydown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              onPick($state.snapshot(task) as TrackerTaskLite)
-            }
-          }}
           onmouseenter={() => (selectedIndex = i)}
         >
           <span class="flex-shrink-0 font-semibold text-accent-text min-w-20"
