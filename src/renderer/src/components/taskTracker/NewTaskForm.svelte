@@ -206,14 +206,14 @@
     'w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint'
 </script>
 
-<div class="flex-1 min-h-0 overflow-y-auto rounded-lg border border-border-subtle p-2.5">
+<div class="flex-1 min-h-0 rounded-lg border border-border-subtle flex flex-col">
   {#if loadingMeta}
-    <div class="flex items-center gap-2 text-xs text-text-muted py-0.5">
+    <div class="flex items-center gap-2 text-xs text-text-muted p-2.5">
       <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
       <span>Loading tracker metadata…</span>
     </div>
   {:else if metaError}
-    <div class="flex flex-col items-center gap-2 py-4 text-sm text-danger-text">
+    <div class="flex flex-col items-center gap-2 p-2.5 py-4 text-sm text-danger-text">
       <span class="break-all">{metaError}</span>
       <button
         class="px-3 py-1 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover"
@@ -221,30 +221,39 @@
       >
     </div>
   {:else}
-    <div class="flex flex-col gap-2.5">
-      {#if fields.project && projects.length > 1}
-        <div class="flex flex-col gap-1">
-          <span class={labelCls}>Project</span>
-          <CustomSelect
-            value={projectKey}
-            options={projects.map((p) => ({
-              value: p.key,
-              label: p.name && p.name !== p.key ? `${p.key} — ${p.name}` : p.key,
-            }))}
-            onchange={(v) => void onProjectChange(v)}
-            maxWidth="none"
-          />
-        </div>
-      {/if}
-      {#if fields.type && types.length > 0}
-        <div class="flex flex-col gap-1">
-          <span class={labelCls}>Type</span>
-          <CustomSelect
-            value={typeName}
-            options={buildTypeOptions(types, icons)}
-            onchange={(v) => (typeName = v)}
-            maxWidth="none"
-          />
+    <!-- Only the fields scroll; the submit row is pinned below so it is always visible.
+         Related selects share a row to keep the whole form on screen in the worktree modal. -->
+    <div class="flex-1 min-h-0 overflow-y-auto p-2.5 flex flex-col gap-2.5">
+      {#if (fields.project && projects.length > 1) || (fields.type && types.length > 0)}
+        <div class="grid grid-cols-2 gap-2.5">
+          {#if fields.project && projects.length > 1}
+            <div class="flex flex-col gap-1" class:col-span-2={!(fields.type && types.length > 0)}>
+              <span class={labelCls}>Project</span>
+              <CustomSelect
+                value={projectKey}
+                options={projects.map((p) => ({
+                  value: p.key,
+                  label: p.name && p.name !== p.key ? `${p.key} — ${p.name}` : p.key,
+                }))}
+                onchange={(v) => void onProjectChange(v)}
+                maxWidth="none"
+              />
+            </div>
+          {/if}
+          {#if fields.type && types.length > 0}
+            <div
+              class="flex flex-col gap-1"
+              class:col-span-2={!(fields.project && projects.length > 1)}
+            >
+              <span class={labelCls}>Type</span>
+              <CustomSelect
+                value={typeName}
+                options={buildTypeOptions(types, icons)}
+                onchange={(v) => (typeName = v)}
+                maxWidth="none"
+              />
+            </div>
+          {/if}
         </div>
       {/if}
       <div class="flex flex-col gap-1">
@@ -272,9 +281,9 @@
         <label class={labelCls} for="new-task-description">Description</label>
         <textarea
           id="new-task-description"
-          class="{inputCls} resize-y min-h-16 leading-snug"
+          class="{inputCls} resize-y min-h-12 leading-snug"
           bind:value={description}
-          rows="3"
+          rows="2"
           placeholder="Optional details…"
           spellcheck="false"></textarea>
       </div>
@@ -289,56 +298,65 @@
           />
         </div>
       {/if}
-      {#if fields.board && projectBoards.length > 0}
-        <div class="flex flex-col gap-1">
-          <span class={labelCls}>Board</span>
-          <CustomSelect
-            value={boardId}
-            options={[
-              { value: '', label: 'No board' },
-              ...projectBoards.map((b) => ({ value: b.id, label: b.name })),
-            ]}
-            onchange={(v) => void loadSprints(v)}
-            maxWidth="none"
-          />
-        </div>
-      {/if}
-      {#if fields.sprint}
-        <!-- Always present so picking a board doesn't shift the layout — just disabled until
-             a board provides the sprint list. -->
-        <div class="flex flex-col gap-1">
-          <span class={labelCls}>{fields.sprintLabel}</span>
-          {#if !boardId && fields.board}
-            <CustomSelect
-              value=""
-              options={[{ value: '', label: 'Select a board first' }]}
-              maxWidth="none"
-              disabled
-            />
-          {:else if loadingSprints}
-            <CustomSelect
-              value=""
-              options={[{ value: '', label: 'Loading…' }]}
-              maxWidth="none"
-              disabled
-            />
-          {:else if sprints.length === 0}
-            <CustomSelect
-              value=""
-              options={[{ value: '', label: 'No ' + fields.sprintLabel.toLowerCase() + 's' }]}
-              maxWidth="none"
-              disabled
-            />
-          {:else}
-            <CustomSelect
-              value={sprintId}
-              options={buildSprintOptions(sprints, 'Backlog (none)')}
-              onchange={(v) => (sprintId = v)}
-              maxWidth="none"
-            />
+      {#if (fields.board && projectBoards.length > 0) || fields.sprint}
+        <div class="grid grid-cols-2 gap-2.5">
+          {#if fields.board && projectBoards.length > 0}
+            <div class="flex flex-col gap-1" class:col-span-2={!fields.sprint}>
+              <span class={labelCls}>Board</span>
+              <CustomSelect
+                value={boardId}
+                options={[
+                  { value: '', label: 'No board' },
+                  ...projectBoards.map((b) => ({ value: b.id, label: b.name })),
+                ]}
+                onchange={(v) => void loadSprints(v)}
+                maxWidth="none"
+              />
+            </div>
+          {/if}
+          {#if fields.sprint}
+            <!-- Always present so picking a board doesn't shift the layout — just disabled until
+                 a board provides the sprint list. -->
+            <div
+              class="flex flex-col gap-1"
+              class:col-span-2={!(fields.board && projectBoards.length > 0)}
+            >
+              <span class={labelCls}>{fields.sprintLabel}</span>
+              {#if !boardId && fields.board}
+                <CustomSelect
+                  value=""
+                  options={[{ value: '', label: 'Select a board first' }]}
+                  maxWidth="none"
+                  disabled
+                />
+              {:else if loadingSprints}
+                <CustomSelect
+                  value=""
+                  options={[{ value: '', label: 'Loading…' }]}
+                  maxWidth="none"
+                  disabled
+                />
+              {:else if sprints.length === 0}
+                <CustomSelect
+                  value=""
+                  options={[{ value: '', label: 'No ' + fields.sprintLabel.toLowerCase() + 's' }]}
+                  maxWidth="none"
+                  disabled
+                />
+              {:else}
+                <CustomSelect
+                  value={sprintId}
+                  options={buildSprintOptions(sprints, 'Backlog (none)')}
+                  onchange={(v) => (sprintId = v)}
+                  maxWidth="none"
+                />
+              {/if}
+            </div>
           {/if}
         </div>
       {/if}
+    </div>
+    <div class="shrink-0 border-t border-border-subtle p-2.5 flex flex-col gap-2">
       {#if submitError}
         <p class="m-0 px-2.5 py-2 rounded-md bg-danger-bg text-sm text-danger-text break-words">
           {submitError}
