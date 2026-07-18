@@ -1315,6 +1315,31 @@ const api = {
     }),
   trackerConfigFindTaskByKey: (repoRoot: string | undefined, taskKey: string, trackerId?: string) =>
     ipcRenderer.invoke('trackerConfig:findTaskByKey', { repoRoot, taskKey, trackerId }),
+  trackerConfigFetchAssignableUsers: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    projectKey?: string,
+  ) =>
+    ipcRenderer.invoke('trackerConfig:fetchAssignableUsers', { repoRoot, trackerId, projectKey }),
+  trackerConfigFetchSprints: (repoRoot: string | undefined, trackerId?: string, boardId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchSprints', { repoRoot, trackerId, boardId }),
+  trackerConfigFetchCreateTaskTypes: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    projectKey?: string,
+  ) =>
+    ipcRenderer.invoke('trackerConfig:fetchCreateTaskTypes', { repoRoot, trackerId, projectKey }),
+  trackerConfigCreateTask: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    projectKey?: string
+    typeName?: string
+    title: string
+    description?: string
+    assigneeId?: string
+    boardId?: string
+    sprintId?: string
+  }) => ipcRenderer.invoke('trackerConfig:createTask', payload),
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) =>

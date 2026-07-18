@@ -3574,6 +3574,127 @@ export function registerIpcHandlers(
     },
   )
 
+  // Identifier charsets for the create-task flow. The renderer is the untrusted boundary and
+  // some of these values reach YouTrack's free-text Commands API — keep them strict.
+  const PROJECT_KEY_RE = /^[A-Za-z0-9_-]+$/
+  const TYPE_NAME_RE = /^[^{}"\r\n]{1,100}$/
+  const ASSIGNEE_ID_RE = /^[A-Za-z0-9@._:+=/-]{1,128}$/
+  const BOARD_SPRINT_ID_RE = /^[A-Za-z0-9_=+/-]{1,128}$/
+
+  ipcMain.handle(
+    'trackerConfig:fetchAssignableUsers',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
+      const projectKey = payload.projectKey ?? ''
+      if (projectKey && !PROJECT_KEY_RE.test(projectKey)) throw new Error('Invalid project key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchAssignableUsersFromConfig(
+        resolved.config,
+        projectKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchSprints',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; boardId: string }) => {
+      if (
+        !payload.boardId ||
+        typeof payload.boardId !== 'string' ||
+        !BOARD_SPRINT_ID_RE.test(payload.boardId)
+      ) {
+        throw new Error('Invalid board id')
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchSprintsFromConfig(
+        resolved.config,
+        payload.boardId,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchCreateTaskTypes',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
+      const projectKey = payload.projectKey ?? ''
+      if (projectKey && !PROJECT_KEY_RE.test(projectKey)) throw new Error('Invalid project key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchCreateTaskTypesFromConfig(
+        resolved.config,
+        projectKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:createTask',
+    async (
+      _event,
+      payload: {
+        repoRoot?: string
+        trackerId?: string
+        projectKey?: string
+        typeName?: string
+        title: string
+        description?: string
+        assigneeId?: string
+        boardId?: string
+        sprintId?: string
+      },
+    ) => {
+      const title = typeof payload.title === 'string' ? payload.title.trim() : ''
+      if (!title || title.length > 512) throw new Error('A task title (max 512 chars) is required')
+      if (payload.description !== undefined) {
+        if (typeof payload.description !== 'string' || payload.description.length > 32_768) {
+          throw new Error('Invalid task description')
+        }
+      }
+      if (payload.projectKey !== undefined && !PROJECT_KEY_RE.test(payload.projectKey)) {
+        throw new Error('Invalid project key')
+      }
+      if (payload.typeName !== undefined && !TYPE_NAME_RE.test(payload.typeName)) {
+        throw new Error('Invalid task type')
+      }
+      if (payload.assigneeId !== undefined && !ASSIGNEE_ID_RE.test(payload.assigneeId)) {
+        throw new Error('Invalid assignee')
+      }
+      if (payload.boardId !== undefined && !BOARD_SPRINT_ID_RE.test(payload.boardId)) {
+        throw new Error('Invalid board id')
+      }
+      if (payload.sprintId !== undefined && !BOARD_SPRINT_ID_RE.test(payload.sprintId)) {
+        throw new Error('Invalid sprint id')
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.createTaskFromConfig(
+        resolved.config,
+        {
+          projectKey: payload.projectKey,
+          typeName: payload.typeName,
+          title,
+          description: payload.description,
+          assigneeId: payload.assigneeId,
+          boardId: payload.boardId,
+          sprintId: payload.sprintId,
+        },
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
   ipcMain.handle(
     'taskTracker:fetchTaskComments',
     async (_event, payload: { connectionId: string; taskKey: string; repoRoot?: string }) => {

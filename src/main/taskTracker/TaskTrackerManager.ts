@@ -25,6 +25,9 @@ import type {
   TrackerStatus,
   TrackerProject,
   TrackerTransition,
+  TrackerUser,
+  CreateTaskInput,
+  CreatedTask,
 } from './types'
 
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
@@ -336,6 +339,62 @@ export class TaskTrackerManager {
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
         return client.fetchTaskByKey(conn, token, taskKey)
+      },
+    )
+  }
+
+  fetchAssignableUsersFromConfig(
+    config: RepoConfig,
+    projectKey: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerUser[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchAssignableUsers(conn, token, projectKey)
+      },
+    )
+  }
+
+  fetchSprintsFromConfig(
+    config: RepoConfig,
+    boardId: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerSprint[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchSprints(conn, token, boardId)
+      },
+    )
+  }
+
+  fetchCreateTaskTypesFromConfig(
+    config: RepoConfig,
+    projectKey: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<string[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchCreateTaskTypes(conn, token, projectKey)
+      },
+    )
+  }
+
+  createTaskFromConfig(
+    config: RepoConfig,
+    input: CreateTaskInput,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<CreatedTask, TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.createTask(conn, token, input)
       },
     )
   }

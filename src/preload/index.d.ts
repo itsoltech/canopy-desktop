@@ -995,6 +995,32 @@ interface CanopyAPI {
     taskKey: string,
     trackerId?: string,
   ) => Promise<TrackerTask | null>
+  trackerConfigFetchAssignableUsers: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    projectKey?: string,
+  ) => Promise<TrackerUser[]>
+  trackerConfigFetchSprints: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    boardId?: string,
+  ) => Promise<TrackerSprint[]>
+  trackerConfigFetchCreateTaskTypes: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    projectKey?: string,
+  ) => Promise<string[]>
+  trackerConfigCreateTask: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    projectKey?: string
+    typeName?: string
+    title: string
+    description?: string
+    assigneeId?: string
+    boardId?: string
+    sprintId?: string
+  }) => Promise<CreatedTask>
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
@@ -1505,6 +1531,18 @@ interface TrackerSprint {
   name: string
   number?: number
   state: 'active' | 'closed' | 'future'
+}
+
+interface TrackerUser {
+  id: string
+  displayName: string
+}
+
+interface CreatedTask {
+  key: string
+  url?: string
+  /** Post-create steps that failed after the task itself was created (partial state). */
+  warnings: string[]
 }
 
 type SessionStatusType =
