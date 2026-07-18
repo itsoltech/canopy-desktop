@@ -627,7 +627,7 @@
       id="create-worktree-title"
       class="m-0 px-5 pt-4 pb-3 text-[15px] font-semibold text-text flex-shrink-0"
     >
-      Create Worktree From
+      Create worktree based on
     </h3>
 
     <!-- Selected-task pane shared by the From-task and New-task modes: card, duplicate-branch

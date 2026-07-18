@@ -217,11 +217,19 @@
 
   let projectBoards = $derived(filterBoardsForProject(boards, projectKey))
   let titleError = $derived(title ? validateTitle(title) : null)
+  // Board and sprint are REQUIRED whenever the tracker offers them — a task must land on a
+  // sprint; only trackers/projects without boards (or boards without sprints) skip the rule.
   let requiredReady = $derived(
     !!title.trim() &&
       !titleError &&
       (!fields.project || projects.length <= 1 || !!projectKey) &&
-      (!fields.type || types.length === 0 || !!typeName),
+      (!fields.type || types.length === 0 || !!typeName) &&
+      (!fields.board || projectBoards.length === 0 || !!boardId) &&
+      (!fields.sprint ||
+        (fields.board && !boardId) ||
+        loadingSprints ||
+        sprints.length === 0 ||
+        !!sprintId),
   )
 
   onMount(() => void loadMeta())
@@ -554,7 +562,7 @@
                 {:else}
                   <CustomSelect
                     value={sprintId}
-                    options={buildSprintOptions(sprints, 'Backlog (none)')}
+                    options={buildSprintOptions(sprints, 'Select a sprint…')}
                     onchange={(v) => (sprintId = v)}
                     maxWidth="none"
                   />

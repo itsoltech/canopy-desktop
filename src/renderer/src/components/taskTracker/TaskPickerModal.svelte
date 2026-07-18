@@ -320,6 +320,7 @@
             >
               Existing tasks
             </button>
+            <div class="w-px my-1 bg-border shrink-0" aria-hidden="true"></div>
             <button
               class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {linkTab ===
               'newTask'
