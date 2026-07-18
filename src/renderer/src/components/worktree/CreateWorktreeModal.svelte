@@ -769,6 +769,7 @@
           >
             New branch
           </button>
+          <div class="w-px my-1 bg-border shrink-0" aria-hidden="true"></div>
           <button
             class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
             'existing'
@@ -781,6 +782,7 @@
           >
             From existing branch
           </button>
+          <div class="w-px my-1 bg-border shrink-0" aria-hidden="true"></div>
           <button
             class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit transition-all duration-fast enabled:cursor-pointer disabled:opacity-40 disabled:cursor-default {mode ===
             'task'
@@ -795,8 +797,9 @@
               ? taskModeState.reason
               : 'Pick a tracker task — the branch name is generated from it'}
           >
-            From task
+            From existing task
           </button>
+          <div class="w-px my-1 bg-border shrink-0" aria-hidden="true"></div>
           <button
             class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit transition-all duration-fast enabled:cursor-pointer disabled:opacity-40 disabled:cursor-default {mode ===
             'newTask'
@@ -921,6 +924,7 @@
                 repoRoot={trackerRepoRoot}
                 provider={trackerProvider}
                 onCreated={handleTaskCreated}
+                submitLabel="Create task and worktree"
               />
             {:else}
               {@render selectedTaskPane()}
