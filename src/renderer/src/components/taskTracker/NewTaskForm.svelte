@@ -11,6 +11,7 @@
     buildTypeOptions,
     filterBoardsForProject,
     renderBranchDraft,
+    segmentsOf,
     slugifyTitle,
     validateTitle,
     visibleFields,
@@ -69,6 +70,25 @@
   const MAX_IMAGES = 8
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
+  // Where the image belongs in the text: YouTrack renders markdown attachment references
+  // inline; Jira shows the wiki-style token next to the attachment; GitHub cannot attach.
+  function imageMarker(filename: string): string | null {
+    if (provider === 'youtrack') return `![](${filename})`
+    if (provider === 'jira') return `!${filename}!`
+    return null
+  }
+
+  function insertMarkerAtCaret(marker: string): void {
+    const el = descTextareaEl
+    const start = el?.selectionStart ?? description.length
+    const end = el?.selectionEnd ?? start
+    description = `${description.slice(0, start)}${marker}${description.slice(end)}`
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(start + marker.length, start + marker.length)
+    })
+  }
+
   async function addImageFiles(list: FileList | File[]): Promise<void> {
     imageError = ''
     for (const f of [...list]) {
@@ -98,6 +118,8 @@
         dataBase64,
         sizeKb: Math.round(f.size / 1024),
       })
+      const marker = imageMarker(filename)
+      if (marker) insertMarkerAtCaret(marker)
     }
   }
 
@@ -120,18 +142,20 @@
   // sprints loading in — grow the WHOLE dialog (up to the screen limit) instead of pushing the
   // fields into their scroll area. The style write also trips the dialog's unlockSizeOnResize
   // action, which lifts its max-height caps.
+  let descTextareaEl = $state<HTMLTextAreaElement | undefined>()
   let fieldsContentEl = $state<HTMLDivElement | undefined>()
   $effect(() => {
     const el = fieldsContentEl
     if (!el) return
-    let lastH = el.offsetHeight
     const ro = new ResizeObserver(() => {
-      const delta = el.offsetHeight - lastH
-      lastH = el.offsetHeight
-      if (delta <= 0) return
+      const scroller = el.parentElement
       const dialog = el.closest('[role="dialog"]') as HTMLElement | null
-      if (!dialog) return
-      const target = Math.min(dialog.offsetHeight + delta, Math.round(window.innerHeight * 0.88))
+      if (!scroller || !dialog) return
+      // However the content grew (image chips, sprint row, description resize), hand the actual
+      // overflow to the dialog until the screen limit; only past it the fields really scroll.
+      const overflow = scroller.scrollHeight - scroller.clientHeight
+      if (overflow <= 0) return
+      const target = Math.min(dialog.offsetHeight + overflow, Math.round(window.innerHeight * 0.88))
       if (target > dialog.offsetHeight) dialog.style.height = `${target}px`
     })
     ro.observe(el)
@@ -175,6 +199,15 @@
   $effect(() => {
     if (!branchDraftEdited) branchDraft = autoBranchDraft
   })
+
+  const KNOWN_BRANCH_KEYS = new Set(['taskKey'])
+  let branchSegments = $derived(segmentsOf(branchDraft, KNOWN_BRANCH_KEYS))
+  let branchInputEl = $state<HTMLInputElement | undefined>()
+  let branchBackdropEl = $state<HTMLDivElement | undefined>()
+
+  function syncBranchScroll(): void {
+    if (branchBackdropEl && branchInputEl) branchBackdropEl.scrollLeft = branchInputEl.scrollLeft
+  }
 
   let loadingMeta = $state(true)
   let metaError = $state('')
@@ -429,13 +462,18 @@
           {#if pendingImages.length > 0}
             <div class="flex flex-wrap gap-1">
               {#each pendingImages as img, i (img.filename + i)}
+                <!-- Same thumbnail treatment as the task panel's attachments. -->
                 <span
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-bg-input border border-border-subtle text-2xs text-text-secondary"
+                  class="relative inline-block group/img"
                   title={`${img.filename} — ${img.sizeKb} KB, attached to the task after creation`}
                 >
-                  {img.filename}
+                  <img
+                    src={`data:${img.mimeType};base64,${img.dataBase64}`}
+                    alt={img.filename}
+                    class="h-16 max-w-44 object-contain rounded-md border border-border-subtle bg-bg-input"
+                  />
                   <button
-                    class="flex items-center justify-center size-3.5 border-0 rounded bg-transparent text-text-faint cursor-pointer p-0 leading-none hover:text-danger-text"
+                    class="absolute -top-1.5 -right-1.5 flex items-center justify-center size-4 border border-border rounded-full bg-bg-overlay text-text-faint cursor-pointer p-0 leading-none opacity-0 transition-opacity duration-fast group-hover/img:opacity-100 hover:text-danger-text hover:border-danger-text"
                     onclick={() => pendingImages.splice(i, 1)}
                     aria-label={`Remove ${img.filename}`}>×</button
                   >
@@ -525,15 +563,35 @@
       {#if showBranchName}
         <div class="flex flex-col gap-1">
           <label class={labelCls} for="new-task-branch">Branch name</label>
-          <input
-            id="new-task-branch"
-            class="{inputCls} font-mono"
-            type="text"
-            bind:value={branchDraft}
-            oninput={() => (branchDraftEdited = true)}
-            spellcheck="false"
-            autocomplete="off"
-          />
+          <!-- Same highlight-overlay technique as the template editors: the recognized
+               {taskKey} token renders as a highlighted field behind a transparent input. -->
+          <div
+            class="relative w-full border border-border rounded-lg bg-bg-input focus-within:border-focus-ring"
+          >
+            <div
+              bind:this={branchBackdropEl}
+              aria-hidden="true"
+              class="absolute inset-0 px-2.5 py-2 font-mono text-md text-text whitespace-pre overflow-hidden pointer-events-none"
+            >
+              {#each branchSegments as seg, i (i)}{#if seg.field}<span
+                    class="rounded-sm bg-accent-bg text-accent-text">{seg.text}</span
+                  >{:else}{seg.text}{/if}{/each}
+            </div>
+            <input
+              id="new-task-branch"
+              bind:this={branchInputEl}
+              class="relative block w-full px-2.5 py-2 border-0 bg-transparent text-transparent caret-text text-md font-mono outline-none box-border"
+              type="text"
+              bind:value={branchDraft}
+              oninput={() => {
+                branchDraftEdited = true
+                requestAnimationFrame(syncBranchScroll)
+              }}
+              onscroll={syncBranchScroll}
+              spellcheck="false"
+              autocomplete="off"
+            />
+          </div>
           <p class="m-0 text-xs text-text-muted leading-snug">
             {'{taskKey}'} becomes the new task's key. Generated from the branch naming template — edit
             freely; you can still adjust it after the task is created.

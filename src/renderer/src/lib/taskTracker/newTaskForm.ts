@@ -133,3 +133,20 @@ export function renderBranchDraft(template: string, vars: Record<string, string>
   })
   return result.replace(/\/{2,}/g, '/').replace(/^[/_-]+|[/_-]+$/g, '')
 }
+
+/** Split template text into segments for the highlight-overlay editors — `{key}` tokens found in
+ *  `known` render as highlighted fields, everything else as plain text. */
+export function segmentsOf(
+  text: string,
+  known: Set<string>,
+): Array<{ text: string; field: boolean }> {
+  const segs: Array<{ text: string; field: boolean }> = []
+  let last = 0
+  for (const m of text.matchAll(/\{(\w+)\}/g)) {
+    if (m.index > last) segs.push({ text: text.slice(last, m.index), field: false })
+    segs.push({ text: m[0], field: known.has(m[1]) })
+    last = m.index + m[0].length
+  }
+  if (last < text.length) segs.push({ text: text.slice(last), field: false })
+  return segs
+}

@@ -18,6 +18,7 @@
   import { taskDisplayKey } from '../../lib/taskTracker/taskFilterPrefs'
   import type { TrackerTaskLite } from '../../lib/taskTracker/types'
   import TaskListPicker from '../taskTracker/TaskListPicker.svelte'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import NewTaskForm from '../taskTracker/NewTaskForm.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import type { TrackerProviderKind } from '../../lib/taskTracker/types'
@@ -813,7 +814,10 @@
               ? taskModeState.reason
               : 'Pick a tracker task — the branch name is generated from it'}
           >
-            Existing task
+            <span class="inline-flex items-center justify-center gap-1.5">
+              {#if !taskModeState.disabled}<TrackerProviderIcon provider={trackerProvider} />{/if}
+              Existing task
+            </span>
           </button>
           <div class="w-px my-1 bg-border shrink-0" aria-hidden="true"></div>
           <button
@@ -830,7 +834,10 @@
               ? taskModeState.reason
               : 'Create a task in the tracker, then a worktree for it'}
           >
-            New task
+            <span class="inline-flex items-center justify-center gap-1.5">
+              {#if !taskModeState.disabled}<TrackerProviderIcon provider={trackerProvider} />{/if}
+              New task
+            </span>
           </button>
         </div>
         {#if mode === 'new' && selectedBase}

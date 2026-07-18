@@ -9,6 +9,7 @@ import {
   slugifyTitle,
   branchTemplateFor,
   renderBranchDraft,
+  segmentsOf,
 } from './newTaskForm'
 
 describe('visibleFields', () => {
@@ -193,5 +194,22 @@ describe('renderBranchDraft', () => {
 
   it('trims dangling separators at the edges', () => {
     expect(renderBranchDraft('{branchType}/{taskKey}', { branchType: '' })).toBe('{taskKey}')
+  })
+})
+
+describe('segmentsOf', () => {
+  it('splits text into plain and known-placeholder segments', () => {
+    expect(segmentsOf('feat/{taskKey}-login', new Set(['taskKey']))).toEqual([
+      { text: 'feat/', field: false },
+      { text: '{taskKey}', field: true },
+      { text: '-login', field: false },
+    ])
+  })
+
+  it('leaves unknown placeholders unhighlighted', () => {
+    expect(segmentsOf('{nope}/x', new Set(['taskKey']))).toEqual([
+      { text: '{nope}', field: false },
+      { text: '/x', field: false },
+    ])
   })
 })
