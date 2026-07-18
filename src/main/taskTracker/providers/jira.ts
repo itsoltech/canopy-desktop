@@ -1,6 +1,6 @@
 import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
 import { match } from 'ts-pattern'
-import type { TaskTrackerError } from '../errors'
+import { taskTrackerErrorMessage, type TaskTrackerError } from '../errors'
 import { fromExternalCall, errorMessage } from '../../errors'
 import type {
   TaskTrackerConnection,
@@ -106,6 +106,36 @@ function jiraSend(
       ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
     }
     return okAsync(undefined)
+  })
+}
+
+/** POST to Jira and parse the JSON response (issue creation returns the new key in the body). */
+function jiraPost<T>(
+  connection: TaskTrackerConnection,
+  token: string,
+  path: string,
+  body: unknown,
+): ResultAsync<T, TaskTrackerError> {
+  const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
+  return fromExternalCall(
+    fetch(url, {
+      method: 'POST',
+      headers: buildAuthHeaders(connection, token),
+      body: JSON.stringify(body),
+      // Do not follow redirects: baseUrl comes from repo config, and a redirect
+      // would forward the Authorization token to an attacker-controlled host.
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  ).andThen((res) => {
+    if (!res.ok) {
+      return fromExternalCall(
+        res.text().catch(() => ''),
+        (e) => apiError(res.status, errorMessage(e)),
+      ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+    }
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
 }
 
@@ -486,5 +516,92 @@ export const jiraClient: TaskTrackerProviderClient = {
     return jiraSend(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment`, {
       body: toAdf(commentBody),
     })
+  },
+
+  fetchAssignableUsers(connection, token, projectKey) {
+    return jiraFetch<Array<{ accountId?: string; displayName?: string }>>(
+      connection,
+      token,
+      `/rest/api/3/user/assignable/search?project=${encodeURIComponent(projectKey)}&maxResults=50`,
+    ).map((users) =>
+      users
+        .filter((u) => u.accountId)
+        .map((u) => ({ id: u.accountId!, displayName: u.displayName ?? u.accountId! })),
+    )
+  },
+
+  fetchSprints(connection, token, boardId) {
+    return jiraFetch<{ values?: Array<{ id: number; name: string; state: string }> }>(
+      connection,
+      token,
+      `/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=active,future&maxResults=50`,
+    ).map((data) =>
+      (data.values ?? []).map((s): TrackerSprint => ({
+        id: String(s.id),
+        name: s.name,
+        number: parseSprintNumber(s.name),
+        state: s.state as TrackerSprint['state'],
+      })),
+    )
+  },
+
+  fetchCreateTaskTypes(connection, token, projectKey) {
+    // The per-project createmeta endpoint reflects what THIS user can actually create there;
+    // it 403s without Create-issues permission — fall back to the global type list (the create
+    // POST is the final validator either way). Response envelope varies across deployments.
+    return jiraFetch<{
+      issueTypes?: Array<{ name?: string; subtask?: boolean }>
+      values?: Array<{ name?: string; subtask?: boolean }>
+    }>(
+      connection,
+      token,
+      `/rest/api/3/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes?maxResults=50`,
+    )
+      .map((data) => {
+        const types = data.issueTypes ?? data.values ?? []
+        // Subtasks need a parent we don't collect in the form.
+        return [...new Set(types.filter((t) => t.name && !t.subtask).map((t) => t.name!))]
+      })
+      .orElse(() => jiraClient.fetchTaskTypes(connection, token))
+  },
+
+  createTask(connection, token, input) {
+    const fields: Record<string, unknown> = {
+      project: { key: input.projectKey },
+      issuetype: { name: input.typeName },
+      summary: input.title,
+    }
+    if (input.description) fields.description = toAdf(input.description)
+    if (input.assigneeId) fields.assignee = { accountId: input.assigneeId }
+
+    return jiraPost<{ key: string }>(connection, token, '/rest/api/3/issue', { fields }).andThen(
+      (created) => {
+        const base = connection.baseUrl.replace(/\/$/, '')
+        const result = {
+          key: created.key,
+          url: `${base}/browse/${created.key}`,
+          warnings: [] as string[],
+        }
+        if (!input.sprintId) return okAsync(result)
+        // The sprint field id (customfield_XXXXX) varies per instance — moving the issue via the
+        // agile API avoids field discovery. The issue already exists here, so a failure (e.g.
+        // team-managed boards rejecting the move) degrades to a warning, never a hard error.
+        return jiraSend(
+          connection,
+          token,
+          `/rest/agile/1.0/sprint/${encodeURIComponent(input.sprintId)}/issue`,
+          { issues: [created.key] },
+        )
+          .map(() => result)
+          .orElse((e) =>
+            okAsync({
+              ...result,
+              warnings: [
+                `Task created, but adding it to the sprint failed: ${taskTrackerErrorMessage(e)}`,
+              ],
+            }),
+          )
+      },
+    )
   },
 }

@@ -73,6 +73,37 @@ export interface TrackerSprint {
   state: 'active' | 'closed' | 'future'
 }
 
+/** Assignable user. `id` is the provider-native identifier used when creating a task:
+ *  Jira accountId, YouTrack login, GitHub GraphQL user node id. */
+export interface TrackerUser {
+  id: string
+  displayName: string
+}
+
+export interface CreateTaskInput {
+  /** Jira/YouTrack project key. Absent for GitHub. */
+  projectKey?: string
+  /** Tracker's own type name (from fetchCreateTaskTypes). Absent for GitHub. */
+  typeName?: string
+  title: string
+  description?: string
+  /** TrackerUser.id from fetchAssignableUsers. */
+  assigneeId?: string
+  /** Board hosting the sprint (YouTrack sprint command needs the board; Jira/GitHub ignore it). */
+  boardId?: string
+  /** TrackerSprint.id from fetchSprints — Jira agile sprint id, YouTrack sprint id,
+   *  GitHub milestone GraphQL node id (NOT the numeric milestone number). */
+  sprintId?: string
+}
+
+export interface CreatedTask {
+  key: string
+  url?: string
+  /** Post-create steps that failed AFTER the task itself was created (partial state —
+   *  surfaced to the user, never a hard failure: retrying the create would duplicate it). */
+  warnings: string[]
+}
+
 export interface BranchTemplateConfig {
   template: string
   customVars: Record<string, string>
@@ -258,6 +289,30 @@ export interface TaskTrackerProviderClient {
     taskKey: string,
     body: string,
   ): ResultAsync<void, TaskTrackerError>
+  /** Users a new task in `projectKey` can be assigned to (GitHub ignores the project). */
+  fetchAssignableUsers(
+    connection: TaskTrackerConnection,
+    token: string,
+    projectKey: string,
+  ): ResultAsync<TrackerUser[], TaskTrackerError>
+  /** Active + future sprints of a board (GitHub: open milestones, boardId ignored). */
+  fetchSprints(
+    connection: TaskTrackerConnection,
+    token: string,
+    boardId: string,
+  ): ResultAsync<TrackerSprint[], TaskTrackerError>
+  /** Type names valid for CREATING a task in `projectKey` (unlike the global fetchTaskTypes
+   *  used by the type-mapping editors). Empty = the tracker has no type concept (GitHub). */
+  fetchCreateTaskTypes(
+    connection: TaskTrackerConnection,
+    token: string,
+    projectKey: string,
+  ): ResultAsync<string[], TaskTrackerError>
+  createTask(
+    connection: TaskTrackerConnection,
+    token: string,
+    input: CreateTaskInput,
+  ): ResultAsync<CreatedTask, TaskTrackerError>
 }
 
 /** A field the workflow requires/offers on a specific transition (e.g. Jira `resolution`). */

@@ -76,6 +76,36 @@ const ADD_COMMENT_MUTATION = `
   }
 `
 
+const ASSIGNABLE_USERS_QUERY = `
+  query ($owner: String!, $name: String!) {
+    repository(owner: $owner, name: $name) {
+      assignableUsers(first: 50) { nodes { id login name } }
+    }
+  }
+`
+
+const OPEN_MILESTONES_QUERY = `
+  query ($owner: String!, $name: String!) {
+    repository(owner: $owner, name: $name) {
+      milestones(first: 50, states: OPEN, orderBy: { field: DUE_DATE, direction: ASC }) {
+        nodes { id title number }
+      }
+    }
+  }
+`
+
+const REPO_ID_QUERY = `
+  query ($owner: String!, $name: String!) {
+    repository(owner: $owner, name: $name) { id }
+  }
+`
+
+const CREATE_ISSUE_MUTATION = `
+  mutation ($input: CreateIssueInput!) {
+    createIssue(input: $input) { issue { number url } }
+  }
+`
+
 /** Resolve the GraphQL node id (needed by mutations) + current state for an issue number. */
 function fetchIssueId(
   connection: TaskTrackerConnection,
@@ -465,5 +495,85 @@ export const githubClient: TaskTrackerProviderClient = {
         graphqlFetch<unknown>(apiUrl, token, ADD_COMMENT_MUTATION, { id: issue.id, body }),
       ).map(() => undefined),
     )
+  },
+
+  fetchAssignableUsers(connection, token) {
+    const apiUrl = apiUrlForConnection(connection)
+    const { owner, repo } = ownerRepo(connection)
+    return mapGitHubError(
+      graphqlFetch<{
+        repository: {
+          assignableUsers: { nodes: Array<{ id: string; login: string; name: string | null }> }
+        }
+      }>(apiUrl, token, ASSIGNABLE_USERS_QUERY, { owner, name: repo }),
+    ).map((data) =>
+      data.repository.assignableUsers.nodes.map((u) => ({
+        id: u.id,
+        displayName: u.name ?? u.login,
+      })),
+    )
+  },
+
+  fetchSprints(connection, token) {
+    // Open milestones stand in for sprints. `id` is the GraphQL NODE id (what createIssue
+    // takes as milestoneId) — unlike getCurrentSprint, which exposes the numeric number.
+    const apiUrl = apiUrlForConnection(connection)
+    const { owner, repo } = ownerRepo(connection)
+    return mapGitHubError(
+      graphqlFetch<{
+        repository: { milestones: { nodes: Array<{ id: string; title: string; number: number }> } }
+      }>(apiUrl, token, OPEN_MILESTONES_QUERY, { owner, name: repo }),
+    ).map((data) =>
+      data.repository.milestones.nodes.map((m): TrackerSprint => ({
+        id: m.id,
+        name: m.title,
+        number: m.number,
+        state: 'active',
+      })),
+    )
+  },
+
+  fetchCreateTaskTypes() {
+    // Issues have no type concept — the create form hides the field.
+    return okAsync([])
+  },
+
+  createTask(connection, token, input) {
+    const apiUrl = apiUrlForConnection(connection)
+    const { owner, repo } = ownerRepo(connection)
+    return mapGitHubError(
+      graphqlFetch<{ repository: { id: string } | null }>(apiUrl, token, REPO_ID_QUERY, {
+        owner,
+        name: repo,
+      }),
+    )
+      .andThen((data) =>
+        data.repository
+          ? okAsync(data.repository.id)
+          : errAsync(apiError(404, `Repository ${owner}/${repo} not found`)),
+      )
+      .andThen((repositoryId) =>
+        mapGitHubError(
+          graphqlFetch<{ createIssue: { issue: { number: number; url: string } | null } }>(
+            apiUrl,
+            token,
+            CREATE_ISSUE_MUTATION,
+            {
+              input: {
+                repositoryId,
+                title: input.title,
+                ...(input.description ? { body: input.description } : {}),
+                ...(input.assigneeId ? { assigneeIds: [input.assigneeId] } : {}),
+                ...(input.sprintId ? { milestoneId: input.sprintId } : {}),
+              },
+            },
+          ),
+        ),
+      )
+      .andThen((data) => {
+        const issue = data.createIssue.issue
+        if (!issue) return errAsync(apiError(0, 'GitHub did not return the created issue'))
+        return okAsync({ key: `#${issue.number}`, url: issue.url, warnings: [] as string[] })
+      })
   },
 }

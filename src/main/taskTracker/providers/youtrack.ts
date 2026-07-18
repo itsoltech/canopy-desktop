@@ -1,5 +1,5 @@
 import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
-import type { TaskTrackerError } from '../errors'
+import { taskTrackerErrorMessage, type TaskTrackerError } from '../errors'
 import { fromExternalCall, errorMessage } from '../../errors'
 import type {
   TaskTrackerConnection,
@@ -61,6 +61,56 @@ function ytFetch<T>(
       ).andThen((body) => errAsync(apiError(res.status, body || res.statusText)))
     }
     return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+  })
+}
+
+/** POST to YouTrack and parse the JSON response (issue creation returns the new id in the body). */
+function ytPost<T>(
+  connection: TaskTrackerConnection,
+  token: string,
+  path: string,
+  body: unknown,
+): ResultAsync<T, TaskTrackerError> {
+  const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
+  return fromExternalCall(
+    fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(token),
+      body: JSON.stringify(body),
+      // Do not follow redirects: baseUrl comes from repo config, and a redirect
+      // would forward the Authorization token to an attacker-controlled host.
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  ).andThen((res) => {
+    if (!res.ok) {
+      return fromExternalCall(
+        res.text().catch(() => ''),
+        (e) => apiError(res.status, errorMessage(e)),
+      ).andThen((text) => errAsync(apiError(res.status, text || res.statusText)))
+    }
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+  })
+}
+
+/** The issues API takes the INTERNAL project id, while Canopy works with the shortName prefix. */
+function resolveProjectId(
+  connection: TaskTrackerConnection,
+  token: string,
+  projectKey: string,
+): ResultAsync<string, TaskTrackerError> {
+  if (!projectKey) return errAsync(apiError(400, 'A project is required to create a task'))
+  return ytFetch<Array<{ id?: string; shortName?: string }>>(
+    connection,
+    token,
+    '/api/admin/projects?fields=id,shortName&$top=100',
+  ).andThen((projects) => {
+    const found = projects.find(
+      (p) => p.shortName?.toUpperCase() === projectKey.toUpperCase() && p.id,
+    )
+    if (!found) return errAsync(apiError(404, `Project not found: ${projectKey}`))
+    return okAsync(found.id as string)
   })
 }
 
@@ -440,5 +490,134 @@ export const youtrackClient: TaskTrackerProviderClient = {
     return ytSend(connection, token, `/api/issues/${encodeURIComponent(taskKey)}/comments`, {
       text: body,
     })
+  },
+
+  fetchAssignableUsers(connection, token, projectKey) {
+    // Project team is the natural assignee pool; reading it needs admin scope on some
+    // instances, so fall back to the global user list rather than failing the form.
+    return resolveProjectId(connection, token, projectKey)
+      .andThen((projectId) =>
+        ytFetch<{ users?: Array<{ login?: string; fullName?: string; name?: string }> }>(
+          connection,
+          token,
+          `/api/admin/projects/${encodeURIComponent(projectId)}/team?fields=users(login,fullName,name)`,
+        ).map((team) => team.users ?? []),
+      )
+      .orElse(() =>
+        ytFetch<Array<{ login?: string; fullName?: string; name?: string }>>(
+          connection,
+          token,
+          '/api/users?fields=login,fullName,name&$top=50',
+        ),
+      )
+      .map((users) =>
+        users
+          .filter((u) => u.login)
+          .map((u) => ({ id: u.login!, displayName: u.fullName ?? u.name ?? u.login! })),
+      )
+  },
+
+  fetchSprints(connection, token, boardId) {
+    return ytFetch<Array<{ id: string; name: string; isResolved?: boolean; archived?: boolean }>>(
+      connection,
+      token,
+      `/api/agiles/${encodeURIComponent(boardId)}/sprints?fields=id,name,isResolved,archived&$top=50`,
+    ).map((data) =>
+      data
+        .filter((s) => !s.isResolved && !s.archived)
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          number: parseSprintNumber(s.name),
+          state: 'active' as const,
+        })),
+    )
+  },
+
+  fetchCreateTaskTypes(connection, token, projectKey) {
+    // Same Type-bundle lookup as fetchTaskTypes, but for an explicit project instead of the
+    // connection-level default (the create form picks the project itself).
+    return ytFetch<Array<{ name: string; values?: Array<{ name: string }> }>>(
+      connection,
+      token,
+      `/api/admin/projects/${encodeURIComponent(projectKey)}/customFields?fields=name,bundle(values(name))&$top=50`,
+    ).map((data) => {
+      const typeField = data.find((f) => f.name === 'Type' || f.name.toLowerCase() === 'type')
+      return (typeField?.values ?? []).map((v) => v.name).filter(Boolean)
+    })
+  },
+
+  createTask(connection, token, input) {
+    // Brace-quote a value for the free-text Commands API; braces/quotes are stripped so the
+    // value cannot terminate the literal and smuggle extra commands (IPC validates charsets too).
+    const q = (v: string): string => `{${v.replace(/[{}"]/g, '')}}`
+
+    return resolveProjectId(connection, token, input.projectKey ?? '')
+      .andThen((projectId) =>
+        ytPost<{ idReadable?: string }>(connection, token, '/api/issues?fields=idReadable', {
+          project: { id: projectId },
+          summary: input.title,
+          ...(input.description ? { description: input.description } : {}),
+        }),
+      )
+      .andThen((created) => {
+        if (!created.idReadable) {
+          return errAsync(apiError(0, 'YouTrack did not return the new issue id'))
+        }
+        const key = created.idReadable
+        const warnings: string[] = []
+        // From here the issue EXISTS — every follow-up command failure (workflow scripts,
+        // permissions) degrades to a warning; a hard error would invite a duplicating retry.
+        const cmd = (query: string, label: string): ResultAsync<void, TaskTrackerError> =>
+          ytSend(connection, token, '/api/commands', {
+            query,
+            issues: [{ idReadable: key }],
+          }).orElse((e) => {
+            warnings.push(
+              `Task created, but ${label} was not applied: ${taskTrackerErrorMessage(e)}`,
+            )
+            return okAsync(undefined)
+          })
+
+        let chain: ResultAsync<void, TaskTrackerError> = okAsync(undefined)
+        if (input.typeName) {
+          chain = chain.andThen(() => cmd(`Type ${q(input.typeName!)}`, 'the type'))
+        }
+        if (input.assigneeId) {
+          chain = chain.andThen(() => cmd(`for ${q(input.assigneeId!)}`, 'the assignee'))
+        }
+        if (input.sprintId && input.boardId) {
+          chain = chain.andThen(() =>
+            // The command addresses board and sprint by NAME — resolve both from their ids.
+            ytFetch<{ name?: string }>(
+              connection,
+              token,
+              `/api/agiles/${encodeURIComponent(input.boardId!)}?fields=name`,
+            )
+              .andThen((board) =>
+                youtrackClient
+                  .fetchSprints(connection, token, input.boardId!)
+                  .andThen((sprints) => {
+                    const sprint = sprints.find((s) => s.id === input.sprintId)
+                    if (!board.name || !sprint) {
+                      return errAsync(apiError(404, 'Board or sprint not found'))
+                    }
+                    return ytSend(connection, token, '/api/commands', {
+                      query: `Board ${q(board.name)} ${q(sprint.name)}`,
+                      issues: [{ idReadable: key }],
+                    })
+                  }),
+              )
+              .orElse((e) => {
+                warnings.push(
+                  `Task created, but the sprint was not applied: ${taskTrackerErrorMessage(e)}`,
+                )
+                return okAsync(undefined)
+              }),
+          )
+        }
+        const base = connection.baseUrl.replace(/\/$/, '')
+        return chain.map(() => ({ key, url: `${base}/issue/${key}`, warnings }))
+      })
   },
 }
