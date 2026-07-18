@@ -1009,7 +1009,7 @@ interface CanopyAPI {
     repoRoot: string | undefined,
     trackerId?: string,
     projectKey?: string,
-  ) => Promise<string[]>
+  ) => Promise<Array<{ name: string; iconUrl?: string }>>
   trackerConfigCreateTask: (payload: {
     repoRoot?: string
     trackerId?: string
@@ -1536,6 +1536,7 @@ interface TrackerSprint {
 interface TrackerUser {
   id: string
   displayName: string
+  avatarUrl?: string
 }
 
 interface CreatedTask {

@@ -8,6 +8,10 @@
     badge?: string
     /** Tailwind classes for the badge chip; a neutral chip when omitted. */
     badgeClass?: string
+    /** Optional small image (data: URL) rendered before the label — type icons, avatars. */
+    icon?: string
+    /** Tailwind classes for the icon (e.g. rounded-full for avatars). */
+    iconClass?: string
   }
 
   interface OptionGroup {
@@ -22,9 +26,19 @@
     onchange?: (value: string) => void
     id?: string
     maxWidth?: string
+    /** Renders the trigger inert (e.g. a sprint select before a board is picked). */
+    disabled?: boolean
   }
 
-  let { value, options, groups, onchange, id, maxWidth = 'none' }: Props = $props()
+  let {
+    value,
+    options,
+    groups,
+    onchange,
+    id,
+    maxWidth = 'none',
+    disabled = false,
+  }: Props = $props()
 
   let open = $state(false)
   let focusedIndex = $state(-1)
@@ -40,6 +54,8 @@
     label: string
     badge?: string
     badgeClass?: string
+    icon?: string
+    iconClass?: string
   }
 
   const flatItems = $derived.by((): FlatItem[] => {
@@ -59,6 +75,8 @@
       label: o.label,
       badge: o.badge,
       badgeClass: o.badgeClass,
+      icon: o.icon,
+      iconClass: o.iconClass,
     }))
   })
 
@@ -163,15 +181,20 @@
 <button
   bind:this={triggerEl}
   {id}
-  class="inline-flex items-center justify-between gap-2 w-full px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit cursor-pointer outline-none text-left focus:border-focus-ring"
+  class="inline-flex items-center justify-between gap-2 w-full px-2.5 py-1.5 border border-border rounded-lg bg-hover text-text text-md font-inherit outline-none text-left focus:border-focus-ring enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
   style="max-width: {maxWidth};"
+  {disabled}
   onclick={() => (open ? close() : openDropdown())}
   onkeydown={handleTriggerKeydown}
   aria-haspopup="listbox"
   aria-expanded={open}
 >
-  <span class="flex-1 truncate">
-    {selectedItem?.label ?? ''}{#if selectedItem?.badge}
+  <span class="flex-1 truncate inline-flex items-center gap-1.5 min-w-0">
+    {#if selectedItem?.icon}<img
+        src={selectedItem.icon}
+        alt=""
+        class="size-3.5 shrink-0 {selectedItem.iconClass ?? ''}"
+      />{/if}<span class="truncate">{selectedItem?.label ?? ''}</span>{#if selectedItem?.badge}
       <span
         class="ml-1 inline-flex items-center px-1.5 py-px rounded-md text-2xs align-middle {selectedItem.badgeClass ??
           'bg-active text-text-muted'}">{selectedItem.badge}</span
@@ -224,7 +247,11 @@
             onclick={() => select(item.value!)}
             onpointerenter={() => (focusedIndex = i)}
           >
-            {item.label}{#if item.badge}
+            {#if item.icon}<img
+                src={item.icon}
+                alt=""
+                class="inline-block size-3.5 mr-1.5 align-[-2px] {item.iconClass ?? ''}"
+              />{/if}{item.label}{#if item.badge}
               <span
                 class="ml-1 inline-flex items-center px-1.5 py-px rounded-md text-2xs align-middle {item.badgeClass ??
                   'bg-active text-text-muted'}">{item.badge}</span

@@ -46,15 +46,37 @@ export function filterBoardsForProject<T extends BoardLike>(boards: T[], project
 export interface SelectOption {
   value: string
   label: string
+  icon?: string
+  iconClass?: string
 }
 
+/** `icons` maps a remote icon/avatar URL to the CSP-safe data: URL resolved via the image proxy —
+ *  options only carry an icon when its URL actually resolved. */
 export function buildAssigneeOptions(
-  users: Array<{ id: string; displayName: string }>,
+  users: Array<{ id: string; displayName: string; avatarUrl?: string }>,
+  icons: Record<string, string> = {},
 ): SelectOption[] {
   return [
     { value: '', label: 'Unassigned' },
-    ...users.map((u) => ({ value: u.id, label: u.displayName })),
+    ...users.map((u) => ({
+      value: u.id,
+      label: u.displayName,
+      ...(u.avatarUrl && icons[u.avatarUrl]
+        ? { icon: icons[u.avatarUrl], iconClass: 'rounded-full' }
+        : {}),
+    })),
   ]
+}
+
+export function buildTypeOptions(
+  types: Array<{ name: string; iconUrl?: string }>,
+  icons: Record<string, string> = {},
+): SelectOption[] {
+  return types.map((t) => ({
+    value: t.name,
+    label: t.name,
+    ...(t.iconUrl && icons[t.iconUrl] ? { icon: icons[t.iconUrl], iconClass: 'rounded-sm' } : {}),
+  }))
 }
 
 export function buildSprintOptions(

@@ -78,6 +78,13 @@ export interface TrackerSprint {
 export interface TrackerUser {
   id: string
   displayName: string
+  avatarUrl?: string
+}
+
+/** Task type offered for creation, with the tracker's icon when it has one (Jira). */
+export interface TrackerCreateTaskType {
+  name: string
+  iconUrl?: string
 }
 
 export interface CreateTaskInput {
@@ -301,13 +308,13 @@ export interface TaskTrackerProviderClient {
     token: string,
     boardId: string,
   ): ResultAsync<TrackerSprint[], TaskTrackerError>
-  /** Type names valid for CREATING a task in `projectKey` (unlike the global fetchTaskTypes
+  /** Types valid for CREATING a task in `projectKey` (unlike the global fetchTaskTypes
    *  used by the type-mapping editors). Empty = the tracker has no type concept (GitHub). */
   fetchCreateTaskTypes(
     connection: TaskTrackerConnection,
     token: string,
     projectKey: string,
-  ): ResultAsync<string[], TaskTrackerError>
+  ): ResultAsync<TrackerCreateTaskType[], TaskTrackerError>
   createTask(
     connection: TaskTrackerConnection,
     token: string,

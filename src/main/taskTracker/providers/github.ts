@@ -79,7 +79,7 @@ const ADD_COMMENT_MUTATION = `
 const ASSIGNABLE_USERS_QUERY = `
   query ($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
-      assignableUsers(first: 50) { nodes { id login name } }
+      assignableUsers(first: 50) { nodes { id login name avatarUrl } }
     }
   }
 `
@@ -503,13 +503,16 @@ export const githubClient: TaskTrackerProviderClient = {
     return mapGitHubError(
       graphqlFetch<{
         repository: {
-          assignableUsers: { nodes: Array<{ id: string; login: string; name: string | null }> }
+          assignableUsers: {
+            nodes: Array<{ id: string; login: string; name: string | null; avatarUrl?: string }>
+          }
         }
       }>(apiUrl, token, ASSIGNABLE_USERS_QUERY, { owner, name: repo }),
     ).map((data) =>
       data.repository.assignableUsers.nodes.map((u) => ({
         id: u.id,
         displayName: u.name ?? u.login,
+        avatarUrl: u.avatarUrl,
       })),
     )
   },
@@ -535,7 +538,7 @@ export const githubClient: TaskTrackerProviderClient = {
 
   fetchCreateTaskTypes() {
     // Issues have no type concept — the create form hides the field.
-    return okAsync([])
+    return okAsync([] as Array<{ name: string; iconUrl?: string }>)
   },
 
   createTask(connection, token, input) {

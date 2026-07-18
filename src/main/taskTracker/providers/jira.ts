@@ -519,14 +519,20 @@ export const jiraClient: TaskTrackerProviderClient = {
   },
 
   fetchAssignableUsers(connection, token, projectKey) {
-    return jiraFetch<Array<{ accountId?: string; displayName?: string }>>(
+    return jiraFetch<
+      Array<{ accountId?: string; displayName?: string; avatarUrls?: Record<string, string> }>
+    >(
       connection,
       token,
       `/rest/api/3/user/assignable/search?project=${encodeURIComponent(projectKey)}&maxResults=50`,
     ).map((users) =>
       users
         .filter((u) => u.accountId)
-        .map((u) => ({ id: u.accountId!, displayName: u.displayName ?? u.accountId! })),
+        .map((u) => ({
+          id: u.accountId!,
+          displayName: u.displayName ?? u.accountId!,
+          avatarUrl: u.avatarUrls?.['24x24'] ?? u.avatarUrls?.['48x48'],
+        })),
     )
   },
 
@@ -550,8 +556,8 @@ export const jiraClient: TaskTrackerProviderClient = {
     // it 403s without Create-issues permission — fall back to the global type list (the create
     // POST is the final validator either way). Response envelope varies across deployments.
     return jiraFetch<{
-      issueTypes?: Array<{ name?: string; subtask?: boolean }>
-      values?: Array<{ name?: string; subtask?: boolean }>
+      issueTypes?: Array<{ name?: string; subtask?: boolean; iconUrl?: string }>
+      values?: Array<{ name?: string; subtask?: boolean; iconUrl?: string }>
     }>(
       connection,
       token,
@@ -559,10 +565,21 @@ export const jiraClient: TaskTrackerProviderClient = {
     )
       .map((data) => {
         const types = data.issueTypes ?? data.values ?? []
-        // Subtasks need a parent we don't collect in the form.
-        return [...new Set(types.filter((t) => t.name && !t.subtask).map((t) => t.name!))]
+        // Subtasks need a parent we don't collect in the form; dedupe by name.
+        const seen = new Set<string>()
+        const result: Array<{ name: string; iconUrl?: string }> = []
+        for (const t of types) {
+          if (!t.name || t.subtask || seen.has(t.name)) continue
+          seen.add(t.name)
+          result.push({ name: t.name, iconUrl: t.iconUrl })
+        }
+        return result
       })
-      .orElse(() => jiraClient.fetchTaskTypes(connection, token))
+      .orElse(() =>
+        jiraClient
+          .fetchTaskTypes(connection, token)
+          .map((names) => names.map((name) => ({ name }))),
+      )
   },
 
   createTask(connection, token, input) {

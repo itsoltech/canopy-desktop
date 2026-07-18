@@ -26,6 +26,7 @@ import type {
   TrackerProject,
   TrackerTransition,
   TrackerUser,
+  TrackerCreateTaskType,
   CreateTaskInput,
   CreatedTask,
 } from './types'
@@ -376,7 +377,7 @@ export class TaskTrackerManager {
     projectKey: string,
     trackerId?: string,
     repoRoot?: string,
-  ): ResultAsync<string[], TaskTrackerError> {
+  ): ResultAsync<TrackerCreateTaskType[], TaskTrackerError> {
     return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)

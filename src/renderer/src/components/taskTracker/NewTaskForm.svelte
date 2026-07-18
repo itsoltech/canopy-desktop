@@ -7,6 +7,7 @@
   import {
     buildAssigneeOptions,
     buildSprintOptions,
+    buildTypeOptions,
     filterBoardsForProject,
     validateTitle,
     visibleFields,
@@ -20,6 +21,7 @@
     repoRoot,
     provider,
     onCreated,
+    submitLabel = 'Create task',
   }: {
     trackerId: string
     /** Tracker-config root — the ACTIVE worktree path, not the main repo root. */
@@ -27,17 +29,21 @@
     provider: TrackerProviderKind
     /** Receives the created task (re-fetched when possible) and post-create warnings. */
     onCreated: (task: TrackerTaskLite, warnings: string[]) => void
+    /** Submit-button label — the worktree flow continues into worktree creation. */
+    submitLabel?: string
   } = $props()
 
   let fields = $derived(visibleFields(provider))
 
   let projects = $state<Array<{ key: string; name: string }>>([])
   let projectKey = $state('')
-  let types = $state<string[]>([])
+  let types = $state<Array<{ name: string; iconUrl?: string }>>([])
   let typeName = $state('')
   let title = $state('')
   let description = $state('')
-  let users = $state<Array<{ id: string; displayName: string }>>([])
+  let users = $state<Array<{ id: string; displayName: string; avatarUrl?: string }>>([])
+  // Remote icon/avatar URL → data: URL (renderer CSP forbids remote img-src).
+  let icons = $state<Record<string, string>>({})
   let assigneeId = $state('')
   let boards = $state<Array<{ id: string; name: string; projectKey?: string }>>([])
   let boardId = $state('')
@@ -92,15 +98,15 @@
       fields.type
         ? window.api
             .trackerConfigFetchCreateTaskTypes(repoRoot, trackerId, projectKey)
-            .catch(() => [] as string[])
-        : Promise.resolve([] as string[]),
+            .catch(() => [] as Array<{ name: string; iconUrl?: string }>)
+        : Promise.resolve([] as Array<{ name: string; iconUrl?: string }>),
       window.api
         .trackerConfigFetchAssignableUsers(repoRoot, trackerId, projectKey)
-        .catch(() => [] as Array<{ id: string; displayName: string }>),
+        .catch(() => [] as Array<{ id: string; displayName: string; avatarUrl?: string }>),
     ])
     types = typeList
     users = userList
-    typeName = types.find((t) => t.toLowerCase() === 'task') ?? types[0] ?? ''
+    typeName = types.find((t) => t.name.toLowerCase() === 'task')?.name ?? types[0]?.name ?? ''
     // Creating a task for yourself is the common case — preselect the current user when we
     // can match them in the assignable list.
     if (currentUserName) {
@@ -108,6 +114,22 @@
     } else if (assigneeId && !users.some((u) => u.id === assigneeId)) {
       assigneeId = ''
     }
+    void resolveIcons()
+  }
+
+  // Best-effort, fire-and-forget: type icons and avatars render as they resolve through the
+  // image proxy (LRU-cached in main); a missing icon just leaves a text-only option.
+  async function resolveIcons(): Promise<void> {
+    const all = [...types.map((t) => t.iconUrl), ...users.map((u) => u.avatarUrl)]
+    const urls = all.filter(
+      (url, i): url is string => !!url && !(url in icons) && all.indexOf(url) === i,
+    )
+    await Promise.all(
+      urls.map(async (url) => {
+        const dataUrl = await window.api.taskTrackerImageAsDataUrl(repoRoot, url).catch(() => null)
+        if (dataUrl) icons[url] = dataUrl
+      }),
+    )
   }
 
   async function onProjectChange(next: string): Promise<void> {
@@ -219,7 +241,7 @@
           <span class={labelCls}>Type</span>
           <CustomSelect
             value={typeName}
-            options={types.map((t) => ({ value: t, label: t }))}
+            options={buildTypeOptions(types, icons)}
             onchange={(v) => (typeName = v)}
             maxWidth="none"
           />
@@ -261,7 +283,7 @@
           <span class={labelCls}>Assignee</span>
           <CustomSelect
             value={assigneeId}
-            options={buildAssigneeOptions(users)}
+            options={buildAssigneeOptions(users, icons)}
             onchange={(v) => (assigneeId = v)}
             maxWidth="none"
           />
@@ -281,14 +303,32 @@
           />
         </div>
       {/if}
-      {#if fields.sprint && (sprints.length > 0 || loadingSprints)}
+      {#if fields.sprint}
+        <!-- Always present so picking a board doesn't shift the layout — just disabled until
+             a board provides the sprint list. -->
         <div class="flex flex-col gap-1">
           <span class={labelCls}>{fields.sprintLabel}</span>
-          {#if loadingSprints}
-            <div class="flex items-center gap-2 text-xs text-text-muted py-1">
-              <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
-              <span>Loading {fields.sprintLabel.toLowerCase()}s…</span>
-            </div>
+          {#if !boardId && fields.board}
+            <CustomSelect
+              value=""
+              options={[{ value: '', label: 'Select a board first' }]}
+              maxWidth="none"
+              disabled
+            />
+          {:else if loadingSprints}
+            <CustomSelect
+              value=""
+              options={[{ value: '', label: 'Loading…' }]}
+              maxWidth="none"
+              disabled
+            />
+          {:else if sprints.length === 0}
+            <CustomSelect
+              value=""
+              options={[{ value: '', label: 'No ' + fields.sprintLabel.toLowerCase() + 's' }]}
+              maxWidth="none"
+              disabled
+            />
           {:else}
             <CustomSelect
               value={sprintId}
@@ -315,7 +355,7 @@
           {:else}
             <Plus size={14} />
           {/if}
-          Create task
+          {submitLabel}
         </button>
       </div>
     </div>

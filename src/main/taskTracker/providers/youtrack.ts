@@ -495,25 +495,37 @@ export const youtrackClient: TaskTrackerProviderClient = {
   fetchAssignableUsers(connection, token, projectKey) {
     // Project team is the natural assignee pool; reading it needs admin scope on some
     // instances, so fall back to the global user list rather than failing the form.
+    const base = connection.baseUrl.replace(/\/$/, '')
     return resolveProjectId(connection, token, projectKey)
       .andThen((projectId) =>
-        ytFetch<{ users?: Array<{ login?: string; fullName?: string; name?: string }> }>(
+        ytFetch<{
+          users?: Array<{ login?: string; fullName?: string; name?: string; avatarUrl?: string }>
+        }>(
           connection,
           token,
-          `/api/admin/projects/${encodeURIComponent(projectId)}/team?fields=users(login,fullName,name)`,
+          `/api/admin/projects/${encodeURIComponent(projectId)}/team?fields=users(login,fullName,name,avatarUrl)`,
         ).map((team) => team.users ?? []),
       )
       .orElse(() =>
-        ytFetch<Array<{ login?: string; fullName?: string; name?: string }>>(
+        ytFetch<Array<{ login?: string; fullName?: string; name?: string; avatarUrl?: string }>>(
           connection,
           token,
-          '/api/users?fields=login,fullName,name&$top=50',
+          '/api/users?fields=login,fullName,name,avatarUrl&$top=50',
         ),
       )
       .map((users) =>
         users
           .filter((u) => u.login)
-          .map((u) => ({ id: u.login!, displayName: u.fullName ?? u.name ?? u.login! })),
+          .map((u) => ({
+            id: u.login!,
+            displayName: u.fullName ?? u.name ?? u.login!,
+            // YouTrack returns hub-relative avatar paths — absolutize against the instance.
+            avatarUrl: u.avatarUrl
+              ? u.avatarUrl.startsWith('http')
+                ? u.avatarUrl
+                : `${base}${u.avatarUrl}`
+              : undefined,
+          })),
       )
   },
 
@@ -536,14 +548,18 @@ export const youtrackClient: TaskTrackerProviderClient = {
 
   fetchCreateTaskTypes(connection, token, projectKey) {
     // Same Type-bundle lookup as fetchTaskTypes, but for an explicit project instead of the
-    // connection-level default (the create form picks the project itself).
+    // connection-level default (the create form picks the project itself). No type icons here —
+    // YouTrack bundles don't carry them.
     return ytFetch<Array<{ name: string; values?: Array<{ name: string }> }>>(
       connection,
       token,
       `/api/admin/projects/${encodeURIComponent(projectKey)}/customFields?fields=name,bundle(values(name))&$top=50`,
     ).map((data) => {
       const typeField = data.find((f) => f.name === 'Type' || f.name.toLowerCase() === 'type')
-      return (typeField?.values ?? []).map((v) => v.name).filter(Boolean)
+      return (typeField?.values ?? [])
+        .map((v) => v.name)
+        .filter(Boolean)
+        .map((name) => ({ name }))
     })
   },
 

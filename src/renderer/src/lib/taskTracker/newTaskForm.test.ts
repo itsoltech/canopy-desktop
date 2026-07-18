@@ -4,6 +4,7 @@ import {
   filterBoardsForProject,
   buildAssigneeOptions,
   buildSprintOptions,
+  buildTypeOptions,
   validateTitle,
 } from './newTaskForm'
 
@@ -69,6 +70,41 @@ describe('buildAssigneeOptions', () => {
     expect(options.slice(1)).toEqual([
       { value: 'u1', label: 'Ada' },
       { value: 'u2', label: 'Grace' },
+    ])
+  })
+
+  it('attaches resolved avatars as rounded icons', () => {
+    const options = buildAssigneeOptions(
+      [
+        { id: 'u1', displayName: 'Ada', avatarUrl: 'https://x/a.png' },
+        { id: 'u2', displayName: 'Grace' },
+      ],
+      { 'https://x/a.png': 'data:image/png;base64,AAA' },
+    )
+    expect(options[1]).toEqual({
+      value: 'u1',
+      label: 'Ada',
+      icon: 'data:image/png;base64,AAA',
+      iconClass: 'rounded-full',
+    })
+    expect(options[2]).toEqual({ value: 'u2', label: 'Grace' })
+  })
+})
+
+describe('buildTypeOptions', () => {
+  it('maps type names and attaches resolved icons', () => {
+    const options = buildTypeOptions(
+      [{ name: 'Task', iconUrl: 'https://x/t.svg' }, { name: 'Bug' }],
+      { 'https://x/t.svg': 'data:image/svg+xml;base64,BBB' },
+    )
+    expect(options).toEqual([
+      {
+        value: 'Task',
+        label: 'Task',
+        icon: 'data:image/svg+xml;base64,BBB',
+        iconClass: 'rounded-sm',
+      },
+      { value: 'Bug', label: 'Bug' },
     ])
   })
 })
