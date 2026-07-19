@@ -616,7 +616,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
-    class="outline-none resize w-[576px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[680px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_oklch(0_0_0/0.6)] overflow-hidden"
+    class="outline-none resize w-[576px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[680px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
     use:unlockSizeOnResize
     role="dialog"
     aria-modal="true"
@@ -772,17 +772,16 @@
              branch skipped the picker — so the creation type can always be changed. -->
         <div
           class="flex gap-0.5 p-0.5 mb-3 bg-active rounded-lg shrink-0"
-          role="radiogroup"
+          role="group"
           aria-label="Branch mode"
         >
           <button
             class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
             'new'
-              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_var(--color-scrim)]'
               : 'bg-transparent text-text-muted hover:text-text-secondary'}"
             onclick={() => setMode('new')}
-            role="radio"
-            aria-checked={mode === 'new'}
+            aria-pressed={mode === 'new'}
             type="button"
           >
             New branch
@@ -791,11 +790,10 @@
           <button
             class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {mode ===
             'existing'
-              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_var(--color-scrim)]'
               : 'bg-transparent text-text-muted hover:text-text-secondary'}"
             onclick={() => setMode('existing')}
-            role="radio"
-            aria-checked={mode === 'existing'}
+            aria-pressed={mode === 'existing'}
             type="button"
           >
             Existing branch
@@ -804,12 +802,11 @@
           <button
             class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit transition-all duration-fast enabled:cursor-pointer disabled:opacity-40 disabled:cursor-default {mode ===
             'task'
-              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_var(--color-scrim)]'
               : 'bg-transparent text-text-muted enabled:hover:text-text-secondary'}"
             onclick={() => setMode('task')}
             disabled={taskModeState.disabled}
-            role="radio"
-            aria-checked={mode === 'task'}
+            aria-pressed={mode === 'task'}
             type="button"
             title={taskModeState.disabled
               ? taskModeState.reason
@@ -824,12 +821,11 @@
           <button
             class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit transition-all duration-fast enabled:cursor-pointer disabled:opacity-40 disabled:cursor-default {mode ===
             'newTask'
-              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_oklch(0_0_0/0.15)]'
+              ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_var(--color-scrim)]'
               : 'bg-transparent text-text-muted enabled:hover:text-text-secondary'}"
             onclick={() => setMode('newTask')}
             disabled={taskModeState.disabled}
-            role="radio"
-            aria-checked={mode === 'newTask'}
+            aria-pressed={mode === 'newTask'}
             type="button"
             title={taskModeState.disabled
               ? taskModeState.reason

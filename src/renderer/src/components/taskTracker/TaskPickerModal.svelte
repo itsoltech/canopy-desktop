@@ -302,7 +302,7 @@
           <!-- Same tab styling as the Create Worktree mode switch. -->
           <div
             class="flex gap-0.5 p-0.5 bg-active rounded-lg shrink-0"
-            role="radiogroup"
+            role="group"
             aria-label="Link source"
           >
             <button
@@ -314,8 +314,7 @@
                 linkTab = 'existing'
                 selectedLinkTask = null
               }}
-              role="radio"
-              aria-checked={linkTab === 'existing'}
+              aria-pressed={linkTab === 'existing'}
               type="button"
             >
               Existing tasks
@@ -330,8 +329,7 @@
                 linkTab = 'newTask'
                 selectedLinkTask = null
               }}
-              role="radio"
-              aria-checked={linkTab === 'newTask'}
+              aria-pressed={linkTab === 'newTask'}
               type="button"
               title="Create a task in the tracker — it links to this worktree right away"
             >
