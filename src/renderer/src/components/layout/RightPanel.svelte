@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { AgentSessionState } from '../../lib/agents/agentState.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { getPanelTask } from '../../lib/stores/taskTracker.svelte'
   import AgentInspector from '../agents/AgentInspector.svelte'
   import ChangesPanel from '../diff/ChangesPanel.svelte'
+  import TaskPanel from '../taskTracker/TaskPanel.svelte'
 
   let {
     agentState = null,
@@ -20,8 +22,20 @@
     workspaceState.changesCount = changesFileCount
   })
 
-  const tabOrder = ['session', 'changes'] as const
-  type TabId = (typeof tabOrder)[number]
+  type TabId = 'session' | 'changes' | 'task'
+
+  // The Task tab exists only when the worktree resolves to a tracker task.
+  let panelTask = $derived(getPanelTask())
+  let tabOrder = $derived<TabId[]>(
+    panelTask ? ['session', 'changes', 'task'] : ['session', 'changes'],
+  )
+
+  // Don't strand the selection on a tab that just disappeared.
+  $effect(() => {
+    if (!panelTask && workspaceState.rightPanelTab === 'task') {
+      workspaceState.rightPanelTab = 'session'
+    }
+  })
 
   function handleTabKeydown(e: KeyboardEvent, current: TabId): void {
     const idx = tabOrder.indexOf(current)
@@ -90,6 +104,27 @@
         <span class="absolute inset-x-0 -bottom-px h-0.5 bg-accent" aria-hidden="true"></span>
       {/if}
     </button>
+    {#if panelTask}
+      <button
+        class="relative flex-1 inline-flex items-center justify-center gap-1.5 h-9 text-xs font-medium font-inherit border-0 bg-transparent cursor-pointer transition-colors duration-fast"
+        class:text-text={workspaceState.rightPanelTab === 'task'}
+        class:text-text-faint={workspaceState.rightPanelTab !== 'task'}
+        class:hover:text-text-secondary={workspaceState.rightPanelTab !== 'task'}
+        role="tab"
+        id="right-panel-tab-task"
+        aria-controls="right-panel-panel-task"
+        aria-selected={workspaceState.rightPanelTab === 'task'}
+        tabindex={workspaceState.rightPanelTab === 'task' ? 0 : -1}
+        onclick={() => (workspaceState.rightPanelTab = 'task')}
+        onkeydown={(e) => handleTabKeydown(e, 'task')}
+        title={panelTask.taskKey}
+      >
+        Task
+        {#if workspaceState.rightPanelTab === 'task'}
+          <span class="absolute inset-x-0 -bottom-px h-0.5 bg-accent" aria-hidden="true"></span>
+        {/if}
+      </button>
+    {/if}
   </div>
 
   <div
@@ -123,4 +158,16 @@
       </div>
     {/if}
   </div>
+
+  {#if panelTask}
+    <div
+      class="flex-1 overflow-y-auto min-h-0"
+      class:hidden={workspaceState.rightPanelTab !== 'task'}
+      role="tabpanel"
+      id="right-panel-panel-task"
+      aria-labelledby="right-panel-tab-task"
+    >
+      <TaskPanel {worktreePath} />
+    </div>
+  {/if}
 </aside>

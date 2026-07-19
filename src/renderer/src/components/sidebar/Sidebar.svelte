@@ -10,6 +10,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
+  import { getRepoConfig } from '../../lib/stores/taskTracker.svelte'
 
   let {
     onLaunchTool,
@@ -26,6 +27,9 @@
     return getSidebarConfig(raw)
   })
   let remoteEnabled = $derived(prefs['remote.enabled'] === 'true')
+  // Project management shows by default when the open repo has a configured tracker connection
+  // (.canopy/config.json); for other repos it shows only when enabled in the sidebar menu.
+  let repoHasTracker = $derived((getRepoConfig()?.trackers.length ?? 0) > 0)
 
   onMount(async () => {
     const info = await window.api.getAboutInfo()
@@ -39,7 +43,8 @@
 >
   <div class="flex-1 min-h-0 overflow-y-auto flex flex-col [scrollbar-gutter:stable]">
     {#each sections as section (section.id)}
-      {#if section.visible}
+      {@const visible = section.visible || (section.id === 'tasks' && repoHasTracker)}
+      {#if visible}
         {#if section.id === 'projects'}
           <ProjectTreeSection />
         {:else if section.id === 'git'}

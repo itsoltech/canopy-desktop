@@ -14,17 +14,28 @@ export interface TaskTrackerConnection {
   username?: string
 }
 
+/** Normalized status category — drives status chip colors in the UI. Jira reports it directly
+ *  (statusCategory); other providers approximate (e.g. YouTrack resolved states → 'done'). */
+export type TrackerStatusCategory = 'todo' | 'in-progress' | 'done'
+
 export interface TrackerTask {
   key: string
   summary: string
   description: string
   status: string
+  statusCategory?: TrackerStatusCategory
   priority: string
   type: 'task' | 'story' | 'subtask' | 'bug' | 'epic' | string
+  /** The tracker's OWN name for the type (e.g. Jira "User Story") — `type` is normalized. */
+  typeName?: string
+  /** Tracker-hosted icon for the task type (authenticated URL — proxy before rendering). */
+  typeIconUrl?: string
   parentKey?: string
   sprintName?: string
   sprintNumber?: number
   assignee?: string
+  /** Assignee avatar — may live on the tracker origin (authenticated) or a public CDN. */
+  assigneeAvatarUrl?: string
   url?: string
 }
 
@@ -37,6 +48,7 @@ export interface TrackerBoard {
 export interface TrackerStatus {
   id: string
   name: string
+  statusCategory?: TrackerStatusCategory
 }
 
 export interface TrackerComment {
@@ -59,6 +71,53 @@ export interface TrackerSprint {
   name: string
   number?: number
   state: 'active' | 'closed' | 'future'
+}
+
+/** Assignable user. `id` is the provider-native identifier used when creating a task:
+ *  Jira accountId, YouTrack login, GitHub GraphQL user node id. */
+export interface TrackerUser {
+  id: string
+  displayName: string
+  avatarUrl?: string
+}
+
+/** Task type offered for creation, with the tracker's icon when it has one (Jira). */
+export interface TrackerCreateTaskType {
+  name: string
+  iconUrl?: string
+}
+
+/** Image pasted/dropped into the create form — uploaded as a tracker attachment AFTER the task
+ *  exists (Jira/YouTrack; GitHub has no attachment API, surfaces a warning instead). */
+export interface CreateTaskAttachment {
+  filename: string
+  mimeType: string
+  dataBase64: string
+}
+
+export interface CreateTaskInput {
+  /** Jira/YouTrack project key. Absent for GitHub. */
+  projectKey?: string
+  /** Tracker's own type name (from fetchCreateTaskTypes). Absent for GitHub. */
+  typeName?: string
+  title: string
+  description?: string
+  /** TrackerUser.id from fetchAssignableUsers. */
+  assigneeId?: string
+  /** Board hosting the sprint (YouTrack sprint command needs the board; Jira/GitHub ignore it). */
+  boardId?: string
+  /** TrackerSprint.id from fetchSprints — Jira agile sprint id, YouTrack sprint id,
+   *  GitHub milestone GraphQL node id (NOT the numeric milestone number). */
+  sprintId?: string
+  attachments?: CreateTaskAttachment[]
+}
+
+export interface CreatedTask {
+  key: string
+  url?: string
+  /** Post-create steps that failed AFTER the task itself was created (partial state —
+   *  surfaced to the user, never a hard failure: retrying the create would duplicate it). */
+  warnings: string[]
 }
 
 export interface BranchTemplateConfig {
@@ -97,11 +156,23 @@ export interface TrackerConfig {
   provider: TaskTrackerProvider
   baseUrl: string
   projectKey?: string
+  /**
+   * Tracker projects (task-key prefixes) that belong to THIS repository. When non-empty it acts
+   * as a whitelist for the task pickers and for which projects can carry template overrides.
+   * Empty/absent = all projects the credentials can see.
+   */
+  projects?: string[]
 }
 
-export interface BoardOverride {
+export interface ProjectOverride {
   branchTemplate?: Partial<BranchTemplateConfig & { typeMapping: Record<string, string> }>
   prTemplate?: Partial<PRTemplateConfig>
+}
+
+/** A tracker project (Jira project / YouTrack project) — `key` is the task-key prefix. */
+export interface TrackerProject {
+  key: string
+  name: string
 }
 
 export interface RepoConfig {
@@ -109,8 +180,19 @@ export interface RepoConfig {
   trackers: TrackerConfig[]
   branchTemplate?: BranchTemplateConfig & { typeMapping?: Record<string, string> }
   prTemplate?: PRTemplateConfig
-  boardOverrides: Record<string, BoardOverride>
+  /**
+   * Template overrides keyed by the tracker PROJECT key — the task-key prefix (`GAKKO-1` →
+   * `GAKKO`), an intrinsic property of every task. Boards are only a browsing filter.
+   */
+  projectOverrides: Record<string, ProjectOverride>
   filters: TaskFilterConfig
+  /**
+   * Guidance for AI agents working in this repository, stored verbatim in config.json so any
+   * agent reading the file sees it. Canopy itself never interprets these strings.
+   */
+  agents?: {
+    instructions: string[]
+  }
 }
 
 // --- Resolved config (merged global + repo) ---
@@ -126,6 +208,12 @@ export interface ResolvedConfig {
   }
   hasGlobal: boolean
   hasRepo: boolean
+  /**
+   * Ids of trackers declared by the REPO's own config. The merged `config.trackers` also carries
+   * personal (global) connections for credential reuse — project-scoped UI (e.g. the sidebar
+   * PROJECT MANAGEMENT section) must not present those as the project's trackers.
+   */
+  repoTrackerIds: string[]
 }
 
 export interface TaskTrackerExportData {
@@ -162,6 +250,16 @@ export interface TaskTrackerProviderClient {
     connection: TaskTrackerConnection,
     token: string,
   ): ResultAsync<TrackerBoard[], TaskTrackerError>
+  /** Tracker projects (task-key prefixes). Providers without the concept (GitHub) return []. */
+  fetchProjects(
+    connection: TaskTrackerConnection,
+    token: string,
+  ): ResultAsync<TrackerProject[], TaskTrackerError>
+  /** Task type names as the tracker defines them (bug/story/…), for type-mapping editors. */
+  fetchTaskTypes(
+    connection: TaskTrackerConnection,
+    token: string,
+  ): ResultAsync<string[], TaskTrackerError>
   fetchStatuses(
     connection: TaskTrackerConnection,
     token: string,
@@ -170,7 +268,7 @@ export interface TaskTrackerProviderClient {
   fetchTasks(
     connection: TaskTrackerConnection,
     token: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
   ): ResultAsync<TrackerTask[], TaskTrackerError>
   getCurrentSprint(
     connection: TaskTrackerConnection,
@@ -187,4 +285,66 @@ export interface TaskTrackerProviderClient {
     token: string,
     taskKey: string,
   ): ResultAsync<TrackerAttachment[], TaskTrackerError>
+  /** Transitions available from the task's CURRENT status, with workflow-required fields when the
+   *  provider can introspect them (Jira). Providers without introspection return empty `fields`. */
+  fetchTransitions(
+    connection: TaskTrackerConnection,
+    token: string,
+    taskKey: string,
+  ): ResultAsync<TrackerTransition[], TaskTrackerError>
+  applyTransition(
+    connection: TaskTrackerConnection,
+    token: string,
+    taskKey: string,
+    transitionId: string,
+    opts: { fields?: Record<string, string>; comment?: string },
+  ): ResultAsync<void, TaskTrackerError>
+  addComment(
+    connection: TaskTrackerConnection,
+    token: string,
+    taskKey: string,
+    body: string,
+  ): ResultAsync<void, TaskTrackerError>
+  /** Users a new task in `projectKey` can be assigned to (GitHub ignores the project). */
+  fetchAssignableUsers(
+    connection: TaskTrackerConnection,
+    token: string,
+    projectKey: string,
+  ): ResultAsync<TrackerUser[], TaskTrackerError>
+  /** Active + future sprints of a board (GitHub: open milestones, boardId ignored). */
+  fetchSprints(
+    connection: TaskTrackerConnection,
+    token: string,
+    boardId: string,
+  ): ResultAsync<TrackerSprint[], TaskTrackerError>
+  /** Types valid for CREATING a task in `projectKey` (unlike the global fetchTaskTypes
+   *  used by the type-mapping editors). Empty = the tracker has no type concept (GitHub). */
+  fetchCreateTaskTypes(
+    connection: TaskTrackerConnection,
+    token: string,
+    projectKey: string,
+  ): ResultAsync<TrackerCreateTaskType[], TaskTrackerError>
+  createTask(
+    connection: TaskTrackerConnection,
+    token: string,
+    input: CreateTaskInput,
+  ): ResultAsync<CreatedTask, TaskTrackerError>
+}
+
+/** A field the workflow requires/offers on a specific transition (e.g. Jira `resolution`). */
+export interface TrackerTransitionField {
+  key: string
+  name: string
+  required: boolean
+  allowedValues?: { id: string; name: string }[]
+}
+
+export interface TrackerTransition {
+  id: string
+  name: string
+  /** Status the task will be in after the transition. */
+  toStatus: string
+  toStatusCategory?: TrackerStatusCategory
+  /** Empty when the provider cannot introspect workflow requirements (YouTrack, GitHub). */
+  fields: TrackerTransitionField[]
 }

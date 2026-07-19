@@ -11,6 +11,7 @@
     onCommit,
     showRemoteOnlyTag = false,
     highlightPicked = false,
+    fillQueryOnPick = false,
   }: {
     branches: { local: string[]; remote: string[] }
     label: string
@@ -21,6 +22,8 @@
     onCommit?: () => void
     showRemoteOnlyTag?: boolean
     highlightPicked?: boolean
+    /** Combobox behavior: picking from the list writes the branch into the search input. */
+    fillQueryOnPick?: boolean
   } = $props()
 
   let selectedIdx = $state(0)
@@ -46,8 +49,22 @@
     }
   })
 
+  // Combobox mode: the list collapses after a pick and reopens when the user edits the input.
+  let listOpen = $state(true)
+
   function pick(branch: string): void {
     selectedBranch = branch
+    if (fillQueryOnPick) {
+      query = branch
+      listOpen = false
+    }
+  }
+
+  function handleInput(): void {
+    if (!fillQueryOnPick) return
+    listOpen = true
+    // A hand-edited query no longer matches the picked branch — require a fresh pick.
+    if (query !== selectedBranch) selectedBranch = ''
   }
 
   function scrollIntoView(): void {
@@ -60,10 +77,12 @@
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
+      listOpen = true
       selectedIdx = (selectedIdx + 1) % Math.max(1, filteredBranches.length)
       scrollIntoView()
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
+      listOpen = true
       selectedIdx =
         (selectedIdx - 1 + filteredBranches.length) % Math.max(1, filteredBranches.length)
       scrollIntoView()
@@ -110,39 +129,43 @@
     class="w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
     type="text"
     bind:value={query}
+    oninput={handleInput}
     placeholder="Search branches..."
     spellcheck="false"
     autocomplete="off"
   />
-  <div
-    class="mt-2 max-h-[260px] overflow-y-auto border border-border-subtle rounded-lg"
-    role="listbox"
-    aria-label="Branches"
-  >
-    {#if filteredBranches.length === 0}
-      <div class="px-2.5 py-4 text-center text-md text-text-faint">No branches found</div>
-    {:else}
-      {#each filteredBranches as branch, i (branch)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          class="flex items-baseline px-2.5 py-1.5 text-md text-text cursor-pointer transition-colors duration-fast hover:bg-active"
-          class:!bg-active={i === selectedIdx}
-          class:!bg-accent-bg={highlightPicked && selectedBranch === branch}
-          class:!text-accent-text={highlightPicked && selectedBranch === branch}
-          role="option"
-          aria-selected={i === selectedIdx}
-          data-branch-selected={i === selectedIdx}
-          onclick={() => pick(branch)}
-          onpointerenter={() => (selectedIdx = i)}
-        >
-          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-            >{branch}</span
+  {#if !fillQueryOnPick || listOpen}
+    <!-- Grows with the (resizable) dialog: flex-1 against the step container, scrolls when squeezed. -->
+    <div
+      class="mt-2 flex-1 min-h-[120px] overflow-y-auto border border-border-subtle rounded-lg"
+      role="listbox"
+      aria-label="Branches"
+    >
+      {#if filteredBranches.length === 0}
+        <div class="px-2.5 py-4 text-center text-md text-text-faint">No branches found</div>
+      {:else}
+        {#each filteredBranches as branch, i (branch)}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="flex items-baseline px-2.5 py-1.5 text-md text-text cursor-pointer transition-colors duration-fast hover:bg-active"
+            class:!bg-active={i === selectedIdx}
+            class:!bg-accent-bg={highlightPicked && selectedBranch === branch}
+            class:!text-accent-text={highlightPicked && selectedBranch === branch}
+            role="option"
+            aria-selected={i === selectedIdx}
+            data-branch-selected={i === selectedIdx}
+            onclick={() => pick(branch)}
+            onpointerenter={() => (selectedIdx = i)}
           >
-          {#if showRemoteOnlyTag && isRemoteOnly(branch, branches)}
-            <span class="ml-2 text-xs text-text-faint flex-shrink-0">(remote only)</span>
-          {/if}
-        </div>
-      {/each}
-    {/if}
-  </div>
+            <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+              >{branch}</span
+            >
+            {#if showRemoteOnlyTag && isRemoteOnly(branch, branches)}
+              <span class="ml-2 text-xs text-text-faint flex-shrink-0">(remote only)</span>
+            {/if}
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {/if}
 </div>

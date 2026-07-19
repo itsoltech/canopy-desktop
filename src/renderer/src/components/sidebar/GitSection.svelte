@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import {
     GitCommitVertical,
     ArrowUpFromLine,
@@ -10,10 +11,56 @@
     LoaderCircle,
   } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { confirm, prompt, showCreateGitHubPR } from '../../lib/stores/dialogs.svelte'
+  import { confirm, prompt, showPRDetails, showCreateTaskPR } from '../../lib/stores/dialogs.svelte'
+  import { getPRForBranch, getPRRefreshTick } from '../../lib/stores/github.svelte'
+  import { getPanelTask, getPanelTaskResolvedPath } from '../../lib/stores/taskTracker.svelte'
+  import { prStateChip } from '../../lib/github/prState'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
   let loading: string | null = $state(null)
+
+  // Number of files with uncommitted changes — shown on the Commit row and refreshed the same
+  // way the changes panel refreshes (git metadata events + debounced filesystem events).
+  let changeCount = $state(0)
+
+  async function refreshChangeCount(): Promise<void> {
+    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!path) {
+      changeCount = 0
+      return
+    }
+    try {
+      const status = await window.api.fileTreeGetGitStatus(path, path)
+      changeCount = Object.keys(status.statuses).length
+    } catch {
+      changeCount = 0
+    }
+  }
+
+  $effect(() => {
+    void workspaceState.selectedWorktreePath
+    void workspaceState.isDirty
+    void refreshChangeCount()
+  })
+
+  onMount(() => {
+    const unsubGit = window.api.onGitChanged(() => void refreshChangeCount())
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsubFiles = window.api.onFilesChanged((payload) => {
+      const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+      if (payload.repoRoot !== path) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        void refreshChangeCount()
+      }, 200)
+    })
+    return () => {
+      unsubGit()
+      unsubFiles()
+      if (timer != null) clearTimeout(timer)
+    }
+  })
 
   function worktreePath(): string {
     return workspaceState.selectedWorktreePath ?? workspaceState.repoRoot!
@@ -117,19 +164,74 @@
   let ahead = $derived(workspaceState.aheadBehind?.ahead ?? 0)
   let behind = $derived(workspaceState.aheadBehind?.behind ?? 0)
 
+  // --- Pull requests for the current branch (moved here from PROJECT MANAGEMENT — a PR belongs
+  // to the branch, and this works without any tracker configured).
+  // Keyed by the MAIN repo root — that is what loadBranchPRs fetches under.
+  let branchPR = $derived(
+    workspaceState.branch
+      ? getPRForBranch(workspaceState.repoRoot, workspaceState.branch)
+      : undefined,
+  )
+  // The github store map needs the GitHub API integration; fall back to the gh CLI (same auth as
+  // PR creation) so the "View PR" row appears even without it — with the PR state for a chip.
+  let fallbackPR = $state<{ number: number; state: string; isDraft: boolean } | null>(null)
+  $effect(() => {
+    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    const branch = workspaceState.branch
+    // Re-check after any PR mutation elsewhere in the app (create/merge/close bump the tick).
+    void getPRRefreshTick()
+    fallbackPR = null
+    if (!path || !branch || branchPR) return
+    let cancelled = false
+    window.api
+      .taskTrackerPRDetails(path, branch)
+      .then((pr) => {
+        if (!cancelled && pr) {
+          fallbackPR = { number: pr.number, state: pr.state, isDraft: pr.isDraft }
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  })
+  let existingPR = $derived.by(() => {
+    if (branchPR) {
+      return { number: branchPR.number, state: branchPR.state, isDraft: branchPR.isDraft }
+    }
+    return fallbackPR
+  })
+  // A branch can accumulate merged/closed PRs — only an ACTIVE (open) one blocks a new PR.
+  let showCreatePRRow = $derived(!existingPR || existingPR.state !== 'OPEN')
+
+  function openExistingPR(): void {
+    if (!workspaceState.branch) return
+    showPRDetails(worktreePath(), workspaceState.branch)
+  }
+
   function doCreatePR(): void {
     if (!workspaceState.branch) return
-    showCreateGitHubPR()
+    // The linked tracker task (when there is one) provides the PR template context; without it
+    // the form falls back to a plain branch-level PR. During a worktree switch the panel task can
+    // still belong to the previous worktree — only trust it once it was resolved for this path.
+    const resolvedFor = getPanelTaskResolvedPath()
+    const t = resolvedFor === worktreePath().replace(/\\/g, '/') ? getPanelTask() : null
+    showCreateTaskPR(
+      worktreePath(),
+      workspaceState.branch,
+      t
+        ? { taskKey: t.taskKey, summary: t.summary, connectionId: t.connectionId || undefined }
+        : undefined,
+    )
   }
 </script>
 
 <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
 <CollapsibleSection title="GIT" sectionKey="git" borderTop>
   {#snippet headerExtra()}
-    <span class="flex items-center gap-1 overflow-hidden">
-      <span
-        class="text-2xs font-mono text-text-faint truncate max-w-30"
-        title={workspaceState.branch ?? ''}>{workspaceState.branch ?? ''}</span
+    <span class="flex items-center gap-1 min-w-0">
+      <span class="text-2xs font-mono text-text-faint truncate" title={workspaceState.branch ?? ''}
+        >{workspaceState.branch ?? ''}</span
       >
       {#if workspaceState.isDirty}
         <span
@@ -160,6 +262,13 @@
         />
       {/if}
       <span class="flex-1">Commit</span>
+      {#if changeCount > 0}
+        <span
+          class="flex-shrink-0 min-w-4 px-1 py-px rounded-md bg-active text-2xs text-text-muted text-center leading-tight"
+          title={`${changeCount} file${changeCount === 1 ? '' : 's'} with uncommitted changes`}
+          >{changeCount}</span
+        >
+      {/if}
     </button>
 
     <div
@@ -289,24 +398,39 @@
       aria-orientation="horizontal"
     ></div>
 
-    <button
-      class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-      disabled={!workspaceState.branch || loading === 'pr'}
-      onclick={doCreatePR}
-      title="Create pull request"
-    >
-      {#if loading === 'pr'}
-        <LoaderCircle
-          size={13}
-          class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
-        />
-      {:else}
+    {#if existingPR}
+      {@const chip = prStateChip(existingPR.state, existingPR.isDraft)}
+      <button
+        class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+        onclick={openExistingPR}
+        title={branchPR
+          ? `View PR #${branchPR.number} — ${branchPR.title}`
+          : 'View the latest pull request for this branch'}
+      >
         <GitPullRequest
           size={13}
           class="text-text-faint group-enabled:group-hover:text-accent-text flex-shrink-0"
         />
-      {/if}
-      <span class="flex-1">Create PR</span>
-    </button>
+        <span class="flex-1">View PR #{existingPR.number}</span>
+        {#if chip.label}
+          <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}">{chip.label}</span
+          >
+        {/if}
+      </button>
+    {/if}
+    {#if showCreatePRRow}
+      <button
+        class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+        disabled={!workspaceState.branch}
+        onclick={doCreatePR}
+        title="Create a pull request from this branch — edit the title and description before it is created"
+      >
+        <GitPullRequest
+          size={13}
+          class="text-text-faint group-enabled:group-hover:text-accent-text flex-shrink-0"
+        />
+        <span class="flex-1">Create PR</span>
+      </button>
+    {/if}
   </div>
 </CollapsibleSection>

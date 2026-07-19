@@ -1,9 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { Search, X, LoaderCircle, Copy, Funnel, Send } from '@lucide/svelte'
+  import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
-  import { setPref, getPref, prefs } from '../../lib/stores/preferences.svelte'
+  import {
+    addActiveTask,
+    getActiveTasks,
+    getResolvedConfig,
+    removeActiveTask,
+    resolvePanelTask,
+  } from '../../lib/stores/taskTracker.svelte'
+  import { extractTaskKeys } from '../../lib/taskTracker/branchTaskKey'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getActiveAgentPane, switchTab } from '../../lib/stores/tabs.svelte'
@@ -14,211 +20,47 @@
     tabFocusFailedOutcome,
     taskToAgentUserMessage,
   } from '../../lib/taskTracker/taskToAgent'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
+  import { statusChipClass } from '../../lib/taskTracker/statusChip'
+  import { taskDisplayKey } from '../../lib/taskTracker/taskFilterPrefs'
+  import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
+  import type { TrackerProviderKind, TrackerTaskLite } from '../../lib/taskTracker/types'
   import BranchCreateForm from './BranchCreateForm.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
-  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import TaskListPicker from './TaskListPicker.svelte'
+  import NewTaskForm from './NewTaskForm.svelte'
 
-  const DONE_STATUS_PATTERN = /^(done|closed|resolved|cancelled|rejected|complete|gotowe|zamkni)/i
+  let { connectionId, mode = 'browse' }: { connectionId: string; mode?: 'browse' | 'link' } =
+    $props()
 
-  interface Task {
-    key: string
-    summary: string
-    description: string
-    status: string
-    priority: string
-    type: string
-    parentKey?: string
-    sprintName?: string
-    sprintNumber?: number
-    assignee?: string
-    url?: string
-  }
+  // Browse mode: a picked task opens the branch-create sub-view.
+  let selectedTask: TrackerTaskLite | null = $state(null)
+  // Link mode: a picked task waits on the confirmation card until Link is pressed.
+  let selectedLinkTask: TrackerTaskLite | null = $state(null)
+  // Link mode tabs: pick an existing task or create a new one (auto-linked on creation).
+  let linkTab = $state<'existing' | 'newTask'>('existing')
 
-  interface Board {
-    id: string
-    name: string
-    projectKey?: string
-  }
-
-  function filterPrefKey(connId: string, boardId: string): string {
-    return `taskTracker.pickerFilters.${connId}.${boardId}`
-  }
-
-  interface SavedFilters {
-    excludedStatuses: string[]
-    assignedToMe: boolean
-    showFilters: boolean
-  }
-
-  function loadSavedFilters(connId: string, boardId: string): SavedFilters | null {
-    const raw = prefs[filterPrefKey(connId, boardId)]
-    if (!raw) return null
-    try {
-      return JSON.parse(raw) as SavedFilters
-    } catch {
-      return null
-    }
-  }
-
-  function saveFilters(): void {
-    if (!selectedBoardId) return
-    const data: SavedFilters = {
-      excludedStatuses: [...excludedStatuses],
-      assignedToMe,
-      showFilters,
-    }
-    setPref(filterPrefKey(connectionId, selectedBoardId), JSON.stringify(data))
-  }
-
-  let { connectionId }: { connectionId: string } = $props()
-
-  let allTasks: Task[] = $state([])
-  let loading = $state(true)
-  let error = $state('')
-  let searchQuery = $state('')
-  let selectedIndex = $state(0)
-
-  let boards: Board[] = $state([])
-  let selectedBoardId = $state('')
-
-  let availableStatuses: string[] = $derived.by(() => {
-    const seen = new SvelteSet<string>()
-    for (const task of allTasks) {
-      if (task.status) seen.add(task.status)
-    }
-    return Array.from(seen).sort()
-  })
-  let excludedStatuses = new SvelteSet<string>()
-  let showFilters = $state(false)
-  let assignedToMe = $state(false)
-  let currentUserName = $state('')
-  let hasSavedFilters = $state(false)
-
-  let selectedBoardProjectKey = $derived.by(() => {
-    const board = boards.find((b) => b.id === selectedBoardId)
-    return board?.projectKey ?? ''
-  })
-
-  let filteredTasks = $derived.by(() => {
-    let result = allTasks
-    if (selectedBoardProjectKey) {
-      result = result.filter((i) => i.key.startsWith(selectedBoardProjectKey + '-'))
-    }
-    if (assignedToMe && currentUserName) {
-      result = result.filter((i) => i.assignee === currentUserName)
-    }
-    if (excludedStatuses.size > 0) {
-      result = result.filter((i) => !excludedStatuses.has(i.status))
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(
-        (i) => i.key.toLowerCase().includes(q) || i.summary.toLowerCase().includes(q),
-      )
-    }
-    return result
-  })
-
-  const DISPLAY_LIMIT = 200
-  let displayedTasks = $derived(filteredTasks.slice(0, DISPLAY_LIMIT))
-
-  let selectedTask: Task | null = $state(null)
-
-  let searchInputEl: HTMLInputElement | null = $state(null)
   let dialogEl: HTMLDivElement | undefined = $state()
   let sendingTaskKey = $state('')
   let sendStatus = $state('')
   let sendError = $state('')
+  let filteredCount = $state(0)
+  const DISPLAY_LIMIT = 200
 
-  onMount(async () => {
-    searchInputEl?.focus()
-    await loadBoards()
-  })
+  // Tracker config (.canopy/config.json) lives in the ACTIVE WORKTREE — same path the Project
+  // tracker modal edits. The main repo root may hold a stale copy from the default branch.
+  let cfgRoot = $derived(
+    workspaceState.selectedWorktreePath ?? workspaceState.repoRoot ?? undefined,
+  )
 
-  async function loadBoards(): Promise<void> {
-    try {
-      const repoRoot = workspaceState.repoRoot ?? undefined
-      const [boardList, userName] = await Promise.all([
-        window.api.trackerConfigFetchBoards(repoRoot, connectionId),
-        window.api.trackerConfigGetCurrentUser(repoRoot, connectionId).catch(() => ''),
-      ])
-      boards = boardList
-      currentUserName = userName
-      if (boards.length > 0) {
-        const lastBoard = getPref(`taskTracker.lastBoard.${connectionId}`)
-        selectedBoardId = boards.some((b) => b.id === lastBoard) ? lastBoard : boards[0].id
-        restoreSavedFilters()
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load boards'
-    }
-    await fetchTasks()
-  }
+  let provider = $derived(
+    (getResolvedConfig()?.config.trackers.find((t) => t.id === connectionId)?.provider ??
+      'jira') as TrackerProviderKind,
+  )
 
-  function restoreSavedFilters(): void {
-    excludedStatuses.clear()
-    const saved = loadSavedFilters(connectionId, selectedBoardId)
-    if (saved) {
-      for (const s of saved.excludedStatuses) excludedStatuses.add(s)
-      assignedToMe = saved.assignedToMe
-      showFilters = saved.showFilters
-      hasSavedFilters = true
-    } else {
-      assignedToMe = false
-      showFilters = false
-      hasSavedFilters = false
-    }
-  }
-
-  async function onBoardChange(): Promise<void> {
-    clearTaskSendFeedback()
-    setPref(`taskTracker.lastBoard.${connectionId}`, selectedBoardId)
-    restoreSavedFilters()
-    await fetchTasks()
-  }
-
-  async function fetchTasks(): Promise<void> {
-    loading = true
-    error = ''
-    try {
-      allTasks = await window.api.trackerConfigFetchTasks(
-        workspaceState.repoRoot ?? undefined,
-        connectionId,
-        { boardId: selectedBoardId || undefined },
-      )
-      if (!hasSavedFilters && excludedStatuses.size === 0 && allTasks.length > 0) {
-        for (const task of allTasks) {
-          if (DONE_STATUS_PATTERN.test(task.status)) {
-            excludedStatuses.add(task.status)
-          }
-        }
-        saveFilters()
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to fetch tasks'
-    } finally {
-      loading = false
-    }
-  }
-
-  function toggleStatus(status: string): void {
-    if (excludedStatuses.has(status)) {
-      excludedStatuses.delete(status)
-    } else {
-      excludedStatuses.add(status)
-    }
-    saveFilters()
-  }
-
-  function toggleAssignedToMe(): void {
-    assignedToMe = !assignedToMe
-    saveFilters()
-  }
+  let showsTaskList = $derived(mode === 'browse' || (linkTab === 'existing' && !selectedLinkTask))
 
   function handleKeydown(e: KeyboardEvent): void {
-    // When the branch-create sub-view is open, this window-level handler must
-    // not drive the (hidden) task list. Escape returns to the list; every other
-    // key is left to the sub-view's own inputs.
+    // When the branch-create sub-view is open, this window-level handler must not interfere.
     if (selectedTask) {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -244,36 +86,95 @@
       return
     }
     if (e.key === 'Escape') {
-      closeDialog()
-    } else if (e.key === 'ArrowDown') {
+      if (selectedLinkTask) {
+        selectedLinkTask = null
+      } else {
+        closeDialog()
+      }
+    } else if (e.key === 'Enter' && selectedLinkTask && !linking) {
+      // The list's own inputs handle Enter before it bubbles here — this fires on the card.
       e.preventDefault()
-      selectedIndex = Math.min(selectedIndex + 1, displayedTasks.length - 1)
-      scrollToSelected()
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      selectedIndex = Math.max(selectedIndex - 1, 0)
-      scrollToSelected()
-    } else if (e.key === 'Enter' && displayedTasks[selectedIndex]) {
-      selectTask(displayedTasks[selectedIndex])
+      void confirmLink()
     }
   }
 
-  function scrollToSelected(): void {
-    const el = document.querySelector('[data-task-selected="true"]')
-    el?.scrollIntoView({ block: 'nearest' })
+  function onPickTask(task: TrackerTaskLite): void {
+    clearTaskSendFeedback()
+    if (mode === 'link') {
+      if (linkedKeys.has(task.key) || branchTaskKeys.has(task.key)) return
+      selectedLinkTask = task
+      return
+    }
+    if (!workspaceState.repoRoot || !workspaceState.branch) return
+    selectedTask = task
   }
 
-  function selectTask(task: Task): void {
-    if (!workspaceState.repoRoot || !workspaceState.branch) return
-    clearTaskSendFeedback()
-    selectedTask = $state.snapshot(task) as Task
+  let linking = $state(false)
+  let linkedKeys = $derived(new SvelteSet(getActiveTasks().map((t) => t.taskKey)))
+  // Keys embedded in the branch name are tracked by the branch itself — same rule as the sidebar
+  // tiles: they read as linked and cannot be unlinked.
+  let branchTaskKeys = $derived(
+    new SvelteSet(workspaceState.branch ? extractTaskKeys(workspaceState.branch) : []),
+  )
+
+  async function unlinkTask(task: TrackerTaskLite): Promise<void> {
+    const worktreePath = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!worktreePath || linking || branchTaskKeys.has(task.key)) return
+    linking = true
+    try {
+      await removeActiveTask(worktreePath, task.key)
+      await resolvePanelTask(worktreePath, workspaceState.branch)
+    } catch (e) {
+      addToast(ipcErrorMessage(e, 'Failed to unlink task'))
+      return
+    } finally {
+      linking = false
+    }
+    addToast(`${task.key} unlinked from this worktree`)
+  }
+
+  // Attach the task to the CURRENT worktree (persisted linked task) — no branch is created.
+  // On success the dialog closes and the Task panel opens on the linked task.
+  async function linkTask(task: TrackerTaskLite): Promise<void> {
+    const worktreePath = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!worktreePath || linking || linkedKeys.has(task.key)) return
+    linking = true
+    try {
+      await addActiveTask(worktreePath, {
+        taskKey: task.key,
+        summary: task.summary,
+        connectionId,
+      })
+      await resolvePanelTask(worktreePath, workspaceState.branch)
+    } catch (e) {
+      addToast(ipcErrorMessage(e, 'Failed to link task'))
+      return
+    } finally {
+      linking = false
+    }
+    addToast(`${task.key} linked to this worktree`)
+    workspaceState.rightPanelOpen = true
+    workspaceState.rightPanelTab = 'task'
+    closeDialog()
+  }
+
+  async function confirmLink(): Promise<void> {
+    if (!selectedLinkTask) return
+    await linkTask($state.snapshot(selectedLinkTask) as TrackerTaskLite)
+  }
+
+  // New task created in link mode: auto-link it — the creation succeeded, so the only
+  // remaining intent is the link itself.
+  async function handleCreatedForLink(task: TrackerTaskLite, warnings: string[]): Promise<void> {
+    for (const w of warnings) addToast(w)
+    await linkTask(task)
   }
 
   function cancelBranchCreation(): void {
     selectedTask = null
   }
 
-  async function copyTaskToClipboard(task: Task, e: MouseEvent): Promise<void> {
+  async function copyTaskToClipboard(task: TrackerTaskLite, e: MouseEvent): Promise<void> {
     e.stopPropagation()
     const text = `${task.key}: ${task.summary}\n\n${task.description || ''}`
     try {
@@ -294,7 +195,7 @@
     sendError = ''
   }
 
-  async function sendTaskToAgent(task: Task, e: MouseEvent): Promise<void> {
+  async function sendTaskToAgent(task: TrackerTaskLite, e: MouseEvent): Promise<void> {
     e.stopPropagation()
     if (sendingTaskKey) return
 
@@ -329,7 +230,7 @@
 
     const outcome = await sendTaskToAgentContext({
       connectionId,
-      task: $state.snapshot(task) as Task,
+      task: $state.snapshot(task) as TrackerTaskLite,
       repoRoot: workspaceState.repoRoot ?? undefined,
       target: {
         worktreePath: workspaceState.selectedWorktreePath ?? undefined,
@@ -351,28 +252,22 @@
     addToast('Task sent to agent')
     closeDialog()
   }
-
-  function priorityColor(priority: string): string {
-    const p = priority.toLowerCase()
-    if (p.includes('critical') || p.includes('highest')) return 'var(--color-danger)'
-    if (p.includes('high')) return 'var(--color-warning)'
-    if (p.includes('medium') || p.includes('normal')) return 'var(--color-warning-text)'
-    if (p.includes('low')) return 'var(--color-accent)'
-    return 'var(--color-text-muted)'
-  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
+<!-- Close on mousedown (not click): a resize-handle drag that ends outside the dialog synthesizes
+     a click on this overlay (common ancestor of mousedown/mouseup) and would close it. -->
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
-  onclick={closeDialog}
+  onmousedown={closeDialog}
   role="presentation"
 >
   <div
     bind:this={dialogEl}
-    class="w-[600px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
-    onclick={(e) => e.stopPropagation()}
+    class="resize w-[600px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
+    use:unlockSizeOnResize
+    onmousedown={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
     aria-label="Task Picker"
@@ -380,7 +275,7 @@
     {#if selectedTask}
       <BranchCreateForm
         {connectionId}
-        {selectedBoardId}
+        selectedBoardId=""
         task={selectedTask}
         onBack={cancelBranchCreation}
       />
@@ -388,199 +283,226 @@
       <div
         class="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-border-subtle"
       >
-        <h3 class="m-0 text-lg font-semibold text-text">Select Task</h3>
-        <div class="flex items-center gap-1">
-          <button
-            class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text-secondary"
-            class:!bg-accent-bg={showFilters}
-            class:!text-accent-text={showFilters}
-            onclick={() => {
-              showFilters = !showFilters
-              saveFilters()
-            }}
-            title="Filters"
-            aria-label="Toggle filters"
-          >
-            <Funnel size={14} />
-          </button>
-          <button
-            class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
-            onclick={closeDialog}
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      </div>
-
-      {#if boards.length > 1}
-        <div class="px-4 py-1.5 border-b border-border-subtle">
-          <CustomSelect
-            value={selectedBoardId}
-            options={boards.map((b) => ({ value: b.id, label: b.name }))}
-            onchange={(v) => {
-              selectedBoardId = v
-              onBoardChange()
-            }}
-            maxWidth="none"
-          />
-        </div>
-      {/if}
-
-      {#if showFilters}
-        <div class="px-4 py-2 border-b border-border-subtle flex flex-col gap-2">
-          <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-            <CustomCheckbox checked={assignedToMe} onchange={toggleAssignedToMe} />
-            <span>Only assigned to me</span>
-          </label>
-          {#if availableStatuses.length > 0}
-            <div class="flex flex-wrap gap-1">
-              {#each availableStatuses as status (status)}
-                <button
-                  class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
-                  class:!bg-accent-bg={!excludedStatuses.has(status)}
-                  class:!border-accent-muted={!excludedStatuses.has(status)}
-                  class:!text-accent-text={!excludedStatuses.has(status)}
-                  class:!opacity-40={excludedStatuses.has(status)}
-                  class:line-through={excludedStatuses.has(status)}
-                  onclick={() => toggleStatus(status)}
-                >
-                  {status}
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
-
-      <div class="flex items-center gap-2 px-4 py-2 border-b border-border-subtle text-text-muted">
-        <Search size={14} />
-        <input
-          class="flex-1 border-0 bg-transparent text-text text-md font-inherit outline-none placeholder:text-text-faint"
-          bind:this={searchInputEl}
-          bind:value={searchQuery}
-          aria-label="Search tasks"
-          placeholder="Search by key or title..."
-          oninput={() => {
-            selectedIndex = 0
-            clearTaskSendFeedback()
-          }}
-        />
+        <h3 class="m-0 text-lg font-semibold text-text">
+          {mode === 'link' ? 'Link task to this worktree' : 'Select Task'}
+        </h3>
+        <button
+          class="flex items-center justify-center w-7 h-7 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+          onclick={closeDialog}
+          aria-label="Close"
+        >
+          <X size={16} />
+        </button>
       </div>
 
       <span class="sr-only" role="status" aria-live="polite">{sendError || sendStatus}</span>
-      {#if sendStatus || sendError}
-        <div
-          class="flex items-start gap-2 px-4 py-2 border-b border-border-subtle text-xs leading-snug"
-          class:bg-danger-bg={sendError}
-          class:text-danger-text={sendError}
-          class:bg-bg-input={!sendError}
-          class:text-text-muted={!sendError}
-        >
-          <span class="flex-1">{sendError || sendStatus}</span>
-          {#if sendError}
-            <button
-              class="flex items-center justify-center w-5 h-5 -mr-1 border-0 rounded bg-transparent text-current cursor-pointer opacity-70 hover:opacity-100 hover:bg-hover"
-              onclick={clearTaskSendFeedback}
-              aria-label="Dismiss task send error"
-            >
-              <X size={12} />
-            </button>
-          {/if}
-        </div>
-      {/if}
 
-      <div class="flex-1 overflow-y-auto py-1">
-        {#if loading}
-          <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
-            <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
-            <span>Loading tasks...</span>
-          </div>
-        {:else if error}
+      <div class="flex-1 min-h-0 px-3 py-3 flex flex-col gap-2">
+        {#if mode === 'link'}
+          <!-- Same tab styling as the Create Worktree mode switch. -->
           <div
-            class="flex flex-col items-center justify-center gap-3 px-4 py-6 text-md text-danger-text"
+            class="flex gap-0.5 p-0.5 bg-active rounded-lg shrink-0"
+            role="group"
+            aria-label="Link source"
           >
-            <span>{error}</span>
             <button
-              class="px-3 py-1 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover"
-              onclick={fetchTasks}>Retry</button
+              class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {linkTab ===
+              'existing'
+                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_var(--color-scrim)]'
+                : 'bg-transparent text-text-muted hover:text-text-secondary'}"
+              onclick={() => {
+                linkTab = 'existing'
+                selectedLinkTask = null
+              }}
+              aria-pressed={linkTab === 'existing'}
+              type="button"
             >
+              Existing tasks
+            </button>
+            <div class="w-px my-1 bg-border shrink-0" aria-hidden="true"></div>
+            <button
+              class="flex-1 px-2 py-[5px] border-0 rounded-md text-sm font-inherit cursor-pointer transition-all duration-fast {linkTab ===
+              'newTask'
+                ? '!bg-bg-overlay !text-text shadow-[0_1px_2px_var(--color-scrim)]'
+                : 'bg-transparent text-text-muted hover:text-text-secondary'}"
+              onclick={() => {
+                linkTab = 'newTask'
+                selectedLinkTask = null
+              }}
+              aria-pressed={linkTab === 'newTask'}
+              type="button"
+              title="Create a task in the tracker — it links to this worktree right away"
+            >
+              New task
+            </button>
           </div>
-        {:else if displayedTasks.length === 0}
-          <div class="flex items-center justify-center gap-2 px-4 py-6 text-md text-text-muted">
-            No tasks found
+        {/if}
+
+        {#if mode === 'link' && linkTab === 'newTask'}
+          <NewTaskForm
+            trackerId={connectionId}
+            repoRoot={cfgRoot}
+            {provider}
+            onCreated={handleCreatedForLink}
+            onCancel={closeDialog}
+            submitLabel="Create and link task"
+          />
+        {:else if mode === 'link' && selectedLinkTask}
+          <p
+            class="m-0 text-md text-text-secondary cursor-help"
+            title="This task will be linked to the current worktree — the Task panel tracks it (status, comments)"
+          >
+            Selected task
+          </p>
+          <div class="px-3 py-2.5 bg-bg-input border border-border rounded-xl">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-sm text-accent-text"
+                >{taskDisplayKey(selectedLinkTask)}</span
+              >
+              {#if selectedLinkTask.status}
+                <span
+                  class="text-2xs px-1.5 py-px rounded-md {statusChipClass(
+                    selectedLinkTask.statusCategory,
+                  )}">{selectedLinkTask.status}</span
+                >
+              {/if}
+              <span class="flex-1"></span>
+              <button
+                class="flex items-center justify-center size-5 border-0 rounded-md bg-transparent text-text-muted text-sm leading-none cursor-pointer p-0 hover:bg-hover hover:text-text"
+                onclick={() => (selectedLinkTask = null)}
+                title="Choose a different task"
+                aria-label="Change task">×</button
+              >
+            </div>
+            <p class="m-0 mt-1 text-md text-text leading-snug">{selectedLinkTask.summary}</p>
+          </div>
+          <span class="flex-1"></span>
+          <div class="flex items-center justify-end gap-2">
+            <button
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-transparent text-text-secondary text-md font-inherit cursor-pointer hover:bg-hover hover:text-text"
+              onclick={() => (selectedLinkTask = null)}
+            >
+              <X size={13} />
+              Cancel
+            </button>
+            <button
+              class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border-0 bg-accent-bg text-accent-text text-md font-inherit enabled:cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
+              onclick={() => void confirmLink()}
+              disabled={linking}
+            >
+              {#if linking}
+                <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
+              {:else}
+                <Link2 size={13} />
+              {/if}
+              Link
+            </button>
           </div>
         {:else}
-          {#each displayedTasks as task, i (task.key)}
-            <div
-              class="flex items-center gap-2 w-full px-4 py-1.5 border-0 bg-transparent text-text-secondary text-sm font-inherit cursor-pointer text-left transition-colors duration-fast group/task hover:bg-hover"
-              class:!bg-hover={i === selectedIndex}
-              data-task-selected={i === selectedIndex}
-              role="button"
-              tabindex="0"
-              onclick={() => selectTask(task)}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  selectTask(task)
-                }
-              }}
-              onmouseenter={() => (selectedIndex = i)}
-            >
-              <span class="flex-shrink-0 font-semibold text-accent-text min-w-20">{task.key}</span>
-              <span
-                class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                title={task.summary}>{task.summary}</span
-              >
-              <span class="flex-shrink-0 px-1.5 py-px rounded-md bg-active text-2xs text-text-muted"
-                >{task.status}</span
-              >
-              <span
-                class="flex-shrink-0 text-[8px] leading-none"
-                style="color: {priorityColor(task.priority)}"
-                role="img"
-                aria-label="Priority: {task.priority}"
-                title={task.priority}>●</span
-              >
-              {#if hasActiveAgent}
+          <TaskListPicker
+            trackerId={connectionId}
+            repoRoot={cfgRoot}
+            onPick={onPickTask}
+            displayLimit={DISPLAY_LIMIT}
+            autofocusSearch
+            onActivity={clearTaskSendFeedback}
+            bind:filteredCount
+          >
+            {#snippet rowBadge(task)}
+              {#if mode === 'link' && (linkedKeys.has(task.key) || branchTaskKeys.has(task.key))}
+                <span
+                  class="flex-shrink-0 px-1.5 py-px rounded-md bg-success-bg text-2xs text-success-text"
+                  title={branchTaskKeys.has(task.key)
+                    ? 'Tracked via the branch name of this worktree'
+                    : 'Already linked to this worktree'}>Linked</span
+                >
+              {/if}
+            {/snippet}
+            {#snippet rowActions(task)}
+              {#if mode === 'link'}
+                {#if linkedKeys.has(task.key) || branchTaskKeys.has(task.key)}
+                  <button
+                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint flex-shrink-0 opacity-60 transition-opacity duration-fast enabled:cursor-pointer enabled:hover:opacity-100 enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-30"
+                    onclick={(e) => {
+                      e.stopPropagation()
+                      void unlinkTask($state.snapshot(task) as TrackerTaskLite)
+                    }}
+                    disabled={linking || branchTaskKeys.has(task.key)}
+                    title={branchTaskKeys.has(task.key)
+                      ? 'This task key is part of the branch name — the link comes from the branch and cannot be removed'
+                      : 'Unlink this task from the worktree'}
+                    aria-label="Unlink task"
+                  >
+                    <Unlink size={12} />
+                  </button>
+                {/if}
+              {:else}
+                {#if hasActiveAgent}
+                  <button
+                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                    onclick={(e) => sendTaskToAgent($state.snapshot(task) as TrackerTaskLite, e)}
+                    disabled={Boolean(sendingTaskKey)}
+                    title="Send to agent"
+                    aria-label="Send to agent"
+                  >
+                    {#if sendingTaskKey === task.key}
+                      <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
+                    {:else}
+                      <Send size={12} />
+                    {/if}
+                  </button>
+                {/if}
                 <button
                   class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
-                  onclick={(e) => sendTaskToAgent(task, e)}
-                  disabled={Boolean(sendingTaskKey)}
-                  title="Send to agent"
-                  aria-label="Send to agent"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    void copyTaskToClipboard($state.snapshot(task) as TrackerTaskLite, e)
+                  }}
+                  title="Copy to clipboard"
+                  aria-label="Copy task to clipboard"
                 >
-                  {#if sendingTaskKey === task.key}
-                    <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
-                  {:else}
-                    <Send size={12} />
-                  {/if}
+                  <Copy size={12} />
                 </button>
               {/if}
-              <button
-                class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
-                onclick={(e) => {
-                  e.stopPropagation()
-                  copyTaskToClipboard(task, e)
-                }}
-                title="Copy to clipboard"
-                aria-label="Copy task to clipboard"
-              >
-                <Copy size={12} />
-              </button>
-            </div>
-          {/each}
+            {/snippet}
+            {#snippet banner()}
+              {#if sendStatus || sendError}
+                <div
+                  class="flex items-start gap-2 px-2.5 py-2 rounded-md text-xs leading-snug"
+                  class:bg-danger-bg={sendError}
+                  class:text-danger-text={sendError}
+                  class:bg-bg-input={!sendError}
+                  class:text-text-muted={!sendError}
+                >
+                  <span class="flex-1">{sendError || sendStatus}</span>
+                  {#if sendError}
+                    <button
+                      class="flex items-center justify-center w-5 h-5 -mr-1 border-0 rounded bg-transparent text-current cursor-pointer opacity-70 hover:opacity-100 hover:bg-hover"
+                      onclick={clearTaskSendFeedback}
+                      aria-label="Dismiss task send error"
+                    >
+                      <X size={12} />
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+            {/snippet}
+          </TaskListPicker>
         {/if}
       </div>
 
-      <div class="flex items-center justify-between px-4 py-2 border-t border-border-subtle">
-        <span class="text-xs text-text-faint">↑↓ navigate · Enter select · Esc close</span>
-        <span class="text-xs text-text-muted"
-          >{filteredTasks.length > DISPLAY_LIMIT
-            ? `${DISPLAY_LIMIT} of ${filteredTasks.length} tasks`
-            : `${filteredTasks.length} task${filteredTasks.length !== 1 ? 's' : ''}`}</span
-        >
-      </div>
+      {#if showsTaskList}
+        <div class="flex items-center justify-between px-4 py-2 border-t border-border-subtle">
+          <span class="text-xs text-text-faint"
+            >↑↓ navigate · Enter {mode === 'link' ? 'pick' : 'select'} · Esc close</span
+          >
+          <span class="text-xs text-text-muted"
+            >{filteredCount > DISPLAY_LIMIT
+              ? `${DISPLAY_LIMIT} of ${filteredCount} tasks`
+              : `${filteredCount} task${filteredCount !== 1 ? 's' : ''}`}</span
+          >
+        </div>
+      {/if}
     {/if}
   </div>
 </div>

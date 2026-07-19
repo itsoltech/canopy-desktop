@@ -15,12 +15,13 @@ export function renderPRBody(template: string, task: TrackerTask): string {
 }
 
 function replacePlaceholders(template: string, task: TrackerTask): string {
+  // Tasks can arrive partially hydrated over IPC — never inject "undefined" into a PR.
   return template
-    .replace(/\{taskKey\}/g, task.key)
-    .replace(/\{taskTitle\}/g, task.summary)
-    .replace(/\{taskType\}/g, task.type)
+    .replace(/\{taskKey\}/g, task.key ?? '')
+    .replace(/\{taskTitle\}/g, task.summary ?? '')
+    .replace(/\{taskType\}/g, task.type ?? '')
     .replace(/\{parentKey\}/g, task.parentKey ?? '')
-    .replace(/\{boardKey\}/g, task.key.split('-')[0] ?? '')
+    .replace(/\{boardKey\}/g, task.key?.split('-')[0] ?? '')
     .replace(/\{taskUrl\}/g, task.url ?? '')
     .replace(/\{taskDescription\}/g, task.description ?? '')
 }

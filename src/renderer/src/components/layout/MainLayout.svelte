@@ -11,13 +11,15 @@
   import InputDialog from '../dialogs/InputDialog.svelte'
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
+  import ProjectTrackerModal from '../preferences/ProjectTrackerModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
+  import PRDetailsModal from '../github/PRDetailsModal.svelte'
+  import CreateTaskPRModal from '../github/CreateTaskPRModal.svelte'
   import OnboardingWizard from '../onboarding/OnboardingWizard.svelte'
   import FeatureOnboarding from '../onboarding/FeatureOnboarding.svelte'
   import TmuxSessionBrowser from '../terminal/TmuxSessionBrowser.svelte'
-  import CreatePRModal from '../github/CreatePRModal.svelte'
   import RemoteAcceptDeviceModal from '../dialogs/RemoteAcceptDeviceModal.svelte'
   import RunConfigEditorModal from '../runConfig/RunConfigEditorModal.svelte'
   import RunConfigManagerModal from '../runConfig/RunConfigManagerModal.svelte'
@@ -31,6 +33,7 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import {
     dialogState,
+    confirmState,
     closeDialog,
     showPreferences,
     showAbout,
@@ -296,7 +299,11 @@
   // every dispatch wakes each BrowserPane listener.
   let lastOverlayOpen = false
   $effect(() => {
-    const anyOverlayOpen = dialogState.current.type !== 'none' || paletteOpen || quickOpenOpen
+    const anyOverlayOpen =
+      dialogState.current.type !== 'none' ||
+      confirmState.current !== null ||
+      paletteOpen ||
+      quickOpenOpen
     if (anyOverlayOpen === lastOverlayOpen) return
     lastOverlayOpen = anyOverlayOpen
     window.dispatchEvent(
@@ -560,9 +567,11 @@
   <CommandPalette onClose={() => (paletteOpen = false)} />
 {/if}
 
-{#if dialogState.current.type === 'confirm'}
-  <ConfirmDialog {...dialogState.current.props} />
-{:else if dialogState.current.type === 'input'}
+{#if confirmState.current}
+  <ConfirmDialog {...confirmState.current} />
+{/if}
+
+{#if dialogState.current.type === 'input'}
   <InputDialog {...dialogState.current.props} />
 {:else if dialogState.current.type === 'createWorktree'}
   <CreateWorktreeModal
@@ -574,7 +583,20 @@
 {:else if dialogState.current.type === 'preferences'}
   <PreferencesModal section={dialogState.current.section} />
 {:else if dialogState.current.type === 'taskPicker'}
-  <TaskPickerModal connectionId={dialogState.current.connectionId} />
+  <TaskPickerModal
+    connectionId={dialogState.current.connectionId}
+    mode={dialogState.current.mode ?? 'browse'}
+  />
+{:else if dialogState.current.type === 'prDetails'}
+  <PRDetailsModal repoRoot={dialogState.current.repoRoot} branch={dialogState.current.branch} />
+{:else if dialogState.current.type === 'createTaskPR'}
+  <CreateTaskPRModal
+    repoRoot={dialogState.current.repoRoot}
+    branch={dialogState.current.branch}
+    task={dialogState.current.task}
+  />
+{:else if dialogState.current.type === 'projectTracker'}
+  <ProjectTrackerModal />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}
@@ -585,8 +607,6 @@
   <FeatureOnboarding fromVersion={dialogState.current.fromVersion} />
 {:else if dialogState.current.type === 'tmuxBrowser'}
   <TmuxSessionBrowser />
-{:else if dialogState.current.type === 'createGitHubPR'}
-  <CreatePRModal />
 {:else if dialogState.current.type === 'remoteAcceptDevice'}
   <RemoteAcceptDeviceModal
     deviceId={dialogState.current.deviceId}

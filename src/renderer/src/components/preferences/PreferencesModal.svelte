@@ -17,7 +17,7 @@
   import ViewportsPrefs from './ViewportsPrefs.svelte'
   import SidebarPrefs from './SidebarPrefs.svelte'
   import TerminalPrefs from './TerminalPrefs.svelte'
-  import TaskTrackerPrefs from './TaskTrackerPrefs.svelte'
+  import ConnectionsPrefs from './ConnectionsPrefs.svelte'
   import PrivacyPrefs from './PrivacyPrefs.svelte'
   import FileWatcherPrefs from './FileWatcherPrefs.svelte'
   import SkillPrefs from './SkillPrefs.svelte'
@@ -41,7 +41,8 @@
     { label: 'Features', sections: ['Notch', 'Misc'] },
     { label: 'Appearance', sections: ['Appearance', 'Sidebar'] },
     { label: 'AI Agents', sections: ['Claude', 'Gemini', 'OpenCode', 'Codex', 'Skills'] },
-    { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'Tasks', 'File Watcher'] },
+    { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'File Watcher'] },
+    { label: 'Project management', sections: ['Your connections'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
     { label: 'Security', sections: ['Remote Control'] },
   ] as const
@@ -252,8 +253,8 @@
             <GitPrefs />
           {:else if activeSection === 'Web Browser'}
             <ViewportsPrefs />
-          {:else if activeSection === 'Tasks'}
-            <TaskTrackerPrefs />
+          {:else if activeSection === 'Your connections'}
+            <ConnectionsPrefs />
           {:else if activeSection === 'File Watcher'}
             <FileWatcherPrefs />
           {:else if activeSection === 'Privacy'}

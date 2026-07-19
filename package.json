@@ -13,6 +13,8 @@
     "svelte-check": "svelte-check --tsconfig ./tsconfig.json",
     "typecheck": "npm run typecheck:node && npm run svelte-check",
     "start": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps && install-electron && generate-license-file -i package.json -o THIRD-PARTY-NOTICES --overwrite",
@@ -96,7 +98,8 @@
     "svelte": "^5.56.4",
     "svelte-check": "^4.7.2",
     "typescript": "^6.0.3",
-    "vite": "^7.3.5"
+    "vite": "^7.3.5",
+    "vitest": "^4.1.9"
   },
   "overrides": {
     "esbuild": "0.28.1",

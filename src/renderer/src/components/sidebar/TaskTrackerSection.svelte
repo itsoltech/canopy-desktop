@@ -1,244 +1,276 @@
 <script lang="ts">
-  import { SquareKanban, Plus, ExternalLink, Settings, GitPullRequest } from '@lucide/svelte'
+  import {
+    Plus,
+    ExternalLink,
+    KeyRound,
+    LoaderCircle,
+    Link2,
+    Settings,
+    Unlink,
+  } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
     getResolvedConfig,
     getTrackerCredentials,
+    getProjectTrackersNeedingCredentials,
     isTaskTrackerLoading,
-    getActiveTask,
+    isVerifyingCredentials,
+    getPanelTasks,
+    getPanelTaskResolvedPath,
+    selectPanelTask,
+    removeActiveTask,
+    resolvePanelTask,
   } from '../../lib/stores/taskTracker.svelte'
+  import { statusChipClass } from '../../lib/taskTracker/statusChip'
+  import { extractTaskKeys } from '../../lib/taskTracker/branchTaskKey'
+  import { showProjectTracker, showTaskPicker } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { showPreferences, confirm } from '../../lib/stores/dialogs.svelte'
-  import { showTaskPicker } from '../../lib/stores/dialogs.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
-  import { addToast } from '../../lib/stores/toast.svelte'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
 
   let resolved = $derived(getResolvedConfig())
-  let trackers = $derived(resolved?.config.trackers ?? [])
+  // Only trackers declared by THIS project's .canopy/config.json — the merged config also carries
+  // personal (global) connections, which must not show up as the project's tracker (a project
+  // with no tracker config would otherwise display the previous project's connection).
+  let trackers = $derived(
+    (resolved?.config.trackers ?? []).filter((t) => resolved?.repoTrackerIds?.includes(t.id)),
+  )
   let trackerCreds = $derived(getTrackerCredentials())
+  let needsCredsList = $derived(getProjectTrackersNeedingCredentials())
   let loading = $derived(isTaskTrackerLoading())
-  let activeTask = $derived(getActiveTask())
-  let creatingPR = $state(false)
+  let verifying = $derived(isVerifyingCredentials())
+  let panelTasks = $derived(getPanelTasks())
+  // Worktree switched but task resolution hasn't landed yet — the banner would otherwise keep
+  // showing the previous worktree's task until the data silently swaps.
+  let taskResolving = $derived(
+    getPanelTaskResolvedPath() !== (workspaceState.selectedWorktreePath ?? '').replace(/\\/g, '/'),
+  )
 
-  let taskKeyFromBranch = $derived.by(() => {
-    if (activeTask) return null
-    const branch = workspaceState.branch
-    if (!branch) return null
-    const match = branch.match(/([A-Z][A-Z0-9]+-\d+)/)
-    return match ? match[1] : null
-  })
-  let canCreatePR = $derived(!!(activeTask || taskKeyFromBranch) && !!workspaceState.branch)
-  let existingPRUrl = $state<string | null>(null)
-
-  let prCheckTimer: ReturnType<typeof setTimeout> | null = null
-
-  $effect(() => {
-    const branch = workspaceState.branch
-    existingPRUrl = null
-    if (prCheckTimer) clearTimeout(prCheckTimer)
-    if (branch) {
-      prCheckTimer = setTimeout(() => checkExistingPR(branch), 500)
-    }
-    return () => {
-      if (prCheckTimer) clearTimeout(prCheckTimer)
-    }
-  })
-
-  async function checkExistingPR(branch: string): Promise<void> {
-    const root = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
-    if (!root) return
-    try {
-      const result = await window.api.taskTrackerFindPR(root, branch)
-      if (result) existingPRUrl = result
-    } catch {
-      // no PR found
-    }
+  function openProjectTracker(): void {
+    showProjectTracker()
   }
 
-  function openTrackerPrefs(): void {
-    showPreferences('tasks')
+  function openTaskPanel(taskKey?: string): void {
+    if (taskKey) selectPanelTask(taskKey)
+    workspaceState.rightPanelOpen = true
+    workspaceState.rightPanelTab = 'task'
   }
 
-  function browseTasks(connectionId: string): void {
-    showTaskPicker(connectionId)
+  // Task keys embedded in the branch name — those links come from the branch itself, so they
+  // cannot be unlinked (they would reappear on the next resolution anyway).
+  let branchKeys = $derived(workspaceState.branch ? extractTaskKeys(workspaceState.branch) : [])
+
+  async function unlinkTask(taskKey: string): Promise<void> {
+    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    if (!path) return
+    await removeActiveTask(path, taskKey)
+    await resolvePanelTask(path, workspaceState.branch)
   }
 
-  function worktreePath(): string {
-    return workspaceState.selectedWorktreePath ?? workspaceState.repoRoot ?? ''
-  }
-
-  async function doCreatePR(): Promise<void> {
-    const branch = workspaceState.branch
-    if (!branch || !canCreatePR) return
-
-    const taskKey = activeTask?.taskKey ?? taskKeyFromBranch ?? ''
-    creatingPR = true
-    let prTitle = `[${taskKey}]`
-    let defaultTarget = 'develop'
-    try {
-      const preview = await window.api.taskTrackerResolvePRPreview(
-        taskKey,
-        activeTask?.connectionId,
-        activeTask?.boardId,
-        worktreePath() || undefined,
-      )
-      prTitle = preview.title
-      defaultTarget = preview.targetBranch
-    } catch {
-      // use defaults
-    }
-    creatingPR = false
-
-    const ok = await confirm({
-      title: 'Create Pull Request',
-      message: `Create PR from "${workspaceState.branch}"?`,
-      details: `Title: ${prTitle}\nTarget: ${defaultTarget}`,
-      confirmLabel: 'Create PR',
-    })
-    if (!ok) return
-
-    creatingPR = true
-    try {
-      const result = await window.api.taskTrackerCreatePR(
-        worktreePath(),
-        {
-          key: taskKey,
-          summary: activeTask?.summary ?? '',
-          description: '',
-          status: '',
-          priority: '',
-          type: 'task',
-        },
-        branch,
-        activeTask?.connectionId,
-        activeTask?.boardId,
-      )
-      existingPRUrl = result.url
-      addToast('PR created')
-      window.api.openExternal(result.url)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('No commits between')) {
-        await confirm({
-          title: 'No Changes',
-          message: `No commits between target branch and "${workspaceState.branch}". Commit changes first.`,
-          confirmLabel: 'OK',
-        })
-      } else {
-        addToast(msg)
-      }
-    } finally {
-      creatingPR = false
-    }
+  // No task linked yet: open the task picker in LINK mode — picking a task attaches it to the
+  // current worktree instead of creating a branch. Without working credentials fall back to the
+  // tracker config dialog.
+  function linkTask(): void {
+    const usable = trackers.find(
+      (t) => (trackerCreds[t.id]?.hasToken ?? false) && trackerCreds[t.id]?.valid !== false,
+    )
+    if (usable) showTaskPicker(usable.id, 'link')
+    else openProjectTracker()
   }
 </script>
 
-<CollapsibleSection title="TASKS" sectionKey="tasks" borderTop>
+<CollapsibleSection title="PROJECT MANAGEMENT" sectionKey="tasks" borderTop>
+  {#snippet headerExtra()}
+    <!-- Quiet entry to the project tracker config (.canopy/config.json): connections and
+         branch/PR naming templates. Deliberately subtle — it's a rarely-needed setup action. -->
+    <button
+      class="flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint cursor-pointer opacity-60 hover:opacity-100 hover:bg-hover hover:text-text-secondary"
+      onclick={openProjectTracker}
+      aria-label="Configure project tracker"
+      title="Configure project tracker — connections, branch/PR naming"
+    >
+      <Settings size={12} />
+    </button>
+  {/snippet}
   {#if loading}
-    <div class="px-3 py-2 text-xs text-text-muted">Loading...</div>
+    <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
+      <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+      <span class="text-sm">Loading trackers…</span>
+    </div>
   {:else if trackers.length > 0}
-    <ul class="list-none p-0 m-0">
+    <div class="flex flex-col">
+      <!-- Configuration: tracker connections and credential warnings. -->
       {#each trackers as tracker (tracker.id)}
-        {@const hasCreds = trackerCreds[tracker.id]?.hasToken ?? false}
-        <li>
+        <!-- The row opens the tracker itself — picking tasks has its own entries (task list,
+             link dialog, worktree modal), so a row click no longer pops the picker. -->
+        <div class="flex items-center">
           <button
-            class="flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:opacity-50 disabled:cursor-default"
-            onclick={() => browseTasks(tracker.id)}
-            disabled={!hasCreds}
-            title={hasCreds
-              ? `Browse tasks — ${providerLabel(tracker.provider)}`
-              : 'Credentials required'}
+            class="group flex items-center gap-2.5 flex-1 min-w-0 h-7 pl-3 pr-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+            onclick={() => window.api.openExternal(tracker.baseUrl)}
+            disabled={!tracker.baseUrl}
+            title={tracker.baseUrl
+              ? `Open ${providerLabel(tracker.provider)} in the browser`
+              : 'Not configured'}
           >
-            <SquareKanban size={14} />
+            <span
+              class="inline-flex items-center flex-shrink-0"
+              title={providerLabel(tracker.provider)}
+            >
+              <TrackerProviderIcon provider={tracker.provider} size={13} />
+            </span>
             <span
               class="overflow-hidden text-ellipsis whitespace-nowrap flex-1"
               title={tracker.baseUrl || 'Not configured'}
               >{tracker.baseUrl || 'Not configured'}</span
             >
-            <span
-              class="inline-flex items-center h-4 px-1.5 rounded-md text-2xs font-semibold uppercase tracking-caps-tight bg-border-subtle text-text-muted leading-tight flex-shrink-0"
-              >{providerLabel(tracker.provider)}</span
-            >
-            {#if hasCreds}
-              <ExternalLink size={12} />
-            {/if}
+            <ExternalLink
+              size={11}
+              class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
+            />
           </button>
-        </li>
+        </div>
       {/each}
-    </ul>
 
-    {#if activeTask}
+      {#if needsCredsList.length > 0}
+        <div class="flex flex-col gap-1 px-2 py-1">
+          <!-- Same banner as the Task panel: icon + message + inline Add credentials button. -->
+          {#each needsCredsList as t (t.id)}
+            <div
+              class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+              title={`${providerLabel(t.provider)} · ${t.baseUrl}`}
+            >
+              <KeyRound size={13} class="shrink-0 text-warning-text" />
+              <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug"
+                >{trackerCreds[t.id]?.hasToken
+                  ? 'Credentials expired for this tracker.'
+                  : 'No credentials found for this tracker.'}</span
+              >
+              <button
+                type="button"
+                class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+                onclick={openProjectTracker}
+              >
+                Add credentials
+              </button>
+            </div>
+          {/each}
+        </div>
+      {:else if verifying}
+        <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
+          <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+          <span class="text-sm">Checking credentials…</span>
+        </div>
+      {/if}
+
       <div
-        class="flex items-center gap-2 mx-2 mt-1 px-3 py-1.5 rounded-md bg-bg-elevated border border-border-subtle"
-      >
-        <span class="text-xs font-semibold text-accent-text flex-shrink-0"
-          >{activeTask.taskKey}</span
-        >
-        <span
-          class="text-xs text-text-muted overflow-hidden text-ellipsis whitespace-nowrap flex-1"
-          title={activeTask.summary}>{activeTask.summary}</span
-        >
-      </div>
-    {/if}
+        class="h-px mx-3 my-1 bg-border-subtle"
+        role="separator"
+        aria-orientation="horizontal"
+      ></div>
 
-    <div class="px-3 py-1">
-      {#if existingPRUrl}
-        <button
-          class="flex items-center gap-1.5 w-full px-2 py-1 border-0 rounded-md bg-active text-text-secondary text-xs font-inherit cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
-          onclick={() => window.api.openExternal(existingPRUrl!)}
-          title="Open existing Pull Request"
-        >
-          <ExternalLink size={13} />
-          <span>Open PR</span>
-          <span class="ml-auto text-2xs text-text-faint"
-            >{activeTask?.taskKey ?? taskKeyFromBranch}</span
+      <!-- Tasks linked to the current worktree. -->
+      {#if taskResolving}
+        <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
+          <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+          <span class="text-sm">Resolving task…</span>
+        </div>
+      {:else if panelTasks.length > 0}
+        {#each panelTasks as t (t.taskKey)}
+          {@const fromBranch = branchKeys.includes(t.taskKey)}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="group flex items-center gap-2.5 w-full h-7 px-3 bg-transparent text-sm cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+            role="button"
+            tabindex="0"
+            onclick={() => openTaskPanel(t.taskKey)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                openTaskPanel(t.taskKey)
+              }
+            }}
+            title={t.summary
+              ? `${t.taskKey} — ${t.summary}\nOpen the task panel (status, comments)`
+              : 'Open the task panel (status, comments)'}
           >
+            {#if t.typeIcon}
+              <img
+                src={t.typeIcon}
+                alt={t.typeName ?? t.type ?? 'task type'}
+                title={t.typeName ?? t.type}
+                class="size-3.5 shrink-0 rounded-sm"
+              />
+            {/if}
+            <span
+              class="text-xs font-semibold flex-shrink-0 {t.missing
+                ? 'text-warning-text line-through'
+                : 'text-accent-text'}">{t.taskKey}</span
+            >
+            {#if t.missing}
+              <span
+                class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning/15 text-warning-text"
+                >not found</span
+              >
+            {/if}
+            <span
+              class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted"
+              >{t.summary ?? ''}</span
+            >
+            <!-- VS Code-style swap: the status chip sits flush right and yields its slot to the
+                 unlink action on hover/focus, so no empty gutter is reserved next to it. -->
+            {#if t.status}
+              <span
+                class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 group-hover:hidden group-focus-within:hidden {statusChipClass(
+                  t.statusCategory,
+                )}">{t.status}</span
+              >
+            {/if}
+            <button
+              class="hidden group-hover:flex group-focus-within:flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint p-0 shrink-0 enabled:cursor-pointer enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-40"
+              onclick={(e) => {
+                e.stopPropagation()
+                void unlinkTask(t.taskKey)
+              }}
+              disabled={fromBranch}
+              aria-label="Unlink task"
+              title={fromBranch
+                ? 'This task key is part of the branch name — the link comes from the branch and cannot be removed'
+                : 'Unlink this task from the worktree'}
+            >
+              <Unlink size={12} />
+            </button>
+          </div>
+        {/each}
+        <button
+          class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+          onclick={linkTask}
+          title="Link another task to this worktree"
+        >
+          <Link2
+            size={13}
+            class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+          />
+          <span class="flex-1">Link another task</span>
         </button>
       {:else}
         <button
-          class="flex items-center gap-1.5 w-full px-2 py-1 border-0 rounded-md bg-active text-text-secondary text-xs font-inherit cursor-pointer transition-colors duration-fast enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
-          onclick={doCreatePR}
-          disabled={creatingPR || !canCreatePR}
-          title={canCreatePR
-            ? `Create Pull Request for ${activeTask?.taskKey ?? taskKeyFromBranch}`
-            : 'No task key found in branch name'}
+          class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+          onclick={linkTask}
+          title="Link a task to this worktree"
         >
-          <GitPullRequest size={13} />
-          <span>{creatingPR ? 'Creating...' : 'Create PR'}</span>
-          {#if activeTask?.taskKey ?? taskKeyFromBranch}
-            <span class="ml-auto text-2xs text-text-faint"
-              >{activeTask?.taskKey ?? taskKeyFromBranch}</span
-            >
-          {/if}
+          <Link2
+            size={13}
+            class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+          />
+          <span class="flex-1">Link task</span>
         </button>
       {/if}
-    </div>
-
-    {#if trackers.some((t) => !trackerCreds[t.id]?.hasToken)}
-      <div class="px-3 py-1">
-        <button
-          class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
-          onclick={openTrackerPrefs}
-        >
-          Credentials required — configure in Preferences
-        </button>
-      </div>
-    {/if}
-    <div class="px-3 py-1">
-      <button
-        class="flex items-center gap-1 px-1.5 py-0.5 border-0 bg-transparent text-text-faint text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
-        onclick={openTrackerPrefs}
-        title="Configure tracker"
-      >
-        <Settings size={12} />
-        <span>Settings</span>
-      </button>
     </div>
   {:else}
     <div class="px-3 py-2">
       <button
         class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
-        onclick={openTrackerPrefs}
+        onclick={openProjectTracker}
       >
         <Plus size={14} />
         Configure Tracker

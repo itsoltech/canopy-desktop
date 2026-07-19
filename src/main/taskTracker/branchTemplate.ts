@@ -38,13 +38,11 @@ export function resolveBranchType(
 export function getAvailablePlaceholders(
   customVars: Record<string, string> = {},
 ): PlaceholderInfo[] {
-  const custom = Object.entries(customVars).map(
-    ([key, value]): PlaceholderInfo => ({
-      key,
-      description: `Custom: ${key}`,
-      example: value,
-    }),
-  )
+  const custom = Object.entries(customVars).map(([key, value]): PlaceholderInfo => ({
+    key,
+    description: `Custom: ${key}`,
+    example: value,
+  }))
   return [...BUILTIN_PLACEHOLDERS, ...custom]
 }
 
@@ -58,7 +56,7 @@ function slugify(text: string, maxLength = 50): string {
     .slice(0, maxLength)
 }
 
-function sanitizeBranchName(name: string): string {
+export function sanitizeBranchName(name: string): string {
   return (
     name
       // Collapse any run of 2+ dots to a single dot. A single non-overlapping
@@ -98,18 +96,17 @@ export function buildVariables(
 }
 
 export function renderBranchName(template: string, variables: Record<string, string>): string {
-  let result = template.replace(
-    /\{\?(\w+)\}(.*?)\{\/\1\}/g,
-    (_match, varName: string, content: string) => {
-      return variables[varName] ? content : ''
-    },
-  )
+  // Drop any legacy conditional markers ({?x}…{/x}); the inner content is treated as normal text.
+  let result = template.replace(/\{\?\w+\}/g, '').replace(/\{\/\w+\}/g, '')
 
-  result = result.replace(/\{(\w+)\}/g, (_match, key: string) => {
-    return variables[key] ?? ''
+  // A placeholder with no value renders to nothing AND removes its immediately-preceding separator,
+  // so empty fields never leave a dangling separator.
+  result = result.replace(/([/_-]?)\{(\w+)\}/g, (_match, sep: string, key: string) => {
+    const value = variables[key]
+    return value ? `${sep}${value}` : ''
   })
 
-  result = result.replace(/\/+/g, '/').replace(/^\/|\/$/g, '')
+  result = result.replace(/\/{2,}/g, '/').replace(/^[/_-]+|[/_-]+$/g, '')
 
   return sanitizeBranchName(result)
 }

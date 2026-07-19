@@ -29,11 +29,6 @@ export interface PromptOptions {
   checkbox?: PromptCheckbox
 }
 
-interface ConfirmDialogState {
-  type: 'confirm'
-  props: ConfirmOptions & { onConfirm: () => void; onCancel: () => void }
-}
-
 interface InputDialogState {
   type: 'input'
   props: PromptOptions & { onSubmit: (result: PromptResult) => void; onCancel: () => void }
@@ -54,6 +49,13 @@ interface PreferencesState {
 interface TaskPickerState {
   type: 'taskPicker'
   connectionId: string
+  /** 'browse' (default) → picking a task opens branch creation; 'link' → picking a task links it
+   *  to the current worktree (activeTask) without creating anything. */
+  mode?: 'browse' | 'link'
+}
+
+interface ProjectTrackerState {
+  type: 'projectTracker'
 }
 
 interface AboutState {
@@ -76,10 +78,6 @@ interface FeatureOnboardingState {
 
 interface TmuxBrowserState {
   type: 'tmuxBrowser'
-}
-
-interface CreateGitHubPRState {
-  type: 'createGitHubPR'
 }
 
 interface RemoteAcceptDeviceState {
@@ -106,23 +104,38 @@ interface CrashReportState {
   data: CrashReportData
 }
 
+interface PRDetailsState {
+  type: 'prDetails'
+  repoRoot: string
+  branch: string
+}
+
+interface CreateTaskPRState {
+  type: 'createTaskPR'
+  repoRoot: string
+  branch: string
+  /** Linked task providing template context — absent for a plain branch-level PR. */
+  task?: { taskKey: string; summary: string; connectionId?: string }
+}
+
 interface NoneState {
   type: 'none'
 }
 
 type DialogState =
   | NoneState
-  | ConfirmDialogState
   | InputDialogState
   | CreateWorktreeState
   | PreferencesState
   | TaskPickerState
+  | ProjectTrackerState
+  | PRDetailsState
+  | CreateTaskPRState
   | AboutState
   | ChangelogState
   | OnboardingWizardState
   | FeatureOnboardingState
   | TmuxBrowserState
-  | CreateGitHubPRState
   | RemoteAcceptDeviceState
   | RunConfigEditorState
   | RunConfigManagerState
@@ -130,20 +143,23 @@ type DialogState =
 
 export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
 
+// Confirmations render ABOVE whatever dialog is open (separate stacked state), so asking for a
+// confirmation inside a modal (e.g. the Project tracker dialog) doesn't replace and close it.
+export const confirmState: {
+  current: (ConfirmOptions & { onConfirm: () => void; onCancel: () => void }) | null
+} = $state({ current: null })
+
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
   return new Promise((resolve) => {
-    dialogState.current = {
-      type: 'confirm',
-      props: {
-        ...opts,
-        onConfirm: () => {
-          dialogState.current = { type: 'none' }
-          resolve(true)
-        },
-        onCancel: () => {
-          dialogState.current = { type: 'none' }
-          resolve(false)
-        },
+    confirmState.current = {
+      ...opts,
+      onConfirm: () => {
+        confirmState.current = null
+        resolve(true)
+      },
+      onCancel: () => {
+        confirmState.current = null
+        resolve(false)
       },
     }
   })
@@ -185,8 +201,26 @@ export function showPreferences(section?: string): void {
   dialogState.current = { type: 'preferences', section }
 }
 
-export function showTaskPicker(connectionId: string): void {
-  dialogState.current = { type: 'taskPicker', connectionId }
+export function showTaskPicker(connectionId: string, mode: 'browse' | 'link' = 'browse'): void {
+  dialogState.current = { type: 'taskPicker', connectionId, mode }
+}
+
+export function showProjectTracker(): void {
+  dialogState.current = { type: 'projectTracker' }
+}
+
+/** Native PR panel — details fetched via the authenticated gh CLI, no browser login needed. */
+export function showPRDetails(repoRoot: string, branch: string): void {
+  dialogState.current = { type: 'prDetails', repoRoot, branch }
+}
+
+/** Native create-PR form: template-rendered title/body editable before anything is created. */
+export function showCreateTaskPR(
+  repoRoot: string,
+  branch: string,
+  task?: { taskKey: string; summary: string; connectionId?: string },
+): void {
+  dialogState.current = { type: 'createTaskPR', repoRoot, branch, task }
 }
 
 export function showAbout(): void {
@@ -207,10 +241,6 @@ export function showFeatureOnboarding(fromVersion: string): void {
 
 export function showTmuxBrowser(): void {
   dialogState.current = { type: 'tmuxBrowser' }
-}
-
-export function showCreateGitHubPR(): void {
-  dialogState.current = { type: 'createGitHubPR' }
 }
 
 export function showRemoteAcceptDevice(device: {

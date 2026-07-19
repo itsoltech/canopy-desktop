@@ -15,7 +15,7 @@ import {
   SquareTerminal,
   Hammer,
   GitBranch,
-  ListChecks,
+  KeyRound,
   FolderSearch,
   Globe,
   Smartphone,
@@ -109,11 +109,11 @@ export const sectionMeta: Record<string, SectionMeta> = {
     description: 'Pull strategy and worktree setup',
     keywords: 'git pull rebase merge worktree directory base setup actions copy command',
   },
-  Tasks: {
-    icon: ListChecks,
-    description: 'Linear, Jira and branch/PR templates',
+  'Your connections': {
+    icon: KeyRound,
+    description: 'Your personal tracker connections and locally-stored credentials',
     keywords:
-      'tasks linear jira tracker branch pr template naming token connections boards statuses',
+      'your personal connections tracker jira linear youtrack github token credentials auth baseurl',
   },
   'File Watcher': {
     icon: FolderSearch,

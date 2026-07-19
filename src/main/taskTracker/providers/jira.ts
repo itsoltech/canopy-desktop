@@ -1,6 +1,6 @@
 import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
 import { match } from 'ts-pattern'
-import type { TaskTrackerError } from '../errors'
+import { taskTrackerErrorMessage, type TaskTrackerError } from '../errors'
 import { fromExternalCall, errorMessage } from '../../errors'
 import type {
   TaskTrackerConnection,
@@ -11,16 +11,19 @@ import type {
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
+  TrackerStatusCategory,
+  TrackerTransition,
+  TrackerTransitionField,
 } from '../types'
 
 interface JiraTaskFields {
   summary?: string
   description?: string
-  status?: { name?: string }
+  status?: { name?: string; statusCategory?: { key?: string } }
   priority?: { name?: string }
-  issuetype?: { name?: string; subtask?: boolean }
+  issuetype?: { name?: string; subtask?: boolean; iconUrl?: string }
   parent?: { key?: string }
-  assignee?: { displayName?: string; accountId?: string }
+  assignee?: { displayName?: string; accountId?: string; avatarUrls?: Record<string, string> }
   sprint?: { id?: number; name?: string; state?: string }
 }
 
@@ -50,6 +53,24 @@ function apiError(status: number, message: string): TaskTrackerError {
   return { _tag: 'ProviderApiError', status, message, provider: 'jira' }
 }
 
+/** Jira error bodies are JSON ({errorMessages, errors}) — surface the human sentences instead
+ *  of the raw payload. Non-JSON bodies pass through untouched. */
+function jiraErrorText(body: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(body) as {
+      errorMessages?: string[]
+      errors?: Record<string, string>
+    }
+    const parts = [...(parsed.errorMessages ?? []), ...Object.values(parsed.errors ?? {})].filter(
+      Boolean,
+    )
+    if (parts.length > 0) return parts.join(' ')
+  } catch {
+    // Not JSON — use the raw body.
+  }
+  return body || fallback
+}
+
 function jiraFetch<T>(
   connection: TaskTrackerConnection,
   token: string,
@@ -70,10 +91,152 @@ function jiraFetch<T>(
       return fromExternalCall(
         res.text().catch(() => ''),
         (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((body) => errAsync(apiError(res.status, body || res.statusText)))
+      ).andThen((body) => errAsync(apiError(res.status, jiraErrorText(body, res.statusText))))
     }
     return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
   })
+}
+
+/** POST to Jira and ignore the response body (transitions return 204, comment returns 201). */
+function jiraSend(
+  connection: TaskTrackerConnection,
+  token: string,
+  path: string,
+  body: unknown,
+  method: 'POST' | 'PUT' = 'POST',
+): ResultAsync<void, TaskTrackerError> {
+  const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
+  return fromExternalCall(
+    fetch(url, {
+      method,
+      headers: buildAuthHeaders(connection, token),
+      body: JSON.stringify(body),
+      // Do not follow redirects: baseUrl comes from repo config, and a redirect
+      // would forward the Authorization token to an attacker-controlled host.
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  ).andThen((res) => {
+    if (!res.ok) {
+      return fromExternalCall(
+        res.text().catch(() => ''),
+        (e) => apiError(res.status, errorMessage(e)),
+      ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
+    }
+    return okAsync(undefined)
+  })
+}
+
+/** POST to Jira and parse the JSON response (issue creation returns the new key in the body). */
+function jiraPost<T>(
+  connection: TaskTrackerConnection,
+  token: string,
+  path: string,
+  body: unknown,
+): ResultAsync<T, TaskTrackerError> {
+  const url = `${connection.baseUrl.replace(/\/$/, '')}${path}`
+  return fromExternalCall(
+    fetch(url, {
+      method: 'POST',
+      headers: buildAuthHeaders(connection, token),
+      body: JSON.stringify(body),
+      // Do not follow redirects: baseUrl comes from repo config, and a redirect
+      // would forward the Authorization token to an attacker-controlled host.
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  ).andThen((res) => {
+    if (!res.ok) {
+      return fromExternalCall(
+        res.text().catch(() => ''),
+        (e) => apiError(res.status, errorMessage(e)),
+      ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
+    }
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+  })
+}
+
+/** Upload pasted images as issue attachments — the issue already exists, so any failure is
+ *  reported as a warning on the created task rather than an error. */
+function jiraUploadAttachments(
+  connection: TaskTrackerConnection,
+  token: string,
+  issueKey: string,
+  attachments: Array<{ filename: string; mimeType: string; dataBase64: string }>,
+): ResultAsync<string[], never> {
+  if (attachments.length === 0) return okAsync([])
+  const url = `${connection.baseUrl.replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(issueKey)}/attachments`
+  const auth = connection.username
+    ? `Basic ${Buffer.from(`${connection.username}:${token}`).toString('base64')}`
+    : `Bearer ${token}`
+  const form = new FormData()
+  for (const a of attachments) {
+    form.append(
+      'file',
+      new Blob([Buffer.from(a.dataBase64, 'base64')], { type: a.mimeType }),
+      a.filename,
+    )
+  }
+  return fromExternalCall(
+    fetch(url, {
+      method: 'POST',
+      // No Content-Type here — fetch derives the multipart boundary from the FormData.
+      headers: { Authorization: auth, 'X-Atlassian-Token': 'no-check' },
+      body: form,
+      redirect: 'error',
+      signal: AbortSignal.timeout(60_000),
+    }),
+    (e) => apiError(0, errorMessage(e)),
+  )
+    .andThen((res) => {
+      if (!res.ok) {
+        return fromExternalCall(
+          res.text().catch(() => ''),
+          (e) => apiError(res.status, errorMessage(e)),
+        ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
+      }
+      return okAsync([] as string[])
+    })
+    .orElse((e) =>
+      okAsync([`Task created, but attaching images failed: ${taskTrackerErrorMessage(e)}`]),
+    )
+}
+
+/** Jira Cloud v3 write endpoints take comment bodies in Atlassian Document Format. */
+function toAdf(text: string): unknown {
+  return {
+    type: 'doc',
+    version: 1,
+    content: text.split('\n').map((line) => ({
+      type: 'paragraph',
+      content: line ? [{ type: 'text', text: line }] : [],
+    })),
+  }
+}
+
+// Jira's three fixed status categories; every status belongs to exactly one.
+const STATUS_CATEGORY_MAP: Record<string, TrackerStatusCategory> = {
+  new: 'todo',
+  indeterminate: 'in-progress',
+  done: 'done',
+}
+
+interface JiraTransitionsResponse {
+  transitions?: Array<{
+    id: string
+    name?: string
+    to?: { name?: string; statusCategory?: { key?: string } }
+    fields?: Record<
+      string,
+      {
+        name?: string
+        required?: boolean
+        allowedValues?: Array<{ id?: string | number; name?: string; value?: string }>
+      }
+    >
+  }>
 }
 
 function mapTaskType(fields: JiraTaskFields): string {
@@ -130,12 +293,16 @@ function mapJiraTask(task: JiraTask, baseUrl: string): TrackerTask {
         ? normalizeTrackerText(f.description)
         : normalizeTrackerText(adfToPlainText(f.description)),
     status: f.status?.name ?? '',
+    statusCategory: STATUS_CATEGORY_MAP[f.status?.statusCategory?.key ?? ''],
     priority: f.priority?.name ?? '',
     type: mapTaskType(f),
+    typeName: f.issuetype?.name,
+    typeIconUrl: f.issuetype?.iconUrl,
     parentKey: f.parent?.key,
     sprintName: f.sprint?.name,
     sprintNumber: f.sprint?.name ? parseSprintNumber(f.sprint.name) : undefined,
     assignee: f.assignee?.displayName,
+    assigneeAvatarUrl: f.assignee?.avatarUrls?.['24x24'] ?? f.assignee?.avatarUrls?.['48x48'],
     url: `${baseUrl.replace(/\/$/, '')}/browse/${task.key}`,
   }
 }
@@ -157,7 +324,12 @@ export const jiraClient: TaskTrackerProviderClient = {
       connection,
       token,
       `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=${fields}`,
-    ).map((data) => mapJiraTask(data, connection.baseUrl) as TrackerTask | null)
+    )
+      .map((data) => mapJiraTask(data, connection.baseUrl) as TrackerTask | null)
+      .orElse((e) =>
+        // Deleted (or invisible) issue — report "not found" rather than an API failure.
+        e._tag === 'ProviderApiError' && e.status === 404 ? okAsync(null) : errAsync(e),
+      )
   },
 
   fetchBoards(connection, token) {
@@ -171,21 +343,36 @@ export const jiraClient: TaskTrackerProviderClient = {
         location?: { projectKey?: string }
       }>
     }>(connection, token, `/rest/agile/1.0/board${params}`).map((data) =>
-      data.values.map(
-        (b): TrackerBoard => ({
-          id: String(b.id),
-          name: b.name,
-          projectKey: b.location?.projectKey,
-        }),
-      ),
+      data.values.map((b): TrackerBoard => ({
+        id: String(b.id),
+        name: b.name,
+        projectKey: b.location?.projectKey,
+      })),
+    )
+  },
+
+  fetchProjects(connection, token) {
+    return jiraFetch<{ values: Array<{ key: string; name: string }> }>(
+      connection,
+      token,
+      '/rest/api/3/project/search?maxResults=100',
+    ).map((data) => data.values.map((p) => ({ key: p.key, name: p.name })))
+  },
+
+  fetchTaskTypes(connection, token) {
+    // Global issue-type list; names are deduped (Jira repeats them per project scope).
+    return jiraFetch<Array<{ name: string }>>(connection, token, '/rest/api/3/issuetype').map(
+      (data) => [...new Set(data.map((t) => t.name).filter(Boolean))],
     )
   },
 
   fetchStatuses(connection, token) {
+    // `/rest/api/3/status` (singular) lists ALL statuses with their category; the plural
+    // `/statuses` endpoint requires explicit status ids and 400s without them.
     return jiraFetch<Array<{ id: string; name: string; statusCategory?: { key?: string } }>>(
       connection,
       token,
-      '/rest/api/3/statuses',
+      '/rest/api/3/status',
     )
       .map((data) => {
         const seen = new Set<string>()
@@ -193,14 +380,22 @@ export const jiraClient: TaskTrackerProviderClient = {
         for (const s of data) {
           if (!seen.has(s.name)) {
             seen.add(s.name)
-            statuses.push({ id: s.id, name: s.name })
+            statuses.push({
+              id: s.id,
+              name: s.name,
+              statusCategory: STATUS_CATEGORY_MAP[s.statusCategory?.key ?? ''],
+            })
           }
         }
         return statuses
       })
       .orElse(() => {
         if (connection.projectKey) {
-          return jiraFetch<Array<{ statuses?: Array<{ id: string; name: string }> }>>(
+          return jiraFetch<
+            Array<{
+              statuses?: Array<{ id: string; name: string; statusCategory?: { key?: string } }>
+            }>
+          >(
             connection,
             token,
             `/rest/api/3/project/${encodeURIComponent(connection.projectKey)}/statuses`,
@@ -211,7 +406,11 @@ export const jiraClient: TaskTrackerProviderClient = {
               for (const s of category.statuses ?? []) {
                 if (!seen.has(s.name)) {
                   seen.add(s.name)
-                  statuses.push({ id: s.id, name: s.name })
+                  statuses.push({
+                    id: s.id,
+                    name: s.name,
+                    statusCategory: STATUS_CATEGORY_MAP[s.statusCategory?.key ?? ''],
+                  })
                 }
               }
             }
@@ -225,6 +424,17 @@ export const jiraClient: TaskTrackerProviderClient = {
   fetchTasks(connection, token, params) {
     const resolvedBoardId = params.boardId || connection.boardId
     const fields = 'summary,status,priority,issuetype,parent,assignee,sprint'
+
+    // Explicit project filter (the pickers browse per PROJECT — boards are legacy/fallback):
+    // same semantics as the board path — everything not Done, newest first, no assignee cut.
+    if (params.projectKey && /^[A-Za-z0-9_-]+$/.test(params.projectKey)) {
+      const jql = `project = "${params.projectKey}" AND statusCategory != Done ORDER BY updated DESC`
+      return jiraFetch<{ issues: JiraTask[] }>(
+        connection,
+        token,
+        `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=200`,
+      ).map((data) => data.issues.map((i) => mapJiraTask(i, connection.baseUrl)))
+    }
 
     if (resolvedBoardId) {
       const jql = 'statusCategory != Done ORDER BY updated DESC'
@@ -293,17 +503,15 @@ export const jiraClient: TaskTrackerProviderClient = {
       token,
       `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment?maxResults=50`,
     ).map((data) =>
-      (data.comments ?? []).map(
-        (c): TrackerComment => ({
-          id: c.id,
-          author: c.author?.displayName ?? '',
-          body:
-            typeof c.body === 'string'
-              ? normalizeTrackerText(c.body)
-              : normalizeTrackerText(adfToPlainText(c.body)),
-          created: c.created ?? '',
-        }),
-      ),
+      (data.comments ?? []).map((c): TrackerComment => ({
+        id: c.id,
+        author: c.author?.displayName ?? '',
+        body:
+          typeof c.body === 'string'
+            ? normalizeTrackerText(c.body)
+            : normalizeTrackerText(adfToPlainText(c.body)),
+        created: c.created ?? '',
+      })),
     )
   },
 
@@ -320,15 +528,191 @@ export const jiraClient: TaskTrackerProviderClient = {
       }
     }>(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}?fields=attachment`).map(
       (data) =>
-        (data.fields.attachment ?? []).map(
-          (a): TrackerAttachment => ({
-            id: a.id,
-            name: a.filename ?? '',
-            mimeType: a.mimeType ?? '',
-            size: a.size ?? 0,
-            url: a.content ?? '',
-          }),
-        ),
+        (data.fields.attachment ?? []).map((a): TrackerAttachment => ({
+          id: a.id,
+          name: a.filename ?? '',
+          mimeType: a.mimeType ?? '',
+          size: a.size ?? 0,
+          url: a.content ?? '',
+        })),
+    )
+  },
+
+  fetchTransitions(connection, token, taskKey) {
+    // expand=transitions.fields returns each transition's screen fields with `required` flags and
+    // allowed values (e.g. resolution: Done / Won't Do) — the workflow requirements, introspected.
+    return jiraFetch<JiraTransitionsResponse>(
+      connection,
+      token,
+      `/rest/api/3/issue/${encodeURIComponent(taskKey)}/transitions?expand=transitions.fields`,
+    ).map((data) =>
+      (data.transitions ?? []).map((t): TrackerTransition => ({
+        id: t.id,
+        name: t.name ?? t.to?.name ?? t.id,
+        toStatus: t.to?.name ?? '',
+        toStatusCategory: STATUS_CATEGORY_MAP[t.to?.statusCategory?.key ?? ''],
+        fields: Object.entries(t.fields ?? {}).map(([key, f]): TrackerTransitionField => ({
+          key,
+          name: f.name ?? key,
+          required: f.required ?? false,
+          allowedValues: f.allowedValues?.map((v) => ({
+            id: String(v.id ?? v.value ?? ''),
+            name: v.name ?? v.value ?? String(v.id ?? ''),
+          })),
+        })),
+      })),
+    )
+  },
+
+  applyTransition(connection, token, taskKey, transitionId, opts) {
+    const fieldEntries = Object.entries(opts.fields ?? {}).filter(([, v]) => v)
+    const body: Record<string, unknown> = { transition: { id: transitionId } }
+    if (fieldEntries.length > 0) {
+      // Screen fields are sent by id (resolution and friends are option fields keyed by id).
+      body.fields = Object.fromEntries(fieldEntries.map(([key, id]) => [key, { id }]))
+    }
+    if (opts.comment) {
+      body.update = { comment: [{ add: { body: toAdf(opts.comment) } }] }
+    }
+    return jiraSend(
+      connection,
+      token,
+      `/rest/api/3/issue/${encodeURIComponent(taskKey)}/transitions`,
+      body,
+    )
+  },
+
+  addComment(connection, token, taskKey, commentBody) {
+    return jiraSend(connection, token, `/rest/api/3/issue/${encodeURIComponent(taskKey)}/comment`, {
+      body: toAdf(commentBody),
+    })
+  },
+
+  fetchAssignableUsers(connection, token, projectKey) {
+    return jiraFetch<
+      Array<{ accountId?: string; displayName?: string; avatarUrls?: Record<string, string> }>
+    >(
+      connection,
+      token,
+      `/rest/api/3/user/assignable/search?project=${encodeURIComponent(projectKey)}&maxResults=50`,
+    ).map((users) =>
+      users
+        .filter((u) => u.accountId)
+        .map((u) => ({
+          id: u.accountId!,
+          displayName: u.displayName ?? u.accountId!,
+          avatarUrl: u.avatarUrls?.['24x24'] ?? u.avatarUrls?.['48x48'],
+        })),
+    )
+  },
+
+  fetchSprints(connection, token, boardId) {
+    return jiraFetch<{ values?: Array<{ id: number; name: string; state: string }> }>(
+      connection,
+      token,
+      `/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=active,future&maxResults=50`,
+    ).map((data) =>
+      (data.values ?? []).map((s): TrackerSprint => ({
+        id: String(s.id),
+        name: s.name,
+        number: parseSprintNumber(s.name),
+        state: s.state as TrackerSprint['state'],
+      })),
+    )
+  },
+
+  fetchCreateTaskTypes(connection, token, projectKey) {
+    // The per-project createmeta endpoint reflects what THIS user can actually create there;
+    // it 403s without Create-issues permission — fall back to the global type list (the create
+    // POST is the final validator either way). Response envelope varies across deployments.
+    return jiraFetch<{
+      issueTypes?: Array<{ name?: string; subtask?: boolean; iconUrl?: string }>
+      values?: Array<{ name?: string; subtask?: boolean; iconUrl?: string }>
+    }>(
+      connection,
+      token,
+      `/rest/api/3/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes?maxResults=50`,
+    )
+      .map((data) => {
+        const types = data.issueTypes ?? data.values ?? []
+        // Subtasks need a parent we don't collect in the form; dedupe by name.
+        const seen = new Set<string>()
+        const result: Array<{ name: string; iconUrl?: string }> = []
+        for (const t of types) {
+          if (!t.name || t.subtask || seen.has(t.name)) continue
+          seen.add(t.name)
+          result.push({ name: t.name, iconUrl: t.iconUrl })
+        }
+        return result
+      })
+      .orElse(() =>
+        jiraClient
+          .fetchTaskTypes(connection, token)
+          .map((names) => names.map((name) => ({ name }))),
+      )
+  },
+
+  createTask(connection, token, input) {
+    const fields: Record<string, unknown> = {
+      project: { key: input.projectKey },
+      issuetype: { name: input.typeName },
+      summary: input.title,
+    }
+    if (input.description) fields.description = toAdf(input.description)
+    if (input.assigneeId) fields.assignee = { accountId: input.assigneeId }
+
+    return jiraPost<{ key: string }>(connection, token, '/rest/api/3/issue', { fields }).andThen(
+      (created) => {
+        const base = connection.baseUrl.replace(/\/$/, '')
+        const warnings: string[] = []
+        // The sprint field id (customfield_XXXXX) varies per instance — moving the issue via the
+        // agile API avoids field discovery. The issue already exists here, so a failure (e.g.
+        // team-managed boards rejecting the move) degrades to a warning, never a hard error.
+        const applySprint: ResultAsync<void, never> = input.sprintId
+          ? jiraSend(
+              connection,
+              token,
+              `/rest/agile/1.0/sprint/${encodeURIComponent(input.sprintId)}/issue`,
+              { issues: [created.key] },
+            ).orElse((e) => {
+              warnings.push(
+                `Task created, but adding it to the sprint failed: ${taskTrackerErrorMessage(e)}`,
+              )
+              return okAsync(undefined)
+            })
+          : okAsync(undefined)
+        const embedImages = (attachmentWarnings: string[]): ResultAsync<string[], never> => {
+          // Only worth a second write when images were actually attached and referenced text
+          // exists; the v2 endpoint converts wiki markup (incl. !image.png!) into ADF media.
+          if (!input.description || (input.attachments?.length ?? 0) === 0) {
+            return okAsync(attachmentWarnings)
+          }
+          return jiraSend(
+            connection,
+            token,
+            `/rest/api/2/issue/${encodeURIComponent(created.key)}`,
+            { fields: { description: input.description } },
+            'PUT',
+          )
+            .map(() => attachmentWarnings)
+            .orElse((e) =>
+              okAsync([
+                ...attachmentWarnings,
+                `Task created, but embedding the images in the description failed: ${taskTrackerErrorMessage(e)}`,
+              ]),
+            )
+        }
+        return applySprint
+          .andThen(() =>
+            jiraUploadAttachments(connection, token, created.key, input.attachments ?? []),
+          )
+          .andThen(embedImages)
+          .map((attachmentWarnings) => ({
+            key: created.key,
+            url: `${base}/browse/${created.key}`,
+            warnings: [...warnings, ...attachmentWarnings],
+          }))
+      },
     )
   },
 }

@@ -5,6 +5,7 @@ import {
   shell,
   BrowserWindow,
   systemPreferences,
+  safeStorage,
   type IpcMainInvokeEvent,
   type WebContents,
 } from 'electron'
@@ -53,6 +54,7 @@ import type {
   TrackerTask,
   RepoConfig,
   ResolvedConfig,
+  PRTemplateConfig,
 } from '../taskTracker/types'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
@@ -72,15 +74,24 @@ import {
   getAvailablePlaceholders,
   validateTemplate,
   resolveBranchType,
+  sanitizeBranchName,
   BRANCH_TYPE_OPTIONS,
 } from '../taskTracker/branchTemplate'
-import { createPullRequest, buildPRConfig } from '../taskTracker/prCreation'
+import {
+  createPullRequest,
+  buildPRConfig,
+  preparePullRequest,
+  mergePullRequest,
+  closePullRequest,
+  deleteRemoteBranch,
+  remoteBranchExists,
+} from '../taskTracker/prCreation'
 import {
   formatTaskContext,
   type TaskAttachmentPath,
   type TaskContextInput,
 } from '../taskTracker/taskContext'
-import { getBranchTemplate, getPRTemplate } from '../taskTracker/configDefaults'
+import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTracker/configDefaults'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
@@ -144,6 +155,8 @@ interface TaskTrackerCreateWorktreeFromTaskPayload extends TaskTrackerBranchFrom
   repoRoot: string
   worktreePath: string
   baseBranch: string
+  /** User-edited branch name; when set it is sanitized and used instead of the rendered template. */
+  branchName?: string
 }
 
 interface TaskTrackerBuildTaskContextPayload {
@@ -1229,6 +1242,11 @@ export function registerIpcHandlers(
   // --- App / Shell ---
 
   ipcMain.handle('app:homedir', () => os.homedir())
+
+  // Whether stored secrets (tracker tokens, API keys) are encrypted at rest via the OS mechanism
+  // (DPAPI / Keychain / keyring). When false, secrets are stored unencrypted. Returns a boolean
+  // only — never any secret material.
+  ipcMain.handle('app:isEncryptionAvailable', () => safeStorage.isEncryptionAvailable())
 
   ipcMain.handle('app:showInFolder', async (event, payload: { path: string }) => {
     const resolved = await validatePathAccess(event.sender.id, payload.path)
@@ -2946,7 +2964,7 @@ export function registerIpcHandlers(
       ((o.filters as Record<string, unknown>).statuses as unknown[]).every(
         (s) => typeof s === 'string',
       ) &&
-      typeof o.boardOverrides === 'object' &&
+      typeof o.projectOverrides === 'object' &&
       (!o.branchTemplate ||
         typeof (o.branchTemplate as Record<string, unknown>).template === 'string') &&
       (!o.prTemplate || typeof (o.prTemplate as Record<string, unknown>).titleTemplate === 'string')
@@ -3017,7 +3035,7 @@ export function registerIpcHandlers(
   ): Promise<string> {
     const resolved = await resolveEffectiveConfig(payload.repoRoot)
     const branchTpl = resolved
-      ? getBranchTemplate(resolved.config, payload.boardId)
+      ? getBranchTemplate(resolved.config, projectKeyOfTask(payload.task.key))
       : { template: '{taskKey}', customVars: {} }
 
     const sprint = resolved
@@ -3028,7 +3046,13 @@ export function registerIpcHandlers(
           .getCurrentSprint(payload.connectionId, payload.boardId)
           .unwrapOr(null)
 
-    const variables = buildVariables(payload.task, sprint, branchTpl.customVars, payload.branchType)
+    // Callers that offer a branch-type picker pass branchType explicitly; everyone else still
+    // gets one derived from the task type, so {branchType} never silently renders empty.
+    const branchType =
+      payload.branchType ??
+      (payload.task.type ? resolveBranchType(payload.task.type, branchTpl.typeMapping) : undefined)
+
+    const variables = buildVariables(payload.task, sprint, branchTpl.customVars, branchType)
     return renderBranchName(branchTpl.template, variables)
   }
 
@@ -3076,6 +3100,11 @@ export function registerIpcHandlers(
       return { username: creds.username, hasToken: true }
     },
   )
+
+  // Tokens never cross this boundary — listCredentials returns provider/baseUrl/username only.
+  ipcMain.handle('keychain:listCredentials', () => {
+    return keychainTokenStore.listCredentials()
+  })
 
   // --- Task Tracker ---
 
@@ -3318,6 +3347,35 @@ export function registerIpcHandlers(
   )
 
   ipcMain.handle(
+    'trackerConfig:fetchProjects',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; all?: boolean }) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchProjectsFromConfig(
+        resolved.config,
+        payload.trackerId,
+        payload.repoRoot,
+        payload.all === true,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchTaskTypes',
+    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchTaskTypesFromConfig(
+        resolved.config,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
     'trackerConfig:fetchTasks',
     async (
       _event,
@@ -3327,6 +3385,7 @@ export function registerIpcHandlers(
         statuses?: string[]
         assignedToMe?: boolean
         boardId?: string
+        projectKey?: string
       },
     ) => {
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
@@ -3337,6 +3396,7 @@ export function registerIpcHandlers(
           statuses: payload.statuses,
           assignedToMe: payload.assignedToMe,
           boardId: payload.boardId,
+          projectKey: payload.projectKey,
         },
         payload.trackerId,
         payload.repoRoot,
@@ -3370,6 +3430,90 @@ export function registerIpcHandlers(
       const result = await taskTrackerManager.fetchTaskCommentsFromConfig(
         resolved.config,
         payload.taskKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchTransitions',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchTransitionsFromConfig(
+        resolved.config,
+        payload.taskKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:applyTransition',
+    async (
+      _event,
+      payload: {
+        repoRoot?: string
+        trackerId?: string
+        taskKey: string
+        transitionId: string
+        fields?: Record<string, string>
+        comment?: string
+      },
+    ) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!payload.transitionId || typeof payload.transitionId !== 'string') {
+        throw new Error('Invalid transition')
+      }
+      // The renderer is the untrusted boundary: only plain string→string field values may cross.
+      if (payload.fields !== undefined) {
+        if (
+          typeof payload.fields !== 'object' ||
+          payload.fields === null ||
+          Array.isArray(payload.fields) ||
+          Object.values(payload.fields).some((v) => typeof v !== 'string')
+        ) {
+          throw new Error('Invalid transition fields')
+        }
+      }
+      if (payload.comment !== undefined && typeof payload.comment !== 'string') {
+        throw new Error('Invalid transition comment')
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.applyTransitionFromConfig(
+        resolved.config,
+        payload.taskKey,
+        payload.transitionId,
+        { fields: payload.fields, comment: payload.comment },
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:addComment',
+    async (
+      _event,
+      payload: { repoRoot?: string; trackerId?: string; taskKey: string; body: string },
+    ) => {
+      if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
+      if (!payload.body || typeof payload.body !== 'string' || !payload.body.trim()) {
+        throw new Error('Comment body is required')
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.addCommentFromConfig(
+        resolved.config,
+        payload.taskKey,
+        payload.body,
         payload.trackerId,
         payload.repoRoot,
       )
@@ -3423,6 +3567,155 @@ export function registerIpcHandlers(
       const result = await taskTrackerManager.findTaskByKeyFromConfig(
         resolved.config,
         payload.taskKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  // Identifier charsets for the create-task flow. The renderer is the untrusted boundary and
+  // some of these values reach YouTrack's free-text Commands API — keep them strict.
+  const PROJECT_KEY_RE = /^[A-Za-z0-9_-]+$/
+  const TYPE_NAME_RE = /^[^{}"\r\n]{1,100}$/
+  const ASSIGNEE_ID_RE = /^[A-Za-z0-9@._:+=/-]{1,128}$/
+  const BOARD_SPRINT_ID_RE = /^[A-Za-z0-9_=+/-]{1,128}$/
+
+  ipcMain.handle(
+    'trackerConfig:fetchAssignableUsers',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
+      if (payload.projectKey !== undefined && typeof payload.projectKey !== 'string') {
+        throw new Error('Invalid project key')
+      }
+      const projectKey = payload.projectKey ?? ''
+      if (projectKey && !PROJECT_KEY_RE.test(projectKey)) throw new Error('Invalid project key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchAssignableUsersFromConfig(
+        resolved.config,
+        projectKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchSprints',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; boardId: string }) => {
+      if (
+        !payload.boardId ||
+        typeof payload.boardId !== 'string' ||
+        !BOARD_SPRINT_ID_RE.test(payload.boardId)
+      ) {
+        throw new Error('Invalid board id')
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchSprintsFromConfig(
+        resolved.config,
+        payload.boardId,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:fetchCreateTaskTypes',
+    async (_event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
+      if (payload.projectKey !== undefined && typeof payload.projectKey !== 'string') {
+        throw new Error('Invalid project key')
+      }
+      const projectKey = payload.projectKey ?? ''
+      if (projectKey && !PROJECT_KEY_RE.test(projectKey)) throw new Error('Invalid project key')
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.fetchCreateTaskTypesFromConfig(
+        resolved.config,
+        projectKey,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'trackerConfig:createTask',
+    async (
+      _event,
+      payload: {
+        repoRoot?: string
+        trackerId?: string
+        projectKey?: string
+        typeName?: string
+        title: string
+        description?: string
+        assigneeId?: string
+        boardId?: string
+        sprintId?: string
+        attachments?: Array<{ filename: string; mimeType: string; dataBase64: string }>
+      },
+    ) => {
+      const title = typeof payload.title === 'string' ? payload.title.trim() : ''
+      if (!title || title.length > 512) throw new Error('A task title (max 512 chars) is required')
+      if (payload.description !== undefined) {
+        if (typeof payload.description !== 'string' || payload.description.length > 32_768) {
+          throw new Error('Invalid task description')
+        }
+      }
+      const validOptional = (value: unknown, re: RegExp): boolean =>
+        value === undefined || (typeof value === 'string' && re.test(value))
+      if (!validOptional(payload.projectKey, PROJECT_KEY_RE)) throw new Error('Invalid project key')
+      if (!validOptional(payload.typeName, TYPE_NAME_RE)) throw new Error('Invalid task type')
+      if (!validOptional(payload.assigneeId, ASSIGNEE_ID_RE)) throw new Error('Invalid assignee')
+      if (!validOptional(payload.boardId, BOARD_SPRINT_ID_RE)) throw new Error('Invalid board id')
+      if (!validOptional(payload.sprintId, BOARD_SPRINT_ID_RE)) throw new Error('Invalid sprint id')
+      if (payload.attachments !== undefined) {
+        if (!Array.isArray(payload.attachments) || payload.attachments.length > 8) {
+          throw new Error('Invalid attachments (max 8)')
+        }
+        // Aggregate cap: per-item limits alone would still let one IPC call carry ~80 MB of
+        // base64 into main-process memory (~30 MB decoded total is plenty for pasted images).
+        const totalBase64 = payload.attachments.reduce(
+          (sum, a) => sum + (typeof a?.dataBase64 === 'string' ? a.dataBase64.length : 0),
+          0,
+        )
+        if (totalBase64 > 40_000_000) {
+          throw new Error('Attachments too large (max ~30 MB total)')
+        }
+        for (const a of payload.attachments) {
+          if (
+            !a ||
+            typeof a.filename !== 'string' ||
+            !/^[^/\\:*?"<>|\0]{1,200}$/.test(a.filename) ||
+            typeof a.mimeType !== 'string' ||
+            !/^image\/[\w.+-]+$/.test(a.mimeType) ||
+            typeof a.dataBase64 !== 'string' ||
+            // ~10 MB decoded per image.
+            a.dataBase64.length > 14_000_000
+          ) {
+            throw new Error('Invalid attachment (images up to 10 MB)')
+          }
+        }
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const result = await taskTrackerManager.createTaskFromConfig(
+        resolved.config,
+        {
+          projectKey: payload.projectKey,
+          typeName: payload.typeName,
+          title,
+          description: payload.description,
+          assigneeId: payload.assigneeId,
+          boardId: payload.boardId,
+          sprintId: payload.sprintId,
+          attachments: payload.attachments,
+        },
         payload.trackerId,
         payload.repoRoot,
       )
@@ -3655,7 +3948,8 @@ export function registerIpcHandlers(
     async (event, payload: TaskTrackerCreateWorktreeFromTaskPayload) => {
       const repoRoot = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const worktreePath = await validateWorktreeCreationPath(event.sender.id, payload.worktreePath)
-      const branchName = await resolveTaskTrackerBranchName({ ...payload, repoRoot })
+      const edited = payload.branchName ? sanitizeBranchName(payload.branchName.trim()) : ''
+      const branchName = edited || (await resolveTaskTrackerBranchName({ ...payload, repoRoot }))
       const result = await GitRepository.worktreeAdd(
         repoRoot,
         worktreePath,
@@ -3692,6 +3986,7 @@ export function registerIpcHandlers(
       _event,
       payload: {
         taskType: string
+        taskKey?: string
         connectionId?: string
         boardId?: string
         repoRoot?: string
@@ -3702,7 +3997,7 @@ export function registerIpcHandlers(
       let hasBranchType = false
 
       if (resolved) {
-        const branchTpl = getBranchTemplate(resolved.config, payload.boardId)
+        const branchTpl = getBranchTemplate(resolved.config, projectKeyOfTask(payload.taskKey))
         hasBranchType = branchTpl.template.includes('{branchType}')
         typeMapping = branchTpl.typeMapping
       }
@@ -3740,7 +4035,7 @@ export function registerIpcHandlers(
 
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       const prTpl = resolved
-        ? getPRTemplate(resolved.config, payload.boardId)
+        ? getPRTemplate(resolved.config, projectKeyOfTask(payload.taskKey))
         : {
             titleTemplate: '[{taskKey}] {taskTitle}',
             bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
@@ -3761,6 +4056,122 @@ export function registerIpcHandlers(
     },
   )
 
+  // Shared by taskTracker:preparePR and taskTracker:createPR: resolve the effective PR template
+  // (project override derived from the task-key prefix) and the branch list for target rules.
+  async function resolvePRContext(
+    resolvedRepo: string,
+    task: TrackerTask,
+  ): Promise<{
+    task: TrackerTask
+    prConfig: PRTemplateConfig
+    existingBranches: string[]
+    localBranches: string[]
+    remoteBranches: string[]
+  }> {
+    const resolved = await resolveEffectiveConfig(resolvedRepo)
+
+    let fullTask = task
+    if (fullTask.key && !fullTask.summary && resolved) {
+      const found = await taskTrackerManager
+        .findTaskByKeyFromConfig(resolved.config, fullTask.key, undefined, resolvedRepo)
+        .unwrapOr(null)
+      if (found) fullTask = found
+    }
+    // Template rendering calls string methods on these — never let them be undefined.
+    fullTask = {
+      ...fullTask,
+      summary: fullTask.summary || fullTask.key,
+      description: fullTask.description ?? '',
+      status: fullTask.status ?? '',
+      priority: fullTask.priority ?? '',
+      type: fullTask.type || 'task',
+    }
+    const prTpl = resolved
+      ? getPRTemplate(resolved.config, projectKeyOfTask(fullTask.key))
+      : {
+          titleTemplate: '[{taskKey}] {taskTitle}',
+          bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
+          defaultTargetBranch: 'develop',
+          targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
+        }
+
+    const branchResult = await GitRepository.listBranches(resolvedRepo)
+    const branches = unwrapOrThrow(branchResult, gitErrorMessage)
+    const existingBranches = [...branches.local, ...branches.remote]
+
+    const prConfig = buildPRConfig(
+      prTpl.titleTemplate,
+      prTpl.bodyTemplate,
+      prTpl.defaultTargetBranch || 'develop',
+      prTpl.targetRules,
+    )
+    return {
+      task: fullTask,
+      prConfig,
+      existingBranches,
+      localBranches: branches.local,
+      remoteBranches: branches.remote,
+    }
+  }
+
+  // Rendered PR pieces WITHOUT creating anything — feeds the native create-PR form. `task` is
+  // optional: a plain branch-level PR (no linked task) skips template rendering and pre-fills
+  // the title from the branch name instead.
+  ipcMain.handle(
+    'taskTracker:preparePR',
+    async (event, payload: { repoRoot: string; task?: TrackerTask; branch?: string }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const hasTask = !!payload.task?.key
+      const ctx = await resolvePRContext(resolvedRepo, payload.task ?? ({ key: '' } as TrackerTask))
+      const prepared = hasTask
+        ? preparePullRequest(ctx.task, ctx.prConfig, ctx.existingBranches)
+        : {
+            title: typeof payload.branch === 'string' ? payload.branch : '',
+            body: '',
+            targetBranch: ctx.prConfig.defaultTargetBranch || 'develop',
+          }
+
+      // Candidate target branches for the form's selector: local names + remote names with the
+      // remote prefix stripped, deduped and sorted.
+      const branchSet = new Set<string>(ctx.localBranches)
+      for (const b of ctx.remoteBranches) {
+        branchSet.add(b.replace(/^[^/]+\//, ''))
+      }
+      const branches = [...branchSet].sort((a, b) => a.localeCompare(b))
+
+      // Repo slug, assignable users (reviewer/assignee search) and the authenticated login
+      // (default assignee) — each optional: no gh / not a GitHub repo just degrades the form.
+      const gh = async (args: string[]): Promise<string> => {
+        try {
+          const { stdout } = await execFileAsync('gh', args, {
+            cwd: resolvedRepo,
+            maxBuffer: 1024 * 1024,
+          })
+          return stdout.trim()
+        } catch {
+          return ''
+        }
+      }
+      const [repoSlug, usersRaw, viewer] = await Promise.all([
+        gh(['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']),
+        gh(['api', 'repos/{owner}/{repo}/assignees?per_page=100', '--jq', '.[].login']),
+        gh(['api', 'user', '--jq', '.login']),
+      ])
+      const users = usersRaw.split('\n').filter(Boolean)
+
+      return {
+        ...prepared,
+        repo: repoSlug,
+        task: hasTask ? ctx.task : null,
+        branches,
+        users,
+        viewer,
+        // Surfaced so the form can explain WHERE the pre-filled title comes from.
+        titleTemplate: hasTask ? ctx.prConfig.titleTemplate : '',
+      }
+    },
+  )
+
   ipcMain.handle(
     'taskTracker:createPR',
     async (
@@ -3770,45 +4181,44 @@ export function registerIpcHandlers(
         task: TrackerTask
         sourceBranch: string
         connectionId?: string
-        boardId?: string
+        overrides?: {
+          title?: string
+          body?: string
+          targetBranch?: string
+          reviewers?: string[]
+          assignees?: string[]
+        }
       },
     ) => {
       // The renderer is untrusted: confine repoRoot to a path this window owns
       // before reading tracker config, listing branches, pushing, or opening a
       // PR from it. Mirrors taskTracker:findPR, git:createPR and github:createPR.
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      let task = payload.task
-      if (task.key && !task.summary) {
-        const found = await taskTrackerManager.findTaskByKey(task.key)
-        if (found) task = found
-      }
+      const ctx = await resolvePRContext(resolvedRepo, payload.task)
 
-      const resolved = await resolveEffectiveConfig(resolvedRepo)
-      const prTpl = resolved
-        ? getPRTemplate(resolved.config, payload.boardId)
-        : {
-            titleTemplate: '[{taskKey}] {taskTitle}',
-            bodyTemplate: '## {taskKey}: {taskTitle}\n\n{taskUrl}',
-            defaultTargetBranch: 'develop',
-            targetRules: [] as Array<{ taskType: string; targetPattern: string }>,
+      // Normalize renderer-provided overrides: strings only, login lists capped.
+      const o = payload.overrides
+      const loginList = (v: unknown): string[] | undefined =>
+        Array.isArray(v)
+          ? v.filter((r): r is string => typeof r === 'string').slice(0, 15)
+          : undefined
+      const overrides = o
+        ? {
+            title: typeof o.title === 'string' ? o.title : undefined,
+            body: typeof o.body === 'string' ? o.body : undefined,
+            targetBranch: typeof o.targetBranch === 'string' ? o.targetBranch : undefined,
+            reviewers: loginList(o.reviewers),
+            assignees: loginList(o.assignees),
           }
+        : undefined
 
-      const branchResult = await GitRepository.listBranches(resolvedRepo)
-      const branches = unwrapOrThrow(branchResult, gitErrorMessage)
-      const existingBranches = [...branches.local, ...branches.remote]
-
-      const prConfig = buildPRConfig(
-        prTpl.titleTemplate,
-        prTpl.bodyTemplate,
-        prTpl.defaultTargetBranch || 'develop',
-        prTpl.targetRules,
-      )
       const result = await createPullRequest({
         repoRoot: resolvedRepo,
-        task,
+        task: ctx.task,
         sourceBranch: payload.sourceBranch,
-        prConfig,
-        existingBranches,
+        prConfig: ctx.prConfig,
+        existingBranches: ctx.existingBranches,
+        overrides,
       })
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3829,6 +4239,222 @@ export function registerIpcHandlers(
         return stdout.trim() || null
       } catch {
         return null
+      }
+    },
+  )
+
+  // Full PR details for the native in-app PR panel — fetched via the authenticated gh CLI, so
+  // no separate login is needed (the embedded browser has no GitHub session).
+  ipcMain.handle(
+    'taskTracker:prDetails',
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      // Reject leading-`-` branch names so they can't be consumed as gh flags.
+      if (typeof payload.branch !== 'string' || payload.branch.startsWith('-')) return null
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      try {
+        const { stdout } = await execFileAsync(
+          'gh',
+          [
+            'pr',
+            'view',
+            payload.branch,
+            '--json',
+            'number,title,state,url,body,baseRefName,headRefName,isDraft,reviewDecision,author,createdAt,additions,deletions,changedFiles,statusCheckRollup,mergedAt,closedAt,mergedBy,mergeable,mergeStateStatus,assignees,reviewRequests,latestReviews',
+          ],
+          { cwd: resolvedRepo, maxBuffer: 4 * 1024 * 1024 },
+        )
+        return JSON.parse(stdout)
+      } catch {
+        return null
+      }
+    },
+  )
+
+  // --- PR mutations (native PR panel) — all gated by gh's own permissions/branch protections ---
+
+  ipcMain.handle(
+    'taskTracker:prMerge',
+    async (
+      event,
+      payload: {
+        repoRoot: string
+        prNumber: number
+        strategy: 'merge' | 'squash' | 'rebase'
+        deleteBranch?: boolean
+      },
+    ) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await mergePullRequest(
+        resolvedRepo,
+        payload.prNumber,
+        payload.strategy,
+        payload.deleteBranch === true,
+      )
+      unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:prClose',
+    async (event, payload: { repoRoot: string; prNumber: number; deleteBranch?: boolean }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await closePullRequest(
+        resolvedRepo,
+        payload.prNumber,
+        payload.deleteBranch === true,
+      )
+      unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:prDeleteBranch',
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await deleteRemoteBranch(resolvedRepo, payload.branch)
+      unwrapOrThrow(result, taskTrackerErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'taskTracker:remoteBranchExists',
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      const result = await remoteBranchExists(resolvedRepo, payload.branch)
+      return result.unwrapOr(false)
+    },
+  )
+
+  // Persist a user-provided image (compose box in the Task panel) to a temp file so the agent
+  // can read it by path — clipboard + Ctrl+V delivery proved unreliable across terminals.
+  ipcMain.handle('taskTracker:saveAgentImage', async (_event, payload: { bytes: ArrayBuffer }) => {
+    const bytes = payload?.bytes
+    if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0) throw new Error('Invalid image')
+    if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('Image too large (max 20 MB)')
+    const dir = path.join(os.tmpdir(), 'canopy-agent-images')
+    await fs.promises.mkdir(dir, { recursive: true })
+    // The images only need to survive until the agent has read them — cap the directory at the
+    // newest few files so repeated sends can't grow the temp dir without bound.
+    try {
+      const entries = await fs.promises.readdir(dir)
+      const stats = await Promise.all(
+        entries
+          .filter((name) => /^image-\d+\.png$/.test(name))
+          .map(async (name) => ({
+            name,
+            mtime: (await fs.promises.stat(path.join(dir, name))).mtimeMs,
+          })),
+      )
+      const MAX_AGENT_IMAGES = 20
+      for (const old of stats.sort((a, b) => b.mtime - a.mtime).slice(MAX_AGENT_IMAGES - 1)) {
+        await fs.promises.unlink(path.join(dir, old.name)).catch(() => {})
+      }
+    } catch {
+      // Best-effort cleanup — never fail the save over it.
+    }
+    const filePath = path.join(dir, `image-${Date.now()}.png`)
+    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)))
+    return filePath
+  })
+
+  // Tracker images (task-type icons, avatars) — fetched via the tracker connection and cached
+  // as an LRU keyed by repo+URL: renderer-driven, so an unbounded map would be a memory-
+  // exhaustion path, and keying by URL alone would share authenticated responses across repos.
+  const IMAGE_CACHE_MAX = 256
+  const imageDataUrlCache = new Map<string, string>()
+  ipcMain.handle(
+    'taskTracker:imageAsDataUrl',
+    async (_event, payload: { repoRoot?: string; url: string; trackerId?: string }) => {
+      if (!payload.url || !/^https:\/\//.test(payload.url)) return null
+      if (payload.trackerId !== undefined && typeof payload.trackerId !== 'string') return null
+      const cacheKey = `${payload.repoRoot ?? ''}::${payload.trackerId ?? ''}::${payload.url}`
+      const cached = imageDataUrlCache.get(cacheKey)
+      if (cached) {
+        // Refresh recency (Map iterates in insertion order — re-insert moves it to the back).
+        imageDataUrlCache.delete(cacheKey)
+        imageDataUrlCache.set(cacheKey, cached)
+        return cached
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) return null
+      const result = await taskTrackerManager.fetchImageAsDataUrlFromConfig(
+        resolved.config,
+        payload.url,
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      const dataUrl = result.unwrapOr(null)
+      if (dataUrl) {
+        imageDataUrlCache.set(cacheKey, dataUrl)
+        while (imageDataUrlCache.size > IMAGE_CACHE_MAX) {
+          const oldest = imageDataUrlCache.keys().next().value
+          if (oldest === undefined) break
+          imageDataUrlCache.delete(oldest)
+        }
+      }
+      return dataUrl
+    },
+  )
+
+  // Inline thumbnail for an image attachment. The renderer only NAMES the attachment (task key +
+  // attachment id) — main re-fetches the provider-owned attachment list and downloads that exact
+  // entry with its own URL and MIME. A renderer-supplied URL/MIME pair would otherwise be an
+  // authenticated same-origin GET proxy (e.g. /rest/api/3/myself labelled image/png).
+  ipcMain.handle(
+    'taskTracker:attachmentPreview',
+    async (
+      _event,
+      payload: {
+        repoRoot?: string
+        trackerId?: string
+        taskKey: string
+        attachmentId: string
+      },
+    ) => {
+      if (typeof payload.taskKey !== 'string' || !TASK_KEY_RE.test(payload.taskKey)) {
+        throw new Error('Invalid task key')
+      }
+      if (
+        typeof payload.attachmentId !== 'string' ||
+        payload.attachmentId.length === 0 ||
+        payload.attachmentId.length > 2048
+      ) {
+        throw new Error('Invalid attachment id')
+      }
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const attachments = unwrapOrThrow(
+        await taskTrackerManager.fetchTaskAttachmentsFromConfig(
+          resolved.config,
+          payload.taskKey,
+          payload.trackerId,
+          payload.repoRoot,
+        ),
+        taskTrackerErrorMessage,
+      )
+      // The renderer keys rows by `id || url` — accept either, but only via exact match against
+      // what the tracker itself reports for this task.
+      const attachment = attachments.find(
+        (a) => a.id === payload.attachmentId || a.url === payload.attachmentId,
+      )
+      if (!attachment) throw new Error('Attachment not found on this task')
+      const mime = attachment.mimeType ?? ''
+      if (!/^image\/[\w.+-]+$/.test(mime)) throw new Error('Not an image attachment')
+      const result = await taskTrackerManager.downloadAttachmentFromConfig(
+        resolved.config,
+        attachment.url,
+        attachment.name || 'attachment',
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      const localPath = unwrapOrThrow(result, taskTrackerErrorMessage)
+      try {
+        const stat = await fs.promises.stat(localPath)
+        if (stat.size > 8 * 1024 * 1024) throw new Error('Attachment too large to preview')
+        const buf = await fs.promises.readFile(localPath)
+        return `data:${mime};base64,${buf.toString('base64')}`
+      } finally {
+        taskTrackerManager.cleanupAttachmentDir(localPath)
       }
     },
   )

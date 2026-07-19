@@ -1,34 +1,31 @@
 <script lang="ts">
-  import { Plus, Trash2 } from '@lucide/svelte'
+  // Forwarded to the builder so the parent's Cancel can drop its pending debounced save.
+  let builderRef = $state<{ discardPending: () => void } | undefined>()
+  export function discardPending(): void {
+    builderRef?.discardPending()
+  }
+  import { onMount } from 'svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
-  import {
-    getRepoConfig,
-    getGlobalConfig,
-    saveRepoConfig,
-    saveGlobalConfig,
-  } from '../../lib/stores/taskTracker.svelte'
-  import PrefsSection from './_partials/PrefsSection.svelte'
+  import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
+  import { RENDERER_DEFAULT_BRANCH_TEMPLATE } from './_partials/configScopeLabels'
 
+  // Branch template editor for ONE project scope of the repo config. Naming is owned by the
+  // project alone — "Reset to default" restores the built-in preset (there is no other tier).
   interface Props {
-    repoRoot?: string
-    boards: Array<{ id: string; name: string }>
+    repoRoot: string
     placeholders: Array<{ key: string; description: string; example: string }>
-    onTemplateChanged: () => void
-    scope: 'global' | 'project'
+    /** Project scope this editor is pinned to: 'default' = base template, otherwise a project key. */
+    pinnedScope?: 'default' | string
   }
 
-  let { repoRoot, boards, placeholders, onTemplateChanged, scope }: Props = $props()
+  let { repoRoot, placeholders, pinnedScope = 'default' }: Props = $props()
 
-  let config = $derived(scope === 'global' ? getGlobalConfig() : getRepoConfig())
-
-  type TemplateScope = 'default' | string
-  let templateScope = $state<TemplateScope>('default')
+  let config = $derived(getRepoConfig())
 
   let branchTemplate = $derived.by(() => {
     if (!config) return { template: '', customVars: {} as Record<string, string> }
-    if (templateScope !== 'default') {
-      const override = config.boardOverrides[templateScope]?.branchTemplate
+    if (pinnedScope !== 'default') {
+      const override = config.projectOverrides[pinnedScope]?.branchTemplate
       if (override) {
         return {
           template: override.template ?? config.branchTemplate?.template ?? '',
@@ -44,8 +41,6 @@
 
   let templateInput = $state('')
   let branchPreview = $state('')
-  let newVarKey = $state('')
-  let newVarValue = $state('')
 
   async function updatePreview(): Promise<void> {
     try {
@@ -56,157 +51,122 @@
     }
   }
 
+  async function persistConfig(updated: typeof config): Promise<void> {
+    if (!updated) return
+    await saveRepoConfig(repoRoot, updated)
+  }
+
   async function saveBranchTemplate(): Promise<void> {
     if (!config) return
     const updated = $state.snapshot(config) as typeof config
-    if (templateScope === 'default') {
-      updated.branchTemplate = {
-        ...updated.branchTemplate,
+    if (pinnedScope === 'default') {
+      updated!.branchTemplate = {
+        ...updated!.branchTemplate,
         template: templateInput,
         customVars: branchTemplate.customVars,
       }
     } else {
-      if (!updated.boardOverrides[templateScope]) {
-        updated.boardOverrides[templateScope] = {}
+      if (!updated!.projectOverrides[pinnedScope]) {
+        updated!.projectOverrides[pinnedScope] = {}
       }
-      updated.boardOverrides[templateScope].branchTemplate = {
+      updated!.projectOverrides[pinnedScope].branchTemplate = {
         template: templateInput,
         customVars: branchTemplate.customVars,
       }
     }
     await persistConfig(updated)
     updatePreview()
-    onTemplateChanged()
   }
 
-  async function persistConfig(updated: typeof config): Promise<void> {
-    if (!updated) return
-    if (scope === 'global') {
-      await saveGlobalConfig(updated)
-    } else if (repoRoot) {
-      await saveRepoConfig(repoRoot, updated)
+  onMount(() => {
+    templateInput = branchTemplate.template || RENDERER_DEFAULT_BRANCH_TEMPLATE
+    updatePreview()
+  })
+
+  // --- {branchType} mapping, fed by the tracker's OWN task-type list (bug/story/…). Edited on
+  // the base template only; project overrides inherit it unless set in the config file directly.
+  let trackerTypes = $state<string[]>([])
+  onMount(async () => {
+    if (pinnedScope !== 'default') return
+    try {
+      trackerTypes = await window.api.trackerConfigFetchTaskTypes(repoRoot ?? undefined)
+    } catch {
+      trackerTypes = []
     }
+  })
+
+  let typeMapping = $derived(config?.branchTemplate?.typeMapping ?? {})
+  let templateUsesBranchType = $derived(templateInput.includes('{branchType}'))
+
+  // Mirrors the built-in fallback: bug-like types map to fix, everything else to feat.
+  function defaultBranchTypeFor(taskType: string): string {
+    return /bug/i.test(taskType) ? 'fix' : 'feat'
   }
 
-  async function addCustomVar(): Promise<void> {
-    if (!newVarKey.trim() || !config) return
-    const vars = { ...branchTemplate.customVars, [newVarKey.trim()]: newVarValue }
-    const updated = $state.snapshot(config) as typeof config
-    updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
-    await persistConfig(updated)
-    newVarKey = ''
-    newVarValue = ''
-    updatePreview()
-    onTemplateChanged()
-  }
-
-  async function removeCustomVar(key: string): Promise<void> {
+  async function saveTypeMapping(taskType: string, value: string): Promise<void> {
     if (!config) return
-    const vars = { ...branchTemplate.customVars }
-    delete vars[key]
     const updated = $state.snapshot(config) as typeof config
-    updated.branchTemplate = { ...updated.branchTemplate, customVars: vars }
+    const mapping: Record<string, string> = { ...updated!.branchTemplate?.typeMapping }
+    const v = value.trim()
+    if (v) mapping[taskType] = v
+    else delete mapping[taskType]
+    updated!.branchTemplate = {
+      template: updated!.branchTemplate?.template ?? templateInput,
+      customVars: updated!.branchTemplate?.customVars ?? {},
+      ...updated!.branchTemplate,
+      typeMapping: Object.keys(mapping).length > 0 ? mapping : undefined,
+    }
     await persistConfig(updated)
-    updatePreview()
-    onTemplateChanged()
-  }
-
-  export function initTemplate(template: string): void {
-    templateInput = template
-    updatePreview()
   }
 </script>
 
-<PrefsSection
-  title="Branch naming"
-  description="Template for branch names created from tracker tasks"
->
-  <div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
-    {#if boards.length > 0}
-      <div class="flex items-center gap-3">
-        <span class="text-sm text-text-secondary w-20 shrink-0">Board</span>
-        <CustomSelect
-          value={templateScope}
-          options={[
-            { value: 'default', label: 'All boards (default)' },
-            ...boards.map((b) => ({ value: b.id, label: b.name })),
-          ]}
-          onchange={(v) => {
-            templateScope = v
-            templateInput = branchTemplate.template
-            updatePreview()
-          }}
-        />
-      </div>
-      {#if templateScope !== 'default' && !config?.boardOverrides[templateScope]?.branchTemplate}
-        <p class="text-xs text-text-faint m-0">
-          No override — uses default template. Edit below to create one.
-        </p>
-      {/if}
-    {/if}
-
-    <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />
-
-    <div class="flex items-center gap-3">
-      <span class="text-sm text-text-secondary w-20 shrink-0">Preview</span>
-      <code class="text-sm text-accent-text bg-bg-input px-2 py-0.5 rounded-md font-mono"
-        >{branchPreview || '—'}</code
-      >
-    </div>
-
-    <div class="flex flex-col gap-1.5">
-      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-        >Custom variables</span
-      >
-      {#each Object.entries(branchTemplate.customVars) as [key, value] (key)}
-        <div
-          class="flex items-center gap-2 px-2.5 py-1 rounded-md bg-bg-input border border-border-subtle text-md"
-        >
-          <code class="text-accent-text font-mono text-sm shrink-0">{'{' + key + '}'}</code>
-          <span class="text-text-secondary font-mono text-sm flex-1 truncate" title={value}
-            >{value}</span
-          >
-          <button
-            type="button"
-            class="flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer shrink-0 hover:bg-danger-bg hover:text-danger-text"
-            onclick={() => removeCustomVar(key)}
-            aria-label="Remove {key}"
-            title="Remove"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-      {/each}
-      <div class="flex items-center gap-1.5">
-        <input
-          class="w-25 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newVarKey"
-          aria-label="Variable key"
-          bind:value={newVarKey}
-          placeholder="key"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <input
-          class="w-25 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-md font-mono outline-none focus:border-focus-ring placeholder:text-text-faint"
-          name="newVarValue"
-          aria-label="Variable value"
-          bind:value={newVarValue}
-          placeholder="value"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <button
-          type="button"
-          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
-          onclick={addCustomVar}
-          disabled={!newVarKey.trim()}
-          aria-label="Add variable"
-          title="Add"
-        >
-          <Plus size={14} />
-        </button>
-      </div>
-    </div>
+<div class="flex flex-col gap-3 py-3 border-t border-border-subtle first:border-t-0 first:pt-0">
+  <div class="flex items-center gap-3">
+    <span class="text-sm text-text-secondary w-20 shrink-0">Preview</span>
+    <code class="text-sm text-accent-text bg-bg-input px-2 py-0.5 rounded-md font-mono"
+      >{branchPreview || '—'}</code
+    >
   </div>
-</PrefsSection>
+
+  {#if pinnedScope !== 'default' && !config?.projectOverrides[pinnedScope]?.branchTemplate}
+    <p class="text-xs text-text-faint m-0">
+      No override yet — uses the base template. Edit below to create one for this project.
+    </p>
+  {/if}
+
+  <BranchTokenBuilder
+    bind:this={builderRef}
+    bind:templateInput
+    {placeholders}
+    onSave={saveBranchTemplate}
+  />
+
+  {#if pinnedScope === 'default' && trackerTypes.length > 0}
+    <div class="flex flex-col gap-1.5 pt-2 border-t border-border-subtle">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">
+        Task type → {'{branchType}'}
+      </span>
+      <p class="text-xs text-text-muted m-0 leading-snug">
+        {templateUsesBranchType
+          ? 'Types come from the tracker. Empty = default (bug-like → fix, everything else → feat).'
+          : 'The template does not use {branchType} right now — the mapping applies once it does.'}
+      </p>
+      <div class="flex flex-col gap-1">
+        {#each trackerTypes as t (t)}
+          <div class="flex items-center gap-2">
+            <span class="w-40 shrink-0 text-sm text-text-secondary truncate" title={t}>{t}</span>
+            <span class="text-text-faint">→</span>
+            <input
+              class="w-32 px-2 py-0.5 border border-border rounded-md bg-bg-input text-text text-sm font-mono font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+              type="text"
+              value={typeMapping[t] ?? ''}
+              placeholder={defaultBranchTypeFor(t)}
+              spellcheck="false"
+              onchange={(e) => saveTypeMapping(t, (e.target as HTMLInputElement).value)}
+            />
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
+</div>

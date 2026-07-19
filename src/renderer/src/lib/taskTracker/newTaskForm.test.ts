@@ -1,0 +1,215 @@
+import { describe, it, expect } from 'vitest'
+import {
+  visibleFields,
+  filterBoardsForProject,
+  buildAssigneeOptions,
+  buildSprintOptions,
+  buildTypeOptions,
+  validateTitle,
+  slugifyTitle,
+  branchTemplateFor,
+  renderBranchDraft,
+  segmentsOf,
+} from './newTaskForm'
+
+describe('visibleFields', () => {
+  it('shows project, type, board and sprint for jira', () => {
+    expect(visibleFields('jira')).toEqual({
+      project: true,
+      type: true,
+      board: true,
+      sprint: true,
+      sprintLabel: 'Sprint',
+    })
+  })
+
+  it('shows project, type, board and sprint for youtrack', () => {
+    expect(visibleFields('youtrack')).toEqual({
+      project: true,
+      type: true,
+      board: true,
+      sprint: true,
+      sprintLabel: 'Sprint',
+    })
+  })
+
+  it('hides project/type/board for github and labels sprints as milestones', () => {
+    expect(visibleFields('github')).toEqual({
+      project: false,
+      type: false,
+      board: false,
+      sprint: true,
+      sprintLabel: 'Milestone',
+    })
+  })
+})
+
+describe('filterBoardsForProject', () => {
+  const boards = [
+    { id: '1', name: 'Alpha board', projectKey: 'ALPHA' },
+    { id: '2', name: 'Beta board', projectKey: 'BETA' },
+    { id: '3', name: 'Shared board' },
+  ]
+
+  it('keeps boards of the project plus boards without a project', () => {
+    expect(filterBoardsForProject(boards, 'ALPHA').map((b) => b.id)).toEqual(['1', '3'])
+  })
+
+  it('matches the project key case-insensitively', () => {
+    expect(filterBoardsForProject(boards, 'alpha').map((b) => b.id)).toEqual(['1', '3'])
+  })
+
+  it('returns all boards when no project is selected', () => {
+    expect(filterBoardsForProject(boards, '').map((b) => b.id)).toEqual(['1', '2', '3'])
+  })
+})
+
+describe('buildAssigneeOptions', () => {
+  it('prepends an Unassigned empty option', () => {
+    const options = buildAssigneeOptions([
+      { id: 'u1', displayName: 'Ada' },
+      { id: 'u2', displayName: 'Grace' },
+    ])
+    expect(options[0]).toEqual({ value: '', label: 'Unassigned' })
+    expect(options.slice(1)).toEqual([
+      { value: 'u1', label: 'Ada' },
+      { value: 'u2', label: 'Grace' },
+    ])
+  })
+
+  it('attaches resolved avatars as rounded icons', () => {
+    const options = buildAssigneeOptions(
+      [
+        { id: 'u1', displayName: 'Ada', avatarUrl: 'https://x/a.png' },
+        { id: 'u2', displayName: 'Grace' },
+      ],
+      { 'https://x/a.png': 'data:image/png;base64,AAA' },
+    )
+    expect(options[1]).toEqual({
+      value: 'u1',
+      label: 'Ada',
+      icon: 'data:image/png;base64,AAA',
+      iconClass: 'rounded-full',
+    })
+    expect(options[2]).toEqual({ value: 'u2', label: 'Grace' })
+  })
+})
+
+describe('buildTypeOptions', () => {
+  it('maps type names and attaches resolved icons', () => {
+    const options = buildTypeOptions(
+      [{ name: 'Task', iconUrl: 'https://x/t.svg' }, { name: 'Bug' }],
+      { 'https://x/t.svg': 'data:image/svg+xml;base64,BBB' },
+    )
+    expect(options).toEqual([
+      {
+        value: 'Task',
+        label: 'Task',
+        icon: 'data:image/svg+xml;base64,BBB',
+        iconClass: 'rounded-sm',
+      },
+      { value: 'Bug', label: 'Bug' },
+    ])
+  })
+})
+
+describe('buildSprintOptions', () => {
+  it('always offers an explicit backlog choice next to the sprints', () => {
+    const options = buildSprintOptions(
+      [
+        { id: 's1', name: 'Sprint 1', state: 'active' as const },
+        { id: 's2', name: 'Sprint 2', state: 'future' as const },
+      ],
+      'Backlog (no sprint)',
+    )
+    expect(options[0]).toEqual({ value: 'none', label: 'Backlog (no sprint)' })
+    expect(options.slice(1)).toEqual([
+      { value: 's1', label: 'Sprint 1' },
+      { value: 's2', label: 'Sprint 2' },
+    ])
+  })
+})
+
+describe('validateTitle', () => {
+  it('rejects empty and whitespace-only titles', () => {
+    expect(validateTitle('')).not.toBeNull()
+    expect(validateTitle('   ')).not.toBeNull()
+  })
+
+  it('rejects titles longer than 512 characters', () => {
+    expect(validateTitle('x'.repeat(513))).not.toBeNull()
+  })
+
+  it('accepts a normal title', () => {
+    expect(validateTitle('Fix the login flow')).toBeNull()
+  })
+})
+
+describe('slugifyTitle', () => {
+  it('lowercases, strips specials and joins with dashes', () => {
+    expect(slugifyTitle('Fix Login Bug!')).toBe('fix-login-bug')
+  })
+
+  it('caps the length at 50 characters', () => {
+    expect(slugifyTitle('x'.repeat(80)).length).toBe(50)
+  })
+})
+
+describe('branchTemplateFor', () => {
+  const config = {
+    branchTemplate: { template: 'root/{taskKey}' },
+    projectOverrides: {
+      GAKKO: { branchTemplate: { template: 's{sprint}/{taskKey}' } },
+    },
+  }
+
+  it('prefers the project override (case-insensitive key)', () => {
+    expect(branchTemplateFor(config, 'gakko')).toBe('s{sprint}/{taskKey}')
+  })
+
+  it('falls back to the root template', () => {
+    expect(branchTemplateFor(config, 'ISSUE')).toBe('root/{taskKey}')
+  })
+
+  it('falls back to the built-in default without any config', () => {
+    expect(branchTemplateFor(undefined, 'ISSUE')).toBe('{branchType}/{taskKey}-{taskTitle}')
+  })
+})
+
+describe('renderBranchDraft', () => {
+  it('fills known variables and keeps {taskKey} literally', () => {
+    expect(
+      renderBranchDraft('{branchType}/{taskKey}-{taskTitle}', {
+        branchType: 'feat',
+        taskTitle: 'fix-login',
+      }),
+    ).toBe('feat/{taskKey}-fix-login')
+  })
+
+  it('drops the separator before a known-but-empty variable', () => {
+    expect(
+      renderBranchDraft('s{sprint}/{parentKey}/{taskKey}', { sprint: '115', parentKey: '' }),
+    ).toBe('s115/{taskKey}')
+  })
+
+  it('trims dangling separators at the edges', () => {
+    expect(renderBranchDraft('{branchType}/{taskKey}', { branchType: '' })).toBe('{taskKey}')
+  })
+})
+
+describe('segmentsOf', () => {
+  it('splits text into plain and known-placeholder segments', () => {
+    expect(segmentsOf('feat/{taskKey}-login', new Set(['taskKey']))).toEqual([
+      { text: 'feat/', field: false },
+      { text: '{taskKey}', field: true },
+      { text: '-login', field: false },
+    ])
+  })
+
+  it('leaves unknown placeholders unhighlighted', () => {
+    expect(segmentsOf('{nope}/x', new Set(['taskKey']))).toEqual([
+      { text: '{nope}', field: false },
+      { text: '/x', field: false },
+    ])
+  })
+})

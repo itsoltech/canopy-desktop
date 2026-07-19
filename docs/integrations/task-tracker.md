@@ -10,9 +10,9 @@
 
 The task tracker lets users connect one or more issue trackers (Jira Cloud, YouTrack, GitHub Issues) and work with tasks without leaving Canopy. A user can browse tasks filtered by status or assignee, create a Git branch named from a configurable template, and open a pull request whose title and body are also template-driven.
 
-Configuration lives at three tiers: built-in defaults, a global config stored in Canopy preferences, and per-repository config stored in `.canopy/config.json`. When both global and repo configs exist, they are merged with repo-level values winning for templates and filters, while tracker definitions are merged additively (repo overrides global on the same `id`). Board-level overrides can further customize branch and PR templates per board.
+Configuration lives in two stores: a personal store in Canopy preferences (tracker connections, private to the user) and the per-repository config in `.canopy/config.json` (naming configuration, shared via git). Tracker definitions are merged additively (repo overrides personal on the same `id`); branch/PR templates and project overrides come from the repo config alone, falling back to built-in defaults when unset. Project-level overrides customize branch and PR templates per tracker project, keyed by the task-key prefix.
 
-Authentication tokens are stored in the Canopy keychain (backed by the OS credential store via `PreferencesStore`, keyed by `provider:baseUrl`). Legacy connections that stored tokens directly in preferences are automatically migrated on first load.
+Authentication tokens are stored locally on the user's machine in Canopy's SQLite database (`canopy.db` under `app.getPath('userData')`), keyed by `provider:baseUrl`, and encrypted at rest via Electron `safeStorage` (Windows DPAPI / macOS Keychain / Linux keyring; plaintext fallback when no OS keyring is available). They are never written to `.canopy/config.json` and never committed to git. Legacy connections that stored tokens directly in preferences are automatically migrated on first load.
 
 Each provider implements a common `TaskTrackerProviderClient` interface. Jira uses the REST v3 and Agile 1.0 APIs. YouTrack uses the Hub REST API. GitHub Issues uses the GraphQL API (with automatic `owner/repo` detection from git remotes when the `projectKey` is empty).
 
@@ -24,17 +24,19 @@ Each provider implements a common `TaskTrackerProviderClient` interface. Jira us
 2. User selects a provider (Jira, YouTrack, or GitHub) and enters the base URL and project key.
 3. For Jira with username/password auth, user provides both username and API token. For bearer token auth (YouTrack, GitHub PAT), user provides only the token.
 4. Canopy calls `testConnection` or `testNewConnection` against the provider's user endpoint (`/rest/api/3/myself` for Jira, `/api/users/me` for YouTrack, `{ viewer { login } }` GraphQL query for GitHub).
-5. On success, credentials are stored via `keychainSetCredentials(provider, baseUrl, token, username?)`. The tracker definition is saved to the global or repo config.
+5. On success, credentials are stored via `keychainSetCredentials(provider, baseUrl, token, username?)`. The tracker definition is saved to the personal (Settings) or repo config.
 6. On failure, the provider returns a `ProviderApiError` with the HTTP status and message. The UI shows the error inline.
 
 ### Browsing tasks
 
 1. User opens the task list for a connected tracker.
-2. Canopy calls `fetchTasks` with optional filters: `statuses`, `assignedToMe`, `boardId`.
-3. Jira queries via JQL (`assignee = currentUser()` when `assignedToMe` is true, filtered by board when a `boardId` is set). YouTrack uses its query syntax (`for: me`, `project: {KEY}`). GitHub fetches issues via GraphQL with `IssueFilters`.
+2. Canopy calls `fetchTasks` with optional filters: `statuses`, `assignedToMe`, `projectKey` (`boardId` remains as a legacy fallback).
+3. Jira queries via JQL (`project = KEY AND statusCategory != Done` for the selected project; `assignee = currentUser()` only in the legacy no-project fallback). YouTrack uses its query syntax (`for: me`, `project: {KEY}`). GitHub fetches issues via GraphQL with `IssueFilters`.
 4. Tasks are returned as `TrackerTask` objects with normalized fields: `key`, `summary`, `status`, `priority`, `type` (mapped from provider-specific values), `parentKey`, `sprintName`, `assignee`, and `url`.
 5. If no tasks match the filters, the UI shows an empty state.
 6. Jira and YouTrack fetch up to 200 tasks per request. GitHub fetches up to 100. Jira excludes issues in the "Done" status category by default.
+7. The picker opens with the filter panel expanded: "Only assigned to me", per-status chips, and per-sprint chips (tasks without a sprint fall into a "(no sprint)" bucket). Rows show the sprint name next to the assignee. Filter selections persist per connection + project; the pickers filter by tracker PROJECT (boards are no longer surfaced).
+8. The picker is also reachable from the Create Worktree modal ("+ new" → **From task**, disabled when no tracker is configured or its credentials are missing/expired) — picking a task continues into the branch-create form, where the base branch is chosen and the branch name is generated from the task.
 
 ### Task type mapping
 
@@ -54,6 +56,74 @@ Jira maps `issuetype.subtask = true` to `subtask`, and normalizes type names (`U
 4. Task description is truncated to 3000 characters.
 5. Attachments can be downloaded to a temp directory (`canopy-attachments-{uuid}` in `os.tmpdir()`). Downloads are capped at 50 MB per file with a 60-second timeout. The download URL must match the connection's `baseUrl` origin.
 6. Downloaded attachments are automatically cleaned up after 60 seconds.
+
+### Task panel & write-back
+
+When the selected worktree is backed by a tracker task, the right Inspector gains a **Task** tab
+(also opened by clicking the task banner in the sidebar's Project management section — the banner
+is always visible; with no task linked it reads "No task linked — pick one" and opens the task
+picker). The backing tasks resolve from **every** task key found in the branch name
+(`extractTaskKeys` in `src/renderer/src/lib/taskTracker/branchTaskKey.ts`, e.g. both `GAKKO-100`
+and `GAKKO-123` from `s115/GAKKO-100/GAKKO-123-fix`), each validated via `findTaskByKey` (keys the
+tracker rejects are dropped; bare keys are kept when the tracker is unreachable), plus the
+`activeTask.{worktreePath}` preference written at branch creation. When several tasks are tracked
+the panel shows a key switcher; the activeTask is selected by default, otherwise the **last** key
+in the branch name (parent/subtask convention — work happens on the most specific task) and the
+sidebar banner shows a `+N` counter.
+
+The panel shows the task header (key linking to the tracker, status chip colored by the tracker's
+status category, **assignee**, the task **description**), a **Change status** form (target
+statuses render as category-colored chips) and the **comment history** with an add-comment box.
+Clicking the active-task chip in the sidebar opens (and re-opens) the right panel on this tab, so a
+hidden Inspector is always one click away. Status changes are workflow-aware where the provider
+allows introspection:
+
+| Capability                   | Jira                                                   | YouTrack                                                   | GitHub Issues                                   |
+| ---------------------------- | ------------------------------------------------------ | ---------------------------------------------------------- | ----------------------------------------------- |
+| Available transitions        | `GET /issue/{key}/transitions` (from current status)   | State bundle values (minus current)                        | Static: close (completed / not planned), reopen |
+| Required-field introspection | Yes — `expand=transitions.fields` (`required`, values) | No — workflow rules live in scripts; server error surfaced | n/a                                             |
+| Resolution / state reason    | `resolution` select from `allowedValues`               | n/a                                                        | `stateReason`: COMPLETED / NOT_PLANNED          |
+| Comment on transition        | `update.comment` (ADF) in the same request             | attached to the Commands API call                          | separate `addComment` mutation after the change |
+| Add comment                  | `POST /issue/{key}/comment` (ADF body)                 | `POST /api/issues/{key}/comments`                          | `addComment` GraphQL mutation (issue node id)   |
+
+Requirement fields the panel cannot edit (required fields other than an option list or the comment)
+disable Apply with a hint to set them in the tracker. IPC channels:
+`trackerConfig:fetchTransitions`, `trackerConfig:applyTransition`, `trackerConfig:addComment`.
+
+### Linking tasks to a worktree
+
+The link dialog (sidebar → "Link task" / "Link another task") has two tabs:
+
+- **Existing tasks** — the shared task-selection block (`TaskListPicker`: Project select, filters,
+  search, task list). Picking a task shows a confirmation card with **Cancel / Link**; linking
+  writes the `activeTask.{worktreePath}` preference, closes the dialog and opens the Task panel.
+  Already-linked rows carry a "Linked" chip and an Unlink action (keys embedded in the branch name
+  read as linked and cannot be unlinked).
+- **New task** — the shared create form (see below); the created task is linked automatically.
+
+### Creating a task in the tracker
+
+The **New task** form (`NewTaskForm.svelte`) is shared by the link dialog and the Create Worktree
+modal's fourth mode. Fields adapt per provider:
+
+| Field    | Jira                                                                 | YouTrack                                                      | GitHub Issues               |
+| -------- | -------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------- |
+| Project  | `project/search` (shown when tracking >1)                            | `/api/admin/projects`                                         | hidden                      |
+| Type     | per-project `createmeta` (global list on 403)                        | project Type bundle                                           | hidden                      |
+| Assignee | `user/assignable/search` (accountId)                                 | project team, global users fallback (login)                   | `assignableUsers` (node id) |
+| Board    | all boards (sprint source)                                           | agile boards                                                  | hidden                      |
+| Sprint   | board sprints (active+future), applied post-create via the agile API | board sprints via the Commands API (`Board {board} {sprint}`) | open milestones (node id)   |
+
+The current user is preselected as assignee when they appear in the assignable list. Create is
+single-fire; post-create steps that fail after the task exists (Jira sprint move, YouTrack
+type/assignee/sprint commands) surface as **warnings** (toasts), never as a failed create — a
+retry would duplicate the task. After creation the full task is re-fetched (`findTaskByKey`) so
+branch templates render from real data. IPC channels: `trackerConfig:fetchAssignableUsers`,
+`trackerConfig:fetchSprints`, `trackerConfig:fetchCreateTaskTypes`, `trackerConfig:createTask`.
+
+In the Create Worktree modal ("+ new" → **New task**, gated like From task) the created task drops
+straight into the From-task flow: selected-task card, template-generated editable branch name,
+base branch and Create.
 
 ### Creating a branch from a task
 
@@ -80,19 +150,19 @@ Templates use `{placeholder}` syntax. Built-in placeholders:
 | `{sprintName}` | Sprint name                            | `Sprint 10`     |
 | `{boardKey}`   | Board/project key (prefix of task key) | `GAKKO`         |
 
-Conditional sections use `{?varName}content{/varName}` - the content is included only when the variable has a value.
+Legacy conditional markers (`{?varName}`/`{/varName}`) are stripped during rendering and their inner content is treated as normal text. Instead, a placeholder with no value renders to nothing **and removes its immediately preceding separator** (`/`, `-` or `_`), so empty fields never leave a dangling separator; duplicate slashes are then collapsed and leading/trailing separators trimmed.
 
 Templates must contain `{taskKey}`. The slugify function lowercases, strips non-alphanumeric characters, replaces spaces with hyphens, and caps at 50 characters. The result is sanitized as a valid Git branch name (no `..`, `~`, `^`, `:`, `?`, `*`, `[`, `]`, `\`, `@`, `#`, `{`, `}`, spaces).
 
-Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`. Custom type mappings can override this per config level or per board.
+Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`. Custom type mappings can override this at the base template or per project override; the settings editor lists the tracker's own task types.
 
 ### Creating a pull request from a task
 
-1. User triggers PR creation for the current branch/task.
+1. User triggers PR creation from the sidebar **GIT** section (`Create PR` row; an existing PR shows as `View PR #N` with a state chip instead). A native form shows the title and description for editing — rendered from the PR template when a tracker task is linked to the worktree, otherwise pre-filled from the branch name — plus a target-branch select, a reviewer search picker, and an assignee field defaulting to the authenticated `gh` user.
 2. Canopy pushes the current branch to the remote (failure is non-fatal).
 3. Canopy checks that the GitHub CLI (`gh`) is installed. If not, the operation fails with a `PRCreationFailed` error.
-4. Canopy checks for an existing PR on the branch using `gh pr view`. If one exists, its URL is returned without creating a duplicate.
-5. If no existing PR, Canopy runs `gh pr create` with the rendered title, body, base branch, head branch, and `--assignee @me`.
+4. Canopy checks for an existing **open** PR on the branch using `gh pr list --state open --head`. If one exists, its URL is returned without creating a duplicate; merged/closed PRs do not block a new one.
+5. If no open PR exists, Canopy runs `gh pr create` with the (possibly user-edited) title, body, base branch, head branch, `--assignee` (the form's assignee, `@me` by default) and any `--reviewer` entries.
 6. PR title and body are rendered from the `prTemplate` config using `{taskKey}`, `{taskTitle}`, `{taskType}`, `{parentKey}`, `{boardKey}`, `{taskUrl}`, and `{taskDescription}` placeholders.
 7. The target branch is resolved from `targetRules`: if a rule matches the task's type, the rule's `targetPattern` is used (with placeholder substitution and optional lookup against existing branches). Otherwise, `defaultTargetBranch` is used.
 8. The source branch and resolved target branch are rejected if they start with `-`, so renderer-provided branch names or repository PR config cannot be interpreted as `gh` CLI flags.
@@ -122,7 +192,7 @@ Each provider exposes sprint/milestone information differently:
 | Tier              | Location                                   | Stored in                   |
 | ----------------- | ------------------------------------------ | --------------------------- |
 | Built-in defaults | Hardcoded in `configDefaults.ts`           | Source code                 |
-| Global config     | Preferences key `taskTracker.globalConfig` | `PreferencesStore` (SQLite) |
+| Personal store    | Preferences key `taskTracker.globalConfig` | `PreferencesStore` (SQLite) |
 | Repo config       | `{repoRoot}/.canopy/config.json`           | Filesystem                  |
 
 ### Config schema (`RepoConfig`)
@@ -149,8 +219,8 @@ Each provider exposes sprint/milestone information differently:
     "defaultTargetBranch": "main",
     "targetRules": [{ "taskType": "subtask", "targetPattern": "feat/{parentKey}" }]
   },
-  "boardOverrides": {
-    "board-123": {
+  "projectOverrides": {
+    "GAKKO": {
       "branchTemplate": { "template": "custom/{taskKey}" },
       "prTemplate": { "defaultTargetBranch": "develop" }
     }
@@ -164,28 +234,47 @@ Each provider exposes sprint/milestone information differently:
 
 ### Merge order
 
-When both global and repo configs exist, `mergeConfigs()` applies these rules:
+Naming configuration is owned by the **project alone**; the personal (global) store only contributes
+tracker connections. `mergeConfigs()` applies these rules:
 
-1. **Trackers**: Additive merge by `id`. If global and repo define a tracker with the same `id`, repo wins.
-2. **Branch template**: Repo wins if present, otherwise global, otherwise built-in default.
-3. **PR template**: Same precedence as branch template.
-4. **Filters**: Repo always wins when repo config exists.
-5. **Board overrides**: Shallow merge (repo overrides global on same board ID).
+1. **Trackers**: Additive merge by `id` (personal + repo). If both define a tracker with the same `id`, repo wins.
+2. **Branch template / PR template / project overrides**: From the repo config only; when unset, the built-in defaults (`configDefaults.ts`) apply. The personal store is never a template fallback.
+3. **Filters**: Repo always wins when repo config exists.
 
-The `ResolvedConfig` includes a `source` object indicating where each field came from (`'repo'`, `'global'`, or `'default'`).
+**Legacy config (intentional breaking change).** Two earlier config tiers are no longer read:
+`boardOverrides` (template overrides keyed by AGILE BOARD id) was replaced by `projectOverrides`
+keyed by the tracker PROJECT (task-key prefix) — a board id said nothing about which template a
+task should use once pickers moved from boards to projects; and the personal ("Your defaults")
+naming-template tier was removed — naming is owned by the project alone. Old keys left in
+`.canopy/config.json` are ignored (never deleted); recreate the relevant overrides per project
+in the Project tracker modal.
 
-### Board-level overrides
+The `ResolvedConfig` includes a `source` object indicating where each field came from (`'repo'` or `'default'`; templates never resolve as `'global'`).
 
-Board overrides are keyed by board ID within `boardOverrides`. When fetching the effective branch or PR template for a specific board:
+### Configuration UI
 
-1. Start with the base template (from repo, global, or default, per merge rules above).
-2. If a `boardOverrides[boardId]` entry exists, apply its partial override:
+Two separate surfaces, deliberately not mixed:
+
+- **Settings → Project management → Your connections** — your personal tracker connections (stored in the preferences DB, private to you, reused across projects) with full add/edit/delete and credential management. This is the authoritative place to change or remove a token. An **OS-aware** note states where credentials are kept — encrypted via Windows DPAPI / macOS Keychain / Linux keyring in Canopy's local database, keyed by provider + URL, never written to the repository (and warns when OS encryption is unavailable).
+- **Project tracker modal** — opened from the left sidebar's **Project management** section; scoped to the **active worktree** and edits its `.canopy/config.json` (shared with the team via git). Sections:
+  - **Connections** — trackers defined in the repo config; here you only _connect_ them (enter credentials in a dedicated dialog). Credentials are global per provider + URL. Stored tokens are **verified** against the tracker API on config load; a token the tracker rejects (401/403) shows a `Credentials expired` badge with a **Reconnect** action (in the modal, in Settings, and in the sidebar), and blocks task browsing until replaced.
+  - **Branch naming** and **Pull request naming** — per-project rows (`All projects (default)` + one row per project override), each showing the template plus a rendered example. Editing happens in place (Cancel reverts, Done collapses); **Add project override** creates a new per-project template, picking from the tracker's project list. PR rows show the title; the editor exposes title, body (multi-line) and the default target branch. The base branch editor also maps the tracker's task types to {branchType}. Editing is read-only until a tracker is connected.
+- **Reset to default** — removes the project value from `.canopy/config.json` so the **built-in** template applies (there is no other tier). **Remove project override** drops a project-specific override so tasks from that project fall back to the base template.
+- **Template editor** — hybrid: `{field}` placeholders are draggable chips; everything between them is plain text edited in place (any separator works). Renderer-side helpers in `src/renderer/src/components/preferences/_partials/configScopeLabels.ts` (unit-tested with Vitest, `npm test`).
+- **Needs-credentials surfacing** — when the repo config defines a tracker with no usable credentials (missing or expired), it is listed in the left sidebar's **Project management** section with an "Add credentials" action.
+
+### Project-level overrides
+
+Project overrides are keyed by the tracker PROJECT key — the task-key prefix (`GAKKO-1` → `GAKKO`) — within `projectOverrides`. The key is derived from the task itself, so overrides also apply to tasks resolved from a branch name. When fetching the effective template:
+
+1. Start with the base template (from the repo config, or the built-in default when unset).
+2. If a `projectOverrides[projectKey]` entry exists, apply its partial override:
    - For branch templates: override `template`, merge `customVars` (override wins on same key), override `typeMapping`.
    - For PR templates: override individual fields (`titleTemplate`, `bodyTemplate`, `defaultTargetBranch`, `targetRules`).
 
-### Keychain credentials
+### Credential storage
 
-Credentials are stored at key `taskTracker.token.{provider}:{normalizedBaseUrl}` as JSON: `{ "token": "...", "username": "..." }`. Legacy entries that stored plain token strings are read transparently.
+Credentials are stored at key `taskTracker.token.{provider}:{normalizedBaseUrl}` as JSON: `{ "token": "...", "username": "..." }`, in Canopy's local SQLite DB (`canopy.db` under `app.getPath('userData')`). The `taskTracker.token.` prefix is in `PreferencesStore`'s `ENCRYPTED_KEY_PREFIXES`, so values are encrypted at rest via Electron `safeStorage` (Windows DPAPI / macOS Keychain / Linux keyring); if `safeStorage.isEncryptionAvailable()` is false they fall back to plaintext. They are never written to the repo. The UI shows an OS-aware note reflecting this (driven by `window.api.platform` and the `app:isEncryptionAvailable` IPC). Legacy entries that stored plain token strings are read transparently.
 
 ### GitHub auto-detection
 
@@ -214,7 +303,7 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
 
 ## Security and privacy
 
-- Authentication tokens are stored via the `KeychainTokenStore`, which persists credentials in `PreferencesStore` keyed by `provider:baseUrl`. The legacy migration moves plaintext tokens from connection-specific preference keys to this store and deletes the originals.
+- Authentication tokens are stored via the `KeychainTokenStore`, which persists credentials in `PreferencesStore` keyed by `provider:baseUrl`, encrypted at rest via Electron `safeStorage` (OS-native: DPAPI / Keychain / keyring; plaintext fallback when no keyring is available). They live only in Canopy's local DB on the user's machine — never in `.canopy/config.json` or git. The legacy migration moves plaintext tokens from connection-specific preference keys to this store and deletes the originals.
 - Attachment downloads validate that the URL origin matches the connection's `baseUrl` before fetching. Downloads are capped at 50 MB and time out after 60 seconds.
 - Provider API requests use a 15-second timeout (`AbortSignal.timeout`).
 - Jira supports both Basic auth (username + API token) and Bearer token auth, selected based on whether a `username` is present.
@@ -226,7 +315,7 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
   - `GlobalConfigManager.ts` - global config persistence with legacy migration
   - `RepoConfigManager.ts` - per-repo `.canopy/config.json` management
   - `configMerge.ts` - three-tier config merge logic
-  - `configDefaults.ts` - built-in defaults, board-aware template resolution
+  - `configDefaults.ts` - built-in defaults, project-aware template resolution
   - `branchTemplate.ts` - template rendering, slugification, validation, type mapping
   - `prTemplate.ts` - PR title/body rendering, target branch resolution
   - `prCreation.ts` - `gh` CLI integration for push + PR creation

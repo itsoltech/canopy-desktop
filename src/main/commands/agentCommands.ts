@@ -66,7 +66,11 @@ export class AgentCommandService {
   }
 
   private writeBracketedPaste(sessionId: string, text: string): void {
-    this.deps.ptyManager.write(sessionId, `\x1b[200~${text}\x1b[201~\r`)
+    // No trailing \r after the paste: a bare CR is a real Enter and would SUBMIT whatever draft
+    // is already sitting in the agent's input. Sent contexts stack in the input instead — the
+    // user confirms explicitly in the agent panel. The newline INSIDE the paste is literal
+    // (bracketed), separating this message from the next stacked one.
+    this.deps.ptyManager.write(sessionId, `\x1b[200~${text}\n\x1b[201~`)
   }
 
   private contextText(payload: AgentContextPayload): string {

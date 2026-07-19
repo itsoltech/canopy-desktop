@@ -761,6 +761,8 @@ const api = {
 
   // App / Shell
   getHomedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
+  isCredentialEncryptionAvailable: () =>
+    ipcRenderer.invoke('app:isEncryptionAvailable') as Promise<boolean>,
   showInFolder: (path: string) => ipcRenderer.invoke('app:showInFolder', { path }),
   newWindow: () => ipcRenderer.invoke('app:newWindow'),
   setFocusedAgentSession: (ptySessionId: string | null) =>
@@ -1255,10 +1257,18 @@ const api = {
     ipcRenderer.invoke('trackerConfig:fetchBoards', { repoRoot, trackerId }),
   trackerConfigFetchStatuses: (repoRoot?: string, trackerId?: string, boardId?: string) =>
     ipcRenderer.invoke('trackerConfig:fetchStatuses', { repoRoot, trackerId, boardId }),
+  trackerConfigFetchProjects: (repoRoot?: string, trackerId?: string, all?: boolean) =>
+    ipcRenderer.invoke('trackerConfig:fetchProjects', { repoRoot, trackerId, all }) as Promise<
+      Array<{ key: string; name: string }>
+    >,
+  trackerConfigFetchTaskTypes: (repoRoot?: string, trackerId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchTaskTypes', { repoRoot, trackerId }) as Promise<
+      string[]
+    >,
   trackerConfigFetchTasks: (
     repoRoot?: string,
     trackerId?: string,
-    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
   ) => ipcRenderer.invoke('trackerConfig:fetchTasks', { repoRoot, trackerId, ...params }),
   trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) =>
     ipcRenderer.invoke('trackerConfig:getCurrentUser', { repoRoot, trackerId }),
@@ -1267,6 +1277,25 @@ const api = {
     taskKey: string,
     trackerId?: string,
   ) => ipcRenderer.invoke('trackerConfig:fetchTaskComments', { repoRoot, taskKey, trackerId }),
+  trackerConfigFetchTransitions: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => ipcRenderer.invoke('trackerConfig:fetchTransitions', { repoRoot, taskKey, trackerId }),
+  trackerConfigApplyTransition: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    taskKey: string
+    transitionId: string
+    fields?: Record<string, string>
+    comment?: string
+  }) => ipcRenderer.invoke('trackerConfig:applyTransition', payload),
+  trackerConfigAddComment: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    taskKey: string
+    body: string
+  }) => ipcRenderer.invoke('trackerConfig:addComment', payload),
   trackerConfigFetchTaskAttachments: (
     repoRoot: string | undefined,
     taskKey: string,
@@ -1286,6 +1315,32 @@ const api = {
     }),
   trackerConfigFindTaskByKey: (repoRoot: string | undefined, taskKey: string, trackerId?: string) =>
     ipcRenderer.invoke('trackerConfig:findTaskByKey', { repoRoot, taskKey, trackerId }),
+  trackerConfigFetchAssignableUsers: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    projectKey?: string,
+  ) =>
+    ipcRenderer.invoke('trackerConfig:fetchAssignableUsers', { repoRoot, trackerId, projectKey }),
+  trackerConfigFetchSprints: (repoRoot: string | undefined, trackerId?: string, boardId?: string) =>
+    ipcRenderer.invoke('trackerConfig:fetchSprints', { repoRoot, trackerId, boardId }),
+  trackerConfigFetchCreateTaskTypes: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    projectKey?: string,
+  ) =>
+    ipcRenderer.invoke('trackerConfig:fetchCreateTaskTypes', { repoRoot, trackerId, projectKey }),
+  trackerConfigCreateTask: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    projectKey?: string
+    typeName?: string
+    title: string
+    description?: string
+    assigneeId?: string
+    boardId?: string
+    sprintId?: string
+    attachments?: Array<{ filename: string; mimeType: string; dataBase64: string }>
+  }) => ipcRenderer.invoke('trackerConfig:createTask', payload),
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) =>
@@ -1299,6 +1354,10 @@ const api = {
       username?: string
       hasToken: boolean
     } | null>,
+  keychainListCredentials: () =>
+    ipcRenderer.invoke('keychain:listCredentials') as Promise<
+      Array<{ provider: string; baseUrl: string; username?: string }>
+    >,
 
   // Task Tracker
   taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),
@@ -1342,7 +1401,13 @@ const api = {
     ipcRenderer.invoke('taskTracker:fetchStatuses', { connectionId, boardId, repoRoot }),
   taskTrackerFetchTasks: (
     connectionId: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; repoRoot?: string },
+    params: {
+      statuses?: string[]
+      assignedToMe?: boolean
+      boardId?: string
+      projectKey?: string
+      repoRoot?: string
+    },
   ) => ipcRenderer.invoke('taskTracker:fetchTasks', { connectionId, ...params }),
   taskTrackerGetCurrentSprint: (connectionId: string, boardId?: string, repoRoot?: string) =>
     ipcRenderer.invoke('taskTracker:getCurrentSprint', { connectionId, boardId, repoRoot }),
@@ -1412,6 +1477,7 @@ const api = {
     repoRoot: string
     worktreePath: string
     baseBranch: string
+    branchName?: string
   }) => ipcRenderer.invoke('taskTracker:createWorktreeFromTask', payload),
   taskTrackerResolveBranchType: (
     taskType: string,
@@ -1454,18 +1520,104 @@ const api = {
     task: { key: string; [k: string]: unknown },
     sourceBranch: string,
     connectionId?: string,
-    boardId?: string,
+    overrides?: {
+      title?: string
+      body?: string
+      targetBranch?: string
+      reviewers?: string[]
+      assignees?: string[]
+    },
   ) =>
     ipcRenderer.invoke('taskTracker:createPR', {
       repoRoot,
       task,
       sourceBranch,
       connectionId,
-      boardId,
+      overrides,
     }),
+
+  taskTrackerPreparePR: (
+    repoRoot: string,
+    task?: { key: string; [k: string]: unknown },
+    branch?: string,
+  ) => ipcRenderer.invoke('taskTracker:preparePR', { repoRoot, task, branch }),
 
   taskTrackerFindPR: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,
+
+  taskTrackerPRDetails: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:prDetails', { repoRoot, branch }) as Promise<{
+      number: number
+      title: string
+      state: string
+      url: string
+      body: string
+      baseRefName: string
+      headRefName: string
+      isDraft: boolean
+      reviewDecision: string | null
+      author?: { login?: string; name?: string }
+      createdAt?: string
+      additions?: number
+      deletions?: number
+      changedFiles?: number
+      statusCheckRollup?: Array<{ status?: string; conclusion?: string; state?: string }>
+      mergedAt?: string | null
+      closedAt?: string | null
+      mergedBy?: { login?: string; name?: string } | null
+      mergeable?: string
+      mergeStateStatus?: string
+      assignees?: Array<{ login?: string; name?: string }>
+      reviewRequests?: Array<{ login?: string; name?: string; slug?: string }>
+      latestReviews?: Array<{ author?: { login?: string }; state?: string }>
+    } | null>,
+
+  taskTrackerPRMerge: (
+    repoRoot: string,
+    prNumber: number,
+    strategy: 'merge' | 'squash' | 'rebase',
+    deleteBranch?: boolean,
+  ) =>
+    ipcRenderer.invoke('taskTracker:prMerge', {
+      repoRoot,
+      prNumber,
+      strategy,
+      deleteBranch,
+    }) as Promise<void>,
+
+  taskTrackerPRClose: (repoRoot: string, prNumber: number, deleteBranch?: boolean) =>
+    ipcRenderer.invoke('taskTracker:prClose', {
+      repoRoot,
+      prNumber,
+      deleteBranch,
+    }) as Promise<void>,
+
+  taskTrackerPRDeleteBranch: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:prDeleteBranch', { repoRoot, branch }) as Promise<void>,
+
+  taskTrackerRemoteBranchExists: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:remoteBranchExists', { repoRoot, branch }) as Promise<boolean>,
+
+  taskTrackerSaveAgentImage: (bytes: ArrayBuffer) =>
+    ipcRenderer.invoke('taskTracker:saveAgentImage', { bytes }) as Promise<string>,
+
+  taskTrackerImageAsDataUrl: (repoRoot: string | undefined, url: string, trackerId?: string) =>
+    ipcRenderer.invoke('taskTracker:imageAsDataUrl', { repoRoot, url, trackerId }) as Promise<
+      string | null
+    >,
+
+  trackerConfigAttachmentPreview: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    attachmentId: string,
+    trackerId?: string,
+  ) =>
+    ipcRenderer.invoke('taskTracker:attachmentPreview', {
+      repoRoot,
+      taskKey,
+      attachmentId,
+      trackerId,
+    }) as Promise<string>,
 
   // GitHub PR features
   githubFetchBranchPRs: (repoRoot: string) =>

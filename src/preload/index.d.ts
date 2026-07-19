@@ -672,6 +672,7 @@ interface CanopyAPI {
   }) => Promise<AgentCommandResult>
 
   // App / Shell
+  isCredentialEncryptionAvailable: () => Promise<boolean>
   showInFolder: (path: string) => Promise<void>
   newWindow: () => Promise<void>
   focusRendererWebContents: () => Promise<void>
@@ -937,6 +938,12 @@ interface CanopyAPI {
 
   // Config-based tracker methods
   trackerConfigFetchBoards: (repoRoot?: string, trackerId?: string) => Promise<TrackerBoard[]>
+  trackerConfigFetchProjects: (
+    repoRoot?: string,
+    trackerId?: string,
+    all?: boolean,
+  ) => Promise<Array<{ key: string; name: string }>>
+  trackerConfigFetchTaskTypes: (repoRoot?: string, trackerId?: string) => Promise<string[]>
   trackerConfigFetchStatuses: (
     repoRoot?: string,
     trackerId?: string,
@@ -945,7 +952,7 @@ interface CanopyAPI {
   trackerConfigFetchTasks: (
     repoRoot?: string,
     trackerId?: string,
-    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
   ) => Promise<TrackerTask[]>
   trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) => Promise<string>
   trackerConfigFetchTaskComments: (
@@ -953,6 +960,25 @@ interface CanopyAPI {
     taskKey: string,
     trackerId?: string,
   ) => Promise<TrackerComment[]>
+  trackerConfigFetchTransitions: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    trackerId?: string,
+  ) => Promise<TrackerTransition[]>
+  trackerConfigApplyTransition: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    taskKey: string
+    transitionId: string
+    fields?: Record<string, string>
+    comment?: string
+  }) => Promise<void>
+  trackerConfigAddComment: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    taskKey: string
+    body: string
+  }) => Promise<void>
   trackerConfigFetchTaskAttachments: (
     repoRoot: string | undefined,
     taskKey: string,
@@ -969,6 +995,33 @@ interface CanopyAPI {
     taskKey: string,
     trackerId?: string,
   ) => Promise<TrackerTask | null>
+  trackerConfigFetchAssignableUsers: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    projectKey?: string,
+  ) => Promise<TrackerUser[]>
+  trackerConfigFetchSprints: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    boardId?: string,
+  ) => Promise<TrackerSprint[]>
+  trackerConfigFetchCreateTaskTypes: (
+    repoRoot: string | undefined,
+    trackerId?: string,
+    projectKey?: string,
+  ) => Promise<Array<{ name: string; iconUrl?: string }>>
+  trackerConfigCreateTask: (payload: {
+    repoRoot?: string
+    trackerId?: string
+    projectKey?: string
+    typeName?: string
+    title: string
+    description?: string
+    assigneeId?: string
+    boardId?: string
+    sprintId?: string
+    attachments?: Array<{ filename: string; mimeType: string; dataBase64: string }>
+  }) => Promise<CreatedTask>
 
   // Keychain
   keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
@@ -983,6 +1036,9 @@ interface CanopyAPI {
     provider: string,
     baseUrl: string,
   ) => Promise<{ username?: string; hasToken: boolean } | null>
+  keychainListCredentials: () => Promise<
+    Array<{ provider: string; baseUrl: string; username?: string }>
+  >
 
   // Task Tracker
   taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
@@ -1101,10 +1157,83 @@ interface CanopyAPI {
     task: TrackerTask,
     sourceBranch: string,
     connectionId?: string,
-    boardId?: string,
+    overrides?: {
+      title?: string
+      body?: string
+      targetBranch?: string
+      reviewers?: string[]
+      assignees?: string[]
+    },
   ) => Promise<{ url: string; title: string; targetBranch: string }>
 
+  taskTrackerPreparePR: (
+    repoRoot: string,
+    task?: { key: string; [k: string]: unknown },
+    branch?: string,
+  ) => Promise<{
+    title: string
+    body: string
+    targetBranch: string
+    repo: string
+    task: TrackerTask | null
+    branches: string[]
+    users: string[]
+    viewer: string
+    titleTemplate: string
+  }>
+
   taskTrackerFindPR: (repoRoot: string, branch: string) => Promise<string | null>
+
+  taskTrackerPRDetails: (
+    repoRoot: string,
+    branch: string,
+  ) => Promise<{
+    number: number
+    title: string
+    state: string
+    url: string
+    body: string
+    baseRefName: string
+    headRefName: string
+    isDraft: boolean
+    reviewDecision: string | null
+    author?: { login?: string; name?: string }
+    createdAt?: string
+    additions?: number
+    deletions?: number
+    changedFiles?: number
+    statusCheckRollup?: Array<{ status?: string; conclusion?: string; state?: string }>
+    mergedAt?: string | null
+    closedAt?: string | null
+    mergedBy?: { login?: string; name?: string } | null
+    mergeable?: string
+    mergeStateStatus?: string
+    assignees?: Array<{ login?: string; name?: string }>
+    reviewRequests?: Array<{ login?: string; name?: string; slug?: string }>
+    latestReviews?: Array<{ author?: { login?: string }; state?: string }>
+  } | null>
+
+  taskTrackerPRMerge: (
+    repoRoot: string,
+    prNumber: number,
+    strategy: 'merge' | 'squash' | 'rebase',
+    deleteBranch?: boolean,
+  ) => Promise<void>
+  taskTrackerPRClose: (repoRoot: string, prNumber: number, deleteBranch?: boolean) => Promise<void>
+  taskTrackerPRDeleteBranch: (repoRoot: string, branch: string) => Promise<void>
+  taskTrackerRemoteBranchExists: (repoRoot: string, branch: string) => Promise<boolean>
+  taskTrackerSaveAgentImage: (bytes: ArrayBuffer) => Promise<string>
+  taskTrackerImageAsDataUrl: (
+    repoRoot: string | undefined,
+    url: string,
+    trackerId?: string,
+  ) => Promise<string | null>
+  trackerConfigAttachmentPreview: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    attachmentId: string,
+    trackerId?: string,
+  ) => Promise<string>
 
   // GitHub PR features
   githubFetchBranchPRs: (repoRoot: string) => Promise<GitHubBranchPRMap>
@@ -1248,6 +1377,8 @@ interface TrackerConfig {
   provider: TaskTrackerProvider
   baseUrl: string
   projectKey?: string
+  /** Tracker projects belonging to this repo (whitelist for pickers/overrides); empty = all. */
+  projects?: string[]
 }
 
 interface BranchTemplateConfig {
@@ -1273,7 +1404,7 @@ interface TaskFilterConfig {
   statuses: string[]
 }
 
-interface BoardOverride {
+interface ProjectOverride {
   branchTemplate?: Partial<BranchTemplateConfig>
   prTemplate?: Partial<PRTemplateConfig>
 }
@@ -1283,7 +1414,8 @@ interface RepoConfig {
   trackers: TrackerConfig[]
   branchTemplate?: BranchTemplateConfig
   prTemplate?: PRTemplateConfig
-  boardOverrides: Record<string, BoardOverride>
+  /** Template overrides keyed by tracker project key (the task-key prefix, e.g. GAKKO). */
+  projectOverrides: Record<string, ProjectOverride>
   filters: TaskFilterConfig
 }
 
@@ -1298,6 +1430,8 @@ interface ResolvedConfig {
   }
   hasGlobal: boolean
   hasRepo: boolean
+  /** Trackers declared by the repo's own config — merged trackers outside this list are personal. */
+  repoTrackerIds: string[]
 }
 
 interface TaskTrackerConnectionInfo {
@@ -1315,8 +1449,11 @@ interface TrackerTask {
   summary: string
   description: string
   status: string
+  statusCategory?: 'todo' | 'in-progress' | 'done'
   priority: string
   type: string
+  typeName?: string
+  typeIconUrl?: string
   parentKey?: string
   sprintName?: string
   sprintNumber?: number
@@ -1340,6 +1477,8 @@ interface TaskTrackerCreateBranchFromTaskInput extends TaskTrackerBranchFromTask
 interface TaskTrackerCreateWorktreeFromTaskInput extends TaskTrackerBranchFromTaskInput {
   worktreePath: string
   baseBranch: string
+  /** User-edited branch name; when set it is sanitized and used instead of the rendered template. */
+  branchName?: string
 }
 
 interface TaskTrackerBranchFromTaskResult {
@@ -1366,6 +1505,29 @@ interface TrackerBoard {
 interface TrackerStatus {
   id: string
   name: string
+  statusCategory?: 'todo' | 'in-progress' | 'done'
+}
+
+interface TrackerTransitionField {
+  key: string
+  name: string
+  required: boolean
+  allowedValues?: { id: string; name: string }[]
+}
+
+interface TrackerTransition {
+  id: string
+  name: string
+  toStatus: string
+  toStatusCategory?: 'todo' | 'in-progress' | 'done'
+  fields: TrackerTransitionField[]
+}
+
+interface TrackerComment {
+  id: string
+  author: string
+  body: string
+  created: string
 }
 
 interface TrackerSprint {
@@ -1375,14 +1537,21 @@ interface TrackerSprint {
   state: 'active' | 'closed' | 'future'
 }
 
+interface TrackerUser {
+  id: string
+  displayName: string
+  avatarUrl?: string
+}
+
+interface CreatedTask {
+  key: string
+  url?: string
+  /** Post-create steps that failed after the task itself was created (partial state). */
+  warnings: string[]
+}
+
 type SessionStatusType =
-  | 'idle'
-  | 'thinking'
-  | 'toolCalling'
-  | 'compacting'
-  | 'waitingPermission'
-  | 'error'
-  | 'ended'
+  'idle' | 'thinking' | 'toolCalling' | 'compacting' | 'waitingPermission' | 'error' | 'ended'
 
 interface NotchSessionStatus {
   ptySessionId: string

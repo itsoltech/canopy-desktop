@@ -30,7 +30,7 @@
 <section class="py-3" class:border-t={borderTop} class:border-border-subtle={borderTop}>
   <div class="flex items-center justify-between px-3 h-7 mb-1">
     <button
-      class="flex items-center gap-1 flex-1 min-w-0 bg-transparent border-0 py-1 -my-1 cursor-pointer text-inherit group"
+      class="flex items-center gap-1 shrink-0 bg-transparent border-0 py-1 -my-1 cursor-pointer text-inherit group"
       onclick={toggle}
       aria-expanded={!collapsed}
     >
@@ -47,7 +47,11 @@
       </h3>
     </button>
     {#if headerExtra}
-      {@render headerExtra()}
+      <!-- The extra gets every pixel the title doesn't need (long branch names truncate against
+           the section label instead of bleeding past the sidebar). -->
+      <div class="flex-1 min-w-0 flex items-center justify-end gap-1 pl-2">
+        {@render headerExtra()}
+      </div>
     {/if}
   </div>
   <div

@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
+import { isPublicHttpUrl } from '../security/validateUrl'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { KeychainTokenStore } from './KeychainTokenStore'
 import type { TaskTrackerError } from './errors'
@@ -22,6 +23,12 @@ import type {
   TrackerTask,
   TrackerSprint,
   TrackerStatus,
+  TrackerProject,
+  TrackerTransition,
+  TrackerUser,
+  TrackerCreateTaskType,
+  CreateTaskInput,
+  CreatedTask,
 } from './types'
 
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
@@ -49,7 +56,9 @@ export class TaskTrackerManager {
 
   private findTracker(config: RepoConfig, trackerId?: string): TrackerConfig | undefined {
     if (config.trackers.length === 0) return undefined
-    if (trackerId) return config.trackers.find((t) => t.id === trackerId) ?? config.trackers[0]
+    // An EXPLICIT tracker id must fail closed: silently falling back to trackers[0] could read
+    // or — worse — write a same-key issue in a different external system.
+    if (trackerId) return config.trackers.find((t) => t.id === trackerId)
     return config.trackers[0]
   }
 
@@ -87,7 +96,10 @@ export class TaskTrackerManager {
   ): Result<{ conn: TaskTrackerConnection; token: string }, TaskTrackerError> {
     const tracker = this.findTracker(config, trackerId)
     if (!tracker) {
-      return err({ _tag: 'ConfigNotFound', repoRoot: 'no trackers configured' })
+      return err({
+        _tag: 'ConfigNotFound',
+        repoRoot: trackerId ? `unknown tracker: ${trackerId}` : 'no trackers configured',
+      })
     }
     const conn = this.buildConnectionFromTracker(tracker, projectKey)
     return this.getTokenFromTracker(tracker).map((token) => ({ conn, token }))
@@ -175,9 +187,44 @@ export class TaskTrackerManager {
     )
   }
 
+  fetchProjectsFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+    repoRoot?: string,
+    includeAll = false,
+  ): ResultAsync<TrackerProject[], TaskTrackerError> {
+    // The tracker entry may whitelist which projects belong to this repo; `includeAll` bypasses
+    // the filter so the config editor can still offer everything for (de)selection.
+    const tracker = this.findTracker(config, trackerId)
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchProjects(conn, token).map((list) => {
+          const allow = tracker?.projects
+          if (includeAll || !allow || allow.length === 0) return list
+          const set = new Set(allow.map((k) => k.toUpperCase()))
+          return list.filter((p) => set.has(p.key.toUpperCase()))
+        })
+      },
+    )
+  }
+
+  fetchTaskTypesFromConfig(
+    config: RepoConfig,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<string[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTaskTypes(conn, token)
+      },
+    )
+  }
+
   fetchTasksFromConfig(
     config: RepoConfig,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
     trackerId?: string,
     repoRoot?: string,
   ): ResultAsync<TrackerTask[], TaskTrackerError> {
@@ -229,6 +276,51 @@ export class TaskTrackerManager {
     )
   }
 
+  fetchTransitionsFromConfig(
+    config: RepoConfig,
+    taskKey: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerTransition[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchTransitions(conn, token, taskKey)
+      },
+    )
+  }
+
+  applyTransitionFromConfig(
+    config: RepoConfig,
+    taskKey: string,
+    transitionId: string,
+    opts: { fields?: Record<string, string>; comment?: string },
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<void, TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.applyTransition(conn, token, taskKey, transitionId, opts)
+      },
+    )
+  }
+
+  addCommentFromConfig(
+    config: RepoConfig,
+    taskKey: string,
+    body: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<void, TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.addComment(conn, token, taskKey, body)
+      },
+    )
+  }
+
   fetchTaskAttachmentsFromConfig(
     config: RepoConfig,
     taskKey: string,
@@ -253,6 +345,158 @@ export class TaskTrackerManager {
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
         return client.fetchTaskByKey(conn, token, taskKey)
+      },
+    )
+  }
+
+  fetchAssignableUsersFromConfig(
+    config: RepoConfig,
+    projectKey: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerUser[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchAssignableUsers(conn, token, projectKey)
+      },
+    )
+  }
+
+  fetchSprintsFromConfig(
+    config: RepoConfig,
+    boardId: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerSprint[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchSprints(conn, token, boardId)
+      },
+    )
+  }
+
+  fetchCreateTaskTypesFromConfig(
+    config: RepoConfig,
+    projectKey: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<TrackerCreateTaskType[], TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.fetchCreateTaskTypes(conn, token, projectKey)
+      },
+    )
+  }
+
+  createTaskFromConfig(
+    config: RepoConfig,
+    input: CreateTaskInput,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<CreatedTask, TaskTrackerError> {
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const client = createProviderClient(conn.provider)
+        return client.createTask(conn, token, input)
+      },
+    )
+  }
+
+  /**
+   * Follow redirects manually so EVERY hop passes the public-address SSRF gate —
+   * `redirect: 'follow'` would bounce past `isPublicHttpUrl` on the second hop (a validated
+   * public host can 302 to an internal address). Credentials (if any) go only to the FIRST
+   * request; every subsequent hop is fetched bare, so tokens never leak across origins.
+   */
+  private async fetchFollowingPublicRedirects(
+    firstUrl: string,
+    headers: Record<string, string>,
+    timeoutMs: number,
+  ): Promise<Response> {
+    const MAX_REDIRECT_HOPS = 5
+    let currentUrl = firstUrl
+    let res = await fetch(currentUrl, {
+      headers,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    for (let hop = 0; res.status >= 300 && res.status < 400; hop++) {
+      if (hop >= MAX_REDIRECT_HOPS) throw new Error('Too many redirects')
+      const location = res.headers.get('location')
+      if (!location) throw new Error(`Redirect without Location (HTTP ${res.status})`)
+      currentUrl = new URL(location, currentUrl).href
+      if (!(await isPublicHttpUrl(currentUrl))) {
+        throw new Error('Redirect target does not resolve to a public host')
+      }
+      res = await fetch(currentUrl, { redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) })
+    }
+    return res
+  }
+
+  /**
+   * Small tracker images (task-type icons, avatars) as a data: URL — the renderer CSP forbids
+   * remote img-src. Same-origin URLs get the connection's credentials; other https URLs (avatar
+   * CDNs like atl-paas/gravatar are pre-signed/public) are fetched WITHOUT any credentials, so
+   * the token can never leak to a third-party host. Responses must be image/* and small.
+   */
+  fetchImageAsDataUrlFromConfig(
+    config: RepoConfig,
+    url: string,
+    trackerId?: string,
+    repoRoot?: string,
+  ): ResultAsync<string, TaskTrackerError> {
+    const imgErr = (reason: string): TaskTrackerError => ({
+      _tag: 'AttachmentDownloadFailed',
+      filename: url,
+      reason,
+    })
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+      ({ conn, token }) => {
+        const headers: Record<string, string> = isSameOriginAs(url, conn.baseUrl)
+          ? {
+              Authorization: conn.username
+                ? `Basic ${Buffer.from(`${conn.username}:${token}`).toString('base64')}`
+                : `Bearer ${token}`,
+            }
+          : {}
+        const fetchIcon = async (): Promise<string> => {
+          // SSRF gate: the URL is renderer/tracker-supplied. The tracker's own origin is trusted
+          // (the user configured it); anything else must resolve to a PUBLIC address — otherwise
+          // a compromised renderer or malicious tracker could probe internal hosts through us.
+          if (!isSameOriginAs(url, conn.baseUrl) && !(await isPublicHttpUrl(url))) {
+            throw new Error('URL does not resolve to a public host')
+          }
+          const res = await this.fetchFollowingPublicRedirects(url, headers, 15_000)
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const mime = res.headers.get('content-type')?.split(';')[0] || 'image/png'
+          if (!/^image\/[\w.+-]+$/.test(mime)) throw new Error(`Not an image: ${mime}`)
+          const MAX_ICON_BYTES = 512 * 1024
+          // Content-Length is advisory (may be absent) but rejects the obvious cases before any
+          // allocation; the streamed read below enforces the cap for the rest, so a renderer-
+          // selected URL can never balloon the main process by lying about (or omitting) it.
+          const declared = Number(res.headers.get('content-length') || 0)
+          if (declared > MAX_ICON_BYTES) throw new Error('Image too large')
+          if (!res.body) throw new Error('Empty response body')
+          const reader = res.body.getReader()
+          const chunks: Buffer[] = []
+          let received = 0
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            received += value.byteLength
+            if (received > MAX_ICON_BYTES) {
+              await reader.cancel()
+              throw new Error('Image too large')
+            }
+            chunks.push(Buffer.from(value))
+          }
+          const buf = Buffer.concat(chunks)
+          return `data:${mime};base64,${buf.toString('base64')}`
+        }
+        return fromExternalCall(fetchIcon(), (e) => imgErr(errorMessage(e)))
       },
     )
   }
@@ -301,9 +545,11 @@ export class TaskTrackerManager {
 
     const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
-    return fromExternalCall(
-      fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(60_000) }),
-      (e) => dlErr(errorMessage(e)),
+    // Jira answers attachment-content requests with a 303 redirect to a pre-signed media URL on
+    // ANOTHER origin — follow it manually so the tracker credentials are not forwarded there
+    // (redirect:'error' made every Jira attachment download fail with "fetch failed").
+    return fromExternalCall(this.fetchFollowingPublicRedirects(url, headers, 60_000), (e) =>
+      dlErr(errorMessage(e)),
     )
       .andThen((res) => {
         if (!res.ok) return errAsync(dlErr(`HTTP ${res.status}`))
@@ -547,7 +793,7 @@ export class TaskTrackerManager {
 
   fetchTasks(
     connectionId: string,
-    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string },
+    params: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
     repoRoot?: string,
   ): ResultAsync<TrackerTask[], TaskTrackerError> {
     return this.getConnection(connectionId)
