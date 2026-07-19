@@ -39,6 +39,9 @@
         })
       }
     } catch (e) {
+      // The previous PR object is stale once a refresh fails — keeping it would re-enable its
+      // merge/close/delete actions against state we can no longer trust.
+      pr = null
       error = ipcErrorMessage(e, 'Failed to load PR details')
     } finally {
       loading = false
@@ -158,8 +161,9 @@
   })
 
   async function runAction(kind: 'merge' | 'close' | 'delete'): Promise<void> {
-    // While details (re)load, the on-screen PR may be stale — no mutations until it settles.
-    if (!pr || acting || loading) return
+    // While details (re)load, the on-screen PR may be stale — no mutations until it settles
+    // cleanly (a failed refresh clears `pr`, but keep the error gate as defense in depth).
+    if (!pr || acting || loading || error) return
     if (armed !== kind) {
       armed = kind
       return

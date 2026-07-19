@@ -13,7 +13,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt, showPRDetails, showCreateTaskPR } from '../../lib/stores/dialogs.svelte'
   import { getPRForBranch, getPRRefreshTick } from '../../lib/stores/github.svelte'
-  import { getPanelTask } from '../../lib/stores/taskTracker.svelte'
+  import { getPanelTask, getPanelTaskResolvedPath } from '../../lib/stores/taskTracker.svelte'
   import { prStateChip } from '../../lib/github/prState'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
@@ -212,8 +212,10 @@
   function doCreatePR(): void {
     if (!workspaceState.branch) return
     // The linked tracker task (when there is one) provides the PR template context; without it
-    // the form falls back to a plain branch-level PR.
-    const t = getPanelTask()
+    // the form falls back to a plain branch-level PR. During a worktree switch the panel task can
+    // still belong to the previous worktree — only trust it once it was resolved for this path.
+    const resolvedFor = getPanelTaskResolvedPath()
+    const t = resolvedFor === worktreePath().replace(/\\/g, '/') ? getPanelTask() : null
     showCreateTaskPR(
       worktreePath(),
       workspaceState.branch,
