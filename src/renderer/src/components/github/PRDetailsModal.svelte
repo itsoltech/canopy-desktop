@@ -158,7 +158,8 @@
   })
 
   async function runAction(kind: 'merge' | 'close' | 'delete'): Promise<void> {
-    if (!pr || acting) return
+    // While details (re)load, the on-screen PR may be stale — no mutations until it settles.
+    if (!pr || acting || loading) return
     if (armed !== kind) {
       armed = kind
       return
@@ -426,7 +427,7 @@
             <button
               class={dangerBtnCls}
               onclick={() => runAction('close')}
-              disabled={acting !== null}
+              disabled={acting !== null || loading}
               title="Close this pull request without merging"
             >
               {#if acting === 'close'}
@@ -437,7 +438,7 @@
             <button
               class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border-0 bg-success-bg text-success-text text-sm font-inherit enabled:cursor-pointer enabled:hover:bg-success/30 disabled:opacity-50 disabled:cursor-default"
               onclick={() => runAction('merge')}
-              disabled={!!mergeBlockReason || acting !== null}
+              disabled={!!mergeBlockReason || acting !== null || loading}
               title={mergeBlockReason ?? 'Merge this pull request'}
             >
               {#if acting === 'merge'}
@@ -451,7 +452,7 @@
             <button
               class={dangerBtnCls}
               onclick={() => runAction('delete')}
-              disabled={acting !== null}
+              disabled={acting !== null || loading}
               title={`Delete the remote branch ${pr.headRefName}`}
             >
               {#if acting === 'delete'}

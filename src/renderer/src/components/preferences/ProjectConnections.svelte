@@ -129,7 +129,33 @@
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
+      // The credential dialog nests inside the Project tracker modal — the Escape must close
+      // only THIS layer, not bubble up and take the parent modal down with it.
+      e.stopPropagation()
       cancel()
+      return
+    }
+    if (e.key === 'Tab' && dialogEl) {
+      // Keep focus inside the nested dialog (the parent modal's own trap would otherwise walk
+      // focus out into controls the scrim visually blocks).
+      const focusable = dialogEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !dialogEl.contains(active))) {
+        e.preventDefault()
+        e.stopPropagation()
+        last.focus()
+      } else if (!e.shiftKey && (active === last || !dialogEl.contains(active))) {
+        e.preventDefault()
+        e.stopPropagation()
+        first.focus()
+      } else {
+        e.stopPropagation()
+      }
     }
   }
 

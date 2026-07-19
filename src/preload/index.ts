@@ -1601,21 +1601,21 @@ const api = {
   taskTrackerSaveAgentImage: (bytes: ArrayBuffer) =>
     ipcRenderer.invoke('taskTracker:saveAgentImage', { bytes }) as Promise<string>,
 
-  taskTrackerImageAsDataUrl: (repoRoot: string | undefined, url: string) =>
-    ipcRenderer.invoke('taskTracker:imageAsDataUrl', { repoRoot, url }) as Promise<string | null>,
+  taskTrackerImageAsDataUrl: (repoRoot: string | undefined, url: string, trackerId?: string) =>
+    ipcRenderer.invoke('taskTracker:imageAsDataUrl', { repoRoot, url, trackerId }) as Promise<
+      string | null
+    >,
 
   trackerConfigAttachmentPreview: (
     repoRoot: string | undefined,
-    url: string,
-    filename: string,
-    mimeType?: string,
+    taskKey: string,
+    attachmentId: string,
     trackerId?: string,
   ) =>
     ipcRenderer.invoke('taskTracker:attachmentPreview', {
       repoRoot,
-      url,
-      filename,
-      mimeType,
+      taskKey,
+      attachmentId,
       trackerId,
     }) as Promise<string>,
 

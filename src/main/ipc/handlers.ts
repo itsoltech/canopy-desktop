@@ -3584,6 +3584,9 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:fetchAssignableUsers',
     async (_event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
+      if (payload.projectKey !== undefined && typeof payload.projectKey !== 'string') {
+        throw new Error('Invalid project key')
+      }
       const projectKey = payload.projectKey ?? ''
       if (projectKey && !PROJECT_KEY_RE.test(projectKey)) throw new Error('Invalid project key')
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
@@ -3623,6 +3626,9 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:fetchCreateTaskTypes',
     async (_event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
+      if (payload.projectKey !== undefined && typeof payload.projectKey !== 'string') {
+        throw new Error('Invalid project key')
+      }
       const projectKey = payload.projectKey ?? ''
       if (projectKey && !PROJECT_KEY_RE.test(projectKey)) throw new Error('Invalid project key')
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
@@ -3661,21 +3667,13 @@ export function registerIpcHandlers(
           throw new Error('Invalid task description')
         }
       }
-      if (payload.projectKey !== undefined && !PROJECT_KEY_RE.test(payload.projectKey)) {
-        throw new Error('Invalid project key')
-      }
-      if (payload.typeName !== undefined && !TYPE_NAME_RE.test(payload.typeName)) {
-        throw new Error('Invalid task type')
-      }
-      if (payload.assigneeId !== undefined && !ASSIGNEE_ID_RE.test(payload.assigneeId)) {
-        throw new Error('Invalid assignee')
-      }
-      if (payload.boardId !== undefined && !BOARD_SPRINT_ID_RE.test(payload.boardId)) {
-        throw new Error('Invalid board id')
-      }
-      if (payload.sprintId !== undefined && !BOARD_SPRINT_ID_RE.test(payload.sprintId)) {
-        throw new Error('Invalid sprint id')
-      }
+      const validOptional = (value: unknown, re: RegExp): boolean =>
+        value === undefined || (typeof value === 'string' && re.test(value))
+      if (!validOptional(payload.projectKey, PROJECT_KEY_RE)) throw new Error('Invalid project key')
+      if (!validOptional(payload.typeName, TYPE_NAME_RE)) throw new Error('Invalid task type')
+      if (!validOptional(payload.assigneeId, ASSIGNEE_ID_RE)) throw new Error('Invalid assignee')
+      if (!validOptional(payload.boardId, BOARD_SPRINT_ID_RE)) throw new Error('Invalid board id')
+      if (!validOptional(payload.sprintId, BOARD_SPRINT_ID_RE)) throw new Error('Invalid sprint id')
       if (payload.attachments !== undefined) {
         if (!Array.isArray(payload.attachments) || payload.attachments.length > 8) {
           throw new Error('Invalid attachments (max 8)')
@@ -4335,6 +4333,25 @@ export function registerIpcHandlers(
     if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('Image too large (max 20 MB)')
     const dir = path.join(os.tmpdir(), 'canopy-agent-images')
     await fs.promises.mkdir(dir, { recursive: true })
+    // The images only need to survive until the agent has read them — cap the directory at the
+    // newest few files so repeated sends can't grow the temp dir without bound.
+    try {
+      const entries = await fs.promises.readdir(dir)
+      const stats = await Promise.all(
+        entries
+          .filter((name) => /^image-\d+\.png$/.test(name))
+          .map(async (name) => ({
+            name,
+            mtime: (await fs.promises.stat(path.join(dir, name))).mtimeMs,
+          })),
+      )
+      const MAX_AGENT_IMAGES = 20
+      for (const old of stats.sort((a, b) => b.mtime - a.mtime).slice(MAX_AGENT_IMAGES - 1)) {
+        await fs.promises.unlink(path.join(dir, old.name)).catch(() => {})
+      }
+    } catch {
+      // Best-effort cleanup — never fail the save over it.
+    }
     const filePath = path.join(dir, `image-${Date.now()}.png`)
     await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)))
     return filePath
@@ -4347,9 +4364,10 @@ export function registerIpcHandlers(
   const imageDataUrlCache = new Map<string, string>()
   ipcMain.handle(
     'taskTracker:imageAsDataUrl',
-    async (_event, payload: { repoRoot?: string; url: string }) => {
+    async (_event, payload: { repoRoot?: string; url: string; trackerId?: string }) => {
       if (!payload.url || !/^https:\/\//.test(payload.url)) return null
-      const cacheKey = `${payload.repoRoot ?? ''}::${payload.url}`
+      if (payload.trackerId !== undefined && typeof payload.trackerId !== 'string') return null
+      const cacheKey = `${payload.repoRoot ?? ''}::${payload.trackerId ?? ''}::${payload.url}`
       const cached = imageDataUrlCache.get(cacheKey)
       if (cached) {
         // Refresh recency (Map iterates in insertion order — re-insert moves it to the back).
@@ -4362,7 +4380,7 @@ export function registerIpcHandlers(
       const result = await taskTrackerManager.fetchImageAsDataUrlFromConfig(
         resolved.config,
         payload.url,
-        undefined,
+        payload.trackerId,
         payload.repoRoot,
       )
       const dataUrl = result.unwrapOr(null)
@@ -4378,8 +4396,10 @@ export function registerIpcHandlers(
     },
   )
 
-  // Inline thumbnail for an image attachment: download via the tracker connection, return the
-  // bytes as a data: URL (the renderer CSP allows img-src data:), then drop the temp file.
+  // Inline thumbnail for an image attachment. The renderer only NAMES the attachment (task key +
+  // attachment id) — main re-fetches the provider-owned attachment list and downloads that exact
+  // entry with its own URL and MIME. A renderer-supplied URL/MIME pair would otherwise be an
+  // authenticated same-origin GET proxy (e.g. /rest/api/3/myself labelled image/png).
   ipcMain.handle(
     'taskTracker:attachmentPreview',
     async (
@@ -4387,19 +4407,43 @@ export function registerIpcHandlers(
       payload: {
         repoRoot?: string
         trackerId?: string
-        url: string
-        filename: string
-        mimeType?: string
+        taskKey: string
+        attachmentId: string
       },
     ) => {
-      if (!payload.url || !/^https?:\/\//.test(payload.url)) throw new Error('Invalid URL')
-      if (!payload.filename || /[\0/\\]/.test(payload.filename)) throw new Error('Invalid filename')
+      if (typeof payload.taskKey !== 'string' || !TASK_KEY_RE.test(payload.taskKey)) {
+        throw new Error('Invalid task key')
+      }
+      if (
+        typeof payload.attachmentId !== 'string' ||
+        payload.attachmentId.length === 0 ||
+        payload.attachmentId.length > 2048
+      ) {
+        throw new Error('Invalid attachment id')
+      }
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
       if (!resolved) throw new Error('No tracker configured')
+      const attachments = unwrapOrThrow(
+        await taskTrackerManager.fetchTaskAttachmentsFromConfig(
+          resolved.config,
+          payload.taskKey,
+          payload.trackerId,
+          payload.repoRoot,
+        ),
+        taskTrackerErrorMessage,
+      )
+      // The renderer keys rows by `id || url` — accept either, but only via exact match against
+      // what the tracker itself reports for this task.
+      const attachment = attachments.find(
+        (a) => a.id === payload.attachmentId || a.url === payload.attachmentId,
+      )
+      if (!attachment) throw new Error('Attachment not found on this task')
+      const mime = attachment.mimeType ?? ''
+      if (!/^image\/[\w.+-]+$/.test(mime)) throw new Error('Not an image attachment')
       const result = await taskTrackerManager.downloadAttachmentFromConfig(
         resolved.config,
-        payload.url,
-        payload.filename,
+        attachment.url,
+        attachment.name || 'attachment',
         payload.trackerId,
         payload.repoRoot,
       )
@@ -4408,10 +4452,6 @@ export function registerIpcHandlers(
         const stat = await fs.promises.stat(localPath)
         if (stat.size > 8 * 1024 * 1024) throw new Error('Attachment too large to preview')
         const buf = await fs.promises.readFile(localPath)
-        const mime =
-          typeof payload.mimeType === 'string' && /^image\/[\w.+-]+$/.test(payload.mimeType)
-            ? payload.mimeType
-            : 'image/png'
         return `data:${mime};base64,${buf.toString('base64')}`
       } finally {
         taskTrackerManager.cleanupAttachmentDir(localPath)

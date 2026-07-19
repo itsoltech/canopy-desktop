@@ -166,7 +166,12 @@
 
   // --- Pull requests for the current branch (moved here from PROJECT MANAGEMENT — a PR belongs
   // to the branch, and this works without any tracker configured).
-  let branchPR = $derived(workspaceState.branch ? getPRForBranch(workspaceState.branch) : undefined)
+  // Keyed by the MAIN repo root — that is what loadBranchPRs fetches under.
+  let branchPR = $derived(
+    workspaceState.branch
+      ? getPRForBranch(workspaceState.repoRoot, workspaceState.branch)
+      : undefined,
+  )
   // The github store map needs the GitHub API integration; fall back to the gh CLI (same auth as
   // PR creation) so the "View PR" row appears even without it — with the PR state for a chip.
   let fallbackPR = $state<{ number: number; state: string; isDraft: boolean } | null>(null)

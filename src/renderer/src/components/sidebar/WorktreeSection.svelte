@@ -5,7 +5,12 @@
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
-  import { formatPrBadge, getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
+  import {
+    formatPrBadge,
+    getBranchPRMap,
+    loadBranchPRs,
+    prKey,
+  } from '../../lib/stores/github.svelte'
   import { getResolvedConfig } from '../../lib/stores/taskTracker.svelte'
 
   let mergedBranches = new SvelteSet<string>()
@@ -144,8 +149,8 @@
             >
           {/if}
         </button>
-        {#if prMap[wt.branch]}
-          {@const pr = prMap[wt.branch]}
+        {#if prMap[prKey(workspaceState.repoRoot, wt.branch)]}
+          {@const pr = prMap[prKey(workspaceState.repoRoot, wt.branch)]}
           {@const badge = formatPrBadge(pr)}
           <button
             class="{badge.className} flex-shrink-0 mr-1"

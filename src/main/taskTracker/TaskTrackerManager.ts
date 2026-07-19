@@ -56,7 +56,9 @@ export class TaskTrackerManager {
 
   private findTracker(config: RepoConfig, trackerId?: string): TrackerConfig | undefined {
     if (config.trackers.length === 0) return undefined
-    if (trackerId) return config.trackers.find((t) => t.id === trackerId) ?? config.trackers[0]
+    // An EXPLICIT tracker id must fail closed: silently falling back to trackers[0] could read
+    // or — worse — write a same-key issue in a different external system.
+    if (trackerId) return config.trackers.find((t) => t.id === trackerId)
     return config.trackers[0]
   }
 
@@ -94,7 +96,10 @@ export class TaskTrackerManager {
   ): Result<{ conn: TaskTrackerConnection; token: string }, TaskTrackerError> {
     const tracker = this.findTracker(config, trackerId)
     if (!tracker) {
-      return err({ _tag: 'ConfigNotFound', repoRoot: 'no trackers configured' })
+      return err({
+        _tag: 'ConfigNotFound',
+        repoRoot: trackerId ? `unknown tracker: ${trackerId}` : 'no trackers configured',
+      })
     }
     const conn = this.buildConnectionFromTracker(tracker, projectKey)
     return this.getTokenFromTracker(tracker).map((token) => ({ conn, token }))
@@ -466,10 +471,29 @@ export class TaskTrackerManager {
           }
           const res = await this.fetchFollowingPublicRedirects(url, headers, 15_000)
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          const buf = Buffer.from(await res.arrayBuffer())
-          if (buf.byteLength > 512 * 1024) throw new Error('Image too large')
           const mime = res.headers.get('content-type')?.split(';')[0] || 'image/png'
           if (!/^image\/[\w.+-]+$/.test(mime)) throw new Error(`Not an image: ${mime}`)
+          const MAX_ICON_BYTES = 512 * 1024
+          // Content-Length is advisory (may be absent) but rejects the obvious cases before any
+          // allocation; the streamed read below enforces the cap for the rest, so a renderer-
+          // selected URL can never balloon the main process by lying about (or omitting) it.
+          const declared = Number(res.headers.get('content-length') || 0)
+          if (declared > MAX_ICON_BYTES) throw new Error('Image too large')
+          if (!res.body) throw new Error('Empty response body')
+          const reader = res.body.getReader()
+          const chunks: Buffer[] = []
+          let received = 0
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            received += value.byteLength
+            if (received > MAX_ICON_BYTES) {
+              await reader.cancel()
+              throw new Error('Image too large')
+            }
+            chunks.push(Buffer.from(value))
+          }
+          const buf = Buffer.concat(chunks)
           return `data:${mime};base64,${buf.toString('base64')}`
         }
         return fromExternalCall(fetchIcon(), (e) => imgErr(errorMessage(e)))

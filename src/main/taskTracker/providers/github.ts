@@ -456,16 +456,36 @@ export const githubClient: TaskTrackerProviderClient = {
 
   applyTransition(connection, token, taskKey, transitionId, opts) {
     const apiUrl = apiUrlForConnection(connection)
+    // The transition id crosses the untrusted IPC boundary — only the three states this provider
+    // actually offers may reach a mutation, and each must match the issue's CURRENT state (a typo
+    // like "reopne" must fail loudly, not silently close the issue as COMPLETED).
+    const KNOWN_TRANSITIONS: Record<string, { mutation: 'reopen' | 'close'; reason?: string }> = {
+      reopen: { mutation: 'reopen' },
+      'close:COMPLETED': { mutation: 'close', reason: 'COMPLETED' },
+      'close:NOT_PLANNED': { mutation: 'close', reason: 'NOT_PLANNED' },
+    }
+    const transition = KNOWN_TRANSITIONS[transitionId]
+    if (!transition) {
+      return errAsync(apiError(400, `Unknown transition: ${transitionId}`))
+    }
     return fetchIssueId(connection, token, taskKey)
       .andThen((issue) => {
-        if (transitionId === 'reopen') {
+        if (transition.mutation === 'reopen') {
+          if (issue.state !== 'CLOSED') {
+            return errAsync(apiError(400, `Cannot reopen an issue in state ${issue.state}`))
+          }
           return mapGitHubError(
             graphqlFetch<unknown>(apiUrl, token, REOPEN_ISSUE_MUTATION, { id: issue.id }),
           ).map(() => issue.id)
         }
-        const reason = transitionId.startsWith('close:') ? transitionId.slice(6) : 'COMPLETED'
+        if (issue.state !== 'OPEN') {
+          return errAsync(apiError(400, `Cannot close an issue in state ${issue.state}`))
+        }
         return mapGitHubError(
-          graphqlFetch<unknown>(apiUrl, token, CLOSE_ISSUE_MUTATION, { id: issue.id, reason }),
+          graphqlFetch<unknown>(apiUrl, token, CLOSE_ISSUE_MUTATION, {
+            id: issue.id,
+            reason: transition.reason,
+          }),
         ).map(() => issue.id)
       })
       .andThen((issueId) => {

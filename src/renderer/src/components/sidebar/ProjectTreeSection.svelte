@@ -17,7 +17,12 @@
   import { allPanes } from '../../lib/stores/splitTree'
   import { worktreeBadges } from '../../lib/agents/agentState.svelte'
   import { getWorktreeAgentStatus } from '../../lib/agents/worktreeStatus.svelte'
-  import { formatPrBadge, getBranchPRMap, loadBranchPRs } from '../../lib/stores/github.svelte'
+  import {
+    formatPrBadge,
+    getBranchPRMap,
+    loadBranchPRs,
+    prKey,
+  } from '../../lib/stores/github.svelte'
   import { getResolvedConfig } from '../../lib/stores/taskTracker.svelte'
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
@@ -546,8 +551,8 @@
                   >
                 {/if}
               </button>
-              {#if prMap[wt.branch]}
-                {@const pr = prMap[wt.branch]}
+              {#if prMap[prKey(project.repoRoot, wt.branch)]}
+                {@const pr = prMap[prKey(project.repoRoot, wt.branch)]}
                 {@const badge = formatPrBadge(pr)}
                 <button
                   class="{badge.className} flex-shrink-0 mr-1"

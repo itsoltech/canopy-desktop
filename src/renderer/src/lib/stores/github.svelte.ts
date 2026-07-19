@@ -15,8 +15,16 @@ export function getBranchPRMap(): GitHubBranchPRMap {
   return branchPRs
 }
 
-export function getPRForBranch(branch: string): GitHubPRInfo | undefined {
-  return branchPRs[branch]
+/** Cache key: the same branch name can carry different PRs in different repositories. */
+export function prKey(repoRoot: string | null | undefined, branch: string): string {
+  return `${(repoRoot ?? '').replace(/\\/g, '/')}::${branch}`
+}
+
+export function getPRForBranch(
+  repoRoot: string | null | undefined,
+  branch: string,
+): GitHubPRInfo | undefined {
+  return branchPRs[prKey(repoRoot, branch)]
 }
 
 export function getGitHubRepoInfo(): GitHubRepoInfo | null {
@@ -40,8 +48,11 @@ export async function loadBranchPRs(repoRoot: string, force = false): Promise<vo
   try {
     const result = await window.api.githubFetchBranchPRs(repoRoot)
     lastFetchByRepo[repoRoot] = Date.now()
-    // Merge with existing PRs from other repos
-    branchPRs = { ...branchPRs, ...result }
+    // Merge with existing PRs from other repos — scoped by repo so same-name branches don't collide.
+    const scoped = Object.fromEntries(
+      Object.entries(result).map(([branch, pr]) => [prKey(repoRoot, branch), pr]),
+    )
+    branchPRs = { ...branchPRs, ...scoped }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (msg.includes('rate limit') || msg.includes('401') || msg.includes('403')) {

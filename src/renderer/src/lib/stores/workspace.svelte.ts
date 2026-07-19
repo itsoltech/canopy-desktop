@@ -562,7 +562,9 @@ async function hydrateSelectedWorktree(path: string, requestId?: number): Promis
   // startup restore the projects list may not yet include a freshly-created worktree, and skipping
   // would leave the tracker section missing until the worktree is manually re-selected.
   try {
-    await loadRepoConfig(path)
+    // The generation guard rides INTO the load: it fetches into locals and only applies to the
+    // shared tracker state when this selection is still current (see taskTracker store).
+    await loadRepoConfig(path, shouldApply)
   } catch (err) {
     console.error(`[workspace] loadRepoConfig failed for "${path}":`, err)
   }

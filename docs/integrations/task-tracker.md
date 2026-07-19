@@ -241,6 +241,14 @@ tracker connections. `mergeConfigs()` applies these rules:
 2. **Branch template / PR template / project overrides**: From the repo config only; when unset, the built-in defaults (`configDefaults.ts`) apply. The personal store is never a template fallback.
 3. **Filters**: Repo always wins when repo config exists.
 
+**Legacy config (intentional breaking change).** Two earlier config tiers are no longer read:
+`boardOverrides` (template overrides keyed by AGILE BOARD id) was replaced by `projectOverrides`
+keyed by the tracker PROJECT (task-key prefix) — a board id said nothing about which template a
+task should use once pickers moved from boards to projects; and the personal ("Your defaults")
+naming-template tier was removed — naming is owned by the project alone. Old keys left in
+`.canopy/config.json` are ignored (never deleted); recreate the relevant overrides per project
+in the Project tracker modal.
+
 The `ResolvedConfig` includes a `source` object indicating where each field came from (`'repo'` or `'default'`; templates never resolve as `'global'`).
 
 ### Configuration UI

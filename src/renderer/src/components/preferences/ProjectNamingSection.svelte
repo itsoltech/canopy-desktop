@@ -87,7 +87,12 @@
     editing = { type, scope }
   }
 
+  // Bound to whichever editor is open — Cancel must clear its pending 400 ms debounced save
+  // BEFORE restoring the snapshot, or the unmount flush re-saves the discarded draft.
+  let editorRef = $state<{ discardPending: () => void } | undefined>()
+
   async function cancelEdit(): Promise<void> {
+    editorRef?.discardPending()
     if (editSnapshot && repoRoot) await saveRepoConfig(repoRoot, editSnapshot)
     editing = null
     editSnapshot = null
@@ -202,9 +207,14 @@
   <div class="flex flex-col gap-2 pt-1">
     {#key `${type}:${scope}:${resetTick}`}
       {#if type === 'branch'}
-        <TaskBranchNamingPrefs {repoRoot} {placeholders} pinnedScope={scope} />
+        <TaskBranchNamingPrefs
+          bind:this={editorRef}
+          {repoRoot}
+          {placeholders}
+          pinnedScope={scope}
+        />
       {:else}
-        <TaskPRNamingPrefs {repoRoot} pinnedScope={scope} />
+        <TaskPRNamingPrefs bind:this={editorRef} {repoRoot} pinnedScope={scope} />
       {/if}
     {/key}
     <div class="flex items-center gap-2">

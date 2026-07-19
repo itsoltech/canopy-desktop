@@ -76,6 +76,9 @@
   }
 
   let panel = $derived(getPanelTask())
+  // The tracker that OWNS the panel task — with several trackers configured, defaulting to the
+  // first one could read or mutate a same-key issue in the wrong external system.
+  let panelTrackerId = $derived(panel?.connectionId || undefined)
   let panelTasks = $derived(getPanelTasks())
   // Task resolution runs at the end of worktree hydration — until it lands for THIS worktree, the
   // store still holds the previous worktree's tasks. Show a loader instead of stale data.
@@ -193,7 +196,11 @@
     transitionComment = ''
     applyError = ''
     try {
-      const fullTask = await window.api.trackerConfigFindTaskByKey(worktreePath, taskKey)
+      const fullTask = await window.api.trackerConfigFindTaskByKey(
+        worktreePath,
+        taskKey,
+        panelTrackerId,
+      )
       if (seq !== refreshSeq) return
       if (!fullTask) {
         // Deleted (or invisible) in the tracker — a dedicated state, not an API error.
@@ -206,11 +213,11 @@
         return
       }
       const [trans, comm, atts] = await Promise.all([
-        window.api.trackerConfigFetchTransitions(worktreePath, taskKey),
-        window.api.trackerConfigFetchTaskComments(worktreePath, taskKey),
+        window.api.trackerConfigFetchTransitions(worktreePath, taskKey, panelTrackerId),
+        window.api.trackerConfigFetchTaskComments(worktreePath, taskKey, panelTrackerId),
         // Attachments are best-effort decoration — a provider without them must not fail the load.
         window.api
-          .trackerConfigFetchTaskAttachments(worktreePath, taskKey)
+          .trackerConfigFetchTaskAttachments(worktreePath, taskKey, panelTrackerId)
           .catch(() => [] as Attachment[]),
       ])
       if (seq !== refreshSeq) return
@@ -228,7 +235,7 @@
       assigneeAvatar = ''
       if (fullTask?.assigneeAvatarUrl) {
         void window.api
-          .taskTrackerImageAsDataUrl(worktreePath, fullTask.assigneeAvatarUrl)
+          .taskTrackerImageAsDataUrl(worktreePath, fullTask.assigneeAvatarUrl, panelTrackerId)
           .then((dataUrl) => {
             if (seq === refreshSeq && dataUrl) assigneeAvatar = dataUrl
           })
@@ -250,7 +257,7 @@
         .filter((a) => (a.mimeType ?? '').startsWith('image/'))
         .slice(0, 6)) {
         void window.api
-          .trackerConfigAttachmentPreview(worktreePath, a.url, a.name, a.mimeType)
+          .trackerConfigAttachmentPreview(worktreePath, taskKey, a.id, panelTrackerId)
           .then((dataUrl) => {
             if (seq === refreshSeq) attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
           })
@@ -272,6 +279,7 @@
     try {
       await window.api.trackerConfigApplyTransition({
         repoRoot: worktreePath,
+        trackerId: panelTrackerId,
         taskKey: key,
         transitionId: selectedTransition.id,
         fields: Object.keys(fieldValues).length ? { ...fieldValues } : undefined,
@@ -451,10 +459,19 @@
     if (!key || !body) return
     addingComment = true
     try {
-      await window.api.trackerConfigAddComment({ repoRoot: worktreePath, taskKey: key, body })
+      await window.api.trackerConfigAddComment({
+        repoRoot: worktreePath,
+        trackerId: panelTrackerId,
+        taskKey: key,
+        body,
+      })
       newComment = ''
       addToast('Comment added')
-      const refreshed = await window.api.trackerConfigFetchTaskComments(worktreePath, key)
+      const refreshed = await window.api.trackerConfigFetchTaskComments(
+        worktreePath,
+        key,
+        panelTrackerId,
+      )
       if (panel?.taskKey === key) comments = refreshed
     } catch (e) {
       addToast(ipcErrorMessage(e, 'Failed to add comment'))

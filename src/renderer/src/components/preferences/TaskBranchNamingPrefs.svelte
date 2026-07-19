@@ -1,4 +1,9 @@
 <script lang="ts">
+  // Forwarded to the builder so the parent's Cancel can drop its pending debounced save.
+  let builderRef = $state<{ discardPending: () => void } | undefined>()
+  export function discardPending(): void {
+    builderRef?.discardPending()
+  }
   import { onMount } from 'svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
@@ -129,7 +134,12 @@
     </p>
   {/if}
 
-  <BranchTokenBuilder bind:templateInput {placeholders} onSave={saveBranchTemplate} />
+  <BranchTokenBuilder
+    bind:this={builderRef}
+    bind:templateInput
+    {placeholders}
+    onSave={saveBranchTemplate}
+  />
 
   {#if pinnedScope === 'default' && trackerTypes.length > 0}
     <div class="flex flex-col gap-1.5 pt-2 border-t border-border-subtle">

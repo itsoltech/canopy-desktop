@@ -47,6 +47,16 @@
     return () => flushSave()
   })
 
+  /** Cancel path: drop the pending debounced save so the unmount flush cannot re-save the
+   *  discarded draft AFTER the parent restored its snapshot. */
+  export function discardPending(): void {
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    savePending = false
+  }
+
   function parseSegments(tpl: string): { fields: string[]; texts: string[] } {
     const fields: string[] = []
     const texts: string[] = []

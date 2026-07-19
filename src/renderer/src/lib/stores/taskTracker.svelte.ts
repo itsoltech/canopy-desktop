@@ -92,7 +92,9 @@ export function getTrackerCredential(trackerId: string): TrackerCredentialState 
   return trackerCredentials[trackerId] ?? null
 }
 
-async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
+async function computeCredentials(
+  trackers: TrackerConfig[],
+): Promise<Record<string, TrackerCredentialState>> {
   const entries = await Promise.all(
     trackers
       .filter((t) => t.baseUrl)
@@ -114,7 +116,11 @@ async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
         }
       }),
   )
-  trackerCredentials = Object.fromEntries(entries)
+  return Object.fromEntries(entries)
+}
+
+async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
+  trackerCredentials = await computeCredentials(trackers)
 }
 
 // Errors that mean the tracker rejected the token itself (vs. network being down etc.).
@@ -134,7 +140,11 @@ export function isVerifyingCredentials(): boolean {
  * whether it still works — expired/revoked tokens would otherwise show as "Connected" forever.
  * Non-auth failures (offline, DNS) leave `valid` undefined so we don't cry wolf.
  */
-async function verifyCredentials(trackers: TrackerConfig[], repoRoot?: string): Promise<void> {
+async function verifyCredentials(
+  trackers: TrackerConfig[],
+  repoRoot?: string,
+  shouldApply: () => boolean = () => true,
+): Promise<void> {
   verifyCount++
   try {
     await Promise.all(
@@ -143,9 +153,11 @@ async function verifyCredentials(trackers: TrackerConfig[], repoRoot?: string): 
         .map(async (t) => {
           try {
             await window.api.trackerConfigGetCurrentUser(repoRoot, t.id)
+            if (!shouldApply()) return
             const cur = trackerCredentials[t.id]
             if (cur?.hasToken) trackerCredentials[t.id] = { ...cur, valid: true }
           } catch (e) {
+            if (!shouldApply()) return
             const msg = e instanceof Error ? e.message : String(e)
             const cur = trackerCredentials[t.id]
             if (AUTH_ERROR_RE.test(msg) && cur?.hasToken) {
@@ -159,19 +171,37 @@ async function verifyCredentials(trackers: TrackerConfig[], repoRoot?: string): 
   }
 }
 
-export async function loadRepoConfig(repoRoot: string): Promise<void> {
-  lastRepoRoot = repoRoot
+export async function loadRepoConfig(
+  repoRoot: string,
+  shouldApply: () => boolean = () => true,
+): Promise<void> {
   loadCount++
   try {
-    repoConfig = await window.api.repoConfigLoad(repoRoot)
-    resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
-    if (resolvedConfig) {
-      await refreshCredentials(resolvedConfig.config.trackers)
-      // Fire-and-forget: validity flags arrive asynchronously so config load isn't blocked on API calls.
-      void verifyCredentials(resolvedConfig.config.trackers, repoRoot)
+    // Everything loads into locals first — a slow load for worktree A must not be able to
+    // overwrite the state that a faster switch to worktree B has already applied.
+    const nextRepo = await window.api.repoConfigLoad(repoRoot)
+    const nextResolved = await window.api.trackerResolvedConfig(repoRoot)
+    const nextCredentials = nextResolved
+      ? await computeCredentials(nextResolved.config.trackers)
+      : {}
+    if (!shouldApply()) return
+    lastRepoRoot = repoRoot
+    repoConfig = nextRepo
+    resolvedConfig = nextResolved
+    trackerCredentials = nextCredentials
+    if (nextResolved) {
+      // Fire-and-forget: validity flags arrive asynchronously so config load isn't blocked on
+      // API calls — and they re-check the generation before writing.
+      void verifyCredentials(nextResolved.config.trackers, repoRoot, shouldApply)
     }
   } catch {
+    if (!shouldApply()) return
+    // The CURRENT worktree failed to load — leaving the previous worktree's trackers visible
+    // would let a later save target the wrong project config.
+    lastRepoRoot = repoRoot
     repoConfig = null
+    resolvedConfig = null
+    trackerCredentials = {}
   } finally {
     loadCount--
   }
@@ -377,14 +407,16 @@ export async function resolvePanelTask(
         ? { ...storedTask, source: 'active' }
         : null
       try {
-        const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key)
+        // Address the tracker that owns the stored link; bare branch keys use the default.
+        const ownerTrackerId = stored?.connectionId || undefined
+        const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key, ownerTrackerId)
         // The tracker answered and doesn't know this key — a false match, drop it (unless it is
         // the explicitly linked task, which we keep as stored and flag as missing).
         if (!task) return stored ? { ...stored, missing: true } : null
         // Type icon proxied to a data: URL (authenticated tracker URL + CSP); cached in main.
         const typeIcon = task.typeIconUrl
           ? await window.api
-              .taskTrackerImageAsDataUrl(worktreePath, task.typeIconUrl)
+              .taskTrackerImageAsDataUrl(worktreePath, task.typeIconUrl, ownerTrackerId)
               .catch(() => null)
           : null
         return {

@@ -340,18 +340,26 @@
     await loadProjectMeta()
   }
 
+  // Monotonic token: two quick board switches must not let the slower older response
+  // overwrite the newer board's sprint list.
+  let sprintSeq = 0
+
   async function loadSprints(nextBoardId: string): Promise<void> {
+    const seq = ++sprintSeq
     boardId = nextBoardId
     sprintId = ''
     sprints = []
     if (!nextBoardId) return
     loadingSprints = true
     try {
-      sprints = await window.api.trackerConfigFetchSprints(repoRoot, trackerId, nextBoardId)
+      const fetched = await window.api.trackerConfigFetchSprints(repoRoot, trackerId, nextBoardId)
+      if (seq !== sprintSeq) return
+      sprints = fetched
     } catch (e) {
+      if (seq !== sprintSeq) return
       submitError = ipcErrorMessage(e, 'Failed to load sprints')
     } finally {
-      loadingSprints = false
+      if (seq === sprintSeq) loadingSprints = false
     }
   }
 
@@ -359,6 +367,12 @@
     // Single-fire: a duplicate submit after the tracker accepted the create would duplicate
     // the task (YouTrack applies follow-up commands after the issue already exists).
     if (submitting) return
+    // The button is gated by requiredReady, but Enter in the title lands here directly —
+    // the same gate must hold or a keyboard submit could create an incomplete task.
+    if (!requiredReady) {
+      submitError = `Fill in the required fields first: ${missingRequired.join(', ')}`
+      return
+    }
     const error = validateTitle(title)
     if (error) {
       submitError = error
