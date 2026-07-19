@@ -326,7 +326,9 @@
     )
     await Promise.all(
       urls.map(async (url) => {
-        const dataUrl = await window.api.taskTrackerImageAsDataUrl(repoRoot, url).catch(() => null)
+        const dataUrl = await window.api
+          .taskTrackerImageAsDataUrl(repoRoot, url, trackerId)
+          .catch(() => null)
         if (dataUrl) icons[url] = dataUrl
       }),
     )
