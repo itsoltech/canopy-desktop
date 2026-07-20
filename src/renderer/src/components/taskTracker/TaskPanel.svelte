@@ -936,6 +936,15 @@
           <textarea
             class="flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring resize-y min-h-9 placeholder:text-text-faint"
             bind:value={newComment}
+            onkeydown={(e) => {
+              if (
+                e.key === 'Enter' &&
+                (e.metaKey || e.ctrlKey) &&
+                newComment.trim() &&
+                !addingComment
+              )
+                void submitComment()
+            }}
             rows="1"
             placeholder="Add a comment…"
             spellcheck="false"></textarea>

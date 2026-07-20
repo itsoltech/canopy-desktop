@@ -151,6 +151,15 @@
   let mergeStrategy = $state<'merge' | 'squash' | 'rebase'>('merge')
   let deleteBranchAfter = $state(false)
 
+  // Auto-disarm a pending confirmation so a stale "Confirm …" button can't be
+  // clicked much later and execute a destructive action the user forgot they
+  // armed. The cleanup runs whenever `armed` changes or the modal unmounts.
+  $effect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => (armed = null), 4000)
+    return () => clearTimeout(timer)
+  })
+
   let mergeBlockReason = $derived.by(() => {
     if (!pr || pr.state !== 'OPEN') return 'PR is not open'
     if (pr.isDraft) return 'PR is a draft'

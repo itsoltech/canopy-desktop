@@ -208,6 +208,16 @@ export class WindowManager {
       if (isSafeExternalUrl(url)) shell.openExternal(url)
     })
 
+    // Server-side 3xx redirects fire `will-redirect`, not `will-navigate`, so the
+    // guard above alone would let a redirect off this privileged, IPC-capable
+    // document slip through. Mirror the same policy on redirects as defense in
+    // depth, matching the embedded-browser webview hardening.
+    win.webContents.on('will-redirect', (event, url) => {
+      if (url === win.webContents.getURL()) return
+      event.preventDefault()
+      if (isSafeExternalUrl(url)) shell.openExternal(url)
+    })
+
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
       win.loadURL(process.env['ELECTRON_RENDERER_URL'])
     } else {
