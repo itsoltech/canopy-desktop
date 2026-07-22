@@ -202,6 +202,14 @@ export const onboardingSteps: OnboardingStep[] = [
     introducedIn: '0.13.0',
     category: 'feature',
   },
+  {
+    id: 'sidebar-tool-visibility-order',
+    title: 'Reorder and hide sidebar tools',
+    description:
+      'The Tools section in Settings now lets you drag tools into any order and hide the ones you rarely launch. Use the up/down arrows to reorder and the eye toggle to hide a tool from the sidebar — hidden tools stay searchable in the command palette. AI agents and custom CLI tools share one list, so you can sort them freely.',
+    introducedIn: '0.13.0',
+    category: 'feature',
+  },
 ]
 
 export function getFirstLaunchSteps(): OnboardingStep[] {

@@ -141,24 +141,34 @@
     return matches(`${tool.name} ${tool.command} ${tool.category} ${tool.id}`)
   }
 
+  // Keep keyboard focus on the moved row. Focus the order button matching the
+  // move direction at the new index; if that button is disabled (the row hit
+  // the top/bottom boundary, where focus() is a no-op and would drop to
+  // <body>), fall back to the opposite-direction button on the same row.
+  // querySelector returns Element | null, so we narrow with instanceof rather
+  // than an unchecked cast.
+  async function focusOrderButton(direction: 'up' | 'down', index: number): Promise<void> {
+    await tick()
+    const primary = document.querySelector(`[data-tool-order-${direction}="${index}"]`)
+    if (primary instanceof HTMLButtonElement && !primary.disabled) {
+      primary.focus()
+      return
+    }
+    const opposite = direction === 'up' ? 'down' : 'up'
+    const fallback = document.querySelector(`[data-tool-order-${opposite}="${index}"]`)
+    if (fallback instanceof HTMLButtonElement) fallback.focus()
+  }
+
   async function onMoveUp(id: string, index: number): Promise<void> {
     if (index === 0) return
     moveToolUp(id)
-    await tick()
-    const btn = document.querySelector(
-      `[data-tool-order-up="${index - 1}"]`,
-    ) as HTMLButtonElement | null
-    btn?.focus()
+    await focusOrderButton('up', index - 1)
   }
 
   async function onMoveDown(id: string, index: number): Promise<void> {
     if (index === view.length - 1) return
     moveToolDown(id)
-    await tick()
-    const btn = document.querySelector(
-      `[data-tool-order-down="${index + 1}"]`,
-    ) as HTMLButtonElement | null
-    btn?.focus()
+    await focusOrderButton('down', index + 1)
   }
 </script>
 

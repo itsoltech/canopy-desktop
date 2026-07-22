@@ -47,12 +47,13 @@ Connections to external services and tools.
 
 Opt-in capabilities and UI extensions.
 
-| Doc                                                     | Description                                               |
-| ------------------------------------------------------- | --------------------------------------------------------- |
-| [run-configurations.md](features/run-configurations.md) | Project commands from `.canopy/run.toml`, pre/post hooks  |
-| [remote-control.md](features/remote-control.md)         | Mirror/control from another device over LAN via WebRTC    |
-| [notch-overlay.md](features/notch-overlay.md)           | Agent status overlay anchored to the screen's top edge    |
-| [onboarding.md](features/onboarding.md)                 | First-launch wizard and post-update feature introductions |
+| Doc                                                     | Description                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------- |
+| [run-configurations.md](features/run-configurations.md) | Project commands from `.canopy/run.toml`, pre/post hooks    |
+| [remote-control.md](features/remote-control.md)         | Mirror/control from another device over LAN via WebRTC      |
+| [notch-overlay.md](features/notch-overlay.md)           | Agent status overlay anchored to the screen's top edge      |
+| [onboarding.md](features/onboarding.md)                 | First-launch wizard and post-update feature introductions   |
+| [sidebar-tools.md](features/sidebar-tools.md)           | Reorder and hide sidebar tools; visibility vs. availability |
 
 ## Diagnostics
 
