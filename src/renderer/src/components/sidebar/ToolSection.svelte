@@ -141,6 +141,10 @@
           </button>
         {/if}
       </li>
+    {:else}
+      <li class="px-3 py-1.5 text-sm text-text-faint">
+        All tools hidden — enable them in Settings → Tools.
+      </li>
     {/each}
   </ul>
 </CollapsibleSection>

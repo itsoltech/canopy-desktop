@@ -37,6 +37,11 @@
   let editDraft = $state<ToolDraft>(emptyDraft())
   let editError = $state('')
 
+  // Removal happens outside any form, so it has no inline error slot like
+  // addTool/saveEdit. Surface IPC failures in a dedicated banner instead of
+  // letting the rejection go unhandled and the tool silently persist.
+  let removeError = $state('')
+
   function parseArgs(s: string): string[] {
     return s
       .split(',')
@@ -84,7 +89,12 @@
       destructive: true,
     })
     if (!ok) return
-    await window.api.removeCustomTool(id)
+    try {
+      await window.api.removeCustomTool(id)
+      removeError = ''
+    } catch (e) {
+      removeError = `Couldn't remove "${name}": ${e instanceof Error ? e.message : String(e)}`
+    }
   }
 
   function startEdit(tool: {
@@ -177,6 +187,9 @@
     title="Tools"
     description="Register custom CLI tools, reorder them, and choose which appear in the sidebar. Hidden tools stay searchable in the command palette."
   >
+    {#if removeError}
+      <p class="text-sm text-danger-text mb-2" role="alert">{removeError}</p>
+    {/if}
     <div class="flex flex-col">
       {#each view as entry, i (entry.id)}
         {@const tool = toolsById.get(entry.id)}
