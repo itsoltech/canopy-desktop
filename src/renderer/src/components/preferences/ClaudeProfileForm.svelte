@@ -177,8 +177,7 @@
         value={prefs.appendSystemPrompt ?? ''}
         oninput={onTextInput('appendSystemPrompt')}
         placeholder="Additional instructions appended to the default system prompt"
-        spellcheck="false"
-      ></textarea>
+        spellcheck="false"></textarea>
     </PrefsRow>
   </PrefsSection>
 
@@ -204,8 +203,7 @@
         value={prefs.settingsJson ?? ''}
         oninput={onTextInput('settingsJson')}
         placeholder={'{"language": "japanese", "effortLevel": "high"}'}
-        spellcheck="false"
-      ></textarea>
+        spellcheck="false"></textarea>
     </PrefsRow>
   </PrefsSection>
 </div>

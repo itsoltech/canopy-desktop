@@ -119,8 +119,7 @@
         value={prefs.settingsJson ?? ''}
         oninput={onTextInput('settingsJson')}
         placeholder={'{"key": "value"}'}
-        spellcheck="false"
-      ></textarea>
+        spellcheck="false"></textarea>
     </PrefsRow>
   </PrefsSection>
 </div>

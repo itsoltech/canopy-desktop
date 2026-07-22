@@ -1,11 +1,5 @@
 export type UpdateStatus =
-  | 'idle'
-  | 'up-to-date'
-  | 'available'
-  | 'downloading'
-  | 'ready'
-  | 'installing'
-  | 'error'
+  'idle' | 'up-to-date' | 'available' | 'downloading' | 'ready' | 'installing' | 'error'
 
 interface UpdateState {
   status: UpdateStatus

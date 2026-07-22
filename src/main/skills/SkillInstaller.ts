@@ -387,14 +387,11 @@ export class SkillInstaller {
       })
     }
 
-    const readResult = await fromExternalCall(
-      readFile(resolved, 'utf-8'),
-      (e): SkillError => ({
-        _tag: 'FetchFailed',
-        source: resolved,
-        cause: e instanceof Error ? e.message : String(e),
-      }),
-    )
+    const readResult = await fromExternalCall(readFile(resolved, 'utf-8'), (e): SkillError => ({
+      _tag: 'FetchFailed',
+      source: resolved,
+      cause: e instanceof Error ? e.message : String(e),
+    }))
     if (readResult.isErr()) return err(readResult.error)
     const fileName = basename(resolved).replace(/\.[^.]+$/, '')
     return ok({ content: readResult.value, fileName, sourceType: 'local', sourceUri: resolved })
@@ -413,27 +410,21 @@ export class SkillInstaller {
       } catch {
         continue
       }
-      const readResult = await fromExternalCall(
-        readFile(filePath, 'utf-8'),
-        (e): SkillError => ({
-          _tag: 'FetchFailed',
-          source: sourceUri,
-          cause: e instanceof Error ? e.message : String(e),
-        }),
-      )
+      const readResult = await fromExternalCall(readFile(filePath, 'utf-8'), (e): SkillError => ({
+        _tag: 'FetchFailed',
+        source: sourceUri,
+        cause: e instanceof Error ? e.message : String(e),
+      }))
       if (readResult.isErr()) return err(readResult.error)
       const fileName = basename(dir)
       return ok({ content: readResult.value, fileName, sourceType, sourceUri })
     }
 
-    const readdirResult = await fromExternalCall(
-      readdir(dir),
-      (e): SkillError => ({
-        _tag: 'FetchFailed',
-        source: sourceUri,
-        cause: e instanceof Error ? e.message : String(e),
-      }),
-    )
+    const readdirResult = await fromExternalCall(readdir(dir), (e): SkillError => ({
+      _tag: 'FetchFailed',
+      source: sourceUri,
+      cause: e instanceof Error ? e.message : String(e),
+    }))
     if (readdirResult.isErr()) return err(readdirResult.error)
     const allFiles = readdirResult.value
     const files = allFiles.filter((f) => f.endsWith('.md'))

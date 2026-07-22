@@ -87,14 +87,11 @@ export class FileTreeWatcher {
     if (!sub) return okAsync(undefined)
     this.subscription = null
 
-    return fromExternalCall(
-      sub.unsubscribe(),
-      (e): FileWatcherError => ({
-        _tag: 'WatchStopFailed',
-        path: this.repoRoot,
-        message: errorMessage(e),
-      }),
-    )
+    return fromExternalCall(sub.unsubscribe(), (e): FileWatcherError => ({
+      _tag: 'WatchStopFailed',
+      path: this.repoRoot,
+      message: errorMessage(e),
+    }))
   }
 
   private handleEvents = (err: Error | null, events: watcher.Event[]): void => {

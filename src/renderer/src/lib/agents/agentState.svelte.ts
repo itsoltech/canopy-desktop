@@ -220,8 +220,7 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
       // OpenCode: store question details for inspector display
       if (event.toolName === 'question' && event.toolInput) {
         const questions = event.toolInput.questions as
-          | Array<{ question?: string; header?: string }>
-          | undefined
+          Array<{ question?: string; header?: string }> | undefined
         if (questions?.[0]) {
           session.extra.pendingQuestion = questions[0].question ?? questions[0].header ?? ''
         }
@@ -289,8 +288,7 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
       ]
       // OpenCode: sync todo list → task list
       const todos = extra?.opencodeTodos as
-        | Array<{ id: string; content: string; status: string }>
-        | undefined
+        Array<{ id: string; content: string; status: string }> | undefined
       if (todos) {
         session.tasks = todos.slice(0, MAX_TASKS).map((t) => ({
           id: t.id,

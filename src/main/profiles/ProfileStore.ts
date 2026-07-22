@@ -124,8 +124,7 @@ export class ProfileStore {
   getInternal(id: string): ResultAsync<AgentProfile, ProfileError> {
     try {
       const row = this.db.prepare('SELECT * FROM agent_profiles WHERE id = ?').get(id) as
-        | ProfileRow
-        | undefined
+        ProfileRow | undefined
       if (!row) return errAsync({ _tag: 'ProfileNotFound', id })
       return okAsync(this.rowToProfile(row))
     } catch (e) {
@@ -232,8 +231,7 @@ export class ProfileStore {
   delete(id: string): ResultAsync<void, ProfileError> {
     try {
       const row = this.db.prepare('SELECT agent_type FROM agent_profiles WHERE id = ?').get(id) as
-        | { agent_type: string }
-        | undefined
+        { agent_type: string } | undefined
       if (!row) return errAsync({ _tag: 'ProfileNotFound', id })
 
       const countRow = this.db

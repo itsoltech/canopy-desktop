@@ -152,8 +152,7 @@ export interface TabCommandResult {
 }
 
 export type CloseWarningTarget =
-  | { kind: 'tab'; tabId: string }
-  | { kind: 'pane'; tabId: string; paneId: string }
+  { kind: 'tab'; tabId: string } | { kind: 'pane'; tabId: string; paneId: string }
 
 export interface CloseWarningResult {
   description: string | null
@@ -170,8 +169,7 @@ export type TabClosePreflightResult =
   | { ok: false; reason: 'save-failed'; failedCount: number }
 
 export type TabCloseAllPreflightResult =
-  | TabClosePreflightResult
-  | { ok: false; reason: 'active-processes'; warnings: CloseWarningEntry[] }
+  TabClosePreflightResult | { ok: false; reason: 'active-processes'; warnings: CloseWarningEntry[] }
 
 export type EditorFileSaveResult =
   | { ok: true; mtimeMs: number; size: number; result: TabCommandResult }

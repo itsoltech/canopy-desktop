@@ -20,8 +20,7 @@ export class SkillStore {
 
   get(id: string): CanopySkill | undefined {
     const row = this.db.prepare('SELECT * FROM skill_definitions WHERE id = ?').get(id) as
-      | SkillDefinitionRow
-      | undefined
+      SkillDefinitionRow | undefined
     return row ? JSON.parse(JSON.stringify(skillFromRow(row))) : undefined
   }
 
