@@ -43,6 +43,12 @@
   // letting the rejection go unhandled and the tool silently persist.
   let removeError = $state('')
 
+  // Reorder moves focus to the arrow at the new index, but the button's
+  // accessible name is static, so a screen-reader user gets no signal that the
+  // order changed. Announce the new position through a visually-hidden live
+  // region after each successful move.
+  let reorderStatus = $state('')
+
   function parseArgs(s: string): string[] {
     return s
       .split(',')
@@ -171,15 +177,22 @@
     if (fallback instanceof HTMLButtonElement) fallback.focus()
   }
 
+  function announceReorder(id: string, newIndex: number): void {
+    const name = toolsById.get(id)?.name ?? id
+    reorderStatus = `${name} moved to position ${newIndex + 1} of ${view.length}`
+  }
+
   async function onMoveUp(id: string, index: number): Promise<void> {
     if (index === 0) return
     moveToolUp(id)
+    announceReorder(id, index - 1)
     await focusOrderButton('up', index - 1)
   }
 
   async function onMoveDown(id: string, index: number): Promise<void> {
     if (index === view.length - 1) return
     moveToolDown(id)
+    announceReorder(id, index + 1)
     await focusOrderButton('down', index + 1)
   }
 </script>
@@ -192,6 +205,7 @@
     {#if removeError}
       <p class="text-sm text-danger-text mb-2" role="alert">{removeError}</p>
     {/if}
+    <span class="sr-only" role="status" aria-live="polite">{reorderStatus}</span>
     <div class="flex flex-col">
       {#each view as entry, i (entry.id)}
         {@const tool = toolsById.get(entry.id)}
