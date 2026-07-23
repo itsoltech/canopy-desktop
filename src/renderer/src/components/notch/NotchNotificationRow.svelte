@@ -8,13 +8,7 @@
       workspaceName: string
       branch: string | null
       status:
-        | 'idle'
-        | 'thinking'
-        | 'toolCalling'
-        | 'compacting'
-        | 'waitingPermission'
-        | 'error'
-        | 'ended'
+        'idle' | 'thinking' | 'toolCalling' | 'compacting' | 'waitingPermission' | 'error' | 'ended'
       toolName?: string
       detail?: string
       title?: string

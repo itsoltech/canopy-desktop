@@ -168,8 +168,7 @@
         spellcheck="false"
         placeholder="# Notes — markdown supported. Lives only in memory (no file)."
         value={content}
-        oninput={onInput}
-      ></textarea>
+        oninput={onInput}></textarea>
       {#if showPreview}
         <div
           class="markdown-body overflow-auto px-4 py-3 text-md leading-snug outline-none cursor-text empty:before:content-edit-hint empty:before:text-text-muted empty:before:italic"

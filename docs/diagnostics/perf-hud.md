@@ -62,12 +62,12 @@ A separate developer-only diagnostics mode is available behind the `CANOPY_PERF=
 
 Launching with `CANOPY_PERF=1` enables additional IPC endpoints exposed through the preload bridge:
 
-| Endpoint                         | Returns / effect                                                                                                                                                             |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Endpoint                         | Returns / effect                                                                                                                                                                                                     |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `perf:diagnostics`               | Object with `ptySessionCount`, `terminalStreamCount`, `terminalStreamSubscriberCount`, `agentSessionCount`, `gitWatcherCount`, `windowCount`, `uptime`, `heapUsed`, `rss`, and `marks` (performance timeline marks). |
-| `perf:ipcLog`                    | Array of `{ channel, size, ts, dir }` entries logged since the last call. The log is drained on read.                                                                         |
-| `perf:disconnectTerminalClients` | Disconnects active terminal stream subscribers so perf tests can measure IPC replay without killing PTY processes. Returns the number of subscribers disconnected.              |
-| `perf:openProject`               | Grants and opens an existing project path under the user's home directory for perf fixtures.                                                                                  |
+| `perf:ipcLog`                    | Array of `{ channel, size, ts, dir }` entries logged since the last call. The log is drained on read.                                                                                                                |
+| `perf:disconnectTerminalClients` | Disconnects active terminal stream subscribers so perf tests can measure IPC replay without killing PTY processes. Returns the number of subscribers disconnected.                                                   |
+| `perf:openProject`               | Grants and opens an existing project path under the user's home directory for perf fixtures.                                                                                                                         |
 
 These endpoints are gated at the preload level: when `CANOPY_PERF` is not `'1'`, the properties are not added to the `window.api` object. The main-process IPC interceptor that records traffic is also only installed when `CANOPY_PERF=1`.
 

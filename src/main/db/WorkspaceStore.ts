@@ -19,14 +19,12 @@ export class WorkspaceStore {
 
   get(id: string): WorkspaceRow | undefined {
     return this.db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as
-      | WorkspaceRow
-      | undefined
+      WorkspaceRow | undefined
   }
 
   getByPath(path: string): WorkspaceRow | undefined {
     return this.db.prepare('SELECT * FROM workspaces WHERE path = ?').get(path) as
-      | WorkspaceRow
-      | undefined
+      WorkspaceRow | undefined
   }
 
   upsert(workspace: { path: string; name: string; isGitRepo: boolean }): WorkspaceRow {

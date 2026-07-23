@@ -194,8 +194,7 @@ export class CredentialStore {
   /** Get single credential with decrypted password (for autofill) */
   getById(id: string): Credential | null {
     const row = this.db.prepare('SELECT * FROM credentials WHERE id = ?').get(id) as
-      | CredentialRow
-      | undefined
+      CredentialRow | undefined
     if (!row) return null
     return {
       id: row.id,

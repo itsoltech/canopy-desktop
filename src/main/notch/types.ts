@@ -1,11 +1,5 @@
 export type SessionStatusType =
-  | 'idle'
-  | 'thinking'
-  | 'toolCalling'
-  | 'compacting'
-  | 'waitingPermission'
-  | 'error'
-  | 'ended'
+  'idle' | 'thinking' | 'toolCalling' | 'compacting' | 'waitingPermission' | 'error' | 'ended'
 
 export interface NotchSessionStatus {
   ptySessionId: string

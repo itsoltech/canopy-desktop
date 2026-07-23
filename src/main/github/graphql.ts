@@ -71,10 +71,11 @@ export function graphqlFetch<T>(
       )
     }
 
-    return fromExternalCall(
-      res.json() as Promise<GraphQLResponse<T>>,
-      (e): GitHubError => ({ _tag: 'GitHubApiError', status: 0, message: errorMessage(e) }),
-    ).andThen((json) => {
+    return fromExternalCall(res.json() as Promise<GraphQLResponse<T>>, (e): GitHubError => ({
+      _tag: 'GitHubApiError',
+      status: 0,
+      message: errorMessage(e),
+    })).andThen((json) => {
       if (json.errors?.length) {
         return errAsync<T, GitHubError>({ _tag: 'GitHubGraphQLError', errors: json.errors })
       }
