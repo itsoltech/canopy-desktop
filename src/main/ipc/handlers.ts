@@ -1974,20 +1974,17 @@ export function registerIpcHandlers(
       // - "is not a working tree" means a previous attempt already unregistered the
       //   worktree — retrying git is pointless, only filesystem cleanup remains.
       let forcedWorktreeRemove = false
-      let unregistered = false
       let force = false
       let lockRetries = 0
       for (;;) {
         const result = await GitRepository.worktreeRemove(resolvedRepo, worktree.path, force)
         if (result.isOk()) {
-          unregistered = true
           forcedWorktreeRemove = force
           break
         }
         const message = gitErrorMessage(result.error)
         const kind = classifyWorktreeRemoveError(message)
         if (kind === 'already-removed') {
-          unregistered = true
           break
         }
         if (kind === 'broken-link') {
@@ -2044,10 +2041,9 @@ export function registerIpcHandlers(
             'No files were deleted — please retry.',
         )
       }
-      // Verified against `git worktree list`: the registration is gone, whether
-      // git's own remove did it or the prune fallback (broken-link ghosts reach
-      // here with the loop-local flag still false).
-      unregistered = true
+      // Past this gate the registration is verifiably gone — whether git's own
+      // remove did it or the prune fallback (broken-link ghosts included) — so the
+      // result below reports worktreeRemoved: true unconditionally.
 
       // The directory itself may still exist: git gives up on the first locked file
       // and leaves everything else behind as a ghost folder. Best-effort delete,
@@ -2087,7 +2083,7 @@ export function registerIpcHandlers(
       }
 
       return {
-        worktreeRemoved: unregistered,
+        worktreeRemoved: true,
         branchDeleted,
         forcedWorktreeRemove,
         forcedBranchDelete,
