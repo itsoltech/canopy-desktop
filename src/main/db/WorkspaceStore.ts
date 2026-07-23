@@ -4,6 +4,11 @@ import type { WorkspaceRow } from './types'
 import { normalizeWorkspacePath } from './workspacePaths'
 import { randomUUID } from 'crypto'
 
+// Windows filesystems are case-insensitive: `C:\Source` and `c:/source` are the same
+// directory and must resolve to the same workspace row. SQLite's NOCASE is ASCII-only,
+// matching the LOWER() keys used by migration 11.
+const PATH_EQ = process.platform === 'win32' ? 'path = ? COLLATE NOCASE' : 'path = ?'
+
 export class WorkspaceStore {
   constructor(private database: Database) {}
 
@@ -25,7 +30,7 @@ export class WorkspaceStore {
 
   getByPath(path: string): WorkspaceRow | undefined {
     return this.db
-      .prepare('SELECT * FROM workspaces WHERE path = ?')
+      .prepare(`SELECT * FROM workspaces WHERE ${PATH_EQ}`)
       .get(normalizeWorkspacePath(path)) as WorkspaceRow | undefined
   }
 
