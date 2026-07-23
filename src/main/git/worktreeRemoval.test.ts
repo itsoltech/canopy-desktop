@@ -29,6 +29,22 @@ describe('classifyWorktreeRemoveError', () => {
     expect(classifyWorktreeRemoveError(msg)).toBe('locked')
   })
 
+  it('classifies a broken .git link (field ghost state) as broken-link', () => {
+    expect(
+      classifyWorktreeRemoveError(
+        "fatal: validation failed, cannot remove working tree: 'C:/x/wt/.git' does not exist",
+      ),
+    ).toBe('broken-link')
+  })
+
+  it('classifies the submodule refusal as force-required (git documents --force)', () => {
+    expect(
+      classifyWorktreeRemoveError(
+        'fatal: working trees containing submodules cannot be moved or removed',
+      ),
+    ).toBe('force-required')
+  })
+
   it('falls through to other for unrecognized failures', () => {
     expect(classifyWorktreeRemoveError('fatal: repository is corrupt')).toBe('other')
   })

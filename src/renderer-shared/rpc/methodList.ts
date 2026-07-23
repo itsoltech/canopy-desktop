@@ -120,7 +120,8 @@ export interface RpcMethods {
   }
   'worktree.remove': {
     params: { repoRoot: string; path: string; force: boolean }
-    result: void
+    /** leftoverPath is set when some files could not be deleted (still held open). */
+    result: { leftoverPath: string | null }
   }
 
   // Project management — peer can attach a new directory to the host workspace.

@@ -497,7 +497,7 @@
               // This command removes the CURRENT worktree: close its tabs and
               // leave it BEFORE the removal, otherwise live shells and watchers
               // hold Windows file locks inside the directory being deleted.
-              if (!(await closeAllTabsForWorktree(wtPath))) return
+              if (!(await closeAllTabsForWorktree(wtPath, { forRemoval: true }))) return
               const main = workspaceState.worktrees.find((w) => w.isMain)
               if (main) selectWorktree(main.path)
 

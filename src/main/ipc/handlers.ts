@@ -36,6 +36,7 @@ import { DEFAULT_IGNORE_PATTERNS } from '../fileWatcher/defaults'
 import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/worktreeRemoval'
+import { comparableWorkspacePath } from '../db/workspacePaths'
 
 const execFileAsync = promisify(execFile)
 const WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir'
@@ -1966,14 +1967,14 @@ export function registerIpcHandlers(
       // The two behaviors behind git's --force are deliberately decoupled:
       // - LOCKS are retried WITHOUT force (--force does not bypass OS file locks;
       //   time does — AV scans and just-killed process trees release handles within
-      //   seconds) and degrade to the fs-cleanup path below when retries run out.
-      // - A DIRTY tree gets --force only when the caller passed forceOnFailure,
-      //   i.e. the user consented to a destructive removal in the confirm dialog.
+      //   seconds).
+      // - A DIRTY tree (or git's force-required refusals, e.g. submodules) gets
+      //   --force only when the caller passed forceOnFailure, i.e. the user
+      //   consented to a destructive removal in the confirm dialog.
       // - "is not a working tree" means a previous attempt already unregistered the
       //   worktree — retrying git is pointless, only filesystem cleanup remains.
       let forcedWorktreeRemove = false
       let unregistered = false
-      let lockRetriesExhausted = false
       let force = false
       let lockRetries = 0
       for (;;) {
@@ -1989,7 +1990,22 @@ export function registerIpcHandlers(
           unregistered = true
           break
         }
-        if (kind === 'dirty' && !force && forceOnFailure) {
+        if (kind === 'broken-link') {
+          // Registered worktree whose .git link is gone — the classic field ghost.
+          // Git refuses to manage it (force does not help) and cannot verify the
+          // tree is clean, so its content may include unsaved work: only the
+          // destructive-consent flag authorizes cleaning it up. Prune below drops
+          // the (prunable) registration; fs cleanup handles the debris.
+          if (!forceOnFailure) {
+            throw new Error(
+              `Worktree at ${worktree.path} has a broken .git link (likely debris of an ` +
+                'earlier failed removal). Its files cannot be verified as saved — retry with ' +
+                'the destructive option to delete the folder anyway.',
+            )
+          }
+          break
+        }
+        if ((kind === 'dirty' || kind === 'force-required') && !force && forceOnFailure) {
           force = true
           continue
         }
@@ -1998,20 +2014,40 @@ export function registerIpcHandlers(
           continue
         }
         if (kind === 'locked') {
-          // A handle outlived every retry — the exact worst case this flow exists
-          // for. Fall through to the graceful cleanup below (fs.rm + prune +
-          // leftover reporting) instead of surfacing a raw git fatal.
-          lockRetriesExhausted = true
-          break
+          // A handle outlived every retry while git still tracks the worktree.
+          // NEVER touch the tree here: the lock classifier is heuristic (EPERM/
+          // EACCES also match) and git has not verified cleanliness — deleting
+          // could destroy uncommitted work without consent. Keep tree and
+          // registration intact and report an actionable failure instead.
+          throw new Error(
+            `Worktree removal failed: files inside are still locked by another process. ` +
+              `Close applications using files under ${worktree.path} and try again.`,
+          )
         }
         throw new Error(`Git worktree remove failed: ${message}`)
       }
 
-      // Make sure the directory is really deleted (git gives up on the first locked
-      // file and leaves everything else behind as a ghost folder) and stale admin
-      // records don't linger. When git never managed to unregister (persistent
-      // lock), deleting the worktree's `.git` link file lets `worktree prune` clear
-      // the registration even though some content files are still held open.
+      // Git no longer manages the worktree — clear stale admin records and confirm
+      // the unregistration against `git worktree list` BEFORE any raw filesystem
+      // cleanup or branch deletion. If the registration somehow survived, fail
+      // loudly rather than deleting files git still tracks.
+      await GitRepository.worktreePrune(resolvedRepo).unwrapOr(undefined)
+      const remaining = await GitRepository.listWorktrees(resolvedRepo).unwrapOr(null)
+      if (
+        remaining === null ||
+        remaining.some(
+          (wt) => comparableWorkspacePath(wt.path) === comparableWorkspacePath(worktree.path),
+        )
+      ) {
+        throw new Error(
+          `Worktree removal failed: git still lists ${worktree.path} as a worktree. ` +
+            'No files were deleted — please retry.',
+        )
+      }
+
+      // The directory itself may still exist: git gives up on the first locked file
+      // and leaves everything else behind as a ghost folder. Best-effort delete,
+      // reporting anything that survives instead of failing.
       let leftoverPath: string | null = null
       if (fs.existsSync(worktree.path)) {
         try {
@@ -2023,16 +2059,10 @@ export function registerIpcHandlers(
           })
         } catch {
           // Some files are still held open by another process — report instead of
-          // failing: only debris remains and the registration is cleared below.
-        }
-        if (lockRetriesExhausted && fs.existsSync(worktree.path)) {
-          await fs.promises
-            .rm(path.join(worktree.path, '.git'), { force: true, maxRetries: 3, retryDelay: 200 })
-            .catch(() => {})
+          // failing: the worktree IS unregistered, only debris remains.
         }
         if (fs.existsSync(worktree.path)) leftoverPath = worktree.path
       }
-      await GitRepository.worktreePrune(resolvedRepo).unwrapOr(undefined)
 
       let branchDeleted = false
       let forcedBranchDelete = false

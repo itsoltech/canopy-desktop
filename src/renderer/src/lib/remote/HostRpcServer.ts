@@ -3,8 +3,14 @@ import type { RpcMethods, RpcMethodName } from '../../../../renderer-shared/rpc/
 import { StateSnapshotProvider } from './StateSnapshotProvider.svelte'
 import { PtyStreamForwarder } from './PtyStreamForwarder'
 import { checkAction, resetSessionGrants } from './actionGuard'
-import { openTool, closeTab, switchTab, tabsByWorktree } from '../stores/tabs.svelte'
-import { attachProject, selectWorktree } from '../stores/workspace.svelte'
+import {
+  openTool,
+  closeTab,
+  switchTab,
+  tabsByWorktree,
+  closeAllTabsForWorktree,
+} from '../stores/tabs.svelte'
+import { attachProject, selectWorktree, workspaceState } from '../stores/workspace.svelte'
 import { allPanes } from '../stores/splitTree'
 import { substituteLocalhost } from '../../../../renderer-shared/url/localhostSubstitution'
 import { remoteSession } from '../stores/remoteSession.svelte'
@@ -225,13 +231,25 @@ export class HostRpcServer {
       const repoRoot = assertString(params, 'repoRoot', 'worktree.remove')
       const path = assertString(params, 'path', 'worktree.remove')
       const force = assertBoolean(params, 'force', 'worktree.remove')
-      await window.api.worktreeRemoveWithBranch({
+      // Same lifecycle as the local removal flows: close the worktree's tabs
+      // (tree-killing PTYs and waiting for exit) and leave the worktree BEFORE
+      // removing it — otherwise host tabs/watchers hold Windows file locks and the
+      // rebroadcast ships stale tab/selection state for a removed path.
+      if (!(await closeAllTabsForWorktree(path, { forRemoval: true }))) {
+        throw new Error('Worktree removal cancelled: closing its tabs was declined on the host')
+      }
+      if (workspaceState.selectedWorktreePath === path) {
+        const main = workspaceState.worktrees.find((w) => w.isMain)
+        if (main) selectWorktree(main.path)
+      }
+      const result = await window.api.worktreeRemoveWithBranch({
         repoRoot,
         worktreePath: path,
         deleteBranch: false,
         forceOnFailure: force,
       })
       provider.rebroadcast()
+      return { leftoverPath: result.leftoverPath }
     })
 
     this.register('project.attach', async (params) => {

@@ -203,24 +203,41 @@ export class PtyManager {
     for (const [id, session] of [...this.sessions]) {
       const cwd = comparableWorkspacePath(session.cwd)
       if (cwd !== base && !cwd.startsWith(prefix)) continue
-      waits.push(
-        new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, timeoutMs)
-          session.pty.onExit(() => {
-            clearTimeout(timer)
-            resolve()
-          })
-          this.terminateProcessTree(session.pty.pid)
-          try {
-            session.pty.kill()
-          } catch {
-            // PTY already exited — the timeout resolves the wait.
-          }
-          this.sessions.delete(id)
-        }),
-      )
+      waits.push(this.killSessionTreeAndWait(id, session, timeoutMs))
     }
     return Promise.all(waits).then(() => undefined)
+  }
+
+  /**
+   * Tree-kill one PTY and wait (bounded) until the process actually exits — the
+   * removal-flow variant of kill(): a fire-and-forget kill returns while the dying
+   * shell still holds its cwd handle, which blocks directory deletion on Windows.
+   */
+  killAndWait(id: string, timeoutMs = 4000): Promise<void> {
+    const session = this.sessions.get(id)
+    if (!session) return Promise.resolve()
+    return this.killSessionTreeAndWait(id, session, timeoutMs)
+  }
+
+  private killSessionTreeAndWait(
+    id: string,
+    session: PtySession,
+    timeoutMs: number,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs)
+      session.pty.onExit(() => {
+        clearTimeout(timer)
+        resolve()
+      })
+      this.terminateProcessTree(session.pty.pid)
+      try {
+        session.pty.kill()
+      } catch {
+        // PTY already exited — the timeout resolves the wait.
+      }
+      this.sessions.delete(id)
+    })
   }
 
   hasChildProcess(id: string): Promise<boolean> {

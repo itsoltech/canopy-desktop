@@ -580,7 +580,7 @@ interface CanopyAPI {
     },
   ) => Promise<TabCommandResult>
   tabClosePane: (worktreePath: string, tabId: string, paneId: string) => Promise<TabCommandResult>
-  tabCloseAllForWorktree: (worktreePath: string) => Promise<TabCommandResult>
+  tabCloseAllForWorktree: (worktreePath: string, forRemoval?: boolean) => Promise<TabCommandResult>
   tabSetActiveTab: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
   tabMoveTab: (
     worktreePath: string,

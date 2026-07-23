@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { execFileSync, execSync } from 'child_process'
+import { execFileSync, execSync, spawn } from 'child_process'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -1283,6 +1283,7 @@ test('main process exposes and publishes app state snapshots', async ({ electron
     branchDeleted: true,
     forcedWorktreeRemove: false,
     forcedBranchDelete: true,
+    leftoverPath: null,
   })
   await expect(
     stat(removeWorktreePath).then(
@@ -1291,6 +1292,62 @@ test('main process exposes and publishes app state snapshots', async ({ electron
     ),
   ).resolves.toBe(false)
   expect(execSync('git branch --list CANOPY-REMOVE', { cwd: tmpDir }).toString().trim()).toBe('')
+
+  // Partial-success path: a ghost worktree (unregistered by a previous failed
+  // attempt, directory left behind) whose debris contains a file another process
+  // holds open without delete sharing. Removal must still succeed and report the
+  // surviving directory via leftoverPath instead of throwing. Windows-only: the
+  // no-share file lock has no POSIX equivalent.
+  if (process.platform === 'win32') {
+    const ghostWorktreePath = `${tmpDir}-ghost-worktree`
+    extraTmpPaths.push(ghostWorktreePath)
+    execSync('git branch CANOPY-GHOST HEAD', { cwd: tmpDir })
+    execFileSync('git', ['worktree', 'add', ghostWorktreePath, 'CANOPY-GHOST'], { cwd: tmpDir })
+    // Turn it into the ghost state observed in the field: the .git link deleted by
+    // an earlier failed removal, directory (with content) left on disk, and the —
+    // now prunable — registration still present so the removal path validates.
+    await rm(join(ghostWorktreePath, '.git'), { force: true })
+
+    const lockedFile = join(ghostWorktreePath, 'feature.txt')
+    const locker = spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `$f=[System.IO.File]::Open('${lockedFile.replace(/\\/g, '\\\\')}','Open','Read','None'); Start-Sleep -Seconds 60`,
+      ],
+      { stdio: 'ignore' },
+    )
+    try {
+      // Give PowerShell a moment to acquire the handle.
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      const ghostRemoveResult = await workspacePage.evaluate(
+        ({ projectPath, worktreePath }) => {
+          const api = (window as unknown as { api: Required<AppStateApi> }).api
+          return api.worktreeRemoveWithBranch({
+            repoRoot: projectPath,
+            worktreePath,
+            branch: 'CANOPY-GHOST',
+            deleteBranch: true,
+            forceOnFailure: true,
+          })
+        },
+        { projectPath: tmpDir, worktreePath: ghostWorktreePath },
+      )
+      expect(ghostRemoveResult.worktreeRemoved).toBe(true)
+      expect(ghostRemoveResult.branchDeleted).toBe(true)
+      expect(ghostRemoveResult.leftoverPath).not.toBeNull()
+      await expect(
+        stat(ghostWorktreePath).then(
+          () => true,
+          () => false,
+        ),
+      ).resolves.toBe(true)
+    } finally {
+      locker.kill()
+    }
+    expect(execSync('git branch --list CANOPY-GHOST', { cwd: tmpDir }).toString().trim()).toBe('')
+  }
 
   const injectedFocusResult = await workspacePage.evaluate((projectPath) => {
     const api = (window as unknown as { api: Required<AppStateApi> }).api

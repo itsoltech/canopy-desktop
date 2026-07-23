@@ -488,9 +488,10 @@ const api = {
       tabId,
       paneId,
     }),
-  tabCloseAllForWorktree: (worktreePath: string) =>
+  tabCloseAllForWorktree: (worktreePath: string, forRemoval?: boolean) =>
     ipcRenderer.invoke('tab:command:closeAllForWorktree', {
       worktreePath,
+      forRemoval,
     }),
   tabSetActiveTab: (worktreePath: string, tabId: string) =>
     ipcRenderer.invoke('tab:command:setActiveTab', {

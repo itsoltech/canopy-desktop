@@ -257,7 +257,11 @@ export class ToolSessionService {
     return { sessionId: session.id, wsUrl: '' }
   }
 
-  async killPty(sessionId: string, killTmux?: boolean): Promise<void> {
+  async killPty(
+    sessionId: string,
+    killTmux?: boolean,
+    options?: { treeWait?: boolean },
+  ): Promise<void> {
     const tmuxName = this.deps.ptyManager.getTmuxSessionName(sessionId)
     this.deps.terminalStreamService.destroy(sessionId)
     if (killTmux && tmuxName && TmuxManagerStatics.isCanopySession(tmuxName)) {
@@ -267,7 +271,13 @@ export class ToolSessionService {
         // Session may already be gone.
       }
     }
-    this.deps.ptyManager.kill(sessionId)
+    if (options?.treeWait) {
+      // Removal flow: the session record must survive until the whole process tree
+      // is dead, or the directory being deleted still holds live cwd handles.
+      await this.deps.ptyManager.killAndWait(sessionId)
+    } else {
+      this.deps.ptyManager.kill(sessionId)
+    }
   }
 
   isAgentTool(toolId: string): boolean {
@@ -500,7 +510,11 @@ interface ClosePanePayload extends TabCommandPayloadBase {
   paneId: string
 }
 
-interface CloseAllForWorktreePayload extends TabCommandPayloadBase {}
+interface CloseAllForWorktreePayload extends TabCommandPayloadBase {
+  /** Worktree-removal variant: tree-kill PTYs and WAIT for process exit so the
+   *  directory holds no live cwd/file handles when `git worktree remove` runs. */
+  forRemoval?: boolean
+}
 
 interface ReopenClosedTabPayload extends TabCommandPayloadBase {
   options?: {
@@ -2516,6 +2530,7 @@ export class TabCommandService {
     await this.cleanupPanes(
       sender,
       tabs.flatMap((tab) => allPaneSnapshots(tab.rootSplit)),
+      { treeWait: payload.forRemoval === true },
     )
 
     try {
@@ -3733,7 +3748,11 @@ export class TabCommandService {
     }
   }
 
-  private async cleanupPanes(sender: WebContents, panes: PaneSnapshot[]): Promise<void> {
+  private async cleanupPanes(
+    sender: WebContents,
+    panes: PaneSnapshot[],
+    options?: { treeWait?: boolean },
+  ): Promise<void> {
     await Promise.all(
       panes.map(async (pane) => {
         if (
@@ -3754,7 +3773,7 @@ export class TabCommandService {
           if (this.deps.toolSessions.isAgentTool(pane.toolId)) {
             this.deps.toolSessions.destroyAgentSession(pane.sessionId)
           }
-          await this.deps.toolSessions.killPty(pane.sessionId, !!pane.tmuxSessionName)
+          await this.deps.toolSessions.killPty(pane.sessionId, !!pane.tmuxSessionName, options)
         }
       }),
     )

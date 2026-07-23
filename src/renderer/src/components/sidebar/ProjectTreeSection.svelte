@@ -156,7 +156,7 @@
     removingPaths.add(wt.path)
 
     try {
-      if (!(await closeAllTabsForWorktree(wt.path))) return
+      if (!(await closeAllTabsForWorktree(wt.path, { forRemoval: true }))) return
 
       // Leave the doomed worktree BEFORE removing it — keeping it selected leaves
       // watchers and pollers pointed at a path that is being deleted.
