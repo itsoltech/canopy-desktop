@@ -7,6 +7,7 @@
     toggleToolVisibility,
     moveToolUp,
     moveToolDown,
+    removeToolFromView,
   } from '../../lib/stores/toolView.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import ToolIcon from '../shared/ToolIcon.svelte'
@@ -91,6 +92,7 @@
     if (!ok) return
     try {
       await window.api.removeCustomTool(id)
+      removeToolFromView(id)
       removeError = ''
     } catch (e) {
       removeError = `Couldn't remove "${name}": ${e instanceof Error ? e.message : String(e)}`
@@ -207,10 +209,7 @@
               class="group/tool flex items-center gap-3 py-2 border-t border-border-subtle first:border-t-0 first:pt-0 transition-opacity duration-fast"
               class:opacity-30={!matchesSearch(tool)}
             >
-              <div
-                class="flex items-center gap-3 flex-1 min-w-0 transition-opacity duration-fast"
-                class:opacity-40={!entry.visible}
-              >
+              <div class="flex items-center gap-3 flex-1 min-w-0">
                 <ToolIcon icon={tool.icon} size={16} />
                 <span class="text-md text-text min-w-30 truncate" title={tool.name}
                   >{tool.name}</span
@@ -219,6 +218,15 @@
                   class="text-sm text-text-secondary font-mono flex-1 truncate"
                   title={tool.command}>{tool.command}</code
                 >
+                {#if !entry.visible}
+                  <span
+                    class="inline-flex items-center gap-1 shrink-0 text-2xs uppercase tracking-caps-tight text-text-muted bg-border-subtle rounded-sm px-1.5 py-0.5"
+                    title="Hidden from sidebar"
+                  >
+                    <EyeOff size={11} />
+                    Hidden
+                  </span>
+                {/if}
               </div>
               <span class="text-2xs uppercase tracking-caps-tight text-text-muted shrink-0"
                 >{tool.category}</span

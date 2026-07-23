@@ -20,7 +20,13 @@ vi.mock('./tools.svelte', () => ({
   getTools: (): { id: string }[] => h.tools.list,
 }))
 
-import { getToolView, toggleToolVisibility, moveToolUp, moveToolDown } from './toolView.svelte'
+import {
+  getToolView,
+  toggleToolVisibility,
+  moveToolUp,
+  moveToolDown,
+  removeToolFromView,
+} from './toolView.svelte'
 
 function setTools(...ids: string[]): void {
   h.tools.list = ids.map((id) => ({ id }))
@@ -169,6 +175,41 @@ describe('moveToolUp / moveToolDown', () => {
       { id: 'a', visible: false },
       { id: 'c', visible: false },
     ])
+  })
+})
+
+describe('removeToolFromView', () => {
+  it('prunes the id from the persisted config', () => {
+    setTools('claude', 'custom')
+    setSaved([
+      { id: 'claude', visible: true },
+      { id: 'custom', visible: false },
+    ])
+    removeToolFromView('custom')
+    expect(JSON.parse(h.pref.raw)).toEqual([{ id: 'claude', visible: true }])
+  })
+
+  it('lets a re-added tool reconcile as visible at the end instead of restoring its old hidden slot', () => {
+    // custom is hidden and ordered before claude.
+    setTools('claude', 'custom')
+    setSaved([
+      { id: 'custom', visible: false },
+      { id: 'claude', visible: true },
+    ])
+    removeToolFromView('custom')
+    // Registry still (or again) reports custom: without a prune it would come
+    // back hidden and first; after pruning it is a fresh visible entry appended
+    // at the end.
+    expect(getToolView()).toEqual([
+      { id: 'claude', visible: true },
+      { id: 'custom', visible: true },
+    ])
+  })
+
+  it('does not write when the id is absent from the saved config', () => {
+    h.pref.raw = ''
+    removeToolFromView('custom')
+    expect(h.pref.raw).toBe('')
   })
 })
 

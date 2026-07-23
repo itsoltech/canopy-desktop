@@ -59,6 +59,20 @@ export function toggleToolVisibility(id: string): void {
   persist(next)
 }
 
+/**
+ * Drop a tool from the saved view config entirely. Call this after a custom
+ * tool is removed from the registry: otherwise its saved position and hidden
+ * flag linger in `tools.view`, and re-adding the same id later restores that
+ * stale state instead of reconciling as a fresh visible entry appended at the
+ * end. Operates on the raw saved config (not the reconciled view) so it does
+ * not depend on the registry having already dropped the tool.
+ */
+export function removeToolFromView(id: string): void {
+  const saved = parseSaved(getPref(PREF_KEY))
+  if (!saved.some((e) => e.id === id)) return
+  persist(saved.filter((e) => e.id !== id))
+}
+
 export function moveToolUp(id: string): void {
   const view = getToolView()
   const i = view.findIndex((e) => e.id === id)
