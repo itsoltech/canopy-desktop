@@ -30,7 +30,15 @@ interface SeededDb {
  * Reproduces the ghost-window disease observed in a real profile: two workspace rows
  * for one directory (native-dialog backslash spelling vs git forward-slash spelling),
  * layouts and a skill stranded under the STALE row, and a duplicate layout for the
- * same worktree in both spellings.
+ * same worktree in both spellings. The kept row also holds layouts of its own so the
+ * merge has to resolve conflicts, not just repoint:
+ * - the workspace root exists under BOTH rows → ON CONFLICT timestamp tie-break
+ *   (keep's copy is newer and must win)
+ * - `.../sub` exists under both rows with the same spelling → ON CONFLICT again,
+ *   this time the stale row's copy is newer and must win
+ * - `.../wt` (stale) vs `.../WT` (keep) diverge only by case → BINARY PK lets both
+ *   coexist after the repoint; the second dedupe pass must collapse them on
+ *   case-insensitive filesystems and leave both on case-sensitive ones
  */
 function seedDuplicateWorkspaces(caseInsensitivePaths: boolean): SeededDb {
   const db = openMigratedThrough(10, caseInsensitivePaths)
@@ -46,6 +54,15 @@ function seedDuplicateWorkspaces(caseInsensitivePaths: boolean): SeededDb {
   insertLayout.run('stale-id', 'C:\\source\\Repo', '{"panes":["old"]}', '2026-07-01 10:00:00')
   insertLayout.run('stale-id', 'C:/source/Repo', '{"panes":["new"]}', '2026-07-10 10:00:00')
   insertLayout.run('stale-id', 'C:/source/Repo/wt', '{"panes":["wt"]}', '2026-07-05 10:00:00')
+  insertLayout.run(
+    'stale-id',
+    'C:/source/Repo/sub',
+    '{"panes":["stale-newer"]}',
+    '2026-07-09 10:00:00',
+  )
+  insertLayout.run('keep-id', 'C:/source/Repo', '{"panes":["keep-newer"]}', '2026-07-22 10:00:00')
+  insertLayout.run('keep-id', 'C:/source/Repo/sub', '{"panes":["keep-old"]}', '2026-07-02 10:00:00')
+  insertLayout.run('keep-id', 'C:/source/Repo/WT', '{"panes":["wt-upper"]}', '2026-07-06 10:00:00')
 
   db.prepare(
     "INSERT INTO skill_definitions (id, name, prompt, source_type, source_uri, workspace_id) VALUES ('sk1', 'skill', 'p', 'local', 'uri', ?)",
@@ -68,7 +85,7 @@ describe.each([{ caseInsensitivePaths: false }, { caseInsensitivePaths: true }])
       expect(rows).toEqual([{ id: keepId, path: 'C:/source/Repo' }])
     })
 
-    it('repoints stranded layouts to the kept row, normalized and deduped to the newest', () => {
+    it('repoints stranded layouts to the kept row, resolving conflicts to the newest', () => {
       const { db, keepId } = seedDuplicateWorkspaces(caseInsensitivePaths)
       applyMigration(db, 11, caseInsensitivePaths)
 
@@ -77,15 +94,39 @@ describe.each([{ caseInsensitivePaths: false }, { caseInsensitivePaths: true }])
           'SELECT workspace_id, worktree_path, layout_json FROM workspace_layouts ORDER BY worktree_path',
         )
         .all() as { workspace_id: string; worktree_path: string; layout_json: string }[]
-      expect(layouts).toEqual([
-        // The two spellings of the workspace root collapse to the newest layout.
-        { workspace_id: keepId, worktree_path: 'C:/source/Repo', layout_json: '{"panes":["new"]}' },
+      const expected = [
+        // Workspace root exists under both rows — ON CONFLICT keeps the kept row's
+        // NEWER copy over the repointed stale one.
         {
           workspace_id: keepId,
-          worktree_path: 'C:/source/Repo/wt',
-          layout_json: '{"panes":["wt"]}',
+          worktree_path: 'C:/source/Repo',
+          layout_json: '{"panes":["keep-newer"]}',
         },
-      ])
+        // Case-divergent worktree: collapsed by the second dedupe pass on
+        // case-insensitive filesystems, left alone on case-sensitive ones.
+        {
+          workspace_id: keepId,
+          worktree_path: 'C:/source/Repo/WT',
+          layout_json: '{"panes":["wt-upper"]}',
+        },
+        // Same-spelling conflict where the STALE row's copy is newer — ON CONFLICT
+        // DO UPDATE must fire and replace the kept row's older copy.
+        {
+          workspace_id: keepId,
+          worktree_path: 'C:/source/Repo/sub',
+          layout_json: '{"panes":["stale-newer"]}',
+        },
+        ...(caseInsensitivePaths
+          ? []
+          : [
+              {
+                workspace_id: keepId,
+                worktree_path: 'C:/source/Repo/wt',
+                layout_json: '{"panes":["wt"]}',
+              },
+            ]),
+      ]
+      expect(layouts).toEqual(expected)
     })
 
     it('repoints skill_definitions instead of losing them to the FK cascade', () => {
