@@ -57,6 +57,12 @@ describe('comparableWorkspacePath', () => {
     )
   })
 
+  it('folds non-ASCII case on win32 (Unicode-aware, unlike SQLite LOWER/NOCASE)', () => {
+    expect(comparableWorkspacePath('C:\\Users\\Łukasz\\Repo', 'win32')).toBe(
+      comparableWorkspacePath('c:/users/łukasz/repo', 'win32'),
+    )
+  })
+
   it('preserves case on case-sensitive platforms', () => {
     expect(comparableWorkspacePath('/home/User/Repo', 'linux')).toBe('/home/User/Repo')
   })

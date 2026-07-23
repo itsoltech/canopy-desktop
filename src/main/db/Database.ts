@@ -4,6 +4,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildMigrations } from './migrations'
+import { comparableWorkspacePath } from './workspacePaths'
 
 export class Database {
   readonly db: BetterSqlite3Database
@@ -16,6 +17,14 @@ export class Database {
     this.db = new BetterSqlite3(dbPath)
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('foreign_keys = ON')
+
+    // Single source of truth for path identity in SQL. SQLite's built-in LOWER() and
+    // NOCASE fold ASCII only, while comparableWorkspacePath() folds full Unicode
+    // (C:/Users/Łukasz ≡ c:/users/łukasz on Windows) — so migration 11 and the store
+    // lookups all call this one JS implementation instead of mixing folding rules.
+    this.db.function('canopy_path_key', { deterministic: true }, (path) =>
+      comparableWorkspacePath(String(path)),
+    )
 
     this.runMigrations()
   }

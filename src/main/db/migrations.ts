@@ -14,9 +14,12 @@ export interface Migration {
 export function buildMigrations(windowsPaths: boolean): Migration[] {
   // Stored form of a path column: forward slashes on Windows, untouched on POSIX.
   const normExpr = (col: string): string => (windowsPaths ? `REPLACE(${col}, '\\', '/')` : col)
-  // Comparison key: stored form, additionally case-folded on Windows. SQLite's
-  // LOWER() is ASCII-only, matching the NOCASE collation semantics used for lookups.
-  const pathKey = (col: string): string => (windowsPaths ? `LOWER(${normExpr(col)})` : col)
+  // Comparison key: on Windows, the `canopy_path_key` SQL function registered by
+  // Database — it delegates to comparableWorkspacePath(), so migration, store
+  // lookups, and in-memory maps share ONE Unicode-aware folding rule (SQLite's own
+  // LOWER()/NOCASE fold ASCII only and would split e.g. C:/Users/Łukasz from
+  // c:/users/łukasz). On POSIX paths compare verbatim.
+  const pathKey = (col: string): string => (windowsPaths ? `canopy_path_key(${col})` : col)
 
   return [
     {

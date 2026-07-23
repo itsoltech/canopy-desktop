@@ -4,10 +4,16 @@ import { describe, expect, it } from 'vitest'
 // plain SQLite, so semantics are identical.
 import { DatabaseSync } from 'node:sqlite'
 import { buildMigrations } from './migrations'
+import { comparableWorkspacePath } from './workspacePaths'
 
 function openMigratedThrough(id: number, windowsPaths: boolean): DatabaseSync {
   const db = new DatabaseSync(':memory:')
   db.exec('PRAGMA foreign_keys = ON')
+  // Mirror Database's setup: the Windows migration SQL calls the app-registered
+  // Unicode-aware key function instead of SQLite's ASCII-only LOWER()/NOCASE.
+  db.function('canopy_path_key', { deterministic: true }, (path) =>
+    comparableWorkspacePath(String(path), windowsPaths ? 'win32' : 'linux'),
+  )
   for (const m of buildMigrations(windowsPaths)) {
     if (m.id <= id) db.exec(m.up)
   }
@@ -166,6 +172,40 @@ describe('migration 11 on Windows (windowsPaths: true)', () => {
       path: string
     }[]
     expect(rows).toEqual([{ id: 'upper-id', path: 'C:/Source/Repo' }])
+  })
+
+  it('merges non-ASCII case-divergent duplicates (SQLite LOWER/NOCASE would miss them)', () => {
+    // canopy_path_key delegates to JS Unicode folding, so Ł ≡ ł — the built-in
+    // ASCII-only LOWER()/NOCASE would treat these as two different directories.
+    const db = openMigratedThrough(10, true)
+    const insertWs = db.prepare(
+      'INSERT INTO workspaces (id, path, name, is_git_repo, last_opened) VALUES (?, ?, ?, 1, ?)',
+    )
+    insertWs.run('old-id', 'c:/users/łukasz/repo', 'repo', '2026-07-01 10:00:00')
+    insertWs.run('new-id', 'C:/Users/Łukasz/Repo', 'Repo', '2026-07-20 10:00:00')
+
+    const insertLayout = db.prepare(
+      'INSERT INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at) VALUES (?, ?, ?, ?)',
+    )
+    insertLayout.run('old-id', 'c:/users/łukasz/repo', '{"panes":["old"]}', '2026-07-01 10:00:00')
+    insertLayout.run('new-id', 'C:/Users/Łukasz/Repo', '{"panes":["new"]}', '2026-07-20 10:00:00')
+    applyMigration(db, 11, true)
+
+    const rows = db.prepare('SELECT id, path FROM workspaces').all() as {
+      id: string
+      path: string
+    }[]
+    expect(rows).toEqual([{ id: 'new-id', path: 'C:/Users/Łukasz/Repo' }])
+    const layouts = db
+      .prepare('SELECT workspace_id, worktree_path, layout_json FROM workspace_layouts')
+      .all() as { workspace_id: string; worktree_path: string; layout_json: string }[]
+    expect(layouts).toEqual([
+      {
+        workspace_id: 'new-id',
+        worktree_path: 'C:/Users/Łukasz/Repo',
+        layout_json: '{"panes":["new"]}',
+      },
+    ])
   })
 
   it('is idempotent', () => {
