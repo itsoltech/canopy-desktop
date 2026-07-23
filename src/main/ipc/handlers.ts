@@ -2044,6 +2044,10 @@ export function registerIpcHandlers(
             'No files were deleted — please retry.',
         )
       }
+      // Verified against `git worktree list`: the registration is gone, whether
+      // git's own remove did it or the prune fallback (broken-link ghosts reach
+      // here with the loop-local flag still false).
+      unregistered = true
 
       // The directory itself may still exist: git gives up on the first locked file
       // and leaves everything else behind as a ghost folder. Best-effort delete,
