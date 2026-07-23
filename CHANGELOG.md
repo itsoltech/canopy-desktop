@@ -1,3 +1,5 @@
+## [0.13.0-next.24](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.23...v0.13.0-next.24) (2026-07-23)
+
 ## [0.13.0-next.23](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.22...v0.13.0-next.23) (2026-07-19)
 
 ## [0.13.0-next.22](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.21...v0.13.0-next.22) (2026-06-19)
