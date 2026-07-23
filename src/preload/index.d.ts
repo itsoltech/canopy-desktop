@@ -227,6 +227,8 @@ interface WorktreeRemoveWithBranchResult {
   branchDeleted: boolean
   forcedWorktreeRemove: boolean
   forcedBranchDelete: boolean
+  /** Path left on disk when some files could not be deleted (held by another process). */
+  leftoverPath: string | null
 }
 
 interface AgentHookEventData {

@@ -574,12 +574,17 @@
 {#if dialogState.current.type === 'input'}
   <InputDialog {...dialogState.current.props} />
 {:else if dialogState.current.type === 'createWorktree'}
-  <CreateWorktreeModal
-    onClose={closeDialog}
-    repoRoot={dialogState.current.repoRoot}
-    workspaceId={dialogState.current.workspaceId}
-    baseBranch={dialogState.current.baseBranch}
-  />
+  <!-- Keyed by dialog identity: re-showing the dialog must remount the modal with a
+       clean slate — an {:else if} on `type` alone keeps the old instance alive, so a
+       reopen used to show the previous attempt's error state. -->
+  {#key dialogState.current}
+    <CreateWorktreeModal
+      onClose={closeDialog}
+      repoRoot={dialogState.current.repoRoot}
+      workspaceId={dialogState.current.workspaceId}
+      baseBranch={dialogState.current.baseBranch}
+    />
+  {/key}
 {:else if dialogState.current.type === 'preferences'}
   <PreferencesModal section={dialogState.current.section} />
 {:else if dialogState.current.type === 'taskPicker'}

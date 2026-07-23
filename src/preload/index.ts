@@ -1270,8 +1270,16 @@ const api = {
     trackerId?: string,
     params?: { statuses?: string[]; assignedToMe?: boolean; boardId?: string; projectKey?: string },
   ) => ipcRenderer.invoke('trackerConfig:fetchTasks', { repoRoot, trackerId, ...params }),
-  trackerConfigGetCurrentUser: (repoRoot?: string, trackerId?: string) =>
-    ipcRenderer.invoke('trackerConfig:getCurrentUser', { repoRoot, trackerId }),
+  trackerConfigGetCurrentUser: async (repoRoot?: string, trackerId?: string) => {
+    // Main returns an {ok} envelope so expected auth failures don't spam the main
+    // console; rethrow here to preserve the renderer-facing contract.
+    const result = (await ipcRenderer.invoke('trackerConfig:getCurrentUser', {
+      repoRoot,
+      trackerId,
+    })) as { ok: true; value: string } | { ok: false; error: string }
+    if (!result.ok) throw new Error(result.error)
+    return result.value
+  },
   trackerConfigFetchTaskComments: (
     repoRoot: string | undefined,
     taskKey: string,

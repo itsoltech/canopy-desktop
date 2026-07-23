@@ -36,6 +36,7 @@
     showTmuxBrowser,
   } from '../../lib/stores/dialogs.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -493,13 +494,26 @@
                 })
               }
 
-              await window.api.worktreeRemoveWithBranch({
+              // This command removes the CURRENT worktree: close its tabs and
+              // leave it BEFORE the removal, otherwise live shells and watchers
+              // hold Windows file locks inside the directory being deleted.
+              if (!(await closeAllTabsForWorktree(wtPath))) return
+              const main = workspaceState.worktrees.find((w) => w.isMain)
+              if (main) selectWorktree(main.path)
+
+              const result = await window.api.worktreeRemoveWithBranch({
                 repoRoot: operationRoot,
                 worktreePath: wtPath,
                 branch,
                 deleteBranch,
-                forceOnFailure: preflight.forceRequired,
+                // Transient locks need the force-retry path even for a clean tree.
+                forceOnFailure: true,
               })
+              if (result.leftoverPath) {
+                addToast(
+                  `Worktree removed, but some files are still in use and were left at ${result.leftoverPath}`,
+                )
+              }
             } catch (err) {
               await confirm({
                 title: 'Git Error',

@@ -59,12 +59,26 @@ export class FileTreeWatcher {
     private readonly onChange: (events: FileChangeEvent[]) => void,
   ) {}
 
+  /** Directory this watcher holds native handles on (worktree removal must stop it first). */
+  get root(): string {
+    return this.repoRoot
+  }
+
   start(): ResultAsync<void, FileWatcherError> {
     if (this.subscription) return okAsync(undefined)
 
     return fromExternalCall(
       watcher.subscribe(this.repoRoot, this.handleEvents, {
         ignore: [...SAFETY_IGNORE_PATTERNS],
+        // Pin the native OS backend. Without this @parcel/watcher probes for a
+        // `watchman` binary at startup, printing a noisy "'watchman' is not
+        // recognized..." error to stderr on every launch on Windows.
+        backend:
+          process.platform === 'win32'
+            ? 'windows'
+            : process.platform === 'darwin'
+              ? 'fs-events'
+              : 'inotify',
       }),
       (e): FileWatcherError => ({
         _tag: 'WatchStartFailed',

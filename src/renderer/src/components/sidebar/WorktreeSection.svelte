@@ -3,6 +3,7 @@
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
   import { closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
@@ -89,26 +90,32 @@
 
     if (!(await closeAllTabsForWorktree(wt.path))) return
 
+    // Leave the doomed worktree BEFORE removing it — keeping it selected leaves
+    // watchers and pollers pointed at a path that is being deleted.
+    if (workspaceState.selectedWorktreePath === wt.path) {
+      const main = workspaceState.worktrees.find((w) => w.isMain)
+      if (main) selectWorktree(main.path)
+    }
+
     try {
-      await window.api.worktreeRemoveWithBranch({
+      const result = await window.api.worktreeRemoveWithBranch({
         repoRoot,
         worktreePath: wt.path,
         branch: wt.branch,
         deleteBranch: !isDetached,
         forceOnFailure: true,
       })
+      if (result.leftoverPath) {
+        addToast(
+          `Worktree removed, but some files are still in use and were left at ${result.leftoverPath}`,
+        )
+      }
     } catch (err) {
       await confirm({
         title: 'Git Error',
         message: err instanceof Error ? err.message : String(err),
         confirmLabel: 'OK',
       })
-      return
-    }
-
-    if (workspaceState.selectedWorktreePath === wt.path) {
-      const main = workspaceState.worktrees.find((w) => w.isMain)
-      if (main) selectWorktree(main.path)
     }
   }
 </script>

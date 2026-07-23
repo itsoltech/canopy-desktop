@@ -13,6 +13,7 @@
     type ProjectState,
   } from '../../lib/stores/workspace.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
   import { worktreeBadges } from '../../lib/agents/agentState.svelte'
@@ -157,28 +158,34 @@
     try {
       if (!(await closeAllTabsForWorktree(wt.path))) return
 
+      // Leave the doomed worktree BEFORE removing it — keeping it selected leaves
+      // watchers and pollers pointed at a path that is being deleted.
+      if (workspaceState.selectedWorktreePath === wt.path) {
+        const main = project.worktrees.find((w) => w.isMain)
+        if (main) selectWorktree(main.path)
+      }
+
       const isDetached = wt.branch === '(detached)'
-      await window.api.worktreeRemoveWithBranch({
+      const result = await window.api.worktreeRemoveWithBranch({
         repoRoot,
         worktreePath: wt.path,
         branch: wt.branch,
         deleteBranch: !isDetached,
         forceOnFailure: true,
       })
+      if (result.leftoverPath) {
+        addToast(
+          `Worktree removed, but some files are still in use and were left at ${result.leftoverPath}`,
+        )
+      }
     } catch (err) {
       await confirm({
         title: 'Git Error',
         message: err instanceof Error ? err.message : String(err),
         confirmLabel: 'OK',
       })
-      return
     } finally {
       removingPaths.delete(wt.path)
-    }
-
-    if (workspaceState.selectedWorktreePath === wt.path) {
-      const main = project.worktrees.find((w) => w.isMain)
-      if (main) selectWorktree(main.path)
     }
   }
 

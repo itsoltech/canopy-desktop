@@ -35,12 +35,37 @@ Agents (Claude, Gemini, OpenCode, Codex) can run in dedicated worktrees for isol
 
 ### Removing a worktree
 
-1. User right-clicks a worktree in the sidebar and selects "Remove".
+1. User removes a worktree from the sidebar or via the command palette ("Remove Current Worktree").
 2. The app may check for uncommitted changes or unmerged commits before proceeding.
-3. Renderer calls `window.api.gitWorktreeRemove(repoRoot, path, force)`.
-4. `GitRepository.worktreeRemove()` runs `git worktree remove <path>` (with `--force` if force is true).
-5. All tabs associated with that worktree path are closed, killing their PTY sessions.
-6. The git watcher updates the sidebar.
+3. All tabs associated with that worktree path are closed; if the removed worktree is currently
+   selected, the selection switches to the main worktree first so no UI keeps polling a
+   disappearing path.
+4. The main process prepares the directory for deletion (Windows deletes a directory only when
+   nothing holds a handle inside it):
+   - kills every PTY whose cwd lies inside the worktree — including full process trees — and
+     waits (bounded) until the processes actually exit,
+   - stops file-tree and git watchers subscribed inside the path and waits for the native
+     unsubscribes.
+5. `git worktree remove <path>` runs without `--force` first. On failure the error is classified:
+   - "is not a working tree" → a previous attempt already unregistered the worktree; skip to
+     cleanup instead of retrying git,
+   - lock symptoms (permission denied, directory not empty, EBUSY…) → retried with `--force` and
+     backoff (transient locks from dying processes or AV scans clear within seconds),
+   - dirty-tree refusal → retried with `--force` (only when the caller allowed forcing).
+6. After unregistration, `git worktree prune` clears stale admin records and the directory is
+   verified to be gone; remnants are deleted with `fs.rm` retries. If files are still held open
+   by another process, the result carries `leftoverPath` and the UI shows a toast instead of
+   silently leaving a ghost folder.
+7. Branch deletion (when requested) runs even if the worktree removal needed the fallback paths —
+   an aborted flow no longer leaves stray branches.
+8. The git watcher updates the sidebar.
+
+### Creation pre-flight
+
+`worktree:create` refuses an existing non-empty target directory with a clear message BEFORE any
+git call (an empty leftover directory is removed automatically). If `git worktree add` fails
+after creating a branch (`-b`), the branch is rolled back — a failed creation no longer leaves a
+stray local branch behind.
 
 ### Checking unmerged commits
 

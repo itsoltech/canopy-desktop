@@ -1,4 +1,4 @@
-import { ok, err, okAsync, type Result, type ResultAsync } from 'neverthrow'
+import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
 import { readFileSync, statSync } from 'fs'
 import { join } from 'path'
@@ -159,10 +159,19 @@ export class GitRepository {
 
   static getBranch(repoRoot: string): ResultAsync<string | null, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('rev-parse', git.revparse(['--abbrev-ref', 'HEAD'])).map((raw) => {
-      const branch = raw.trim()
-      return branch === 'HEAD' ? null : branch
-    })
+    return gitCall('rev-parse', git.revparse(['--abbrev-ref', 'HEAD']))
+      .map((raw) => {
+        const branch = raw.trim()
+        return branch === 'HEAD' ? null : branch
+      })
+      .orElse((e) => {
+        // A repository with no commits yet has an unborn HEAD — rev-parse fails with
+        // "ambiguous argument 'HEAD'". That is a legitimate repo state, not an error.
+        if (e._tag === 'GitCommandFailed' && /ambiguous argument 'HEAD'/.test(e.message)) {
+          return okAsync<string | null, GitError>(null)
+        }
+        return errAsync(e)
+      })
   }
 
   static getRemoteUrl(repoRoot: string, remote = 'origin'): ResultAsync<string, GitError> {
@@ -437,6 +446,22 @@ export class GitRepository {
       const args = ['worktree', 'remove', path]
       if (force) args.push('--force')
       return gitCall('worktree remove', git.raw(args)).map(() => undefined)
+    })
+  }
+
+  /** Drop stale worktree registrations whose directories are gone. */
+  static worktreePrune(repoRoot: string): ResultAsync<void, GitError> {
+    const git = simpleGit(repoRoot)
+    return gitCall('worktree prune', git.raw(['worktree', 'prune'])).map(() => undefined)
+  }
+
+  static branchExists(repoRoot: string, name: string): ResultAsync<boolean, GitError> {
+    return validateRef(name).asyncAndThen(() => {
+      const git = simpleGit(repoRoot)
+      return gitCall(
+        'branch list',
+        git.raw(['branch', '--list', '--format=%(refname:short)', name]),
+      ).map((output) => output.split('\n').some((line) => line.trim() === name))
     })
   }
 
