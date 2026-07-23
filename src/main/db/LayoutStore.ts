@@ -1,5 +1,6 @@
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
+import { normalizeWorkspacePath } from './workspacePaths'
 
 export class LayoutStore {
   constructor(private database: Database) {}
@@ -14,7 +15,7 @@ export class LayoutStore {
         `INSERT OR REPLACE INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at)
          VALUES (?, ?, ?, datetime('now'))`,
       )
-      .run(workspaceId, worktreePath, layoutJson)
+      .run(workspaceId, normalizeWorkspacePath(worktreePath), layoutJson)
   }
 
   get(workspaceId: string, worktreePath: string): string | null {
@@ -22,7 +23,7 @@ export class LayoutStore {
       .prepare(
         'SELECT layout_json FROM workspace_layouts WHERE workspace_id = ? AND worktree_path = ?',
       )
-      .get(workspaceId, worktreePath) as { layout_json: string } | undefined
+      .get(workspaceId, normalizeWorkspacePath(worktreePath)) as { layout_json: string } | undefined
     return row?.layout_json ?? null
   }
 
@@ -35,7 +36,7 @@ export class LayoutStore {
   delete(workspaceId: string, worktreePath: string): void {
     this.db
       .prepare('DELETE FROM workspace_layouts WHERE workspace_id = ? AND worktree_path = ?')
-      .run(workspaceId, worktreePath)
+      .run(workspaceId, normalizeWorkspacePath(worktreePath))
   }
 
   deleteAll(workspaceId: string): void {

@@ -10,6 +10,7 @@ import type { BrowserManager } from './browser/BrowserManager'
 import type { TerminalStreamService } from './pty/TerminalStreamService'
 import { TmuxManager } from './pty/TmuxManager'
 import { isSafeExternalUrl } from './security/validateUrl'
+import { normalizeWorkspacePath } from './db/workspacePaths'
 import type { WindowBounds, WindowConfig, WindowState } from './windowBounds'
 
 interface CreateWindowOptions {
@@ -225,9 +226,13 @@ export class WindowManager {
     return count
   }
 
+  // Tracked paths are normalized to forward slashes on the way in, so lookups,
+  // persisted window configs, and workspace-store rows can never diverge again on
+  // separator style (the source of un-deletable ghost windows).
   getWindowForPath(path: string): BrowserWindow | null {
+    const normalized = normalizeWorkspacePath(path)
     for (const [wcId, paths] of this.workspacePaths) {
-      if (paths.has(path) || this.activeWorktreePaths.get(wcId) === path) {
+      if (paths.has(normalized) || this.activeWorktreePaths.get(wcId) === normalized) {
         const win = this.windows.get(wcId)
         if (win && !win.isDestroyed()) return win
       }
@@ -241,16 +246,16 @@ export class WindowManager {
       paths = new Set()
       this.workspacePaths.set(wcId, paths)
     }
-    paths.add(path)
+    paths.add(normalizeWorkspacePath(path))
   }
 
   removeWorkspacePath(wcId: number, path: string): void {
     const paths = this.workspacePaths.get(wcId)
-    if (paths) paths.delete(path)
+    if (paths) paths.delete(normalizeWorkspacePath(path))
   }
 
   setActiveWorktree(wcId: number, path: string): void {
-    this.activeWorktreePaths.set(wcId, path)
+    this.activeWorktreePaths.set(wcId, normalizeWorkspacePath(path))
   }
 
   clearActiveWorktree(wcId: number): void {

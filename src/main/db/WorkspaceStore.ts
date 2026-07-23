@@ -1,6 +1,7 @@
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
 import type { WorkspaceRow } from './types'
+import { normalizeWorkspacePath } from './workspacePaths'
 import { randomUUID } from 'crypto'
 
 export class WorkspaceStore {
@@ -23,12 +24,14 @@ export class WorkspaceStore {
   }
 
   getByPath(path: string): WorkspaceRow | undefined {
-    return this.db.prepare('SELECT * FROM workspaces WHERE path = ?').get(path) as
-      WorkspaceRow | undefined
+    return this.db
+      .prepare('SELECT * FROM workspaces WHERE path = ?')
+      .get(normalizeWorkspacePath(path)) as WorkspaceRow | undefined
   }
 
   upsert(workspace: { path: string; name: string; isGitRepo: boolean }): WorkspaceRow {
-    const existing = this.getByPath(workspace.path)
+    const path = normalizeWorkspacePath(workspace.path)
+    const existing = this.getByPath(path)
 
     if (existing) {
       this.db
@@ -47,7 +50,7 @@ export class WorkspaceStore {
         `INSERT INTO workspaces (id, path, name, is_git_repo, last_opened)
          VALUES (?, ?, ?, ?, datetime('now'))`,
       )
-      .run(id, workspace.path, workspace.name, workspace.isGitRepo ? 1 : 0)
+      .run(id, path, workspace.name, workspace.isGitRepo ? 1 : 0)
     return this.get(id)!
   }
 

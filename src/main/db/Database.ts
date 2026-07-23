@@ -158,6 +158,53 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    // Workspace paths were persisted in whatever separator style they arrived in
+    // (native dialogs → backslashes, git/renderer → forward slashes), producing
+    // duplicate workspace rows for the same directory. Layouts stranded under the
+    // stale duplicate could never be deleted again and re-spawned ghost windows on
+    // every launch. Canonicalize everything to forward slashes and merge duplicates
+    // (keeping the most recently opened row) before the stores start enforcing the
+    // canonical form at runtime.
+    id: 11,
+    up: `
+      DELETE FROM workspace_layouts WHERE EXISTS (
+        SELECT 1 FROM workspace_layouts b
+        WHERE b.workspace_id = workspace_layouts.workspace_id
+          AND REPLACE(b.worktree_path, '\\', '/') = REPLACE(workspace_layouts.worktree_path, '\\', '/')
+          AND (b.updated_at > workspace_layouts.updated_at
+               OR (b.updated_at = workspace_layouts.updated_at AND b.rowid > workspace_layouts.rowid))
+      );
+      UPDATE workspace_layouts SET worktree_path = REPLACE(worktree_path, '\\', '/');
+
+      CREATE TEMP TABLE ws_canon AS
+      SELECT id,
+             FIRST_VALUE(id) OVER (
+               PARTITION BY REPLACE(path, '\\', '/')
+               ORDER BY COALESCE(last_opened, '') DESC, rowid DESC
+             ) AS keep_id
+      FROM workspaces;
+
+      INSERT INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at)
+      SELECT c.keep_id, l.worktree_path, l.layout_json, l.updated_at
+      FROM workspace_layouts l JOIN ws_canon c ON c.id = l.workspace_id
+      WHERE c.id != c.keep_id
+      ON CONFLICT(workspace_id, worktree_path) DO UPDATE SET
+        layout_json = excluded.layout_json,
+        updated_at = excluded.updated_at
+      WHERE excluded.updated_at > workspace_layouts.updated_at;
+      DELETE FROM workspace_layouts
+        WHERE workspace_id IN (SELECT id FROM ws_canon WHERE id != keep_id);
+
+      UPDATE skill_definitions
+        SET workspace_id = (SELECT keep_id FROM ws_canon WHERE ws_canon.id = skill_definitions.workspace_id)
+        WHERE workspace_id IN (SELECT id FROM ws_canon WHERE id != keep_id);
+
+      DELETE FROM workspaces WHERE id IN (SELECT id FROM ws_canon WHERE id != keep_id);
+      UPDATE workspaces SET path = REPLACE(path, '\\', '/');
+      DROP TABLE ws_canon;
+    `,
+  },
 ]
 
 export class Database {
