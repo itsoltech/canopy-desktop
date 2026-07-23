@@ -4,27 +4,19 @@ export interface Migration {
 }
 
 /**
- * Migrations are built per-platform: on case-insensitive filesystems (win32) path
- * comparison keys are additionally case-folded. Exposed as a function so tests can
- * exercise both variants against a real SQLite database (node:sqlite).
+ * Migrations are built per-platform. On Windows (`windowsPaths`), path comparison
+ * keys fold separators AND case — `C:\Source` and `c:/source` are one directory
+ * there. On POSIX both conversions are wrong (backslash is a legal filename
+ * character and filesystems are case-sensitive), so paths are compared verbatim and
+ * never rewritten. Exposed as a function so tests can exercise both variants
+ * against a real SQLite database (node:sqlite).
  */
-export function buildMigrations(caseInsensitivePaths: boolean): Migration[] {
-  // Canonical comparison key for a path column: forward slashes, folded case where
-  // the filesystem is case-insensitive. SQLite's LOWER() is ASCII-only, matching the
-  // NOCASE collation semantics used for lookups.
-  const pathKey = (col: string): string =>
-    caseInsensitivePaths ? `LOWER(REPLACE(${col}, '\\', '/'))` : `REPLACE(${col}, '\\', '/')`
-  // Drop layout rows whose (workspace, worktree) key duplicates a newer row — needed
-  // before normalization (separator/case variants collide) and again after the
-  // duplicate-workspace merge (case-divergent worktree paths bypass ON CONFLICT).
-  const dedupeLayouts = `
-      DELETE FROM workspace_layouts WHERE EXISTS (
-        SELECT 1 FROM workspace_layouts b
-        WHERE b.workspace_id = workspace_layouts.workspace_id
-          AND ${pathKey('b.worktree_path')} = ${pathKey('workspace_layouts.worktree_path')}
-          AND (b.updated_at > workspace_layouts.updated_at
-               OR (b.updated_at = workspace_layouts.updated_at AND b.rowid > workspace_layouts.rowid))
-      );`
+export function buildMigrations(windowsPaths: boolean): Migration[] {
+  // Stored form of a path column: forward slashes on Windows, untouched on POSIX.
+  const normExpr = (col: string): string => (windowsPaths ? `REPLACE(${col}, '\\', '/')` : col)
+  // Comparison key: stored form, additionally case-folded on Windows. SQLite's
+  // LOWER() is ASCII-only, matching the NOCASE collation semantics used for lookups.
+  const pathKey = (col: string): string => (windowsPaths ? `LOWER(${normExpr(col)})` : col)
 
   return [
     {
@@ -181,13 +173,14 @@ export function buildMigrations(caseInsensitivePaths: boolean): Migration[] {
       // — producing duplicate workspace rows for the same directory. Layouts stranded
       // under the stale duplicate could never be deleted again and re-spawned ghost
       // windows on every launch. Merge duplicates by comparison key (keeping the most
-      // recently opened row, preserving its casing) and canonicalize separators before
-      // the stores start enforcing the canonical form at runtime.
+      // recently opened row, preserving its casing), rebuild layouts keeping exactly
+      // one row per (canonical workspace, worktree key) — ranked by updated_at DESC,
+      // rowid DESC, the tie-break LayoutStore's one-second timestamps need — and
+      // canonicalize separators before the stores start enforcing the canonical form
+      // at runtime. On POSIX the keys are verbatim, so distinct directories (including
+      // ones with literal backslashes in their names) are never merged or rewritten.
       id: 11,
       up: `
-      ${dedupeLayouts}
-      UPDATE workspace_layouts SET worktree_path = REPLACE(worktree_path, '\\', '/');
-
       CREATE TEMP TABLE ws_canon AS
       SELECT id,
              FIRST_VALUE(id) OVER (
@@ -196,24 +189,29 @@ export function buildMigrations(caseInsensitivePaths: boolean): Migration[] {
              ) AS keep_id
       FROM workspaces;
 
+      CREATE TEMP TABLE layout_canon AS
+      SELECT c.keep_id AS workspace_id,
+             ${normExpr('l.worktree_path')} AS worktree_path,
+             l.layout_json,
+             l.updated_at,
+             ROW_NUMBER() OVER (
+               PARTITION BY c.keep_id, ${pathKey('l.worktree_path')}
+               ORDER BY l.updated_at DESC, l.rowid DESC
+             ) AS rn
+      FROM workspace_layouts l JOIN ws_canon c ON c.id = l.workspace_id;
+
+      DELETE FROM workspace_layouts;
       INSERT INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at)
-      SELECT c.keep_id, l.worktree_path, l.layout_json, l.updated_at
-      FROM workspace_layouts l JOIN ws_canon c ON c.id = l.workspace_id
-      WHERE c.id != c.keep_id
-      ON CONFLICT(workspace_id, worktree_path) DO UPDATE SET
-        layout_json = excluded.layout_json,
-        updated_at = excluded.updated_at
-      WHERE excluded.updated_at > workspace_layouts.updated_at;
-      DELETE FROM workspace_layouts
-        WHERE workspace_id IN (SELECT id FROM ws_canon WHERE id != keep_id);
-      ${dedupeLayouts}
+        SELECT workspace_id, worktree_path, layout_json, updated_at
+        FROM layout_canon WHERE rn = 1;
+      DROP TABLE layout_canon;
 
       UPDATE skill_definitions
         SET workspace_id = (SELECT keep_id FROM ws_canon WHERE ws_canon.id = skill_definitions.workspace_id)
         WHERE workspace_id IN (SELECT id FROM ws_canon WHERE id != keep_id);
 
       DELETE FROM workspaces WHERE id IN (SELECT id FROM ws_canon WHERE id != keep_id);
-      UPDATE workspaces SET path = REPLACE(path, '\\', '/');
+      ${windowsPaths ? `UPDATE workspaces SET path = REPLACE(path, '\\', '/');` : ''}
       DROP TABLE ws_canon;
     `,
     },

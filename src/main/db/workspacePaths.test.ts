@@ -2,36 +2,47 @@ import { describe, expect, it } from 'vitest'
 import { comparableWorkspacePath, normalizeWorkspacePath } from './workspacePaths'
 
 describe('normalizeWorkspacePath', () => {
-  it('converts backslashes to forward slashes', () => {
-    expect(normalizeWorkspacePath('C:\\source\\GithubITSOL\\gakko')).toBe(
+  it('converts backslashes to forward slashes on win32', () => {
+    expect(normalizeWorkspacePath('C:\\source\\GithubITSOL\\gakko', 'win32')).toBe(
       'C:/source/GithubITSOL/gakko',
     )
   })
 
-  it('leaves forward-slash paths untouched', () => {
-    expect(normalizeWorkspacePath('C:/source/GithubITSOL/gakko')).toBe(
+  it('leaves forward-slash paths untouched on win32', () => {
+    expect(normalizeWorkspacePath('C:/source/GithubITSOL/gakko', 'win32')).toBe(
       'C:/source/GithubITSOL/gakko',
     )
   })
 
-  it('normalizes mixed-style paths', () => {
-    expect(normalizeWorkspacePath('C:/source\\GithubITSOL\\gakko')).toBe(
+  it('normalizes mixed-style paths on win32', () => {
+    expect(normalizeWorkspacePath('C:/source\\GithubITSOL\\gakko', 'win32')).toBe(
       'C:/source/GithubITSOL/gakko',
     )
   })
 
-  it('maps both styles of the same path to one canonical form', () => {
-    expect(normalizeWorkspacePath('C:\\source\\repo')).toBe(
-      normalizeWorkspacePath('C:/source/repo'),
+  it('maps both styles of the same path to one canonical form on win32', () => {
+    expect(normalizeWorkspacePath('C:\\source\\repo', 'win32')).toBe(
+      normalizeWorkspacePath('C:/source/repo', 'win32'),
     )
   })
 
-  it('normalizes UNC paths consistently', () => {
-    expect(normalizeWorkspacePath('\\\\server\\share\\repo')).toBe('//server/share/repo')
+  it('normalizes UNC paths consistently on win32', () => {
+    expect(normalizeWorkspacePath('\\\\server\\share\\repo', 'win32')).toBe('//server/share/repo')
   })
 
-  it('handles POSIX paths as a no-op', () => {
-    expect(normalizeWorkspacePath('/home/user/repo')).toBe('/home/user/repo')
+  it('preserves a literal backslash on POSIX (legal filename character)', () => {
+    expect(normalizeWorkspacePath('/tmp/repo\\name', 'linux')).toBe('/tmp/repo\\name')
+    expect(normalizeWorkspacePath('/tmp/repo\\name', 'darwin')).toBe('/tmp/repo\\name')
+  })
+
+  it('keeps backslash-divergent POSIX paths distinct', () => {
+    expect(normalizeWorkspacePath('/tmp/repo\\name', 'linux')).not.toBe(
+      normalizeWorkspacePath('/tmp/repo/name', 'linux'),
+    )
+  })
+
+  it('handles plain POSIX paths as a no-op', () => {
+    expect(normalizeWorkspacePath('/home/user/repo', 'linux')).toBe('/home/user/repo')
   })
 })
 
@@ -50,7 +61,8 @@ describe('comparableWorkspacePath', () => {
     expect(comparableWorkspacePath('/home/User/Repo', 'linux')).toBe('/home/User/Repo')
   })
 
-  it('still normalizes separators on non-win32 platforms', () => {
-    expect(comparableWorkspacePath('C:\\Source\\Repo', 'darwin')).toBe('C:/Source/Repo')
+  it('preserves backslashes and case on POSIX platforms', () => {
+    expect(comparableWorkspacePath('/tmp/Repo\\Name', 'linux')).toBe('/tmp/Repo\\Name')
+    expect(comparableWorkspacePath('/tmp/Repo\\Name', 'darwin')).toBe('/tmp/Repo\\Name')
   })
 })

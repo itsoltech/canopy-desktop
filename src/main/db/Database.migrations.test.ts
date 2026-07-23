@@ -5,43 +5,33 @@ import { describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { buildMigrations } from './migrations'
 
-function openMigratedThrough(id: number, caseInsensitivePaths: boolean): DatabaseSync {
+function openMigratedThrough(id: number, windowsPaths: boolean): DatabaseSync {
   const db = new DatabaseSync(':memory:')
   db.exec('PRAGMA foreign_keys = ON')
-  for (const m of buildMigrations(caseInsensitivePaths)) {
+  for (const m of buildMigrations(windowsPaths)) {
     if (m.id <= id) db.exec(m.up)
   }
   return db
 }
 
-function applyMigration(db: DatabaseSync, id: number, caseInsensitivePaths: boolean): void {
-  const migration = buildMigrations(caseInsensitivePaths).find((m) => m.id === id)
+function applyMigration(db: DatabaseSync, id: number, windowsPaths: boolean): void {
+  const migration = buildMigrations(windowsPaths).find((m) => m.id === id)
   if (!migration) throw new Error(`migration ${id} not found`)
   db.exec(migration.up)
 }
 
-interface SeededDb {
-  db: DatabaseSync
-  keepId: string
-  staleId: string
-}
-
 /**
- * Reproduces the ghost-window disease observed in a real profile: two workspace rows
- * for one directory (native-dialog backslash spelling vs git forward-slash spelling),
- * layouts and a skill stranded under the STALE row, and a duplicate layout for the
- * same worktree in both spellings. The kept row also holds layouts of its own so the
- * merge has to resolve conflicts, not just repoint:
- * - the workspace root exists under BOTH rows → ON CONFLICT timestamp tie-break
- *   (keep's copy is newer and must win)
- * - `.../sub` exists under both rows with the same spelling → ON CONFLICT again,
- *   this time the stale row's copy is newer and must win
- * - `.../wt` (stale) vs `.../WT` (keep) diverge only by case → BINARY PK lets both
- *   coexist after the repoint; the second dedupe pass must collapse them on
- *   case-insensitive filesystems and leave both on case-sensitive ones
+ * Reproduces the ghost-window disease observed in a real Windows profile: two
+ * workspace rows for one directory (native-dialog backslash spelling vs git
+ * forward-slash spelling), layouts and a skill stranded under the STALE row, and the
+ * kept row holding layouts of its own so the merge has to resolve conflicts:
+ * - the workspace root exists under BOTH rows → the kept row's NEWER copy must win
+ * - `.../sub` exists under both rows with the STALE row's copy newer → it must win
+ * - `.../wt` (stale) vs `.../WT` (keep) diverge only by case → must collapse to the
+ *   newer copy on Windows
  */
-function seedDuplicateWorkspaces(caseInsensitivePaths: boolean): SeededDb {
-  const db = openMigratedThrough(10, caseInsensitivePaths)
+function seedWindowsDisease(): DatabaseSync {
+  const db = openMigratedThrough(10, true)
   const insertWs = db.prepare(
     'INSERT INTO workspaces (id, path, name, is_git_repo, last_opened) VALUES (?, ?, ?, 1, ?)',
   )
@@ -68,95 +58,101 @@ function seedDuplicateWorkspaces(caseInsensitivePaths: boolean): SeededDb {
     "INSERT INTO skill_definitions (id, name, prompt, source_type, source_uri, workspace_id) VALUES ('sk1', 'skill', 'p', 'local', 'uri', ?)",
   ).run('stale-id')
 
-  return { db, keepId: 'keep-id', staleId: 'stale-id' }
+  return db
 }
 
-describe.each([{ caseInsensitivePaths: false }, { caseInsensitivePaths: true }])(
-  'migration 11 (caseInsensitivePaths: $caseInsensitivePaths)',
-  ({ caseInsensitivePaths }) => {
-    it('merges separator-divergent duplicate workspaces into the most recently opened row', () => {
-      const { db, keepId } = seedDuplicateWorkspaces(caseInsensitivePaths)
-      applyMigration(db, 11, caseInsensitivePaths)
+describe('migration 11 on Windows (windowsPaths: true)', () => {
+  it('merges separator-divergent duplicate workspaces into the most recently opened row', () => {
+    const db = seedWindowsDisease()
+    applyMigration(db, 11, true)
 
-      const rows = db.prepare('SELECT id, path FROM workspaces ORDER BY id').all() as {
-        id: string
-        path: string
-      }[]
-      expect(rows).toEqual([{ id: keepId, path: 'C:/source/Repo' }])
-    })
+    const rows = db.prepare('SELECT id, path FROM workspaces ORDER BY id').all() as {
+      id: string
+      path: string
+    }[]
+    expect(rows).toEqual([{ id: 'keep-id', path: 'C:/source/Repo' }])
+  })
 
-    it('repoints stranded layouts to the kept row, resolving conflicts to the newest', () => {
-      const { db, keepId } = seedDuplicateWorkspaces(caseInsensitivePaths)
-      applyMigration(db, 11, caseInsensitivePaths)
+  it('repoints stranded layouts to the kept row, resolving conflicts to the newest', () => {
+    const db = seedWindowsDisease()
+    applyMigration(db, 11, true)
 
-      const layouts = db
-        .prepare(
-          'SELECT workspace_id, worktree_path, layout_json FROM workspace_layouts ORDER BY worktree_path',
-        )
-        .all() as { workspace_id: string; worktree_path: string; layout_json: string }[]
-      const expected = [
-        // Workspace root exists under both rows — ON CONFLICT keeps the kept row's
-        // NEWER copy over the repointed stale one.
-        {
-          workspace_id: keepId,
-          worktree_path: 'C:/source/Repo',
-          layout_json: '{"panes":["keep-newer"]}',
-        },
-        // Case-divergent worktree: collapsed by the second dedupe pass on
-        // case-insensitive filesystems, left alone on case-sensitive ones.
-        {
-          workspace_id: keepId,
-          worktree_path: 'C:/source/Repo/WT',
-          layout_json: '{"panes":["wt-upper"]}',
-        },
-        // Same-spelling conflict where the STALE row's copy is newer — ON CONFLICT
-        // DO UPDATE must fire and replace the kept row's older copy.
-        {
-          workspace_id: keepId,
-          worktree_path: 'C:/source/Repo/sub',
-          layout_json: '{"panes":["stale-newer"]}',
-        },
-        ...(caseInsensitivePaths
-          ? []
-          : [
-              {
-                workspace_id: keepId,
-                worktree_path: 'C:/source/Repo/wt',
-                layout_json: '{"panes":["wt"]}',
-              },
-            ]),
-      ]
-      expect(layouts).toEqual(expected)
-    })
+    const layouts = db
+      .prepare(
+        'SELECT workspace_id, worktree_path, layout_json FROM workspace_layouts ORDER BY worktree_path',
+      )
+      .all() as { workspace_id: string; worktree_path: string; layout_json: string }[]
+    expect(layouts).toEqual([
+      // Workspace root exists under both rows — the kept row's NEWER copy wins.
+      {
+        workspace_id: 'keep-id',
+        worktree_path: 'C:/source/Repo',
+        layout_json: '{"panes":["keep-newer"]}',
+      },
+      // Case-divergent worktree pair collapses to the newer copy.
+      {
+        workspace_id: 'keep-id',
+        worktree_path: 'C:/source/Repo/WT',
+        layout_json: '{"panes":["wt-upper"]}',
+      },
+      // Same-spelling conflict where the STALE row's copy is newer — it must win.
+      {
+        workspace_id: 'keep-id',
+        worktree_path: 'C:/source/Repo/sub',
+        layout_json: '{"panes":["stale-newer"]}',
+      },
+    ])
+  })
 
-    it('repoints skill_definitions instead of losing them to the FK cascade', () => {
-      const { db, keepId } = seedDuplicateWorkspaces(caseInsensitivePaths)
-      applyMigration(db, 11, caseInsensitivePaths)
+  it('breaks equal-timestamp layout conflicts by rowid (later write wins)', () => {
+    // LayoutStore stamps datetime('now') with one-second precision, so equal
+    // timestamps are routine. The higher rowid is the later write and must win —
+    // regardless of which workspace row it sat under.
+    const db = openMigratedThrough(10, true)
+    const insertWs = db.prepare(
+      'INSERT INTO workspaces (id, path, name, is_git_repo, last_opened) VALUES (?, ?, ?, 1, ?)',
+    )
+    insertWs.run('keep-id', 'C:/source/Repo', 'Repo', '2026-07-20 10:00:00')
+    insertWs.run('stale-id', 'C:\\source\\Repo', 'Repo', '2026-07-01 10:00:00')
 
-      const skill = db
-        .prepare('SELECT workspace_id FROM skill_definitions WHERE id = ?')
-        .get('sk1') as {
-        workspace_id: string
-      }
-      expect(skill.workspace_id).toBe(keepId)
-    })
+    const insertLayout = db.prepare(
+      'INSERT INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at) VALUES (?, ?, ?, ?)',
+    )
+    // rowid 1 under the KEPT row, rowid 2 under the stale row — same timestamp.
+    insertLayout.run(
+      'keep-id',
+      'C:/source/Repo',
+      '{"panes":["first-write"]}',
+      '2026-07-15 10:00:00',
+    )
+    insertLayout.run(
+      'stale-id',
+      'C:/source/Repo',
+      '{"panes":["later-write"]}',
+      '2026-07-15 10:00:00',
+    )
+    applyMigration(db, 11, true)
 
-    it('is idempotent', () => {
-      const { db } = seedDuplicateWorkspaces(caseInsensitivePaths)
-      applyMigration(db, 11, caseInsensitivePaths)
-      const before = db.prepare('SELECT COUNT(*) AS n FROM workspace_layouts').get() as {
-        n: number
-      }
-      applyMigration(db, 11, caseInsensitivePaths)
-      const after = db.prepare('SELECT COUNT(*) AS n FROM workspace_layouts').get() as { n: number }
-      expect(after.n).toBe(before.n)
-      expect((db.prepare('SELECT COUNT(*) AS n FROM workspaces').get() as { n: number }).n).toBe(1)
-    })
-  },
-)
+    const layouts = db.prepare('SELECT workspace_id, layout_json FROM workspace_layouts').all() as {
+      workspace_id: string
+      layout_json: string
+    }[]
+    expect(layouts).toEqual([{ workspace_id: 'keep-id', layout_json: '{"panes":["later-write"]}' }])
+  })
 
-describe('migration 11 case handling', () => {
-  it('merges case-divergent duplicates when the filesystem is case-insensitive', () => {
+  it('repoints skill_definitions instead of losing them to the FK cascade', () => {
+    const db = seedWindowsDisease()
+    applyMigration(db, 11, true)
+
+    const skill = db
+      .prepare('SELECT workspace_id FROM skill_definitions WHERE id = ?')
+      .get('sk1') as {
+      workspace_id: string
+    }
+    expect(skill.workspace_id).toBe('keep-id')
+  })
+
+  it('merges case-divergent duplicates, preserving the kept row casing', () => {
     const db = openMigratedThrough(10, true)
     const insertWs = db.prepare(
       'INSERT INTO workspaces (id, path, name, is_git_repo, last_opened) VALUES (?, ?, ?, 1, ?)',
@@ -169,11 +165,56 @@ describe('migration 11 case handling', () => {
       id: string
       path: string
     }[]
-    // Kept row preserves its own (display) casing — nothing gets lowercased on disk.
     expect(rows).toEqual([{ id: 'upper-id', path: 'C:/Source/Repo' }])
   })
 
-  it('keeps case-divergent directories separate on case-sensitive filesystems', () => {
+  it('is idempotent', () => {
+    const db = seedWindowsDisease()
+    applyMigration(db, 11, true)
+    const before = db.prepare('SELECT COUNT(*) AS n FROM workspace_layouts').get() as { n: number }
+    applyMigration(db, 11, true)
+    const after = db.prepare('SELECT COUNT(*) AS n FROM workspace_layouts').get() as { n: number }
+    expect(after.n).toBe(before.n)
+    expect((db.prepare('SELECT COUNT(*) AS n FROM workspaces').get() as { n: number }).n).toBe(1)
+  })
+})
+
+describe('migration 11 on POSIX (windowsPaths: false)', () => {
+  it('treats a literal backslash as a filename character, not a separator', () => {
+    // `/tmp/repo\name` and `/tmp/repo/name` are two DIFFERENT directories on POSIX.
+    const db = openMigratedThrough(10, false)
+    const insertWs = db.prepare(
+      'INSERT INTO workspaces (id, path, name, is_git_repo, last_opened) VALUES (?, ?, ?, 1, ?)',
+    )
+    insertWs.run('bs-id', '/tmp/repo\\name', 'repo', '2026-07-01 10:00:00')
+    insertWs.run('fs-id', '/tmp/repo/name', 'repo', '2026-07-20 10:00:00')
+
+    const insertLayout = db.prepare(
+      'INSERT INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at) VALUES (?, ?, ?, ?)',
+    )
+    insertLayout.run('bs-id', '/tmp/repo\\name', '{"panes":["bs"]}', '2026-07-01 10:00:00')
+    insertLayout.run('fs-id', '/tmp/repo/name', '{"panes":["fs"]}', '2026-07-20 10:00:00')
+    applyMigration(db, 11, false)
+
+    const workspaces = db.prepare('SELECT id, path FROM workspaces ORDER BY id').all() as {
+      id: string
+      path: string
+    }[]
+    // Both survive, neither path is rewritten.
+    expect(workspaces).toEqual([
+      { id: 'bs-id', path: '/tmp/repo\\name' },
+      { id: 'fs-id', path: '/tmp/repo/name' },
+    ])
+    const layouts = db
+      .prepare('SELECT workspace_id, worktree_path FROM workspace_layouts ORDER BY workspace_id')
+      .all() as { workspace_id: string; worktree_path: string }[]
+    expect(layouts).toEqual([
+      { workspace_id: 'bs-id', worktree_path: '/tmp/repo\\name' },
+      { workspace_id: 'fs-id', worktree_path: '/tmp/repo/name' },
+    ])
+  })
+
+  it('keeps case-divergent directories separate', () => {
     const db = openMigratedThrough(10, false)
     const insertWs = db.prepare(
       'INSERT INTO workspaces (id, path, name, is_git_repo, last_opened) VALUES (?, ?, ?, 1, ?)',
@@ -184,5 +225,22 @@ describe('migration 11 case handling', () => {
 
     const rows = db.prepare('SELECT id FROM workspaces ORDER BY id').all() as { id: string }[]
     expect(rows).toEqual([{ id: 'a' }, { id: 'b' }])
+  })
+
+  it('still merges exact-duplicate layouts deterministically', () => {
+    // Exact duplicates cannot exist in `workspaces` (path is UNIQUE), but layouts
+    // pointing at one workspace can still carry same-path rows only when timestamps
+    // collide across workspace merges — on POSIX nothing merges, so layouts stay.
+    const db = openMigratedThrough(10, false)
+    db.prepare(
+      'INSERT INTO workspaces (id, path, name, is_git_repo, last_opened) VALUES (?, ?, ?, 1, ?)',
+    ).run('a', '/home/user/repo', 'repo', '2026-07-01 10:00:00')
+    db.prepare(
+      'INSERT INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at) VALUES (?, ?, ?, ?)',
+    ).run('a', '/home/user/repo', '{"panes":[]}', '2026-07-01 10:00:00')
+    applyMigration(db, 11, false)
+
+    const layouts = db.prepare('SELECT workspace_id, worktree_path FROM workspace_layouts').all()
+    expect(layouts).toEqual([{ workspace_id: 'a', worktree_path: '/home/user/repo' }])
   })
 })
