@@ -20,6 +20,7 @@
     isVerifyingCredentials,
     removeActiveTask,
     resolvePanelTask,
+    updatePanelTaskStatus,
   } from '../../lib/stores/taskTracker.svelte'
   import { showProjectTracker } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -231,6 +232,9 @@
         assigneeAvatarUrl: fullTask.assigneeAvatarUrl,
         url: fullTask.url,
       }
+      // Keep the left-sidebar chip in sync — it renders the store's panel task, not
+      // this panel-local copy.
+      updatePanelTaskStatus(fullTask.key, fullTask.status, fullTask.statusCategory)
       // Assignee avatar proxied to a data: URL (authenticated origin or public CDN + CSP).
       assigneeAvatar = ''
       if (fullTask?.assigneeAvatarUrl) {
