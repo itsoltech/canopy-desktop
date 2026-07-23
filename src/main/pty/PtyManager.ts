@@ -189,6 +189,12 @@ export class PtyManager {
    * deleting the directory immediately after a fire-and-forget kill() races the
    * teardown and fails with lock errors. Kills the whole process tree: children
    * spawned inside a directory being deleted must not outlive it.
+   *
+   * Known limitation: `session.cwd` is the SPAWN cwd — there is no OSC7/cwd
+   * tracking, so a shell spawned elsewhere that later `cd`s into the worktree is
+   * not matched (its lock is still handled by the caller's retry/cleanup path),
+   * and one that `cd`s out is killed unnecessarily. Acceptable best-effort: the
+   * dominant case is the tab auto-opened with the worktree as cwd that stays there.
    */
   killUnderPathAndWait(dirPath: string, timeoutMs = 4000): Promise<void> {
     const base = comparableWorkspacePath(dirPath).replace(/\/+$/, '')

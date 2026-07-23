@@ -506,8 +506,11 @@
                 worktreePath: wtPath,
                 branch,
                 deleteBranch,
-                // Transient locks need the force-retry path even for a clean tree.
-                forceOnFailure: true,
+                // Lock retries and cleanup run unconditionally in the main flow;
+                // this flag only authorizes --force for a DIRTY tree, so it must
+                // carry exactly the consent the (destructive-styled) dialog asked
+                // for at preflight time.
+                forceOnFailure: preflight.forceRequired,
               })
               if (result.leftoverPath) {
                 addToast(

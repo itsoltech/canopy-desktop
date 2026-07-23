@@ -237,6 +237,7 @@
 </script>
 
 <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
+<span class="sr-only" aria-live="polite">{prLoading ? 'Checking pull requests…' : ''}</span>
 <CollapsibleSection title="GIT" sectionKey="git" borderTop>
   {#snippet headerExtra()}
     <span class="flex items-center gap-1 min-w-0">
@@ -412,7 +413,10 @@
       <!-- The PR rows below depend on a network round-trip — show where they will
            appear instead of popping them in with no warning. -->
       <div class="flex items-center gap-2.5 w-full h-7 px-3 text-sm text-text-faint">
-        <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+        <LoaderCircle
+          size={13}
+          class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
         <span class="flex-1">Checking pull requests…</span>
       </div>
     {/if}
