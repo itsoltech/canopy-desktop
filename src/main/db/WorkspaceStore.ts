@@ -1,7 +1,15 @@
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
 import type { WorkspaceRow } from './types'
+import { comparableWorkspacePath, normalizeWorkspacePath } from './workspacePaths'
 import { randomUUID } from 'crypto'
+
+// Windows filesystems are case-insensitive: `C:\Source` and `c:/source` are the same
+// directory and must resolve to the same workspace row. `canopy_path_key` (registered
+// by Database) delegates to comparableWorkspacePath(), so SQL lookups, migration 11,
+// and in-memory maps share one Unicode-aware folding rule — SQLite's own NOCASE folds
+// ASCII only and would miss e.g. `Łukasz` vs `łukasz`.
+const PATH_EQ = process.platform === 'win32' ? 'canopy_path_key(path) = ?' : 'path = ?'
 
 export class WorkspaceStore {
   constructor(private database: Database) {}
@@ -23,12 +31,14 @@ export class WorkspaceStore {
   }
 
   getByPath(path: string): WorkspaceRow | undefined {
-    return this.db.prepare('SELECT * FROM workspaces WHERE path = ?').get(path) as
-      WorkspaceRow | undefined
+    return this.db
+      .prepare(`SELECT * FROM workspaces WHERE ${PATH_EQ}`)
+      .get(comparableWorkspacePath(path)) as WorkspaceRow | undefined
   }
 
   upsert(workspace: { path: string; name: string; isGitRepo: boolean }): WorkspaceRow {
-    const existing = this.getByPath(workspace.path)
+    const path = normalizeWorkspacePath(workspace.path)
+    const existing = this.getByPath(path)
 
     if (existing) {
       this.db
@@ -47,7 +57,7 @@ export class WorkspaceStore {
         `INSERT INTO workspaces (id, path, name, is_git_repo, last_opened)
          VALUES (?, ?, ?, ?, datetime('now'))`,
       )
-      .run(id, workspace.path, workspace.name, workspace.isGitRepo ? 1 : 0)
+      .run(id, path, workspace.name, workspace.isGitRepo ? 1 : 0)
     return this.get(id)!
   }
 

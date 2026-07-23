@@ -12,6 +12,7 @@ import { Database } from './db/Database'
 import { WorkspaceStore } from './db/WorkspaceStore'
 import { PreferencesStore } from './db/PreferencesStore'
 import { LayoutStore } from './db/LayoutStore'
+import { comparableWorkspacePath } from './db/workspacePaths'
 import { OnboardingStore } from './db/OnboardingStore'
 import { ToolRegistry } from './tools/ToolRegistry'
 import { initSkills } from './skills'
@@ -1005,12 +1006,17 @@ app.whenReady().then(async () => {
       }
     }
 
-    // Restore workspaces that have layouts but aren't in any window config
-    const configPaths = new Set(windowConfigs.flatMap((c) => c.paths))
+    // Restore workspaces that have layouts but aren't in any window config.
+    // Both sides are compared in comparable form (separators + win32 case) —
+    // persisted configs may predate normalization, and a spelling mismatch here
+    // spawned ghost windows.
+    const configPaths = new Set(
+      windowConfigs.flatMap((c) => c.paths.map((p) => comparableWorkspacePath(p))),
+    )
     const layoutWsIds = layoutStore.getDistinctWorkspaceIds()
     for (const wsId of layoutWsIds) {
       const ws = workspaceStore.get(wsId)
-      if (ws && !configPaths.has(ws.path)) {
+      if (ws && !configPaths.has(comparableWorkspacePath(ws.path))) {
         windowConfigs.push({ paths: [ws.path] })
       }
     }

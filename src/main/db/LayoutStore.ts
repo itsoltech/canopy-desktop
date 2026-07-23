@@ -1,5 +1,13 @@
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
+import { comparableWorkspacePath, normalizeWorkspacePath } from './workspacePaths'
+
+// Case-insensitive worktree-path matching on Windows via the shared Unicode-aware
+// `canopy_path_key` function (same rationale as the workspace lookup in
+// WorkspaceStore). The PK itself stays BINARY, so save() first removes any
+// case-divergent row to keep one layout per directory.
+const WT_EQ =
+  process.platform === 'win32' ? 'canopy_path_key(worktree_path) = ?' : 'worktree_path = ?'
 
 export class LayoutStore {
   constructor(private database: Database) {}
@@ -9,20 +17,25 @@ export class LayoutStore {
   }
 
   save(workspaceId: string, worktreePath: string, layoutJson: string): void {
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at)
-         VALUES (?, ?, ?, datetime('now'))`,
-      )
-      .run(workspaceId, worktreePath, layoutJson)
+    const write = this.db.transaction(() => {
+      this.db
+        .prepare(`DELETE FROM workspace_layouts WHERE workspace_id = ? AND ${WT_EQ}`)
+        .run(workspaceId, comparableWorkspacePath(worktreePath))
+      this.db
+        .prepare(
+          `INSERT INTO workspace_layouts (workspace_id, worktree_path, layout_json, updated_at)
+           VALUES (?, ?, ?, datetime('now'))`,
+        )
+        .run(workspaceId, normalizeWorkspacePath(worktreePath), layoutJson)
+    })
+    write()
   }
 
   get(workspaceId: string, worktreePath: string): string | null {
     const row = this.db
-      .prepare(
-        'SELECT layout_json FROM workspace_layouts WHERE workspace_id = ? AND worktree_path = ?',
-      )
-      .get(workspaceId, worktreePath) as { layout_json: string } | undefined
+      .prepare(`SELECT layout_json FROM workspace_layouts WHERE workspace_id = ? AND ${WT_EQ}`)
+      .get(workspaceId, comparableWorkspacePath(worktreePath)) as
+      { layout_json: string } | undefined
     return row?.layout_json ?? null
   }
 
@@ -34,8 +47,8 @@ export class LayoutStore {
 
   delete(workspaceId: string, worktreePath: string): void {
     this.db
-      .prepare('DELETE FROM workspace_layouts WHERE workspace_id = ? AND worktree_path = ?')
-      .run(workspaceId, worktreePath)
+      .prepare(`DELETE FROM workspace_layouts WHERE workspace_id = ? AND ${WT_EQ}`)
+      .run(workspaceId, comparableWorkspacePath(worktreePath))
   }
 
   deleteAll(workspaceId: string): void {

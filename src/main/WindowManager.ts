@@ -10,6 +10,7 @@ import type { BrowserManager } from './browser/BrowserManager'
 import type { TerminalStreamService } from './pty/TerminalStreamService'
 import { TmuxManager } from './pty/TmuxManager'
 import { isSafeExternalUrl } from './security/validateUrl'
+import { comparableWorkspacePath, normalizeWorkspacePath } from './db/workspacePaths'
 import type { WindowBounds, WindowConfig, WindowState } from './windowBounds'
 
 interface CreateWindowOptions {
@@ -25,7 +26,9 @@ interface WindowCloseSnapshot {
 
 export class WindowManager {
   private windows = new Map<number, BrowserWindow>()
-  private workspacePaths = new Map<number, Set<string>>()
+  // Keyed by comparable form (separator- and, on win32, case-folded) so lookups can
+  // never miss on spelling; values keep the display form for configs and callbacks.
+  private workspacePaths = new Map<number, Map<string, string>>()
   private activeWorktreePaths = new Map<number, string>()
   private startupRestoreWindows = new Map<number, boolean>()
   private gitWatchers = new Map<number, Map<string, GitWatcher>>()
@@ -225,9 +228,15 @@ export class WindowManager {
     return count
   }
 
+  // Tracked paths are normalized on the way in and matched by comparable form, so
+  // lookups, persisted window configs, and workspace-store rows can never diverge
+  // again on separator style or (win32) letter case — the source of un-deletable
+  // ghost windows.
   getWindowForPath(path: string): BrowserWindow | null {
+    const key = comparableWorkspacePath(path)
     for (const [wcId, paths] of this.workspacePaths) {
-      if (paths.has(path) || this.activeWorktreePaths.get(wcId) === path) {
+      const active = this.activeWorktreePaths.get(wcId)
+      if (paths.has(key) || (active && comparableWorkspacePath(active) === key)) {
         const win = this.windows.get(wcId)
         if (win && !win.isDestroyed()) return win
       }
@@ -238,19 +247,19 @@ export class WindowManager {
   addWorkspacePath(wcId: number, path: string): void {
     let paths = this.workspacePaths.get(wcId)
     if (!paths) {
-      paths = new Set()
+      paths = new Map()
       this.workspacePaths.set(wcId, paths)
     }
-    paths.add(path)
+    paths.set(comparableWorkspacePath(path), normalizeWorkspacePath(path))
   }
 
   removeWorkspacePath(wcId: number, path: string): void {
     const paths = this.workspacePaths.get(wcId)
-    if (paths) paths.delete(path)
+    if (paths) paths.delete(comparableWorkspacePath(path))
   }
 
   setActiveWorktree(wcId: number, path: string): void {
-    this.activeWorktreePaths.set(wcId, path)
+    this.activeWorktreePaths.set(wcId, normalizeWorkspacePath(path))
   }
 
   clearActiveWorktree(wcId: number): void {
@@ -275,9 +284,14 @@ export class WindowManager {
 
   getWorkspacePaths(wcId: number): string[] {
     const paths = this.workspacePaths.get(wcId)
-    const result = paths ? [...paths] : []
+    const result = paths ? [...paths.values()] : []
     const active = this.activeWorktreePaths.get(wcId)
-    if (active && !result.includes(active)) result.push(active)
+    if (
+      active &&
+      !result.some((p) => comparableWorkspacePath(p) === comparableWorkspacePath(active))
+    ) {
+      result.push(active)
+    }
     return result
   }
 
@@ -293,7 +307,7 @@ export class WindowManager {
         const windowState: WindowState = isFs ? 'fullscreen' : isMax ? 'maximized' : 'normal'
 
         configs.push({
-          paths: [...paths],
+          paths: [...paths.values()],
           activeWorktreePath: this.activeWorktreePaths.get(wcId),
           bounds,
           windowState,
@@ -494,7 +508,7 @@ export class WindowManager {
     if (!this.isQuitting && !closesApplication && this.windowDisposeCallback) {
       const paths = this.workspacePaths.get(wcId)
       if (paths && paths.size > 0) {
-        this.windowDisposeCallback([...paths])
+        this.windowDisposeCallback([...paths.values()])
       }
     }
 
