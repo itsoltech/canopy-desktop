@@ -47,15 +47,20 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
     // submodules), and only an explicit confirmation authorizes --force. The host
     // rejects an unconsented force-required removal, so a stale/failed preflight
     // degrades safely.
-    let forceRequired = false
+    let forceRequired = true
     let warnings: string[] = []
     try {
       const preflight = await api.worktree.prepareRemove({ repoRoot, path: worktree.path })
       forceRequired = preflight.forceRequired
       warnings = preflight.warnings
     } catch {
-      // Preflight unavailable (older host or broken worktree) — fall through to a
-      // plain confirmation; the host-side guard still protects the worktree.
+      // Preflight unavailable (older host or broken/ghost worktree) — mirror the
+      // desktop confirmWorktreeRemoval() contract and fail CLOSED: warn that the
+      // state cannot be verified and send force only after destructive consent
+      // (the host guard rejects an unconsented removal anyway).
+      warnings = [
+        'The worktree state could not be verified (broken checkout or older host) — files inside may include unsaved work.',
+      ]
     }
     const message = forceRequired
       ? `${warnings.join('\n')}\n\nForce-remove "${worktree.branch}" anyway?`

@@ -244,12 +244,17 @@ export class HostRpcServer {
       // and mobile must have collected that consent from its user (worktree.
       // prepareRemove). Rejecting here keeps the host's tabs, PTYs, and selection
       // fully intact — the old flow destroyed them first and then failed anyway.
+      // A FAILED preflight (ghost worktree with a broken checkout) fails CLOSED:
+      // git cannot verify the tree, so only explicit force consent may proceed.
       const preflight = await window.api
         .worktreePrepareRemove({ repoRoot, worktreePath: path, branch: '' })
         .catch(() => null)
-      if (preflight && removalNeedsForceConsent(preflight, force)) {
+      if (removalNeedsForceConsent(preflight, force)) {
+        const reason = preflight
+          ? preflight.warnings.join(' ')
+          : 'The worktree state could not be verified (broken or corrupted checkout).'
         throw new Error(
-          `Worktree removal requires force consent: ${preflight.warnings.join(' ')} ` +
+          `Worktree removal requires force consent: ${reason} ` +
             'Confirm the forced removal on the device and retry.',
         )
       }

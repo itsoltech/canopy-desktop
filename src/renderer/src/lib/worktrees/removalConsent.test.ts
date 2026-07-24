@@ -13,4 +13,12 @@ describe('removalNeedsForceConsent', () => {
   it('allows a clean removal without force', () => {
     expect(removalNeedsForceConsent({ forceRequired: false }, false)).toBe(false)
   })
+
+  it('fails closed on a missing/failed preflight without force (ghost worktree)', () => {
+    expect(removalNeedsForceConsent(null, false)).toBe(true)
+  })
+
+  it('allows a missing-preflight removal once destructive consent was collected', () => {
+    expect(removalNeedsForceConsent(null, true)).toBe(false)
+  })
 })
