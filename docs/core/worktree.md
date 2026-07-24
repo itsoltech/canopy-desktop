@@ -209,8 +209,11 @@ Example configuration (JSON):
 ## Source files
 
 - Worktree setup runner: `src/main/worktree/WorktreeSetupRunner.ts`
-- Git worktree operations: `src/main/git/GitRepository.ts` (methods `worktreeAdd`, `worktreeAddCheckout`, `worktreeRemove`, `listWorktrees`, `getUnmergedCommits`, `getStatusPorcelain`)
+- Git worktree operations: `src/main/git/GitRepository.ts` (methods `worktreeAdd`, `worktreeAddCheckout`, `worktreeRemove`, `worktreePrune`, `listWorktrees`, `getUnmergedCommits`, `getStatusPorcelain`, `hasInitializedSubmodules`, `isBranchMerged`, `branchExists`)
+- Removal failure taxonomy: `src/main/git/worktreeRemoval.ts` (`classifyWorktreeRemoveError`, `REMOVE_RETRY_DELAYS_MS`)
 - Setup action types: `src/main/db/types.ts` (`WorktreeSetupAction`, `WorktreeSetupProgress`)
+- Removal preflight/consent gate: `src/renderer/src/lib/worktrees/removalConsent.ts` (`confirmWorktreeRemoval`) and `src/renderer/src/lib/worktrees/removalGuard.ts` (`removalNeedsForceConsent`, shared with the remote host guard)
+- Remote removal RPC: `worktree.prepareRemove` / `worktree.remove` in `src/renderer-shared/rpc/methodList.ts`, handled by `src/renderer/src/lib/remote/HostRpcServer.ts` (mirrored in `mobile/src/lib/remote/protocol/rpc-methods.ts`)
 - Worktree agent status: `src/renderer/src/lib/agents/worktreeStatus.svelte.ts`
 - Agent state: `src/renderer/src/lib/agents/agentState.svelte.ts`
-- Preload (worktree API): `src/preload/index.ts` (`gitWorktreeAdd`, `gitWorktreeCheckout`, `gitWorktreeRemove`, `runWorktreeSetup`, `abortWorktreeSetup`, `onWorktreeSetupProgress`)
+- Preload (worktree API): `src/preload/index.ts` (`gitWorktreeAdd`, `gitWorktreeCheckout`, `gitWorktreeRemove`, `worktreeCreate`, `worktreePrepareRemove`, `worktreeRemoveWithBranch`, `runWorktreeSetup`, `abortWorktreeSetup`, `onWorktreeSetupProgress`)
