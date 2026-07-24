@@ -44,8 +44,9 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
               )
             }
           } catch (e) {
-            setRemoving(false)
             Alert.alert('Could not remove worktree', e instanceof Error ? e.message : String(e))
+          } finally {
+            setRemoving(false)
           }
         },
       },
