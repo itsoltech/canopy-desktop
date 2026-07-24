@@ -4,6 +4,7 @@
   import { closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
@@ -77,16 +78,13 @@
     if (!repoRoot) return
 
     const isDetached = wt.branch === '(detached)'
-    const ok = await confirm({
-      title: 'Remove Worktree',
-      message: isDetached
-        ? `Remove worktree "${wt.path.split('/').pop()}"?`
-        : `Remove worktree and delete branch "${wt.branch}"?`,
-      details: wt.path,
-      confirmLabel: 'Remove',
-      destructive: true,
+    const consent = await confirmWorktreeRemoval({
+      repoRoot,
+      worktreePath: wt.path,
+      branch: isDetached ? (wt.path.split('/').pop() ?? wt.path) : wt.branch,
+      detailSuffix: isDetached ? undefined : `The local branch "${wt.branch}" will be deleted.`,
     })
-    if (!ok) return
+    if (!consent.ok) return
 
     if (!(await closeAllTabsForWorktree(wt.path, { forRemoval: true }))) return
 
@@ -103,7 +101,7 @@
         worktreePath: wt.path,
         branch: wt.branch,
         deleteBranch: !isDetached,
-        forceOnFailure: true,
+        forceOnFailure: consent.force,
       })
       if (result.leftoverPath) {
         addToast(

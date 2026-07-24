@@ -11,6 +11,7 @@ import {
   closeAllTabsForWorktree,
 } from '../stores/tabs.svelte'
 import { attachProject, selectWorktree, workspaceState } from '../stores/workspace.svelte'
+import { removalNeedsForceConsent } from '../worktrees/removalGuard'
 import { allPanes } from '../stores/splitTree'
 import { substituteLocalhost } from '../../../../renderer-shared/url/localhostSubstitution'
 import { remoteSession } from '../stores/remoteSession.svelte'
@@ -227,10 +228,31 @@ export class HostRpcServer {
       provider.rebroadcast()
     })
 
+    this.register('worktree.prepareRemove', async (params) => {
+      const repoRoot = assertString(params, 'repoRoot', 'worktree.prepareRemove')
+      const path = assertString(params, 'path', 'worktree.prepareRemove')
+      // The handler resolves the worktree (and its branch) from the validated
+      // path; the branch field of the IPC payload is not used for preflight.
+      return window.api.worktreePrepareRemove({ repoRoot, worktreePath: path, branch: '' })
+    })
+
     this.register('worktree.remove', async (params) => {
       const repoRoot = assertString(params, 'repoRoot', 'worktree.remove')
       const path = assertString(params, 'path', 'worktree.remove')
       const force = assertBoolean(params, 'force', 'worktree.remove')
+      // Consent gate BEFORE any teardown: a dirty/submodule worktree needs --force,
+      // and mobile must have collected that consent from its user (worktree.
+      // prepareRemove). Rejecting here keeps the host's tabs, PTYs, and selection
+      // fully intact — the old flow destroyed them first and then failed anyway.
+      const preflight = await window.api
+        .worktreePrepareRemove({ repoRoot, worktreePath: path, branch: '' })
+        .catch(() => null)
+      if (preflight && removalNeedsForceConsent(preflight, force)) {
+        throw new Error(
+          `Worktree removal requires force consent: ${preflight.warnings.join(' ')} ` +
+            'Confirm the forced removal on the device and retry.',
+        )
+      }
       // Same lifecycle as the local removal flows: close the worktree's tabs
       // (tree-killing PTYs and waiting for exit) and leave the worktree BEFORE
       // removing it — otherwise host tabs/watchers hold Windows file locks and the
@@ -246,6 +268,8 @@ export class HostRpcServer {
         repoRoot,
         worktreePath: path,
         deleteBranch: false,
+        // A failed preflight (ghost/broken worktree) falls through to the removal
+        // handler's own broken-link consent gate, so pass the peer's flag verbatim.
         forceOnFailure: force,
       })
       provider.rebroadcast()

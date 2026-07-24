@@ -35,11 +35,19 @@ Agents (Claude, Gemini, OpenCode, Codex) can run in dedicated worktrees for isol
 
 ### Removing a worktree
 
-1. User removes a worktree from the sidebar or via the command palette ("Remove Current Worktree").
-2. Preflight (`worktree:prepareRemove`) reports what a safe removal needs: uncommitted changes,
-   unmerged commits, and initialized submodules (git refuses to remove those worktrees even when
-   clean and documents `--force` as the remedy) all set `forceRequired`, so the destructive
-   confirmation runs BEFORE any teardown starts.
+1. User removes a worktree from the sidebar (worktrees list or project tree), via the command
+   palette ("Remove Current Worktree"), or remotely from the mobile app.
+2. Every entry point runs the same preflight/consent gate BEFORE any teardown. Preflight
+   (`worktree:prepareRemove`) reports what a safe removal needs: uncommitted changes, unmerged
+   commits, and initialized submodules (git refuses to remove those worktrees even when clean and
+   documents `--force` as the remedy) all set `forceRequired`:
+   - local flows share `confirmWorktreeRemoval()` — warnings appear in the confirmation, and only
+     that informed confirmation authorizes `--force`; when the preflight itself fails (ghost
+     worktree with a broken checkout) the confirmation is explicitly destructive,
+   - the mobile flow calls the `worktree.prepareRemove` RPC and shows the warnings on the device;
+     independently, the host rejects an unconsented force-required `worktree.remove` BEFORE
+     closing any tabs, so a stale or missing device-side preflight cannot destroy live host
+     context for a removal that would fail anyway.
 3. All tabs associated with that worktree path are closed with removal semantics — PTYs are
    tree-killed and awaited until the processes actually exit, BEFORE their session records are
    dropped. If the removed worktree is currently selected, the selection switches to the main

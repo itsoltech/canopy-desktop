@@ -113,6 +113,18 @@ export interface RpcMethods {
     /** leftoverPath is set when some files could not be deleted (still held open). */
     result: { leftoverPath: string | null }
   }
+  /** Read-only removal preflight — collect informed force consent BEFORE worktree.remove. */
+  'worktree.prepareRemove': {
+    params: { repoRoot: string; path: string }
+    result: {
+      hasUncommittedChanges: boolean
+      unmergedCommitCount: number
+      branchMerged: boolean
+      forceRequired: boolean
+      canDeleteBranch: boolean
+      warnings: string[]
+    }
+  }
   'project.attach': {
     params: { path: string }
     result: void

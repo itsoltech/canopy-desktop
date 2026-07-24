@@ -37,6 +37,7 @@
   } from '../../lib/stores/dialogs.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -465,28 +466,17 @@
             const branch = selectedWt.branch
             const operationRoot = workspaceState.worktrees.find((w) => w.isMain)?.path ?? root
             try {
-              const preflight = await window.api.worktreePrepareRemove({
+              // Shared preflight/consent gate (same as the sidebar flows): warnings
+              // and destructive consent are collected BEFORE any teardown.
+              const consent = await confirmWorktreeRemoval({
                 repoRoot: operationRoot,
                 worktreePath: wtPath,
                 branch,
               })
-
-              const msg =
-                preflight.warnings.length > 0
-                  ? preflight.warnings.join('\n') + '\n\nRemove this worktree?'
-                  : `Remove worktree "${branch}"?`
-
-              const ok = await confirm({
-                title: 'Remove Worktree',
-                message: msg,
-                details: wtPath,
-                confirmLabel: 'Remove',
-                destructive: preflight.forceRequired,
-              })
-              if (!ok) return
+              if (!consent.ok) return
 
               let deleteBranch = false
-              if (preflight.canDeleteBranch) {
+              if (consent.preflight?.canDeleteBranch) {
                 deleteBranch = await confirm({
                   title: 'Delete Branch?',
                   message: `Delete local branch "${branch}"? It has been fully merged.`,
@@ -507,10 +497,9 @@
                 branch,
                 deleteBranch,
                 // Lock retries and cleanup run unconditionally in the main flow;
-                // this flag only authorizes --force for a DIRTY tree, so it must
-                // carry exactly the consent the (destructive-styled) dialog asked
-                // for at preflight time.
-                forceOnFailure: preflight.forceRequired,
+                // this flag only authorizes --force for dirty/force-required
+                // refusals, so it must carry exactly the consent collected above.
+                forceOnFailure: consent.force,
               })
               if (result.leftoverPath) {
                 addToast(

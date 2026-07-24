@@ -14,6 +14,7 @@
   } from '../../lib/stores/workspace.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
   import { worktreeBadges } from '../../lib/agents/agentState.svelte'
@@ -150,6 +151,7 @@
   async function doRemoveWorktree(
     project: ProjectState,
     wt: { path: string; branch: string },
+    forceConsented: boolean,
   ): Promise<void> {
     const repoRoot = project.worktrees.find((w) => w.isMain)?.path ?? project.repoRoot
     if (!repoRoot || removingPaths.has(wt.path)) return
@@ -171,7 +173,7 @@
         worktreePath: wt.path,
         branch: wt.branch,
         deleteBranch: !isDetached,
-        forceOnFailure: true,
+        forceOnFailure: forceConsented,
       })
       if (result.leftoverPath) {
         addToast(
@@ -197,19 +199,18 @@
     e.stopPropagation()
     if (!project.repoRoot) return
 
+    const repoRoot = project.worktrees.find((w) => w.isMain)?.path ?? project.repoRoot
+    if (!repoRoot) return
     const isDetached = wt.branch === '(detached)'
-    const ok = await confirm({
-      title: 'Remove Worktree',
-      message: isDetached
-        ? `Remove worktree "${wt.path.split('/').pop()}"?`
-        : `Remove worktree and delete branch "${wt.branch}"?`,
-      details: wt.path,
-      confirmLabel: 'Remove',
-      destructive: true,
+    const consent = await confirmWorktreeRemoval({
+      repoRoot,
+      worktreePath: wt.path,
+      branch: isDetached ? (wt.path.split('/').pop() ?? wt.path) : wt.branch,
+      detailSuffix: isDetached ? undefined : `The local branch "${wt.branch}" will be deleted.`,
     })
-    if (!ok) return
+    if (!consent.ok) return
 
-    await doRemoveWorktree(project, wt)
+    await doRemoveWorktree(project, wt, consent.force)
   }
 
   function handleNewWorktree(e: MouseEvent, project: ProjectState): void {
@@ -320,19 +321,18 @@
     closeCtxMenu()
     if (!project.repoRoot) return
 
+    const repoRoot = project.worktrees.find((w) => w.isMain)?.path ?? project.repoRoot
+    if (!repoRoot) return
     const isDetached = wt.branch === '(detached)'
-    const ok = await confirm({
-      title: 'Remove Worktree',
-      message: isDetached
-        ? `Remove worktree "${wt.path.split('/').pop()}"?`
-        : `Remove worktree and delete branch "${wt.branch}"?`,
-      details: wt.path,
-      confirmLabel: 'Remove',
-      destructive: true,
+    const consent = await confirmWorktreeRemoval({
+      repoRoot,
+      worktreePath: wt.path,
+      branch: isDetached ? (wt.path.split('/').pop() ?? wt.path) : wt.branch,
+      detailSuffix: isDetached ? undefined : `The local branch "${wt.branch}" will be deleted.`,
     })
-    if (!ok) return
+    if (!consent.ok) return
 
-    await doRemoveWorktree(project, wt)
+    await doRemoveWorktree(project, wt, consent.force)
   }
 
   function statusDotBg(status: string): string {
