@@ -50,7 +50,9 @@ export interface RemoteApi {
   worktree: {
     add: (args: RpcMethods['worktree.add']['params']) => Promise<void>
     addCheckout: (args: RpcMethods['worktree.addCheckout']['params']) => Promise<void>
-    remove: (args: RpcMethods['worktree.remove']['params']) => Promise<void>
+    remove: (
+      args: RpcMethods['worktree.remove']['params'],
+    ) => Promise<RpcMethods['worktree.remove']['result']>
   }
   project: {
     attach: (path: string) => Promise<void>

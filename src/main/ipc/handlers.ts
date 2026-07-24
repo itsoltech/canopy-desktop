@@ -1889,10 +1889,22 @@ export function registerIpcHandlers(
           )
         : false
 
+      // Git refuses to remove a worktree containing initialized submodules even
+      // when the tree is clean and documents --force as the remedy — the consent
+      // dialog must know about this BEFORE any tab teardown starts, or the removal
+      // deterministically fails after the tabs are already gone. Probe failures
+      // degrade to false: the removal loop still reports the refusal clearly.
+      const hasSubmodules = await GitRepository.hasInitializedSubmodules(worktree.path).unwrapOr(
+        false,
+      )
+
       const warnings: string[] = []
       if (hasUncommittedChanges) warnings.push('Has uncommitted changes.')
       if (unmergedCommits.length > 0) {
         warnings.push(`${unmergedCommits.length} unmerged commit(s) not on any remote.`)
+      }
+      if (hasSubmodules) {
+        warnings.push('Contains git submodules — git requires a forced removal.')
       }
 
       return {

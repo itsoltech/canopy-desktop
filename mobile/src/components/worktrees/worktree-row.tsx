@@ -32,7 +32,17 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
         onPress: async () => {
           setRemoving(true)
           try {
-            await api.worktree.remove({ repoRoot, path: worktree.path, force: false })
+            const result = await api.worktree.remove({
+              repoRoot,
+              path: worktree.path,
+              force: false,
+            })
+            if (result?.leftoverPath) {
+              Alert.alert(
+                'Worktree removed with leftovers',
+                `Some files are still in use by another process and were left at:\n${result.leftoverPath}`,
+              )
+            }
           } catch (e) {
             setRemoving(false)
             Alert.alert('Could not remove worktree', e instanceof Error ? e.message : String(e))

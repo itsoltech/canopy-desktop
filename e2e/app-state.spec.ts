@@ -1349,6 +1349,65 @@ test('main process exposes and publishes app state snapshots', async ({ electron
     expect(execSync('git branch --list CANOPY-GHOST', { cwd: tmpDir }).toString().trim()).toBe('')
   }
 
+  // Submodule force-requirement: git refuses to remove a worktree containing an
+  // initialized submodule even when clean — preflight must surface it as
+  // forceRequired so the consent dialog runs BEFORE tab teardown, and the consented
+  // removal must retry with --force.
+  const submoduleSourcePath = `${tmpDir}-submodule-source`
+  const submoduleWorktreePath = `${tmpDir}-submodule-worktree`
+  extraTmpPaths.push(submoduleSourcePath, submoduleWorktreePath)
+  execFileSync('git', ['init', submoduleSourcePath])
+  execSync('git commit --allow-empty -m init', { cwd: submoduleSourcePath })
+  execSync('git branch CANOPY-SUBMODULE HEAD', { cwd: tmpDir })
+  execFileSync('git', ['worktree', 'add', submoduleWorktreePath, 'CANOPY-SUBMODULE'], {
+    cwd: tmpDir,
+  })
+  execFileSync(
+    'git',
+    ['-c', 'protocol.file.allow=always', 'submodule', 'add', submoduleSourcePath, 'sub'],
+    { cwd: submoduleWorktreePath },
+  )
+  execSync('git commit -m "add submodule"', { cwd: submoduleWorktreePath })
+
+  const submodulePreflight = await workspacePage.evaluate(
+    ({ projectPath, worktreePath }) => {
+      const api = (window as unknown as { api: Required<AppStateApi> }).api
+      return api.worktreePrepareRemove({
+        repoRoot: projectPath,
+        worktreePath,
+        branch: 'CANOPY-SUBMODULE',
+      })
+    },
+    { projectPath: tmpDir, worktreePath: submoduleWorktreePath },
+  )
+  expect(submodulePreflight.forceRequired).toBe(true)
+  expect(submodulePreflight.warnings).toContain(
+    'Contains git submodules — git requires a forced removal.',
+  )
+
+  const submoduleRemoveResult = await workspacePage.evaluate(
+    ({ projectPath, worktreePath }) => {
+      const api = (window as unknown as { api: Required<AppStateApi> }).api
+      return api.worktreeRemoveWithBranch({
+        repoRoot: projectPath,
+        worktreePath,
+        branch: 'CANOPY-SUBMODULE',
+        deleteBranch: true,
+        forceOnFailure: true,
+      })
+    },
+    { projectPath: tmpDir, worktreePath: submoduleWorktreePath },
+  )
+  expect(submoduleRemoveResult.worktreeRemoved).toBe(true)
+  expect(submoduleRemoveResult.forcedWorktreeRemove).toBe(true)
+  expect(submoduleRemoveResult.branchDeleted).toBe(true)
+  await expect(
+    stat(submoduleWorktreePath).then(
+      () => true,
+      () => false,
+    ),
+  ).resolves.toBe(false)
+
   const injectedFocusResult = await workspacePage.evaluate((projectPath) => {
     const api = (window as unknown as { api: Required<AppStateApi> }).api
     if (typeof api.tabFocusSession !== 'function') {

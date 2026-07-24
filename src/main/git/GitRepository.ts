@@ -449,6 +449,20 @@ export class GitRepository {
     })
   }
 
+  /**
+   * True when the worktree contains at least one initialized (populated) submodule.
+   * Git refuses `worktree remove` for such worktrees even when clean and documents
+   * --force as the remedy — preflights must surface this as a force requirement
+   * BEFORE any teardown starts. Uninitialized submodules (status lines starting
+   * with '-') don't block removal.
+   */
+  static hasInitializedSubmodules(worktreePath: string): ResultAsync<boolean, GitError> {
+    const git = simpleGit(worktreePath)
+    return gitCall('submodule status', git.raw(['submodule', 'status'])).map((raw) =>
+      raw.split('\n').some((line) => line.trim().length > 0 && !line.trimStart().startsWith('-')),
+    )
+  }
+
   /** Drop stale worktree registrations whose directories are gone. */
   static worktreePrune(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)

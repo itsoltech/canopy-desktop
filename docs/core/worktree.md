@@ -36,26 +36,34 @@ Agents (Claude, Gemini, OpenCode, Codex) can run in dedicated worktrees for isol
 ### Removing a worktree
 
 1. User removes a worktree from the sidebar or via the command palette ("Remove Current Worktree").
-2. The app may check for uncommitted changes or unmerged commits before proceeding.
-3. All tabs associated with that worktree path are closed; if the removed worktree is currently
-   selected, the selection switches to the main worktree first so no UI keeps polling a
-   disappearing path.
-4. The main process prepares the directory for deletion (Windows deletes a directory only when
-   nothing holds a handle inside it):
-   - kills every PTY whose cwd lies inside the worktree — including full process trees — and
-     waits (bounded) until the processes actually exit,
-   - stops file-tree and git watchers subscribed inside the path and waits for the native
-     unsubscribes.
+2. Preflight (`worktree:prepareRemove`) reports what a safe removal needs: uncommitted changes,
+   unmerged commits, and initialized submodules (git refuses to remove those worktrees even when
+   clean and documents `--force` as the remedy) all set `forceRequired`, so the destructive
+   confirmation runs BEFORE any teardown starts.
+3. All tabs associated with that worktree path are closed with removal semantics — PTYs are
+   tree-killed and awaited until the processes actually exit, BEFORE their session records are
+   dropped. If the removed worktree is currently selected, the selection switches to the main
+   worktree first so no UI keeps polling a disappearing path.
+4. The main process sweeps remaining holders (Windows deletes a directory only when nothing holds
+   a handle inside it): any other PTY whose cwd lies inside the worktree is tree-killed and
+   awaited, and file-tree/git watchers subscribed inside the path are stopped and awaited.
 5. `git worktree remove <path>` runs without `--force` first. On failure the error is classified:
-   - "is not a working tree" → a previous attempt already unregistered the worktree; skip to
-     cleanup instead of retrying git,
-   - lock symptoms (permission denied, directory not empty, EBUSY…) → retried with `--force` and
-     backoff (transient locks from dying processes or AV scans clear within seconds),
-   - dirty-tree refusal → retried with `--force` (only when the caller allowed forcing).
-6. After unregistration, `git worktree prune` clears stale admin records and the directory is
-   verified to be gone; remnants are deleted with `fs.rm` retries. If files are still held open
-   by another process, the result carries `leftoverPath` and the UI shows a toast instead of
-   silently leaving a ghost folder.
+   - "is not a working tree" → a previous attempt already unregistered the worktree; continue to
+     the verified cleanup instead of retrying git,
+   - broken `.git` link (a ghost left by an earlier failed removal) → git cannot verify the tree,
+     so this proceeds only with the destructive-consent flag; the — prunable — registration is
+     cleared by `git worktree prune` below,
+   - lock symptoms (permission denied, directory not empty, EBUSY…) → retried WITHOUT `--force`
+     with backoff (forcing does not bypass OS file locks; time does — transient locks from dying
+     processes or AV scans clear within seconds). When retries run out while git still owns the
+     worktree, the removal FAILS with the tree and registration intact — no fallback deletion,
+   - dirty-tree or force-required refusals (e.g. submodules) → retried with `--force` only when
+     the caller passed the destructive-consent flag.
+6. After unregistration, `git worktree prune` clears stale admin records and the absence of the
+   path is verified against `git worktree list` BEFORE any raw filesystem cleanup — if git still
+   lists it, the removal fails without touching files. Then remnants are deleted with `fs.rm`
+   retries; files still held open by another process are reported via `leftoverPath` (surfaced as
+   a toast) instead of silently leaving a ghost folder.
 7. Branch deletion (when requested) runs even if the worktree removal needed the fallback paths —
    an aborted flow no longer leaves stray branches.
 8. The git watcher updates the sidebar.
