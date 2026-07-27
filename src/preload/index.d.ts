@@ -1236,6 +1236,14 @@ interface CanopyAPI {
     attachmentId: string,
     trackerId?: string,
   ) => Promise<string>
+  /** Save an attachment to disk via a native save dialog; resolves with the saved
+   *  path, or null when the user cancelled. */
+  trackerConfigAttachmentSave: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    attachmentId: string,
+    trackerId?: string,
+  ) => Promise<string | null>
 
   // GitHub PR features
   githubFetchBranchPRs: (repoRoot: string) => Promise<GitHubBranchPRMap>

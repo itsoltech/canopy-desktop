@@ -1627,6 +1627,18 @@ const api = {
       attachmentId,
       trackerId,
     }) as Promise<string>,
+  trackerConfigAttachmentSave: (
+    repoRoot: string | undefined,
+    taskKey: string,
+    attachmentId: string,
+    trackerId?: string,
+  ) =>
+    ipcRenderer.invoke('taskTracker:attachmentSave', {
+      repoRoot,
+      taskKey,
+      attachmentId,
+      trackerId,
+    }) as Promise<string | null>,
 
   // GitHub PR features
   githubFetchBranchPRs: (repoRoot: string) =>

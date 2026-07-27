@@ -30,6 +30,8 @@
   import { formatDateTime } from '../../lib/formatDate'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import Markdown from '../shared/Markdown.svelte'
+  import AttachmentLightbox from './AttachmentLightbox.svelte'
 
   // Task management panel for the worktree's backing task: change status (workflow-aware where the
   // tracker can introspect requirements — Jira; otherwise server errors are surfaced verbatim) and
@@ -80,6 +82,51 @@
   // The tracker that OWNS the panel task — with several trackers configured, defaulting to the
   // first one could read or mutate a same-key issue in the wrong external system.
   let panelTrackerId = $derived(panel?.connectionId || undefined)
+
+  // --- Attachment lightbox: view in-app, save to disk, tracker as escape hatch ---
+  let lightboxAttachment = $state<Attachment | null>(null)
+  let lightboxLoading = $state(false)
+  let savingAttachment = $state(false)
+
+  function openLightbox(a: Attachment): void {
+    lightboxAttachment = a
+    const isImage = (a.mimeType ?? '').startsWith('image/')
+    if (isImage && !attachmentPreviews[a.id] && panel?.taskKey) {
+      lightboxLoading = true
+      const key = panel.taskKey
+      window.api
+        .trackerConfigAttachmentPreview(worktreePath, key, a.id, panelTrackerId)
+        .then((dataUrl) => {
+          if (dataUrl && lightboxAttachment?.id === a.id) {
+            attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (lightboxAttachment?.id === a.id) lightboxLoading = false
+        })
+    }
+  }
+
+  async function saveLightboxAttachment(): Promise<void> {
+    const a = lightboxAttachment
+    const key = panel?.taskKey
+    if (!a || !key || savingAttachment) return
+    savingAttachment = true
+    try {
+      const savedPath = await window.api.trackerConfigAttachmentSave(
+        worktreePath,
+        key,
+        a.id,
+        panelTrackerId,
+      )
+      if (savedPath) addToast(`Saved ${a.name} to ${savedPath}`)
+    } catch (e) {
+      addToast(`Could not save attachment: ${ipcErrorMessage(e)}`)
+    } finally {
+      savingAttachment = false
+    }
+  }
   let panelTasks = $derived(getPanelTasks())
   // Task resolution runs at the end of worktree hydration — until it lands for THIS worktree, the
   // store still holds the previous worktree's tasks. Show a loader instead of stale data.
@@ -695,12 +742,12 @@
       {#if task?.description}
         {#key task.description}
           <!-- Native resize handle: starts at content height (capped), then the user drags. -->
-          <p
+          <div
             use:initDescriptionHeight
-            class="m-0 mt-1 px-1.5 py-1 text-xs text-text-muted leading-snug whitespace-pre-wrap resize-y overflow-y-auto min-h-10 max-h-[70vh] rounded-md border border-transparent hover:border-border-subtle"
+            class="m-0 mt-1 px-1.5 py-1 text-xs text-text-muted leading-snug resize-y overflow-y-auto min-h-10 max-h-[70vh] rounded-md border border-transparent hover:border-border-subtle"
           >
-            {task.description}
-          </p>
+            <Markdown source={task.description} />
+          </div>
         {/key}
       {:else if !task && loading}
         <div class="flex items-center gap-1.5 mt-1 text-xs text-text-faint">
@@ -718,8 +765,8 @@
               {#if attachmentPreviews[a.id]}
                 <button
                   class="p-0 border-0 bg-transparent cursor-pointer rounded-md overflow-hidden"
-                  onclick={() => window.api.openExternal(a.url)}
-                  title={`${a.name} — open in tracker`}
+                  onclick={() => openLightbox(a)}
+                  title={`${a.name} — view`}
                 >
                   <img
                     src={attachmentPreviews[a.id]}
@@ -730,11 +777,11 @@
               {:else}
                 <button
                   class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-border-subtle bg-active text-2xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-                  onclick={() => window.api.openExternal(a.url)}
-                  title={`${a.name} — open in tracker`}
+                  onclick={() => openLightbox(a)}
+                  title={`${a.name} — view / save`}
                 >
                   {#if (a.mimeType ?? '').startsWith('image/')}
-                    <LoaderCircle size={10} class="animate-spin" />
+                    <LoaderCircle size={10} class="animate-spin-slow motion-reduce:animate-none" />
                   {/if}
                   {a.name}
                 </button>
@@ -927,7 +974,7 @@
                 <Bot size={12} />
               </button>
             </div>
-            <p class="m-0 text-xs text-text leading-snug whitespace-pre-wrap">{comment.body}</p>
+            <Markdown source={comment.body} class="text-xs text-text leading-snug" />
             {#if composeTarget?.kind === 'comment' && composeTarget.id === comment.id}
               <div class="mt-1.5">
                 {@render composeBox()}
@@ -956,4 +1003,16 @@
       </div>
     {/if}
   </div>
+{/if}
+
+{#if lightboxAttachment}
+  <AttachmentLightbox
+    name={lightboxAttachment.name}
+    dataUrl={attachmentPreviews[lightboxAttachment.id] ?? null}
+    loading={lightboxLoading}
+    saving={savingAttachment}
+    onSave={saveLightboxAttachment}
+    onOpenExternal={() => lightboxAttachment && window.api.openExternal(lightboxAttachment.url)}
+    onClose={() => (lightboxAttachment = null)}
+  />
 {/if}
