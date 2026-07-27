@@ -32,8 +32,11 @@
   }
 
   onMount(() => {
+    // Focus returns to whatever opened the palette on close (same pattern as PRDetailsModal).
+    const previouslyFocused = document.activeElement as HTMLElement | null
     inputEl?.focus()
     void forceReload(worktreePath)
+    return () => previouslyFocused?.focus?.()
   })
 
   const matchedResults: Result[] = $derived.by(() => {

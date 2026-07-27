@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
   import { onMount, onDestroy } from 'svelte'
   import { X, ExternalLink, Copy, GitPullRequest, LoaderCircle, RefreshCw } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -65,18 +66,19 @@
 
   let stateChip = $derived(prStateChip(pr?.state, pr?.isDraft))
 
-  let reviewChip = $derived.by(() => {
-    switch (pr?.reviewDecision) {
-      case 'APPROVED':
-        return { label: 'Approved', cls: 'bg-success-bg text-success-text' }
-      case 'CHANGES_REQUESTED':
-        return { label: 'Changes requested', cls: 'bg-danger-bg text-danger-text' }
-      case 'REVIEW_REQUIRED':
-        return { label: 'Review required', cls: 'bg-warning-bg text-warning-text' }
-      default:
-        return null
-    }
-  })
+  let reviewChip = $derived(
+    match(pr?.reviewDecision)
+      .with('APPROVED', () => ({ label: 'Approved', cls: 'bg-success-bg text-success-text' }))
+      .with('CHANGES_REQUESTED', () => ({
+        label: 'Changes requested',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .with('REVIEW_REQUIRED', () => ({
+        label: 'Review required',
+        cls: 'bg-warning-bg text-warning-text',
+      }))
+      .otherwise(() => null),
+  )
 
   // statusCheckRollup entries mix check-runs (status/conclusion) and statuses (state).
   let checksChip = $derived.by(() => {
@@ -113,16 +115,14 @@
   })
 
   function reviewerChip(state: string): { label: string; cls: string } {
-    switch (state) {
-      case 'APPROVED':
-        return { label: 'approved', cls: 'bg-success-bg text-success-text' }
-      case 'CHANGES_REQUESTED':
-        return { label: 'changes requested', cls: 'bg-danger-bg text-danger-text' }
-      case 'PENDING':
-        return { label: 'pending', cls: 'bg-warning-bg text-warning-text' }
-      default:
-        return { label: 'commented', cls: 'bg-active text-text-muted' }
-    }
+    return match(state)
+      .with('APPROVED', () => ({ label: 'approved', cls: 'bg-success-bg text-success-text' }))
+      .with('CHANGES_REQUESTED', () => ({
+        label: 'changes requested',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .with('PENDING', () => ({ label: 'pending', cls: 'bg-warning-bg text-warning-text' }))
+      .otherwise(() => ({ label: 'commented', cls: 'bg-active text-text-muted' }))
   }
 
   let assigneeNames = $derived(
@@ -291,7 +291,7 @@
         aria-label="Refresh"
         title="Refresh from GitHub"
       >
-        <RefreshCw size={13} class={loading ? 'animate-spin' : ''} />
+        <RefreshCw size={13} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} />
       </button>
       <button
         class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
@@ -306,7 +306,7 @@
     <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
       {#if loading && !pr}
         <div class="flex items-center justify-center gap-2 py-8 text-md text-text-muted">
-          <LoaderCircle size={16} class="animate-spin" />
+          <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
           <span>Loading pull request…</span>
         </div>
       {:else if error}
@@ -435,7 +435,7 @@
               title="Close this pull request without merging"
             >
               {#if acting === 'close'}
-                <LoaderCircle size={13} class="animate-spin" />
+                <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
               {/if}
               {armed === 'close' ? 'Confirm close' : 'Close PR'}
             </button>
@@ -446,7 +446,7 @@
               title={mergeBlockReason ?? 'Merge this pull request'}
             >
               {#if acting === 'merge'}
-                <LoaderCircle size={13} class="animate-spin" />
+                <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
               {/if}
               {armed === 'merge' ? 'Confirm merge' : 'Merge'}
             </button>
@@ -460,7 +460,7 @@
               title={`Delete the remote branch ${pr.headRefName}`}
             >
               {#if acting === 'delete'}
-                <LoaderCircle size={13} class="animate-spin" />
+                <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
               {/if}
               {armed === 'delete' ? 'Confirm delete' : 'Delete source branch'}
             </button>

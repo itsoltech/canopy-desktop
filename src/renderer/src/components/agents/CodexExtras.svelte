@@ -50,7 +50,7 @@
     <h4 class="text-2xs font-semibold tracking-[0.5px] uppercase text-text-faint m-0">
       Last response
     </h4>
-    <p class="text-xs text-text-secondary m-0 leading-snug break-words">
+    <p class="text-xs text-text-secondary m-0 leading-snug break-words" title={lastMessage}>
       {truncate(lastMessage, 200)}
     </p>
   </div>

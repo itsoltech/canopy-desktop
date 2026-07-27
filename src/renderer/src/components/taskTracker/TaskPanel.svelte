@@ -557,7 +557,7 @@
           : 'Send to the agent (Ctrl+Enter)'}
       >
         {#if sendingToAgent}
-          <LoaderCircle size={12} class="animate-spin" />
+          <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
         {:else}
           <Send size={12} />
         {/if}
@@ -569,7 +569,7 @@
 
 {#if panelResolving}
   <div class="flex items-center justify-center gap-2 h-full p-4 text-text-faint">
-    <LoaderCircle size={14} class="animate-spin" />
+    <LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />
     <span class="text-sm">Resolving task…</span>
   </div>
 {:else if !panel}
@@ -635,7 +635,7 @@
         {:else if loading}
           <LoaderCircle
             size={12}
-            class="animate-spin text-text-faint"
+            class="animate-spin motion-reduce:animate-none text-text-faint"
             aria-label="Loading status"
           />
         {/if}
@@ -647,7 +647,7 @@
           aria-label="Refresh task"
           title="Refresh from tracker"
         >
-          <RefreshCw size={13} class={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={13} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} />
         </button>
       </div>
       {#if composeTarget?.kind === 'task'}
@@ -666,7 +666,7 @@
         {/if}
         {#if !task && loading}
           <span class="flex items-center gap-1.5 text-text-faint">
-            <LoaderCircle size={11} class="animate-spin" />
+            <LoaderCircle size={11} class="animate-spin motion-reduce:animate-none" />
             Loading…
           </span>
         {:else}
@@ -700,7 +700,7 @@
         {/key}
       {:else if !task && loading}
         <div class="flex items-center gap-1.5 mt-1 text-xs text-text-faint">
-          <LoaderCircle size={11} class="animate-spin" />
+          <LoaderCircle size={11} class="animate-spin motion-reduce:animate-none" />
           <span>Loading description…</span>
         </div>
       {/if}
@@ -730,7 +730,7 @@
                   title={`${a.name} — open in tracker`}
                 >
                   {#if (a.mimeType ?? '').startsWith('image/')}
-                    <LoaderCircle size={10} class="animate-spin" />
+                    <LoaderCircle size={10} class="animate-spin motion-reduce:animate-none" />
                   {/if}
                   {a.name}
                 </button>
@@ -759,7 +759,7 @@
         </div>
       {:else if checkingCreds}
         <div class="flex items-center gap-2 text-xs text-text-faint">
-          <LoaderCircle size={12} class="animate-spin" />
+          <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
           <span>Checking credentials…</span>
         </div>
       {:else if notFound}
@@ -802,7 +802,7 @@
         {#if transitions.length === 0}
           {#if loading}
             <div class="flex items-center gap-1.5 text-xs text-text-faint">
-              <LoaderCircle size={11} class="animate-spin" />
+              <LoaderCircle size={11} class="animate-spin motion-reduce:animate-none" />
               <span>Loading transitions…</span>
             </div>
           {:else}
@@ -897,7 +897,7 @@
         </span>
         {#if loading && comments.length === 0}
           <div class="flex items-center gap-1.5 text-xs text-text-faint">
-            <LoaderCircle size={11} class="animate-spin" />
+            <LoaderCircle size={11} class="animate-spin motion-reduce:animate-none" />
             <span>Loading comments…</span>
           </div>
         {:else if comments.length === 0}

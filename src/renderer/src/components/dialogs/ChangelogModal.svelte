@@ -1,10 +1,14 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
+
+  // Focus returns to whatever opened the dialog on close (same pattern as PRDetailsModal).
+  let previouslyFocused: HTMLElement | null = null
+  onDestroy(() => previouslyFocused?.focus?.())
 
   interface Props {
     fromVersion: string
@@ -17,6 +21,7 @@
   let error = $state(false)
 
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     const raw = await window.api.getChangelogSinceVersion(fromVersion)
     if (raw && raw.length > 0) {

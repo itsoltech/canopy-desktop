@@ -157,7 +157,7 @@
   <div class="flex items-center gap-1 [app-region:no-drag]">
     <button
       bind:this={triggerEl}
-      class="inline-flex items-center justify-between gap-1.5 h-6 px-2 max-w-[180px] border border-border rounded-md bg-bg-secondary text-text text-xs font-inherit cursor-pointer outline-none hover:bg-hover"
+      class="inline-flex items-center justify-between gap-1.5 h-6 px-2 max-w-[180px] border border-border rounded-md bg-bg-secondary text-text text-xs font-inherit cursor-pointer outline-none hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
       title={activeLabel}
       onclick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
     >
