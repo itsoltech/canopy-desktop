@@ -5,8 +5,16 @@
   // Component-local Marked instance so the overrides below never leak into other
   // `marked` consumers (the notes pane has its own pipeline). GFM with
   // newline-as-break matches how trackers treat single newlines.
-  const escapeHtml = (s: string): string =>
-    s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Entity-aware attribute escaper (marked's "no-encode" variant): the tokenizer
+  // hands the image alt text over ALREADY entity-escaped, so re-escaping `&`
+  // unconditionally would render `Q&amp;A` literally. Leaving existing entities
+  // alone is exactly as safe for the attribute-injection case.
+  const escapeAttr = (s: string): string =>
+    s
+      .replace(/&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
 
   const md = new Marked({
     gfm: true,
@@ -20,7 +28,7 @@
       // attributes into the anchor.
       image({ href, text }): string {
         const label = text?.trim() ? text : 'image'
-        return `<a href="${escapeHtml(href)}">🖼 ${escapeHtml(label)}</a>`
+        return `<a href="${escapeAttr(href)}">🖼 ${escapeAttr(label)}</a>`
       },
     },
   })
