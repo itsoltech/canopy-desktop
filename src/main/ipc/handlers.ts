@@ -4700,17 +4700,23 @@ export function registerIpcHandlers(
       // mkdtemp guarantees ownership of everything under the staging dir, making
       // the cleanup below safe by construction (no risk of deleting a pre-existing
       // sibling), and the short fixed basename cannot exceed name-length limits.
-      const stagingDir = await fs.promises.mkdtemp(
-        path.join(path.dirname(saveResult.filePath), '.canopy-save-'),
-      )
-      const stagedPath = path.join(stagingDir, 'staged')
+      // The staging creation lives INSIDE the block owning the download's
+      // lifetime: an mkdtemp rejection (ACL forbidding directory creation,
+      // read-only share) must still clean up the temp download in finally.
+      let stagingDir: string | null = null
       try {
+        stagingDir = await fs.promises.mkdtemp(
+          path.join(path.dirname(saveResult.filePath), '.canopy-save-'),
+        )
+        const stagedPath = path.join(stagingDir, 'staged')
         await fs.promises.copyFile(localPath, stagedPath)
         // rename() replaces existing destinations on all platforms.
         await fs.promises.rename(stagedPath, saveResult.filePath)
         return saveResult.filePath
       } finally {
-        await fs.promises.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+        if (stagingDir) {
+          await fs.promises.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+        }
         taskTrackerManager.cleanupAttachmentDir(localPath)
       }
     },
