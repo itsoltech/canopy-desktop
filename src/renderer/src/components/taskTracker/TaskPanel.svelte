@@ -87,7 +87,9 @@
   let lightboxAttachment = $state<Attachment | null>(null)
   let lightboxLoading = $state(false)
   let lightboxError = $state('')
-  let savingAttachment = $state(false)
+  // Keyed by attachment id — the post-dialog download is not window-modal, so a
+  // single flag would lock attachment B's Save behind A's still-running download.
+  let savingAttachmentId = $state<string | null>(null)
 
   function openLightbox(a: Attachment): void {
     lightboxAttachment = a
@@ -118,8 +120,8 @@
   async function saveLightboxAttachment(): Promise<void> {
     const a = lightboxAttachment
     const key = panel?.taskKey
-    if (!a || !key || savingAttachment) return
-    savingAttachment = true
+    if (!a || !key || savingAttachmentId === a.id) return
+    savingAttachmentId = a.id
     try {
       const savedPath = await window.api.trackerConfigAttachmentSave(
         worktreePath,
@@ -131,7 +133,7 @@
     } catch (e) {
       addToast(`Could not save attachment: ${ipcErrorMessage(e)}`)
     } finally {
-      savingAttachment = false
+      if (savingAttachmentId === a.id) savingAttachmentId = null
     }
   }
   let panelTasks = $derived(getPanelTasks())
@@ -1017,7 +1019,7 @@
     name={lightboxAttachment.name}
     dataUrl={attachmentPreviews[lightboxAttachment.id] ?? null}
     loading={lightboxLoading}
-    saving={savingAttachment}
+    saving={savingAttachmentId === lightboxAttachment.id}
     error={lightboxError}
     onSave={saveLightboxAttachment}
     onOpenExternal={() => lightboxAttachment && window.api.openExternal(lightboxAttachment.url)}

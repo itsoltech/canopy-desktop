@@ -5,6 +5,9 @@
   // Component-local Marked instance so the overrides below never leak into other
   // `marked` consumers (the notes pane has its own pipeline). GFM with
   // newline-as-break matches how trackers treat single newlines.
+  const escapeHtml = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
   const md = new Marked({
     gfm: true,
     breaks: true,
@@ -12,12 +15,20 @@
       // The renderer CSP (`img-src 'self' data:`) blocks remote images, so an
       // `<img>` would render as a broken glyph. Emit a labelled link instead —
       // the main process routes the click to the OS browser (`will-navigate`).
+      // Both interpolations are escaped: the default renderer runs href through
+      // cleanUrl(), and dropping that would let a quote in the href inject
+      // attributes into the anchor.
       image({ href, text }): string {
         const label = text?.trim() ? text : 'image'
-        return `<a href="${href}">🖼 ${label}</a>`
+        return `<a href="${escapeHtml(href)}">🖼 ${escapeHtml(label)}</a>`
       },
     },
   })
+
+  // On top of the default profile: no live CSS (the CSP allows inline styles) and
+  // no class/id — the app ships global Tailwind utilities, so an attacker-supplied
+  // class list could rebuild a full-viewport overlay out of our own tokens.
+  const SANITIZE_OPTS = { FORBID_TAGS: ['style'], FORBID_ATTR: ['style', 'class', 'id'] }
 </script>
 
 <script lang="ts">
@@ -39,14 +50,18 @@
       html = ''
       return
     }
-    Promise.resolve(md.parse(raw)).then((parsed) => {
-      if (gen !== parseGen) return
-      // Style tags/attributes are forbidden on top of the default profile: the CSP
-      // allows inline styles, and DOMPurify's defaults would let a <style> block in
-      // tracker/PR content restyle app chrome (UI redress) — selectors are not
-      // scoped to this component.
-      html = DOMPurify.sanitize(parsed, { FORBID_TAGS: ['style'], FORBID_ATTR: ['style'] })
-    })
+    // Promise.resolve().then(...) so a SYNCHRONOUS parser throw lands in the catch
+    // instead of escaping the effect; the catch falls back to the sanitized raw
+    // source rather than leaving stale HTML from a previous source on screen.
+    Promise.resolve()
+      .then(() => md.parse(raw))
+      .then((parsed) => {
+        if (gen !== parseGen) return
+        html = DOMPurify.sanitize(parsed, SANITIZE_OPTS)
+      })
+      .catch(() => {
+        if (gen === parseGen) html = DOMPurify.sanitize(raw, SANITIZE_OPTS)
+      })
   })
 </script>
 
