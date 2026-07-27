@@ -9,6 +9,7 @@
     Bot,
     ImagePlus,
     Image as ImageIcon,
+    AlertCircle,
     X,
   } from '@lucide/svelte'
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
@@ -248,6 +249,11 @@
       attachments = []
       attachmentPreviews = {}
       thumbnailStates = {}
+      // The lightbox belongs to the task being cleared — leaving it open would
+      // address the NEW task's key with the OLD attachment id.
+      lightboxAttachment = null
+      lightboxLoading = false
+      lightboxError = ''
       void refresh(key)
     } else if (!key) {
       loadedForKey = ''
@@ -257,6 +263,9 @@
       attachments = []
       attachmentPreviews = {}
       thumbnailStates = {}
+      lightboxAttachment = null
+      lightboxLoading = false
+      lightboxError = ''
     }
   })
 
@@ -288,7 +297,6 @@
         comments = []
         attachments = []
         attachmentPreviews = {}
-        thumbnailStates = {}
         thumbnailStates = {}
         return
       }
@@ -334,6 +342,7 @@
         url: a.url,
       }))
       attachmentPreviews = {}
+      thumbnailStates = {}
       // Thumbnails for image attachments (bounded — huge tasks shouldn't fire dozens of
       // authenticated downloads). Loading state is tracked per id: images beyond the
       // prefetch limit and failed fetches must render as plain files, not as an
@@ -821,10 +830,14 @@
                   class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-border-subtle bg-active text-2xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
                   data-attachment-trigger={a.id}
                   onclick={() => openLightbox(a)}
-                  title={`${a.name} — view / save`}
+                  title={thumbnailStates[a.id] === 'failed'
+                    ? `${a.name} — thumbnail failed to load; view / save`
+                    : `${a.name} — view / save`}
                 >
                   {#if thumbnailStates[a.id] === 'loading'}
                     <LoaderCircle size={10} class="animate-spin-slow motion-reduce:animate-none" />
+                  {:else if thumbnailStates[a.id] === 'failed'}
+                    <AlertCircle size={10} class="text-warning-text" />
                   {:else if (a.mimeType ?? '').startsWith('image/')}
                     <ImageIcon size={10} />
                   {/if}

@@ -4699,7 +4699,8 @@ export function registerIpcHandlers(
       // previous file. rename() replaces existing destinations on all platforms.
       const stagedPath = `${saveResult.filePath}.canopy-tmp-${Math.random().toString(36).slice(2, 10)}`
       try {
-        await fs.promises.copyFile(localPath, stagedPath)
+        // COPYFILE_EXCL: fail rather than write through a pre-existing staging path.
+        await fs.promises.copyFile(localPath, stagedPath, fs.constants.COPYFILE_EXCL)
         await fs.promises.rename(stagedPath, saveResult.filePath)
         return saveResult.filePath
       } catch (e) {

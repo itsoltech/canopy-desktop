@@ -77,6 +77,12 @@
       'input',
     ],
     ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'align', 'start', 'type', 'checked', 'disabled'],
+    // data-*/aria-* are checked BEFORE the allowlist and default to allowed —
+    // markdown output needs neither, and the app addresses DOM nodes with
+    // document-wide data-* queries (focus restore, list selection), which rendered
+    // tracker content could hijack.
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
   }
 
   // Dedicated DOMPurify instance: the checkbox hook below must not leak into other
