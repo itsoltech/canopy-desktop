@@ -4693,20 +4693,24 @@ export function registerIpcHandlers(
         payload.repoRoot,
       )
       const localPath = unwrapOrThrow(result, taskTrackerErrorMessage)
-      // Stage next to the destination and swap in only after the copy succeeded —
-      // copyFile() straight onto an existing file is non-atomic, so a mid-copy
-      // failure (full disk, disconnected volume) would destroy the user's
-      // previous file. rename() replaces existing destinations on all platforms.
-      const stagedPath = `${saveResult.filePath}.canopy-tmp-${Math.random().toString(36).slice(2, 10)}`
+      // Stage in an app-owned mkdtemp directory NEXT TO the destination (same
+      // volume, so the final rename never crosses filesystems) and swap in only
+      // after the copy succeeded — copyFile() straight onto an existing file is
+      // non-atomic, so a mid-copy failure would destroy the user's previous file.
+      // mkdtemp guarantees ownership of everything under the staging dir, making
+      // the cleanup below safe by construction (no risk of deleting a pre-existing
+      // sibling), and the short fixed basename cannot exceed name-length limits.
+      const stagingDir = await fs.promises.mkdtemp(
+        path.join(path.dirname(saveResult.filePath), '.canopy-save-'),
+      )
+      const stagedPath = path.join(stagingDir, 'staged')
       try {
-        // COPYFILE_EXCL: fail rather than write through a pre-existing staging path.
-        await fs.promises.copyFile(localPath, stagedPath, fs.constants.COPYFILE_EXCL)
+        await fs.promises.copyFile(localPath, stagedPath)
+        // rename() replaces existing destinations on all platforms.
         await fs.promises.rename(stagedPath, saveResult.filePath)
         return saveResult.filePath
-      } catch (e) {
-        await fs.promises.rm(stagedPath, { force: true }).catch(() => {})
-        throw e
       } finally {
+        await fs.promises.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
         taskTrackerManager.cleanupAttachmentDir(localPath)
       }
     },

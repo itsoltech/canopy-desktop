@@ -92,10 +92,17 @@
   // Keyed by attachment id — the post-dialog download is not window-modal, so a
   // single flag would lock attachment B's Save behind A's still-running download.
   let savingAttachmentId = $state<string | null>(null)
+  // Monotonic token for preview requests: the attachment id alone is not a
+  // request-generation guard (close + reopen of the SAME attachment, or an id
+  // reused across tasks/providers, would let a stale request's catch/finally
+  // clobber the newer request's state). Bumped on every open, close, and panel
+  // reset — handlers only apply when their captured token is still current.
+  let previewSeq = 0
 
   function openLightbox(a: Attachment): void {
     lightboxAttachment = a
     lightboxError = ''
+    const token = ++previewSeq
     const isImage = (a.mimeType ?? '').startsWith('image/')
     const key = panel?.taskKey
     // Computed unconditionally — raising it only inside the branch leaked a stale
@@ -106,21 +113,22 @@
     window.api
       .trackerConfigAttachmentPreview(worktreePath, key, a.id, panelTrackerId)
       .then((dataUrl) => {
-        if (dataUrl && lightboxAttachment?.id === a.id) {
+        if (dataUrl && token === previewSeq) {
           attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
         }
       })
       .catch((e) => {
         // Distinct from "not previewable": the user should know the load broke.
-        if (lightboxAttachment?.id === a.id) lightboxError = ipcErrorMessage(e)
+        if (token === previewSeq) lightboxError = ipcErrorMessage(e)
       })
       .finally(() => {
-        if (lightboxAttachment?.id === a.id) lightboxLoading = false
+        if (token === previewSeq) lightboxLoading = false
       })
   }
 
   function closeLightbox(): void {
     const id = lightboxAttachment?.id
+    previewSeq++
     lightboxAttachment = null
     // Restore focus by attachment id: a lazily loaded preview replaces the chip
     // button with the thumbnail button, so the element focused at open time may be
@@ -251,6 +259,7 @@
       thumbnailStates = {}
       // The lightbox belongs to the task being cleared — leaving it open would
       // address the NEW task's key with the OLD attachment id.
+      previewSeq++
       lightboxAttachment = null
       lightboxLoading = false
       lightboxError = ''
@@ -263,6 +272,7 @@
       attachments = []
       attachmentPreviews = {}
       thumbnailStates = {}
+      previewSeq++
       lightboxAttachment = null
       lightboxLoading = false
       lightboxError = ''
