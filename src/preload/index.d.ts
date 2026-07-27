@@ -227,6 +227,8 @@ interface WorktreeRemoveWithBranchResult {
   branchDeleted: boolean
   forcedWorktreeRemove: boolean
   forcedBranchDelete: boolean
+  /** Path left on disk when some files could not be deleted (held by another process). */
+  leftoverPath: string | null
 }
 
 interface AgentHookEventData {
@@ -578,7 +580,7 @@ interface CanopyAPI {
     },
   ) => Promise<TabCommandResult>
   tabClosePane: (worktreePath: string, tabId: string, paneId: string) => Promise<TabCommandResult>
-  tabCloseAllForWorktree: (worktreePath: string) => Promise<TabCommandResult>
+  tabCloseAllForWorktree: (worktreePath: string, forRemoval?: boolean) => Promise<TabCommandResult>
   tabSetActiveTab: (worktreePath: string, tabId: string) => Promise<TabCommandResult>
   tabMoveTab: (
     worktreePath: string,

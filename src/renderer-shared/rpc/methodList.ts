@@ -120,7 +120,22 @@ export interface RpcMethods {
   }
   'worktree.remove': {
     params: { repoRoot: string; path: string; force: boolean }
-    result: void
+    /** leftoverPath is set when some files could not be deleted (still held open). */
+    result: { leftoverPath: string | null }
+  }
+  /** Read-only removal preflight: peers must collect informed force consent from
+   *  their user BEFORE calling worktree.remove — the host also enforces this and
+   *  rejects an unconsented force-required removal without tearing anything down. */
+  'worktree.prepareRemove': {
+    params: { repoRoot: string; path: string }
+    result: {
+      hasUncommittedChanges: boolean
+      unmergedCommitCount: number
+      branchMerged: boolean
+      forceRequired: boolean
+      canDeleteBranch: boolean
+      warnings: string[]
+    }
   }
 
   // Project management — peer can attach a new directory to the host workspace.

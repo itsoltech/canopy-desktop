@@ -358,6 +358,21 @@ export function getPanelTasks(): PanelTaskContext[] {
   return panelTasks
 }
 
+/**
+ * Patch the sidebar's copy of a panel task after the panel itself refreshed (e.g. a
+ * status transition applied). Without this the left-sidebar chip kept the stale
+ * status until the worktree was re-selected and the whole resolution re-ran.
+ */
+export function updatePanelTaskStatus(
+  taskKey: string,
+  status: string | undefined,
+  statusCategory: string | undefined,
+): void {
+  const i = panelTasks.findIndex((t) => t.taskKey === taskKey)
+  if (i < 0) return
+  panelTasks[i] = { ...panelTasks[i], status, statusCategory }
+}
+
 export function selectPanelTask(taskKey: string): void {
   const i = panelTasks.findIndex((t) => t.taskKey === taskKey)
   if (i >= 0) panelTaskIndex = i

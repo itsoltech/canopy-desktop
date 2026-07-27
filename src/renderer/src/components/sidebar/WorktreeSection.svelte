@@ -3,6 +3,8 @@
   import { workspaceState, selectWorktree } from '../../lib/stores/workspace.svelte'
   import { closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
+  import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
   import { Trash2 } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
@@ -76,39 +78,42 @@
     if (!repoRoot) return
 
     const isDetached = wt.branch === '(detached)'
-    const ok = await confirm({
-      title: 'Remove Worktree',
-      message: isDetached
-        ? `Remove worktree "${wt.path.split('/').pop()}"?`
-        : `Remove worktree and delete branch "${wt.branch}"?`,
-      details: wt.path,
-      confirmLabel: 'Remove',
-      destructive: true,
+    const consent = await confirmWorktreeRemoval({
+      repoRoot,
+      worktreePath: wt.path,
+      branch: isDetached ? (wt.path.split('/').pop() ?? wt.path) : wt.branch,
+      detailSuffix: isDetached ? undefined : `The local branch "${wt.branch}" will be deleted.`,
     })
-    if (!ok) return
+    if (!consent.ok) return
 
-    if (!(await closeAllTabsForWorktree(wt.path))) return
+    if (!(await closeAllTabsForWorktree(wt.path, { forRemoval: true }))) return
+
+    // Leave the doomed worktree BEFORE removing it — keeping it selected leaves
+    // watchers and pollers pointed at a path that is being deleted.
+    if (workspaceState.selectedWorktreePath === wt.path) {
+      const main = workspaceState.worktrees.find((w) => w.isMain)
+      if (main) selectWorktree(main.path)
+    }
 
     try {
-      await window.api.worktreeRemoveWithBranch({
+      const result = await window.api.worktreeRemoveWithBranch({
         repoRoot,
         worktreePath: wt.path,
         branch: wt.branch,
         deleteBranch: !isDetached,
-        forceOnFailure: true,
+        forceOnFailure: consent.force,
       })
+      if (result.leftoverPath) {
+        addToast(
+          `Worktree removed, but some files are still in use and were left at ${result.leftoverPath}`,
+        )
+      }
     } catch (err) {
       await confirm({
         title: 'Git Error',
         message: err instanceof Error ? err.message : String(err),
         confirmLabel: 'OK',
       })
-      return
-    }
-
-    if (workspaceState.selectedWorktreePath === wt.path) {
-      const main = workspaceState.worktrees.find((w) => w.isMain)
-      if (main) selectWorktree(main.path)
     }
   }
 </script>

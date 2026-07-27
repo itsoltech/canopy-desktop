@@ -22,22 +22,55 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
   const [removing, setRemoving] = useState(false)
   const canRemove = !worktree.isMain && repoRoot !== null && api !== null && !removing
 
-  const confirmRemove = (): void => {
+  const runRemove = async (force: boolean): Promise<void> => {
+    if (!api || !repoRoot) return
+    setRemoving(true)
+    try {
+      const result = await api.worktree.remove({ repoRoot, path: worktree.path, force })
+      if (result?.leftoverPath) {
+        Alert.alert(
+          'Worktree removed with leftovers',
+          `Some files are still in use by another process and were left at:\n${result.leftoverPath}`,
+        )
+      }
+    } catch (e) {
+      Alert.alert('Could not remove worktree', e instanceof Error ? e.message : String(e))
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  const confirmRemove = async (): Promise<void> => {
     if (!canRemove || !api || !repoRoot) return
-    Alert.alert('Remove worktree', `Remove "${worktree.branch}"?`, [
+    // Informed consent BEFORE the host tears anything down: the preflight reports
+    // what a safe removal needs (uncommitted changes, unmerged commits,
+    // submodules), and only an explicit confirmation authorizes --force. The host
+    // rejects an unconsented force-required removal, so a stale/failed preflight
+    // degrades safely.
+    let forceRequired = true
+    let warnings: string[] = []
+    try {
+      const preflight = await api.worktree.prepareRemove({ repoRoot, path: worktree.path })
+      forceRequired = preflight.forceRequired
+      warnings = preflight.warnings
+    } catch {
+      // Preflight unavailable (older host or broken/ghost worktree) — mirror the
+      // desktop confirmWorktreeRemoval() contract and fail CLOSED: warn that the
+      // state cannot be verified and send force only after destructive consent
+      // (the host guard rejects an unconsented removal anyway).
+      warnings = [
+        'The worktree state could not be verified (broken checkout or older host) — files inside may include unsaved work.',
+      ]
+    }
+    const message = forceRequired
+      ? `${warnings.join('\n')}\n\nForce-remove "${worktree.branch}" anyway?`
+      : `Remove "${worktree.branch}"?`
+    Alert.alert('Remove worktree', message, [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Remove',
+        text: forceRequired ? 'Force remove' : 'Remove',
         style: 'destructive',
-        onPress: async () => {
-          setRemoving(true)
-          try {
-            await api.worktree.remove({ repoRoot, path: worktree.path, force: false })
-          } catch (e) {
-            setRemoving(false)
-            Alert.alert('Could not remove worktree', e instanceof Error ? e.message : String(e))
-          }
-        },
+        onPress: () => void runRemove(forceRequired),
       },
     ])
   }

@@ -35,6 +35,8 @@ import { FileTreeWatcher } from '../fileWatcher/FileTreeWatcher'
 import { DEFAULT_IGNORE_PATTERNS } from '../fileWatcher/defaults'
 import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
+import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/worktreeRemoval'
+import { comparableWorkspacePath } from '../db/workspacePaths'
 
 const execFileAsync = promisify(execFile)
 const WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir'
@@ -260,6 +262,10 @@ interface WorktreeRemoveWithBranchResult {
   branchDeleted: boolean
   forcedWorktreeRemove: boolean
   forcedBranchDelete: boolean
+  /** Set when the worktree was unregistered but some files could not be deleted
+   *  (still held open by another process) — the UI should tell the user instead
+   *  of leaving a silent ghost folder behind. */
+  leftoverPath: string | null
 }
 
 // Dedupe concurrent first-use OS auth prompts for the autofill path. When two
@@ -1783,22 +1789,66 @@ export function registerIpcHandlers(
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
       const worktreePath = await validateWorktreeCreationPath(event.sender.id, payload.worktreePath)
 
-      if (payload.mode === 'new') {
-        const result = await GitRepository.worktreeAdd(
-          resolvedRepo,
-          worktreePath,
-          payload.branch,
-          payload.baseBranch,
-        )
-        unwrapOrThrow(result, gitErrorMessage)
-      } else {
-        const result = await GitRepository.worktreeAddCheckout(
-          resolvedRepo,
-          worktreePath,
-          payload.branch,
-          payload.createLocalTracking ?? false,
-        )
-        unwrapOrThrow(result, gitErrorMessage)
+      // Pre-flight the target directory BEFORE any git call. `git worktree add`
+      // refuses an existing directory AFTER creating the branch (-b), which used to
+      // leave a stray branch plus a raw `fatal:` in the UI whenever debris of an
+      // earlier failed removal sat at the target path.
+      if (fs.existsSync(worktreePath)) {
+        const entries = await fs.promises.readdir(worktreePath).catch(() => null)
+        if (entries && entries.length === 0) {
+          await fs.promises.rm(worktreePath, { recursive: true, force: true })
+        } else {
+          throw new Error(
+            `Target folder already exists and is not empty: ${worktreePath}. ` +
+              'It is not a registered worktree — likely debris of a previously failed removal. ' +
+              'Remove or rename it, then try again.',
+          )
+        }
+      }
+
+      // Track whether this call is about to CREATE a local branch, so a failed
+      // `worktree add` can roll it back instead of leaving a stray branch behind.
+      const createdBranchCandidate =
+        payload.mode === 'new'
+          ? payload.branch
+          : (payload.createLocalTracking ?? false) && payload.branch.includes('/')
+            ? payload.branch.slice(payload.branch.indexOf('/') + 1)
+            : null
+      const branchExistedBefore = createdBranchCandidate
+        ? await GitRepository.branchExists(resolvedRepo, createdBranchCandidate).unwrapOr(true)
+        : true
+
+      try {
+        if (payload.mode === 'new') {
+          const result = await GitRepository.worktreeAdd(
+            resolvedRepo,
+            worktreePath,
+            payload.branch,
+            payload.baseBranch,
+          )
+          unwrapOrThrow(result, gitErrorMessage)
+        } else {
+          const result = await GitRepository.worktreeAddCheckout(
+            resolvedRepo,
+            worktreePath,
+            payload.branch,
+            payload.createLocalTracking ?? false,
+          )
+          unwrapOrThrow(result, gitErrorMessage)
+        }
+      } catch (e) {
+        if (createdBranchCandidate && !branchExistedBefore) {
+          const existsNow = await GitRepository.branchExists(
+            resolvedRepo,
+            createdBranchCandidate,
+          ).unwrapOr(false)
+          if (existsNow) {
+            await GitRepository.deleteBranch(resolvedRepo, createdBranchCandidate, true).unwrapOr(
+              undefined,
+            )
+          }
+        }
+        throw e
       }
 
       return { branch: payload.branch, worktreePath }
@@ -1839,10 +1889,22 @@ export function registerIpcHandlers(
           )
         : false
 
+      // Git refuses to remove a worktree containing initialized submodules even
+      // when the tree is clean and documents --force as the remedy — the consent
+      // dialog must know about this BEFORE any tab teardown starts, or the removal
+      // deterministically fails after the tabs are already gone. Probe failures
+      // degrade to false: the removal loop still reports the refusal clearly.
+      const hasSubmodules = await GitRepository.hasInitializedSubmodules(worktree.path).unwrapOr(
+        false,
+      )
+
       const warnings: string[] = []
       if (hasUncommittedChanges) warnings.push('Has uncommitted changes.')
       if (unmergedCommits.length > 0) {
         warnings.push(`${unmergedCommits.length} unmerged commit(s) not on any remote.`)
+      }
+      if (hasSubmodules) {
+        warnings.push('Contains git submodules — git requires a forced removal.')
       }
 
       return {
@@ -1902,24 +1964,123 @@ export function registerIpcHandlers(
       const forceOnFailure = payload.forceOnFailure ?? false
       const canDeleteBranch = worktree.branch !== '(detached)' && worktree.branch !== '(unknown)'
       const shouldDeleteBranch = payload.deleteBranch ?? canDeleteBranch
+      if (shouldDeleteBranch && !canDeleteBranch) {
+        throw new Error('Cannot delete branch for detached or unknown worktree')
+      }
 
+      // Windows deletes directories only when nothing holds a handle inside them.
+      // Tear down our own holders FIRST and wait until they are really gone:
+      // shells/agents cwd'd in the worktree (dying processes keep their cwd handle
+      // until fully exited) and native watcher subscriptions.
+      await ptyManager.killUnderPathAndWait(worktree.path)
+      await windowManager.disposeWatchersUnderPathAndWait(worktree.path)
+
+      // Retry with backoff and classify failures instead of one blind force-retry.
+      // The two behaviors behind git's --force are deliberately decoupled:
+      // - LOCKS are retried WITHOUT force (--force does not bypass OS file locks;
+      //   time does — AV scans and just-killed process trees release handles within
+      //   seconds).
+      // - A DIRTY tree (or git's force-required refusals, e.g. submodules) gets
+      //   --force only when the caller passed forceOnFailure, i.e. the user
+      //   consented to a destructive removal in the confirm dialog.
+      // - "is not a working tree" means a previous attempt already unregistered the
+      //   worktree — retrying git is pointless, only filesystem cleanup remains.
       let forcedWorktreeRemove = false
-      try {
-        const result = await GitRepository.worktreeRemove(resolvedRepo, worktree.path, false)
-        unwrapOrThrow(result, gitErrorMessage)
-      } catch (e) {
-        if (!forceOnFailure) throw e
-        const forcedResult = await GitRepository.worktreeRemove(resolvedRepo, worktree.path, true)
-        unwrapOrThrow(forcedResult, gitErrorMessage)
-        forcedWorktreeRemove = true
+      let force = false
+      let lockRetries = 0
+      for (;;) {
+        const result = await GitRepository.worktreeRemove(resolvedRepo, worktree.path, force)
+        if (result.isOk()) {
+          forcedWorktreeRemove = force
+          break
+        }
+        const message = gitErrorMessage(result.error)
+        const kind = classifyWorktreeRemoveError(message)
+        if (kind === 'already-removed') {
+          break
+        }
+        if (kind === 'broken-link') {
+          // Registered worktree whose .git link is gone — the classic field ghost.
+          // Git refuses to manage it (force does not help) and cannot verify the
+          // tree is clean, so its content may include unsaved work: only the
+          // destructive-consent flag authorizes cleaning it up. Prune below drops
+          // the (prunable) registration; fs cleanup handles the debris.
+          if (!forceOnFailure) {
+            throw new Error(
+              `Worktree at ${worktree.path} has a broken .git link (likely debris of an ` +
+                'earlier failed removal). Its files cannot be verified as saved — retry with ' +
+                'the destructive option to delete the folder anyway.',
+            )
+          }
+          break
+        }
+        if ((kind === 'dirty' || kind === 'force-required') && !force && forceOnFailure) {
+          force = true
+          continue
+        }
+        if (kind === 'locked' && lockRetries < REMOVE_RETRY_DELAYS_MS.length) {
+          await new Promise((r) => setTimeout(r, REMOVE_RETRY_DELAYS_MS[lockRetries++]))
+          continue
+        }
+        if (kind === 'locked') {
+          // A handle outlived every retry while git still tracks the worktree.
+          // NEVER touch the tree here: the lock classifier is heuristic (EPERM/
+          // EACCES also match) and git has not verified cleanliness — deleting
+          // could destroy uncommitted work without consent. Keep tree and
+          // registration intact and report an actionable failure instead.
+          throw new Error(
+            `Worktree removal failed: files inside are still locked by another process. ` +
+              `Close applications using files under ${worktree.path} and try again.`,
+          )
+        }
+        throw new Error(`Git worktree remove failed: ${message}`)
+      }
+
+      // Git no longer manages the worktree — clear stale admin records and confirm
+      // the unregistration against `git worktree list` BEFORE any raw filesystem
+      // cleanup or branch deletion. If the registration somehow survived, fail
+      // loudly rather than deleting files git still tracks.
+      await GitRepository.worktreePrune(resolvedRepo).unwrapOr(undefined)
+      const remaining = await GitRepository.listWorktrees(resolvedRepo).unwrapOr(null)
+      if (
+        remaining === null ||
+        remaining.some(
+          (wt) => comparableWorkspacePath(wt.path) === comparableWorkspacePath(worktree.path),
+        )
+      ) {
+        throw new Error(
+          `Worktree removal failed: git still lists ${worktree.path} as a worktree. ` +
+            'No files were deleted — please retry.',
+        )
+      }
+      // Past this gate the registration is verifiably gone — whether git's own
+      // remove did it or the prune fallback (broken-link ghosts included) — so the
+      // result below reports worktreeRemoved: true unconditionally.
+
+      // The directory itself may still exist: git gives up on the first locked file
+      // and leaves everything else behind as a ghost folder. Best-effort delete,
+      // reporting anything that survives instead of failing.
+      let leftoverPath: string | null = null
+      if (fs.existsSync(worktree.path)) {
+        try {
+          await fs.promises.rm(worktree.path, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 300,
+          })
+        } catch {
+          // Some files are still held open by another process — report instead of
+          // failing: the worktree IS unregistered, only debris remains.
+        }
+        if (fs.existsSync(worktree.path)) leftoverPath = worktree.path
       }
 
       let branchDeleted = false
       let forcedBranchDelete = false
       if (shouldDeleteBranch) {
-        if (!canDeleteBranch) {
-          throw new Error('Cannot delete branch for detached or unknown worktree')
-        }
+        // Branch deletion must run even when the worktree removal needed the
+        // fallback paths above — aborting halfway used to leave stray branches.
         try {
           const result = await GitRepository.deleteBranch(resolvedRepo, worktree.branch, false)
           unwrapOrThrow(result, gitErrorMessage)
@@ -1938,6 +2099,7 @@ export function registerIpcHandlers(
         branchDeleted,
         forcedWorktreeRemove,
         forcedBranchDelete,
+        leftoverPath,
       }
     },
   )
@@ -3407,15 +3569,26 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:getCurrentUser',
-    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
+    async (
+      _event,
+      payload: { repoRoot?: string; trackerId?: string },
+    ): Promise<{ ok: true; value: string } | { ok: false; error: string }> => {
+      // Envelope instead of a rejected promise: this call is the credential PROBE
+      // that hydration runs on every worktree switch, so an expired token is an
+      // expected outcome — a rejection here made Electron print a full
+      // "Error occurred in handler" stack to the console each time. The preload
+      // bridge unwraps the envelope back into a throw for the renderer.
       const resolved = await resolveEffectiveConfig(payload.repoRoot)
-      if (!resolved) throw new Error('No tracker configured')
+      if (!resolved) return { ok: false, error: 'No tracker configured' }
       const result = await taskTrackerManager.getCurrentUserFromConfig(
         resolved.config,
         payload.trackerId,
         payload.repoRoot,
       )
-      return unwrapOrThrow(result, taskTrackerErrorMessage)
+      return result.match(
+        (value) => ({ ok: true as const, value }),
+        (e) => ({ ok: false as const, error: taskTrackerErrorMessage(e) }),
+      )
     },
   )
 

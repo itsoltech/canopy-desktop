@@ -5,10 +5,12 @@ import { execFile, execFileSync } from 'child_process'
 import os from 'os'
 import { getLoginEnv } from '../shell/loginEnv'
 import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
+import { comparableWorkspacePath } from '../db/workspacePaths'
 
 interface PtySession {
   id: string
   pty: IPty
+  cwd: string
   tmuxSessionName?: string
 }
 
@@ -81,7 +83,12 @@ export class PtyManager {
       env,
     })
 
-    const session: PtySession = { id, pty: p, tmuxSessionName: options?.tmuxSessionName }
+    const session: PtySession = {
+      id,
+      pty: p,
+      cwd: options?.cwd ?? os.homedir(),
+      tmuxSessionName: options?.tmuxSessionName,
+    }
     this.sessions.set(id, session)
 
     // Remove the session when the PTY exits on its own (shell `exit`, agent CLI
@@ -173,6 +180,64 @@ export class PtyManager {
       }
       this.sessions.delete(id)
     }
+  }
+
+  /**
+   * Kill every PTY whose cwd sits inside `dirPath` (a worktree about to be removed)
+   * and wait — bounded — until the underlying processes actually exit. Windows keeps
+   * a shell's cwd directory handle alive until the process is fully gone, so
+   * deleting the directory immediately after a fire-and-forget kill() races the
+   * teardown and fails with lock errors. Kills the whole process tree: children
+   * spawned inside a directory being deleted must not outlive it.
+   *
+   * Known limitation: `session.cwd` is the SPAWN cwd — there is no OSC7/cwd
+   * tracking, so a shell spawned elsewhere that later `cd`s into the worktree is
+   * not matched (its lock is still handled by the caller's retry/cleanup path),
+   * and one that `cd`s out is killed unnecessarily. Acceptable best-effort: the
+   * dominant case is the tab auto-opened with the worktree as cwd that stays there.
+   */
+  killUnderPathAndWait(dirPath: string, timeoutMs = 4000): Promise<void> {
+    const base = comparableWorkspacePath(dirPath).replace(/\/+$/, '')
+    const prefix = `${base}/`
+    const waits: Promise<void>[] = []
+    for (const [id, session] of [...this.sessions]) {
+      const cwd = comparableWorkspacePath(session.cwd)
+      if (cwd !== base && !cwd.startsWith(prefix)) continue
+      waits.push(this.killSessionTreeAndWait(id, session, timeoutMs))
+    }
+    return Promise.all(waits).then(() => undefined)
+  }
+
+  /**
+   * Tree-kill one PTY and wait (bounded) until the process actually exits — the
+   * removal-flow variant of kill(): a fire-and-forget kill returns while the dying
+   * shell still holds its cwd handle, which blocks directory deletion on Windows.
+   */
+  killAndWait(id: string, timeoutMs = 4000): Promise<void> {
+    const session = this.sessions.get(id)
+    if (!session) return Promise.resolve()
+    return this.killSessionTreeAndWait(id, session, timeoutMs)
+  }
+
+  private killSessionTreeAndWait(
+    id: string,
+    session: PtySession,
+    timeoutMs: number,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs)
+      session.pty.onExit(() => {
+        clearTimeout(timer)
+        resolve()
+      })
+      this.terminateProcessTree(session.pty.pid)
+      try {
+        session.pty.kill()
+      } catch {
+        // PTY already exited — the timeout resolves the wait.
+      }
+      this.sessions.delete(id)
+    })
   }
 
   hasChildProcess(id: string): Promise<boolean> {

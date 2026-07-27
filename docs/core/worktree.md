@@ -35,12 +35,53 @@ Agents (Claude, Gemini, OpenCode, Codex) can run in dedicated worktrees for isol
 
 ### Removing a worktree
 
-1. User right-clicks a worktree in the sidebar and selects "Remove".
-2. The app may check for uncommitted changes or unmerged commits before proceeding.
-3. Renderer calls `window.api.gitWorktreeRemove(repoRoot, path, force)`.
-4. `GitRepository.worktreeRemove()` runs `git worktree remove <path>` (with `--force` if force is true).
-5. All tabs associated with that worktree path are closed, killing their PTY sessions.
-6. The git watcher updates the sidebar.
+1. User removes a worktree from the sidebar (worktrees list or project tree), via the command
+   palette ("Remove Current Worktree"), or remotely from the mobile app.
+2. Every entry point runs the same preflight/consent gate BEFORE any teardown. Preflight
+   (`worktree:prepareRemove`) reports what a safe removal needs: uncommitted changes, unmerged
+   commits, and initialized submodules (git refuses to remove those worktrees even when clean and
+   documents `--force` as the remedy) all set `forceRequired`:
+   - local flows share `confirmWorktreeRemoval()` — warnings appear in the confirmation, and only
+     that informed confirmation authorizes `--force`; when the preflight itself fails (ghost
+     worktree with a broken checkout) the confirmation is explicitly destructive,
+   - the mobile flow calls the `worktree.prepareRemove` RPC and shows the warnings on the device;
+     independently, the host rejects an unconsented force-required `worktree.remove` BEFORE
+     closing any tabs, so a stale or missing device-side preflight cannot destroy live host
+     context for a removal that would fail anyway.
+3. All tabs associated with that worktree path are closed with removal semantics — PTYs are
+   tree-killed and awaited until the processes actually exit, BEFORE their session records are
+   dropped. If the removed worktree is currently selected, the selection switches to the main
+   worktree first so no UI keeps polling a disappearing path.
+4. The main process sweeps remaining holders (Windows deletes a directory only when nothing holds
+   a handle inside it): any other PTY whose cwd lies inside the worktree is tree-killed and
+   awaited, and file-tree/git watchers subscribed inside the path are stopped and awaited.
+5. `git worktree remove <path>` runs without `--force` first. On failure the error is classified:
+   - "is not a working tree" → a previous attempt already unregistered the worktree; continue to
+     the verified cleanup instead of retrying git,
+   - broken `.git` link (a ghost left by an earlier failed removal) → git cannot verify the tree,
+     so this proceeds only with the destructive-consent flag; the — prunable — registration is
+     cleared by `git worktree prune` below,
+   - lock symptoms (permission denied, directory not empty, EBUSY…) → retried WITHOUT `--force`
+     with backoff (forcing does not bypass OS file locks; time does — transient locks from dying
+     processes or AV scans clear within seconds). When retries run out while git still owns the
+     worktree, the removal FAILS with the tree and registration intact — no fallback deletion,
+   - dirty-tree or force-required refusals (e.g. submodules) → retried with `--force` only when
+     the caller passed the destructive-consent flag.
+6. After unregistration, `git worktree prune` clears stale admin records and the absence of the
+   path is verified against `git worktree list` BEFORE any raw filesystem cleanup — if git still
+   lists it, the removal fails without touching files. Then remnants are deleted with `fs.rm`
+   retries; files still held open by another process are reported via `leftoverPath` (surfaced as
+   a toast) instead of silently leaving a ghost folder.
+7. Branch deletion (when requested) runs even if the worktree removal needed the fallback paths —
+   an aborted flow no longer leaves stray branches.
+8. The git watcher updates the sidebar.
+
+### Creation pre-flight
+
+`worktree:create` refuses an existing non-empty target directory with a clear message BEFORE any
+git call (an empty leftover directory is removed automatically). If `git worktree add` fails
+after creating a branch (`-b`), the branch is rolled back — a failed creation no longer leaves a
+stray local branch behind.
 
 ### Checking unmerged commits
 
@@ -168,8 +209,11 @@ Example configuration (JSON):
 ## Source files
 
 - Worktree setup runner: `src/main/worktree/WorktreeSetupRunner.ts`
-- Git worktree operations: `src/main/git/GitRepository.ts` (methods `worktreeAdd`, `worktreeAddCheckout`, `worktreeRemove`, `listWorktrees`, `getUnmergedCommits`, `getStatusPorcelain`)
+- Git worktree operations: `src/main/git/GitRepository.ts` (methods `worktreeAdd`, `worktreeAddCheckout`, `worktreeRemove`, `worktreePrune`, `listWorktrees`, `getUnmergedCommits`, `getStatusPorcelain`, `hasInitializedSubmodules`, `isBranchMerged`, `branchExists`)
+- Removal failure taxonomy: `src/main/git/worktreeRemoval.ts` (`classifyWorktreeRemoveError`, `REMOVE_RETRY_DELAYS_MS`)
 - Setup action types: `src/main/db/types.ts` (`WorktreeSetupAction`, `WorktreeSetupProgress`)
+- Removal preflight/consent gate: `src/renderer/src/lib/worktrees/removalConsent.ts` (`confirmWorktreeRemoval`) and `src/renderer/src/lib/worktrees/removalGuard.ts` (`removalNeedsForceConsent`, shared with the remote host guard)
+- Remote removal RPC: `worktree.prepareRemove` / `worktree.remove` in `src/renderer-shared/rpc/methodList.ts`, handled by `src/renderer/src/lib/remote/HostRpcServer.ts` (mirrored in `mobile/src/lib/remote/protocol/rpc-methods.ts`)
 - Worktree agent status: `src/renderer/src/lib/agents/worktreeStatus.svelte.ts`
 - Agent state: `src/renderer/src/lib/agents/agentState.svelte.ts`
-- Preload (worktree API): `src/preload/index.ts` (`gitWorktreeAdd`, `gitWorktreeCheckout`, `gitWorktreeRemove`, `runWorktreeSetup`, `abortWorktreeSetup`, `onWorktreeSetupProgress`)
+- Preload (worktree API): `src/preload/index.ts` (`gitWorktreeAdd`, `gitWorktreeCheckout`, `gitWorktreeRemove`, `worktreeCreate`, `worktreePrepareRemove`, `worktreeRemoveWithBranch`, `runWorktreeSetup`, `abortWorktreeSetup`, `onWorktreeSetupProgress`)

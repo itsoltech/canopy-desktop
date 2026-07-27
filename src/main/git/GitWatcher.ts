@@ -58,6 +58,11 @@ export class GitWatcher {
     this.lastInfo = initialInfo ?? null
   }
 
+  /** Directory this watcher holds native handles on (worktree removal must stop it first). */
+  get root(): string {
+    return this.repoRoot
+  }
+
   start(): ResultAsync<void, GitError> {
     if (this.subscription) return okAsync(undefined)
 
@@ -66,6 +71,14 @@ export class GitWatcher {
       watcher.subscribe(gitDir, this.handleEvents, {
         // Skip write-heavy / irrelevant subdirs to keep event volume low.
         ignore: ['objects', 'logs', 'hooks', 'lfs', 'modules'],
+        // Pin the native OS backend — see FileTreeWatcher.start for why (silences
+        // @parcel/watcher's noisy `watchman` binary probe on startup).
+        backend:
+          process.platform === 'win32'
+            ? 'windows'
+            : process.platform === 'darwin'
+              ? 'fs-events'
+              : 'inotify',
       }),
       (e): GitError => ({
         _tag: 'WatcherStartFailed',

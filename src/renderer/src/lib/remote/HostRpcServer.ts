@@ -3,8 +3,15 @@ import type { RpcMethods, RpcMethodName } from '../../../../renderer-shared/rpc/
 import { StateSnapshotProvider } from './StateSnapshotProvider.svelte'
 import { PtyStreamForwarder } from './PtyStreamForwarder'
 import { checkAction, resetSessionGrants } from './actionGuard'
-import { openTool, closeTab, switchTab, tabsByWorktree } from '../stores/tabs.svelte'
-import { attachProject, selectWorktree } from '../stores/workspace.svelte'
+import {
+  openTool,
+  closeTab,
+  switchTab,
+  tabsByWorktree,
+  closeAllTabsForWorktree,
+} from '../stores/tabs.svelte'
+import { attachProject, selectWorktree, workspaceState } from '../stores/workspace.svelte'
+import { removalNeedsForceConsent } from '../worktrees/removalGuard'
 import { allPanes } from '../stores/splitTree'
 import { substituteLocalhost } from '../../../../renderer-shared/url/localhostSubstitution'
 import { remoteSession } from '../stores/remoteSession.svelte'
@@ -221,17 +228,57 @@ export class HostRpcServer {
       provider.rebroadcast()
     })
 
+    this.register('worktree.prepareRemove', async (params) => {
+      const repoRoot = assertString(params, 'repoRoot', 'worktree.prepareRemove')
+      const path = assertString(params, 'path', 'worktree.prepareRemove')
+      // The handler resolves the worktree (and its branch) from the validated
+      // path; the branch field of the IPC payload is not used for preflight.
+      return window.api.worktreePrepareRemove({ repoRoot, worktreePath: path, branch: '' })
+    })
+
     this.register('worktree.remove', async (params) => {
       const repoRoot = assertString(params, 'repoRoot', 'worktree.remove')
       const path = assertString(params, 'path', 'worktree.remove')
       const force = assertBoolean(params, 'force', 'worktree.remove')
-      await window.api.worktreeRemoveWithBranch({
+      // Consent gate BEFORE any teardown: a dirty/submodule worktree needs --force,
+      // and mobile must have collected that consent from its user (worktree.
+      // prepareRemove). Rejecting here keeps the host's tabs, PTYs, and selection
+      // fully intact — the old flow destroyed them first and then failed anyway.
+      // A FAILED preflight (ghost worktree with a broken checkout) fails CLOSED:
+      // git cannot verify the tree, so only explicit force consent may proceed.
+      const preflight = await window.api
+        .worktreePrepareRemove({ repoRoot, worktreePath: path, branch: '' })
+        .catch(() => null)
+      if (removalNeedsForceConsent(preflight, force)) {
+        const reason = preflight
+          ? preflight.warnings.join(' ')
+          : 'The worktree state could not be verified (broken or corrupted checkout).'
+        throw new Error(
+          `Worktree removal requires force consent: ${reason} ` +
+            'Confirm the forced removal on the device and retry.',
+        )
+      }
+      // Same lifecycle as the local removal flows: close the worktree's tabs
+      // (tree-killing PTYs and waiting for exit) and leave the worktree BEFORE
+      // removing it — otherwise host tabs/watchers hold Windows file locks and the
+      // rebroadcast ships stale tab/selection state for a removed path.
+      if (!(await closeAllTabsForWorktree(path, { forRemoval: true }))) {
+        throw new Error('Worktree removal cancelled: closing its tabs was declined on the host')
+      }
+      if (workspaceState.selectedWorktreePath === path) {
+        const main = workspaceState.worktrees.find((w) => w.isMain)
+        if (main) selectWorktree(main.path)
+      }
+      const result = await window.api.worktreeRemoveWithBranch({
         repoRoot,
         worktreePath: path,
         deleteBranch: false,
+        // A failed preflight (ghost/broken worktree) falls through to the removal
+        // handler's own broken-link consent gate, so pass the peer's flag verbatim.
         forceOnFailure: force,
       })
       provider.rebroadcast()
+      return { leftoverPath: result.leftoverPath }
     })
 
     this.register('project.attach', async (params) => {

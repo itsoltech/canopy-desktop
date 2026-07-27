@@ -363,6 +363,39 @@ export class WindowManager {
     watchers.clear()
   }
 
+  /**
+   * Stop every watcher (any window) holding native directory handles inside
+   * `dirPath` and wait for the unsubscribes to complete. On Windows a live
+   * ReadDirectoryChangesW handle blocks directory deletion, so worktree removal
+   * must tear these down BEFORE `git worktree remove` — the renderer re-arms its
+   * watchers when the selection settles afterwards.
+   */
+  async disposeWatchersUnderPathAndWait(dirPath: string): Promise<void> {
+    const base = comparableWorkspacePath(dirPath).replace(/\/+$/, '')
+    const prefix = `${base}/`
+    const inside = (p: string): boolean => {
+      const c = comparableWorkspacePath(p)
+      return c === base || c.startsWith(prefix)
+    }
+
+    const waits: Promise<unknown>[] = []
+    for (const watchers of this.gitWatchers.values()) {
+      for (const [key, gitWatcher] of [...watchers]) {
+        if (inside(gitWatcher.root)) {
+          waits.push(gitWatcher.stop())
+          watchers.delete(key)
+        }
+      }
+    }
+    for (const [wcId, fileWatcher] of [...this.fileWatchers]) {
+      if (inside(fileWatcher.root)) {
+        waits.push(fileWatcher.stop().unwrapOr(undefined))
+        this.fileWatchers.delete(wcId)
+      }
+    }
+    await Promise.all(waits)
+  }
+
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
     this.fileWatchers.set(wcId, watcher)
   }

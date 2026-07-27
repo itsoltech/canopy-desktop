@@ -972,7 +972,10 @@ async function resumeTab(tab: TabInfo): Promise<boolean> {
   }
 }
 
-export async function closeAllTabsForWorktree(worktreePath: string): Promise<boolean> {
+export async function closeAllTabsForWorktree(
+  worktreePath: string,
+  options?: { forRemoval?: boolean },
+): Promise<boolean> {
   const tabs = tabsByWorktree[worktreePath]
   if (!tabs || tabs.length === 0) return true
 
@@ -986,7 +989,7 @@ export async function closeAllTabsForWorktree(worktreePath: string): Promise<boo
     disposeEphemeralPaneState(p)
   }
 
-  const result = await window.api.tabCloseAllForWorktree(worktreePath)
+  const result = await window.api.tabCloseAllForWorktree(worktreePath, options?.forRemoval)
 
   if (saveTimers[worktreePath]) {
     clearTimeout(saveTimers[worktreePath])

@@ -50,7 +50,12 @@ export interface RemoteApi {
   worktree: {
     add: (args: RpcMethods['worktree.add']['params']) => Promise<void>
     addCheckout: (args: RpcMethods['worktree.addCheckout']['params']) => Promise<void>
-    remove: (args: RpcMethods['worktree.remove']['params']) => Promise<void>
+    remove: (
+      args: RpcMethods['worktree.remove']['params'],
+    ) => Promise<RpcMethods['worktree.remove']['result']>
+    prepareRemove: (
+      args: RpcMethods['worktree.prepareRemove']['params'],
+    ) => Promise<RpcMethods['worktree.prepareRemove']['result']>
   }
   project: {
     attach: (path: string) => Promise<void>
@@ -100,6 +105,7 @@ export function createRemoteApi(rpc: DataChannelRpc): RemoteApi {
       add: (args) => client.call('worktree.add', args),
       addCheckout: (args) => client.call('worktree.addCheckout', args),
       remove: (args) => client.call('worktree.remove', args),
+      prepareRemove: (args) => client.call('worktree.prepareRemove', args),
     },
     project: {
       attach: (path) => client.call('project.attach', { path }),
