@@ -289,6 +289,10 @@ When a GitHub tracker has an empty `projectKey`, Canopy reads the git remote URL
 
 ## Error states
 
+Note: `taskTracker:attachmentSave` additionally throws plain validation errors that surface
+verbatim in a toast — `Invalid task key`, `Invalid attachment id`, `No tracker configured`,
+and `Attachment not found on this task`.
+
 | Error                      | User sees                                        | Cause                                                                     |
 | -------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
 | `ConnectionNotFound`       | "Connection not found: {id}"                     | Deleted or invalid connection ID referenced                               |
@@ -332,6 +336,9 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
   - `providers/github.ts` - GitHub GraphQL API client
   - `errors.ts` - typed error union with message formatter
 - Store: `src/renderer/src/lib/stores/taskTracker.svelte.ts`
+- UI components: `src/renderer/src/components/taskTracker/AttachmentLightbox.svelte` (in-app
+  attachment viewer with save-to-disk) and `src/renderer/src/components/shared/Markdown.svelte`
+  (sanitized markdown rendering for descriptions/comments)
 - Components: `src/renderer/src/lib/taskTracker/`
   - `branchCreation.ts` - branch creation flow with stash/confirm dialogs
   - `taskContext.ts` - task context formatting for AI agents

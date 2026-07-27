@@ -11,6 +11,7 @@
     dataUrl,
     loading = false,
     saving = false,
+    error = '',
     onSave,
     onOpenExternal,
     onClose,
@@ -19,6 +20,9 @@
     dataUrl: string | null
     loading?: boolean
     saving?: boolean
+    /** Preview fetch failure — distinct from "not previewable" so the user knows
+     *  something broke and can retry via Save…/tracker. */
+    error?: string
     onSave: () => void
     onOpenExternal: () => void
     onClose: () => void
@@ -104,13 +108,21 @@
         <X size={14} />
       </button>
     </header>
-    <div class="flex-1 min-h-0 flex items-center justify-center p-3 overflow-auto">
+    <!-- aria-live: announce the loading → loaded/failed transition to screen readers. -->
+    <div
+      class="flex-1 min-h-0 flex items-center justify-center p-3 overflow-auto"
+      aria-live="polite"
+    >
       {#if dataUrl}
         <img src={dataUrl} alt={name} class="max-w-full max-h-[78vh] object-contain rounded-md" />
       {:else if loading}
         <div class="flex items-center gap-2 px-10 py-14 text-sm text-text-muted">
           <LoaderCircle size={15} class="animate-spin-slow motion-reduce:animate-none" />
           <span>Loading image…</span>
+        </div>
+      {:else if error}
+        <div class="px-10 py-14 text-sm text-danger-text">
+          Couldn’t load the preview: {error} — try “Save…” or open the tracker.
         </div>
       {:else}
         <div class="px-10 py-14 text-sm text-text-muted">

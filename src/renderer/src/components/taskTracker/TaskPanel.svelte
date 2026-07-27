@@ -86,26 +86,33 @@
   // --- Attachment lightbox: view in-app, save to disk, tracker as escape hatch ---
   let lightboxAttachment = $state<Attachment | null>(null)
   let lightboxLoading = $state(false)
+  let lightboxError = $state('')
   let savingAttachment = $state(false)
 
   function openLightbox(a: Attachment): void {
     lightboxAttachment = a
+    lightboxError = ''
     const isImage = (a.mimeType ?? '').startsWith('image/')
-    if (isImage && !attachmentPreviews[a.id] && panel?.taskKey) {
-      lightboxLoading = true
-      const key = panel.taskKey
-      window.api
-        .trackerConfigAttachmentPreview(worktreePath, key, a.id, panelTrackerId)
-        .then((dataUrl) => {
-          if (dataUrl && lightboxAttachment?.id === a.id) {
-            attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
-          }
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (lightboxAttachment?.id === a.id) lightboxLoading = false
-        })
-    }
+    const key = panel?.taskKey
+    // Computed unconditionally — raising it only inside the branch leaked a stale
+    // `true` across attachments when a fetch was aborted by closing the lightbox.
+    const needsFetch = isImage && !attachmentPreviews[a.id] && !!key
+    lightboxLoading = needsFetch
+    if (!needsFetch || !key) return
+    window.api
+      .trackerConfigAttachmentPreview(worktreePath, key, a.id, panelTrackerId)
+      .then((dataUrl) => {
+        if (dataUrl && lightboxAttachment?.id === a.id) {
+          attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
+        }
+      })
+      .catch((e) => {
+        // Distinct from "not previewable": the user should know the load broke.
+        if (lightboxAttachment?.id === a.id) lightboxError = ipcErrorMessage(e)
+      })
+      .finally(() => {
+        if (lightboxAttachment?.id === a.id) lightboxLoading = false
+      })
   }
 
   async function saveLightboxAttachment(): Promise<void> {
@@ -1011,6 +1018,7 @@
     dataUrl={attachmentPreviews[lightboxAttachment.id] ?? null}
     loading={lightboxLoading}
     saving={savingAttachment}
+    error={lightboxError}
     onSave={saveLightboxAttachment}
     onOpenExternal={() => lightboxAttachment && window.api.openExternal(lightboxAttachment.url)}
     onClose={() => (lightboxAttachment = null)}

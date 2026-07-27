@@ -1,13 +1,32 @@
-<script lang="ts">
-  import { marked } from 'marked'
+<script lang="ts" module>
+  import { Marked } from 'marked'
   import DOMPurify from 'dompurify'
 
+  // Component-local Marked instance so the overrides below never leak into other
+  // `marked` consumers (the notes pane has its own pipeline). GFM with
+  // newline-as-break matches how trackers treat single newlines.
+  const md = new Marked({
+    gfm: true,
+    breaks: true,
+    renderer: {
+      // The renderer CSP (`img-src 'self' data:`) blocks remote images, so an
+      // `<img>` would render as a broken glyph. Emit a labelled link instead —
+      // the main process routes the click to the OS browser (`will-navigate`).
+      image({ href, text }): string {
+        const label = text?.trim() ? text : 'image'
+        return `<a href="${href}">🖼 ${label}</a>`
+      },
+    },
+  })
+</script>
+
+<script lang="ts">
   // The one markdown renderer for the app: task descriptions/comments, PR bodies,
-  // notes preview, changelog, license. Parsing is async (marked may return a
-  // promise) and generation-guarded so a slower parse of an older source can never
-  // overwrite a newer one. Output is DOMPurify-sanitized; link clicks need no local
-  // handling — the main process blocks top-level navigation (`will-navigate`) and
-  // routes safe external URLs to the OS browser.
+  // changelog, license. Parsing is async (marked may return a promise) and
+  // generation-guarded so a slower parse of an older source can never overwrite a
+  // newer one. Output is DOMPurify-sanitized; link clicks need no local handling —
+  // the main process blocks top-level navigation (`will-navigate`) and routes safe
+  // external URLs to the OS browser.
   let { source = '', class: cls = '' }: { source?: string; class?: string } = $props()
 
   let html = $state('')
@@ -20,11 +39,13 @@
       html = ''
       return
     }
-    // GFM with newline-as-break matches how trackers (GitHub, YouTrack, Jira
-    // comments) treat single newlines in descriptions and comments.
-    Promise.resolve(marked.parse(raw, { gfm: true, breaks: true })).then((parsed) => {
+    Promise.resolve(md.parse(raw)).then((parsed) => {
       if (gen !== parseGen) return
-      html = DOMPurify.sanitize(parsed)
+      // Style tags/attributes are forbidden on top of the default profile: the CSP
+      // allows inline styles, and DOMPurify's defaults would let a <style> block in
+      // tracker/PR content restyle app chrome (UI redress) — selectors are not
+      // scoped to this component.
+      html = DOMPurify.sanitize(parsed, { FORBID_TAGS: ['style'], FORBID_ATTR: ['style'] })
     })
   })
 </script>
@@ -141,6 +162,9 @@
     background: var(--color-bg-input);
     font-weight: 600;
   }
+  /* Applies only to data:-URL images from raw HTML in the source — markdown image
+     syntax renders as a link (see the renderer override) because the CSP blocks
+     remote image loads. */
   .md-content :global(img) {
     max-width: 100%;
     border-radius: 6px;

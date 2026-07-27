@@ -71,6 +71,10 @@ sessions, Git watchers, file watchers, remote sessions) that maintain in-memory 
 resources. Window snapshots are saved on close/quit and restored with their original project-to-
 window grouping so multiple projects that lived in one window reopen in that same window.
 
+All display-only markdown (task descriptions/comments, PR bodies, changelog, license) renders
+through the shared `src/renderer/src/components/shared/Markdown.svelte` component (marked +
+DOMPurify with style tags/attributes forbidden) — never through ad-hoc `{@html}` pipelines.
+
 ## Data storage
 
 Canopy uses a multi-tiered storage strategy to balance persistence, security, and portability:
