@@ -73,7 +73,8 @@ window grouping so multiple projects that lived in one window reopen in that sam
 
 All display-only markdown (task descriptions/comments, PR bodies, changelog, license) renders
 through the shared `src/renderer/src/components/shared/Markdown.svelte` component (marked +
-DOMPurify with style tags/attributes forbidden) — never through ad-hoc `{@html}` pipelines.
+DOMPurify with a markdown-specific tag/attribute allowlist — no forms/controls/SVG, no
+style/class/id) — never through ad-hoc `{@html}` pipelines.
 
 ## Data storage
 

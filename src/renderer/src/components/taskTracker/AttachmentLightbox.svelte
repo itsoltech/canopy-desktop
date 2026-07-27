@@ -35,7 +35,12 @@
     previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
   })
-  onDestroy(() => previouslyFocused?.focus?.())
+  // Fallback restore only when the opener is still in the DOM — a lazily loaded
+  // preview may have replaced it, in which case the owner (TaskPanel) restores
+  // focus to the current trigger by attachment id.
+  onDestroy(() => {
+    if (previouslyFocused?.isConnected) previouslyFocused.focus?.()
+  })
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
@@ -50,10 +55,14 @@
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
       const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+      // The container itself is focused on mount and sits OUTSIDE the button
+      // cycle — `containerEl.contains(containerEl)` is true, so it must be
+      // checked explicitly or the first Shift+Tab escapes into the underlay.
+      const outsideCycle = active === containerEl || !containerEl.contains(active)
+      if (e.shiftKey && (active === first || outsideCycle)) {
         e.preventDefault()
         last.focus()
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (active === last || outsideCycle)) {
         e.preventDefault()
         first.focus()
       }

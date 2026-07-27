@@ -8,6 +8,7 @@
     LoaderCircle,
     Bot,
     ImagePlus,
+    Image as ImageIcon,
     X,
   } from '@lucide/svelte'
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
@@ -117,6 +118,21 @@
       })
   }
 
+  function closeLightbox(): void {
+    const id = lightboxAttachment?.id
+    lightboxAttachment = null
+    // Restore focus by attachment id: a lazily loaded preview replaces the chip
+    // button with the thumbnail button, so the element focused at open time may be
+    // a detached node by now.
+    if (id) {
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>(`[data-attachment-trigger="${CSS.escape(id)}"]`)
+          ?.focus()
+      })
+    }
+  }
+
   async function saveLightboxAttachment(): Promise<void> {
     const a = lightboxAttachment
     const key = panel?.taskKey
@@ -160,6 +176,9 @@
   let attachments = $state<Attachment[]>([])
   // Attachment id → data: URL (CSP allows img-src data:, not blob:/file:). Loaded lazily.
   let attachmentPreviews = $state<Record<string, string>>({})
+  // Per-attachment thumbnail fetch state: absent = no request ran (beyond the
+  // prefetch limit), 'loading' = in flight, 'failed' = request errored.
+  let thumbnailStates = $state<Record<string, 'loading' | 'failed'>>({})
   let loading = $state(false)
   let loadError = $state('')
   // The tracker answered but doesn't know this key — the task was deleted (or became invisible).
@@ -228,6 +247,7 @@
       comments = []
       attachments = []
       attachmentPreviews = {}
+      thumbnailStates = {}
       void refresh(key)
     } else if (!key) {
       loadedForKey = ''
@@ -236,6 +256,7 @@
       comments = []
       attachments = []
       attachmentPreviews = {}
+      thumbnailStates = {}
     }
   })
 
@@ -267,6 +288,8 @@
         comments = []
         attachments = []
         attachmentPreviews = {}
+        thumbnailStates = {}
+        thumbnailStates = {}
         return
       }
       const [trans, comm, atts] = await Promise.all([
@@ -312,16 +335,25 @@
       }))
       attachmentPreviews = {}
       // Thumbnails for image attachments (bounded — huge tasks shouldn't fire dozens of
-      // authenticated downloads).
+      // authenticated downloads). Loading state is tracked per id: images beyond the
+      // prefetch limit and failed fetches must render as plain files, not as an
+      // eternal spinner for a request that isn't running.
       for (const a of attachments
         .filter((a) => (a.mimeType ?? '').startsWith('image/'))
         .slice(0, 6)) {
+        thumbnailStates = { ...thumbnailStates, [a.id]: 'loading' }
         void window.api
           .trackerConfigAttachmentPreview(worktreePath, taskKey, a.id, panelTrackerId)
           .then((dataUrl) => {
-            if (seq === refreshSeq) attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
+            if (seq !== refreshSeq) return
+            attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
+            const rest = { ...thumbnailStates }
+            delete rest[a.id]
+            thumbnailStates = rest
           })
-          .catch(() => {})
+          .catch(() => {
+            if (seq === refreshSeq) thumbnailStates = { ...thumbnailStates, [a.id]: 'failed' }
+          })
       }
     } catch (e) {
       if (seq !== refreshSeq) return
@@ -774,6 +806,7 @@
               {#if attachmentPreviews[a.id]}
                 <button
                   class="p-0 border-0 bg-transparent cursor-pointer rounded-md overflow-hidden"
+                  data-attachment-trigger={a.id}
                   onclick={() => openLightbox(a)}
                   title={`${a.name} — view`}
                 >
@@ -786,11 +819,14 @@
               {:else}
                 <button
                   class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-border-subtle bg-active text-2xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+                  data-attachment-trigger={a.id}
                   onclick={() => openLightbox(a)}
                   title={`${a.name} — view / save`}
                 >
-                  {#if (a.mimeType ?? '').startsWith('image/')}
+                  {#if thumbnailStates[a.id] === 'loading'}
                     <LoaderCircle size={10} class="animate-spin-slow motion-reduce:animate-none" />
+                  {:else if (a.mimeType ?? '').startsWith('image/')}
+                    <ImageIcon size={10} />
                   {/if}
                   {a.name}
                 </button>
@@ -1023,6 +1059,6 @@
     error={lightboxError}
     onSave={saveLightboxAttachment}
     onOpenExternal={() => lightboxAttachment && window.api.openExternal(lightboxAttachment.url)}
-    onClose={() => (lightboxAttachment = null)}
+    onClose={closeLightbox}
   />
 {/if}

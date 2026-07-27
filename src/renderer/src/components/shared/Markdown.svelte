@@ -33,10 +33,64 @@
     },
   })
 
-  // On top of the default profile: no live CSS (the CSP allows inline styles) and
-  // no class/id — the app ships global Tailwind utilities, so an attacker-supplied
-  // class list could rebuild a full-viewport overlay out of our own tokens.
-  const SANITIZE_OPTS = { FORBID_TAGS: ['style'], FORBID_ATTR: ['style', 'class', 'id'] }
+  // Markdown-specific allowlist instead of DOMPurify's broad HTML profile:
+  // tracker/PR content is untrusted, and the default profile keeps enough HTML
+  // (dialog/form/button/input, SVG, presentational attributes) to build convincing
+  // fake UI inside a privileged window. Only text structure, code, tables, links,
+  // data:-URL images, and GFM task-list checkboxes survive. No style/class/id —
+  // global Tailwind utilities would make attacker-supplied classes a full-viewport
+  // overlay primitive.
+  const SANITIZE_OPTS = {
+    ALLOWED_TAGS: [
+      'a',
+      'p',
+      'br',
+      'hr',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'ul',
+      'ol',
+      'li',
+      'blockquote',
+      'pre',
+      'code',
+      'em',
+      'strong',
+      'b',
+      'i',
+      'u',
+      'del',
+      's',
+      'sup',
+      'sub',
+      'table',
+      'thead',
+      'tbody',
+      'tr',
+      'th',
+      'td',
+      'img',
+      'input',
+    ],
+    ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'align', 'start', 'type', 'checked', 'disabled'],
+  }
+
+  // Dedicated DOMPurify instance: the checkbox hook below must not leak into other
+  // DOMPurify consumers (the notes pipeline uses the shared default instance).
+  const purify = DOMPurify(window)
+  purify.addHook('uponSanitizeElement', (node) => {
+    // `input` is allowed solely for GFM task-list checkboxes — force every
+    // surviving input into that shape so raw HTML cannot render text/password
+    // fields inside the app.
+    if (node.nodeName === 'INPUT' && node instanceof HTMLInputElement) {
+      node.setAttribute('type', 'checkbox')
+      node.setAttribute('disabled', '')
+    }
+  })
 </script>
 
 <script lang="ts">
@@ -65,10 +119,10 @@
       .then(() => md.parse(raw))
       .then((parsed) => {
         if (gen !== parseGen) return
-        html = DOMPurify.sanitize(parsed, SANITIZE_OPTS)
+        html = purify.sanitize(parsed, SANITIZE_OPTS)
       })
       .catch(() => {
-        if (gen === parseGen) html = DOMPurify.sanitize(raw, SANITIZE_OPTS)
+        if (gen === parseGen) html = purify.sanitize(raw, SANITIZE_OPTS)
       })
   })
 </script>

@@ -4693,9 +4693,18 @@ export function registerIpcHandlers(
         payload.repoRoot,
       )
       const localPath = unwrapOrThrow(result, taskTrackerErrorMessage)
+      // Stage next to the destination and swap in only after the copy succeeded —
+      // copyFile() straight onto an existing file is non-atomic, so a mid-copy
+      // failure (full disk, disconnected volume) would destroy the user's
+      // previous file. rename() replaces existing destinations on all platforms.
+      const stagedPath = `${saveResult.filePath}.canopy-tmp-${Math.random().toString(36).slice(2, 10)}`
       try {
-        await fs.promises.copyFile(localPath, saveResult.filePath)
+        await fs.promises.copyFile(localPath, stagedPath)
+        await fs.promises.rename(stagedPath, saveResult.filePath)
         return saveResult.filePath
+      } catch (e) {
+        await fs.promises.rm(stagedPath, { force: true }).catch(() => {})
+        throw e
       } finally {
         taskTrackerManager.cleanupAttachmentDir(localPath)
       }
