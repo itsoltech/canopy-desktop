@@ -9,6 +9,7 @@ import { AgentHookRouter } from './AgentHookServer'
 import type { AgentAdapter, AgentType, NormalizedHookEvent, SettingsSetup } from './types'
 import type { NotchSessionStatus } from '../notch/types'
 import { getAdapter, registerAdapter, isAgentTool as isRegistered } from './registry'
+import { isValidResumeSessionId } from './utils'
 import { claudeAdapter } from './adapters/claude'
 import { geminiAdapter } from './adapters/gemini'
 import { opencodeAdapter } from './adapters/opencode'
@@ -89,6 +90,48 @@ export class AgentSessionManager extends EventEmitter {
     const tempId = `_agent_${hookSessionId}`
     const sessionRef = { ptySessionId: tempId }
 
+    // Resolve scripts and write the settings file BEFORE registering with the hook router.
+    // Anything that throws between router.addSession and this.sessions.set would strand the
+    // router entry: destroySession looks the session up by ptySessionId, so it could never
+    // call removeSession, and closeServerIfIdle would then never see an empty session map —
+    // leaking the shared HTTP server plus the ownerWindow captured by the callbacks below.
+    // A settings file orphaned by a later failure is already swept by cleanupOrphans().
+    // Codex and Gemini CLIs execute hooks via the system shell on Windows; use .cmd wrappers.
+    // Claude Code handles .sh via its own bash layer on Windows, so it always uses .sh.
+    // OpenCode uses a TS bridge plugin and does not consume hookScriptPath at all.
+    const useCmd =
+      process.platform === 'win32' &&
+      (adapter.agentType === 'codex' || adapter.agentType === 'gemini')
+    const hookScriptPath = this.getResourceScript(
+      useCmd ? 'canopy-agent-hook.cmd' : 'canopy-agent-hook.sh',
+    )
+    const statusLineScriptPath = this.getResourceScript(
+      useCmd ? 'canopy-agent-statusline.cmd' : 'canopy-agent-statusline.sh',
+    )
+
+    // Ensure scripts are executable
+    if (process.platform !== 'win32') {
+      try {
+        chmodSync(hookScriptPath, 0o755)
+      } catch {
+        // May not have permission in packaged app
+      }
+      try {
+        chmodSync(statusLineScriptPath, 0o755)
+      } catch {
+        // May not have permission in packaged app
+      }
+    }
+
+    const settingsPath = join(this.hooksDir, `session-${hookSessionId}.json`)
+    const settingsSetup = adapter.setupSettings(
+      settingsPath,
+      worktreePath,
+      hookScriptPath,
+      statusLineScriptPath,
+      settingsOverrides,
+    )
+
     const {
       port: hookPort,
       path: hookPath,
@@ -154,42 +197,6 @@ export class AgentSessionManager extends EventEmitter {
       },
     )
 
-    // Codex and Gemini CLIs execute hooks via the system shell on Windows; use .cmd wrappers.
-    // Claude Code handles .sh via its own bash layer on Windows, so it always uses .sh.
-    // OpenCode uses a TS bridge plugin and does not consume hookScriptPath at all.
-    const useCmd =
-      process.platform === 'win32' &&
-      (adapter.agentType === 'codex' || adapter.agentType === 'gemini')
-    const hookScriptPath = this.getResourceScript(
-      useCmd ? 'canopy-agent-hook.cmd' : 'canopy-agent-hook.sh',
-    )
-    const statusLineScriptPath = this.getResourceScript(
-      useCmd ? 'canopy-agent-statusline.cmd' : 'canopy-agent-statusline.sh',
-    )
-
-    // Ensure scripts are executable
-    if (process.platform !== 'win32') {
-      try {
-        chmodSync(hookScriptPath, 0o755)
-      } catch {
-        // May not have permission in packaged app
-      }
-      try {
-        chmodSync(statusLineScriptPath, 0o755)
-      } catch {
-        // May not have permission in packaged app
-      }
-    }
-
-    const settingsPath = join(this.hooksDir, `session-${hookSessionId}.json`)
-    const settingsSetup = adapter.setupSettings(
-      settingsPath,
-      worktreePath,
-      hookScriptPath,
-      statusLineScriptPath,
-      settingsOverrides,
-    )
-
     const session: AgentSession = {
       agentType: adapter.agentType,
       adapter,
@@ -230,6 +237,9 @@ export class AgentSessionManager extends EventEmitter {
 
   /** Get resume args for the agent */
   getResumeArgs(toolId: string, resumeSessionId: string): string[] {
+    // Single chokepoint for every adapter's buildResumeArgs — reject a malformed id here
+    // rather than passing it through to an external CLI's argument parser.
+    if (!isValidResumeSessionId(resumeSessionId)) return []
     const adapter = getAdapter(toolId)
     return adapter?.buildResumeArgs?.(resumeSessionId) ?? []
   }

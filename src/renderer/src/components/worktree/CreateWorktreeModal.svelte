@@ -54,6 +54,8 @@
   let homedir = $state('')
   let refreshing = $state(false)
   let containerEl: HTMLDivElement | undefined = $state()
+  // Focus returns to whatever opened the dialog on close (same pattern as PRDetailsModal).
+  let previouslyFocused: HTMLElement | null = null
 
   // "From task" mode: the picked task + the branch name generated from it (the task list
   // itself — projects, filters, search — lives in the shared TaskListPicker).
@@ -132,6 +134,7 @@
   }
 
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
     try {
@@ -170,6 +173,7 @@
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
+    previouslyFocused?.focus?.()
   })
 
   function initSetupTerminal(container: HTMLDivElement): void {

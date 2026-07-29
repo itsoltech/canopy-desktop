@@ -24,6 +24,17 @@ export function deepMerge(
   return out
 }
 
+// Resume session ids round-trip through a renderer-supplied serialized layout, which is
+// only type-checked (assertOptionalString), not shape-checked. They are then passed as a
+// bare argv element to an external agent CLI, so a value starting with "-" would be read
+// as a flag by that CLI's own parser. Require a leading alphanumeric and a conservative
+// charset that still covers every id shape the agents emit (UUID, ULID, ts-prefixed).
+const RESUME_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+
+export function isValidResumeSessionId(id: string): boolean {
+  return RESUME_SESSION_ID.test(id)
+}
+
 export function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 3) + '...' : text
 }

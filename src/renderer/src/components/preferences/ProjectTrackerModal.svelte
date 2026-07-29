@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -23,7 +23,13 @@
 
   let containerEl: HTMLElement | undefined = $state()
 
+  // Focus returns to whatever opened the dialog on close (same pattern as PRDetailsModal).
+  // Captured before the awaits below so it records the opener, not whatever is focused later.
+  let previouslyFocused: HTMLElement | null = null
+  onDestroy(() => previouslyFocused?.focus?.())
+
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     await loadGlobalConfig()
     if (repoRoot) await loadRepoConfig(repoRoot)
     containerEl?.focus()

@@ -537,7 +537,7 @@
           <span
             class="sub-tab-close"
             role="button"
-            tabindex="-1"
+            tabindex="0"
             aria-label="Close file"
             title="Close"
             onclick={(e) => handleSubTabClose(e, file.filePath)}

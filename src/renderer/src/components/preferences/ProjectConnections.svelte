@@ -393,7 +393,7 @@
                   />
                   <span class="font-mono text-xs text-accent-text">{p.key}</span>
                   {#if p.name && p.name !== p.key}
-                    <span class="text-xs text-text-muted truncate">{p.name}</span>
+                    <span class="text-xs text-text-muted truncate" title={p.name}>{p.name}</span>
                   {/if}
                 </label>
               {/each}

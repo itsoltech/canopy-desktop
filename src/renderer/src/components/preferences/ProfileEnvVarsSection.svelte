@@ -111,6 +111,7 @@
               class="font-mono text-sm flex-1 truncate {isRevealed
                 ? 'text-text-secondary'
                 : 'text-text-faint tracking-wider'}"
+              title={isRevealed ? entry.value : undefined}
             >
               {isRevealed ? entry.value : maskValue(entry.value)}
             </span>
