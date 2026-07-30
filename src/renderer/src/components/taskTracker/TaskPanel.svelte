@@ -822,28 +822,30 @@
           </span>
           <div class="flex flex-wrap items-start gap-1.5">
             {#each attachments as a (a.id)}
-              {#if attachmentPreviews[a.id]}
-                <button
-                  class="p-0 border-0 bg-transparent cursor-pointer rounded-md overflow-hidden"
-                  data-attachment-trigger={a.id}
-                  onclick={() => openLightbox(a)}
-                  title={`${a.name} — view`}
-                >
+              <!-- ONE persistent trigger element per attachment: an independently
+                   resolving thumbnail prefetch must swap this button's CONTENT,
+                   not the node itself — replacing a focused element (e.g. right
+                   after the lightbox restored focus here) drops keyboard focus
+                   back to the document. -->
+              <button
+                class={attachmentPreviews[a.id]
+                  ? 'p-0 border-0 bg-transparent cursor-pointer rounded-md overflow-hidden'
+                  : 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-border-subtle bg-active text-2xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text'}
+                data-attachment-trigger={a.id}
+                onclick={() => openLightbox(a)}
+                title={attachmentPreviews[a.id]
+                  ? `${a.name} — view`
+                  : thumbnailStates[a.id] === 'failed'
+                    ? `${a.name} — thumbnail failed to load; view / save`
+                    : `${a.name} — view / save`}
+              >
+                {#if attachmentPreviews[a.id]}
                   <img
                     src={attachmentPreviews[a.id]}
                     alt={a.name}
                     class="h-16 max-w-44 object-contain rounded-md border border-border-subtle bg-bg-input hover:border-accent-muted"
                   />
-                </button>
-              {:else}
-                <button
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-border-subtle bg-active text-2xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-                  data-attachment-trigger={a.id}
-                  onclick={() => openLightbox(a)}
-                  title={thumbnailStates[a.id] === 'failed'
-                    ? `${a.name} — thumbnail failed to load; view / save`
-                    : `${a.name} — view / save`}
-                >
+                {:else}
                   {#if thumbnailStates[a.id] === 'loading'}
                     <LoaderCircle size={10} class="animate-spin-slow motion-reduce:animate-none" />
                   {:else if thumbnailStates[a.id] === 'failed'}
@@ -852,8 +854,8 @@
                     <ImageIcon size={10} />
                   {/if}
                   {a.name}
-                </button>
-              {/if}
+                {/if}
+              </button>
             {/each}
           </div>
         </div>
