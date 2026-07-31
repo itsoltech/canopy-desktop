@@ -137,7 +137,10 @@ async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
 }
 
 function describeSessionGrant(method: RpcMethodName): string {
-  return match(method as string)
+  // No `as string`: matching the RpcMethodName union directly makes ts-pattern
+  // type-check every arm, so a renamed or mistyped method is a compile error
+  // instead of silently falling through to the generic description below.
+  return match(method)
     .with('pty.write', () => 'type into any terminal')
     .with('agent.sendInput', () => 'send prompts to any agent')
     .otherwise(() => `execute ${method}`)
@@ -168,7 +171,9 @@ async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promi
 
 function describeAction(method: RpcMethodName, params: unknown): string {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
-  return match(method as string)
+  // See describeSessionGrant: match the union, not a widened string, so the
+  // consent dialog can't silently degrade to "execute <method>" after a rename.
+  return match(method)
     .with('tools.spawn', () => `spawn tool "${p.toolId}" in ${p.worktreePath}`)
     .with('tabs.close', () => `close tab ${p.tabId}`)
     .with('tabs.activate', () => `activate tab ${p.tabId}`)

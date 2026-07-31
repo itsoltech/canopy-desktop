@@ -453,3 +453,13 @@ export function setWorktreeBadge(worktreePath: string, badge: BadgeType): void {
 export function clearWorktreeBadge(worktreePath: string): void {
   worktreeBadges[worktreePath] = 'none'
 }
+
+/**
+ * Drop the entry entirely, for worktrees that no longer exist. clearWorktreeBadge
+ * keeps a 'none' value because the path is still displayed; once a project is
+ * detached nothing reads the key again, so leaving it behind grows this record
+ * for the lifetime of the session.
+ */
+export function removeWorktreeBadge(worktreePath: string): void {
+  delete worktreeBadges[worktreePath]
+}

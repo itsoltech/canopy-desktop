@@ -156,7 +156,10 @@
 .diff-line.delete .line-content {
   color: var(--color-diff-delete-fg);
 }
-.diff-line:hover .comment-trigger {
+/* :focus-within so the trigger is visible once tabbed to — hover alone left
+   keyboard users with a focused but fully transparent control. */
+.diff-line:hover .comment-trigger,
+.diff-line:focus-within .comment-trigger {
   opacity: 1;
 }
 .search-highlight {

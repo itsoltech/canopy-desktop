@@ -1077,10 +1077,12 @@ export function getTabDisplayName(tab: TabInfo): string {
   return focused?.title || tab.name
 }
 
+export function isPaneDirty(pane: PaneSession): boolean {
+  return pane.paneType === 'editor' && (pane.editorFiles ?? []).some((f) => f.dirty === true)
+}
+
 export function isTabDirty(tab: TabInfo): boolean {
-  return allPanes(tab.rootSplit).some(
-    (p) => p.paneType === 'editor' && (p.editorFiles ?? []).some((f) => f.dirty === true),
-  )
+  return allPanes(tab.rootSplit).some(isPaneDirty)
 }
 
 export function getActivePtySessionId(): string | null {
@@ -1236,6 +1238,18 @@ export async function closePane(
       title: 'Close pane?',
       message: `This pane has ${description} that will be terminated.`,
       confirmLabel: 'Close Pane',
+      destructive: true,
+    })
+    if (!confirmed) return
+  }
+
+  // Editor dirty state lives in the renderer, so the main-process close warning
+  // above cannot see it — guard unsaved buffers separately, as closeTab does.
+  if (isPaneDirty(pane)) {
+    const confirmed = await confirm({
+      title: 'Close pane?',
+      message: 'This pane has unsaved changes that will be lost.',
+      confirmLabel: 'Discard & Close',
       destructive: true,
     })
     if (!confirmed) return
