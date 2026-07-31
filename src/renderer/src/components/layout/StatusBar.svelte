@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { match } from 'ts-pattern'
+  import { match, P } from 'ts-pattern'
   import { Settings, GitBranch, Folder, Bell, ArrowDownToLine, Eye, Cpu } from '@lucide/svelte'
   import { workspaceState, projects, toggleRightPanel } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
@@ -69,13 +69,20 @@
   type PaneKind = 'agent' | 'shell' | 'browser' | 'editor' | 'notes' | 'drawing' | 'none'
 
   let focusedPaneKind: PaneKind = $derived.by(() => {
-    if (!focusedPane) return 'none'
-    if (focusedPane.paneType === 'browser') return 'browser'
-    if (focusedPane.paneType === 'editor') return 'editor'
-    if (focusedPane.paneType === 'notes') return 'notes'
-    if (focusedPane.paneType === 'drawing') return 'drawing'
-    if (isAiToolId(focusedPane.toolId)) return 'agent'
-    return 'shell'
+    const pane = focusedPane
+    if (!pane) return 'none'
+    return (
+      match(pane.paneType)
+        .with('browser', () => 'browser' as const)
+        .with('editor', () => 'editor' as const)
+        .with('notes', () => 'notes' as const)
+        .with('drawing', () => 'drawing' as const)
+        // terminal, diff, and legacy panes persisted before paneType existed
+        .with(P.union('terminal', 'diff', undefined), () =>
+          isAiToolId(pane.toolId) ? ('agent' as const) : ('shell' as const),
+        )
+        .exhaustive()
+    )
   })
 
   // --- Derived: worktree display ---

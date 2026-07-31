@@ -37,12 +37,24 @@
 
   // Hover state for copy button
   let hoveredFilePath = $state<string | null>(null)
+  // Keyboard mirror of hoveredFilePath: the per-file actions are only rendered
+  // while the row is hovered, so without this they can never be reached without
+  // a mouse. Same pattern as ChangesPanel.
+  let focusedFilePath = $state<string | null>(null)
 
   // Comment state
   let commentKey = $state<string | null>(null)
   let commentText = $state('')
   let commentFilePath = $state('')
   let commentLineNum = $state(0)
+  // Only one composer is open at a time, so a single binding is enough.
+  let commentTextareaEl = $state<HTMLTextAreaElement | null>(null)
+
+  // Move focus into the composer when it opens — its Escape/Cmd+Enter handlers
+  // are only reachable once it has focus.
+  $effect(() => {
+    if (commentKey && commentTextareaEl) commentTextareaEl.focus()
+  })
 
   async function refresh(): Promise<void> {
     loading = true
@@ -493,6 +505,10 @@
             data-filepath={file.path}
             onpointerenter={() => (hoveredFilePath = file.path)}
             onpointerleave={() => (hoveredFilePath = null)}
+            onfocusin={() => (focusedFilePath = file.path)}
+            onfocusout={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) focusedFilePath = null
+            }}
           >
             <div
               class="file-header flex items-center gap-2 h-9 px-4 bg-bg-elevated border-b border-border-subtle sticky top-0 z-10 cursor-pointer select-none hover:bg-file-header-hover"
@@ -540,7 +556,7 @@
                 <span class="text-diff-add-fg">+{file.additions}</span>
                 <span class="text-diff-delete-fg">&minus;{file.deletions}</span>
               </span>
-              {#if hoveredFilePath === file.path}
+              {#if hoveredFilePath === file.path || focusedFilePath === file.path}
                 <button
                   class="bg-transparent border border-border text-text-muted cursor-pointer px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center justify-center hover:text-text hover:bg-active"
                   title="Copy diff"
@@ -630,6 +646,8 @@
                           <textarea
                             class="w-full min-h-16 px-4 py-2.5 border-0 bg-bg-elevated text-text font-inherit text-sm leading-normal resize-none outline-none box-border placeholder:text-text-muted"
                             placeholder="Comment for agent — {file.path}:{getLineNum(change)}"
+                            aria-label="Comment for agent — {file.path}:{getLineNum(change)}"
+                            bind:this={commentTextareaEl}
                             bind:value={commentText}
                             onkeydown={(e) => {
                               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendComment()

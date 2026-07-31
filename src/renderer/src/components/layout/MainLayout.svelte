@@ -239,8 +239,9 @@
       if (session && session.agentSessionId !== prevSessionId && session.agentSessionId) {
         saveAllLayouts()
       }
-      const normalized = data.event as { event?: string }
-      const badge = match(normalized.event)
+      // data.event.event is already declared `string` in the preload types, so
+      // no assertion is needed to read it.
+      const badge = match(data.event.event)
         .with('PermissionRequest', () => 'permission' as const)
         .with('Idle', 'AfterToolUse', () => 'unread' as const)
         .otherwise(() => null)

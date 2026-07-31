@@ -25,6 +25,14 @@ function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitErr
 // it. Above this, return an empty hunk list rather than block on a huge read.
 const UNTRACKED_MAX_BYTES = 5 * 1024 * 1024
 
+// Cap how many untracked files are read from disk per diff. The per-file size
+// guard above bounds one read; nothing bounded the count, so a tree with
+// hundreds of untracked files (routine when an agent scaffolds or a build
+// artifact lands before .gitignore catches it) blocked the main process for the
+// sum of every read. Past the cap the file still appears in the diff, just
+// without content — the same shape used for oversized files.
+const UNTRACKED_MAX_FILES = 200
+
 // Sync read instead of fs.promises.readFile: this function is called in a
 // hot loop (ChangesPanel/DiffPane refresh on every files:changed event,
 // debounced 200 ms), once per untracked file in parallel. The async
@@ -526,7 +534,11 @@ export class GitRepository {
         if (files.length === 0) return okAsync<ParsedDiff, GitError>(parsed)
 
         const untrackedDiffFiles = files
-          .map((file) => buildUntrackedDiffFile(repoRoot, file).unwrapOr(null))
+          .map((file, i) =>
+            i < UNTRACKED_MAX_FILES
+              ? buildUntrackedDiffFile(repoRoot, file).unwrapOr(null)
+              : { path: file, status: 'added' as const, hunks: [], additions: 0, deletions: 0 },
+          )
           .filter((f): f is DiffFile => f !== null)
 
         return okAsync<ParsedDiff, GitError>({

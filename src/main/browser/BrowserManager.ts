@@ -308,6 +308,22 @@ export class BrowserManager {
     })
   }
 
+  /**
+   * Authorization check for every `browser:*` call after `setup`. Those calls
+   * carry only a renderer-supplied `browserId` string, and the operations they
+   * reach are privileged (DevTools/debugger attach, credential injection into
+   * the guest page), so a window must not be able to act on a webview it does
+   * not own by supplying another window's id.
+   *
+   * An unknown `browserId` returns true: the manager's methods already no-op on
+   * a missing entry, and a teardown racing an already-removed entry is
+   * legitimate. Only a live entry registered by a *different* sender is denied.
+   */
+  isOwnedBy(browserId: string, wcId: number): boolean {
+    const entry = this.entries.get(browserId)
+    return !entry || entry.sender.id === wcId
+  }
+
   teardown(browserId: string): void {
     const entry = this.entries.get(browserId)
     if (entry) {

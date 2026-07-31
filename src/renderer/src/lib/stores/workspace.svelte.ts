@@ -15,6 +15,7 @@ import {
 import { addToast } from './toast.svelte'
 import { clearQuickOpenCache } from './quickOpenStore.svelte'
 import { clearMru } from './quickOpenMru.svelte'
+import { removeWorktreeBadge } from '../agents/agentState.svelte'
 import type {
   ProjectSnapshot,
   WorkspaceCommandResult,
@@ -392,6 +393,7 @@ export async function detachProject(path: string): Promise<void> {
     if (!(await closeAllTabsForWorktree(wtPath))) return
     clearQuickOpenCache(wtPath)
     clearMru(wtPath)
+    removeWorktreeBadge(wtPath)
   }
 
   const wasActive =

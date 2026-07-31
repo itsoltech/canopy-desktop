@@ -2359,6 +2359,17 @@ export function registerIpcHandlers(
 
   // --- Browser (<webview> management) ---
 
+  // `browser:setup` validates the target is a real <webview> guest and records
+  // the calling sender as its owner. Every later `browser:*` call identifies the
+  // target only by the renderer-supplied `browserId`, so re-check ownership here
+  // rather than trusting that string — the same reason the tmux and path
+  // handlers derive authorization from `event.sender` instead of the payload.
+  function assertOwnsBrowser(event: IpcMainInvokeEvent, browserId: string): void {
+    if (!browserManager.isOwnedBy(browserId, event.sender.id)) {
+      throw new Error('Access denied: browser view belongs to another window')
+    }
+  }
+
   ipcMain.handle(
     'browser:setup',
     (event, payload: { browserId: string; webContentsId: number }) => {
@@ -2368,27 +2379,31 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('browser:teardown', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:teardown', (event, payload: { browserId: string }) => {
+    assertOwnsBrowser(event, payload.browserId)
     browserManager.teardown(payload.browserId)
   })
 
-  ipcMain.handle('browser:openDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:openDevTools', (event, payload: { browserId: string }) => {
+    assertOwnsBrowser(event, payload.browserId)
     browserManager.openDevTools(payload.browserId)
   })
 
-  ipcMain.handle('browser:closeDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:closeDevTools', (event, payload: { browserId: string }) => {
+    assertOwnsBrowser(event, payload.browserId)
     browserManager.closeDevTools(payload.browserId)
   })
 
   ipcMain.handle(
     'browser:setDevToolsBounds',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         bounds: { x: number; y: number; width: number; height: number }
       },
     ) => {
+      assertOwnsBrowser(event, payload.browserId)
       browserManager.setDevToolsBounds(payload.browserId, payload.bounds)
     },
   )
@@ -2396,12 +2411,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setDeviceEmulation',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null
       },
     ) => {
+      assertOwnsBrowser(event, payload.browserId)
       browserManager.setDeviceEmulation(payload.browserId, payload.device)
     },
   )
@@ -2409,12 +2425,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setBackgroundThrottling',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         allowed: boolean
       },
     ) => {
+      assertOwnsBrowser(event, payload.browserId)
       browserManager.setBackgroundThrottling(payload.browserId, payload.allowed)
     },
   )
@@ -2461,7 +2478,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
+    (event, payload: { browserId: string; username: string; password: string }) => {
+      assertOwnsBrowser(event, payload.browserId)
       browserManager.fillCredential(payload.browserId, payload.username, payload.password)
     },
   )
@@ -4657,7 +4675,14 @@ export function registerIpcHandlers(
 
       let actions: WorktreeSetupAction[]
       try {
-        actions = JSON.parse(configJson) as WorktreeSetupAction[]
+        const parsed: unknown = JSON.parse(configJson)
+        // JSON.parse only guarantees syntax. A stored value that is valid JSON
+        // but not an array (corrupted row, hand-edited prefs) previously slipped
+        // past the length check below and threw when runWorktreeSetup iterated.
+        if (!Array.isArray(parsed)) {
+          return { success: false, errors: ['Invalid worktree setup config'] }
+        }
+        actions = parsed as WorktreeSetupAction[]
       } catch {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }
