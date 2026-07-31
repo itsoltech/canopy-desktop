@@ -8,6 +8,8 @@
     LoaderCircle,
     Bot,
     ImagePlus,
+    Image as ImageIcon,
+    AlertCircle,
     X,
   } from '@lucide/svelte'
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
@@ -30,6 +32,8 @@
   import { formatDateTime } from '../../lib/formatDate'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import Markdown from '../shared/Markdown.svelte'
+  import AttachmentLightbox from './AttachmentLightbox.svelte'
 
   // Task management panel for the worktree's backing task: change status (workflow-aware where the
   // tracker can introspect requirements — Jira; otherwise server errors are surfaced verbatim) and
@@ -80,6 +84,83 @@
   // The tracker that OWNS the panel task — with several trackers configured, defaulting to the
   // first one could read or mutate a same-key issue in the wrong external system.
   let panelTrackerId = $derived(panel?.connectionId || undefined)
+
+  // --- Attachment lightbox: view in-app, save to disk, tracker as escape hatch ---
+  let lightboxAttachment = $state<Attachment | null>(null)
+  let lightboxLoading = $state(false)
+  let lightboxError = $state('')
+  // Keyed by attachment id — the post-dialog download is not window-modal, so a
+  // single flag would lock attachment B's Save behind A's still-running download.
+  let savingAttachmentId = $state<string | null>(null)
+  // Monotonic token for preview requests: the attachment id alone is not a
+  // request-generation guard (close + reopen of the SAME attachment, or an id
+  // reused across tasks/providers, would let a stale request's catch/finally
+  // clobber the newer request's state). Bumped on every open, close, and panel
+  // reset — handlers only apply when their captured token is still current.
+  let previewSeq = 0
+
+  function openLightbox(a: Attachment): void {
+    lightboxAttachment = a
+    lightboxError = ''
+    const token = ++previewSeq
+    const isImage = (a.mimeType ?? '').startsWith('image/')
+    const key = panel?.taskKey
+    // Computed unconditionally — raising it only inside the branch leaked a stale
+    // `true` across attachments when a fetch was aborted by closing the lightbox.
+    const needsFetch = isImage && !attachmentPreviews[a.id] && !!key
+    lightboxLoading = needsFetch
+    if (!needsFetch || !key) return
+    window.api
+      .trackerConfigAttachmentPreview(worktreePath, key, a.id, panelTrackerId)
+      .then((dataUrl) => {
+        if (dataUrl && token === previewSeq) {
+          attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
+        }
+      })
+      .catch((e) => {
+        // Distinct from "not previewable": the user should know the load broke.
+        if (token === previewSeq) lightboxError = ipcErrorMessage(e)
+      })
+      .finally(() => {
+        if (token === previewSeq) lightboxLoading = false
+      })
+  }
+
+  function closeLightbox(): void {
+    const id = lightboxAttachment?.id
+    previewSeq++
+    lightboxAttachment = null
+    // Restore focus by attachment id: a lazily loaded preview replaces the chip
+    // button with the thumbnail button, so the element focused at open time may be
+    // a detached node by now.
+    if (id) {
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>(`[data-attachment-trigger="${CSS.escape(id)}"]`)
+          ?.focus()
+      })
+    }
+  }
+
+  async function saveLightboxAttachment(): Promise<void> {
+    const a = lightboxAttachment
+    const key = panel?.taskKey
+    if (!a || !key || savingAttachmentId === a.id) return
+    savingAttachmentId = a.id
+    try {
+      const savedPath = await window.api.trackerConfigAttachmentSave(
+        worktreePath,
+        key,
+        a.id,
+        panelTrackerId,
+      )
+      if (savedPath) addToast(`Saved ${a.name} to ${savedPath}`)
+    } catch (e) {
+      addToast(`Could not save attachment: ${ipcErrorMessage(e)}`)
+    } finally {
+      if (savingAttachmentId === a.id) savingAttachmentId = null
+    }
+  }
   let panelTasks = $derived(getPanelTasks())
   // Task resolution runs at the end of worktree hydration — until it lands for THIS worktree, the
   // store still holds the previous worktree's tasks. Show a loader instead of stale data.
@@ -104,6 +185,9 @@
   let attachments = $state<Attachment[]>([])
   // Attachment id → data: URL (CSP allows img-src data:, not blob:/file:). Loaded lazily.
   let attachmentPreviews = $state<Record<string, string>>({})
+  // Per-attachment thumbnail fetch state: absent = no request ran (beyond the
+  // prefetch limit), 'loading' = in flight, 'failed' = request errored.
+  let thumbnailStates = $state<Record<string, 'loading' | 'failed'>>({})
   let loading = $state(false)
   let loadError = $state('')
   // The tracker answered but doesn't know this key — the task was deleted (or became invisible).
@@ -172,6 +256,13 @@
       comments = []
       attachments = []
       attachmentPreviews = {}
+      thumbnailStates = {}
+      // The lightbox belongs to the task being cleared — leaving it open would
+      // address the NEW task's key with the OLD attachment id.
+      previewSeq++
+      lightboxAttachment = null
+      lightboxLoading = false
+      lightboxError = ''
       void refresh(key)
     } else if (!key) {
       loadedForKey = ''
@@ -180,6 +271,11 @@
       comments = []
       attachments = []
       attachmentPreviews = {}
+      thumbnailStates = {}
+      previewSeq++
+      lightboxAttachment = null
+      lightboxLoading = false
+      lightboxError = ''
     }
   })
 
@@ -211,6 +307,7 @@
         comments = []
         attachments = []
         attachmentPreviews = {}
+        thumbnailStates = {}
         return
       }
       const [trans, comm, atts] = await Promise.all([
@@ -255,17 +352,27 @@
         url: a.url,
       }))
       attachmentPreviews = {}
+      thumbnailStates = {}
       // Thumbnails for image attachments (bounded — huge tasks shouldn't fire dozens of
-      // authenticated downloads).
+      // authenticated downloads). Loading state is tracked per id: images beyond the
+      // prefetch limit and failed fetches must render as plain files, not as an
+      // eternal spinner for a request that isn't running.
       for (const a of attachments
         .filter((a) => (a.mimeType ?? '').startsWith('image/'))
         .slice(0, 6)) {
+        thumbnailStates = { ...thumbnailStates, [a.id]: 'loading' }
         void window.api
           .trackerConfigAttachmentPreview(worktreePath, taskKey, a.id, panelTrackerId)
           .then((dataUrl) => {
-            if (seq === refreshSeq) attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
+            if (seq !== refreshSeq) return
+            attachmentPreviews = { ...attachmentPreviews, [a.id]: dataUrl }
+            const rest = { ...thumbnailStates }
+            delete rest[a.id]
+            thumbnailStates = rest
           })
-          .catch(() => {})
+          .catch(() => {
+            if (seq === refreshSeq) thumbnailStates = { ...thumbnailStates, [a.id]: 'failed' }
+          })
       }
     } catch (e) {
       if (seq !== refreshSeq) return
@@ -695,12 +802,12 @@
       {#if task?.description}
         {#key task.description}
           <!-- Native resize handle: starts at content height (capped), then the user drags. -->
-          <p
+          <div
             use:initDescriptionHeight
-            class="m-0 mt-1 px-1.5 py-1 text-xs text-text-muted leading-snug whitespace-pre-wrap resize-y overflow-y-auto min-h-10 max-h-[70vh] rounded-md border border-transparent hover:border-border-subtle"
+            class="m-0 mt-1 px-1.5 py-1 text-xs text-text-muted leading-snug resize-y overflow-y-auto min-h-10 max-h-[70vh] rounded-md border border-transparent hover:border-border-subtle"
           >
-            {task.description}
-          </p>
+            <Markdown source={task.description} />
+          </div>
         {/key}
       {:else if !task && loading}
         <div class="flex items-center gap-1.5 mt-1 text-xs text-text-faint">
@@ -715,30 +822,40 @@
           </span>
           <div class="flex flex-wrap items-start gap-1.5">
             {#each attachments as a (a.id)}
-              {#if attachmentPreviews[a.id]}
-                <button
-                  class="p-0 border-0 bg-transparent cursor-pointer rounded-md overflow-hidden"
-                  onclick={() => window.api.openExternal(a.url)}
-                  title={`${a.name} — open in tracker`}
-                >
+              <!-- ONE persistent trigger element per attachment: an independently
+                   resolving thumbnail prefetch must swap this button's CONTENT,
+                   not the node itself — replacing a focused element (e.g. right
+                   after the lightbox restored focus here) drops keyboard focus
+                   back to the document. -->
+              <button
+                class={attachmentPreviews[a.id]
+                  ? 'p-0 border-0 bg-transparent cursor-pointer rounded-md overflow-hidden'
+                  : 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-border-subtle bg-active text-2xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text'}
+                data-attachment-trigger={a.id}
+                onclick={() => openLightbox(a)}
+                title={attachmentPreviews[a.id]
+                  ? `${a.name} — view`
+                  : thumbnailStates[a.id] === 'failed'
+                    ? `${a.name} — thumbnail failed to load; view / save`
+                    : `${a.name} — view / save`}
+              >
+                {#if attachmentPreviews[a.id]}
                   <img
                     src={attachmentPreviews[a.id]}
                     alt={a.name}
                     class="h-16 max-w-44 object-contain rounded-md border border-border-subtle bg-bg-input hover:border-accent-muted"
                   />
-                </button>
-              {:else}
-                <button
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-border-subtle bg-active text-2xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-                  onclick={() => window.api.openExternal(a.url)}
-                  title={`${a.name} — open in tracker`}
-                >
-                  {#if (a.mimeType ?? '').startsWith('image/')}
-                    <LoaderCircle size={10} class="animate-spin" />
+                {:else}
+                  {#if thumbnailStates[a.id] === 'loading'}
+                    <LoaderCircle size={10} class="animate-spin-slow motion-reduce:animate-none" />
+                  {:else if thumbnailStates[a.id] === 'failed'}
+                    <AlertCircle size={10} class="text-warning-text" />
+                  {:else if (a.mimeType ?? '').startsWith('image/')}
+                    <ImageIcon size={10} />
                   {/if}
                   {a.name}
-                </button>
-              {/if}
+                {/if}
+              </button>
             {/each}
           </div>
         </div>
@@ -927,7 +1044,7 @@
                 <Bot size={12} />
               </button>
             </div>
-            <p class="m-0 text-xs text-text leading-snug whitespace-pre-wrap">{comment.body}</p>
+            <Markdown source={comment.body} class="text-xs text-text leading-snug" />
             {#if composeTarget?.kind === 'comment' && composeTarget.id === comment.id}
               <div class="mt-1.5">
                 {@render composeBox()}
@@ -956,4 +1073,17 @@
       </div>
     {/if}
   </div>
+{/if}
+
+{#if lightboxAttachment}
+  <AttachmentLightbox
+    name={lightboxAttachment.name}
+    dataUrl={attachmentPreviews[lightboxAttachment.id] ?? null}
+    loading={lightboxLoading}
+    saving={savingAttachmentId === lightboxAttachment.id}
+    error={lightboxError}
+    onSave={saveLightboxAttachment}
+    onOpenExternal={() => lightboxAttachment && window.api.openExternal(lightboxAttachment.url)}
+    onClose={closeLightbox}
+  />
 {/if}

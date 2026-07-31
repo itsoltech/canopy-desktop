@@ -4632,6 +4632,96 @@ export function registerIpcHandlers(
     },
   )
 
+  ipcMain.handle(
+    'taskTracker:attachmentSave',
+    async (
+      event,
+      payload: {
+        repoRoot?: string
+        trackerId?: string
+        taskKey: string
+        attachmentId: string
+      },
+    ): Promise<string | null> => {
+      // Same hardened addressing as attachmentPreview: the renderer supplies only
+      // task key + attachment id, the provider's own metadata decides URL and name.
+      if (typeof payload.taskKey !== 'string' || !TASK_KEY_RE.test(payload.taskKey)) {
+        throw new Error('Invalid task key')
+      }
+      if (
+        typeof payload.attachmentId !== 'string' ||
+        payload.attachmentId.length === 0 ||
+        payload.attachmentId.length > 2048
+      ) {
+        throw new Error('Invalid attachment id')
+      }
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) return null
+      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      if (!resolved) throw new Error('No tracker configured')
+      const attachments = unwrapOrThrow(
+        await taskTrackerManager.fetchTaskAttachmentsFromConfig(
+          resolved.config,
+          payload.taskKey,
+          payload.trackerId,
+          payload.repoRoot,
+        ),
+        taskTrackerErrorMessage,
+      )
+      const attachment = attachments.find(
+        (a) => a.id === payload.attachmentId || a.url === payload.attachmentId,
+      )
+      if (!attachment) throw new Error('Attachment not found on this task')
+
+      // Ask for the destination FIRST — no download work for a cancelled dialog.
+      // The suggested filename comes from tracker metadata; strip anything
+      // path-like so it cannot steer the dialog outside the chosen directory.
+      const suggestedName =
+        (attachment.name || 'attachment').replace(/[\\/:*?"<>|]/g, '_').slice(0, 150) ||
+        'attachment'
+      const saveResult = await dialog.showSaveDialog(win, {
+        title: 'Save Attachment',
+        defaultPath: suggestedName,
+      })
+      if (saveResult.canceled || !saveResult.filePath) return null
+
+      const result = await taskTrackerManager.downloadAttachmentFromConfig(
+        resolved.config,
+        attachment.url,
+        attachment.name || 'attachment',
+        payload.trackerId,
+        payload.repoRoot,
+      )
+      const localPath = unwrapOrThrow(result, taskTrackerErrorMessage)
+      // Stage in an app-owned mkdtemp directory NEXT TO the destination (same
+      // volume, so the final rename never crosses filesystems) and swap in only
+      // after the copy succeeded — copyFile() straight onto an existing file is
+      // non-atomic, so a mid-copy failure would destroy the user's previous file.
+      // mkdtemp guarantees ownership of everything under the staging dir, making
+      // the cleanup below safe by construction (no risk of deleting a pre-existing
+      // sibling), and the short fixed basename cannot exceed name-length limits.
+      // The staging creation lives INSIDE the block owning the download's
+      // lifetime: an mkdtemp rejection (ACL forbidding directory creation,
+      // read-only share) must still clean up the temp download in finally.
+      let stagingDir: string | null = null
+      try {
+        stagingDir = await fs.promises.mkdtemp(
+          path.join(path.dirname(saveResult.filePath), '.canopy-save-'),
+        )
+        const stagedPath = path.join(stagingDir, 'staged')
+        await fs.promises.copyFile(localPath, stagedPath)
+        // rename() replaces existing destinations on all platforms.
+        await fs.promises.rename(stagedPath, saveResult.filePath)
+        return saveResult.filePath
+      } finally {
+        if (stagingDir) {
+          await fs.promises.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+        }
+        taskTrackerManager.cleanupAttachmentDir(localPath)
+      }
+    },
+  )
+
   // --- Worktree Setup ---
 
   const setupAbortControllers = new Map<number, AbortController>()

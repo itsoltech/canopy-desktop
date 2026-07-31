@@ -1,20 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { marked } from 'marked'
-  import DOMPurify from 'dompurify'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import Markdown from '../shared/Markdown.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
   let version = $state('')
   let homepage = $state('')
-  let licenseHtml = $state('')
+  let licenseText = $state('')
 
   onMount(async () => {
     containerEl?.focus()
     const info = await window.api.getAboutInfo()
     version = info.version
     homepage = info.homepage
-    licenseHtml = DOMPurify.sanitize(await marked.parse(info.license))
+    licenseText = info.license
   })
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -45,12 +44,6 @@
 
   function openHomepage(): void {
     window.api.openExternal(homepage)
-  }
-
-  function htmlContent(node: HTMLElement, content: () => string): void {
-    $effect(() => {
-      node.innerHTML = content()
-    })
   }
 </script>
 
@@ -90,13 +83,13 @@
       </button>
     {/if}
 
-    {#if licenseHtml}
+    {#if licenseText}
       <div class="mb-4">
         <h3 class="m-0 mb-2 text-md font-semibold text-text-secondary">License</h3>
         <div
           class="license-content max-h-50 overflow-y-auto p-3 bg-bg-input rounded-lg border border-border-subtle text-xs leading-normal text-text-secondary"
         >
-          <div use:htmlContent={() => licenseHtml}></div>
+          <Markdown source={licenseText} />
         </div>
       </div>
     {/if}

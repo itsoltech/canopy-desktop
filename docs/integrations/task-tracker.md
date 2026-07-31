@@ -53,9 +53,16 @@ Jira maps `issuetype.subtask = true` to `subtask`, and normalizes type names (`U
 1. User selects a task from the list.
 2. Canopy fetches comments via `fetchTaskComments` and attachments via `fetchTaskAttachments`.
 3. Comments are truncated to 1000 characters each; a maximum of 15 recent comments are shown.
-4. Task description is truncated to 3000 characters.
+4. Task description is truncated to 3000 characters. Descriptions and comments render as
+   sanitized markdown through the shared `Markdown` component
+   (`src/renderer/src/components/shared/Markdown.svelte`).
 5. Attachments can be downloaded to a temp directory (`canopy-attachments-{uuid}` in `os.tmpdir()`). Downloads are capped at 50 MB per file with a 60-second timeout. The download URL must match the connection's `baseUrl` origin.
 6. Downloaded attachments are automatically cleaned up after 60 seconds.
+7. Clicking an attachment opens an in-app lightbox (`AttachmentLightbox`): images render
+   directly (proxied through the authenticated connection, addressed by task key +
+   attachment id only), every attachment offers **Save…** to disk via a native save
+   dialog (`taskTracker:attachmentSave`, suggested filename sanitized), and opening the
+   tracker in the browser is a secondary icon action.
 
 ### Task panel & write-back
 
@@ -282,6 +289,10 @@ When a GitHub tracker has an empty `projectKey`, Canopy reads the git remote URL
 
 ## Error states
 
+Note: `taskTracker:attachmentSave` additionally throws plain validation errors that surface
+verbatim in a toast — `Invalid task key`, `Invalid attachment id`, `No tracker configured`,
+and `Attachment not found on this task`.
+
 | Error                      | User sees                                        | Cause                                                                     |
 | -------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
 | `ConnectionNotFound`       | "Connection not found: {id}"                     | Deleted or invalid connection ID referenced                               |
@@ -325,6 +336,9 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
   - `providers/github.ts` - GitHub GraphQL API client
   - `errors.ts` - typed error union with message formatter
 - Store: `src/renderer/src/lib/stores/taskTracker.svelte.ts`
+- UI components: `src/renderer/src/components/taskTracker/AttachmentLightbox.svelte` (in-app
+  attachment viewer with save-to-disk) and `src/renderer/src/components/shared/Markdown.svelte`
+  (sanitized markdown rendering for descriptions/comments)
 - Components: `src/renderer/src/lib/taskTracker/`
   - `branchCreation.ts` - branch creation flow with stash/confirm dialogs
   - `taskContext.ts` - task context formatting for AI agents

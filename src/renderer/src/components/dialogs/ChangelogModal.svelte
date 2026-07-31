@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { marked } from 'marked'
-  import DOMPurify from 'dompurify'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import Markdown from '../shared/Markdown.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
 
@@ -12,7 +11,7 @@
 
   let { fromVersion }: Props = $props()
 
-  let entries: Array<{ version: string; date: string; html: string }> = $state([])
+  let entries: Array<{ version: string; date: string; body: string }> = $state([])
   let loading = $state(true)
   let error = $state(false)
 
@@ -20,13 +19,7 @@
     containerEl?.focus()
     const raw = await window.api.getChangelogSinceVersion(fromVersion)
     if (raw && raw.length > 0) {
-      entries = await Promise.all(
-        raw.map(async (e) => ({
-          version: e.version,
-          date: e.date,
-          html: DOMPurify.sanitize(await marked.parse(e.body)),
-        })),
-      )
+      entries = raw.map((e) => ({ version: e.version, date: e.date, body: e.body }))
     } else if (!raw) {
       error = true
     }
@@ -57,12 +50,6 @@
         first.focus()
       }
     }
-  }
-
-  function htmlContent(node: HTMLElement, content: () => string): void {
-    $effect(() => {
-      node.innerHTML = content()
-    })
   }
 </script>
 
@@ -113,17 +100,7 @@
               >
               <span class="text-sm text-text-faint">{entry.date}</span>
             </div>
-            <div
-              class="entry-body text-md leading-[1.6] text-text-secondary"
-              use:htmlContent={() => entry.html}
-              onclick={(e: MouseEvent) => {
-                const anchor = (e.target as HTMLElement).closest('a')
-                if (anchor?.href) {
-                  e.preventDefault()
-                  window.api.openExternal(anchor.href)
-                }
-              }}
-            ></div>
+            <Markdown source={entry.body} class="text-md leading-[1.6] text-text-secondary" />
           </div>
         {/each}
       {/if}

@@ -9,6 +9,7 @@
   import { prStateChip } from '../../lib/github/prState'
   import { formatDateTime } from '../../lib/formatDate'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import Markdown from '../shared/Markdown.svelte'
 
   // Native PR panel: everything comes from the authenticated gh CLI, so no GitHub login is
   // required inside Canopy (the embedded browser has no session).
@@ -392,11 +393,9 @@
         <div class="flex flex-col gap-1">
           <span class={sectionLabelCls}>Description</span>
           {#if pr.body?.trim()}
-            <p
-              class="m-0 text-xs text-text leading-snug whitespace-pre-wrap break-words rounded-lg border border-border-subtle bg-bg-input px-3 py-2"
-            >
-              {pr.body}
-            </p>
+            <div class="rounded-lg border border-border-subtle bg-bg-input px-3 py-2">
+              <Markdown source={pr.body} class="text-xs text-text leading-snug break-words" />
+            </div>
           {:else}
             <p class="m-0 text-xs text-text-faint">No description.</p>
           {/if}
