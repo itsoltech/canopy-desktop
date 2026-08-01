@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Plus, Trash2, Check, Unlink } from '@lucide/svelte'
+  import { Plus, Trash2, Check, Unlink, ServerCog, X } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import {
     getGlobalConfig,
@@ -37,7 +37,110 @@
     await loadGlobalConfig()
     // First run: the personal store may not exist yet — create it so adding a connection works.
     if (!getGlobalConfig()) await initGlobalConfig()
+    await reloadCiServers()
   })
+
+  // --- CI servers (TeamCity) — your PERSONAL tokens, keyed provider+URL in the
+  // keychain (the keychain IS the connection list; no global-config entry exists).
+  // Which build configurations a repository uses lives in the repo's own
+  // .canopy/config.json, managed from the CI/CD sidebar section — not here.
+  let ciServers = $state<Array<{ baseUrl: string; username?: string }>>([])
+  let ciEditing = $state<string | null>(null) // '__new__' or the server baseUrl
+  let ciFormUrl = $state('')
+  let ciFormToken = $state('')
+  let ciTesting = $state(false)
+  let ciTestResult = $state<'success' | 'fail' | ''>('')
+
+  let ciNormalizedUrl = $derived(ciFormUrl.trim().replace(/\/$/, ''))
+  let ciUrlValid = $derived(/^https?:\/\/\S+$/i.test(ciNormalizedUrl))
+
+  async function reloadCiServers(): Promise<void> {
+    try {
+      const all = await window.api.keychainListCredentials()
+      ciServers = all.filter((c) => c.provider === 'teamcity')
+    } catch {
+      ciServers = []
+    }
+  }
+
+  function startCiAdd(): void {
+    ciEditing = '__new__'
+    ciFormUrl = ''
+    ciFormToken = ''
+    ciTestResult = ''
+  }
+
+  function startCiEdit(server: { baseUrl: string }): void {
+    ciEditing = server.baseUrl
+    ciFormUrl = server.baseUrl
+    ciFormToken = ''
+    ciTestResult = ''
+  }
+
+  function cancelCiEdit(): void {
+    ciEditing = null
+    ciTestResult = ''
+  }
+
+  async function testCiServer(): Promise<void> {
+    if (!ciUrlValid || !ciFormToken) return
+    ciTesting = true
+    ciTestResult = ''
+    try {
+      await window.api.ciTestNewConnection(ciNormalizedUrl, ciFormToken)
+      ciTestResult = 'success'
+    } catch {
+      ciTestResult = 'fail'
+    } finally {
+      ciTesting = false
+    }
+  }
+
+  async function saveCiServer(): Promise<void> {
+    if (!ciUrlValid || !ciFormToken) return
+    const isNew = ciEditing === '__new__'
+    const encryptionAvailable = await window.api
+      .isCredentialEncryptionAvailable()
+      .catch(() => false)
+    const storage = credentialStorageClause(window.api.platform, encryptionAvailable)
+    const ok = await confirm({
+      title: isNew ? 'Add CI server' : 'Update CI server token',
+      message: `${isNew ? 'Save' : 'Update'} your TeamCity token for ${ciNormalizedUrl}?`,
+      details: `Your token is stored ${storage}, keyed by provider + URL and used by every repository that configures this CI server — never written to any repository.`,
+      confirmLabel: isNew ? 'Add CI server' : 'Save token',
+    })
+    if (!ok) return
+    try {
+      await window.api.keychainSetCredentials('teamcity', ciNormalizedUrl, ciFormToken)
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save credentials')
+      return
+    }
+    ciEditing = null
+    ciFormToken = ''
+    await reloadCiServers()
+    addToast('CI server saved')
+  }
+
+  async function removeCiServer(server: { baseUrl: string }): Promise<void> {
+    const ok = await confirm({
+      title: 'Remove CI server',
+      message: `Remove your stored token for TeamCity at ${server.baseUrl}?`,
+      details:
+        'Clears the token on this machine only. Repositories that configure this server will show a reconnect hint until a new token is saved.',
+      confirmLabel: 'Remove CI server',
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      await window.api.keychainDeleteCredentials('teamcity', server.baseUrl)
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
+      return
+    }
+    await reloadCiServers()
+    addToast('CI server removed')
+  }
 
   function startAdd(): void {
     editingId = '__new__'
@@ -359,3 +462,137 @@
     </div>
   </div>
 </PrefsSection>
+
+<PrefsSection
+  title="CI servers"
+  description="Your personal TeamCity tokens, keyed by server URL — repositories pick which build configurations to use from the CI/CD sidebar section"
+>
+  <div class="flex flex-col gap-2">
+    {#if ciServers.length === 0 && ciEditing === null}
+      <p class="text-sm text-text-faint m-0">No CI servers yet.</p>
+    {/if}
+
+    {#each ciServers as server (server.baseUrl)}
+      {#if ciEditing === server.baseUrl}
+        {@render ciServerForm(false)}
+      {:else}
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm font-inherit cursor-pointer text-left hover:border-border min-w-0"
+            onclick={() => startCiEdit(server)}
+            title="Update the stored token for this server"
+          >
+            <span class="inline-flex items-center shrink-0 text-text-muted" title="TeamCity">
+              <ServerCog size={14} />
+            </span>
+            <span class="flex-1 text-text-secondary truncate" title={server.baseUrl}
+              >{server.baseUrl}</span
+            >
+            <span
+              class="flex items-center gap-1 text-2xs text-success shrink-0"
+              title="Credentials saved"
+            >
+              <Check size={12} />
+            </span>
+          </button>
+          <button
+            type="button"
+            class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+            onclick={() => removeCiServer(server)}
+            aria-label="Remove CI server"
+            title="Remove the stored token for this server"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      {/if}
+    {/each}
+
+    {#if ciEditing === '__new__'}
+      {@render ciServerForm(true)}
+    {/if}
+
+    {#if ciEditing === null}
+      <button
+        type="button"
+        class="self-start flex items-center gap-1 px-3 py-1 mt-1 rounded-md bg-border-subtle border border-border text-text-secondary text-sm font-inherit cursor-pointer hover:bg-active hover:text-text"
+        onclick={startCiAdd}
+        title="Add a TeamCity server and your access token"
+      >
+        <Plus size={12} />
+        <span>Add CI server</span>
+      </button>
+    {/if}
+  </div>
+</PrefsSection>
+
+{#snippet ciServerForm(isNew: boolean)}
+  <div class="flex flex-col gap-2 p-3 border border-border rounded-md bg-bg-input">
+    <div class="flex flex-col gap-1">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+        >Server URL</span
+      >
+      {#if isNew}
+        <input
+          class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+          name="ciServerUrl"
+          aria-label="TeamCity server URL"
+          bind:value={ciFormUrl}
+          placeholder="https://teamcity.example.com"
+          spellcheck="false"
+        />
+      {:else}
+        <span class="px-2.5 py-1.5 text-sm text-text-secondary truncate" title={ciFormUrl}
+          >{ciFormUrl}</span
+        >
+      {/if}
+    </div>
+    <div class="flex flex-col gap-1">
+      <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+        >Access token</span
+      >
+      <input
+        class="px-2.5 py-1.5 border border-border rounded-md bg-bg text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+        type="password"
+        name="ciServerToken"
+        aria-label="TeamCity access token"
+        bind:value={ciFormToken}
+        placeholder={isNew ? 'Enter token' : '••••••••'}
+        autocomplete="off"
+        title="Stored encrypted on your machine, keyed by provider + URL — never written to your repository"
+      />
+    </div>
+    <div class="min-h-4.5" aria-live="polite">
+      {#if ciTestResult === 'success'}
+        <span class="flex items-center gap-1 text-xs text-success"><Check size={13} /> OK</span>
+      {:else if ciTestResult === 'fail'}
+        <span class="flex items-center gap-1 text-xs text-danger-text"><X size={13} /> Failed</span>
+      {/if}
+    </div>
+    <div class="flex gap-1.5 justify-end">
+      <button
+        type="button"
+        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
+        onclick={cancelCiEdit}>Cancel</button
+      >
+      <button
+        type="button"
+        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg text-text-secondary enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
+        onclick={testCiServer}
+        disabled={ciTesting || !ciUrlValid || !ciFormToken}
+        title="Check the connection against the server — nothing is saved"
+      >
+        {ciTesting ? 'Testing…' : 'Test'}
+      </button>
+      <button
+        type="button"
+        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
+        onclick={saveCiServer}
+        disabled={!ciUrlValid || !ciFormToken}
+        title="Save the token (stored globally on this machine, per provider + URL)"
+        >{isNew ? 'Add CI server' : 'Save token'}</button
+      >
+    </div>
+  </div>
+{/snippet}

@@ -58,6 +58,10 @@ interface ProjectTrackerState {
   type: 'projectTracker'
 }
 
+interface ProjectCiState {
+  type: 'projectCi'
+}
+
 interface AboutState {
   type: 'about'
 }
@@ -129,6 +133,7 @@ type DialogState =
   | PreferencesState
   | TaskPickerState
   | ProjectTrackerState
+  | ProjectCiState
   | PRDetailsState
   | CreateTaskPRState
   | AboutState
@@ -207,6 +212,11 @@ export function showTaskPicker(connectionId: string, mode: 'browse' | 'link' = '
 
 export function showProjectTracker(): void {
   dialogState.current = { type: 'projectTracker' }
+}
+
+/** Per-repo CI/CD configuration (TeamCity server + build configurations). */
+export function showProjectCi(): void {
+  dialogState.current = { type: 'projectCi' }
 }
 
 /** Native PR panel — details fetched via the authenticated gh CLI, no browser login needed. */

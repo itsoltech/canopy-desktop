@@ -5,6 +5,7 @@
   import FileTreeSection from './FileTreeSection.svelte'
   import ToolSection from './ToolSection.svelte'
   import TaskTrackerSection from './TaskTrackerSection.svelte'
+  import CiSection from './CiSection.svelte'
   import RunConfigSection from './RunConfigSection.svelte'
   import RemoteSection from './RemoteSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -57,6 +58,13 @@
           <ToolSection {onLaunchTool} />
         {:else if section.id === 'tasks'}
           <TaskTrackerSection />
+        {:else if section.id === 'cicd'}
+          <!-- Strictly opt-in (no auto-show on repo config, unlike 'tasks') — the ci
+               block arrives via the git-shared config and must not enable the feature
+               for everyone opening the repo. -->
+          {#if workspaceState.isGitRepo}
+            <CiSection />
+          {/if}
         {:else if section.id === 'runConfigs'}
           <RunConfigSection />
         {:else if section.id === 'remote'}

@@ -15,6 +15,7 @@
   } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
+  import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
   import {
     confirm,
     prompt,
@@ -234,11 +235,18 @@
     showPRDetails(worktreePath(), workspaceState.branch)
   }
 
-  // --- CI builds for the current branch. Double-gated: the `ci.enabled` preference
-  // (personal opt-in, default off — a `ci` block arrives via the git-SHARED repo
-  // config, so one teammate's commit must not enable new UI and a background poller
-  // for everyone) AND the repo actually configuring CI.
-  let ciEnabled = $derived(prefs['ci.enabled'] === 'true')
+  // --- CI builds for the current branch. Double-gated: the CI/CD sidebar section
+  // being enabled (personal opt-in, default off in `sidebar.sections` — a `ci` block
+  // arrives via the git-SHARED repo config, so one teammate's commit must not enable
+  // new UI and a background poller for everyone) AND the repo actually configuring CI.
+  let ciEnabled = $derived.by(() => {
+    const sections = getSidebarConfig(prefs['sidebar.sections'] ?? '')
+    return sections.find((s) => s.id === 'cicd')?.visible === true
+  })
+  // TeamCity builds the REMOTE branch — a worktree that only exists locally has
+  // nothing to build, so triggering requires an upstream (aheadBehind is null
+  // exactly when the branch has no upstream).
+  let branchPushed = $derived(workspaceState.aheadBehind != null)
   let ci = $derived(getCiState())
   let ciResponse = $derived(ci.response)
   // A queued/running build flips polling to the fast interval.
@@ -574,7 +582,7 @@
       {#if ciResponse.hasToken === false}
         <button
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-          onclick={() => showPreferences('CI/CD')}
+          onclick={() => showPreferences('Your connections')}
           title="This repository configures a TeamCity server, but no token is stored — connect it in Settings"
         >
           <KeyRound size={13} class="text-warning flex-shrink-0" />
@@ -620,12 +628,14 @@
             </button>
             <button
               class="flex items-center justify-center size-6 rounded-md border-0 bg-transparent text-text-faint cursor-pointer transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-40 disabled:cursor-default flex-shrink-0"
-              disabled={buildActive || triggering === row.buildTypeId}
+              disabled={!branchPushed || buildActive || triggering === row.buildTypeId}
               onclick={() => doTriggerBuild(row.buildTypeId, row.label)}
               aria-label={`Run ${row.label}`}
-              title={buildActive
-                ? 'A build is already queued or running for this branch'
-                : `Queue a ${row.label} build for this branch`}
+              title={!branchPushed
+                ? 'Push the branch first — TeamCity builds the remote branch, and this one exists only locally'
+                : buildActive
+                  ? 'A build is already queued or running for this branch'
+                  : `Queue a ${row.label} build for this branch`}
             >
               {#if triggering === row.buildTypeId}
                 <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />

@@ -18,7 +18,6 @@
   import SidebarPrefs from './SidebarPrefs.svelte'
   import TerminalPrefs from './TerminalPrefs.svelte'
   import ConnectionsPrefs from './ConnectionsPrefs.svelte'
-  import CiCdPrefs from './CiCdPrefs.svelte'
   import PrivacyPrefs from './PrivacyPrefs.svelte'
   import FileWatcherPrefs from './FileWatcherPrefs.svelte'
   import SkillPrefs from './SkillPrefs.svelte'
@@ -44,7 +43,6 @@
     { label: 'AI Agents', sections: ['Claude', 'Gemini', 'OpenCode', 'Codex', 'Skills'] },
     { label: 'Dev Tools', sections: ['Terminal', 'Tools', 'Git', 'File Watcher'] },
     { label: 'Project management', sections: ['Your connections'] },
-    { label: 'CI/CD', sections: ['CI/CD'] },
     { label: 'Web Browser', sections: ['Web Browser'] },
     { label: 'Security', sections: ['Remote Control'] },
   ] as const
@@ -257,8 +255,6 @@
             <ViewportsPrefs />
           {:else if activeSection === 'Your connections'}
             <ConnectionsPrefs />
-          {:else if activeSection === 'CI/CD'}
-            <CiCdPrefs />
           {:else if activeSection === 'File Watcher'}
             <FileWatcherPrefs />
           {:else if activeSection === 'Privacy'}

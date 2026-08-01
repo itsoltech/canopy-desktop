@@ -53,6 +53,48 @@ export async function refreshCi(repoRoot: string, branch: string): Promise<void>
   }
 }
 
+// --- Validated per-repo CI config (shared by the CI/CD section, the GIT rows and
+// the ProjectCi modal — the modal reloads it after every save) ---
+
+interface CiRepoConfigState {
+  /** Normalized repoRoot this state belongs to. */
+  key: string
+  loaded: boolean
+  config: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null
+  hasToken: boolean
+}
+
+let repoConfigState = $state<CiRepoConfigState>({
+  key: '',
+  loaded: false,
+  config: null,
+  hasToken: false,
+})
+let configSeq = 0
+
+export function getCiRepoConfig(): CiRepoConfigState {
+  return repoConfigState
+}
+
+export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
+  const key = repoRoot.replace(/\\/g, '/')
+  const seq = ++configSeq
+  if (repoConfigState.key !== key) {
+    repoConfigState = { key, loaded: false, config: null, hasToken: false }
+  }
+  try {
+    const config = await window.api.ciConfig(repoRoot)
+    const hasToken = config
+      ? await window.api.keychainHasCredentials('teamcity', config.baseUrl)
+      : false
+    if (seq !== configSeq) return
+    repoConfigState = { key, loaded: true, config, hasToken }
+  } catch {
+    if (seq !== configSeq) return
+    repoConfigState = { key, loaded: true, config: null, hasToken: false }
+  }
+}
+
 // --- Observation of builds triggered from Canopy → completion toast ---
 
 const OBSERVE_INTERVAL_MS = 10_000

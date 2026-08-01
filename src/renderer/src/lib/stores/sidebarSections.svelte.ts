@@ -1,7 +1,7 @@
 import { setPref } from './preferences.svelte'
 
 export type SidebarSectionId =
-  'projects' | 'git' | 'files' | 'tools' | 'tasks' | 'runConfigs' | 'remote'
+  'projects' | 'git' | 'files' | 'tools' | 'tasks' | 'cicd' | 'runConfigs' | 'remote'
 
 export interface SidebarSectionDef {
   id: SidebarSectionId
@@ -15,6 +15,7 @@ export const SECTION_DEFS: SidebarSectionDef[] = [
   { id: 'files', label: 'Files', forced: false },
   { id: 'tools', label: 'Tools', forced: false },
   { id: 'tasks', label: 'Project management', forced: false },
+  { id: 'cicd', label: 'CI/CD', forced: false },
   { id: 'runConfigs', label: 'Run', forced: false },
   { id: 'remote', label: 'Remote', forced: false },
 ]
@@ -32,6 +33,9 @@ const DEFAULT_CONFIG: SidebarSectionConfig[] = [
   { id: 'files', visible: false },
   { id: 'tools', visible: true },
   { id: 'tasks', visible: false },
+  // Opt-in (review requirement): the ci block arrives via the git-shared repo config,
+  // so the feature must not switch on for everyone the moment a teammate commits it.
+  { id: 'cicd', visible: false },
   { id: 'runConfigs', visible: false },
   { id: 'remote', visible: true },
 ]

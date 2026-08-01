@@ -12,6 +12,7 @@
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import ProjectTrackerModal from '../preferences/ProjectTrackerModal.svelte'
+  import ProjectCiModal from '../preferences/ProjectCiModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
@@ -602,6 +603,8 @@
   />
 {:else if dialogState.current.type === 'projectTracker'}
   <ProjectTrackerModal />
+{:else if dialogState.current.type === 'projectCi'}
+  <ProjectCiModal />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}
