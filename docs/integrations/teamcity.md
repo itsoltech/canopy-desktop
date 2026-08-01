@@ -47,8 +47,10 @@ A centered modal (rendered from the app layer — sidebar-hosted dialogs would b
 pinned to the sidebar column by its backdrop-filter): pick a configured job and a
 branch through a searchable list (branches come from TeamCity itself —
 `/app/rest/buildTypes/id:X/branches`, default branch first; a typed name not on the
-list can still be used). The GIT section also offers **Run job on this branch…**,
-which opens the same modal prefilled with the current worktree's branch. If the job
+list can still be used). The same modal opens from the worktree context menu —
+right-click a branch in PROJECTS → **Run CI Job on Branch…** (prefilled with that
+worktree's branch); the GIT section deliberately carries no CI entries, it holds
+CI-independent git actions. If the job
 prompts for
 parameters (TeamCity's "Run custom build"), Canopy shows an equivalent dynamic form:
 text inputs with descriptions, checkboxes honoring custom checked/unchecked values,
@@ -66,20 +68,12 @@ The sidebar carries only a one-row summary (running/queued counts, or "Idle");
 clicking it opens a dedicated activity window with the details: everything running or
 queued on the server (server-wide, like TeamCity's own queue page; capped at 20+20)
 plus the 10 most recent finished builds with their outcome. Job name, branch and
-progress per row; click opens the build in TeamCity. The summary polls every 30 s
-(10 s while anything is active) while the section is mounted; the window refreshes
-every 10 s while open.
-
-### Branch build rows (GIT section)
-
-For every configured job, the GIT section shows the newest build of the active
-worktree's branch with a status chip (Queued / Running N% / Success / Failed / Unknown /
-No builds); click opens the build. Status polls every 45 s (10 s while a build is
-active); unconfigured repos get a single discovery fetch and no interval. The ▶ button
-queues a build **of the current branch** — it is disabled while a build is active and
-when the branch has no upstream (a branch that exists only locally has nothing for
-TeamCity to build; push first). Builds triggered from Canopy are observed to completion
-and finish with a toast.
+progress per row (start time + duration for finished builds — same-day times as
+HH:MM, older ones as YYYY-MM-DD HH:MM; elapsed time for running); click opens the
+build in TeamCity. The summary chip shows a single running build's percentage and the
+queued count, refreshes immediately after a trigger from Canopy, and polls every 30 s
+(10 s while anything is active) while the section is mounted; the window is resizable
+and refreshes every 10 s while open.
 
 ## Configuration
 
@@ -115,7 +109,7 @@ The typed error union `CiError` has three variants:
 
 | Variant           | Meaning                                   | Surface                                                       |
 | ----------------- | ----------------------------------------- | ------------------------------------------------------------- |
-| `CiNotConfigured` | No (valid) `ci` block in the repo config  | Sections show their "configure" entries; GIT rows hidden      |
+| `CiNotConfigured` | No (valid) `ci` block in the repo config  | Section shows its "configure" entry                           |
 | `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections       |
 | `CiApiError`      | HTTP/network/API failure                  | Muted error line in the section (full message in the tooltip) |
 

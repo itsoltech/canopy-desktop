@@ -11,7 +11,7 @@ export function formatDuration(ms: number): string {
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
-/** Clock for same-day timestamps, `DD.MM HH:MM` otherwise. */
+/** Clock for same-day timestamps, `YYYY-MM-DD HH:MM` otherwise. */
 export function formatWhen(ts: number, now: number): string {
   const d = new Date(ts)
   const n = new Date(now)
@@ -20,5 +20,7 @@ export function formatWhen(ts: number, now: number): string {
     d.getFullYear() === n.getFullYear() &&
     d.getMonth() === n.getMonth() &&
     d.getDate() === n.getDate()
-  return sameDay ? clock : `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${clock}`
+  return sameDay
+    ? clock
+    : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${clock}`
 }

@@ -12,7 +12,9 @@
     initGitRepo,
     type ProjectState,
   } from '../../lib/stores/workspace.svelte'
-  import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
+  import { showCreateWorktree, showCiRunJob, confirm } from '../../lib/stores/dialogs.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
+  import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
@@ -296,6 +298,22 @@
     })
   }
 
+  // Deploy/CI entry lives HERE (on the branch), not in the GIT section — that section
+  // holds CI-independent git actions. Shown only with the CI/CD feature opted in; a
+  // checkout without a ci config gets the modal's own "not configured" message.
+  let ciMenuEnabled = $derived.by(() => {
+    const sections = getSidebarConfig(prefs['sidebar.sections'] ?? '')
+    return sections.find((s) => s.id === 'cicd')?.visible === true
+  })
+
+  function ctxRunCiJob(): void {
+    if (!ctxMenu) return
+    const { wt } = ctxMenu
+    closeCtxMenu()
+    // The worktree's own checkout carries the repo config; its branch prefills the run.
+    showCiRunJob(wt.path, { branch: wt.branch })
+  }
+
   async function ctxStopAll(): Promise<void> {
     if (!ctxMenu) return
     const worktreePath = ctxMenu.wt.path
@@ -381,6 +399,15 @@
           role="menuitem"
           onclick={ctxNewWorktree}>New Worktree from Branch</button
         >
+        {#if ciMenuEnabled}
+          <button
+            class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+            role="menuitem"
+            onclick={ctxRunCiJob}
+            title="Queue a CI job (build/deploy) on this branch — the branch must exist on the remote"
+            >Run CI Job on Branch…</button
+          >
+        {/if}
       {/if}
       {#if isWorktreeActive(ctxMenu.wt.path)}
         <div class="h-px mx-2 my-1 bg-border-subtle"></div>

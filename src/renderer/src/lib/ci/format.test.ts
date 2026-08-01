@@ -19,8 +19,8 @@ describe('formatWhen', () => {
     expect(formatWhen(ts, now)).toBe('17:23')
   })
 
-  it('adds the date for older timestamps', () => {
+  it('adds the ISO date for older timestamps', () => {
     const ts = new Date(2026, 6, 30, 9, 5).getTime()
-    expect(formatWhen(ts, now)).toBe('30.07 09:05')
+    expect(formatWhen(ts, now)).toBe('2026-07-30 09:05')
   })
 })
