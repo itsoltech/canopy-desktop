@@ -10,9 +10,9 @@
 
 Canopy can show the TeamCity build status of the active worktree's branch and queue new
 builds, directly from the **GIT** section in the left sidebar. The integration is
-double-gated: the repository must declare a `ci` block in `.canopy/config.json` AND the
-user must opt in via the **ci.enabled** preference (Settings → Your connections → CI,
-default off). The repo config is a git-shared file — without the personal opt-in, one
+double-gated: the repository must declare a `ci` block in `.canopy/config.json` (written
+by the Settings → CI/CD configurator) AND the user must opt in via the **ci.enabled**
+preference (same page, default off). The repo config is a git-shared file — without the personal opt-in, one
 teammate committing a `ci` block would enable new UI and a background poller for
 everyone opening the repo. Repositories without the block are unaffected either way:
 no rows, no requests, no polling.
@@ -44,27 +44,49 @@ the previous worktree never overwrites the current one.
 
 The ▶ button on a row queues a build of that configuration for the current branch
 (`POST /app/rest/buildQueue`). It is disabled while a build of that configuration is
-already queued or running. After triggering, Canopy observes the build and shows a
-toast when it finishes ("Build … succeeded" / "failed"), even if the section has moved
-on to other rows. Observation stops after the build finishes, after repeated API
-failures, or after 2 h.
+already queued or running.
 
-### Connecting
+If the configuration prompts for parameters (TeamCity's "Run custom build" dialog —
+parameters with `display='prompt'`), Canopy first fetches their typed specs and shows
+an equivalent **Run build** dialog: text inputs (with the parameter's description),
+checkboxes (honoring custom checked/unchecked values), single selects, and
+multi-selects with All/None shortcuts joined by the spec's value separator. Fields are
+prefilled with the configuration's current values; required parameters
+(`validationMode='not_empty'`) block submission while blank. The chosen values are
+sent as build `properties`. Configurations without prompt parameters trigger
+immediately, with the configuration's defaults.
 
-The personal access token is entered in **Settings → Your connections → CI** — the
-section appears when the active repository configures a CI server, and also hosts the
-`ci.enabled` opt-in toggle. **Test** performs `GET /app/rest/server` with the candidate
-token; **Save credentials** stores the token via the OS-encrypted credential store
-(`safeStorage`), keyed `teamcity:<baseUrl>` and shared across projects that use the
-same server. Before the token is used in any way (test, save, or the "Generate →"
-link), Canopy asks the user to confirm the server address once per edit session,
-because that address comes from the git-shared repo config (see Security and privacy).
-If the repo configures CI but no token is stored, the GIT section shows a **Connect
-TeamCity** row that jumps to Settings.
+After triggering, Canopy observes the build and shows a toast when it finishes
+("Build … succeeded" / "failed"), even if the section has moved on to other rows.
+Observation stops after the build finishes, after repeated API failures, or after 2 h.
+
+### Configuring and connecting (Settings → CI/CD)
+
+The dedicated **CI/CD** Settings page hosts everything:
+
+- The `ci.enabled` opt-in toggle (personal, default off; flipped on automatically when
+  you save a configuration yourself).
+- The **configurator**: enter the server URL and an access token ("Generate →" opens
+  the server's token page), **Test** the connection (`GET /app/rest/server`), then
+  **Load build configurations** to pick, from the server's full list (grouped by
+  TeamCity project), which build configurations are available in this repository —
+  analogous to the per-repo project/board selection in Project management. Labels
+  shown in the sidebar are editable. **Save configuration** writes the `ci` block to
+  the git-tracked `.canopy/config.json`; commit it to share with the team.
+- Credential management (change or remove the stored token) and **Remove CI
+  configuration**.
+
+The token is stored via the OS-encrypted credential store (`safeStorage`), keyed
+`teamcity:<baseUrl>` and shared across projects that use the same server. Before the
+token is used in any way (test, save-and-load, or the "Generate →" link), Canopy asks
+the user to confirm the server address once per edit session, because when editing an
+existing configuration that address comes from the git-shared repo config (see
+Security and privacy). If the repo configures CI but no token is stored, the GIT
+section shows a **Connect TeamCity** row that jumps to Settings.
 
 ## Configuration
 
-Hand-edited in `.canopy/config.json` (no configuration UI in the MVP):
+Written by the Settings configurator (hand-editing works too) in `.canopy/config.json`:
 
 ```json
 {
@@ -134,15 +156,16 @@ Additional surfaces that are not `CiError` variants:
 
 ## Source files
 
-| Area                 | Files                                                                                                 |
-| -------------------- | ----------------------------------------------------------------------------------------------------- |
-| Types                | `src/main/ci/types.ts`                                                                                |
-| Errors               | `src/main/ci/errors.ts` (typed `CiError` union + formatter)                                           |
-| Config parsing       | `src/main/ci/config.ts` (+ tests)                                                                     |
-| TeamCity client      | `src/main/ci/teamcity.ts` (+ tests)                                                                   |
-| Config/keychain glue | `src/main/ci/CiManager.ts`                                                                            |
-| IPC                  | `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:testConnection` in `src/main/ipc/handlers.ts` |
-| Renderer store       | `src/renderer/src/lib/stores/ci.svelte.ts`                                                            |
-| Status chip helpers  | `src/renderer/src/lib/ci/status.ts` (+ tests)                                                         |
-| Sidebar UI           | `src/renderer/src/components/sidebar/GitSection.svelte`                                               |
-| Settings row         | `src/renderer/src/components/preferences/ConnectionsPrefs.svelte`                                     |
+| Area                 | Files                                                                                                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Types                | `src/main/ci/types.ts`                                                                                                                                               |
+| Errors               | `src/main/ci/errors.ts` (typed `CiError` union + formatter)                                                                                                          |
+| Config parsing       | `src/main/ci/config.ts` (+ tests)                                                                                                                                    |
+| Parameter specs      | `src/main/ci/parameters.ts` (+ tests) — "Run custom build" typed-spec parser                                                                                         |
+| TeamCity client      | `src/main/ci/teamcity.ts` (+ tests)                                                                                                                                  |
+| Config/keychain glue | `src/main/ci/CiManager.ts`                                                                                                                                           |
+| IPC                  | `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection` in `src/main/ipc/handlers.ts` |
+| Renderer store       | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                           |
+| Renderer helpers     | `src/renderer/src/lib/ci/status.ts`, `src/renderer/src/lib/ci/runBuildForm.ts` (+ tests)                                                                             |
+| Sidebar UI           | `src/renderer/src/components/sidebar/GitSection.svelte`, `src/renderer/src/components/ci/RunBuildDialog.svelte`                                                      |
+| Settings page        | `src/renderer/src/components/preferences/CiCdPrefs.svelte` (CI/CD section)                                                                                           |

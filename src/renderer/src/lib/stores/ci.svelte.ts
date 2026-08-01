@@ -101,15 +101,17 @@ export async function triggerCiBuild(
   buildTypeId: string,
   branch: string,
   label: string,
-): Promise<void> {
+  properties?: Array<{ name: string; value: string }>,
+): Promise<boolean> {
   try {
-    const result = await window.api.ciTrigger(repoRoot, buildTypeId, branch)
+    const result = await window.api.ciTrigger(repoRoot, buildTypeId, branch, properties)
     addToast(`${label}: build queued`)
     observeBuild(repoRoot, result.buildId, label)
   } catch (e) {
     addToast(e instanceof Error ? e.message : 'Failed to trigger build')
-    return
+    return false
   }
   // Show the queued build in the row right away instead of waiting for the next poll.
   void refreshCi(repoRoot, branch)
+  return true
 }

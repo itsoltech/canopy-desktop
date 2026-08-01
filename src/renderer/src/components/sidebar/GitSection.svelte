@@ -26,8 +26,11 @@
   import { getPanelTask, getPanelTaskResolvedPath } from '../../lib/stores/taskTracker.svelte'
   import { getCiState, refreshCi, triggerCiBuild } from '../../lib/stores/ci.svelte'
   import { ciChip, anyBuildActive } from '../../lib/ci/status'
+  import type { CiParameter } from '../../lib/ci/types'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { prStateChip } from '../../lib/github/prState'
   import CollapsibleSection from './CollapsibleSection.svelte'
+  import RunBuildDialog from '../ci/RunBuildDialog.svelte'
 
   let loading: string | null = $state(null)
 
@@ -262,15 +265,57 @@
     return () => clearInterval(timer)
   })
 
+  // "Run build" dialog state: set when the clicked configuration prompts for
+  // parameters (mirrors TeamCity's own "Run custom build" dialog).
+  let runDialog = $state<{
+    buildTypeId: string
+    label: string
+    branch: string
+    path: string
+    parameters: CiParameter[]
+  } | null>(null)
+  let runDialogSubmitting = $state(false)
+
   async function doTriggerBuild(buildTypeId: string, label: string): Promise<void> {
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     const branch = workspaceState.branch
     if (!path || !branch) return
     triggering = buildTypeId
     try {
-      await triggerCiBuild(path, buildTypeId, branch, label)
+      const parameters = await window.api.ciBuildParameters(path, buildTypeId)
+      if (parameters.length === 0) {
+        await triggerCiBuild(path, buildTypeId, branch, label)
+      } else {
+        runDialog = { buildTypeId, label, branch, path, parameters }
+      }
+    } catch (e) {
+      // Triggering blindly could run a build with wrong required parameters — surface
+      // the parameter-fetch failure instead.
+      addToast(e instanceof Error ? e.message : 'Failed to load build parameters')
     } finally {
       triggering = null
+    }
+  }
+
+  async function runWithParameters(
+    properties: Array<{ name: string; value: string }>,
+  ): Promise<void> {
+    const dialog = runDialog
+    if (!dialog) return
+    runDialogSubmitting = true
+    try {
+      const ok = await triggerCiBuild(
+        dialog.path,
+        dialog.buildTypeId,
+        dialog.branch,
+        dialog.label,
+        properties,
+      )
+      // A failed trigger keeps the dialog (and the filled-in values) so the user can
+      // retry after fixing the cause; the error itself already surfaced as a toast.
+      if (ok) runDialog = null
+    } finally {
+      runDialogSubmitting = false
     }
   }
 
@@ -529,7 +574,7 @@
       {#if ciResponse.hasToken === false}
         <button
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-          onclick={() => showPreferences('Your connections')}
+          onclick={() => showPreferences('CI/CD')}
           title="This repository configures a TeamCity server, but no token is stored — connect it in Settings"
         >
           <KeyRound size={13} class="text-warning flex-shrink-0" />
@@ -594,3 +639,14 @@
     {/if}
   </div>
 </CollapsibleSection>
+
+{#if runDialog}
+  <RunBuildDialog
+    label={runDialog.label}
+    branch={runDialog.branch}
+    parameters={runDialog.parameters}
+    running={runDialogSubmitting}
+    onCancel={() => (runDialog = null)}
+    onRun={runWithParameters}
+  />
+{/if}
