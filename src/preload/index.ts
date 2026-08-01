@@ -1384,6 +1384,9 @@ const api = {
     ipcRenderer.invoke('ci:testNewConnection', { baseUrl, token }),
   ciBuildParameters: (repoRoot: string, buildTypeId: string) =>
     ipcRenderer.invoke('ci:buildParameters', { repoRoot, buildTypeId }),
+  ciActivity: (repoRoot: string) => ipcRenderer.invoke('ci:activity', { repoRoot }),
+  ciBranches: (repoRoot: string, buildTypeId: string) =>
+    ipcRenderer.invoke('ci:branches', { repoRoot, buildTypeId }),
   ciListBuildTypes: (baseUrl: string) => ipcRenderer.invoke('ci:listBuildTypes', { baseUrl }),
   ciSaveConfig: (
     repoRoot: string,

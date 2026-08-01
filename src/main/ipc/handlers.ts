@@ -3379,6 +3379,33 @@ export function registerIpcHandlers(
     },
   )
 
+  // Server-wide activity (running + queued) of the repo's CI server.
+  ipcMain.handle('ci:activity', async (_event, payload: { repoRoot: string }) => {
+    if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+      throw new Error('repoRoot is required')
+    }
+    const result = await ciManager.activity(payload.repoRoot)
+    return unwrapOrThrow(result, ciErrorMessage)
+  })
+
+  // Branch list of a configured build type — feeds the Run job dialog.
+  ipcMain.handle(
+    'ci:branches',
+    async (_event, payload: { repoRoot: string; buildTypeId: string }) => {
+      if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+        throw new Error('repoRoot is required')
+      }
+      if (
+        typeof payload.buildTypeId !== 'string' ||
+        !CI_BUILD_TYPE_ID_RE.test(payload.buildTypeId)
+      ) {
+        throw new Error('Invalid build type id')
+      }
+      const result = await ciManager.branches(payload.repoRoot, payload.buildTypeId)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
   // "Run custom build" prompt parameters of a configured build type.
   ipcMain.handle(
     'ci:buildParameters',

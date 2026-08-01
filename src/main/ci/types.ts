@@ -66,6 +66,23 @@ export interface CiParameter {
   uncheckedValue: string | undefined
 }
 
+/** A running or queued build in the server-wide activity view. */
+export interface CiActivityBuild {
+  id: number
+  number: string | undefined
+  state: 'running' | 'queued'
+  percentageComplete: number | undefined
+  webUrl: string
+  branchName: string | undefined
+  buildTypeId: string
+  buildTypeName: string
+}
+
+export interface CiActivity {
+  running: CiActivityBuild[]
+  queued: CiActivityBuild[]
+}
+
 /**
  * `ci:status` IPC contract. A read endpoint that never throws — auth and API
  * problems come back as fields so the sidebar can render a reconnect hint or an

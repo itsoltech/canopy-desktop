@@ -1,6 +1,7 @@
 import { errAsync, type ResultAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
 import type {
+  CiActivity,
   CiBuildResult,
   CiBuildState,
   CiBuildStatus,
@@ -10,6 +11,7 @@ import type {
 } from './types'
 import type { CiError } from './errors'
 import { parsePromptParameters } from './parameters'
+import { parseActivity, parseBranches, type RawActivityResponse } from './activity'
 
 // TeamCity REST client (https://www.jetbrains.com/help/teamcity/rest/). Pure
 // response-mapping helpers are exported for unit tests; network access follows the
@@ -171,6 +173,33 @@ export function fetchBuildTypes(
       bt.id ? [{ id: bt.id, name: bt.name ?? bt.id, projectName: bt.projectName ?? '' }] : [],
     ),
   )
+}
+
+/** Server-wide activity: what is running and queued on TeamCity right now. */
+export function fetchActivity(baseUrl: string, token: string): ResultAsync<CiActivity, CiError> {
+  const fields = 'count,build(id,number,percentageComplete,webUrl,branchName,buildType(id,name))'
+  return tcFetch<RawActivityResponse>(
+    baseUrl,
+    token,
+    `/app/rest/builds?locator=running:true,defaultFilter:false,count:20&fields=${fields}`,
+  ).andThen((running) =>
+    tcFetch<RawActivityResponse>(baseUrl, token, `/app/rest/buildQueue?fields=${fields}`).map(
+      (queued) => parseActivity(running, queued),
+    ),
+  )
+}
+
+/** Branches TeamCity knows for a build configuration — default branch first. */
+export function fetchBranches(
+  baseUrl: string,
+  token: string,
+  buildTypeId: string,
+): ResultAsync<string[], CiError> {
+  return tcFetch<{ count?: number; branch?: Array<{ name?: string; default?: boolean }> }>(
+    baseUrl,
+    token,
+    `/app/rest/buildTypes/id:${buildTypeId}/branches?locator=policy:VCS_BRANCHES&fields=branch(name,default)`,
+  ).map(parseBranches)
 }
 
 /** The parameters TeamCity would prompt for in its "Run custom build" dialog. */

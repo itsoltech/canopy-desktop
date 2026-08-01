@@ -3,6 +3,7 @@ import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import type {
+  CiActivity,
   CiBuildStatus,
   CiBuildTypeStatus,
   CiConfig,
@@ -13,6 +14,8 @@ import type {
 import type { CiError } from './errors'
 import { parseCiConfig } from './config'
 import {
+  fetchActivity,
+  fetchBranches,
   fetchBuild,
   fetchBuildForBranch,
   fetchBuildTypes,
@@ -95,6 +98,20 @@ export class CiManager {
   promptParameters(repoRoot: string, buildTypeId: string): ResultAsync<CiParameter[], CiError> {
     return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(({ ci, token }) =>
       fetchPromptParameters(ci.baseUrl, token, buildTypeId),
+    )
+  }
+
+  /** Server-wide activity (running + queued builds) of the repo's CI server. */
+  activity(repoRoot: string): ResultAsync<CiActivity, CiError> {
+    return this.loadConfig(repoRoot).andThen((ci) =>
+      this.tokenFor(ci).andThen((token) => fetchActivity(ci.baseUrl, token)),
+    )
+  }
+
+  /** Branches TeamCity knows for a CONFIGURED build type — feeds the Run job dialog. */
+  branches(repoRoot: string, buildTypeId: string): ResultAsync<string[], CiError> {
+    return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(({ ci, token }) =>
+      fetchBranches(ci.baseUrl, token, buildTypeId),
     )
   }
 

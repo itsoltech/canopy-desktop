@@ -1054,6 +1054,8 @@ interface CanopyAPI {
   ciBuild: (repoRoot: string, buildId: number) => Promise<CiBuildStatus>
   ciTestNewConnection: (baseUrl: string, token: string) => Promise<void>
   ciBuildParameters: (repoRoot: string, buildTypeId: string) => Promise<CiParameter[]>
+  ciActivity: (repoRoot: string) => Promise<CiActivity>
+  ciBranches: (repoRoot: string, buildTypeId: string) => Promise<string[]>
   ciListBuildTypes: (baseUrl: string) => Promise<CiServerBuildType[]>
   ciSaveConfig: (
     repoRoot: string,
@@ -1589,6 +1591,23 @@ interface CiConfigInfo {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: Array<{ id: string; label: string }>
+}
+
+/** A running or queued build in the server-wide activity view. */
+interface CiActivityBuild {
+  id: number
+  number: string | undefined
+  state: 'running' | 'queued'
+  percentageComplete: number | undefined
+  webUrl: string
+  branchName: string | undefined
+  buildTypeId: string
+  buildTypeName: string
+}
+
+interface CiActivity {
+  running: CiActivityBuild[]
+  queued: CiActivityBuild[]
 }
 
 /** A build configuration on the TeamCity server (config picker source). */
