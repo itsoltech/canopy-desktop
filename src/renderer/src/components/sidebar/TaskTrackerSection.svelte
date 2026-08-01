@@ -68,8 +68,15 @@
   }
 
   // No task linked yet: open the task picker in LINK mode — picking a task attaches it to the
-  // current worktree instead of creating a branch. Without working credentials fall back to the
-  // tracker config dialog.
+  // current worktree instead of creating a branch. The buttons are hidden entirely when no
+  // tracker has working credentials (missing or expired) — the credential banner above is the
+  // actionable entry then, and a "Link task" that bounces to the config dialog only confuses.
+  let hasUsableTracker = $derived(
+    trackers.some(
+      (t) => (trackerCreds[t.id]?.hasToken ?? false) && trackerCreds[t.id]?.valid !== false,
+    ),
+  )
+
   function linkTask(): void {
     const usable = trackers.find(
       (t) => (trackerCreds[t.id]?.hasToken ?? false) && trackerCreds[t.id]?.valid !== false,
@@ -241,18 +248,20 @@
             </button>
           </div>
         {/each}
-        <button
-          class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-          onclick={linkTask}
-          title="Link another task to this worktree"
-        >
-          <Link2
-            size={13}
-            class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
-          />
-          <span class="flex-1">Link another task</span>
-        </button>
-      {:else}
+        {#if hasUsableTracker}
+          <button
+            class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+            onclick={linkTask}
+            title="Link another task to this worktree"
+          >
+            <Link2
+              size={13}
+              class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+            />
+            <span class="flex-1">Link another task</span>
+          </button>
+        {/if}
+      {:else if hasUsableTracker}
         <button
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
           onclick={linkTask}

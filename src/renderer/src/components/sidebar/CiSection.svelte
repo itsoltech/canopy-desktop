@@ -1,6 +1,14 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { Settings, ExternalLink, KeyRound, LoaderCircle, Play, Hammer } from '@lucide/svelte'
+  import {
+    Plus,
+    Settings,
+    ExternalLink,
+    KeyRound,
+    LoaderCircle,
+    Play,
+    Hammer,
+  } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -292,6 +300,17 @@
           {/if}
         </button>
       {/if}
+    </div>
+  {:else if repoRoot && cfgState.loaded}
+    <!-- Init entry, mirroring Project Management's "Configure Tracker". -->
+    <div class="px-3 py-2">
+      <button
+        class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
+        onclick={showProjectCi}
+      >
+        <Plus size={14} />
+        Configure TeamCity
+      </button>
     </div>
   {/if}
 </CollapsibleSection>
