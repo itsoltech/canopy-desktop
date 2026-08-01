@@ -27,8 +27,9 @@ The integration follows the Project management architecture:
 ### CI/CD sidebar section
 
 - **Not configured**: a "Configure TeamCity" entry opens the per-repo configurator.
-- **Configured**: the server row (click opens TeamCity), a **Run job…** entry, and the
-  server's current **activity**.
+- **Configured**: the server row (click opens TeamCity), a **Run job…** entry, and a
+  one-row **Activity** summary ("2 running · 1 queued" / "Idle") that expands into the
+  detailed list — running and queued builds plus recent history.
 - **Token missing**: a banner links to Settings → CI connections.
 
 ### Per-repo configurator (modal)
@@ -42,21 +43,30 @@ writes the `ci` block to `.canopy/config.json`; the modal can also remove it.
 
 ### Run job… (any job, any branch)
 
-Pick a configured job and a branch (the list comes from TeamCity itself —
-`/app/rest/buildTypes/id:X/branches`, default branch first). If the job prompts for
+A centered modal (rendered from the app layer — sidebar-hosted dialogs would be
+pinned to the sidebar column by its backdrop-filter): pick a configured job and a
+branch through a searchable list (branches come from TeamCity itself —
+`/app/rest/buildTypes/id:X/branches`, default branch first; a typed name not on the
+list can still be used). The GIT section also offers **Run job on this branch…**,
+which opens the same modal prefilled with the current worktree's branch. If the job
+prompts for
 parameters (TeamCity's "Run custom build"), Canopy shows an equivalent dynamic form:
 text inputs with descriptions, checkboxes honoring custom checked/unchecked values,
 single selects, and multi-selects with All/None joined by the spec's value separator.
-Fields are prefilled with the configuration's current values; required parameters
-(`validationMode='not_empty'`) block submission. Chosen values are sent as build
-`properties`. Jobs without prompt parameters queue immediately.
+Fields are prefilled with the configuration's current values; checkboxes follow
+TeamCity's dialog semantics exactly — an unchecked checkbox submits its
+`uncheckedValue` (configs may carry whole CLI fragments there), never the raw stored
+value. Required parameters (`validationMode='not_empty'`) block submission. Chosen
+values are sent as build `properties`. Jobs without prompt parameters queue
+immediately.
 
 ### Activity
 
-Everything running or queued on the server right now (server-wide, like TeamCity's own
-queue page; capped at 20+20): job name, branch, progress percentage; click opens the
-build. Polls every 30 s, tightening to 10 s while anything is active, only while the
-section is mounted.
+One summary row (running/queued counts, or "Idle") that expands into the details:
+everything running or queued on the server (server-wide, like TeamCity's own queue
+page; capped at 20+20) plus the 10 most recent finished builds with their outcome.
+Job name, branch and progress per row; click opens the build. Polls every 30 s,
+tightening to 10 s while anything is active, only while the section is mounted.
 
 ### Branch build rows (GIT section)
 
@@ -104,7 +114,7 @@ The typed error union `CiError` has three variants:
 | Variant           | Meaning                                   | Surface                                                       |
 | ----------------- | ----------------------------------------- | ------------------------------------------------------------- |
 | `CiNotConfigured` | No (valid) `ci` block in the repo config  | Sections show their "configure" entries; GIT rows hidden      |
-| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections     |
+| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections       |
 | `CiApiError`      | HTTP/network/API failure                  | Muted error line in the section (full message in the tooltip) |
 
 Additional surfaces that are not `CiError` variants:
@@ -153,4 +163,4 @@ Additional surfaces that are not `CiError` variants:
 | Renderer helpers      | `src/renderer/src/lib/ci/status.ts`, `src/renderer/src/lib/ci/runBuildForm.ts` (+ tests)                                                                                                              |
 | Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/sidebar/GitSection.svelte` (branch rows), `src/renderer/src/components/ci/RunBuildDialog.svelte` |
 | Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`                                                                                                                                       |
-| Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections)                                                                                                                        |
+| Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections)                                                                                                                  |

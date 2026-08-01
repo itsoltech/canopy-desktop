@@ -22,16 +22,14 @@
     showPRDetails,
     showCreateTaskPR,
     showPreferences,
+    showCiRunJob,
   } from '../../lib/stores/dialogs.svelte'
   import { getPRForBranch, getPRRefreshTick } from '../../lib/stores/github.svelte'
   import { getPanelTask, getPanelTaskResolvedPath } from '../../lib/stores/taskTracker.svelte'
-  import { getCiState, refreshCi, triggerCiBuild } from '../../lib/stores/ci.svelte'
+  import { getCiState, refreshCi } from '../../lib/stores/ci.svelte'
   import { ciChip, anyBuildActive } from '../../lib/ci/status'
-  import type { CiParameter } from '../../lib/ci/types'
-  import { addToast } from '../../lib/stores/toast.svelte'
   import { prStateChip } from '../../lib/github/prState'
   import CollapsibleSection from './CollapsibleSection.svelte'
-  import RunBuildDialog from '../ci/RunBuildDialog.svelte'
 
   let loading: string | null = $state(null)
 
@@ -254,7 +252,6 @@
   // Booleans on purpose: the effect below must depend on VALUES that rarely change,
   // not on the response object (a new reference every poll would loop the effect).
   let ciConfigured = $derived(ciResponse?.configured === true)
-  let triggering = $state<string | null>(null)
 
   $effect(() => {
     if (!ciEnabled) return
@@ -275,58 +272,22 @@
     return () => clearInterval(timer)
   })
 
-  // "Run build" dialog state: set when the clicked configuration prompts for
-  // parameters (mirrors TeamCity's own "Run custom build" dialog).
-  let runDialog = $state<{
-    buildTypeId: string
-    label: string
-    branch: string
-    path: string
-    parameters: CiParameter[]
-  } | null>(null)
-  let runDialogSubmitting = $state(false)
-
-  async function doTriggerBuild(buildTypeId: string, label: string): Promise<void> {
+  // Triggering opens the central Run-job modal (rendered from MainLayout — a dialog
+  // inside the sidebar would be pinned to its column by the aside's backdrop-filter,
+  // which turns the element into the containing block for position:fixed).
+  function doTriggerBuild(buildTypeId: string): void {
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     const branch = workspaceState.branch
     if (!path || !branch) return
-    triggering = buildTypeId
-    try {
-      const parameters = await window.api.ciBuildParameters(path, buildTypeId)
-      if (parameters.length === 0) {
-        await triggerCiBuild(path, buildTypeId, branch, label)
-      } else {
-        runDialog = { buildTypeId, label, branch, path, parameters }
-      }
-    } catch (e) {
-      // Triggering blindly could run a build with wrong required parameters — surface
-      // the parameter-fetch failure instead.
-      addToast(e instanceof Error ? e.message : 'Failed to load build parameters')
-    } finally {
-      triggering = null
-    }
+    showCiRunJob(path, { buildTypeId, branch, auto: true })
   }
 
-  async function runWithParameters(
-    properties: Array<{ name: string; value: string }>,
-  ): Promise<void> {
-    const dialog = runDialog
-    if (!dialog) return
-    runDialogSubmitting = true
-    try {
-      const ok = await triggerCiBuild(
-        dialog.path,
-        dialog.buildTypeId,
-        dialog.branch,
-        dialog.label,
-        properties,
-      )
-      // A failed trigger keeps the dialog (and the filled-in values) so the user can
-      // retry after fixing the cause; the error itself already surfaced as a toast.
-      if (ok) runDialog = null
-    } finally {
-      runDialogSubmitting = false
-    }
+  /** Worktree-level entry: prepare the run/deploy panel for the CURRENT branch. */
+  function runJobOnThisBranch(): void {
+    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    const branch = workspaceState.branch
+    if (!path || !branch) return
+    showCiRunJob(path, { branch })
   }
 
   function openBuild(webUrl: string): void {
@@ -630,8 +591,8 @@
             </button>
             <button
               class="flex items-center justify-center size-6 rounded-md border-0 bg-transparent text-text-faint cursor-pointer transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-40 disabled:cursor-default flex-shrink-0"
-              disabled={!branchPushed || buildActive || triggering === row.buildTypeId}
-              onclick={() => doTriggerBuild(row.buildTypeId, row.label)}
+              disabled={!branchPushed || buildActive}
+              onclick={() => doTriggerBuild(row.buildTypeId)}
               aria-label={`Run ${row.label}`}
               title={!branchPushed
                 ? 'Push the branch first — TeamCity builds the remote branch, and this one exists only locally'
@@ -639,26 +600,25 @@
                   ? 'A build is already queued or running for this branch'
                   : `Queue a ${row.label} build for this branch`}
             >
-              {#if triggering === row.buildTypeId}
-                <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
-              {:else}
-                <Play size={12} />
-              {/if}
+              <Play size={12} />
             </button>
           </div>
         {/each}
+        <button
+          class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+          disabled={!branchPushed}
+          onclick={runJobOnThisBranch}
+          title={branchPushed
+            ? 'Open the run/deploy panel prefilled with this branch — pick the job and its parameters'
+            : 'Push the branch first — TeamCity builds the remote branch, and this one exists only locally'}
+        >
+          <Play
+            size={13}
+            class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+          />
+          <span class="flex-1">Run job on this branch…</span>
+        </button>
       {/if}
     {/if}
   </div>
 </CollapsibleSection>
-
-{#if runDialog}
-  <RunBuildDialog
-    label={runDialog.label}
-    branch={runDialog.branch}
-    parameters={runDialog.parameters}
-    running={runDialogSubmitting}
-    onCancel={() => (runDialog = null)}
-    onRun={runWithParameters}
-  />
-{/if}

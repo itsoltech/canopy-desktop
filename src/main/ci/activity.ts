@@ -6,7 +6,7 @@ import type { CiActivity, CiActivityBuild } from './types'
 interface RawActivityBuild {
   id: number
   number?: string
-  // Present in responses but unused: the endpoint's locator already fixes the state.
+  // Present in responses but unused: each endpoint's locator already fixes the state.
   state?: string
   status?: string
   percentageComplete?: number
@@ -20,11 +20,15 @@ export interface RawActivityResponse {
   build?: RawActivityBuild[]
 }
 
-function mapActivityBuild(raw: RawActivityBuild, state: 'running' | 'queued'): CiActivityBuild {
+function mapActivityBuild(
+  raw: RawActivityBuild,
+  state: 'running' | 'queued' | 'finished',
+): CiActivityBuild {
   return {
     id: raw.id,
     number: raw.number,
     state,
+    status: raw.status,
     percentageComplete: raw.percentageComplete,
     webUrl: raw.webUrl ?? '',
     branchName: raw.branchName,
@@ -36,10 +40,12 @@ function mapActivityBuild(raw: RawActivityBuild, state: 'running' | 'queued'): C
 export function parseActivity(
   runningJson: RawActivityResponse,
   queuedJson: RawActivityResponse,
+  recentJson: RawActivityResponse,
 ): CiActivity {
   return {
     running: (runningJson.build ?? []).map((b) => mapActivityBuild(b, 'running')),
     queued: (queuedJson.build ?? []).map((b) => mapActivityBuild(b, 'queued')),
+    recent: (recentJson.build ?? []).map((b) => mapActivityBuild(b, 'finished')),
   }
 }
 

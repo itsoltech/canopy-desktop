@@ -27,12 +27,30 @@ function param(overrides: Partial<CiParameter>): CiParameter {
 }
 
 describe('initialFormValues', () => {
-  it('prefills every field with the parameter default', () => {
+  it('prefills text and select fields with the parameter default', () => {
     const values = initialFormValues([
       param({ name: 'Environment', defaultValue: 'Test' }),
       param({ name: 'AppVersion' }),
     ])
     expect(values).toEqual({ Environment: 'Test', AppVersion: '' })
+  })
+
+  it('normalizes checkboxes to checked/unchecked values like the TeamCity dialog', () => {
+    // Real-world shape (gakko): the checkbox VALUE carries a CLI fragment, and an
+    // untouched unchecked checkbox must still submit uncheckedValue — submitting the
+    // raw stored value ('') would drop the fragment entirely.
+    const values = initialFormValues([
+      param({
+        name: 'Affected',
+        kind: 'checkbox',
+        defaultValue: '',
+        checkedValue: '-Affected',
+        uncheckedValue: '-Site %Sites%',
+      }),
+      param({ name: 'Deploy', kind: 'checkbox', defaultValue: '', checkedValue: '-Deploy' }),
+      param({ name: 'On', kind: 'checkbox', defaultValue: 'true' }),
+    ])
+    expect(values).toEqual({ Affected: '-Site %Sites%', Deploy: '', On: 'true' })
   })
 })
 

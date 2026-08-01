@@ -20,12 +20,14 @@ describe('parseActivity', () => {
         ],
       },
       { count: 0 },
+      {},
     )
     expect(activity.running).toEqual([
       {
         id: 55,
         number: '812',
         state: 'running',
+        status: 'SUCCESS',
         percentageComplete: 63,
         webUrl: 'https://tc/build/55',
         branchName: 's152/ISSUE-2148',
@@ -34,6 +36,7 @@ describe('parseActivity', () => {
       },
     ])
     expect(activity.queued).toEqual([])
+    expect(activity.recent).toEqual([])
   })
 
   it('maps queued builds and tolerates missing optional fields', () => {
@@ -46,12 +49,14 @@ describe('parseActivity', () => {
           { id: 61, branchName: 'next' },
         ],
       },
+      {},
     )
     expect(activity.queued).toEqual([
       {
         id: 60,
         number: undefined,
         state: 'queued',
+        status: undefined,
         percentageComplete: undefined,
         webUrl: 'https://tc/q/60',
         branchName: undefined,
@@ -62,12 +67,38 @@ describe('parseActivity', () => {
         id: 61,
         number: undefined,
         state: 'queued',
+        status: undefined,
         percentageComplete: undefined,
         webUrl: '',
         branchName: 'next',
         buildTypeId: '',
         buildTypeName: '',
       },
+    ])
+  })
+
+  it('maps recent finished builds with their outcome', () => {
+    const activity = parseActivity(
+      {},
+      {},
+      {
+        count: 2,
+        build: [
+          {
+            id: 50,
+            number: '2602',
+            status: 'SUCCESS',
+            webUrl: 'https://tc/build/50',
+            branchName: 'develop',
+            buildType: { id: 'Gakko_Build', name: 'Build & Deploy' },
+          },
+          { id: 49, number: '2601', status: 'FAILURE', buildType: { id: 'Gakko_Build' } },
+        ],
+      },
+    )
+    expect(activity.recent.map((b) => [b.state, b.status, b.number])).toEqual([
+      ['finished', 'SUCCESS', '2602'],
+      ['finished', 'FAILURE', '2601'],
     ])
   })
 })

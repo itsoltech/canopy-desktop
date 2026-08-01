@@ -1593,11 +1593,12 @@ interface CiConfigInfo {
   buildTypes: Array<{ id: string; label: string }>
 }
 
-/** A running or queued build in the server-wide activity view. */
+/** A running, queued or recently finished build in the server-wide activity view. */
 interface CiActivityBuild {
   id: number
   number: string | undefined
-  state: 'running' | 'queued'
+  state: 'running' | 'queued' | 'finished'
+  status: string | undefined
   percentageComplete: number | undefined
   webUrl: string
   branchName: string | undefined
@@ -1608,6 +1609,7 @@ interface CiActivityBuild {
 interface CiActivity {
   running: CiActivityBuild[]
   queued: CiActivityBuild[]
+  recent: CiActivityBuild[]
 }
 
 /** A build configuration on the TeamCity server (config picker source). */

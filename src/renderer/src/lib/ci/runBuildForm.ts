@@ -4,7 +4,18 @@
 // checked/unchecked values, multi-select joined by the spec's separator).
 
 export function initialFormValues(params: CiParameter[]): Record<string, string> {
-  return Object.fromEntries(params.map((p) => [p.name, p.defaultValue]))
+  return Object.fromEntries(params.map((p) => [p.name, initialValue(p)]))
+}
+
+function initialValue(p: CiParameter): string {
+  if (p.kind !== 'checkbox') return p.defaultValue
+  // Mirror TeamCity's own dialog: a checkbox always submits checkedValue or
+  // uncheckedValue, never the raw stored value. Configs may carry a whole CLI
+  // fragment in uncheckedValue (e.g. gakko's Affected → '-Site %Sites%'), so an
+  // untouched unchecked checkbox submitting '' would silently drop that fragment.
+  return isCheckboxChecked(p, p.defaultValue)
+    ? (p.checkedValue ?? 'true')
+    : (p.uncheckedValue ?? '')
 }
 
 export function isCheckboxChecked(param: CiParameter, value: string): boolean {

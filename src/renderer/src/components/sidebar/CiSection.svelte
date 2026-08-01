@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import {
     Plus,
     Settings,
@@ -7,26 +8,25 @@
     LoaderCircle,
     Play,
     Hammer,
-    X,
+    ChevronRight,
   } from '@lucide/svelte'
-  import { untrack } from 'svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
-  import RunBuildDialog from '../ci/RunBuildDialog.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { showPreferences, showProjectCi } from '../../lib/stores/dialogs.svelte'
-  import { getCiRepoConfig, loadCiRepoConfig, triggerCiBuild } from '../../lib/stores/ci.svelte'
-  import type { CiParameter } from '../../lib/ci/types'
+  import { showPreferences, showProjectCi, showCiRunJob } from '../../lib/stores/dialogs.svelte'
+  import { getCiRepoConfig, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
 
   // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
   // branch, and the server's current activity. Mirrors the Project management
-  // section's architecture (config in the repo, credentials personal).
+  // section's architecture (config in the repo, credentials personal). Dialogs are
+  // NOT rendered here: the sidebar's backdrop-filter would pin position:fixed
+  // overlays to its column, so they open via dialogState from MainLayout.
 
   interface ActivityBuild {
     id: number
     number: string | undefined
-    state: 'running' | 'queued'
+    state: 'running' | 'queued' | 'finished'
+    status: string | undefined
     percentageComplete: number | undefined
     webUrl: string
     branchName: string | undefined
@@ -52,11 +52,16 @@
     if (root) untrack(() => void loadCiRepoConfig(root))
   })
 
-  // --- Server activity (running + queued, whole server) ---
+  // --- Server activity: one summary row, details (running/queued/history) on expand ---
 
-  let activity = $state<{ running: ActivityBuild[]; queued: ActivityBuild[] } | null>(null)
+  let activity = $state<{
+    running: ActivityBuild[]
+    queued: ActivityBuild[]
+    recent: ActivityBuild[]
+  } | null>(null)
   let activityError = $state('')
   let activityLoaded = $state(false)
+  let activityExpanded = $state(false)
   let activitySeq = 0
 
   async function refreshActivity(root: string): Promise<void> {
@@ -78,14 +83,14 @@
   // Effect dependencies are primitives on purpose (see GitSection) — the activity
   // OBJECT changes on every poll and would loop the effect.
   let hasConfigAndToken = $derived(config != null && cfgState.hasToken)
-  let activityCount = $derived(activity ? activity.running.length + activity.queued.length : 0)
+  let activeCount = $derived(activity ? activity.running.length + activity.queued.length : 0)
 
   $effect(() => {
     if (!hasConfigAndToken) return
     const root = repoRoot
     if (!root) return
     untrack(() => void refreshActivity(root))
-    const interval = activityCount > 0 ? 10_000 : 30_000
+    const interval = activeCount > 0 ? 10_000 : 30_000
     const timer = setInterval(() => void refreshActivity(root), interval)
     return () => clearInterval(timer)
   })
@@ -99,121 +104,57 @@
     activityError = ''
   })
 
-  // --- Run job: any configured job on any branch TeamCity knows ---
-
-  let runJobOpen = $state(false)
-  let runJobBuildTypeId = $state('')
-  let runJobBranches = $state<string[]>([])
-  let runJobBranch = $state('')
-  let runJobBranchesLoading = $state(false)
-  let runJobError = $state('')
-  let runJobStarting = $state(false)
-  let runJobParams = $state<CiParameter[] | null>(null)
-  let runJobSubmitting = $state(false)
-  let runJobDialogEl = $state<HTMLElement>()
-  let branchesSeq = 0
-
-  let runJobLabel = $derived(
-    config?.buildTypes.find((bt) => bt.id === runJobBuildTypeId)?.label ?? runJobBuildTypeId,
-  )
+  let activitySummary = $derived.by(() => {
+    if (!activity) return ''
+    const parts: string[] = []
+    if (activity.running.length > 0) parts.push(`${activity.running.length} running`)
+    if (activity.queued.length > 0) parts.push(`${activity.queued.length} queued`)
+    return parts.join(' · ') || 'Idle'
+  })
 
   function openRunJob(): void {
-    if (!config || config.buildTypes.length === 0) return
-    runJobOpen = true
-    runJobError = ''
-    runJobParams = null
-    runJobBuildTypeId = config.buildTypes[0].id
-    void loadBranches()
+    if (repoRoot) showCiRunJob(repoRoot)
   }
-
-  function closeRunJob(): void {
-    runJobOpen = false
-    runJobParams = null
-  }
-
-  async function loadBranches(): Promise<void> {
-    const root = repoRoot
-    if (!root || !runJobBuildTypeId) return
-    const seq = ++branchesSeq
-    runJobBranchesLoading = true
-    runJobError = ''
-    try {
-      const branches = await window.api.ciBranches(root, runJobBuildTypeId)
-      if (seq !== branchesSeq) return
-      runJobBranches = branches
-      runJobBranch = branches[0] ?? ''
-    } catch (e) {
-      if (seq !== branchesSeq) return
-      runJobBranches = []
-      runJobBranch = ''
-      runJobError = e instanceof Error ? e.message : 'Failed to load branches'
-    } finally {
-      if (seq === branchesSeq) runJobBranchesLoading = false
-    }
-  }
-
-  function selectRunJob(id: string): void {
-    runJobBuildTypeId = id
-    void loadBranches()
-  }
-
-  /** Continue from the job+branch picker: straight trigger, or the parameters form. */
-  async function startRunJob(): Promise<void> {
-    const root = repoRoot
-    if (!root || !runJobBuildTypeId || !runJobBranch) return
-    runJobStarting = true
-    runJobError = ''
-    try {
-      const parameters = await window.api.ciBuildParameters(root, runJobBuildTypeId)
-      if (parameters.length === 0) {
-        const ok = await triggerCiBuild(root, runJobBuildTypeId, runJobBranch, runJobLabel)
-        if (ok) closeRunJob()
-      } else {
-        runJobParams = parameters
-      }
-    } catch (e) {
-      runJobError = e instanceof Error ? e.message : 'Failed to load build parameters'
-    } finally {
-      runJobStarting = false
-    }
-  }
-
-  async function runJobWithParameters(
-    properties: Array<{ name: string; value: string }>,
-  ): Promise<void> {
-    const root = repoRoot
-    if (!root) return
-    runJobSubmitting = true
-    try {
-      const ok = await triggerCiBuild(
-        root,
-        runJobBuildTypeId,
-        runJobBranch,
-        runJobLabel,
-        properties,
-      )
-      if (ok) closeRunJob()
-    } finally {
-      runJobSubmitting = false
-    }
-  }
-
-  function handleRunJobKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      closeRunJob()
-    }
-  }
-
-  $effect(() => {
-    if (runJobOpen && !runJobParams) runJobDialogEl?.focus()
-  })
 
   function openBuild(webUrl: string): void {
     if (webUrl) window.api.openExternal(webUrl)
   }
 </script>
+
+{#snippet activityRow(build: ActivityBuild)}
+  <button
+    class="group flex items-center gap-2 w-full h-7 pl-5 pr-2 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:cursor-default"
+    disabled={!build.webUrl}
+    onclick={() => openBuild(build.webUrl)}
+    title={`${build.buildTypeName}${build.number ? ` #${build.number}` : ''}${build.branchName ? ` — ${build.branchName}` : ''}${build.webUrl ? '\nOpen in TeamCity' : ''}`}
+  >
+    <span class="flex-1 min-w-0 truncate">{build.buildTypeName}</span>
+    {#if build.branchName}
+      <span class="font-mono text-2xs text-text-faint truncate max-w-24">{build.branchName}</span>
+    {/if}
+    {#if build.state === 'running'}
+      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-accent-bg text-accent-text"
+        >{build.percentageComplete != null ? `${build.percentageComplete}%` : 'Running'}</span
+      >
+    {:else if build.state === 'queued'}
+      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-active text-text-muted"
+        >Queued</span
+      >
+    {:else if build.status === 'SUCCESS'}
+      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-success-bg text-success-text"
+        >Success</span
+      >
+    {:else if build.status === 'FAILURE'}
+      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-danger-bg text-danger-text"
+        >Failed</span
+      >
+    {:else}
+      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-active text-text-muted"
+        >{build.status ?? 'Unknown'}</span
+      >
+    {/if}
+  </button>
+{/snippet}
 
 <CollapsibleSection title="CI/CD" sectionKey="cicd" borderTop>
   {#snippet headerExtra()}
@@ -303,164 +244,71 @@
           aria-orientation="horizontal"
         ></div>
 
-        <!-- Server-wide activity: everything running or queued right now. -->
-        {#if activityError}
-          <div
-            class="flex items-center gap-2.5 w-full min-h-7 px-3 py-1 text-sm text-text-faint"
-            title={activityError}
+        <!-- One summary row for the server's activity; details expand below. -->
+        <button
+          class="group flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+          onclick={() => (activityExpanded = !activityExpanded)}
+          aria-expanded={activityExpanded}
+          title={activityError ||
+            `What is running and queued on ${serverHost}, plus recent history — click to ${activityExpanded ? 'collapse' : 'expand'}`}
+        >
+          <span
+            class="flex items-center text-text-faint group-hover:text-text-muted transition-transform duration-base ease-std flex-shrink-0"
+            class:rotate-90={activityExpanded}
           >
-            <Hammer size={13} class="flex-shrink-0" />
-            <span class="flex-1 truncate">{activityError}</span>
-          </div>
-        {:else if !activityLoaded}
-          <div class="flex items-center gap-2.5 h-7 px-3 text-sm text-text-faint">
-            <LoaderCircle
-              size={13}
-              class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
-            />
-            <span class="flex-1">Checking activity…</span>
-          </div>
-        {:else if activityCount === 0}
-          <div class="px-3 h-7 flex items-center text-sm text-text-faint" title={config.baseUrl}>
-            Nothing running on {serverHost}
-          </div>
-        {:else if activity}
-          {#each [...activity.running, ...activity.queued] as build (build.state + build.id)}
-            <button
-              class="group flex items-center gap-2 w-full h-7 pl-3 pr-2 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:cursor-default"
-              disabled={!build.webUrl}
-              onclick={() => openBuild(build.webUrl)}
-              title={`${build.buildTypeName}${build.branchName ? ` — ${build.branchName}` : ''}${build.webUrl ? '\nOpen in TeamCity' : ''}`}
+            <ChevronRight size={12} />
+          </span>
+          <span class="flex-1">Activity</span>
+          {#if activityError}
+            <span
+              class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning-bg text-warning-text"
+              >Error</span
             >
-              <span class="flex-1 min-w-0 truncate">{build.buildTypeName}</span>
-              {#if build.branchName}
-                <span class="font-mono text-2xs text-text-faint truncate max-w-24"
-                  >{build.branchName}</span
-                >
-              {/if}
-              {#if build.state === 'running'}
-                <span
-                  class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-accent-bg text-accent-text"
-                  >{build.percentageComplete != null
-                    ? `${build.percentageComplete}%`
-                    : 'Running'}</span
-                >
-              {:else}
-                <span
-                  class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-active text-text-muted"
-                  >Queued</span
-                >
-              {/if}
-            </button>
-          {/each}
+          {:else if !activityLoaded}
+            <LoaderCircle
+              size={12}
+              class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+            />
+          {:else}
+            <span
+              class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {activeCount > 0
+                ? 'bg-accent-bg text-accent-text'
+                : 'bg-active text-text-muted'}">{activitySummary}</span
+            >
+          {/if}
+        </button>
+
+        {#if activityExpanded}
+          {#if activityError}
+            <div
+              class="flex items-center gap-2.5 w-full min-h-7 pl-5 pr-3 py-1 text-sm text-text-faint"
+              title={activityError}
+            >
+              <Hammer size={13} class="flex-shrink-0" />
+              <span class="flex-1 truncate">{activityError}</span>
+            </div>
+          {:else if activity}
+            {#if activeCount === 0}
+              <div class="pl-5 pr-3 h-7 flex items-center text-sm text-text-faint">
+                Nothing running on {serverHost}
+              </div>
+            {:else}
+              {#each [...activity.running, ...activity.queued] as build (build.state + build.id)}
+                {@render activityRow(build)}
+              {/each}
+            {/if}
+            {#if activity.recent.length > 0}
+              <span
+                class="pl-5 pr-3 pt-1.5 pb-0.5 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                >Recent</span
+              >
+              {#each activity.recent as build (build.id)}
+                {@render activityRow(build)}
+              {/each}
+            {/if}
+          {/if}
         {/if}
       {/if}
     </div>
   {/if}
 </CollapsibleSection>
-
-{#if runJobOpen && !runJobParams}
-  <!-- Step 1: pick the job and the branch. -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div
-    class="fixed inset-0 z-[10010] flex justify-center items-center bg-scrim"
-    onmousedown={closeRunJob}
-    onkeydown={handleRunJobKeydown}
-  >
-    <div
-      bind:this={runJobDialogEl}
-      class="outline-none w-[420px] max-w-[92vw] flex flex-col gap-3 bg-bg-overlay border border-border rounded-xl shadow-modal p-5"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Run job"
-      tabindex="-1"
-      onmousedown={(e) => e.stopPropagation()}
-    >
-      <header class="flex items-start justify-between gap-3">
-        <h3 class="text-base font-semibold text-text m-0 leading-tight">Run job</h3>
-        <button
-          type="button"
-          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
-          onclick={closeRunJob}
-          aria-label="Close"
-          title="Close"
-        >
-          <X size={16} />
-        </button>
-      </header>
-
-      <div class="flex flex-col gap-1">
-        <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">Job</span
-        >
-        <CustomSelect
-          value={runJobBuildTypeId}
-          options={(config?.buildTypes ?? []).map((bt) => ({ value: bt.id, label: bt.label }))}
-          onchange={selectRunJob}
-        />
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-          >Branch</span
-        >
-        {#if runJobBranchesLoading}
-          <span class="flex items-center gap-2 px-2.5 py-1.5 text-sm text-text-faint">
-            <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
-            Loading branches…
-          </span>
-        {:else if runJobBranches.length === 0}
-          <span class="px-2.5 py-1.5 text-sm text-text-faint"
-            >No branches known to TeamCity for this job.</span
-          >
-        {:else}
-          <CustomSelect
-            value={runJobBranch}
-            options={runJobBranches.map((b) => ({ value: b, label: b }))}
-            onchange={(v) => (runJobBranch = v)}
-          />
-        {/if}
-      </div>
-
-      <div class="min-h-4.5" aria-live="polite">
-        {#if runJobError}
-          <span class="text-xs text-danger-text">{runJobError}</span>
-        {/if}
-      </div>
-
-      <div class="flex gap-1.5 justify-end">
-        <button
-          type="button"
-          class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-          onclick={closeRunJob}>Cancel</button
-        >
-        <button
-          type="button"
-          class="flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
-          onclick={startRunJob}
-          disabled={runJobStarting || runJobBranchesLoading || !runJobBranch}
-          title="Fetches the job's parameters — configurations without prompts run immediately"
-        >
-          {#if runJobStarting}
-            <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
-          {:else}
-            <Play size={13} />
-          {/if}
-          Run
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-{#if runJobOpen && runJobParams}
-  <!-- Step 2: the job prompts for parameters. -->
-  <RunBuildDialog
-    label={runJobLabel}
-    branch={runJobBranch}
-    parameters={runJobParams}
-    running={runJobSubmitting}
-    onCancel={() => (runJobParams = null)}
-    onRun={runJobWithParameters}
-  />
-{/if}

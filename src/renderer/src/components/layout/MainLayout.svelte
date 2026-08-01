@@ -13,6 +13,7 @@
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import ProjectTrackerModal from '../preferences/ProjectTrackerModal.svelte'
   import ProjectCiModal from '../preferences/ProjectCiModal.svelte'
+  import CiRunJobModal from '../ci/CiRunJobModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
@@ -605,6 +606,13 @@
   <ProjectTrackerModal />
 {:else if dialogState.current.type === 'projectCi'}
   <ProjectCiModal />
+{:else if dialogState.current.type === 'ciRunJob'}
+  <CiRunJobModal
+    repoRoot={dialogState.current.repoRoot}
+    initialBuildTypeId={dialogState.current.buildTypeId}
+    initialBranch={dialogState.current.branch}
+    auto={dialogState.current.auto ?? false}
+  />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}

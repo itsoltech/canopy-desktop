@@ -1,4 +1,4 @@
-import { errAsync, type ResultAsync } from 'neverthrow'
+import { ResultAsync, errAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
 import type {
   CiActivity,
@@ -175,18 +175,23 @@ export function fetchBuildTypes(
   )
 }
 
-/** Server-wide activity: what is running and queued on TeamCity right now. */
+/** Server-wide activity: running + queued builds and the most recent finished ones. */
 export function fetchActivity(baseUrl: string, token: string): ResultAsync<CiActivity, CiError> {
-  const fields = 'count,build(id,number,percentageComplete,webUrl,branchName,buildType(id,name))'
-  return tcFetch<RawActivityResponse>(
-    baseUrl,
-    token,
-    `/app/rest/builds?locator=running:true,defaultFilter:false,count:20&fields=${fields}`,
-  ).andThen((running) =>
-    tcFetch<RawActivityResponse>(baseUrl, token, `/app/rest/buildQueue?fields=${fields}`).map(
-      (queued) => parseActivity(running, queued),
+  const fields =
+    'count,build(id,number,status,percentageComplete,webUrl,branchName,buildType(id,name))'
+  return ResultAsync.combine([
+    tcFetch<RawActivityResponse>(
+      baseUrl,
+      token,
+      `/app/rest/builds?locator=running:true,defaultFilter:false,count:20&fields=${fields}`,
     ),
-  )
+    tcFetch<RawActivityResponse>(baseUrl, token, `/app/rest/buildQueue?fields=${fields}`),
+    tcFetch<RawActivityResponse>(
+      baseUrl,
+      token,
+      `/app/rest/builds?locator=state:finished,defaultFilter:false,count:10&fields=${fields}`,
+    ),
+  ]).map(([running, queued, recent]) => parseActivity(running, queued, recent))
 }
 
 /** Branches TeamCity knows for a build configuration — default branch first. */

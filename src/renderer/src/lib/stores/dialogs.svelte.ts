@@ -62,6 +62,17 @@ interface ProjectCiState {
   type: 'projectCi'
 }
 
+interface CiRunJobState {
+  type: 'ciRunJob'
+  repoRoot: string
+  /** Preselected job (GIT-row ▶); when absent the dialog offers the pick. */
+  buildTypeId?: string
+  /** Prefilled branch (worktree flows). */
+  branch?: string
+  /** Skip the picker: fetch parameters immediately and trigger when there are none. */
+  auto?: boolean
+}
+
 interface AboutState {
   type: 'about'
 }
@@ -134,6 +145,7 @@ type DialogState =
   | TaskPickerState
   | ProjectTrackerState
   | ProjectCiState
+  | CiRunJobState
   | PRDetailsState
   | CreateTaskPRState
   | AboutState
@@ -217,6 +229,18 @@ export function showProjectTracker(): void {
 /** Per-repo CI/CD configuration (TeamCity server + build configurations). */
 export function showProjectCi(): void {
   dialogState.current = { type: 'projectCi' }
+}
+
+/**
+ * Run-job dialog (job + searchable branch + parameters). Rendered from MainLayout —
+ * dialogs must not render inside the sidebar, whose backdrop-filter turns it into
+ * the containing block for position:fixed and pins them to the sidebar column.
+ */
+export function showCiRunJob(
+  repoRoot: string,
+  opts?: { buildTypeId?: string; branch?: string; auto?: boolean },
+): void {
+  dialogState.current = { type: 'ciRunJob', repoRoot, ...opts }
 }
 
 /** Native PR panel — details fetched via the authenticated gh CLI, no browser login needed. */
