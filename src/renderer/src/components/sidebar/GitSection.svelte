@@ -14,6 +14,7 @@
     KeyRound,
   } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
   import {
     confirm,
     prompt,
@@ -230,21 +231,32 @@
     showPRDetails(worktreePath(), workspaceState.branch)
   }
 
-  // --- CI builds for the current branch (only when the repo configures `ci` in
-  // .canopy/config.json — the section stays invisible everywhere else).
+  // --- CI builds for the current branch. Double-gated: the `ci.enabled` preference
+  // (personal opt-in, default off — a `ci` block arrives via the git-SHARED repo
+  // config, so one teammate's commit must not enable new UI and a background poller
+  // for everyone) AND the repo actually configuring CI.
+  let ciEnabled = $derived(prefs['ci.enabled'] === 'true')
   let ci = $derived(getCiState())
   let ciResponse = $derived(ci.response)
   // A queued/running build flips polling to the fast interval.
   let ciActive = $derived(ciResponse ? anyBuildActive(ciResponse.rows) : false)
+  // Booleans on purpose: the effect below must depend on VALUES that rarely change,
+  // not on the response object (a new reference every poll would loop the effect).
+  let ciConfigured = $derived(ciResponse?.configured === true)
   let triggering = $state<string | null>(null)
 
   $effect(() => {
+    if (!ciEnabled) return
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     const branch = workspaceState.branch
     if (!path || !branch) return
+    // One-shot fetch discovers whether the repo configures CI (also re-runs on
+    // worktree/branch change and when the pref is toggled on).
     void refreshCi(path, branch)
-    // Unconfigured repos answer from a local config read (no network), so the slow
-    // poll is cheap and picks up a hand-added `ci` block without a restart.
+    // No interval until a config was seen — unconfigured repos don't poll at all.
+    if (!ciConfigured) return
+    // ciActive flipping tears the timer down and re-arms it at the other cadence
+    // (with one immediate refresh from the line above) — intended, if non-obvious.
     const interval = ciActive ? 10_000 : 45_000
     const timer = setInterval(() => void refreshCi(path, branch), interval)
     return () => clearInterval(timer)
@@ -286,7 +298,7 @@
 <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
 <span class="sr-only" aria-live="polite">{prLoading ? 'Checking pull requests…' : ''}</span>
 <span class="sr-only" aria-live="polite"
-  >{ciResponse?.configured && ci.loading && ciResponse.rows.length === 0
+  >{ciEnabled && ciResponse?.configured && ci.loading && ciResponse.rows.length === 0
     ? 'Checking builds…'
     : ''}</span
 >
@@ -507,7 +519,7 @@
       </button>
     {/if}
 
-    {#if ciResponse?.configured}
+    {#if ciEnabled && ciResponse?.configured}
       <div
         class="h-px mx-3 my-1 bg-border-subtle"
         role="separator"

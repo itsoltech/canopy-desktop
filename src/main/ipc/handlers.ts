@@ -61,7 +61,9 @@ import type {
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
 import { CiManager } from '../ci/CiManager'
-import { ciErrorMessage, type CiStatusResponse } from '../ci/types'
+import { BUILD_TYPE_ID_PATTERN } from '../ci/config'
+import type { CiStatusResponse } from '../ci/types'
+import { ciErrorMessage } from '../ci/errors'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
@@ -3276,9 +3278,18 @@ export function registerIpcHandlers(
 
   // Identifier charsets: build type ids and branch names are embedded in TeamCity
   // locator expressions — reject anything that could escape the parenthesized value
-  // (`(`, `)`, `,`, `:`). The renderer is the untrusted boundary.
-  const CI_BUILD_TYPE_ID_RE = /^[A-Za-z0-9_]{1,255}$/
+  // (`(`, `)`, `,`, `:`). The renderer is the untrusted boundary. The id charset is
+  // shared with the config parser — one definition, or the injection defence drifts.
+  const CI_BUILD_TYPE_ID_RE = BUILD_TYPE_ID_PATTERN
   const CI_BRANCH_RE = /^[A-Za-z0-9._/-]{1,255}$/
+
+  // Validated CI config of a repo (or null) — drives the Settings CI row.
+  ipcMain.handle('ci:config', async (_event, payload: { repoRoot: string }) => {
+    if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+      throw new Error('repoRoot is required')
+    }
+    return await ciManager.loadConfig(payload.repoRoot).unwrapOr(null)
+  })
 
   // Read: never throws — the sidebar renders whatever state comes back.
   ipcMain.handle('ci:status', async (_event, payload: { repoRoot: string; branch: string }) => {
@@ -3291,7 +3302,8 @@ export function registerIpcHandlers(
     const config = await ciManager.loadConfig(payload.repoRoot).unwrapOr(null)
     if (!config) return { configured: false, rows: [] } satisfies CiStatusResponse
 
-    const result = await ciManager.statusForBranch(payload.repoRoot, payload.branch)
+    // Pass the loaded config down — statusFor doesn't re-read .canopy/config.json.
+    const result = await ciManager.statusFor(config, payload.branch)
     return result.match(
       (rows): CiStatusResponse => ({
         configured: true,

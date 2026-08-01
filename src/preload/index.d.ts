@@ -1043,6 +1043,7 @@ interface CanopyAPI {
   >
 
   // CI (TeamCity)
+  ciConfig: (repoRoot: string) => Promise<CiConfigInfo | null>
   ciStatus: (repoRoot: string, branch: string) => Promise<CiStatusResponse>
   ciTrigger: (repoRoot: string, buildTypeId: string, branch: string) => Promise<CiTriggerResult>
   ciBuild: (repoRoot: string, buildId: number) => Promise<CiBuildStatus>
@@ -1433,12 +1434,12 @@ interface RepoConfig {
   /** Template overrides keyed by tracker project key (the task-key prefix, e.g. GAKKO). */
   projectOverrides: Record<string, ProjectOverride>
   filters: TaskFilterConfig
-  /** Optional CI integration (TeamCity) — drives the CI rows in the sidebar GIT section. */
-  ci?: {
-    provider: 'teamcity'
-    baseUrl: string
-    buildTypes: Array<{ id: string; label: string }>
-  }
+  /**
+   * Optional CI integration (TeamCity). RAW, possibly malformed value — it round-trips
+   * saves verbatim so a bad hand-edited block is never deleted from the git-tracked
+   * file. Read the validated form via `window.api.ciConfig()` instead.
+   */
+  ci?: unknown
 }
 
 type ConfigSource = 'global' | 'repo'
@@ -1570,6 +1571,13 @@ interface CreatedTask {
   url?: string
   /** Post-create steps that failed after the task itself was created (partial state). */
   warnings: string[]
+}
+
+/** Validated CI config of a repo, as resolved by the main process (`ci:config`). */
+interface CiConfigInfo {
+  provider: 'teamcity'
+  baseUrl: string
+  buildTypes: Array<{ id: string; label: string }>
 }
 
 interface CiBuildStatus {

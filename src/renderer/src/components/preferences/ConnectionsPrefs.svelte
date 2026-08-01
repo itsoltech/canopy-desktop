@@ -12,7 +12,9 @@
     loadRepoConfig,
   } from '../../lib/stores/taskTracker.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
@@ -48,8 +50,33 @@
   // --- CI (TeamCity) — token for the CI server configured in the repo's .canopy/config.json.
   // The connection definition is repo-owned (hand-edited file); only the credential is personal.
   let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
-  let ciConfig = $derived(getRepoConfig()?.ci ?? null)
+  // Validated by the main process (`ci:config`) — the raw RepoConfig.ci value round-trips
+  // saves verbatim and must not be trusted for rendering or as a token destination.
+  let ciConfig = $state<{
+    provider: 'teamcity'
+    baseUrl: string
+    buildTypes: Array<{ id: string; label: string }>
+  } | null>(null)
   let ciHasToken = $state(false)
+  let ciEnabled = $derived(prefs['ci.enabled'] === 'true')
+
+  $effect(() => {
+    // Re-resolve when the repo config store reloads (e.g. after a save elsewhere).
+    void getRepoConfig()
+    const root = repoRoot
+    if (!root) {
+      ciConfig = null
+      return
+    }
+    window.api
+      .ciConfig(root)
+      .then((cfg) => {
+        if (repoRoot === root) ciConfig = cfg
+      })
+      .catch(() => {
+        if (repoRoot === root) ciConfig = null
+      })
+  })
   let ciEditing = $state(false)
   let ciToken = $state('')
   let ciTesting = $state(false)
@@ -76,6 +103,9 @@
     ciEditing = true
     ciToken = ''
     ciTestResult = ''
+    // A new edit session re-asks for the destination — the repo config (and with it
+    // the URL the token would go to) may have changed since the last acknowledgment.
+    ciDestinationAcknowledged = false
   }
 
   function cancelCiEdit(): void {
@@ -83,8 +113,33 @@
     ciTestResult = ''
   }
 
+  // The base URL comes from the repo's git-shared .canopy/config.json — anyone with
+  // write access to the repository controls it. Before the token leaves the machine
+  // (test, save, or the Generate link), the user must explicitly acknowledge the
+  // destination once per edit session. Mirrors the saveTracker confirm below.
+  let ciDestinationAcknowledged = $state(false)
+
+  async function ensureCiDestinationAcknowledged(): Promise<boolean> {
+    if (!ciConfig) return false
+    if (ciDestinationAcknowledged) return true
+    const insecure = ciConfig.baseUrl.startsWith('http://')
+    const ok = await confirm({
+      title: 'Confirm CI server address',
+      message: `Continue with the TeamCity server at ${ciConfig.baseUrl}?`,
+      details:
+        "This address comes from the repository's .canopy/config.json — a git-shared file anyone with write access to the repository can change. Your token will be sent to this address. Only continue if you recognize it as your TeamCity server." +
+        (insecure
+          ? ' Warning: this is a plain http:// address — the token would travel unencrypted.'
+          : ''),
+      confirmLabel: 'Continue',
+    })
+    if (ok) ciDestinationAcknowledged = true
+    return ok
+  }
+
   async function testCiConnection(): Promise<void> {
     if (!repoRoot) return
+    if (!(await ensureCiDestinationAcknowledged())) return
     ciTesting = true
     ciTestResult = ''
     try {
@@ -99,6 +154,7 @@
 
   async function saveCiCredentials(): Promise<void> {
     if (!ciConfig) return
+    if (!(await ensureCiDestinationAcknowledged())) return
     try {
       await window.api.keychainSetCredentials('teamcity', ciConfig.baseUrl, ciToken)
     } catch (e) {
@@ -132,8 +188,11 @@
     addToast('Credentials removed')
   }
 
-  function openCiTokenPage(): void {
+  async function openCiTokenPage(): Promise<void> {
     if (!ciConfig) return
+    // Repo-controlled URL opened in the system browser — same acknowledgment gate as
+    // the token itself (a lookalike login page is the cheap phishing variant here).
+    if (!(await ensureCiDestinationAcknowledged())) return
     window.api.openExternal(`${ciConfig.baseUrl}/profile.html?item=accessTokens`)
   }
 
@@ -464,6 +523,16 @@
     description="Your token for the CI server configured in this project's .canopy/config.json"
   >
     <div class="flex flex-col gap-2">
+      <!-- Feature flag (default off): a `ci` block lands via the git-shared repo config,
+           so without this gate one teammate's commit would enable sidebar rows and a
+           background poller for everyone opening the repo. -->
+      <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none">
+        <CustomCheckbox
+          checked={ciEnabled}
+          onchange={() => setPref('ci.enabled', ciEnabled ? 'false' : 'true')}
+        />
+        <span>Show CI build status in the sidebar GIT section</span>
+      </label>
       <div class="flex items-center gap-1">
         <div
           class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm min-w-0"

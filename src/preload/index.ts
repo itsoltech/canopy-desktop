@@ -1369,6 +1369,7 @@ const api = {
     >,
 
   // CI (TeamCity)
+  ciConfig: (repoRoot: string) => ipcRenderer.invoke('ci:config', { repoRoot }),
   ciStatus: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('ci:status', { repoRoot, branch }),
   ciTrigger: (repoRoot: string, buildTypeId: string, branch: string) =>

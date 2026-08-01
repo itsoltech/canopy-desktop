@@ -5,7 +5,6 @@ import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types
 import type { TaskTrackerError } from './errors'
 import { fromExternalCall } from '../errors'
 import { defaultConfig, getBranchTemplate, getPRTemplate } from './configDefaults'
-import { parseCiConfig } from '../ci/config'
 
 const CONFIG_DIR = '.canopy'
 const CONFIG_FILE = 'config.json'
@@ -84,7 +83,10 @@ export class RepoConfigManager {
           agents: (parsed.agents as RepoConfig['agents']) ?? defaults.agents,
           // Must survive the load→save round-trip: normalization drops unknown fields, so
           // omitting `ci` here would erase the user's hand-edited CI block on the next save.
-          ci: parseCiConfig(parsed.ci),
+          // Keep the RAW value — `parseCiConfig` is applied at read time by CiManager, so a
+          // block that fails validation degrades to "not configured" without being deleted
+          // from the user's (git-tracked) config file.
+          ci: parsed.ci ?? undefined,
         }
         return ok(normalized)
       } catch (e) {

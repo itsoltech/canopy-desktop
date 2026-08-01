@@ -1,6 +1,7 @@
 import { errAsync, type ResultAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
-import type { CiBuildResult, CiBuildState, CiBuildStatus, CiError, CiTriggerResult } from './types'
+import type { CiBuildResult, CiBuildState, CiBuildStatus, CiTriggerResult } from './types'
+import type { CiError } from './errors'
 
 // TeamCity REST client (https://www.jetbrains.com/help/teamcity/rest/). Pure
 // response-mapping helpers are exported for unit tests; network access follows the
