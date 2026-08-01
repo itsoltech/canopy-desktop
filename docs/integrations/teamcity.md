@@ -28,8 +28,8 @@ The integration follows the Project management architecture:
 
 - **Not configured**: a "Configure TeamCity" entry opens the per-repo configurator.
 - **Configured**: the server row (click opens TeamCity), a **Run job…** entry, and a
-  one-row **Activity** summary ("2 running · 1 queued" / "Idle") that expands into the
-  detailed list — running and queued builds plus recent history.
+  one-row **Activity** summary ("2 running · 1 queued" / "Idle") — clicking it opens
+  the activity window with the detailed list.
 - **Token missing**: a banner links to Settings → CI connections.
 
 ### Per-repo configurator (modal)
@@ -62,11 +62,13 @@ immediately.
 
 ### Activity
 
-One summary row (running/queued counts, or "Idle") that expands into the details:
-everything running or queued on the server (server-wide, like TeamCity's own queue
-page; capped at 20+20) plus the 10 most recent finished builds with their outcome.
-Job name, branch and progress per row; click opens the build. Polls every 30 s,
-tightening to 10 s while anything is active, only while the section is mounted.
+The sidebar carries only a one-row summary (running/queued counts, or "Idle");
+clicking it opens a dedicated activity window with the details: everything running or
+queued on the server (server-wide, like TeamCity's own queue page; capped at 20+20)
+plus the 10 most recent finished builds with their outcome. Job name, branch and
+progress per row; click opens the build in TeamCity. The summary polls every 30 s
+(10 s while anything is active) while the section is mounted; the window refreshes
+every 10 s while open.
 
 ### Branch build rows (GIT section)
 

@@ -14,6 +14,7 @@
   import ProjectTrackerModal from '../preferences/ProjectTrackerModal.svelte'
   import ProjectCiModal from '../preferences/ProjectCiModal.svelte'
   import CiRunJobModal from '../ci/CiRunJobModal.svelte'
+  import CiActivityModal from '../ci/CiActivityModal.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
@@ -613,6 +614,8 @@
     initialBranch={dialogState.current.branch}
     auto={dialogState.current.auto ?? false}
   />
+{:else if dialogState.current.type === 'ciActivity'}
+  <CiActivityModal repoRoot={dialogState.current.repoRoot} />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}

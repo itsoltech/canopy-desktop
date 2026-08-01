@@ -62,6 +62,11 @@ interface ProjectCiState {
   type: 'projectCi'
 }
 
+interface CiActivityState {
+  type: 'ciActivity'
+  repoRoot: string
+}
+
 interface CiRunJobState {
   type: 'ciRunJob'
   repoRoot: string
@@ -146,6 +151,7 @@ type DialogState =
   | ProjectTrackerState
   | ProjectCiState
   | CiRunJobState
+  | CiActivityState
   | PRDetailsState
   | CreateTaskPRState
   | AboutState
@@ -241,6 +247,11 @@ export function showCiRunJob(
   opts?: { buildTypeId?: string; branch?: string; auto?: boolean },
 ): void {
   dialogState.current = { type: 'ciRunJob', repoRoot, ...opts }
+}
+
+/** Server activity window (running / queued / recent history) — the sidebar only shows the summary chip. */
+export function showCiActivity(repoRoot: string): void {
+  dialogState.current = { type: 'ciActivity', repoRoot }
 }
 
 /** Native PR panel — details fetched via the authenticated gh CLI, no browser login needed. */

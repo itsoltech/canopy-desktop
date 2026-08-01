@@ -8,12 +8,16 @@
     LoaderCircle,
     Play,
     Hammer,
-    ChevronRight,
   } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { showPreferences, showProjectCi, showCiRunJob } from '../../lib/stores/dialogs.svelte'
+  import {
+    showPreferences,
+    showProjectCi,
+    showCiRunJob,
+    showCiActivity,
+  } from '../../lib/stores/dialogs.svelte'
   import { getCiRepoConfig, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
 
   // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
@@ -52,7 +56,8 @@
     if (root) untrack(() => void loadCiRepoConfig(root))
   })
 
-  // --- Server activity: one summary row, details (running/queued/history) on expand ---
+  // --- Server activity: one summary row; details (running/queued/history) open in
+  // their own window (CiActivityModal) — the sidebar has no room for the list ---
 
   let activity = $state<{
     running: ActivityBuild[]
@@ -61,7 +66,6 @@
   } | null>(null)
   let activityError = $state('')
   let activityLoaded = $state(false)
-  let activityExpanded = $state(false)
   let activitySeq = 0
 
   async function refreshActivity(root: string): Promise<void> {
@@ -116,45 +120,10 @@
     if (repoRoot) showCiRunJob(repoRoot)
   }
 
-  function openBuild(webUrl: string): void {
-    if (webUrl) window.api.openExternal(webUrl)
+  function openActivity(): void {
+    if (repoRoot) showCiActivity(repoRoot)
   }
 </script>
-
-{#snippet activityRow(build: ActivityBuild)}
-  <button
-    class="group flex items-center gap-2 w-full h-7 pl-5 pr-2 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:cursor-default"
-    disabled={!build.webUrl}
-    onclick={() => openBuild(build.webUrl)}
-    title={`${build.buildTypeName}${build.number ? ` #${build.number}` : ''}${build.branchName ? ` — ${build.branchName}` : ''}${build.webUrl ? '\nOpen in TeamCity' : ''}`}
-  >
-    <span class="flex-1 min-w-0 truncate">{build.buildTypeName}</span>
-    {#if build.branchName}
-      <span class="font-mono text-2xs text-text-faint truncate max-w-24">{build.branchName}</span>
-    {/if}
-    {#if build.state === 'running'}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-accent-bg text-accent-text"
-        >{build.percentageComplete != null ? `${build.percentageComplete}%` : 'Running'}</span
-      >
-    {:else if build.state === 'queued'}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-active text-text-muted"
-        >Queued</span
-      >
-    {:else if build.status === 'SUCCESS'}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-success-bg text-success-text"
-        >Success</span
-      >
-    {:else if build.status === 'FAILURE'}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-danger-bg text-danger-text"
-        >Failed</span
-      >
-    {:else}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-active text-text-muted"
-        >{build.status ?? 'Unknown'}</span
-      >
-    {/if}
-  </button>
-{/snippet}
 
 <CollapsibleSection title="CI/CD" sectionKey="cicd" borderTop>
   {#snippet headerExtra()}
@@ -244,20 +213,18 @@
           aria-orientation="horizontal"
         ></div>
 
-        <!-- One summary row for the server's activity; details expand below. -->
+        <!-- One summary row only — the sidebar has no room for the full list, so the
+             details (running / queued / recent history) open in their own window. -->
         <button
-          class="group flex items-center gap-2 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-          onclick={() => (activityExpanded = !activityExpanded)}
-          aria-expanded={activityExpanded}
+          class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+          onclick={openActivity}
           title={activityError ||
-            `What is running and queued on ${serverHost}, plus recent history — click to ${activityExpanded ? 'collapse' : 'expand'}`}
+            `What is running and queued on ${serverHost}, plus recent history — opens in a window`}
         >
-          <span
-            class="flex items-center text-text-faint group-hover:text-text-muted transition-transform duration-base ease-std flex-shrink-0"
-            class:rotate-90={activityExpanded}
-          >
-            <ChevronRight size={12} />
-          </span>
+          <Hammer
+            size={13}
+            class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+          />
           <span class="flex-1">Activity</span>
           {#if activityError}
             <span
@@ -277,37 +244,6 @@
             >
           {/if}
         </button>
-
-        {#if activityExpanded}
-          {#if activityError}
-            <div
-              class="flex items-center gap-2.5 w-full min-h-7 pl-5 pr-3 py-1 text-sm text-text-faint"
-              title={activityError}
-            >
-              <Hammer size={13} class="flex-shrink-0" />
-              <span class="flex-1 truncate">{activityError}</span>
-            </div>
-          {:else if activity}
-            {#if activeCount === 0}
-              <div class="pl-5 pr-3 h-7 flex items-center text-sm text-text-faint">
-                Nothing running on {serverHost}
-              </div>
-            {:else}
-              {#each [...activity.running, ...activity.queued] as build (build.state + build.id)}
-                {@render activityRow(build)}
-              {/each}
-            {/if}
-            {#if activity.recent.length > 0}
-              <span
-                class="pl-5 pr-3 pt-1.5 pb-0.5 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                >Recent</span
-              >
-              {#each activity.recent as build (build.id)}
-                {@render activityRow(build)}
-              {/each}
-            {/if}
-          {/if}
-        {/if}
       {/if}
     </div>
   {/if}
