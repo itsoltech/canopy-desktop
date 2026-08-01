@@ -42,6 +42,7 @@ Connections to external services and tools.
 | [agents.md](integrations/agents.md)             | Claude Code, Codex, Gemini CLI, OpenCode: normalized session tracking  |
 | [github.md](integrations/github.md)             | PR status per branch, repo identity from remotes, PR creation          |
 | [browser.md](integrations/browser.md)           | Sandboxed web pages, DevTools, device emulation, credential autofill   |
+| [teamcity.md](integrations/teamcity.md)         | TeamCity build status per branch and build triggering in the sidebar   |
 
 ## Features
 
