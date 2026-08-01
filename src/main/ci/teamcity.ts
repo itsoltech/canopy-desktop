@@ -1,7 +1,15 @@
 import { errAsync, type ResultAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
-import type { CiBuildResult, CiBuildState, CiBuildStatus, CiTriggerResult } from './types'
+import type {
+  CiBuildResult,
+  CiBuildState,
+  CiBuildStatus,
+  CiParameter,
+  CiServerBuildType,
+  CiTriggerResult,
+} from './types'
 import type { CiError } from './errors'
+import { parsePromptParameters } from './parameters'
 
 // TeamCity REST client (https://www.jetbrains.com/help/teamcity/rest/). Pure
 // response-mapping helpers are exported for unit tests; network access follows the
@@ -130,12 +138,13 @@ export function fetchBuild(
   ).map(mapBuild)
 }
 
-/** Queue a build of the configuration on the given branch. */
+/** Queue a build of the configuration on the given branch, optionally with custom parameters. */
 export function triggerBuild(
   baseUrl: string,
   token: string,
   buildTypeId: string,
   branch: string,
+  properties?: Array<{ name: string; value: string }>,
 ): ResultAsync<CiTriggerResult, CiError> {
   return tcFetch<{ id: number; webUrl?: string }>(baseUrl, token, '/app/rest/buildQueue', {
     method: 'POST',
@@ -143,6 +152,39 @@ export function triggerBuild(
       buildType: { id: buildTypeId },
       branchName: branch,
       comment: { text: 'Triggered from Canopy' },
+      ...(properties?.length ? { properties: { property: properties } } : {}),
     }),
   }).map((res) => ({ buildId: res.id, webUrl: res.webUrl ?? '' }))
+}
+
+/** All build configurations on the server — source for the per-repo config picker. */
+export function fetchBuildTypes(
+  baseUrl: string,
+  token: string,
+): ResultAsync<CiServerBuildType[], CiError> {
+  return tcFetch<{ buildType?: Array<{ id?: string; name?: string; projectName?: string }> }>(
+    baseUrl,
+    token,
+    '/app/rest/buildTypes?fields=buildType(id,name,projectName)',
+  ).map((res) =>
+    (res.buildType ?? []).flatMap((bt) =>
+      bt.id ? [{ id: bt.id, name: bt.name ?? bt.id, projectName: bt.projectName ?? '' }] : [],
+    ),
+  )
+}
+
+/** The parameters TeamCity would prompt for in its "Run custom build" dialog. */
+export function fetchPromptParameters(
+  baseUrl: string,
+  token: string,
+  buildTypeId: string,
+): ResultAsync<CiParameter[], CiError> {
+  return tcFetch<{
+    count?: number
+    property?: Array<{ name: string; value?: string; type?: { rawValue?: string } }>
+  }>(
+    baseUrl,
+    token,
+    `/app/rest/buildTypes/id:${buildTypeId}/parameters?fields=property(name,value,type(rawValue))`,
+  ).map(parsePromptParameters)
 }

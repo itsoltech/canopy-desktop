@@ -1372,12 +1372,23 @@ const api = {
   ciConfig: (repoRoot: string) => ipcRenderer.invoke('ci:config', { repoRoot }),
   ciStatus: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('ci:status', { repoRoot, branch }),
-  ciTrigger: (repoRoot: string, buildTypeId: string, branch: string) =>
-    ipcRenderer.invoke('ci:trigger', { repoRoot, buildTypeId, branch }),
+  ciTrigger: (
+    repoRoot: string,
+    buildTypeId: string,
+    branch: string,
+    properties?: Array<{ name: string; value: string }>,
+  ) => ipcRenderer.invoke('ci:trigger', { repoRoot, buildTypeId, branch, properties }),
   ciBuild: (repoRoot: string, buildId: number) =>
     ipcRenderer.invoke('ci:build', { repoRoot, buildId }),
-  ciTestConnection: (repoRoot: string, token: string) =>
-    ipcRenderer.invoke('ci:testConnection', { repoRoot, token }),
+  ciTestNewConnection: (baseUrl: string, token: string) =>
+    ipcRenderer.invoke('ci:testNewConnection', { baseUrl, token }),
+  ciBuildParameters: (repoRoot: string, buildTypeId: string) =>
+    ipcRenderer.invoke('ci:buildParameters', { repoRoot, buildTypeId }),
+  ciListBuildTypes: (baseUrl: string) => ipcRenderer.invoke('ci:listBuildTypes', { baseUrl }),
+  ciSaveConfig: (
+    repoRoot: string,
+    ci: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null,
+  ) => ipcRenderer.invoke('ci:saveConfig', { repoRoot, ci }),
 
   // Task Tracker
   taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),

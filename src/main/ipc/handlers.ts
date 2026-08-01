@@ -61,8 +61,9 @@ import type {
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
 import { CiManager } from '../ci/CiManager'
+import { testConnection as ciTestConnection } from '../ci/teamcity'
 import { BUILD_TYPE_ID_PATTERN } from '../ci/config'
-import type { CiStatusResponse } from '../ci/types'
+import type { CiConfig, CiStatusResponse } from '../ci/types'
 import { ciErrorMessage } from '../ci/errors'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
@@ -3321,9 +3322,40 @@ export function registerIpcHandlers(
     )
   })
 
+  // Custom-build properties travel in the JSON body (never in a locator), so values
+  // only need sane size caps; names get a strict charset anyway.
+  const CI_PROPERTY_NAME_RE = /^[A-Za-z0-9._-]{1,255}$/
+  const CI_PROPERTY_VALUE_MAX = 4096
+  const CI_PROPERTIES_MAX = 100
+
+  function validateCiProperties(raw: unknown): Array<{ name: string; value: string }> | undefined {
+    if (raw === undefined) return undefined
+    if (!Array.isArray(raw) || raw.length > CI_PROPERTIES_MAX) {
+      throw new Error('Invalid build properties')
+    }
+    return raw.map((entry) => {
+      const { name, value } = (entry ?? {}) as { name?: unknown; value?: unknown }
+      if (typeof name !== 'string' || !CI_PROPERTY_NAME_RE.test(name)) {
+        throw new Error('Invalid build property name')
+      }
+      if (typeof value !== 'string' || value.length > CI_PROPERTY_VALUE_MAX) {
+        throw new Error(`Invalid value for build property ${name}`)
+      }
+      return { name, value }
+    })
+  }
+
   ipcMain.handle(
     'ci:trigger',
-    async (_event, payload: { repoRoot: string; buildTypeId: string; branch: string }) => {
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        buildTypeId: string
+        branch: string
+        properties?: Array<{ name: string; value: string }>
+      },
+    ) => {
       if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
         throw new Error('repoRoot is required')
       }
@@ -3336,7 +3368,90 @@ export function registerIpcHandlers(
       if (typeof payload.branch !== 'string' || !CI_BRANCH_RE.test(payload.branch)) {
         throw new Error('Invalid branch name')
       }
-      const result = await ciManager.trigger(payload.repoRoot, payload.buildTypeId, payload.branch)
+      const properties = validateCiProperties(payload.properties)
+      const result = await ciManager.trigger(
+        payload.repoRoot,
+        payload.buildTypeId,
+        payload.branch,
+        properties,
+      )
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  // "Run custom build" prompt parameters of a configured build type.
+  ipcMain.handle(
+    'ci:buildParameters',
+    async (_event, payload: { repoRoot: string; buildTypeId: string }) => {
+      if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+        throw new Error('repoRoot is required')
+      }
+      if (
+        typeof payload.buildTypeId !== 'string' ||
+        !CI_BUILD_TYPE_ID_RE.test(payload.buildTypeId)
+      ) {
+        throw new Error('Invalid build type id')
+      }
+      const result = await ciManager.promptParameters(payload.repoRoot, payload.buildTypeId)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  // Init flow: the URL comes from the Settings form (no `ci` block exists yet) — the
+  // same trust level as taskTracker:testNewConnection. The token never leaves the
+  // keychain; only http(s) origins are accepted.
+  ipcMain.handle('ci:listBuildTypes', async (_event, payload: { baseUrl: string }) => {
+    if (typeof payload.baseUrl !== 'string' || !payload.baseUrl) {
+      throw new Error('baseUrl is required')
+    }
+    const parsed = new URL(payload.baseUrl)
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('Base URL must use http:// or https://')
+    }
+    const result = await ciManager.listBuildTypes(payload.baseUrl.replace(/\/$/, ''))
+    return unwrapOrThrow(result, ciErrorMessage)
+  })
+
+  // Write (or remove, with null) the repo's `ci` block from the Settings configurator.
+  ipcMain.handle(
+    'ci:saveConfig',
+    async (
+      _event,
+      payload: {
+        repoRoot: string
+        ci: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null
+      },
+    ) => {
+      if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+        throw new Error('repoRoot is required')
+      }
+      let ci: CiConfig | null = null
+      if (payload.ci !== null) {
+        if (typeof payload.ci?.baseUrl !== 'string') throw new Error('Invalid base URL')
+        const parsed = new URL(payload.ci.baseUrl)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('Base URL must use http:// or https://')
+        }
+        if (!Array.isArray(payload.ci.buildTypes) || payload.ci.buildTypes.length === 0) {
+          throw new Error('Select at least one build configuration')
+        }
+        if (payload.ci.buildTypes.length > 50) {
+          throw new Error('Too many build configurations')
+        }
+        const buildTypes = payload.ci.buildTypes.map((bt) => {
+          if (typeof bt?.id !== 'string' || !CI_BUILD_TYPE_ID_RE.test(bt.id)) {
+            throw new Error('Invalid build type id')
+          }
+          const label = typeof bt.label === 'string' ? bt.label.trim().slice(0, 100) : ''
+          return { id: bt.id, label: label || bt.id }
+        })
+        ci = {
+          provider: 'teamcity',
+          baseUrl: payload.ci.baseUrl.replace(/\/$/, ''),
+          buildTypes,
+        }
+      }
+      const result = await ciManager.saveConfig(payload.repoRoot, ci)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )
@@ -3352,17 +3467,23 @@ export function registerIpcHandlers(
     return unwrapOrThrow(result, ciErrorMessage)
   })
 
-  // Settings connection test: candidate token from the form, base URL from repo config.
+  // Settings configurator connection test: candidate URL and token both come from the
+  // form (the `ci` block may not exist yet) — same trust level as
+  // taskTracker:testNewConnection. Nothing is stored.
   ipcMain.handle(
-    'ci:testConnection',
-    async (_event, payload: { repoRoot: string; token: string }) => {
-      if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
-        throw new Error('repoRoot is required')
+    'ci:testNewConnection',
+    async (_event, payload: { baseUrl: string; token: string }) => {
+      if (typeof payload.baseUrl !== 'string' || !payload.baseUrl) {
+        throw new Error('baseUrl is required')
+      }
+      const parsed = new URL(payload.baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Base URL must use http:// or https://')
       }
       if (typeof payload.token !== 'string' || !payload.token) {
         throw new Error('Token is required')
       }
-      const result = await ciManager.testConnection(payload.repoRoot, payload.token)
+      const result = await ciTestConnection(payload.baseUrl.replace(/\/$/, ''), payload.token)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )

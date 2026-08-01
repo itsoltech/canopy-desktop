@@ -1,10 +1,24 @@
 import { ResultAsync, errAsync, okAsync } from 'neverthrow'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
-import type { CiBuildStatus, CiBuildTypeStatus, CiConfig, CiTriggerResult } from './types'
+import { taskTrackerErrorMessage } from '../taskTracker/errors'
+import type {
+  CiBuildStatus,
+  CiBuildTypeStatus,
+  CiConfig,
+  CiParameter,
+  CiServerBuildType,
+  CiTriggerResult,
+} from './types'
 import type { CiError } from './errors'
 import { parseCiConfig } from './config'
-import { fetchBuild, fetchBuildForBranch, testConnection, triggerBuild } from './teamcity'
+import {
+  fetchBuild,
+  fetchBuildForBranch,
+  fetchBuildTypes,
+  fetchPromptParameters,
+  triggerBuild,
+} from './teamcity'
 
 /**
  * Glue between the repo config, the keychain and the TeamCity client. The base URL
@@ -33,11 +47,13 @@ export class CiManager {
       })
   }
 
+  private tokenForUrl(baseUrl: string): ResultAsync<string, CiError> {
+    const creds = this.tokenStore.getCredentials('teamcity', baseUrl)
+    return creds?.token ? okAsync(creds.token) : errAsync({ _tag: 'CiAuthMissing', baseUrl })
+  }
+
   private tokenFor(ci: CiConfig): ResultAsync<string, CiError> {
-    const creds = this.tokenStore.getCredentials('teamcity', ci.baseUrl)
-    return creds?.token
-      ? okAsync(creds.token)
-      : errAsync({ _tag: 'CiAuthMissing', baseUrl: ci.baseUrl })
+    return this.tokenForUrl(ci.baseUrl)
   }
 
   /**
@@ -68,34 +84,68 @@ export class CiManager {
     repoRoot: string,
     buildTypeId: string,
     branch: string,
+    properties?: Array<{ name: string; value: string }>,
   ): ResultAsync<CiTriggerResult, CiError> {
+    return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(({ ci, token }) =>
+      triggerBuild(ci.baseUrl, token, buildTypeId, branch, properties),
+    )
+  }
+
+  /** "Run custom build" prompt parameters of a CONFIGURED build type. */
+  promptParameters(repoRoot: string, buildTypeId: string): ResultAsync<CiParameter[], CiError> {
+    return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(({ ci, token }) =>
+      fetchPromptParameters(ci.baseUrl, token, buildTypeId),
+    )
+  }
+
+  // Only configured build types may be queried or triggered — the renderer cannot
+  // reach arbitrary configurations even with a valid id charset.
+  private requireConfiguredBuildType(
+    repoRoot: string,
+    buildTypeId: string,
+  ): ResultAsync<{ ci: CiConfig; token: string }, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) => {
-      // Only configured build types may be triggered — the renderer cannot queue
-      // arbitrary configurations even with a valid id charset.
       if (!ci.buildTypes.some((bt) => bt.id === buildTypeId)) {
-        return errAsync<CiTriggerResult, CiError>({
+        return errAsync<{ ci: CiConfig; token: string }, CiError>({
           _tag: 'CiApiError',
           status: 0,
           message: `Build type ${buildTypeId} is not configured for this repository`,
         })
       }
-      return this.tokenFor(ci).andThen((token) =>
-        triggerBuild(ci.baseUrl, token, buildTypeId, branch),
-      )
+      return this.tokenFor(ci).map((token) => ({ ci, token }))
     })
+  }
+
+  /**
+   * All build configurations on a server — source for the config picker. Runs in the
+   * INIT flow, before any `ci` block exists, so the URL comes from the Settings form
+   * (validated at the IPC boundary) and the token from the keychain entry the user
+   * just saved for that URL.
+   */
+  listBuildTypes(baseUrl: string): ResultAsync<CiServerBuildType[], CiError> {
+    return this.tokenForUrl(baseUrl).andThen((token) => fetchBuildTypes(baseUrl, token))
+  }
+
+  /**
+   * Write (or remove, with `null`) the `ci` block through the normal repo-config
+   * round-trip. Creates `.canopy/config.json` with defaults when the repo has none —
+   * same behavior as the Project tracker init flow.
+   */
+  saveConfig(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
+    return this.repoConfigManager
+      .load(repoRoot)
+      .orElse(() => this.repoConfigManager.init(repoRoot))
+      .andThen((cfg) => this.repoConfigManager.save(repoRoot, { ...cfg, ci: ci ?? undefined }))
+      .mapErr((e): CiError => ({
+        _tag: 'CiApiError',
+        status: 0,
+        message: taskTrackerErrorMessage(e),
+      }))
   }
 
   build(repoRoot: string, buildId: number): ResultAsync<CiBuildStatus, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) =>
       this.tokenFor(ci).andThen((token) => fetchBuild(ci.baseUrl, token, buildId)),
     )
-  }
-
-  /**
-   * Connection test for the Settings row. The candidate token comes from the form
-   * (not yet stored); the URL still comes from the repo config.
-   */
-  testConnection(repoRoot: string, token: string): ResultAsync<void, CiError> {
-    return this.loadConfig(repoRoot).andThen((ci) => testConnection(ci.baseUrl, token))
   }
 }

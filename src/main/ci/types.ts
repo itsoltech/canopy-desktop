@@ -40,6 +40,32 @@ export interface CiTriggerResult {
   webUrl: string
 }
 
+/** A build-configuration entry on the TeamCity server — source for the config picker. */
+export interface CiServerBuildType {
+  id: string
+  name: string
+  projectName: string
+}
+
+/**
+ * One "Run custom build" prompt parameter, normalized from TeamCity's typed
+ * parameter spec. Drives the dynamic form shown before triggering.
+ */
+export interface CiParameter {
+  name: string
+  kind: 'text' | 'checkbox' | 'select'
+  label: string
+  description: string | undefined
+  required: boolean
+  defaultValue: string
+  options: string[] | undefined
+  multiple: boolean
+  /** Joins the selected options of a multi-select into the property value. */
+  valueSeparator: string
+  checkedValue: string | undefined
+  uncheckedValue: string | undefined
+}
+
 /**
  * `ci:status` IPC contract. A read endpoint that never throws — auth and API
  * problems come back as fields so the sidebar can render a reconnect hint or an

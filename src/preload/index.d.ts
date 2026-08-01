@@ -1045,9 +1045,20 @@ interface CanopyAPI {
   // CI (TeamCity)
   ciConfig: (repoRoot: string) => Promise<CiConfigInfo | null>
   ciStatus: (repoRoot: string, branch: string) => Promise<CiStatusResponse>
-  ciTrigger: (repoRoot: string, buildTypeId: string, branch: string) => Promise<CiTriggerResult>
+  ciTrigger: (
+    repoRoot: string,
+    buildTypeId: string,
+    branch: string,
+    properties?: Array<{ name: string; value: string }>,
+  ) => Promise<CiTriggerResult>
   ciBuild: (repoRoot: string, buildId: number) => Promise<CiBuildStatus>
-  ciTestConnection: (repoRoot: string, token: string) => Promise<void>
+  ciTestNewConnection: (baseUrl: string, token: string) => Promise<void>
+  ciBuildParameters: (repoRoot: string, buildTypeId: string) => Promise<CiParameter[]>
+  ciListBuildTypes: (baseUrl: string) => Promise<CiServerBuildType[]>
+  ciSaveConfig: (
+    repoRoot: string,
+    ci: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null,
+  ) => Promise<void>
 
   // Task Tracker
   taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
@@ -1578,6 +1589,28 @@ interface CiConfigInfo {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: Array<{ id: string; label: string }>
+}
+
+/** A build configuration on the TeamCity server (config picker source). */
+interface CiServerBuildType {
+  id: string
+  name: string
+  projectName: string
+}
+
+/** One "Run custom build" prompt parameter (dynamic trigger form). */
+interface CiParameter {
+  name: string
+  kind: 'text' | 'checkbox' | 'select'
+  label: string
+  description: string | undefined
+  required: boolean
+  defaultValue: string
+  options: string[] | undefined
+  multiple: boolean
+  valueSeparator: string
+  checkedValue: string | undefined
+  uncheckedValue: string | undefined
 }
 
 interface CiBuildStatus {
