@@ -246,17 +246,30 @@
     y: number
     project: ProjectState
     wt: ProjectState['worktrees'][number]
+    /** This worktree's checkout has a CI config — gates the Run CI Job entry. */
+    ciConfigured: boolean
   }
 
   let ctxMenu = $state<WorktreeCtx | null>(null)
 
-  function handleWorktreeContextMenu(
+  async function handleWorktreeContextMenu(
     e: MouseEvent,
     project: ProjectState,
     wt: ProjectState['worktrees'][number],
-  ): void {
+  ): Promise<void> {
     e.preventDefault()
-    ctxMenu = { x: e.clientX, y: e.clientY, project, wt }
+    // Per-worktree check: the ci block lives in each checkout's .canopy/config.json,
+    // so a branch without it must not offer the CI entry. Local file read — the
+    // one-roundtrip delay before the menu opens is imperceptible.
+    let ciConfigured = false
+    if (ciMenuEnabled && wt.branch !== '(detached)') {
+      try {
+        ciConfigured = (await window.api.ciConfig(wt.path)) != null
+      } catch {
+        ciConfigured = false
+      }
+    }
+    ctxMenu = { x: e.clientX, y: e.clientY, project, wt, ciConfigured }
   }
 
   function closeCtxMenu(): void {
@@ -400,7 +413,7 @@
           role="menuitem"
           onclick={ctxNewWorktree}>New Worktree from Branch</button
         >
-        {#if ciMenuEnabled}
+        {#if ciMenuEnabled && ctxMenu.ciConfigured}
           <div class="h-px mx-2 my-1 bg-border-subtle"></div>
           <button
             class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"

@@ -1,14 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import {
-    Plus,
-    Settings,
-    ExternalLink,
-    KeyRound,
-    LoaderCircle,
-    Play,
-    Hammer,
-  } from '@lucide/svelte'
+  import { Settings, ExternalLink, KeyRound, LoaderCircle, Play, Hammer } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -136,36 +128,19 @@
 
 <CollapsibleSection title="CI/CD" sectionKey="cicd" borderTop>
   {#snippet headerExtra()}
-    {#if config}
-      <button
-        class="flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint cursor-pointer opacity-60 hover:opacity-100 hover:bg-hover hover:text-text-secondary"
-        onclick={showProjectCi}
-        aria-label="Configure CI/CD"
-        title="Configure CI/CD — server and available build configurations"
-      >
-        <Settings size={12} />
-      </button>
-    {/if}
+    <!-- Always available — for unconfigured worktrees this is the ONLY entry point
+         (their section body stays empty on purpose). -->
+    <button
+      class="flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint cursor-pointer opacity-60 hover:opacity-100 hover:bg-hover hover:text-text-secondary"
+      onclick={showProjectCi}
+      aria-label="Configure CI/CD"
+      title="Configure CI/CD — server and available build configurations"
+    >
+      <Settings size={12} />
+    </button>
   {/snippet}
 
-  {#if !repoRoot}
-    <div class="px-3 py-1 text-sm text-text-faint">Open a repository first.</div>
-  {:else if !cfgState.loaded}
-    <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
-      <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
-      <span class="text-sm">Loading…</span>
-    </div>
-  {:else if !config}
-    <div class="px-3 py-2">
-      <button
-        class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
-        onclick={showProjectCi}
-      >
-        <Plus size={14} />
-        Configure TeamCity
-      </button>
-    </div>
-  {:else}
+  {#if repoRoot && cfgState.loaded && config}
     <div class="flex flex-col">
       <button
         class="group flex items-center gap-2.5 w-full h-7 pl-3 pr-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
