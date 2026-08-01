@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { parseActivity, parseBranches } from './activity'
+import { parseActivity, parseBranches, parseTcDate } from './activity'
+
+describe('parseTcDate', () => {
+  it('parses the TeamCity timestamp format with offset', () => {
+    expect(parseTcDate('20260801T172347+0200')).toBe(Date.parse('2026-08-01T17:23:47+02:00'))
+    expect(parseTcDate('20260801T152347Z')).toBe(Date.parse('2026-08-01T15:23:47Z'))
+  })
+
+  it('returns undefined for missing or malformed input', () => {
+    expect(parseTcDate(undefined)).toBeUndefined()
+    expect(parseTcDate('yesterday')).toBeUndefined()
+  })
+})
 
 describe('parseActivity', () => {
   it('maps running builds with their configuration and progress', () => {
@@ -77,7 +89,7 @@ describe('parseActivity', () => {
     ])
   })
 
-  it('maps recent finished builds with their outcome', () => {
+  it('maps recent finished builds with their outcome and timestamps', () => {
     const activity = parseActivity(
       {},
       {},
@@ -90,6 +102,8 @@ describe('parseActivity', () => {
             status: 'SUCCESS',
             webUrl: 'https://tc/build/50',
             branchName: 'develop',
+            startDate: '20260801T172255+0200',
+            finishDate: '20260801T172406+0200',
             buildType: { id: 'Gakko_Build', name: 'Build & Deploy' },
           },
           { id: 49, number: '2601', status: 'FAILURE', buildType: { id: 'Gakko_Build' } },
@@ -100,6 +114,10 @@ describe('parseActivity', () => {
       ['finished', 'SUCCESS', '2602'],
       ['finished', 'FAILURE', '2601'],
     ])
+    const first = activity.recent[0]
+    expect(first.startedAt).toBe(Date.parse('2026-08-01T17:22:55+02:00'))
+    expect(first.finishedAt).toBe(Date.parse('2026-08-01T17:24:06+02:00'))
+    expect(activity.recent[1].startedAt).toBeUndefined()
   })
 })
 

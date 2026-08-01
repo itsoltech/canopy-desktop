@@ -183,7 +183,7 @@ export function fetchBuildTypes(
 /** Server-wide activity: running + queued builds and the most recent finished ones. */
 export function fetchActivity(baseUrl: string, token: string): ResultAsync<CiActivity, CiError> {
   const fields =
-    'count,build(id,number,status,percentageComplete,webUrl,branchName,buildType(id,name))'
+    'count,build(id,number,status,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate,buildType(id,name))'
   return ResultAsync.combine([
     tcFetch<RawActivityResponse>(
       baseUrl,

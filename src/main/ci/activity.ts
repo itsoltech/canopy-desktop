@@ -12,7 +12,20 @@ interface RawActivityBuild {
   percentageComplete?: number
   webUrl?: string
   branchName?: string
+  queuedDate?: string
+  startDate?: string
+  finishDate?: string
   buildType?: { id?: string; name?: string }
+}
+
+/** TeamCity timestamp (`20260801T172347+0200`) → epoch ms, undefined when absent/malformed. */
+export function parseTcDate(raw: string | undefined): number | undefined {
+  if (!raw) return undefined
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})([+-]\d{4}|Z)?$/.exec(raw)
+  if (!m) return undefined
+  const zone = m[7] ? (m[7] === 'Z' ? 'Z' : `${m[7].slice(0, 3)}:${m[7].slice(3)}`) : ''
+  const ts = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${zone}`)
+  return Number.isNaN(ts) ? undefined : ts
 }
 
 export interface RawActivityResponse {
@@ -32,6 +45,9 @@ function mapActivityBuild(
     percentageComplete: raw.percentageComplete,
     webUrl: raw.webUrl ?? '',
     branchName: raw.branchName,
+    queuedAt: parseTcDate(raw.queuedDate),
+    startedAt: parseTcDate(raw.startDate),
+    finishedAt: parseTcDate(raw.finishDate),
     buildTypeId: raw.buildType?.id ?? '',
     buildTypeName: raw.buildType?.name || (raw.buildType?.id ?? ''),
   }

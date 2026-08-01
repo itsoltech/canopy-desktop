@@ -18,7 +18,7 @@
     showCiRunJob,
     showCiActivity,
   } from '../../lib/stores/dialogs.svelte'
-  import { getCiRepoConfig, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
+  import { getCiRepoConfig, loadCiRepoConfig, getCiActivityTick } from '../../lib/stores/ci.svelte'
 
   // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
   // branch, and the server's current activity. Mirrors the Project management
@@ -93,6 +93,9 @@
     if (!hasConfigAndToken) return
     const root = repoRoot
     if (!root) return
+    // Triggering a build bumps the tick → immediate re-fetch instead of the chip
+    // sitting on "Idle" until the next poll.
+    void getCiActivityTick()
     untrack(() => void refreshActivity(root))
     const interval = activeCount > 0 ? 10_000 : 30_000
     const timer = setInterval(() => void refreshActivity(root), interval)
@@ -111,7 +114,13 @@
   let activitySummary = $derived.by(() => {
     if (!activity) return ''
     const parts: string[] = []
-    if (activity.running.length > 0) parts.push(`${activity.running.length} running`)
+    if (activity.running.length === 1) {
+      // A single running build shows its actual progress right in the chip.
+      const pct = activity.running[0].percentageComplete
+      parts.push(pct != null ? `${pct}%` : 'running')
+    } else if (activity.running.length > 1) {
+      parts.push(`${activity.running.length} running`)
+    }
     if (activity.queued.length > 0) parts.push(`${activity.queued.length} queued`)
     return parts.join(' · ') || 'Idle'
   })

@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { ExternalLink, LoaderCircle, RefreshCw, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { getCiActivityTick } from '../../lib/stores/ci.svelte'
+  import { formatDuration, formatWhen } from '../../lib/ci/format'
 
   // Server activity window: everything running and queued on the TeamCity server plus
   // recent history. The sidebar only carries a one-row summary — the details live
@@ -29,6 +31,7 @@
   let error = $state('')
   let loaded = $state(false)
   let refreshing = $state(false)
+  let now = $state(Date.now())
   let dialogEl = $state<HTMLElement>()
   let seq = 0
 
@@ -39,6 +42,7 @@
       const result = await window.api.ciActivity(repoRoot)
       if (mySeq !== seq) return
       activity = result
+      now = Date.now()
       error = ''
     } catch (e) {
       if (mySeq !== seq) return
@@ -53,10 +57,36 @@
 
   onMount(() => {
     dialogEl?.focus()
-    void refresh()
+  })
+
+  $effect(() => {
+    // A trigger elsewhere in the app bumps the tick → refresh right away.
+    void getCiActivityTick()
+    untrack(() => void refresh())
     const timer = setInterval(() => void refresh(), 10_000)
     return () => clearInterval(timer)
   })
+
+  function buildMeta(build: ActivityBuild): string {
+    if (build.state === 'finished') {
+      const when = build.startedAt ?? build.finishedAt
+      const parts: string[] = []
+      if (when != null) parts.push(formatWhen(when, now))
+      if (build.startedAt != null && build.finishedAt != null) {
+        parts.push(formatDuration(build.finishedAt - build.startedAt))
+      }
+      return parts.join(' · ')
+    }
+    if (build.state === 'running') {
+      const parts: string[] = []
+      if (build.startedAt != null) {
+        parts.push(formatWhen(build.startedAt, now))
+        parts.push(`${formatDuration(now - build.startedAt)} elapsed`)
+      }
+      return parts.join(' · ')
+    }
+    return build.queuedAt != null ? `queued ${formatWhen(build.queuedAt, now)}` : ''
+  }
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
@@ -71,6 +101,7 @@
 </script>
 
 {#snippet buildRow(build: ActivityBuild)}
+  {@const meta = buildMeta(build)}
   <button
     type="button"
     class="group flex items-center gap-2.5 w-full min-h-8 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit text-left rounded-md transition-colors duration-fast enabled:cursor-pointer enabled:hover:bg-hover disabled:cursor-default"
@@ -79,16 +110,24 @@
     title={build.webUrl ? 'Open in TeamCity' : undefined}
   >
     <span class="flex-1 min-w-0 flex flex-col items-start gap-0.5">
-      <span class="w-full truncate"
-        >{build.buildTypeName}{#if build.number}<span class="text-text-faint">
-            #{build.number}</span
-          >{/if}</span
-      >
-      {#if build.branchName}
-        <span class="w-full font-mono text-2xs text-text-muted truncate" title={build.branchName}
-          >{build.branchName}</span
-        >
-      {/if}
+      <span class="w-full flex items-baseline gap-2 min-w-0">
+        <span class="truncate">{build.buildTypeName}</span>
+        {#if build.number}
+          <span class="font-mono text-2xs text-text-faint flex-shrink-0">#{build.number}</span>
+        {/if}
+      </span>
+      <span class="w-full flex items-baseline gap-2 min-w-0">
+        {#if build.branchName}
+          <span class="font-mono text-2xs text-text-muted truncate" title={build.branchName}
+            >{build.branchName}</span
+          >
+        {/if}
+        {#if meta}
+          <span class="ml-auto text-2xs text-text-faint whitespace-nowrap flex-shrink-0"
+            >{meta}</span
+          >
+        {/if}
+      </span>
     </span>
     {#if build.state === 'running'}
       <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-accent-bg text-accent-text"

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Check, LoaderCircle, Play, X } from '@lucide/svelte'
+  import { LoaderCircle, Play, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { triggerCiBuild } from '../../lib/stores/ci.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import BranchPicker from '../worktree/BranchPicker.svelte'
   import RunBuildDialog from './RunBuildDialog.svelte'
   import type { CiParameter } from '../../lib/ci/types'
 
@@ -28,8 +29,11 @@
     null,
   )
   let buildTypeId = $state(initialBuildTypeId ?? '')
+  // BranchPicker combobox semantics (same component as the worktree creation flow):
+  // picking writes the branch into the input and collapses the list; hand-editing the
+  // query clears the selection, so Run can never fire on a branch the user didn't pick.
   let selectedBranch = $state(initialBranch ?? '')
-  let branchQuery = $state('')
+  let branchQuery = $state(initialBranch ?? '')
   let branches = $state<string[]>([])
   let branchesLoading = $state(false)
   let error = $state('')
@@ -40,30 +44,6 @@
   let branchesSeq = 0
 
   let label = $derived(config?.buildTypes.find((bt) => bt.id === buildTypeId)?.label ?? buildTypeId)
-  let filteredBranches = $derived(
-    branches.filter((b) => b.toLowerCase().includes(branchQuery.trim().toLowerCase())),
-  )
-  let queryIsNewBranch = $derived(
-    branchQuery.trim() !== '' && !branches.includes(branchQuery.trim()),
-  )
-
-  // The selection FOLLOWS the filter: typing a query that excludes the current
-  // selection moves it to the first match. Without this, typing (without clicking a
-  // row) silently kept the preselected default branch — a build meant for a feature
-  // branch then ran on master.
-  $effect(() => {
-    const query = branchQuery.trim()
-    if (query === '') return
-    if (filteredBranches.length === 0) return
-    if (!filteredBranches.includes(selectedBranch)) selectedBranch = filteredBranches[0]
-  })
-
-  function handleSearchKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Enter' && filteredBranches.length > 0) {
-      e.preventDefault()
-      selectedBranch = filteredBranches[0]
-    }
-  }
 
   onMount(async () => {
     try {
@@ -110,6 +90,7 @@
   function selectJob(id: string): void {
     buildTypeId = id
     selectedBranch = initialBranch ?? ''
+    branchQuery = initialBranch ?? ''
     void loadBranches()
   }
 
@@ -218,62 +199,23 @@
           />
         </div>
 
-        <div class="flex flex-col gap-1 min-h-0">
-          <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-            >Branch</span
-          >
-          <input
-            class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-            aria-label="Search branches"
-            bind:value={branchQuery}
-            onkeydown={handleSearchKeydown}
-            placeholder="Search branches…"
-            spellcheck="false"
-          />
-          {#if branchesLoading}
+        <div class="flex flex-col min-h-0 flex-1">
+          {#if branchesLoading && branches.length === 0}
             <span class="flex items-center gap-2 px-1 py-1.5 text-sm text-text-faint">
               <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
               Loading branches…
             </span>
           {:else}
-            <div
-              class="flex flex-col max-h-56 overflow-y-auto border border-border-subtle rounded-md"
-              role="listbox"
-              aria-label="Branches"
-            >
-              {#each filteredBranches as branch (branch)}
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={branch === selectedBranch}
-                  class="flex items-center gap-2 px-2.5 py-1.5 border-0 text-sm font-mono text-left cursor-pointer {branch ===
-                  selectedBranch
-                    ? 'bg-accent-bg text-accent-text'
-                    : 'bg-transparent text-text-secondary hover:bg-hover hover:text-text'}"
-                  onclick={() => (selectedBranch = branch)}
-                >
-                  <span class="flex-1 truncate">{branch}</span>
-                  {#if branch === selectedBranch}<Check size={12} class="shrink-0" />{/if}
-                </button>
-              {/each}
-              {#if queryIsNewBranch}
-                <button
-                  type="button"
-                  class="flex items-center gap-2 px-2.5 py-1.5 border-0 bg-transparent text-sm text-left cursor-pointer text-text-muted hover:bg-hover hover:text-text"
-                  onclick={() => (selectedBranch = branchQuery.trim())}
-                  title="Use the typed branch name even though TeamCity did not list it"
-                >
-                  Use "<span class="font-mono">{branchQuery.trim()}</span>"
-                </button>
-              {:else if filteredBranches.length === 0}
-                <span class="px-2.5 py-1.5 text-sm text-text-faint">No matching branches.</span>
-              {/if}
-            </div>
-            {#if selectedBranch}
-              <span class="text-xs text-text-muted truncate" title={selectedBranch}
-                >Selected: <span class="font-mono text-text-secondary">{selectedBranch}</span></span
-              >
-            {/if}
+            <BranchPicker
+              branches={{ local: branches, remote: [] }}
+              label="Branch"
+              bind:query={branchQuery}
+              bind:selectedBranch
+              refreshing={branchesLoading}
+              onRefresh={loadBranches}
+              fillQueryOnPick={true}
+              highlightPicked={true}
+            />
           {/if}
         </div>
 

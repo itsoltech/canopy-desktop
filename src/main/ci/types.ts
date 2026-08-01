@@ -78,6 +78,10 @@ export interface CiActivityBuild {
   percentageComplete: number | undefined
   webUrl: string
   branchName: string | undefined
+  /** Epoch ms, when known — queued/start/finish timestamps from the server. */
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
   buildTypeId: string
   buildTypeName: string
 }

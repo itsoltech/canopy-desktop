@@ -97,6 +97,16 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
   }
 }
 
+// --- Activity refresh signal ---
+
+// Bumped after every successful trigger so the activity views (sidebar chip, window)
+// re-fetch immediately instead of sitting on "Idle" until their next poll tick.
+let activityTick = $state(0)
+
+export function getCiActivityTick(): number {
+  return activityTick
+}
+
 // --- Observation of builds triggered from Canopy → completion toast ---
 
 const OBSERVE_INTERVAL_MS = 10_000
@@ -153,6 +163,7 @@ export async function triggerCiBuild(
     // than requested (e.g. fell back to the default), the toast makes that visible.
     addToast(`${label}: build queued on ${result.branchName ?? branch}`)
     observeBuild(repoRoot, result.buildId, label)
+    activityTick += 1
   } catch (e) {
     addToast(e instanceof Error ? e.message : 'Failed to trigger build')
     return false
