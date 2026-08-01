@@ -127,9 +127,12 @@
   onkeydown={handleKeydown}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- Native CSS resize (bottom-right handle): needs explicit dimensions and a
+       non-visible overflow; the inner list scrolls independently. -->
   <div
     bind:this={dialogEl}
-    class="outline-none w-[560px] max-w-[92vw] max-h-[80vh] flex flex-col bg-bg-overlay border border-border rounded-xl shadow-modal overflow-hidden"
+    class="outline-none w-[560px] h-[520px] min-w-[420px] min-h-[300px] max-w-[95vw] max-h-[92vh] flex flex-col bg-bg-overlay border border-border rounded-xl shadow-modal overflow-hidden"
+    style="resize: both"
     role="dialog"
     aria-modal="true"
     aria-label="CI activity"

@@ -149,7 +149,9 @@ export async function triggerCiBuild(
 ): Promise<boolean> {
   try {
     const result = await window.api.ciTrigger(repoRoot, buildTypeId, branch, properties)
-    addToast(`${label}: build queued`)
+    // TeamCity's own answer is the ground truth — if it queued on a different branch
+    // than requested (e.g. fell back to the default), the toast makes that visible.
+    addToast(`${label}: build queued on ${result.branchName ?? branch}`)
     observeBuild(repoRoot, result.buildId, label)
   } catch (e) {
     addToast(e instanceof Error ? e.message : 'Failed to trigger build')

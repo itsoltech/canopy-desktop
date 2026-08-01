@@ -1662,6 +1662,7 @@ interface CiStatusResponse {
 interface CiTriggerResult {
   buildId: number
   webUrl: string
+  branchName: string | undefined
 }
 
 type SessionStatusType =

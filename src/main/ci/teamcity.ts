@@ -148,15 +148,20 @@ export function triggerBuild(
   branch: string,
   properties?: Array<{ name: string; value: string }>,
 ): ResultAsync<CiTriggerResult, CiError> {
-  return tcFetch<{ id: number; webUrl?: string }>(baseUrl, token, '/app/rest/buildQueue', {
-    method: 'POST',
-    body: JSON.stringify({
-      buildType: { id: buildTypeId },
-      branchName: branch,
-      comment: { text: 'Triggered from Canopy' },
-      ...(properties?.length ? { properties: { property: properties } } : {}),
-    }),
-  }).map((res) => ({ buildId: res.id, webUrl: res.webUrl ?? '' }))
+  return tcFetch<{ id: number; webUrl?: string; branchName?: string }>(
+    baseUrl,
+    token,
+    '/app/rest/buildQueue',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        buildType: { id: buildTypeId },
+        branchName: branch,
+        comment: { text: 'Triggered from Canopy' },
+        ...(properties?.length ? { properties: { property: properties } } : {}),
+      }),
+    },
+  ).map((res) => ({ buildId: res.id, webUrl: res.webUrl ?? '', branchName: res.branchName }))
 }
 
 /** All build configurations on the server — source for the per-repo config picker. */

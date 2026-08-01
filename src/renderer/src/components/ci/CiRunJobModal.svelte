@@ -47,6 +47,24 @@
     branchQuery.trim() !== '' && !branches.includes(branchQuery.trim()),
   )
 
+  // The selection FOLLOWS the filter: typing a query that excludes the current
+  // selection moves it to the first match. Without this, typing (without clicking a
+  // row) silently kept the preselected default branch — a build meant for a feature
+  // branch then ran on master.
+  $effect(() => {
+    const query = branchQuery.trim()
+    if (query === '') return
+    if (filteredBranches.length === 0) return
+    if (!filteredBranches.includes(selectedBranch)) selectedBranch = filteredBranches[0]
+  })
+
+  function handleSearchKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Enter' && filteredBranches.length > 0) {
+      e.preventDefault()
+      selectedBranch = filteredBranches[0]
+    }
+  }
+
   onMount(async () => {
     try {
       config = await window.api.ciConfig(repoRoot)
@@ -208,6 +226,7 @@
             class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
             aria-label="Search branches"
             bind:value={branchQuery}
+            onkeydown={handleSearchKeydown}
             placeholder="Search branches…"
             spellcheck="false"
           />

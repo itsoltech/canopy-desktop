@@ -38,6 +38,8 @@ export interface CiBuildTypeStatus {
 export interface CiTriggerResult {
   buildId: number
   webUrl: string
+  /** Branch TeamCity actually queued on — ground truth for the confirmation toast. */
+  branchName: string | undefined
 }
 
 /** A build-configuration entry on the TeamCity server — source for the config picker. */
