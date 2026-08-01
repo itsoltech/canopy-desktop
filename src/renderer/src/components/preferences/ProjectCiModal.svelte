@@ -14,7 +14,7 @@
   // Per-repo CI/CD configuration (TeamCity) for the ACTIVE worktree — the analogue of
   // the Project tracker modal. The server + selected build configurations are written
   // to the git-tracked .canopy/config.json (team-shared); tokens stay personal and
-  // are managed as "CI servers" in Settings → Your connections.
+  // are managed in Settings → CI connections.
 
   const NEW_SERVER = '__new__'
 
@@ -227,7 +227,7 @@
       title: 'Remove CI configuration',
       message: `Remove the TeamCity configuration (${existingConfig.baseUrl}) from this repository?`,
       details:
-        'Removes the ci block from the git-tracked .canopy/config.json — after committing, the whole team loses the CI rows. Your stored token stays (Settings → Your connections → CI servers).',
+        'Removes the ci block from the git-tracked .canopy/config.json — after committing, the whole team loses the CI rows. Your stored token stays (Settings → CI connections).',
       confirmLabel: 'Remove configuration',
       destructive: true,
     })

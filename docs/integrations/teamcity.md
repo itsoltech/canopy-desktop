@@ -15,7 +15,7 @@ The integration follows the Project management architecture:
   `.canopy/config.json`, written by the per-repo configurator (CI/CD sidebar section →
   gear icon). Committing the file shares the setup with the whole team.
 - **Personal credentials**: access tokens are stored per server URL in the OS-encrypted
-  keychain, managed globally in **Settings → Your connections → CI servers**.
+  keychain, managed globally in **Settings → CI connections** (its own section, separate from the Project management connections; the add form has a provider select — TeamCity today — and a "Generate →" link to the server's token page once the URL is typed).
 - **Personal opt-in**: the whole feature is gated by the **CI/CD sidebar section**
   (`sidebar.sections`, hidden by default — enable it in Settings → Sidebar). A `ci`
   block arriving via the git-shared config never turns the feature on by itself.
@@ -29,7 +29,7 @@ The integration follows the Project management architecture:
 - **Not configured**: a "Configure TeamCity" entry opens the per-repo configurator.
 - **Configured**: the server row (click opens TeamCity), a **Run job…** entry, and the
   server's current **activity**.
-- **Token missing**: a banner links to Settings → Your connections.
+- **Token missing**: a banner links to Settings → CI connections.
 
 ### Per-repo configurator (modal)
 
@@ -104,7 +104,7 @@ The typed error union `CiError` has three variants:
 | Variant           | Meaning                                   | Surface                                                       |
 | ----------------- | ----------------------------------------- | ------------------------------------------------------------- |
 | `CiNotConfigured` | No (valid) `ci` block in the repo config  | Sections show their "configure" entries; GIT rows hidden      |
-| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → Your connections     |
+| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections     |
 | `CiApiError`      | HTTP/network/API failure                  | Muted error line in the section (full message in the tooltip) |
 
 Additional surfaces that are not `CiError` variants:
@@ -127,8 +127,8 @@ Additional surfaces that are not `CiError` variants:
   every request times out after 15 s. Stored tokens are looked up by the exact
   `baseUrl` — no stored credential for an unknown URL means no token is sent.
 - `baseUrl` lives in a **git-shared** file and `http://` is accepted (plaintext
-  transport). Every path where a token typed into a form is first stored (Your
-  connections → CI servers, and the configurator) therefore requires an explicit
+  transport). Every path where a token typed into a form is first stored (Settings → CI
+  connections, and the configurator) therefore requires an explicit
   confirm naming the exact URL, with a warning for plain `http://`.
 - Build type ids and branch names cross the IPC boundary through strict charsets
   (`BUILD_TYPE_ID_PATTERN` = `[A-Za-z0-9_]{1,255}`, branch = `[A-Za-z0-9._/-]{1,255}`)
@@ -153,4 +153,4 @@ Additional surfaces that are not `CiError` variants:
 | Renderer helpers      | `src/renderer/src/lib/ci/status.ts`, `src/renderer/src/lib/ci/runBuildForm.ts` (+ tests)                                                                                                              |
 | Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/sidebar/GitSection.svelte` (branch rows), `src/renderer/src/components/ci/RunBuildDialog.svelte` |
 | Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`                                                                                                                                       |
-| Settings              | `src/renderer/src/components/preferences/ConnectionsPrefs.svelte` (CI servers)                                                                                                                        |
+| Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections)                                                                                                                        |

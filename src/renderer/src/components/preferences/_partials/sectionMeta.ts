@@ -19,6 +19,7 @@ import {
   FolderSearch,
   Globe,
   Smartphone,
+  Workflow,
 } from '@lucide/svelte'
 import type { Component } from 'svelte'
 
@@ -111,9 +112,14 @@ export const sectionMeta: Record<string, SectionMeta> = {
   },
   'Your connections': {
     icon: KeyRound,
-    description: 'Your personal tracker and CI connections and locally-stored credentials',
+    description: 'Your personal tracker connections and locally-stored credentials',
     keywords:
-      'your personal connections tracker jira linear youtrack github teamcity ci server token credentials auth baseurl',
+      'your personal connections tracker jira linear youtrack github token credentials auth baseurl',
+  },
+  'CI connections': {
+    icon: Workflow,
+    description: 'Your personal CI server connections and locally-stored tokens',
+    keywords: 'ci cd connections teamcity server token credentials auth baseurl build deploy',
   },
   'File Watcher': {
     icon: FolderSearch,

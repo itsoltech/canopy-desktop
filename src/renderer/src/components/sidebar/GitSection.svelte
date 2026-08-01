@@ -582,7 +582,7 @@
       {#if ciResponse.hasToken === false}
         <button
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-          onclick={() => showPreferences('Your connections')}
+          onclick={() => showPreferences('CI connections')}
           title="This repository configures a TeamCity server, but no token is stored — connect it in Settings"
         >
           <KeyRound size={13} class="text-warning flex-shrink-0" />
