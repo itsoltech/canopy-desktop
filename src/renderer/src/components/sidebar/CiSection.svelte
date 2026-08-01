@@ -264,35 +264,59 @@
           {/if}
         </button>
 
-        {#if branchRows.length > 0 && workspaceState.branch}
-          <!-- Newest build of the ACTIVE worktree's branch — kept low-key (no fill),
-               job name in the header, the branch as the row itself. The external-open
-               icon sits in the card's top-right corner so the status chip can end
-               flush with the right edge. -->
-          <div
-            class="group/card mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1"
+        {#if branchRows.length === 1 && branchRows[0] && workspaceState.branch}
+          {@const row = branchRows[0]}
+          {@const chip = ciChip(row.build)}
+          <!-- Newest build of the ACTIVE worktree's branch. The WHOLE card is one
+               click target — hovering anywhere (header line included) reveals the
+               corner open icon and lights up the build number. -->
+          <button
+            type="button"
+            class="group/card mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1 bg-transparent text-left font-inherit enabled:cursor-pointer disabled:cursor-default"
+            disabled={!row.build}
+            onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
+            title={row.build
+              ? `${row.label} — open build #${row.build.number} in TeamCity`
+              : `No builds of ${row.label} for this branch yet`}
           >
-            <div class="flex items-center gap-2">
+            <span class="flex items-center gap-2 w-full">
               <span
                 class="flex-1 min-w-0 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
-                title={branchRows.length === 1 ? branchRows[0].label : 'Last job'}
-                >Last job{branchRows.length === 1 ? ` · ${branchRows[0].label}` : ''}</span
+                title={row.label}>Last job · {row.label}</span
               >
-              {#if branchRows.some((r) => r.build)}
-                <button
-                  type="button"
-                  class="flex items-center justify-center border-0 bg-transparent p-0 text-text-muted cursor-pointer opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 hover:text-text flex-shrink-0"
-                  onclick={() => {
-                    const build = branchRows.find((r) => r.build)?.build
-                    if (build) window.api.openExternal(build.webUrl)
-                  }}
-                  aria-label="Open in TeamCity"
-                  title="Open in TeamCity"
+              {#if row.build}
+                <span
+                  class="flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 flex-shrink-0"
+                  aria-hidden="true"
                 >
                   <ExternalLink size={11} />
-                </button>
+                </span>
               {/if}
-            </div>
+            </span>
+            <span class="flex items-center gap-2 w-full text-sm text-text">
+              <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted"
+                >{workspaceState.branch}</span
+              >
+              {#if row.build}
+                <span
+                  class="font-mono text-2xs text-text-secondary flex-shrink-0 group-hover/card:text-accent-text group-hover/card:underline underline-offset-2"
+                  >#{row.build.number}</span
+                >
+              {/if}
+              <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}"
+                >{chip.label}</span
+              >
+            </span>
+          </button>
+        {:else if branchRows.length > 1 && workspaceState.branch}
+          <!-- Multiple configured jobs: header + one click target per job. -->
+          <div
+            class="mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1"
+          >
+            <span
+              class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
+              >Last job</span
+            >
             {#each branchRows as row (row.buildTypeId)}
               {@const chip = ciChip(row.build)}
               <button
@@ -304,14 +328,10 @@
                   ? `${row.label} — open build #${row.build.number} in TeamCity`
                   : `No builds of ${row.label} for this branch yet`}
               >
-                <!-- Branch stays gray; only the build number lights up on hover — the
-                     whole row is the click target. -->
                 <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted"
                   >{workspaceState.branch}</span
                 >
-                {#if branchRows.length > 1}
-                  <span class="text-2xs text-text-faint truncate max-w-24">{row.label}</span>
-                {/if}
+                <span class="text-2xs text-text-faint truncate max-w-24">{row.label}</span>
                 {#if row.build}
                   <span
                     class="font-mono text-2xs text-text-secondary flex-shrink-0 group-enabled:group-hover:text-accent-text group-enabled:group-hover:underline underline-offset-2"
