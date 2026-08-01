@@ -15,6 +15,7 @@
   import { showCreateWorktree, showCiRunJob, confirm } from '../../lib/stores/dialogs.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
@@ -400,13 +401,18 @@
           onclick={ctxNewWorktree}>New Worktree from Branch</button
         >
         {#if ciMenuEnabled}
+          <div class="h-px mx-2 my-1 bg-border-subtle"></div>
           <button
-            class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+            class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
             role="menuitem"
             onclick={ctxRunCiJob}
             title="Queue a CI job (build/deploy) on this branch — the branch must exist on the remote"
-            >Run CI Job on Branch…</button
           >
+            <span class="inline-flex items-center shrink-0">
+              <TrackerProviderIcon provider="teamcity" size={13} />
+            </span>
+            Run CI Job on Branch…
+          </button>
         {/if}
       {/if}
       {#if isWorktreeActive(ctxMenu.wt.path)}
