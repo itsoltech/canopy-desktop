@@ -5,6 +5,7 @@ import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types
 import type { TaskTrackerError } from './errors'
 import { fromExternalCall } from '../errors'
 import { defaultConfig, getBranchTemplate, getPRTemplate } from './configDefaults'
+import { parseCiConfig } from '../ci/config'
 
 const CONFIG_DIR = '.canopy'
 const CONFIG_FILE = 'config.json'
@@ -81,6 +82,9 @@ export class RepoConfigManager {
           filters: (parsed.filters ?? defaults.filters) as RepoConfig['filters'],
           // Older files gain the default agent guidance on their next save.
           agents: (parsed.agents as RepoConfig['agents']) ?? defaults.agents,
+          // Must survive the load→save round-trip: normalization drops unknown fields, so
+          // omitting `ci` here would erase the user's hand-edited CI block on the next save.
+          ci: parseCiConfig(parsed.ci),
         }
         return ok(normalized)
       } catch (e) {

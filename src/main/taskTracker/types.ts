@@ -1,5 +1,6 @@
 import type { ResultAsync } from 'neverthrow'
 import type { TaskTrackerError } from './errors'
+import type { CiConfig } from '../ci/types'
 
 export type TaskTrackerProvider = 'jira' | 'youtrack' | 'github'
 
@@ -193,6 +194,8 @@ export interface RepoConfig {
   agents?: {
     instructions: string[]
   }
+  /** Optional CI integration (TeamCity) — drives the CI rows in the sidebar GIT section. */
+  ci?: CiConfig
 }
 
 // --- Resolved config (merged global + repo) ---
