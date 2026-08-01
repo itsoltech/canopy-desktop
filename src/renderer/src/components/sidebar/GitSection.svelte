@@ -9,11 +9,22 @@
     ArchiveRestore,
     GitPullRequest,
     LoaderCircle,
+    Hammer,
+    Play,
+    KeyRound,
   } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { confirm, prompt, showPRDetails, showCreateTaskPR } from '../../lib/stores/dialogs.svelte'
+  import {
+    confirm,
+    prompt,
+    showPRDetails,
+    showCreateTaskPR,
+    showPreferences,
+  } from '../../lib/stores/dialogs.svelte'
   import { getPRForBranch, getPRRefreshTick } from '../../lib/stores/github.svelte'
   import { getPanelTask, getPanelTaskResolvedPath } from '../../lib/stores/taskTracker.svelte'
+  import { getCiState, refreshCi, triggerCiBuild } from '../../lib/stores/ci.svelte'
+  import { ciChip, anyBuildActive } from '../../lib/ci/status'
   import { prStateChip } from '../../lib/github/prState'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
@@ -219,6 +230,42 @@
     showPRDetails(worktreePath(), workspaceState.branch)
   }
 
+  // --- CI builds for the current branch (only when the repo configures `ci` in
+  // .canopy/config.json — the section stays invisible everywhere else).
+  let ci = $derived(getCiState())
+  let ciResponse = $derived(ci.response)
+  // A queued/running build flips polling to the fast interval.
+  let ciActive = $derived(ciResponse ? anyBuildActive(ciResponse.rows) : false)
+  let triggering = $state<string | null>(null)
+
+  $effect(() => {
+    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    const branch = workspaceState.branch
+    if (!path || !branch) return
+    void refreshCi(path, branch)
+    // Unconfigured repos answer from a local config read (no network), so the slow
+    // poll is cheap and picks up a hand-added `ci` block without a restart.
+    const interval = ciActive ? 10_000 : 45_000
+    const timer = setInterval(() => void refreshCi(path, branch), interval)
+    return () => clearInterval(timer)
+  })
+
+  async function doTriggerBuild(buildTypeId: string, label: string): Promise<void> {
+    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    const branch = workspaceState.branch
+    if (!path || !branch) return
+    triggering = buildTypeId
+    try {
+      await triggerCiBuild(path, buildTypeId, branch, label)
+    } finally {
+      triggering = null
+    }
+  }
+
+  function openBuild(webUrl: string): void {
+    if (webUrl) window.api.openExternal(webUrl)
+  }
+
   function doCreatePR(): void {
     if (!workspaceState.branch) return
     // The linked tracker task (when there is one) provides the PR template context; without it
@@ -238,6 +285,11 @@
 
 <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
 <span class="sr-only" aria-live="polite">{prLoading ? 'Checking pull requests…' : ''}</span>
+<span class="sr-only" aria-live="polite"
+  >{ciResponse?.configured && ci.loading && ciResponse.rows.length === 0
+    ? 'Checking builds…'
+    : ''}</span
+>
 <CollapsibleSection title="GIT" sectionKey="git" borderTop>
   {#snippet headerExtra()}
     <span class="flex items-center gap-1 min-w-0">
@@ -453,6 +505,80 @@
         />
         <span class="flex-1">Create PR</span>
       </button>
+    {/if}
+
+    {#if ciResponse?.configured}
+      <div
+        class="h-px mx-3 my-1 bg-border-subtle"
+        role="separator"
+        aria-orientation="horizontal"
+      ></div>
+
+      {#if ciResponse.hasToken === false}
+        <button
+          class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+          onclick={() => showPreferences('Your connections')}
+          title="This repository configures a TeamCity server, but no token is stored — connect it in Settings"
+        >
+          <KeyRound size={13} class="text-warning flex-shrink-0" />
+          <span class="flex-1">Connect TeamCity</span>
+        </button>
+      {:else if ciResponse.error}
+        <div
+          class="flex items-center gap-2.5 w-full min-h-7 px-3 py-1 text-sm text-text-faint"
+          title={ciResponse.error}
+        >
+          <Hammer size={13} class="flex-shrink-0" />
+          <span class="flex-1 truncate">{ciResponse.error}</span>
+        </div>
+      {:else if ci.loading && ciResponse.rows.length === 0}
+        <div class="flex items-center gap-2.5 w-full h-7 px-3 text-sm text-text-faint">
+          <LoaderCircle
+            size={13}
+            class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+          />
+          <span class="flex-1">Checking builds…</span>
+        </div>
+      {:else}
+        {#each ciResponse.rows as row (row.buildTypeId)}
+          {@const chip = ciChip(row.build)}
+          {@const buildActive = row.build != null && row.build.state !== 'finished'}
+          <div class="group flex items-center w-full h-7 pr-1">
+            <button
+              class="flex-1 flex items-center gap-2.5 min-w-0 h-full pl-3 pr-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+              disabled={!row.build}
+              onclick={() => row.build && openBuild(row.build.webUrl)}
+              title={row.build
+                ? `Open build #${row.build.number} in TeamCity`
+                : `No builds of ${row.label} for this branch yet`}
+            >
+              <Hammer
+                size={13}
+                class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+              />
+              <span class="flex-1 truncate">{row.label}</span>
+              <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}"
+                >{chip.label}</span
+              >
+            </button>
+            <button
+              class="flex items-center justify-center size-6 rounded-md border-0 bg-transparent text-text-faint cursor-pointer transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-40 disabled:cursor-default flex-shrink-0"
+              disabled={buildActive || triggering === row.buildTypeId}
+              onclick={() => doTriggerBuild(row.buildTypeId, row.label)}
+              aria-label={`Run ${row.label}`}
+              title={buildActive
+                ? 'A build is already queued or running for this branch'
+                : `Queue a ${row.label} build for this branch`}
+            >
+              {#if triggering === row.buildTypeId}
+                <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
+              {:else}
+                <Play size={12} />
+              {/if}
+            </button>
+          </div>
+        {/each}
+      {/if}
     {/if}
   </div>
 </CollapsibleSection>

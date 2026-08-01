@@ -2,6 +2,7 @@ const LABELS: Record<string, string> = {
   jira: 'Jira',
   youtrack: 'YouTrack',
   github: 'GitHub',
+  teamcity: 'TeamCity',
 }
 
 export function providerLabel(provider: string): string {
