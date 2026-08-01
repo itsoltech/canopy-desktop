@@ -258,18 +258,21 @@
     wt: ProjectState['worktrees'][number],
   ): Promise<void> {
     e.preventDefault()
-    // Per-worktree check: the ci block lives in each checkout's .canopy/config.json,
-    // so a branch without it must not offer the CI entry. Local file read — the
-    // one-roundtrip delay before the menu opens is imperceptible.
+    // Open the menu IMMEDIATELY — a context menu that waits on IPC + disk reads as a
+    // dropped click. The per-worktree CI probe (the ci block lives in each checkout's
+    // .canopy/config.json) resolves into the already-visible menu, guarded by
+    // identity so a slow read for a previously right-clicked worktree cannot replace
+    // the menu (and target) the user is looking at.
+    const menu: WorktreeCtx = { x: e.clientX, y: e.clientY, project, wt, ciConfigured: false }
+    ctxMenu = menu
+    if (!ciMenuEnabled || wt.branch === '(detached)') return
     let ciConfigured = false
-    if (ciMenuEnabled && wt.branch !== '(detached)') {
-      try {
-        ciConfigured = (await window.api.ciConfig(wt.path)) != null
-      } catch {
-        ciConfigured = false
-      }
+    try {
+      ciConfigured = (await window.api.ciConfig(wt.path)) != null
+    } catch {
+      ciConfigured = false
     }
-    ctxMenu = { x: e.clientX, y: e.clientY, project, wt, ciConfigured }
+    if (ctxMenu === menu) ctxMenu = { ...menu, ciConfigured }
   }
 
   function closeCtxMenu(): void {

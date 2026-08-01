@@ -1625,7 +1625,7 @@ interface CiServerBuildType {
 /** One "Run custom build" prompt parameter (dynamic trigger form). */
 interface CiParameter {
   name: string
-  kind: 'text' | 'checkbox' | 'select'
+  kind: 'text' | 'password' | 'checkbox' | 'select'
   label: string
   description: string | undefined
   required: boolean

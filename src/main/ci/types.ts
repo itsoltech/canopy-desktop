@@ -55,7 +55,7 @@ export interface CiServerBuildType {
  */
 export interface CiParameter {
   name: string
-  kind: 'text' | 'checkbox' | 'select'
+  kind: 'text' | 'password' | 'checkbox' | 'select'
   label: string
   description: string | undefined
   required: boolean

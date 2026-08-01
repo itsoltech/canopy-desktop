@@ -72,8 +72,34 @@
     window.api.openExternal(`${normalizedUrl}/profile.html?item=accessTokens`)
   }
 
+  // Same destination gate as the per-repo configurator (once per URL): the token is
+  // sent on Test and stored on Save — either way the user names the host first.
+  let acknowledgedUrl = $state('')
+
+  async function confirmDestination(): Promise<boolean> {
+    if (normalizedUrl === acknowledgedUrl) return true
+    const encryptionAvailable = await window.api
+      .isCredentialEncryptionAvailable()
+      .catch(() => false)
+    const storage = credentialStorageClause(window.api.platform, encryptionAvailable)
+    const insecure = normalizedUrl.startsWith('http://')
+    const ok = await confirm({
+      title: 'Confirm CI server address',
+      message: `Send your TeamCity token to ${normalizedUrl}?`,
+      details:
+        `The token will be sent only to this address and, when saved, stored ${storage}, keyed by provider + URL and used by every repository that configures this CI server — never written to any repository.` +
+        (insecure
+          ? ' Warning: this is a plain http:// address — the token would travel unencrypted.'
+          : ''),
+      confirmLabel: 'Continue',
+    })
+    if (ok) acknowledgedUrl = normalizedUrl
+    return ok
+  }
+
   async function testConnection(): Promise<void> {
     if (!urlValid || !formToken) return
+    if (!(await confirmDestination())) return
     testing = true
     testResult = ''
     try {
@@ -88,18 +114,7 @@
 
   async function saveServer(): Promise<void> {
     if (!urlValid || !formToken) return
-    const isNew = editing === '__new__'
-    const encryptionAvailable = await window.api
-      .isCredentialEncryptionAvailable()
-      .catch(() => false)
-    const storage = credentialStorageClause(window.api.platform, encryptionAvailable)
-    const ok = await confirm({
-      title: isNew ? 'Add CI connection' : 'Update CI connection token',
-      message: `${isNew ? 'Save' : 'Update'} your TeamCity token for ${normalizedUrl}?`,
-      details: `Your token is stored ${storage}, keyed by provider + URL and used by every repository that configures this CI server — never written to any repository.`,
-      confirmLabel: isNew ? 'Add connection' : 'Save token',
-    })
-    if (!ok) return
+    if (!(await confirmDestination())) return
     try {
       await window.api.keychainSetCredentials('teamcity', normalizedUrl, formToken)
     } catch (e) {

@@ -53,10 +53,16 @@ describe('parseParameterSpec', () => {
     expect(parseParameterSpec("select multiple='true' data_1='a'").valueSeparator).toBe(',')
   })
 
+  it('keeps the password kind so the dialog can mask it', () => {
+    const spec = parseParameterSpec("password display='prompt' label='Deploy key'")
+    expect(spec.kind).toBe('password')
+    expect(spec.label).toBe('Deploy key')
+  })
+
   it('unescapes doubled quotes and defaults unknown kinds to text', () => {
-    const spec = parseParameterSpec("password display='prompt' label='it''s secret'")
+    const spec = parseParameterSpec("wildcard display='prompt' label='it''s odd'")
     expect(spec.kind).toBe('text')
-    expect(spec.label).toBe("it's secret")
+    expect(spec.label).toBe("it's odd")
   })
 
   it('handles empty/missing specs as plain hidden text', () => {

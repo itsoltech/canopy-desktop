@@ -8,7 +8,7 @@
 import type { CiParameter } from './types'
 
 interface ParsedSpec {
-  kind: 'text' | 'checkbox' | 'select'
+  kind: 'text' | 'password' | 'checkbox' | 'select'
   display: 'prompt' | 'normal' | 'hidden'
   label: string | undefined
   description: string | undefined
@@ -25,9 +25,12 @@ const ATTR_RE = /([A-Za-z_][A-Za-z0-9_]*)='((?:[^']|'')*)'/g
 export function parseParameterSpec(rawValue: string | undefined): ParsedSpec {
   const raw = rawValue ?? ''
   const kindToken = raw.trim().split(/\s+/, 1)[0] ?? ''
-  // Unknown kinds (e.g. `password`) degrade to a plain text input.
+  // Unknown kinds degrade to a plain text input; `password` keeps its own kind so
+  // the dialog can MASK it — TeamCity prompts for secrets in deploy configurations.
   const kind =
-    kindToken === 'checkbox' || kindToken === 'select' ? kindToken : ('text' as ParsedSpec['kind'])
+    kindToken === 'checkbox' || kindToken === 'select' || kindToken === 'password'
+      ? kindToken
+      : ('text' as ParsedSpec['kind'])
 
   const attrs: Record<string, string> = {}
   const data: Array<{ index: number; value: string }> = []

@@ -6,6 +6,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { loadCiRepoConfig } from '../../lib/stores/ci.svelte'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
@@ -96,22 +97,7 @@
       closeDialog()
       return
     }
-    if (e.key === 'Tab' && containerEl) {
-      const focusable = containerEl.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
+    if (e.key === 'Tab' && containerEl) cycleFocus(containerEl, e)
   }
 
   function selectServer(value: string): void {
@@ -123,8 +109,40 @@
     if (value !== NEW_SERVER && servers.some((s) => s.baseUrl === value)) void loadBuildTypes()
   }
 
+  // The one URL the user has explicitly acknowledged sending the token to. Tracking
+  // the URL itself (not a flag) means switching servers or editing the address
+  // automatically re-asks, while Test → Load available jobs prompts only once.
+  let acknowledgedUrl = $state('')
+
+  /**
+   * Destination gate for every path that sends the typed token: `effectiveUrl` can
+   * come from the git-SHARED repo config (editing an existing setup preselects it),
+   * so the token must never leave the machine unacknowledged.
+   */
+  async function confirmDestination(): Promise<boolean> {
+    if (effectiveUrl === acknowledgedUrl) return true
+    const encryptionAvailable = await window.api
+      .isCredentialEncryptionAvailable()
+      .catch(() => false)
+    const storage = credentialStorageClause(window.api.platform, encryptionAvailable)
+    const insecure = effectiveUrl.startsWith('http://')
+    const ok = await confirm({
+      title: 'Confirm CI server address',
+      message: `Send your TeamCity token to ${effectiveUrl}?`,
+      details:
+        `The token will be sent only to this address and, when saved, stored ${storage}, keyed by provider + URL. Only continue if you recognize it as your TeamCity server.` +
+        (insecure
+          ? ' Warning: this is a plain http:// address — the token would travel unencrypted.'
+          : ''),
+      confirmLabel: 'Continue',
+    })
+    if (ok) acknowledgedUrl = effectiveUrl
+    return ok
+  }
+
   async function testConnection(): Promise<void> {
     if (!urlValid || !formToken) return
+    if (!(await confirmDestination())) return
     testing = true
     testResult = ''
     try {
@@ -137,26 +155,11 @@
     }
   }
 
-  /** Stores a typed token (with an explicit destination confirm) before first use. */
+  /** Stores a typed token (behind the destination gate) before first use. */
   async function ensureToken(): Promise<boolean> {
     if (serverHasToken && !formToken) return true
     if (!formToken) return false
-    const encryptionAvailable = await window.api
-      .isCredentialEncryptionAvailable()
-      .catch(() => false)
-    const storage = credentialStorageClause(window.api.platform, encryptionAvailable)
-    const insecure = effectiveUrl.startsWith('http://')
-    const ok = await confirm({
-      title: 'Save CI server token',
-      message: `Save your TeamCity token for ${effectiveUrl}?`,
-      details:
-        `Your token is stored ${storage}, keyed by provider + URL, and will be sent only to this address. Only continue if you recognize it as your TeamCity server.` +
-        (insecure
-          ? ' Warning: this is a plain http:// address — the token would travel unencrypted.'
-          : ''),
-      confirmLabel: 'Save token',
-    })
-    if (!ok) return false
+    if (!(await confirmDestination())) return false
     try {
       await window.api.keychainSetCredentials('teamcity', effectiveUrl, formToken)
     } catch (e) {

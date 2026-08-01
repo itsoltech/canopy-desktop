@@ -1,6 +1,6 @@
 # TeamCity CI/CD
 
-> Build status per branch, triggering any job on any branch, and a live view of the server's activity — from the CI/CD and GIT sections of the sidebar.
+> Build status per branch, triggering any job on any branch, and a live view of the server's activity — from the CI/CD sidebar section and the branch context menu.
 
 **Status:** Experimental (behind the CI/CD sidebar section, hidden by default)
 **Introduced:** v0.13.0
@@ -54,7 +54,8 @@ CI-independent git actions. If the job
 prompts for
 parameters (TeamCity's "Run custom build"), Canopy shows an equivalent dynamic form:
 text inputs with descriptions, checkboxes honoring custom checked/unchecked values,
-single selects, and multi-selects with All/None joined by the spec's value separator.
+single selects, multi-selects with All/None joined by the spec's value separator, and
+masked inputs for `password` parameters (secret values are never rendered in the clear).
 Fields are prefilled with the configuration's current values; checkboxes follow
 TeamCity's dialog semantics exactly — an unchecked checkbox submits its
 `uncheckedValue` (configs may carry whole CLI fragments there), never the raw stored
@@ -117,8 +118,8 @@ Additional surfaces that are not `CiError` variants:
 
 - A failed trigger shows a toast with whatever `ci:trigger` rejected with — a formatted
   `CiApiError`, or a plain `Error` from the handler's input validation.
-- A branch with no builds is not an error: the GIT row shows a "No builds" chip and the
-  trigger stays available (once the branch is pushed).
+- A branch with no builds is not an error: the Last-job card shows a "No builds" chip
+  and running a job stays available.
 
 ## Security and privacy
 
@@ -145,18 +146,19 @@ Additional surfaces that are not `CiError` variants:
 
 ## Source files
 
-| Area                  | Files                                                                                                                                                                                                 |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Types                 | `src/main/ci/types.ts`                                                                                                                                                                                |
-| Errors                | `src/main/ci/errors.ts` (typed `CiError` union + formatter)                                                                                                                                           |
-| Config parsing        | `src/main/ci/config.ts` (+ tests)                                                                                                                                                                     |
-| Parameter specs       | `src/main/ci/parameters.ts` (+ tests) — "Run custom build" typed-spec parser                                                                                                                          |
-| Activity & branches   | `src/main/ci/activity.ts` (+ tests)                                                                                                                                                                   |
-| TeamCity client       | `src/main/ci/teamcity.ts` (+ tests)                                                                                                                                                                   |
-| Config/keychain glue  | `src/main/ci/CiManager.ts`                                                                                                                                                                            |
-| IPC                   | `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:branches`, `ci:activity`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection` in `src/main/ipc/handlers.ts`    |
-| Renderer store        | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                                                            |
-| Renderer helpers      | `src/renderer/src/lib/ci/status.ts`, `src/renderer/src/lib/ci/runBuildForm.ts` (+ tests)                                                                                                              |
-| Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/sidebar/GitSection.svelte` (branch rows), `src/renderer/src/components/ci/RunBuildDialog.svelte` |
-| Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`                                                                                                                                       |
-| Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections)                                                                                                                  |
+| Area                  | Files                                                                                                                                                                                               |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Types                 | `src/main/ci/types.ts`                                                                                                                                                                              |
+| Errors                | `src/main/ci/errors.ts` (typed `CiError` union + formatter)                                                                                                                                         |
+| Config parsing        | `src/main/ci/config.ts` (+ tests)                                                                                                                                                                   |
+| Parameter specs       | `src/main/ci/parameters.ts` (+ tests) — "Run custom build" typed-spec parser                                                                                                                        |
+| Activity & branches   | `src/main/ci/activity.ts` (+ tests)                                                                                                                                                                 |
+| TeamCity client       | `src/main/ci/teamcity.ts` (+ tests)                                                                                                                                                                 |
+| Config/keychain glue  | `src/main/ci/CiManager.ts`                                                                                                                                                                          |
+| IPC                   | `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:branches`, `ci:activity`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection` in `src/main/ipc/handlers.ts`  |
+| Renderer store        | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                                                          |
+| Renderer helpers      | `src/renderer/src/lib/ci/status.ts`, `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`                                   |
+| Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/sidebar/ProjectTreeSection.svelte` (Run CI Job on Branch… context-menu entry)                  |
+| Dialogs               | `src/renderer/src/components/ci/CiRunJobModal.svelte`, `src/renderer/src/components/ci/RunBuildDialog.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`) |
+| Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`                                                                                                                                     |
+| Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections)                                                                                                                |

@@ -3,7 +3,9 @@
   import { ExternalLink, LoaderCircle, RefreshCw, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { getCiActivityTick } from '../../lib/stores/ci.svelte'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { formatDuration, formatWhen } from '../../lib/ci/format'
+  import type { CiActivityBuild } from '../../lib/ci/types'
 
   // Server activity window: everything running and queued on the TeamCity server plus
   // recent history. The sidebar only carries a one-row summary — the details live
@@ -11,22 +13,10 @@
 
   let { repoRoot }: { repoRoot: string } = $props()
 
-  interface ActivityBuild {
-    id: number
-    number: string | undefined
-    state: 'running' | 'queued' | 'finished'
-    status: string | undefined
-    percentageComplete: number | undefined
-    webUrl: string
-    branchName: string | undefined
-    buildTypeId: string
-    buildTypeName: string
-  }
-
   let activity = $state<{
-    running: ActivityBuild[]
-    queued: ActivityBuild[]
-    recent: ActivityBuild[]
+    running: CiActivityBuild[]
+    queued: CiActivityBuild[]
+    recent: CiActivityBuild[]
   } | null>(null)
   let error = $state('')
   let loaded = $state(false)
@@ -67,7 +57,7 @@
     return () => clearInterval(timer)
   })
 
-  function buildMeta(build: ActivityBuild): string {
+  function buildMeta(build: CiActivityBuild): string {
     if (build.state === 'finished') {
       const when = build.startedAt ?? build.finishedAt
       const parts: string[] = []
@@ -92,7 +82,9 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       closeDialog()
+      return
     }
+    if (e.key === 'Tab' && dialogEl) cycleFocus(dialogEl, e)
   }
 
   function openBuild(webUrl: string): void {
@@ -100,7 +92,7 @@
   }
 </script>
 
-{#snippet buildRow(build: ActivityBuild)}
+{#snippet buildRow(build: CiActivityBuild)}
   {@const meta = buildMeta(build)}
   <button
     type="button"
@@ -174,14 +166,14 @@
     style="resize: both"
     role="dialog"
     aria-modal="true"
-    aria-label="CI activity"
+    aria-label="Jobs history"
     tabindex="-1"
     onmousedown={(e) => e.stopPropagation()}
   >
     <header
       class="px-5 pt-4 pb-3 border-b border-border-subtle shrink-0 flex items-center justify-between gap-3"
     >
-      <h2 class="text-base font-semibold text-text m-0 leading-tight">CI activity</h2>
+      <h2 class="text-base font-semibold text-text m-0 leading-tight">Jobs history</h2>
       <div class="flex items-center gap-1">
         <button
           type="button"

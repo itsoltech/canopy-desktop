@@ -3,6 +3,7 @@
   import { LoaderCircle, Play, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { triggerCiBuild } from '../../lib/stores/ci.svelte'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import BranchPicker from '../worktree/BranchPicker.svelte'
   import RunBuildDialog from './RunBuildDialog.svelte'
@@ -136,7 +137,9 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       closeDialog()
+      return
     }
+    if (e.key === 'Tab' && dialogEl) cycleFocus(dialogEl, e)
   }
 </script>
 

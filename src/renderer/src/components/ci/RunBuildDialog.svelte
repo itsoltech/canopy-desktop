@@ -3,6 +3,7 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import type { CiParameter } from '../../lib/ci/types'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import {
     initialFormValues,
     isCheckboxChecked,
@@ -47,22 +48,7 @@
       onCancel()
       return
     }
-    if (e.key === 'Tab' && dialogEl) {
-      const focusable = dialogEl.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !dialogEl.contains(active))) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && (active === last || !dialogEl.contains(active))) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
+    if (e.key === 'Tab' && dialogEl) cycleFocus(dialogEl, e)
   }
 
   function submit(): void {
@@ -185,12 +171,25 @@
                   >*</span
                 >{/if}</span
             >
-            <input
-              class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-              aria-label={param.label}
-              bind:value={values[param.name]}
-              spellcheck="false"
-            />
+            {#if param.kind === 'password'}
+              <!-- TeamCity's password parameters carry secrets — never render them
+                   in the clear (bind:value needs a static type attribute). -->
+              <input
+                class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+                type="password"
+                aria-label={param.label}
+                bind:value={values[param.name]}
+                autocomplete="off"
+                spellcheck="false"
+              />
+            {:else}
+              <input
+                class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+                aria-label={param.label}
+                bind:value={values[param.name]}
+                spellcheck="false"
+              />
+            {/if}
           {/if}
           {#if param.description}
             <span class="text-xs text-text-faint leading-snug">{param.description}</span>
