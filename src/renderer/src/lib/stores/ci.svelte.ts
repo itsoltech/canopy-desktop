@@ -1,3 +1,4 @@
+import { untrack } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import { addToast } from './toast.svelte'
 
@@ -29,12 +30,12 @@ export async function refreshCi(repoRoot: string, branch: string): Promise<void>
   const key = ciKey(repoRoot, branch)
   const seq = ++fetchSeq
   // Keep stale rows visible while re-fetching the SAME key (no flicker on poll);
-  // switching to another worktree starts from a clean slate.
-  ciState = {
-    key,
-    loading: true,
-    response: ciState.key === key ? ciState.response : null,
-  }
+  // switching to another worktree starts from a clean slate. The read is untracked:
+  // this function runs from $effect bodies, and a tracked synchronous read of the
+  // very state written below would loop the calling effect to death
+  // (effect_update_depth_exceeded — froze the whole app).
+  const previous = untrack(() => (ciState.key === key ? ciState.response : null))
+  ciState = { key, loading: true, response: previous }
   try {
     const response = await window.api.ciStatus(repoRoot, branch)
     if (seq !== fetchSeq) return
@@ -79,7 +80,8 @@ export function getCiRepoConfig(): CiRepoConfigState {
 export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
   const key = repoRoot.replace(/\\/g, '/')
   const seq = ++configSeq
-  if (repoConfigState.key !== key) {
+  // Untracked for the same reason as in refreshCi — callers are $effect bodies.
+  if (untrack(() => repoConfigState.key) !== key) {
     repoConfigState = { key, loaded: false, config: null, hasToken: false }
   }
   try {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import {
     GitCommitVertical,
     ArrowUpFromLine,
@@ -262,8 +262,10 @@
     const branch = workspaceState.branch
     if (!path || !branch) return
     // One-shot fetch discovers whether the repo configures CI (also re-runs on
-    // worktree/branch change and when the pref is toggled on).
-    void refreshCi(path, branch)
+    // worktree/branch change and when the pref is toggled on). Untracked so the
+    // effect only depends on the explicit reads above — a tracked read inside
+    // refreshCi of the state it writes would loop the effect.
+    untrack(() => void refreshCi(path, branch))
     // No interval until a config was seen — unconfigured repos don't poll at all.
     if (!ciConfigured) return
     // ciActive flipping tears the timer down and re-arms it at the other cadence

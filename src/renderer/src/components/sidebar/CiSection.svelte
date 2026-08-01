@@ -6,12 +6,13 @@
     KeyRound,
     LoaderCircle,
     Play,
-    ServerCog,
     Hammer,
     X,
   } from '@lucide/svelte'
+  import { untrack } from 'svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import RunBuildDialog from '../ci/RunBuildDialog.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { showPreferences, showProjectCi } from '../../lib/stores/dialogs.svelte'
@@ -45,7 +46,10 @@
   })
 
   $effect(() => {
-    if (repoRoot) void loadCiRepoConfig(repoRoot)
+    const root = repoRoot
+    // Untracked: the loader reads store state it also writes — tracking it here
+    // would loop the effect (see the refreshCi note in the ci store).
+    if (root) untrack(() => void loadCiRepoConfig(root))
   })
 
   // --- Server activity (running + queued, whole server) ---
@@ -80,7 +84,7 @@
     if (!hasConfigAndToken) return
     const root = repoRoot
     if (!root) return
-    void refreshActivity(root)
+    untrack(() => void refreshActivity(root))
     const interval = activityCount > 0 ? 10_000 : 30_000
     const timer = setInterval(() => void refreshActivity(root), interval)
     return () => clearInterval(timer)
@@ -249,7 +253,9 @@
         onclick={() => window.api.openExternal(config!.baseUrl)}
         title="Open TeamCity in the browser"
       >
-        <ServerCog size={13} class="text-text-faint flex-shrink-0" />
+        <span class="inline-flex items-center flex-shrink-0"
+          ><TrackerProviderIcon provider="teamcity" size={13} /></span
+        >
         <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1" title={config.baseUrl}
           >{config.baseUrl}</span
         >

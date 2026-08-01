@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Plus, Trash2, Check, X, ServerCog } from '@lucide/svelte'
+  import { Plus, Trash2, Check, X } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
@@ -153,7 +154,7 @@
             title="Update the stored token for this server"
           >
             <span class="inline-flex items-center shrink-0 text-text-muted" title="TeamCity">
-              <ServerCog size={14} />
+              <TrackerProviderIcon provider="teamcity" size={14} />
             </span>
             <span class="flex-1 text-text-secondary truncate" title={server.baseUrl}
               >{server.baseUrl}</span
@@ -219,7 +220,7 @@
         />
       {:else}
         <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-text-secondary">
-          <ServerCog size={14} />
+          <TrackerProviderIcon provider="teamcity" size={14} />
           TeamCity
         </span>
       {/if}

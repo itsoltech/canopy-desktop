@@ -1,6 +1,7 @@
 <script lang="ts">
-  // Brand marks for the supported trackers. Jira and GitHub come from simple-icons (CC0);
-  // YouTrack is JetBrains' official product icon (their brand assets permit referential use).
+  // Brand marks for the supported trackers and CI providers. Jira and GitHub come from
+  // simple-icons (CC0); YouTrack is JetBrains' official product icon and TeamCity a
+  // simplified referential rendition of it (their brand assets permit referential use).
   let { provider, size = 12 }: { provider: string; size?: number } = $props()
 </script>
 
@@ -38,6 +39,31 @@
     <path
       fill="#fff"
       d="M42.3248 16.9922H30.2879l-.0006 2.6369h4.5662v12.3693h2.9263V19.6291h4.545v-2.6369Z"
+    />
+  </svg>
+{:else if provider === 'teamcity'}
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <defs>
+      <linearGradient
+        id="tc-brand-grad"
+        x1="0"
+        y1="0"
+        x2="24"
+        y2="24"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop stop-color="#0CB0F2" />
+        <stop offset="1" stop-color="#905CFB" />
+      </linearGradient>
+    </defs>
+    <rect width="24" height="24" rx="3" fill="url(#tc-brand-grad)" />
+    <path fill="#fff" d="M4.5 7h7.2v2.1H8.95V17h-1.9V9.1H4.5V7Z" />
+    <path
+      d="M19.4 9.6a3.7 3.7 0 1 0 0 4.8"
+      stroke="#fff"
+      stroke-width="1.9"
+      fill="none"
+      stroke-linecap="round"
     />
   </svg>
 {:else if provider === 'github'}
