@@ -20,7 +20,12 @@
 
 {#if toastState.visible}
   <div
-    class="fixed bottom-4 right-4 flex items-center gap-2.5 px-2.5 py-2 bg-bg-overlay border border-border rounded-lg shadow-popover z-banner animate-slide-in-up motion-reduce:animate-none"
+    class="fixed bottom-4 right-4 flex items-center gap-2.5 px-2.5 py-2 border rounded-lg shadow-popover z-banner animate-slide-in-up motion-reduce:animate-none {toastState.kind ===
+    'success'
+      ? 'bg-success-bg border-success-text'
+      : toastState.kind === 'danger'
+        ? 'bg-danger-bg border-danger-text'
+        : 'bg-bg-overlay border-border'}"
     role="status"
     aria-live="polite"
   >
@@ -55,8 +60,13 @@
         </button>
       </div>
     {:else}
-      <span class="text-sm text-text max-w-75 truncate" title={toastState.message}
-        >{toastState.message}</span
+      <span
+        class="text-sm max-w-75 truncate {toastState.kind === 'success'
+          ? 'text-success-text'
+          : toastState.kind === 'danger'
+            ? 'text-danger-text'
+            : 'text-text'}"
+        title={toastState.message}>{toastState.message}</span
       >
       <button
         class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-muted cursor-pointer p-0 hover:text-text hover:bg-active"

@@ -135,11 +135,13 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       failures = 0
       if (build.state === 'finished') {
         stopObserving(buildId)
-        addToast(
-          build.status === 'SUCCESS'
-            ? `${label} #${build.number}: build succeeded`
-            : `${label} #${build.number}: build ${build.status === 'FAILURE' ? 'failed' : 'finished with unknown status'}`,
-        )
+        if (build.status === 'SUCCESS') {
+          addToast(`${label} #${build.number}: build succeeded`, 'success')
+        } else if (build.status === 'FAILURE') {
+          addToast(`${label} #${build.number}: build failed`, 'danger')
+        } else {
+          addToast(`${label} #${build.number}: build finished with unknown status`)
+        }
       }
     } catch {
       // Transient API errors are tolerated; give up after a few in a row.
@@ -161,7 +163,7 @@ export async function triggerCiBuild(
     const result = await window.api.ciTrigger(repoRoot, buildTypeId, branch, properties)
     // TeamCity's own answer is the ground truth — if it queued on a different branch
     // than requested (e.g. fell back to the default), the toast makes that visible.
-    addToast(`${label}: build queued on ${result.branchName ?? branch}`)
+    addToast(`${label}: build queued on ${result.branchName ?? branch}`, 'success')
     observeBuild(repoRoot, result.buildId, label)
     activityTick += 1
   } catch (e) {

@@ -10,7 +10,14 @@
     showCiRunJob,
     showCiActivity,
   } from '../../lib/stores/dialogs.svelte'
-  import { getCiRepoConfig, loadCiRepoConfig, getCiActivityTick } from '../../lib/stores/ci.svelte'
+  import {
+    getCiRepoConfig,
+    loadCiRepoConfig,
+    getCiActivityTick,
+    getCiState,
+    refreshCi,
+  } from '../../lib/stores/ci.svelte'
+  import { ciChip, anyBuildActive } from '../../lib/ci/status'
 
   // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
   // branch, and the server's current activity. Mirrors the Project management
@@ -117,6 +124,26 @@
     return parts.join(' · ') || 'Idle'
   })
 
+  // --- Last build of the CURRENT branch (highlighted card) — the newest build per
+  // configured job for the active worktree's branch, via ci:status ---
+
+  let branchState = $derived(getCiState())
+  let branchRows = $derived(branchState.response?.configured ? branchState.response.rows : [])
+  // Primitive deps for the poll effect (see the activity effect above).
+  let branchBuildActive = $derived(anyBuildActive(branchRows))
+
+  $effect(() => {
+    if (!hasConfigAndToken) return
+    const root = repoRoot
+    const branch = workspaceState.branch
+    if (!root || !branch) return
+    void getCiActivityTick()
+    untrack(() => void refreshCi(root, branch))
+    const interval = branchBuildActive ? 10_000 : 45_000
+    const timer = setInterval(() => void refreshCi(root, branch), interval)
+    return () => clearInterval(timer)
+  })
+
   function openRunJob(): void {
     if (repoRoot) showCiRunJob(repoRoot)
   }
@@ -158,6 +185,42 @@
           class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
         />
       </button>
+
+      {#if cfgState.hasToken && branchRows.length > 0 && workspaceState.branch}
+        <!-- Highlighted: the newest build of the ACTIVE worktree's branch. -->
+        <div
+          class="mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted bg-bg-input flex flex-col gap-1"
+        >
+          <span
+            class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
+            title={workspaceState.branch}>Last build · {workspaceState.branch}</span
+          >
+          {#each branchRows as row (row.buildTypeId)}
+            {@const chip = ciChip(row.build)}
+            <button
+              type="button"
+              class="group flex items-center gap-2 w-full border-0 bg-transparent p-0 text-sm text-text font-inherit text-left enabled:cursor-pointer disabled:cursor-default"
+              disabled={!row.build}
+              onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
+              title={row.build
+                ? `Open build #${row.build.number} in TeamCity`
+                : `No builds of ${row.label} for this branch yet`}
+            >
+              <span class="flex-1 min-w-0 truncate group-enabled:group-hover:text-accent-text"
+                >{row.label}</span
+              >
+              {#if row.build}
+                <span class="font-mono text-2xs text-text-faint flex-shrink-0"
+                  >#{row.build.number}</span
+                >
+              {/if}
+              <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}"
+                >{chip.label}</span
+              >
+            </button>
+          {/each}
+        </div>
+      {/if}
 
       {#if !cfgState.hasToken}
         <div class="px-2 py-1">
