@@ -1042,6 +1042,12 @@ interface CanopyAPI {
     Array<{ provider: string; baseUrl: string; username?: string }>
   >
 
+  // CI (TeamCity)
+  ciStatus: (repoRoot: string, branch: string) => Promise<CiStatusResponse>
+  ciTrigger: (repoRoot: string, buildTypeId: string, branch: string) => Promise<CiTriggerResult>
+  ciBuild: (repoRoot: string, buildId: number) => Promise<CiBuildStatus>
+  ciTestConnection: (repoRoot: string, token: string) => Promise<void>
+
   // Task Tracker
   taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
   taskTrackerAddConnection: (connection: {
@@ -1427,6 +1433,12 @@ interface RepoConfig {
   /** Template overrides keyed by tracker project key (the task-key prefix, e.g. GAKKO). */
   projectOverrides: Record<string, ProjectOverride>
   filters: TaskFilterConfig
+  /** Optional CI integration (TeamCity) — drives the CI rows in the sidebar GIT section. */
+  ci?: {
+    provider: 'teamcity'
+    baseUrl: string
+    buildTypes: Array<{ id: string; label: string }>
+  }
 }
 
 type ConfigSource = 'global' | 'repo'
@@ -1558,6 +1570,36 @@ interface CreatedTask {
   url?: string
   /** Post-create steps that failed after the task itself was created (partial state). */
   warnings: string[]
+}
+
+interface CiBuildStatus {
+  id: number
+  number: string
+  state: 'queued' | 'running' | 'finished'
+  status: 'SUCCESS' | 'FAILURE' | 'UNKNOWN'
+  percentageComplete: number | undefined
+  webUrl: string
+  branchName: string | undefined
+}
+
+interface CiBuildTypeStatus {
+  buildTypeId: string
+  label: string
+  build: CiBuildStatus | null
+}
+
+interface CiStatusResponse {
+  configured: boolean
+  baseUrl?: string
+  hasToken?: boolean
+  rows: CiBuildTypeStatus[]
+  /** Set when the repo has CI configured but the fetch failed (auth missing, API error). */
+  error?: string
+}
+
+interface CiTriggerResult {
+  buildId: number
+  webUrl: string
 }
 
 type SessionStatusType =

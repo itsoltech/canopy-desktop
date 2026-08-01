@@ -60,6 +60,8 @@ import type {
 } from '../taskTracker/types'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
+import { CiManager } from '../ci/CiManager'
+import { ciErrorMessage, type CiStatusResponse } from '../ci/types'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
@@ -3267,6 +3269,91 @@ export function registerIpcHandlers(
   ipcMain.handle('keychain:listCredentials', () => {
     return keychainTokenStore.listCredentials()
   })
+
+  // --- CI (TeamCity) ---
+
+  const ciManager = new CiManager(repoConfigManager, keychainTokenStore)
+
+  // Identifier charsets: build type ids and branch names are embedded in TeamCity
+  // locator expressions — reject anything that could escape the parenthesized value
+  // (`(`, `)`, `,`, `:`). The renderer is the untrusted boundary.
+  const CI_BUILD_TYPE_ID_RE = /^[A-Za-z0-9_]{1,255}$/
+  const CI_BRANCH_RE = /^[A-Za-z0-9._/-]{1,255}$/
+
+  // Read: never throws — the sidebar renders whatever state comes back.
+  ipcMain.handle('ci:status', async (_event, payload: { repoRoot: string; branch: string }) => {
+    if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+      throw new Error('repoRoot is required')
+    }
+    if (typeof payload.branch !== 'string' || !CI_BRANCH_RE.test(payload.branch)) {
+      return { configured: false, rows: [] } satisfies CiStatusResponse
+    }
+    const config = await ciManager.loadConfig(payload.repoRoot).unwrapOr(null)
+    if (!config) return { configured: false, rows: [] } satisfies CiStatusResponse
+
+    const result = await ciManager.statusForBranch(payload.repoRoot, payload.branch)
+    return result.match(
+      (rows): CiStatusResponse => ({
+        configured: true,
+        baseUrl: config.baseUrl,
+        hasToken: true,
+        rows,
+      }),
+      (error): CiStatusResponse => ({
+        configured: true,
+        baseUrl: config.baseUrl,
+        hasToken: error._tag !== 'CiAuthMissing',
+        rows: [],
+        error: ciErrorMessage(error),
+      }),
+    )
+  })
+
+  ipcMain.handle(
+    'ci:trigger',
+    async (_event, payload: { repoRoot: string; buildTypeId: string; branch: string }) => {
+      if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+        throw new Error('repoRoot is required')
+      }
+      if (
+        typeof payload.buildTypeId !== 'string' ||
+        !CI_BUILD_TYPE_ID_RE.test(payload.buildTypeId)
+      ) {
+        throw new Error('Invalid build type id')
+      }
+      if (typeof payload.branch !== 'string' || !CI_BRANCH_RE.test(payload.branch)) {
+        throw new Error('Invalid branch name')
+      }
+      const result = await ciManager.trigger(payload.repoRoot, payload.buildTypeId, payload.branch)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  ipcMain.handle('ci:build', async (_event, payload: { repoRoot: string; buildId: number }) => {
+    if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+      throw new Error('repoRoot is required')
+    }
+    if (typeof payload.buildId !== 'number' || !Number.isInteger(payload.buildId)) {
+      throw new Error('Invalid build id')
+    }
+    const result = await ciManager.build(payload.repoRoot, payload.buildId)
+    return unwrapOrThrow(result, ciErrorMessage)
+  })
+
+  // Settings connection test: candidate token from the form, base URL from repo config.
+  ipcMain.handle(
+    'ci:testConnection',
+    async (_event, payload: { repoRoot: string; token: string }) => {
+      if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
+        throw new Error('repoRoot is required')
+      }
+      if (typeof payload.token !== 'string' || !payload.token) {
+        throw new Error('Token is required')
+      }
+      const result = await ciManager.testConnection(payload.repoRoot, payload.token)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
 
   // --- Task Tracker ---
 

@@ -1368,6 +1368,16 @@ const api = {
       Array<{ provider: string; baseUrl: string; username?: string }>
     >,
 
+  // CI (TeamCity)
+  ciStatus: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('ci:status', { repoRoot, branch }),
+  ciTrigger: (repoRoot: string, buildTypeId: string, branch: string) =>
+    ipcRenderer.invoke('ci:trigger', { repoRoot, buildTypeId, branch }),
+  ciBuild: (repoRoot: string, buildId: number) =>
+    ipcRenderer.invoke('ci:build', { repoRoot, buildId }),
+  ciTestConnection: (repoRoot: string, token: string) =>
+    ipcRenderer.invoke('ci:testConnection', { repoRoot, token }),
+
   // Task Tracker
   taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),
   taskTrackerAddConnection: (connection: {
