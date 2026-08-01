@@ -304,15 +304,17 @@
                   ? `${row.label} — open build #${row.build.number} in TeamCity`
                   : `No builds of ${row.label} for this branch yet`}
               >
-                <span
-                  class="flex-1 min-w-0 truncate font-mono text-xs group-enabled:group-hover:text-accent-text"
+                <!-- Branch stays gray; only the build number lights up on hover — the
+                     whole row is the click target. -->
+                <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted"
                   >{workspaceState.branch}</span
                 >
                 {#if branchRows.length > 1}
                   <span class="text-2xs text-text-faint truncate max-w-24">{row.label}</span>
                 {/if}
                 {#if row.build}
-                  <span class="font-mono text-2xs text-text-faint flex-shrink-0"
+                  <span
+                    class="font-mono text-2xs text-text-secondary flex-shrink-0 group-enabled:group-hover:text-accent-text group-enabled:group-hover:underline underline-offset-2"
                     >#{row.build.number}</span
                   >
                 {/if}
