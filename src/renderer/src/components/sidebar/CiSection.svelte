@@ -266,15 +266,33 @@
 
         {#if branchRows.length > 0 && workspaceState.branch}
           <!-- Newest build of the ACTIVE worktree's branch — kept low-key (no fill),
-               job name in the header, the branch as the row itself. -->
+               job name in the header, the branch as the row itself. The external-open
+               icon sits in the card's top-right corner so the status chip can end
+               flush with the right edge. -->
           <div
-            class="mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1"
+            class="group/card mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1"
           >
-            <span
-              class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
-              title={branchRows.length === 1 ? branchRows[0].label : 'Last build'}
-              >Last build{branchRows.length === 1 ? ` · ${branchRows[0].label}` : ''}</span
-            >
+            <div class="flex items-center gap-2">
+              <span
+                class="flex-1 min-w-0 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
+                title={branchRows.length === 1 ? branchRows[0].label : 'Last job'}
+                >Last job{branchRows.length === 1 ? ` · ${branchRows[0].label}` : ''}</span
+              >
+              {#if branchRows.some((r) => r.build)}
+                <button
+                  type="button"
+                  class="flex items-center justify-center border-0 bg-transparent p-0 text-text-muted cursor-pointer opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 hover:text-text flex-shrink-0"
+                  onclick={() => {
+                    const build = branchRows.find((r) => r.build)?.build
+                    if (build) window.api.openExternal(build.webUrl)
+                  }}
+                  aria-label="Open in TeamCity"
+                  title="Open in TeamCity"
+                >
+                  <ExternalLink size={11} />
+                </button>
+              {/if}
+            </div>
             {#each branchRows as row (row.buildTypeId)}
               {@const chip = ciChip(row.build)}
               <button
@@ -301,12 +319,6 @@
                 <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}"
                   >{chip.label}</span
                 >
-                {#if row.build}
-                  <ExternalLink
-                    size={11}
-                    class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
-                  />
-                {/if}
               </button>
             {/each}
           </div>
