@@ -349,9 +349,9 @@
             class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
             onclick={loadBuildTypes}
             disabled={typesLoading || !canLoadTypes}
-            title="Saves the token (when entered) and lists the server's build configurations"
+            title="Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server"
           >
-            {typesLoading ? 'Loading…' : 'Load build configurations'}
+            {typesLoading ? 'Loading…' : 'Load available jobs'}
           </button>
           <span class="min-w-4" aria-live="polite">
             {#if testResult === 'success'}
@@ -373,16 +373,19 @@
         {#if typesLoading && !typesLoaded}
           <div class="flex items-center gap-2 text-sm text-text-faint">
             <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
-            Loading build configurations…
+            Loading available jobs…
           </div>
         {:else if typesLoaded}
           {#if serverTypes.length === 0}
-            <span class="text-xs text-text-faint">The server exposes no build configurations.</span>
+            <span class="text-xs text-text-faint">The server exposes no jobs.</span>
           {:else}
             <div class="flex flex-col gap-2">
               <p class="m-0 text-xs text-text-muted leading-snug">
-                Build configurations available in this repository — the selection applies to the
-                whole team after committing. Labels are shown in the sidebar.
+                These are all the jobs (build configurations) the TeamCity server exposes. Check the
+                ones that belong to THIS repository — only those appear in Canopy (the CI/CD
+                section, Run job and the branch context menu). The selection is written to the
+                git-tracked <code class="font-mono">.canopy/config.json</code>, so after you commit
+                it the whole team gets the same jobs. Labels are editable and shown in the sidebar.
               </p>
               {#each groupedTypes as [project, types] (project)}
                 <div class="flex flex-col gap-1">
