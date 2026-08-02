@@ -64,7 +64,8 @@ interface CiRepoConfigState {
   loaded: boolean
   config: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null
   hasToken: boolean
-  /** Set when a ci block EXISTS but cannot be read — null config then ≠ "no CI". */
+  /** Set when a ci block EXISTS but cannot be used (either scope) — null config
+      then ≠ "no CI". */
   error?: string
 }
 

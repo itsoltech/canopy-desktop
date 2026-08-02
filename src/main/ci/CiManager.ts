@@ -181,13 +181,23 @@ export class CiManager {
         exists ? this.repoConfigManager.load(repoRoot) : this.repoConfigManager.init(repoRoot),
       )
       .andThen((cfg) => this.repoConfigManager.save(repoRoot, { ...cfg, ci: ci ?? undefined }))
-      .mapErr((e): CiError =>
+      .mapErr((e): CiError => {
         // Same reason loadConfig scopes this: a config file that won't parse is
         // not a TeamCity failure, and CiApiError renders as "TeamCity: …".
-        e._tag === 'ConfigParseError'
-          ? { _tag: 'CiConfigInvalid', scope: 'file', reason: e.reason }
-          : { _tag: 'CiApiError', status: 0, message: taskTrackerErrorMessage(e) },
-      )
+        // Neither is a write failure or an unreadable file — exists() already
+        // said the file is there, so ConfigNotFound here means EACCES/EMFILE,
+        // not absence. NOTHING in this chain talks to TeamCity.
+        if (e._tag === 'ConfigParseError') {
+          return { _tag: 'CiConfigInvalid', scope: 'file', reason: e.reason }
+        }
+        return {
+          _tag: 'CiConfigUnwritable',
+          reason:
+            e._tag === 'ConfigNotFound'
+              ? 'the existing file could not be read (permissions or a transient file error)'
+              : taskTrackerErrorMessage(e),
+        }
+      })
   }
 
   build(repoRoot: string, buildId: number): ResultAsync<CiBuildStatus, CiError> {

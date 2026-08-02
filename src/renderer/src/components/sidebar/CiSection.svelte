@@ -316,7 +316,7 @@
     </div>
   {:else if repoRoot && cfgState.loaded}
     {#if cfgState.error}
-      <!-- The block EXISTS but cannot be read — a "Configure TeamCity" entry here
+      <!-- The block EXISTS but cannot be used — a "Configure TeamCity" entry here
            would send the user to set up what they already have. ciErrorMessage
            front-loads the reason for this truncated column (rendered verbatim —
            never re-parsed), and the recovery is a visible button, not just the

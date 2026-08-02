@@ -31,6 +31,7 @@ function fakes(opts?: {
   loadFails?: 'notFound' | 'parse'
   /** Overrides what exists() reports — defaults to "file is there unless notFound". */
   exists?: boolean
+  saveFails?: boolean
 }): {
   repoConfigManager: RepoConfigManager
   tokenStore: KeychainTokenStore
@@ -47,7 +48,11 @@ function fakes(opts?: {
     ),
     exists: vi.fn(async () => opts?.exists ?? opts?.loadFails !== 'notFound'),
     init: vi.fn(() => okAsync({ version: 1, trackers: [], projectOverrides: {}, filters: {} })),
-    save: vi.fn(() => okAsync(undefined)),
+    save: vi.fn(() =>
+      opts?.saveFails
+        ? errAsync({ _tag: 'ConfigWriteError', repoRoot: 'r', reason: 'EACCES: permission denied' })
+        : okAsync(undefined),
+    ),
   } as unknown as RepoConfigManager
   const tokenStore = {
     getCredentials: vi.fn(() =>
@@ -255,6 +260,14 @@ describe('saveConfig', () => {
     )
     expect(repoConfigManager.init).not.toHaveBeenCalled()
     expect(repoConfigManager.save).not.toHaveBeenCalled()
+  })
+
+  it('reports a write failure as a local error, never as TeamCity', async () => {
+    // The whole save chain is local filesystem work — an EACCES on a read-only
+    // checkout must not send the user to test their TeamCity connection.
+    const { manager } = fakes({ ci: VALID_CI, saveFails: true })
+    const result = await manager.saveConfig('r', null)
+    expect(result.isErr() && result.error._tag).toBe('CiConfigUnwritable')
   })
 
   it('refuses to init when the file exists but the read failed with the lossy tag', async () => {

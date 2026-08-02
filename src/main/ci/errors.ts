@@ -6,10 +6,14 @@ export type CiError =
   // the surfaces that hit this only exist because the block is there, so a
   // "set up CI" message would send the user hunting for a setting they have.
   // `scope` records WHERE the problem is: 'file' = the whole .canopy/config.json
-  // cannot be read (bad JSON, unsupported version, a legacy tracker provider —
-  // saveConfig refuses then), 'block' = only the ci block's shape is rejected
-  // (re-saving replaces it).
+  // cannot be used (bad JSON, or a field the loader rejects — an unsupported
+  // version, a legacy tracker provider; the last two parse fine, which is why
+  // this is "cannot be used" and not "cannot be read"). saveConfig refuses then.
+  // 'block' = only the ci block's shape is rejected (re-saving replaces it).
   | { _tag: 'CiConfigInvalid'; scope: 'file' | 'block'; reason: string }
+  // A local filesystem failure while saving the repo config — never TeamCity's
+  // fault, so it must not wear the "TeamCity:" prefix CiApiError renders with.
+  | { _tag: 'CiConfigUnwritable'; reason: string }
   | { _tag: 'CiAuthMissing'; baseUrl: string }
   | { _tag: 'CiApiError'; status: number; message: string }
 
@@ -31,6 +35,10 @@ export function ciErrorMessage(error: CiError): string {
         e.scope === 'file'
           ? `${e.reason} — .canopy/config.json cannot be used`
           : `${e.reason} — invalid ci block in .canopy/config.json`,
+    )
+    .with(
+      { _tag: 'CiConfigUnwritable' },
+      (e) => `Could not write .canopy/config.json — ${e.reason}`,
     )
     .with(
       { _tag: 'CiAuthMissing' },

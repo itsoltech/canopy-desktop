@@ -194,7 +194,9 @@
     try {
       await window.api.keychainSetCredentials('teamcity', effectiveUrl, formToken)
     } catch (e) {
-      addToast(e instanceof Error ? e.message : 'Failed to save credentials')
+      // In-modal per the scrim rule — a toast would paint under this dialog. The
+      // caller (Load available jobs) surfaces typesError right next to its button.
+      typesError = e instanceof Error ? e.message : 'Failed to save credentials'
       return false
     }
     if (!servers.some((s) => s.baseUrl === effectiveUrl)) {
@@ -360,7 +362,7 @@
       {:else}
         <!-- Persistent region: onMount resolves ciConfig before this text lands, so
              the wrapper must outlive the content or the mutation is never announced. -->
-        <div role="status">
+        <div role="status" id="ci-config-invalid">
           {#if configLoadError}
             <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
               {configLoadError} —
@@ -368,7 +370,7 @@
                 fix <code class="font-mono">.canopy/config.json</code> by hand; Save is disabled here
                 because writing would require reading the file first (nothing is ever re-initialized over
                 it).
-              {:else}
+              {:else if configLoadScope === 'block'}
                 pick the server and jobs below and Save to replace the invalid
                 <code class="font-mono">ci</code> block — the rest of the file is untouched.
               {/if}
@@ -550,8 +552,14 @@
             effectiveBuildTypes.length === 0 ||
             !urlValid ||
             configLoadScope === 'file'}
-          aria-describedby={missingBuildTypes.length > 0 ? 'ci-stale-jobs' : undefined}
-          title="Writes the ci block to .canopy/config.json — commit it to share with the team"
+          aria-describedby={configLoadScope === 'file'
+            ? 'ci-config-invalid'
+            : missingBuildTypes.length > 0
+              ? 'ci-stale-jobs'
+              : undefined}
+          title={configLoadScope === 'file'
+            ? 'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file'
+            : 'Writes the ci block to .canopy/config.json — commit it to share with the team'}
           >{saving ? 'Saving…' : 'Save configuration'}</button
         >
       </div>
