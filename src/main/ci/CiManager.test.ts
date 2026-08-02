@@ -100,7 +100,7 @@ describe('loadConfig', () => {
     expect(
       result.isErr() && result.error._tag === 'CiConfigInvalid' && result.error.reason,
     ).toContain('bad JSON')
-    // scope 'file': the whole file cannot be read — the message must not blame
+    // scope 'file': the whole file cannot be used — the message must not blame
     // the ci block, and saveConfig refuses in this state.
     expect(result.isErr() && result.error._tag === 'CiConfigInvalid' && result.error.scope).toBe(
       'file',
@@ -277,6 +277,12 @@ describe('saveConfig', () => {
     const { manager, repoConfigManager } = fakes({ loadFails: 'notFound', exists: true })
     const result = await manager.saveConfig('r', null)
     expect(result.isErr()).toBe(true)
+    // The lossy tag means EACCES/EMFILE on a file that IS there — not absence,
+    // and not TeamCity. The reason must not repeat load()'s "not found" claim.
+    expect(result.isErr() && result.error._tag).toBe('CiConfigUnwritable')
+    expect(
+      result.isErr() && result.error._tag === 'CiConfigUnwritable' && result.error.reason,
+    ).not.toContain('not found')
     expect(repoConfigManager.init).not.toHaveBeenCalled()
     expect(repoConfigManager.save).not.toHaveBeenCalled()
   })

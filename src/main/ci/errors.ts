@@ -18,34 +18,39 @@ export type CiError =
   | { _tag: 'CiApiError'; status: number; message: string }
 
 export function ciErrorMessage(error: CiError): string {
-  return match(error)
-    .with({ _tag: 'CiNotConfigured' }, () => 'No CI configured for this repository')
-    .with(
-      { _tag: 'CiConfigInvalid' },
-      // Reason FIRST: the sidebar renders this in a truncated column, and a
-      // constant prefix would eat exactly the width the reason needs. Every
-      // surface (sidebar, configurator) renders this one string — nothing may
-      // re-parse or strip it. The suffix must not blame the ci block for a
-      // file-level failure: most file reasons (bad JSON, unsupported version, a
-      // legacy tracker provider) say nothing about `ci`.
-      // "cannot be USED", not "read": two of the file-scope reasons (unsupported
-      // version, a legacy tracker provider) parse fine — a specific field was
-      // rejected, so "cannot be read" would send the user hunting for corruption.
-      (e) =>
-        e.scope === 'file'
-          ? `${e.reason} — .canopy/config.json cannot be used`
-          : `${e.reason} — invalid ci block in .canopy/config.json`,
-    )
-    .with(
-      { _tag: 'CiConfigUnwritable' },
-      (e) => `Could not write .canopy/config.json — ${e.reason}`,
-    )
-    .with(
-      { _tag: 'CiAuthMissing' },
-      (e) => `No TeamCity token stored for ${e.baseUrl} — connect it in Settings`,
-    )
-    .with({ _tag: 'CiApiError' }, (e) =>
-      e.status > 0 ? `TeamCity API error ${e.status}: ${e.message}` : `TeamCity: ${e.message}`,
-    )
-    .exhaustive()
+  return (
+    match(error)
+      .with({ _tag: 'CiNotConfigured' }, () => 'No CI configured for this repository')
+      .with(
+        { _tag: 'CiConfigInvalid' },
+        // Reason FIRST: the sidebar renders this in a truncated column, and a
+        // constant prefix would eat exactly the width the reason needs. Every
+        // surface (sidebar, configurator) renders this one string — nothing may
+        // re-parse or strip it. The suffix must not blame the ci block for a
+        // file-level failure: most file reasons (bad JSON, unsupported version, a
+        // legacy tracker provider) say nothing about `ci`.
+        // "cannot be USED", not "read": two of the file-scope reasons (unsupported
+        // version, a legacy tracker provider) parse fine — a specific field was
+        // rejected, so "cannot be read" would send the user hunting for corruption.
+        (e) =>
+          e.scope === 'file'
+            ? `${e.reason} — .canopy/config.json cannot be used`
+            : `${e.reason} — invalid ci block in .canopy/config.json`,
+      )
+      // "update", not "write": the reason may itself be a READ failure (the write
+      // is gated on reading the existing file first), and "could not write —
+      // could not be read" would scan as a contradiction.
+      .with(
+        { _tag: 'CiConfigUnwritable' },
+        (e) => `Could not update .canopy/config.json — ${e.reason}`,
+      )
+      .with(
+        { _tag: 'CiAuthMissing' },
+        (e) => `No TeamCity token stored for ${e.baseUrl} — connect it in Settings`,
+      )
+      .with({ _tag: 'CiApiError' }, (e) =>
+        e.status > 0 ? `TeamCity API error ${e.status}: ${e.message}` : `TeamCity: ${e.message}`,
+      )
+      .exhaustive()
+  )
 }

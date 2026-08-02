@@ -365,13 +365,15 @@
         <div role="status" id="ci-config-invalid">
           {#if configLoadError}
             <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
-              {configLoadError} —
+              <!-- The separator lives INSIDE each branch: the unknown-scope catch
+                   path renders just the message, not a dangling em dash. -->
+              {configLoadError}
               {#if configLoadScope === 'file'}
-                fix <code class="font-mono">.canopy/config.json</code> by hand; Save is disabled here
+                — fix <code class="font-mono">.canopy/config.json</code> by hand; Save is disabled here
                 because writing would require reading the file first (nothing is ever re-initialized over
                 it).
               {:else if configLoadScope === 'block'}
-                pick the server and jobs below and Save to replace the invalid
+                — pick the server and jobs below and Save to replace the invalid
                 <code class="font-mono">ci</code> block — the rest of the file is untouched.
               {/if}
             </p>
@@ -459,9 +461,13 @@
           </span>
         </div>
 
-        {#if typesError}
-          <span class="text-xs text-danger-text">{typesError}</span>
-        {/if}
+        <!-- Persistent region: a load or keychain failure lands as a mutation —
+             a span mounted together with its content is never announced. -->
+        <div class="min-h-4" role="status">
+          {#if typesError}
+            <span class="text-xs text-danger-text">{typesError}</span>
+          {/if}
+        </div>
 
         <!-- Persistent live region for the modal's LIFETIME: a wrapper mounted in the
              same render pass as its content is skipped by screen readers, and every

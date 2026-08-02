@@ -3311,9 +3311,9 @@ export function registerIpcHandlers(
     if (typeof payload.branch !== 'string' || !CI_BRANCH_RE.test(payload.branch)) {
       return { configured: false, rows: [] } satisfies CiStatusResponse
     }
-    // An invalid EXISTING block surfaces through ci:config (which throws the
-    // reason) — the sidebar never polls ci:status in that state, so this call
-    // treats every load failure alike.
+    // An invalid EXISTING block surfaces through ci:config (which answers
+    // { config: null, invalid: { scope, message } }) — the sidebar never polls
+    // ci:status in that state, so this call treats every load failure alike.
     const config = await ciManager.loadConfig(payload.repoRoot).unwrapOr(null)
     if (!config) return { configured: false, rows: [] } satisfies CiStatusResponse
 

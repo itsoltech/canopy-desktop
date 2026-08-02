@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Plus, Trash2, Check } from '@lucide/svelte'
+  import { Plus, Trash2, Check, LoaderCircle } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
@@ -25,6 +25,8 @@
   // so a double-click would otherwise start two overlapping keychain writes.
   let savingServer = $state(false)
   let removingServer = $state(false)
+  // Which row's Trash is busy — the flag alone would spin EVERY row's icon.
+  let removingUrl = $state('')
 
   let normalizedUrl = $derived(formUrl.trim().replace(/\/$/, ''))
   let urlValid = $derived(/^https?:\/\/\S+$/i.test(normalizedUrl))
@@ -129,10 +131,12 @@
   async function removeServer(server: { baseUrl: string }): Promise<void> {
     if (removingServer) return
     removingServer = true
+    removingUrl = server.baseUrl
     try {
       await doRemoveServer(server)
     } finally {
       removingServer = false
+      removingUrl = ''
     }
   }
 
@@ -204,12 +208,17 @@
           </button>
           <button
             type="button"
-            class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text"
+            class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted enabled:cursor-pointer enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:opacity-50"
             onclick={() => removeServer(server)}
+            disabled={removingServer}
             aria-label="Remove CI connection"
             title="Remove the stored token for this server"
           >
-            <Trash2 size={12} />
+            {#if removingUrl === server.baseUrl}
+              <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
+            {:else}
+              <Trash2 size={12} />
+            {/if}
           </button>
         </div>
       {/if}
