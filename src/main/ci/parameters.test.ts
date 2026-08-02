@@ -94,6 +94,20 @@ describe('parsePromptParameters', () => {
     expect(params[0].label).toBe('AppVersion')
   })
 
+  it('never carries a password value into the form — the field starts empty', () => {
+    const params = parsePromptParameters({
+      property: [
+        {
+          name: 'DeployKey',
+          value: 'zxx-scrambled-or-secret',
+          type: { rawValue: "password display='prompt' label='Deploy key'" },
+        },
+      ],
+    })
+    expect(params[0].kind).toBe('password')
+    expect(params[0].defaultValue).toBe('')
+  })
+
   it('falls back to the parameter name when no label is given', () => {
     const params = parsePromptParameters({
       property: [

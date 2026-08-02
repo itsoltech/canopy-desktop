@@ -106,6 +106,10 @@
     typesLoaded = false
     serverTypes = []
     typesError = ''
+    // The selection belongs to the server it was loaded from — carrying it across
+    // would let Save write these ids under a different baseUrl into the git-shared
+    // config, where nothing cross-checks that the jobs exist on that server.
+    selected.clear()
     if (value !== NEW_SERVER && servers.some((s) => s.baseUrl === value)) void loadBuildTypes()
   }
 
@@ -182,6 +186,11 @@
     try {
       serverTypes = await window.api.ciListBuildTypes(effectiveUrl)
       typesLoaded = true
+      // Returning to the server the repo is already configured against re-ticks its
+      // jobs (selectServer cleared them — the selection is per-server).
+      if (existingConfig && effectiveUrl === existingConfig.baseUrl && selected.size === 0) {
+        for (const bt of existingConfig.buildTypes) selected.set(bt.id, bt.label)
+      }
     } catch (e) {
       typesError = e instanceof Error ? e.message : 'Failed to load build configurations'
       serverTypes = []
@@ -450,7 +459,7 @@
           type="button"
           class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
           onclick={saveConfiguration}
-          disabled={saving || selected.size === 0 || !urlValid}
+          disabled={saving || !typesLoaded || selected.size === 0 || !urlValid}
           title="Writes the ci block to .canopy/config.json — commit it to share with the team"
           >{saving ? 'Saving…' : 'Save configuration'}</button
         >
