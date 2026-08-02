@@ -173,13 +173,14 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
   observedBuilds.set(buildId, timer)
 }
 
+/** Returns the failure message, or `null` when the build was queued. */
 export async function triggerCiBuild(
   repoRoot: string,
   buildTypeId: string,
   branch: string,
   label: string,
   properties?: Array<{ name: string; value: string }>,
-): Promise<boolean> {
+): Promise<string | null> {
   try {
     const result = await window.api.ciTrigger(repoRoot, buildTypeId, branch, properties)
     // TeamCity's own answer is the ground truth — if it queued on a different branch
@@ -188,10 +189,12 @@ export async function triggerCiBuild(
     observeBuild(repoRoot, result.buildId, label)
     activityTick += 1
   } catch (e) {
-    addToast(e instanceof Error ? e.message : 'Failed to trigger build')
-    return false
+    // No failure toast: the only callers are the run dialogs, whose scrim
+    // (z-overlay) paints OVER the toast layer (z-banner) — the message goes back
+    // to the caller so it lands in the dialog's own live region instead.
+    return e instanceof Error ? e.message : 'Failed to trigger build'
   }
   // Show the queued build in the row right away instead of waiting for the next poll.
   void refreshCi(repoRoot, branch)
-  return true
+  return null
 }

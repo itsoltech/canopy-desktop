@@ -16,18 +16,16 @@
 
   let {
     repoRoot,
-    initialBuildTypeId,
     initialBranch,
   }: {
     repoRoot: string
-    initialBuildTypeId?: string
     initialBranch?: string
   } = $props()
 
   let config = $state<{ baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null>(
     null,
   )
-  let buildTypeId = $state(initialBuildTypeId ?? '')
+  let buildTypeId = $state('')
   // BranchPicker combobox semantics (same component as the worktree creation flow):
   // picking writes the branch into the input and collapses the list; hand-editing the
   // query clears the selection, so Run can never fire on a branch the user didn't pick.
@@ -39,6 +37,7 @@
   let starting = $state(false)
   let params = $state<CiParameter[] | null>(null)
   let submitting = $state(false)
+  let paramsError = $state('')
   let dialogEl = $state<HTMLElement>()
   let branchesSeq = 0
 
@@ -47,14 +46,19 @@
   onMount(async () => {
     try {
       config = await window.api.ciConfig(repoRoot)
-    } catch {
+    } catch (e) {
+      // Distinguish "could not read the config" from "there is no ci block" — this
+      // dialog only opens from entries that exist BECAUSE the repo is configured,
+      // so "not configured" here would send the user hunting for a setting they
+      // already have.
       config = null
+      error = e instanceof Error ? e.message : "Could not read this repository's CI configuration"
     }
     if (!config) {
-      error = 'No CI configured for this repository'
+      error ||= 'No CI configured for this repository'
       return
     }
-    if (!buildTypeId) buildTypeId = config.buildTypes[0]?.id ?? ''
+    buildTypeId = config.buildTypes[0]?.id ?? ''
     void loadBranches()
   })
 
@@ -99,8 +103,11 @@
     try {
       const fetched = await window.api.ciBuildParameters(repoRoot, buildTypeId)
       if (fetched.length === 0) {
-        const ok = await triggerCiBuild(repoRoot, buildTypeId, selectedBranch, label)
-        if (ok) closeDialog()
+        // triggerCiBuild reports failure via its return value, not by throwing —
+        // without surfacing it here the dialog would look untouched after Run.
+        const failure = await triggerCiBuild(repoRoot, buildTypeId, selectedBranch, label)
+        if (failure) error = failure
+        else closeDialog()
       } else {
         params = fetched
       }
@@ -115,9 +122,11 @@
     properties: Array<{ name: string; value: string }>,
   ): Promise<void> {
     submitting = true
+    paramsError = ''
     try {
-      const ok = await triggerCiBuild(repoRoot, buildTypeId, selectedBranch, label, properties)
-      if (ok) closeDialog()
+      const failure = await triggerCiBuild(repoRoot, buildTypeId, selectedBranch, label, properties)
+      if (failure) paramsError = failure
+      else closeDialog()
     } finally {
       submitting = false
     }
@@ -139,6 +148,7 @@
     branch={selectedBranch}
     parameters={params}
     running={submitting}
+    error={paramsError}
     onCancel={() => (params = null)}
     onRun={runWithParameters}
   />
@@ -232,7 +242,22 @@
           </button>
         </div>
       {:else}
-        <span class="text-sm text-text-faint">{error || 'Loading…'}</span>
+        <!-- Persistent region: the Loading… → error swap must arrive as a MUTATION
+             or it is never announced. -->
+        <div class="min-h-4.5" aria-live="polite">
+          <span class="text-sm {error ? 'text-danger-text' : 'text-text-faint'}"
+            >{error || 'Loading…'}</span
+          >
+        </div>
+        {#if error}
+          <div class="flex gap-1.5 justify-end">
+            <button
+              type="button"
+              class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
+              onclick={closeDialog}>Close</button
+            >
+          </div>
+        {/if}
       {/if}
     </div>
   </div>

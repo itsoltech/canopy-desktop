@@ -610,7 +610,6 @@
 {:else if dialogState.current.type === 'ciRunJob'}
   <CiRunJobModal
     repoRoot={dialogState.current.repoRoot}
-    initialBuildTypeId={dialogState.current.buildTypeId}
     initialBranch={dialogState.current.branch}
   />
 {:else if dialogState.current.type === 'ciActivity'}

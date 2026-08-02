@@ -70,8 +70,6 @@ interface CiActivityState {
 interface CiRunJobState {
   type: 'ciRunJob'
   repoRoot: string
-  /** Preselected job; when absent the dialog offers the pick. */
-  buildTypeId?: string
   /** Prefilled branch (worktree flows). */
   branch?: string
 }
@@ -240,10 +238,7 @@ export function showProjectCi(): void {
  * dialogs must not render inside the sidebar, whose backdrop-filter turns it into
  * the containing block for position:fixed and pins them to the sidebar column.
  */
-export function showCiRunJob(
-  repoRoot: string,
-  opts?: { buildTypeId?: string; branch?: string },
-): void {
+export function showCiRunJob(repoRoot: string, opts?: { branch?: string }): void {
   dialogState.current = { type: 'ciRunJob', repoRoot, ...opts }
 }
 

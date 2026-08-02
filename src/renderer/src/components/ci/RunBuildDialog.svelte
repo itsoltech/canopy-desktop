@@ -22,6 +22,7 @@
     branch,
     parameters,
     running = false,
+    error = '',
     onCancel,
     onRun,
   }: {
@@ -29,6 +30,8 @@
     branch: string
     parameters: CiParameter[]
     running?: boolean
+    /** Failure from the trigger call — shown in the footer live region. */
+    error?: string
     onCancel: () => void
     onRun: (properties: Array<{ name: string; value: string }>) => void
   } = $props()
@@ -200,11 +203,15 @@
     </div>
 
     <div class="flex items-center justify-end gap-1.5 pt-2 border-t border-border-subtle">
-      {#if missing.length > 0}
-        <span class="mr-auto text-xs text-warning-text" aria-live="polite">
-          Fill the required parameters
-        </span>
-      {/if}
+      <!-- Persistent region: a failed queue (and the required-parameters hint) swap
+           in as mutations, so they are actually announced. -->
+      <div class="mr-auto min-h-4 text-xs" aria-live="polite">
+        {#if error}
+          <span class="text-danger-text">{error}</span>
+        {:else if missing.length > 0}
+          <span class="text-warning-text">Fill the required parameters</span>
+        {/if}
+      </div>
       <button
         type="button"
         class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
