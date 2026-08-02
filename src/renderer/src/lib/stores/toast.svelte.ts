@@ -27,15 +27,25 @@ export function showUrlToast(url: string): void {
   }, 8000)
 }
 
-export function addToast(message: string, kind: ToastKind = 'default'): void {
+export function addToast(
+  message: string,
+  kind: ToastKind = 'default',
+  opts?: { sticky?: boolean },
+): void {
   if (dismissTimer) clearTimeout(dismissTimer)
+  dismissTimer = null
   toastState.message = message
   toastState.url = ''
   toastState.kind = kind
   toastState.visible = true
-  dismissTimer = setTimeout(() => {
-    dismissToast()
-  }, 4000)
+  // Sticky: no auto-dismiss (the ✕ still works, and a later toast still replaces
+  // it — one global slot). For states with no other surface in the app, 4 s only
+  // ever reaches a user who is already looking.
+  if (!opts?.sticky) {
+    dismissTimer = setTimeout(() => {
+      dismissToast()
+    }, 4000)
+  }
 }
 
 export function dismissToast(): void {

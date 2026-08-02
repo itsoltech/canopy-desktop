@@ -86,8 +86,9 @@ polls it every 10 s and shows a green or red toast with the outcome when it fini
 (`SUCCESS` → succeeded; `FAILURE` and TeamCity's `ERROR` → failed; anything else →
 "finished with unknown status"). The poll gives up after ~5 minutes of consecutive
 API failures (a suspend/resume or VPN reconnect survives) or after two hours total,
-and says so with a "stopped watching" toast pointing back to TeamCity — the build
-itself is unaffected.
+and says so with a "Stopped watching…" toast naming the job and its build number.
+That toast is **sticky** — it stays until dismissed (or replaced by a later toast),
+because this state has no other surface in the app — the build itself is unaffected.
 
 ### Activity
 

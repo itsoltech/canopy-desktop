@@ -128,20 +128,29 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
   if (observedBuilds.has(buildId)) return
   let ticks = 0
   let failures = 0
+  // TeamCity's UI shows the per-configuration build NUMBER — the raw id from the
+  // trigger response appears only in URLs, so it is useless for "check TeamCity".
+  let lastNumber: string | undefined
   const timer = setInterval(async () => {
     ticks += 1
     if (ticks > OBSERVE_MAX_TICKS) {
       stopObserving(buildId)
       // Giving up must be audible: this observation IS the signal the user walked
       // away expecting, and silence is indistinguishable from "still building".
+      // Front-loaded verb + sticky: the toast truncates at 300 px (~40 chars) and
+      // normally self-dismisses in 4 s — neither may eat the hand-off, and this
+      // state has no other surface in the app.
       addToast(
-        `${label} #${buildId}: still not finished after 2 h — stopped watching, check TeamCity`,
+        `Stopped watching ${label}${lastNumber ? ` #${lastNumber}` : ''} — still not finished after 2 h`,
+        'default',
+        { sticky: true },
       )
       return
     }
     try {
       const build = await window.api.ciBuild(repoRoot, buildId)
       failures = 0
+      lastNumber = build.number
       if (build.state === 'finished') {
         stopObserving(buildId)
         // .exhaustive() so the next widening of CiBuildResult fails to compile here
@@ -161,12 +170,16 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       }
     } catch {
       // Transient API errors are tolerated — but the give-up says so (see the tick
-      // cap above). Only the build id is in hand here: the number needs a
-      // successful fetch, and the toast's job is to hand the user back to TeamCity.
+      // cap above for why it is front-loaded and sticky). The number is missing
+      // only when no poll ever succeeded; the label still names the job then.
       failures += 1
       if (failures >= OBSERVE_MAX_FAILURES) {
         stopObserving(buildId)
-        addToast(`${label} #${buildId}: lost contact with TeamCity — stopped watching this build`)
+        addToast(
+          `Stopped watching ${label}${lastNumber ? ` #${lastNumber}` : ''} — lost contact with TeamCity`,
+          'default',
+          { sticky: true },
+        )
       }
     }
   }, OBSERVE_INTERVAL_MS)
