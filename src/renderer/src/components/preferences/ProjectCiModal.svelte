@@ -356,9 +356,9 @@
         <div role="status">
           {#if configLoadError}
             <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
-              {configLoadError} — the message names which part is broken: when the file itself
-              cannot be read, fix <code class="font-mono">.canopy/config.json</code> by hand (Save
-              is refused, so the rest of the file is never overwritten); when only the
+              {configLoadError} — the message names which part is broken: when the file itself cannot
+              be read, fix <code class="font-mono">.canopy/config.json</code> by hand (Save is
+              refused, so the rest of the file is never overwritten); when only the
               <code class="font-mono">ci</code> block is invalid, saving here replaces it.
             </p>
           {/if}
