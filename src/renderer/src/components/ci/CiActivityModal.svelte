@@ -5,6 +5,7 @@
   import { getCiActivityTick } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { formatDuration, formatWhen } from '../../lib/ci/format'
+  import { ciChip } from '../../lib/ci/status'
   import type { CiActivityBuild } from '../../lib/ci/types'
 
   // Server activity window: everything running and queued on the TeamCity server plus
@@ -94,6 +95,7 @@
 
 {#snippet buildRow(build: CiActivityBuild)}
   {@const meta = buildMeta(build)}
+  {@const chip = ciChip({ build })}
   <button
     type="button"
     class="group flex items-center gap-2.5 w-full min-h-8 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit text-left rounded-md transition-colors duration-fast enabled:cursor-pointer enabled:hover:bg-hover disabled:cursor-default"
@@ -121,29 +123,7 @@
         {/if}
       </span>
     </span>
-    {#if build.state === 'running'}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-accent-bg text-accent-text"
-        >{build.percentageComplete != null
-          ? `Running ${build.percentageComplete}%`
-          : 'Running'}</span
-      >
-    {:else if build.state === 'queued'}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-active text-text-muted"
-        >Queued</span
-      >
-    {:else if build.status === 'SUCCESS'}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-success-bg text-success-text"
-        >Success</span
-      >
-    {:else if build.status === 'FAILURE'}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-danger-bg text-danger-text"
-        >Failed</span
-      >
-    {:else}
-      <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-active text-text-muted"
-        >{build.status ?? 'Unknown'}</span
-      >
-    {/if}
+    <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}">{chip.label}</span>
     <ExternalLink
       size={11}
       class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"

@@ -38,6 +38,13 @@ describe('ciChip', () => {
     expect(ciChip({ build: build({ status: 'FAILURE' }) }).label).toBe('Failed')
     expect(ciChip({ build: build({ status: 'UNKNOWN' }) }).label).toBe('Unknown')
   })
+
+  it('renders Unknown for status tokens the app does not model', () => {
+    // Activity rows feed TeamCity's raw status through — ERROR, CANCELLED and
+    // friends must not surface as bare API tokens.
+    expect(ciChip({ build: { ...build({}), status: 'CANCELLED' } }).label).toBe('Unknown')
+    expect(ciChip({ build: { ...build({}), status: undefined } }).label).toBe('Unknown')
+  })
 })
 
 describe('anyBuildActive', () => {

@@ -6,8 +6,19 @@ export interface CiChip {
   cls: string
 }
 
-/** Status chip for a build-type row — colors follow the PR state chip conventions. */
-export function ciChip(row: Pick<CiBuildTypeStatus, 'build' | 'error'>): CiChip {
+/** The fields the chip logic reads — CiBuildStatus and CiActivityBuild both fit. */
+interface ChipBuild {
+  state: 'queued' | 'running' | 'finished'
+  status: string | undefined
+  percentageComplete: number | undefined
+}
+
+/**
+ * Status chip for a build row — the single owner of the chip vocabulary for both the
+ * Last-job card and the Jobs history window, so the two surfaces can never disagree
+ * on the label or color for the same build state.
+ */
+export function ciChip(row: { build: ChipBuild | null; error?: string }): CiChip {
   // A failed fetch is NOT "no builds": `build` is null in both cases, so the error
   // has to win here or an outage reads as "this branch was never built".
   if (row.error) return { label: 'Unavailable', cls: 'bg-warning-bg text-warning-text' }

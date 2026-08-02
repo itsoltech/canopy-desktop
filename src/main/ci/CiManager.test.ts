@@ -130,16 +130,28 @@ describe('statusFor', () => {
       ],
     }
     const { manager } = fakes({ ci })
+    // The survivor must carry a REAL build — with okAsync(null) here, a regression
+    // that nulls every sibling's build would produce the exact passing state.
     vi.mocked(fetchBuildForBranch).mockImplementation((_url, _tok, id) =>
       id === 'Dead_Job'
         ? errAsync({ _tag: 'CiApiError' as const, status: 404, message: 'No build type found' })
-        : okAsync(null),
+        : okAsync({
+            id: 7,
+            number: '42',
+            state: 'finished' as const,
+            status: 'SUCCESS' as const,
+            percentageComplete: undefined,
+            webUrl: 'https://tc.example.com/build/7',
+            branchName: 'next',
+          }),
     )
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()
     const result = await manager.statusFor(config, 'next')
     expect(result.isOk()).toBe(true)
     const rows = result._unsafeUnwrap()
+    expect(rows).toHaveLength(2)
     expect(rows[0].error).toBeUndefined()
+    expect(rows[0].build?.number).toBe('42')
     expect(rows[1].error).toContain('404')
     expect(rows[1].build).toBeNull()
   })

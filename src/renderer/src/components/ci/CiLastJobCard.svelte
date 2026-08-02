@@ -37,6 +37,15 @@
       <span class="sr-only">{row.error}</span>
     {/if}
   </span>
+  {#if row.error}
+    <!-- Visible route to the reason for sighted keyboard users: title never fires on
+         :focus in Chromium. aria-hidden keeps it from being read twice next to the
+         sr-only copy above. -->
+    <span
+      class="w-full truncate text-2xs text-warning-text opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity duration-fast"
+      aria-hidden="true">{row.error}</span
+    >
+  {/if}
 {/snippet}
 
 {#if rows.length === 1 && rows[0]}
@@ -77,7 +86,7 @@
     {#each rows as row (row.buildTypeId)}
       <button
         type="button"
-        class="group/card flex items-center gap-2 w-full border-0 bg-transparent p-0 text-sm text-text font-inherit text-left cursor-pointer aria-disabled:cursor-default"
+        class="group/card flex flex-col gap-1 w-full border-0 bg-transparent p-0 text-sm text-text font-inherit text-left cursor-pointer aria-disabled:cursor-default"
         aria-disabled={!row.build}
         onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
         title={row.build
