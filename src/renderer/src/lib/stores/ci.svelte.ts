@@ -1,7 +1,7 @@
 import { untrack } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import { match } from 'ts-pattern'
-import { addToast } from './toast.svelte'
+import { addToast, isStickyToastVisible } from './toast.svelte'
 
 // CI (TeamCity) build status for the sidebar GIT section. State is scoped to one
 // (repoRoot, branch) pair at a time — the section only ever shows the active worktree.
@@ -119,17 +119,29 @@ const OBSERVE_MAX_FAILURES = 30
 const observedBuilds = new SvelteMap<number, ReturnType<typeof setInterval>>()
 // Give-ups cluster: the causes (VPN drop, suspend, TeamCity restart) hit every
 // observed build at once, and the toast has ONE slot — so a second give-up would
-// silently erase the first. Aggregate the cluster into a count instead.
-const GIVE_UP_WINDOW_MS = 10 * 60_000
-let giveUpTimes: number[] = []
+// silently erase the first. Aggregate instead, keeping the job names and numbers
+// (the whole point of the message is handing the user back to TeamCity). The
+// cluster is "give-ups the user has not acknowledged yet", keyed on the sticky
+// toast still showing — a wall-clock window would re-count dismissed builds or
+// let a late give-up erase a still-displayed one.
+interface GiveUp {
+  label: string
+  number: string | undefined
+  reason: string
+}
+let giveUps: GiveUp[] = []
 
-function reportGiveUp(singular: string): void {
-  const now = Date.now()
-  giveUpTimes = [...giveUpTimes.filter((t) => now - t < GIVE_UP_WINDOW_MS), now]
-  const n = giveUpTimes.length
-  addToast(n > 1 ? `Stopped watching ${n} builds — check TeamCity` : singular, 'default', {
-    sticky: true,
-  })
+function reportGiveUp(label: string, number: string | undefined, reason: string): void {
+  if (!isStickyToastVisible()) giveUps = []
+  giveUps.push({ label, number, reason })
+  const named = giveUps.map((g) => `${g.label}${g.number ? ` #${g.number}` : ''}`).join(', ')
+  addToast(
+    giveUps.length > 1
+      ? `Stopped watching ${giveUps.length} builds — check TeamCity: ${named}`
+      : `Stopped watching ${named} — ${reason}`,
+    'default',
+    { sticky: true },
+  )
 }
 
 function stopObserving(buildId: number): void {
@@ -154,9 +166,7 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       // Front-loaded verb + sticky: the toast truncates at 300 px (~40 chars) and
       // normally self-dismisses in 4 s — neither may eat the hand-off, and this
       // state has no other surface in the app.
-      reportGiveUp(
-        `Stopped watching ${label}${lastNumber ? ` #${lastNumber}` : ''} — still not finished after 2 h`,
-      )
+      reportGiveUp(label, lastNumber, 'still not finished after 2 h')
       return
     }
     try {
@@ -187,9 +197,7 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       failures += 1
       if (failures >= OBSERVE_MAX_FAILURES) {
         stopObserving(buildId)
-        reportGiveUp(
-          `Stopped watching ${label}${lastNumber ? ` #${lastNumber}` : ''} — lost contact with TeamCity`,
-        )
+        reportGiveUp(label, lastNumber, 'lost contact with TeamCity')
       }
     }
   }, OBSERVE_INTERVAL_MS)

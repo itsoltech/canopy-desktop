@@ -838,7 +838,8 @@
 
     const sessions = getAiSessions(path)
     if (sessions.length === 0) {
-      showUrlToast('No AI sessions open')
+      // Feedback for a direct user action — may win the slot over a sticky toast.
+      showUrlToast('No AI sessions open', { force: true })
       return
     }
     if (sessions.length === 1) {

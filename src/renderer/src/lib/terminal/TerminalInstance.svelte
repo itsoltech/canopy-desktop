@@ -477,7 +477,8 @@
           } else if (mode === 'system') {
             window.api.openExternal(url)
           } else {
-            showUrlToast(url)
+            // A direct click may win the slot even over a sticky CI give-up toast.
+            showUrlToast(url, { force: true })
           }
         }),
       )

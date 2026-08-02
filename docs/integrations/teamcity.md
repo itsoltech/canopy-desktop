@@ -87,10 +87,12 @@ polls it every 10 s and shows a green or red toast with the outcome when it fini
 "finished with unknown status"). The poll gives up after ~5 minutes of consecutive
 API failures (a suspend/resume or VPN reconnect survives) or after two hours total,
 and says so with a "Stopped watching…" toast naming the job and its build number.
-That toast is **sticky** — it stays until dismissed (✕ or Escape) and transient
-toasts cannot take its slot, because this state has no other surface in the app;
-when one outage costs several observed builds their watcher, the give-ups aggregate
-into a single count. The build itself is unaffected.
+That toast is **sticky** — it stays until dismissed (✕ or Escape), because this
+state has no other surface in the app. A transient toast arriving meanwhile (a
+queue confirmation, another build's outcome) folds into the sticky message instead
+of taking the slot or being dropped; when one outage costs several observed builds
+their watcher, the unacknowledged give-ups aggregate into one toast that still
+names each job and build number. The build itself is unaffected.
 
 ### Activity
 

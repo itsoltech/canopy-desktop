@@ -19,7 +19,11 @@ let dismissTimer: ReturnType<typeof setTimeout> | null = null
 // not silently take its place — it is the ONLY surface its state has.
 let sticky = false
 
-export function showUrlToast(url: string): void {
+export function showUrlToast(url: string, opts?: { force?: boolean }): void {
+  // Same slot guard as addToast: a page-initiated open (BrowserPane's
+  // onBrowserOpenUrl) fires with the user away — exactly the case sticky exists
+  // for. Direct user actions pass force to win the slot.
+  if (sticky && !opts?.force) return
   if (dismissTimer) clearTimeout(dismissTimer)
   sticky = false
   toastState.url = url
@@ -36,9 +40,14 @@ export function addToast(
   kind: ToastKind = 'default',
   opts?: { sticky?: boolean },
 ): void {
-  // Sticky-over-sticky still replaces (the newer failure is at least as relevant);
-  // auto-dismissing chatter waits for the ✕ / Escape.
-  if (sticky && !opts?.sticky) return
+  // Sticky-over-sticky replaces (the newer failure is at least as relevant). A
+  // transient toast must not take the slot — but it must not vanish either (the
+  // queue confirmation and other builds' outcomes arrive this way): fold it in
+  // front, where the ~40 visible chars are; the full text lives in the title.
+  if (sticky && !opts?.sticky) {
+    toastState.message = `${message} · ${toastState.message}`
+    return
+  }
   if (dismissTimer) clearTimeout(dismissTimer)
   dismissTimer = null
   sticky = opts?.sticky ?? false
@@ -53,6 +62,11 @@ export function addToast(
       dismissToast()
     }, 4000)
   }
+}
+
+/** True while a sticky toast holds the slot — the CI give-up aggregation keys on it. */
+export function isStickyToastVisible(): boolean {
+  return sticky && toastState.visible
 }
 
 export function dismissToast(): void {
