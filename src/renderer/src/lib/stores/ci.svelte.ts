@@ -117,6 +117,20 @@ const OBSERVE_MAX_TICKS = 720
 // during a long build must not kill the observation (5 ticks = 50 s would).
 const OBSERVE_MAX_FAILURES = 30
 const observedBuilds = new SvelteMap<number, ReturnType<typeof setInterval>>()
+// Give-ups cluster: the causes (VPN drop, suspend, TeamCity restart) hit every
+// observed build at once, and the toast has ONE slot — so a second give-up would
+// silently erase the first. Aggregate the cluster into a count instead.
+const GIVE_UP_WINDOW_MS = 10 * 60_000
+let giveUpTimes: number[] = []
+
+function reportGiveUp(singular: string): void {
+  const now = Date.now()
+  giveUpTimes = [...giveUpTimes.filter((t) => now - t < GIVE_UP_WINDOW_MS), now]
+  const n = giveUpTimes.length
+  addToast(n > 1 ? `Stopped watching ${n} builds — check TeamCity` : singular, 'default', {
+    sticky: true,
+  })
+}
 
 function stopObserving(buildId: number): void {
   const timer = observedBuilds.get(buildId)
@@ -140,10 +154,8 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       // Front-loaded verb + sticky: the toast truncates at 300 px (~40 chars) and
       // normally self-dismisses in 4 s — neither may eat the hand-off, and this
       // state has no other surface in the app.
-      addToast(
+      reportGiveUp(
         `Stopped watching ${label}${lastNumber ? ` #${lastNumber}` : ''} — still not finished after 2 h`,
-        'default',
-        { sticky: true },
       )
       return
     }
@@ -175,10 +187,8 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       failures += 1
       if (failures >= OBSERVE_MAX_FAILURES) {
         stopObserving(buildId)
-        addToast(
+        reportGiveUp(
           `Stopped watching ${label}${lastNumber ? ` #${lastNumber}` : ''} — lost contact with TeamCity`,
-          'default',
-          { sticky: true },
         )
       }
     }

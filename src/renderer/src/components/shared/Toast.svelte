@@ -18,6 +18,22 @@
   }
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    // Sticky toasts have no timer, so Escape is the only bounded way out — and the
+    // ✕ sits outside any open dialog's focus trap. defaultPrevented lets an open
+    // dialog's own Escape handler win the first press.
+    if (e.key === 'Escape' && !e.defaultPrevented && toastState.visible) dismissToast()
+  }}
+/>
+
+<!-- Persistent announcement region: a toast shown after a quiet period mounts with
+     its text, and polite live regions only announce MUTATIONS of an existing node —
+     the visual chrome below stays conditional, this mirror does the announcing. -->
+<div class="sr-only" role="status" aria-live="polite">
+  {toastState.visible ? toastState.message || toastState.url : ''}
+</div>
+
 {#if toastState.visible}
   <div
     class="fixed bottom-4 right-4 flex items-center gap-2.5 px-2.5 py-2 border rounded-lg shadow-popover z-banner animate-slide-in-up motion-reduce:animate-none {toastState.kind ===
@@ -26,8 +42,6 @@
       : toastState.kind === 'danger'
         ? 'bg-danger-bg border-danger-text'
         : 'bg-bg-overlay border-border'}"
-    role="status"
-    aria-live="polite"
   >
     {#if toastState.url}
       <span class="text-sm text-text max-w-50 truncate" title={toastState.url}
