@@ -122,6 +122,17 @@
     return parts.join(' · ') || 'Idle'
   })
 
+  // Coarse state for the live region — no percentage, so a running build announces
+  // once instead of on every 10 s poll. The chip keeps the fine-grained summary.
+  let ciAnnouncement = $derived.by(() => {
+    if (!hasConfigAndToken || !activityLoaded) return ''
+    if (activityError) return 'CI activity unavailable'
+    const running = activity?.running.length ?? 0
+    const queued = activity?.queued.length ?? 0
+    if (running === 0 && queued === 0) return 'CI idle'
+    return `CI: ${running} running, ${queued} queued`
+  })
+
   // --- Last build of the CURRENT branch (highlighted card) — the newest build per
   // configured job for the active worktree's branch, via ci:status ---
 
@@ -153,11 +164,7 @@
 
 <!-- The summary chip and the row label flip on a background poll — announce the
      change instead of mutating silently under assistive tech. -->
-<span class="sr-only" aria-live="polite"
-  >{hasConfigAndToken && activityLoaded && !activityError
-    ? `CI activity: ${activitySummary}`
-    : ''}</span
->
+<span class="sr-only" aria-live="polite">{ciAnnouncement}</span>
 <CollapsibleSection title="CI/CD" sectionKey="cicd" borderTop>
   {#snippet headerExtra()}
     <!-- Always available — for unconfigured worktrees this is the ONLY entry point

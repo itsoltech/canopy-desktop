@@ -1,11 +1,10 @@
 <script lang="ts">
   import { Check, X } from '@lucide/svelte'
-  import CustomSelect from '../../shared/CustomSelect.svelte'
   import TrackerProviderIcon from '../../shared/TrackerProviderIcon.svelte'
 
   // Add/edit form for a personal CI server connection — the CI counterpart of
-  // TrackerEditForm. Single provider today; the select exists so more CI providers
-  // slot in without reshaping the form.
+  // TrackerEditForm. Single provider today; the Provider row becomes a select once
+  // a second CI provider exists.
 
   let {
     url = $bindable(),
@@ -37,18 +36,12 @@
     <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
       >Provider</span
     >
-    {#if isNew}
-      <CustomSelect
-        value="teamcity"
-        options={[{ value: 'teamcity', label: 'TeamCity' }]}
-        onchange={() => {}}
-      />
-    {:else}
-      <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-text-secondary">
-        <TrackerProviderIcon provider="teamcity" size={14} />
-        TeamCity
-      </span>
-    {/if}
+    <!-- Static until a second CI provider exists — a single-option combobox is a
+         dead Tab stop with a no-op handler. -->
+    <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-text-secondary">
+      <TrackerProviderIcon provider="teamcity" size={14} />
+      TeamCity
+    </span>
   </div>
 
   <div class="flex flex-col gap-1">

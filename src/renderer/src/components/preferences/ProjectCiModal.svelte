@@ -217,6 +217,12 @@
     )
   })
 
+  // Configured ids the server no longer returns — invisible in the picker (no
+  // checkbox to untick), so they must be called out before Save silently drops them.
+  let missingBuildTypes = $derived(
+    typesLoaded ? [...selected.keys()].filter((id) => !serverTypes.some((bt) => bt.id === id)) : [],
+  )
+
   function toggleType(bt: ServerBuildType): void {
     if (selected.has(bt.id)) selected.delete(bt.id)
     else selected.set(bt.id, selected.get(bt.id) ?? bt.name)
@@ -397,6 +403,16 @@
             Loading available jobs…
           </div>
         {:else if typesLoaded}
+          {#if missingBuildTypes.length > 0}
+            <p class="m-0 text-xs text-warning-text leading-snug">
+              {missingBuildTypes.length} configured
+              {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingBuildTypes.join(
+                ', ',
+              )}). Saving drops
+              {missingBuildTypes.length === 1 ? 'it' : 'them'} from
+              <code class="font-mono">.canopy/config.json</code>.
+            </p>
+          {/if}
           <CiJobPicker {serverTypes} {selected} onToggle={toggleType} />
         {/if}
       {/if}
