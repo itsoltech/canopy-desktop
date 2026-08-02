@@ -83,8 +83,10 @@ values are sent as build `properties`. Jobs without prompt parameters queue
 immediately. A build triggered from Canopy is then **observed to completion**: the app
 polls it every 10 s and shows a green or red toast with the outcome when it finishes
 (`SUCCESS` → succeeded; `FAILURE` and TeamCity's `ERROR` → failed; anything else →
-"finished with unknown status"). The poll gives up after five consecutive API failures
-or two hours, silently — the build itself is unaffected, only the toast is lost.
+"finished with unknown status"). The poll gives up after ~5 minutes of consecutive
+API failures (a suspend/resume or VPN reconnect survives) or after two hours total,
+and says so with a "stopped watching" toast pointing back to TeamCity — the build
+itself is unaffected.
 
 ### Activity
 
@@ -143,7 +145,8 @@ Additional surfaces that are not `CiError` variants:
   `CiApiError`, or a plain `Error` from the handler's input validation.
 - The completion toast for a build triggered from Canopy (see Run job…) comes from a
   background `ci:build` poll, not from `CiError` handling — poll failures are tolerated
-  (five in a row stop the observation silently).
+  (~5 minutes of consecutive failures stop the observation with a "stopped watching"
+  toast).
 - A branch with no builds is not an error: the Last-job card shows a "No builds" chip
   and running a job stays available.
 

@@ -113,6 +113,9 @@ export function getCiActivityTick(): number {
 const OBSERVE_INTERVAL_MS = 10_000
 // A hung queue shouldn't poll forever; 2h covers any realistic build.
 const OBSERVE_MAX_TICKS = 720
+// ~5 min of consecutive failures — a laptop suspend/resume or a VPN reconnect
+// during a long build must not kill the observation (5 ticks = 50 s would).
+const OBSERVE_MAX_FAILURES = 30
 const observedBuilds = new SvelteMap<number, ReturnType<typeof setInterval>>()
 
 function stopObserving(buildId: number): void {
@@ -129,6 +132,11 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
     ticks += 1
     if (ticks > OBSERVE_MAX_TICKS) {
       stopObserving(buildId)
+      // Giving up must be audible: this observation IS the signal the user walked
+      // away expecting, and silence is indistinguishable from "still building".
+      addToast(
+        `${label} #${buildId}: still not finished after 2 h — stopped watching, check TeamCity`,
+      )
       return
     }
     try {
@@ -152,9 +160,14 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
           .exhaustive()
       }
     } catch {
-      // Transient API errors are tolerated; give up after a few in a row.
+      // Transient API errors are tolerated — but the give-up says so (see the tick
+      // cap above). Only the build id is in hand here: the number needs a
+      // successful fetch, and the toast's job is to hand the user back to TeamCity.
       failures += 1
-      if (failures >= 5) stopObserving(buildId)
+      if (failures >= OBSERVE_MAX_FAILURES) {
+        stopObserving(buildId)
+        addToast(`${label} #${buildId}: lost contact with TeamCity — stopped watching this build`)
+      }
     }
   }, OBSERVE_INTERVAL_MS)
   observedBuilds.set(buildId, timer)
