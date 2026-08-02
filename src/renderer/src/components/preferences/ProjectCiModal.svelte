@@ -117,6 +117,9 @@
     typesLoaded = false
     serverTypes = []
     typesError = ''
+    // Belongs to the save that produced it, and Save is about to target a
+    // different server — same reason testResult and typesError reset here.
+    saveError = ''
     // The selection belongs to the server it was loaded from — carrying it across
     // would let Save write these ids under a different baseUrl into the git-shared
     // config, where nothing cross-checks that the jobs exist on that server.
@@ -252,10 +255,13 @@
   function toggleType(bt: ServerBuildType): void {
     if (selected.has(bt.id)) selected.delete(bt.id)
     else selected.set(bt.id, selected.get(bt.id) ?? bt.name)
+    // A stale save failure must not sit next to a Save that now does something else.
+    saveError = ''
   }
 
   function setLabel(id: string, label: string): void {
     selected.set(id, label)
+    saveError = ''
   }
 
   async function saveConfiguration(): Promise<void> {
@@ -281,6 +287,9 @@
 
   async function removeConfiguration(): Promise<void> {
     if (!repoRoot || !existingConfig) return
+    // Clear a previous SAVE failure before the confirm — declining it must not
+    // leave that stale message sitting under the Remove button.
+    saveError = ''
     const ok = await confirm({
       title: 'Remove CI configuration',
       message: `Remove the TeamCity configuration (${existingConfig.baseUrl}) from this repository?`,
@@ -347,10 +356,10 @@
         <div role="status">
           {#if configLoadError}
             <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
-              {configLoadError} — fix <code class="font-mono">.canopy/config.json</code> by hand if
-              the file itself will not parse; if only the
-              <code class="font-mono">ci</code> block is malformed, saving here replaces it (the rest
-              of the file is never re-initialized over).
+              {configLoadError} — the message names which part is broken: when the file itself
+              cannot be read, fix <code class="font-mono">.canopy/config.json</code> by hand (Save
+              is refused, so the rest of the file is never overwritten); when only the
+              <code class="font-mono">ci</code> block is invalid, saving here replaces it.
             </p>
           {/if}
         </div>
@@ -507,12 +516,10 @@
         {/if}
       </div>
       <!-- Persistent region: a failed save/remove lands here as a mutation — the
-           toast layer (z-banner) paints UNDER this modal's scrim (z-overlay). -->
-      <div
-        class="flex-1 min-w-0 text-xs text-danger-text truncate"
-        aria-live="polite"
-        title={saveError}
-      >
+           toast layer (z-banner) paints UNDER this modal's scrim (z-overlay).
+           No truncate: CiApiError can carry TeamCity's response body, and the one
+           message explaining why a git-shared file was not written must wrap. -->
+      <div class="flex-1 min-w-0 text-xs text-danger-text" aria-live="polite">
         {saveError}
       </div>
       <div class="flex items-center gap-1.5">

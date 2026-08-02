@@ -5,10 +5,11 @@ import type { CiBuildTypeConfig, CiConfig } from './types'
 export const BUILD_TYPE_ID_PATTERN = /^[A-Za-z0-9_]{1,255}$/
 
 /**
- * Defensive parse of the hand-edited `.canopy/config.json` → `ci` block. Malformed
- * input degrades to "no CI configured" (the sidebar section simply stays hidden)
- * instead of failing the whole repo config load, which would take the task tracker
- * down with it.
+ * Defensive parse of the hand-edited `.canopy/config.json` → `ci` block. Returns
+ * `undefined` for anything it cannot use; `CiManager.loadConfig` turns that into
+ * `CiConfigInvalid` (NOT "not configured") so the surfaces that only exist because
+ * the block is there report the reason instead of offering to set CI up again.
+ * The raw block is never rewritten — `RepoConfigManager` round-trips it verbatim.
  */
 export function parseCiConfig(raw: unknown): CiConfig | undefined {
   if (!raw || typeof raw !== 'object') return undefined

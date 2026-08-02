@@ -46,7 +46,7 @@ export class CiManager {
       .load(repoRoot)
       .mapErr((e): CiError =>
         e._tag === 'ConfigParseError'
-          ? { _tag: 'CiConfigInvalid', reason: e.reason }
+          ? { _tag: 'CiConfigInvalid', scope: 'file', reason: e.reason }
           : { _tag: 'CiNotConfigured' },
       )
       .andThen((cfg) => {
@@ -56,6 +56,7 @@ export class CiManager {
           ? okAsync(ci)
           : errAsync<CiConfig, CiError>({
               _tag: 'CiConfigInvalid',
+              scope: 'block',
               reason: 'unrecognized ci block shape',
             })
       })

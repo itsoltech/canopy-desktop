@@ -75,6 +75,10 @@ describe('loadConfig', () => {
       const { manager } = fakes({ ci })
       const result = await manager.loadConfig('r')
       expect(result.isErr() && result.error._tag).toBe('CiConfigInvalid')
+      // scope 'block': only the ci block is wrong — re-saving replaces it.
+      expect(result.isErr() && result.error._tag === 'CiConfigInvalid' && result.error.scope).toBe(
+        'block',
+      )
     }
   })
 
@@ -91,6 +95,11 @@ describe('loadConfig', () => {
     expect(
       result.isErr() && result.error._tag === 'CiConfigInvalid' && result.error.reason,
     ).toContain('bad JSON')
+    // scope 'file': the whole file cannot be read — the message must not blame
+    // the ci block, and saveConfig refuses in this state.
+    expect(result.isErr() && result.error._tag === 'CiConfigInvalid' && result.error.scope).toBe(
+      'file',
+    )
   })
 
   it('returns the validated config', async () => {
