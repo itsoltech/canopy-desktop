@@ -137,20 +137,31 @@
   // once instead of on every 10 s poll. The chip keeps the fine-grained summary.
   let ciAnnouncement = $derived.by(() => {
     if (!hasConfigAndToken) return ''
-    // Branch status first: a job whose status can't be fetched is the more
-    // consequential change, and it is otherwise silent (the chip and the sr-only
-    // reason are only found by navigating back into the section).
-    if (branchError) return 'CI status unavailable'
-    const unavailable = branchRows.filter((r) => r.error).length
-    if (unavailable > 0) {
-      return `CI status unavailable for ${unavailable} ${unavailable === 1 ? 'job' : 'jobs'}`
+    // Both halves in one string: they are independent (a dead build-type id says
+    // nothing about the server's queue), so a persistent per-row failure must not
+    // shadow activity transitions for the rest of the session. Still coarse — no
+    // percentage — so identical polls produce an identical string and stay quiet.
+    const parts: string[] = []
+    if (branchError) {
+      parts.push('CI status unavailable')
+    } else {
+      const unavailable = branchRows.filter((r) => r.error).length
+      if (unavailable > 0) {
+        parts.push(`CI status unavailable for ${unavailable} ${unavailable === 1 ? 'job' : 'jobs'}`)
+      }
     }
-    if (!activityLoaded) return ''
-    if (activityError) return 'CI activity unavailable'
-    const running = activity?.running.length ?? 0
-    const queued = activity?.queued.length ?? 0
-    if (running === 0 && queued === 0) return 'CI idle'
-    return `CI: ${running} running, ${queued} queued`
+    if (activityLoaded) {
+      if (activityError) {
+        parts.push('CI activity unavailable')
+      } else {
+        const running = activity?.running.length ?? 0
+        const queued = activity?.queued.length ?? 0
+        parts.push(
+          running === 0 && queued === 0 ? 'CI idle' : `CI: ${running} running, ${queued} queued`,
+        )
+      }
+    }
+    return parts.join(' · ')
   })
 
   $effect(() => {
