@@ -90,9 +90,12 @@ and says so with a "Stopped watching…" toast naming the job and its build numb
 That toast is **sticky** — it stays until dismissed (✕ or Escape), because this
 state has no other surface in the app. A transient toast arriving meanwhile (a
 queue confirmation, another build's outcome) folds into the sticky message instead
-of taking the slot or being dropped; when one outage costs several observed builds
-their watcher, the unacknowledged give-ups aggregate into one toast that still
-names each job and build number. The build itself is unaffected.
+of taking the slot or being dropped — capped at the newest few, with a failure
+outcome escalating the toast's color; a URL toast from a terminal link click only
+displaces the sticky message temporarily (it returns when the URL toast goes).
+When one outage costs several observed builds their watcher, the unacknowledged
+give-ups aggregate into one toast that still names each job and build number. The
+build itself is unaffected.
 
 ### Activity
 
@@ -147,8 +150,9 @@ The typed error union `CiError` has three variants:
 
 Additional surfaces that are not `CiError` variants:
 
-- A failed trigger shows a toast with whatever `ci:trigger` rejected with — a formatted
-  `CiApiError`, or a plain `Error` from the handler's input validation.
+- A failed trigger reports inside the Run dialog itself (the picker's live region, or
+  the parameters form's footer) — `triggerCiBuild` returns the failure message instead
+  of toasting, because a toast would render under the dialog's own scrim.
 - The completion toast for a build triggered from Canopy (see Run job…) comes from a
   background `ci:build` poll, not from `CiError` handling — poll failures are tolerated
   (~5 minutes of consecutive failures stop the observation with a "stopped watching"

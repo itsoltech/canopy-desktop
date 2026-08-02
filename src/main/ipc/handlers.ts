@@ -3289,7 +3289,13 @@ export function registerIpcHandlers(
     if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
       throw new Error('repoRoot is required')
     }
-    return await ciManager.loadConfig(payload.repoRoot).unwrapOr(null)
+    const result = await ciManager.loadConfig(payload.repoRoot)
+    if (result.isOk()) return result.value
+    // Not-configured is a normal state (null drives the "Configure" entries); a
+    // block that EXISTS but cannot be parsed must not read the same — the Run
+    // dialog reports the reason instead of pointing at setup.
+    if (result.error._tag === 'CiConfigInvalid') throw new Error(ciErrorMessage(result.error))
+    return null
   })
 
   // Read: never throws — the sidebar renders whatever state comes back.

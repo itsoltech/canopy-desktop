@@ -55,6 +55,24 @@ describe('toast slot', () => {
     expect(toastState.kind).toBe('success')
   })
 
+  it('escalates the chrome when a danger toast folds into a sticky default one', () => {
+    addToast('Stopped watching Deploy #42 — lost contact with TeamCity', 'default', {
+      sticky: true,
+    })
+    addToast('Deploy #17: build failed', 'danger')
+    expect(toastState.kind).toBe('danger')
+    expect(toastState.message.startsWith('Deploy #17: build failed')).toBe(true)
+  })
+
+  it('caps the fold at the 2 newest transients and dedupes an identical repeat', () => {
+    addToast('sticky-tail', 'default', { sticky: true })
+    addToast('post_run one')
+    addToast('post_run one') // identical repeat — must not stack
+    addToast('post_run two')
+    addToast('post_run three')
+    expect(toastState.message).toBe('post_run three · post_run two · sticky-tail')
+  })
+
   it('guards the slot against passive URL toasts but lets a user click force it', () => {
     addToast('give-up', 'default', { sticky: true })
     showUrlToast('https://example.com')
@@ -62,8 +80,27 @@ describe('toast slot', () => {
     expect(toastState.url).toBe('')
     showUrlToast('https://example.com', { force: true })
     expect(toastState.url).toBe('https://example.com')
-    // Forcing hands the slot back to normal URL-toast semantics (8 s timer).
+    // The forced URL toast only DISPLACES the sticky message: when its 8 s timer
+    // fires, the give-up comes back — a link click is not an acknowledgement.
     vi.advanceTimersByTime(8000)
+    expect(toastState.visible).toBe(true)
+    expect(toastState.message).toBe('give-up')
+    expect(toastState.url).toBe('')
+    // And the restored toast is sticky again: no timer, transient folds in.
+    vi.advanceTimersByTime(60_000)
+    expect(toastState.visible).toBe(true)
+    addToast('queued')
+    expect(toastState.message).toBe('queued · give-up')
+    dismissToast()
+    expect(toastState.visible).toBe(false)
+  })
+
+  it('drops the stash when a newer sticky replaces the slot', () => {
+    addToast('give-up A', 'default', { sticky: true })
+    showUrlToast('https://example.com', { force: true })
+    addToast('give-up B', 'default', { sticky: true })
+    dismissToast()
+    // B was acknowledged and A must not resurrect — sticky-over-sticky replaced it.
     expect(toastState.visible).toBe(false)
   })
 })

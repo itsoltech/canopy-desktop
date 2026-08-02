@@ -4,7 +4,8 @@
 
   // The per-repo job selection list of the CI configurator: every job the server
   // exposes, grouped by TeamCity project, with editable sidebar labels for the
-  // ticked ones. Selection state lives in the parent (it is what Save writes).
+  // ticked ones. Selection state lives in the parent (it is what Save writes), so
+  // ALL mutations go back through callbacks — this component only reads `selected`.
 
   interface ServerBuildType {
     id: string
@@ -16,10 +17,12 @@
     serverTypes,
     selected,
     onToggle,
+    onLabelChange,
   }: {
     serverTypes: ServerBuildType[]
     selected: SvelteMap<string, string>
     onToggle: (bt: ServerBuildType) => void
+    onLabelChange: (id: string, label: string) => void
   } = $props()
 
   let groupedTypes = $derived.by(() => {
@@ -63,7 +66,7 @@
                 class="flex-1 min-w-24 max-w-48 px-2 py-0.5 border border-border rounded-md bg-bg-input text-text text-xs font-inherit outline-none focus:border-focus-ring"
                 aria-label={`Sidebar label for ${bt.name}`}
                 value={selected.get(bt.id) ?? bt.name}
-                oninput={(e) => selected.set(bt.id, e.currentTarget.value)}
+                oninput={(e) => onLabelChange(bt.id, e.currentTarget.value)}
                 title="Label shown in the sidebar"
               />
             {/if}

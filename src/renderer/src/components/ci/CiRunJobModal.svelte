@@ -149,7 +149,12 @@
     parameters={params}
     running={submitting}
     error={paramsError}
-    onCancel={() => (params = null)}
+    onCancel={() => {
+      params = null
+      // The error belongs to the run that failed — it must not resurface when the
+      // parameters dialog is opened again for a fresh attempt.
+      paramsError = ''
+    }}
     onRun={runWithParameters}
   />
 {:else}

@@ -17,7 +17,7 @@ vi.mock('./teamcity', () => ({
   triggerBuild: vi.fn(() => okAsync({ buildId: 1, webUrl: 'https://tc/1', branchName: 'next' })),
 }))
 
-import { triggerBuild, fetchBuildForBranch } from './teamcity'
+import { triggerBuild, fetchBuildForBranch, fetchBuildTypes } from './teamcity'
 
 const VALID_CI = {
   provider: 'teamcity',
@@ -25,7 +25,7 @@ const VALID_CI = {
   buildTypes: [{ id: 'Gakko_Build', label: 'Build' }],
 }
 
-function fakes(opts?: { ci?: unknown; token?: string | null; loadFails?: boolean }): {
+function fakes(opts?: { ci?: unknown; token?: string | null; loadFails?: 'notFound' | 'parse' }): {
   repoConfigManager: RepoConfigManager
   tokenStore: KeychainTokenStore
   manager: CiManager
@@ -33,9 +33,11 @@ function fakes(opts?: { ci?: unknown; token?: string | null; loadFails?: boolean
   const config = { version: 1, trackers: [], projectOverrides: {}, filters: {}, ci: opts?.ci }
   const repoConfigManager = {
     load: vi.fn(() =>
-      opts?.loadFails
+      opts?.loadFails === 'notFound'
         ? errAsync({ _tag: 'ConfigNotFound', repoRoot: 'r' })
-        : okAsync(structuredClone(config)),
+        : opts?.loadFails === 'parse'
+          ? errAsync({ _tag: 'ConfigParseError', repoRoot: 'r', reason: 'bad JSON' })
+          : okAsync(structuredClone(config)),
     ),
     init: vi.fn(() => okAsync({ version: 1, trackers: [], projectOverrides: {}, filters: {} })),
     save: vi.fn(() => okAsync(undefined)),
@@ -53,18 +55,35 @@ beforeEach(() => {
 })
 
 describe('loadConfig', () => {
-  it('degrades a missing or malformed ci block to CiNotConfigured', async () => {
-    for (const ci of [undefined, 'garbage', { provider: 'jenkins' }]) {
+  it('reports a missing ci block as CiNotConfigured', async () => {
+    const { manager } = fakes({ ci: undefined })
+    const result = await manager.loadConfig('r')
+    expect(result.isErr() && result.error._tag).toBe('CiNotConfigured')
+  })
+
+  it('keeps a present-but-malformed ci block distinct from "not configured"', async () => {
+    // The dialogs that surface this error only open BECAUSE the block exists —
+    // "No CI configured" there would send the user to set up what they have.
+    for (const ci of ['garbage', { provider: 'jenkins' }]) {
       const { manager } = fakes({ ci })
       const result = await manager.loadConfig('r')
-      expect(result.isErr() && result.error._tag).toBe('CiNotConfigured')
+      expect(result.isErr() && result.error._tag).toBe('CiConfigInvalid')
     }
   })
 
-  it('degrades a failed config load to CiNotConfigured', async () => {
-    const { manager } = fakes({ loadFails: true })
+  it('degrades a missing config file to CiNotConfigured', async () => {
+    const { manager } = fakes({ loadFails: 'notFound' })
     const result = await manager.loadConfig('r')
     expect(result.isErr() && result.error._tag).toBe('CiNotConfigured')
+  })
+
+  it('keeps a config parse failure distinct, carrying the reason', async () => {
+    const { manager } = fakes({ loadFails: 'parse' })
+    const result = await manager.loadConfig('r')
+    expect(result.isErr() && result.error._tag).toBe('CiConfigInvalid')
+    expect(
+      result.isErr() && result.error._tag === 'CiConfigInvalid' && result.error.reason,
+    ).toContain('bad JSON')
   })
 
   it('returns the validated config', async () => {
@@ -116,6 +135,20 @@ describe('the token gate', () => {
     const result = await manager.trigger('r', 'Gakko_Build', 'next')
     expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
     expect(triggerBuild).not.toHaveBeenCalled()
+  })
+
+  it('gates listBuildTypes the same way — the one method taking a renderer-supplied URL', async () => {
+    const { manager } = fakes({ token: null })
+    const result = await manager.listBuildTypes('https://tc.example.com')
+    expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
+    expect(fetchBuildTypes).not.toHaveBeenCalled()
+  })
+
+  it('passes listBuildTypes through with the stored token', async () => {
+    const { manager } = fakes({})
+    const result = await manager.listBuildTypes('https://tc.example.com')
+    expect(result.isOk()).toBe(true)
+    expect(fetchBuildTypes).toHaveBeenCalledWith('https://tc.example.com', 'tok')
   })
 })
 
@@ -182,7 +215,7 @@ describe('saveConfig', () => {
   })
 
   it('initializes a missing config file before writing', async () => {
-    const { manager, repoConfigManager } = fakes({ loadFails: true })
+    const { manager, repoConfigManager } = fakes({ loadFails: 'notFound' })
     const result = await manager.saveConfig('r', null)
     expect(result.isOk()).toBe(true)
     expect(repoConfigManager.init).toHaveBeenCalled()

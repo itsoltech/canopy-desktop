@@ -177,6 +177,7 @@
           {testResult}
           onCancel={cancelEdit}
           onTest={testConnection}
+          saving={savingServer}
           onSave={saveServer}
           onOpenTokenPage={openTokenPage}
         />
@@ -224,6 +225,7 @@
         {testResult}
         onCancel={cancelEdit}
         onTest={testConnection}
+        saving={savingServer}
         onSave={saveServer}
         onOpenTokenPage={openTokenPage}
       />

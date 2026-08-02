@@ -15,6 +15,7 @@
     testResult,
     onCancel,
     onTest,
+    saving = false,
     onSave,
     onOpenTokenPage,
   }: {
@@ -26,6 +27,8 @@
     testResult: 'success' | 'fail' | ''
     onCancel: () => void
     onTest: () => void
+    /** Save in flight — the button says so, like Test's "Testing…". */
+    saving?: boolean
     onSave: () => void
     onOpenTokenPage: () => void
   } = $props()
@@ -118,9 +121,9 @@
       type="button"
       class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
       onclick={onSave}
-      disabled={!urlValid || !token}
+      disabled={saving || !urlValid || !token}
       title="Save the token (stored globally on this machine, per provider + URL)"
-      >{isNew ? 'Add connection' : 'Save token'}</button
+      >{saving ? 'Saving…' : isNew ? 'Add connection' : 'Save token'}</button
     >
   </div>
 </div>

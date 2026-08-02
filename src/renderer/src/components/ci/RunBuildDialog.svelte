@@ -204,12 +204,14 @@
 
     <div class="flex items-center justify-end gap-1.5 pt-2 border-t border-border-subtle">
       <!-- Persistent region: a failed queue (and the required-parameters hint) swap
-           in as mutations, so they are actually announced. -->
+           in as mutations, so they are actually announced. The hint outranks a
+           stale error: it explains why the button is DISABLED right now, while the
+           error describes a run that already happened. -->
       <div class="mr-auto min-h-4 text-xs" aria-live="polite">
-        {#if error}
-          <span class="text-danger-text">{error}</span>
-        {:else if missing.length > 0}
+        {#if missing.length > 0}
           <span class="text-warning-text">Fill the required parameters</span>
+        {:else if error}
+          <span class="text-danger-text">{error}</span>
         {/if}
       </div>
       <button

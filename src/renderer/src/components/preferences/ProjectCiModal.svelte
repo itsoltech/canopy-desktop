@@ -243,6 +243,10 @@
     else selected.set(bt.id, selected.get(bt.id) ?? bt.name)
   }
 
+  function setLabel(id: string, label: string): void {
+    selected.set(id, label)
+  }
+
   async function saveConfiguration(): Promise<void> {
     if (!repoRoot || effectiveBuildTypes.length === 0 || !urlValid) return
     saving = true
@@ -453,7 +457,12 @@
             Loading available jobs…
           </div>
         {:else if typesLoaded}
-          <CiJobPicker {serverTypes} {selected} onToggle={toggleType} />
+          <!-- During a RELOAD the previous list stays on screen but visibly inert —
+               Save is disabled above and the picker dims until the fresh list lands,
+               so the user can't edit rows that are about to be replaced. -->
+          <div class={typesLoading ? 'opacity-50 pointer-events-none' : ''}>
+            <CiJobPicker {serverTypes} {selected} onToggle={toggleType} onLabelChange={setLabel} />
+          </div>
         {/if}
       {/if}
     </div>
@@ -483,7 +492,11 @@
           type="button"
           class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
           onclick={saveConfiguration}
-          disabled={saving || !typesLoaded || effectiveBuildTypes.length === 0 || !urlValid}
+          disabled={saving ||
+            typesLoading ||
+            !typesLoaded ||
+            effectiveBuildTypes.length === 0 ||
+            !urlValid}
           aria-describedby={missingBuildTypes.length > 0 ? 'ci-stale-jobs' : undefined}
           title="Writes the ci block to .canopy/config.json — commit it to share with the team"
           >{saving ? 'Saving…' : 'Save configuration'}</button

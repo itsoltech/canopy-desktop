@@ -29,7 +29,7 @@
   } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
-  import { showUrlToast } from '../../lib/stores/toast.svelte'
+  import { addToast, showUrlToast } from '../../lib/stores/toast.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
@@ -838,8 +838,9 @@
 
     const sessions = getAiSessions(path)
     if (sessions.length === 0) {
-      // Feedback for a direct user action — may win the slot over a sticky toast.
-      showUrlToast('No AI sessions open', { force: true })
+      // A plain message, not a URL — the URL toast renders Browser/System buttons
+      // that would try to open this string. As a transient it folds into a sticky.
+      addToast('No AI sessions open')
       return
     }
     if (sessions.length === 1) {

@@ -297,7 +297,14 @@
           {/if}
         </button>
 
-        {#if branchError}
+        {#if branchState.loading && !branchState.response}
+          <!-- First branch-status fetch: without this the card area is just blank
+               until ci:status lands, indistinguishable from "nothing to show". -->
+          <div class="px-3 py-1 flex items-center gap-2 text-xs text-text-faint">
+            <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
+            Checking CI status…
+          </div>
+        {:else if branchError}
           <div class="px-3 py-1 text-xs text-warning-text truncate" title={branchError}>
             Last job unavailable — {branchError}
           </div>

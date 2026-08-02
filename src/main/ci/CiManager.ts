@@ -44,10 +44,20 @@ export class CiManager {
   loadConfig(repoRoot: string): ResultAsync<CiConfig, CiError> {
     return this.repoConfigManager
       .load(repoRoot)
-      .mapErr((): CiError => ({ _tag: 'CiNotConfigured' }))
+      .mapErr((e): CiError =>
+        e._tag === 'ConfigParseError'
+          ? { _tag: 'CiConfigInvalid', reason: e.reason }
+          : { _tag: 'CiNotConfigured' },
+      )
       .andThen((cfg) => {
+        if (cfg.ci == null) return errAsync<CiConfig, CiError>({ _tag: 'CiNotConfigured' })
         const ci = parseCiConfig(cfg.ci)
-        return ci ? okAsync(ci) : errAsync<CiConfig, CiError>({ _tag: 'CiNotConfigured' })
+        return ci
+          ? okAsync(ci)
+          : errAsync<CiConfig, CiError>({
+              _tag: 'CiConfigInvalid',
+              reason: 'unrecognized ci block shape',
+            })
       })
   }
 

@@ -135,6 +135,9 @@ function reportGiveUp(label: string, number: string | undefined, reason: string)
   if (!isStickyToastVisible()) giveUps = []
   giveUps.push({ label, number, reason })
   const named = giveUps.map((g) => `${g.label}${g.number ? ` #${g.number}` : ''}`).join(', ')
+  // 'default' is deliberate: a lost watcher is a status hand-off, not a build
+  // outcome — danger chrome here would misread as "the build failed". When a real
+  // outcome toast folds in later, the fold path escalates the chrome itself.
   addToast(
     giveUps.length > 1
       ? `Stopped watching ${giveUps.length} builds — check TeamCity: ${named}`
