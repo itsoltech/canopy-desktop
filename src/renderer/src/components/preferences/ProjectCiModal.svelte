@@ -195,6 +195,9 @@
     } catch (e) {
       typesError = e instanceof Error ? e.message : 'Failed to load build configurations'
       serverTypes = []
+      // A failed request says nothing about what exists on the server — keep the
+      // picker, the stale-job warning and Save out of the "we know" state.
+      typesLoaded = false
     } finally {
       typesLoading = false
     }
@@ -219,6 +222,8 @@
 
   // Configured ids the server no longer returns — invisible in the picker (no
   // checkbox to untick), so they must be called out before Save silently drops them.
+  // Only ever computed against a list the server actually returned: `loadBuildTypes`
+  // resets `typesLoaded` on failure, so a dropped request can't read as "deleted".
   let missingBuildTypes = $derived(
     typesLoaded ? [...selected.keys()].filter((id) => !serverTypes.some((bt) => bt.id === id)) : [],
   )
@@ -404,13 +409,22 @@
           </div>
         {:else if typesLoaded}
           {#if missingBuildTypes.length > 0}
-            <p class="m-0 text-xs text-warning-text leading-snug">
-              {missingBuildTypes.length} configured
-              {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingBuildTypes.join(
-                ', ',
-              )}). Saving drops
-              {missingBuildTypes.length === 1 ? 'it' : 'them'} from
-              <code class="font-mono">.canopy/config.json</code>.
+            {@const missingNames = missingBuildTypes
+              .map((id) => `${selected.get(id) || id} (${id})`)
+              .join(', ')}
+            <p class="m-0 text-xs text-warning-text leading-snug" id="ci-stale-jobs" role="alert">
+              {#if effectiveBuildTypes.length === 0}
+                None of this repository's configured jobs exist on this server any more ({missingNames}).
+                Save is disabled until you tick at least one job below — or use
+                <strong>Remove CI configuration</strong> to drop the
+                <code class="font-mono">ci</code> block entirely.
+              {:else}
+                {missingBuildTypes.length} configured
+                {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
+                Saving drops
+                {missingBuildTypes.length === 1 ? 'it' : 'them'} from
+                <code class="font-mono">.canopy/config.json</code>.
+              {/if}
             </p>
           {/if}
           <CiJobPicker {serverTypes} {selected} onToggle={toggleType} />
@@ -444,6 +458,7 @@
           class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
           onclick={saveConfiguration}
           disabled={saving || !typesLoaded || effectiveBuildTypes.length === 0 || !urlValid}
+          aria-describedby={missingBuildTypes.length > 0 ? 'ci-stale-jobs' : undefined}
           title="Writes the ci block to .canopy/config.json — commit it to share with the team"
           >{saving ? 'Saving…' : 'Save configuration'}</button
         >

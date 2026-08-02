@@ -15,7 +15,7 @@ The integration follows the Project management architecture:
   `.canopy/config.json`, written by the per-repo configurator (CI/CD sidebar section →
   gear icon). Committing the file shares the setup with the whole team.
 - **Personal credentials**: access tokens are stored per server URL in the OS-encrypted
-  keychain, managed globally in **Settings → CI connections** (its own section, separate from the Project management connections; the add form has a provider select — TeamCity today — and a "Generate →" link to the server's token page once the URL is typed).
+  keychain, managed globally in **Settings → CI connections** (its own section, separate from the Project management connections; TeamCity is the only provider today, and the add form carries a "Generate →" link to the server's token page once the URL is typed).
 - **Personal opt-in**: the whole feature is gated by the **CI/CD sidebar section**
   (`sidebar.sections`, hidden by default — enable it in Settings → Sidebar). A `ci`
   block arriving via the git-shared config never turns the feature on by itself.
@@ -36,9 +36,11 @@ The integration follows the Project management architecture:
 
 Pick one of your CI servers (or add a new one: URL + token with a connection test via
 `GET /app/rest/server` and an explicit destination confirm before the token is stored),
-then **Load build configurations** and choose, from the server's full list grouped by
+then **Load available jobs** and choose, from the server's full list grouped by
 TeamCity project, which jobs are available in this repository — analogous to the
-project/board selection in Project management. Sidebar labels are editable. Saving
+project/board selection in Project management. Sidebar labels are editable. Configured
+jobs the server no longer returns are named in a warning and dropped on the next Save
+(when all of them are stale, Save stays disabled until a live job is ticked). Saving
 writes the `ci` block to `.canopy/config.json`; the modal can also remove it.
 
 ### Run job… (any job, any branch)
