@@ -59,7 +59,10 @@ A centered modal (rendered from the app layer — sidebar-hosted dialogs would b
 pinned to the sidebar column by its backdrop-filter): pick a configured job and a
 branch through a searchable list (branches come from TeamCity itself —
 `/app/rest/buildTypes/id:X/branches`, default branch first; a typed name not on the
-list can still be used). The same modal opens from the worktree context menu —
+list can still be used). The sidebar's **Run job…** prefills the active worktree's
+branch; the dialog never auto-selects a branch on its own — **Run** stays disabled
+until one is explicitly picked, so a single click can't queue a job on TeamCity's
+default branch by accident. The same modal opens from the worktree context menu —
 right-click a branch in PROJECTS → **Run CI Job on Branch…** (prefilled with that
 worktree's branch); the GIT section deliberately carries no CI entries, it holds
 CI-independent git actions. If the job

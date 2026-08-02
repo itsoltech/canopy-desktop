@@ -18,12 +18,10 @@
     repoRoot,
     initialBuildTypeId,
     initialBranch,
-    auto = false,
   }: {
     repoRoot: string
     initialBuildTypeId?: string
     initialBranch?: string
-    auto?: boolean
   } = $props()
 
   let config = $state<{ baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null>(
@@ -57,10 +55,6 @@
       return
     }
     if (!buildTypeId) buildTypeId = config.buildTypes[0]?.id ?? ''
-    if (auto && buildTypeId && selectedBranch) {
-      await startRun()
-      return
-    }
     void loadBranches()
   })
 
@@ -77,8 +71,10 @@
       const list = await window.api.ciBranches(repoRoot, buildTypeId)
       if (seq !== branchesSeq) return
       branches = list
-      // Keep a prefilled branch (worktree flow) even when TC does not list it yet.
-      if (!selectedBranch) selectedBranch = list[0] ?? ''
+      // Deliberately NO auto-select of list[0]: this is a trigger dialog, and arming
+      // Run on TeamCity's first-listed (default) branch would let a single click
+      // queue a job on a branch the user never chose. A branch prefilled by the
+      // opening flow (worktree/section) stays selected even when TC doesn't list it.
     } catch (e) {
       if (seq !== branchesSeq) return
       branches = []
@@ -105,17 +101,11 @@
       if (fetched.length === 0) {
         const ok = await triggerCiBuild(repoRoot, buildTypeId, selectedBranch, label)
         if (ok) closeDialog()
-        else if (auto) closeDialog()
       } else {
         params = fetched
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load build parameters'
-      // The auto flow has no picker to fall back to — surface the error there.
-      if (auto) {
-        starting = false
-        return
-      }
     } finally {
       starting = false
     }
@@ -149,7 +139,7 @@
     branch={selectedBranch}
     parameters={params}
     running={submitting}
-    onCancel={auto ? closeDialog : () => (params = null)}
+    onCancel={() => (params = null)}
     onRun={runWithParameters}
   />
 {:else}
@@ -182,33 +172,7 @@
         </button>
       </header>
 
-      {#if auto || (starting && !config)}
-        <!-- Persistent live region: the wrapper mounts with the spinner and the
-             error swaps in as a MUTATION, so it is actually announced. -->
-        <div class="flex flex-col gap-2 py-2 min-h-4.5" aria-live="polite">
-          {#if error}
-            <span class="text-xs text-danger-text">{error}</span>
-            <div class="flex gap-1.5 justify-end">
-              <button
-                type="button"
-                class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-                onclick={closeDialog}>Close</button
-              >
-              <button
-                type="button"
-                class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
-                onclick={startRun}
-                disabled={starting}>Retry</button
-              >
-            </div>
-          {:else}
-            <div class="flex items-center gap-2 text-sm text-text-secondary">
-              <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
-              Preparing {label}…
-            </div>
-          {/if}
-        </div>
-      {:else if config}
+      {#if config}
         <div class="flex flex-col gap-1">
           <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
             >Job</span

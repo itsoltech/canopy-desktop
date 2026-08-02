@@ -612,7 +612,6 @@
     repoRoot={dialogState.current.repoRoot}
     initialBuildTypeId={dialogState.current.buildTypeId}
     initialBranch={dialogState.current.branch}
-    auto={dialogState.current.auto ?? false}
   />
 {:else if dialogState.current.type === 'ciActivity'}
   <CiActivityModal repoRoot={dialogState.current.repoRoot} />

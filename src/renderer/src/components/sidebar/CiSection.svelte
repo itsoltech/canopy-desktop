@@ -177,7 +177,13 @@
   })
 
   function openRunJob(): void {
-    if (repoRoot) showCiRunJob(repoRoot)
+    if (!repoRoot) return
+    // Prefill the branch the rest of this section is scoped to — without it the
+    // dialog opens unarmed and branch-less, which is not what a section showing
+    // this worktree's builds implies. '(detached)' is a sentinel, not a branch
+    // name (CI_BRANCH_RE rejects it), so it stays unprefilled.
+    const branch = workspaceState.branch
+    showCiRunJob(repoRoot, branch && branch !== '(detached)' ? { branch } : undefined)
   }
 
   function openActivity(): void {

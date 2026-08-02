@@ -70,12 +70,10 @@ interface CiActivityState {
 interface CiRunJobState {
   type: 'ciRunJob'
   repoRoot: string
-  /** Preselected job (GIT-row ▶); when absent the dialog offers the pick. */
+  /** Preselected job; when absent the dialog offers the pick. */
   buildTypeId?: string
   /** Prefilled branch (worktree flows). */
   branch?: string
-  /** Skip the picker: fetch parameters immediately and trigger when there are none. */
-  auto?: boolean
 }
 
 interface AboutState {
@@ -244,7 +242,7 @@ export function showProjectCi(): void {
  */
 export function showCiRunJob(
   repoRoot: string,
-  opts?: { buildTypeId?: string; branch?: string; auto?: boolean },
+  opts?: { buildTypeId?: string; branch?: string },
 ): void {
   dialogState.current = { type: 'ciRunJob', repoRoot, ...opts }
 }
