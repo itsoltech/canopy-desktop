@@ -1,4 +1,5 @@
 import { match } from 'ts-pattern'
+import type { CiBuildTypeStatus } from './types'
 
 export interface CiChip {
   label: string
@@ -6,7 +7,11 @@ export interface CiChip {
 }
 
 /** Status chip for a build-type row — colors follow the PR state chip conventions. */
-export function ciChip(build: CiBuildStatus | null): CiChip {
+export function ciChip(row: Pick<CiBuildTypeStatus, 'build' | 'error'>): CiChip {
+  // A failed fetch is NOT "no builds": `build` is null in both cases, so the error
+  // has to win here or an outage reads as "this branch was never built".
+  if (row.error) return { label: 'Unavailable', cls: 'bg-warning-bg text-warning-text' }
+  const build = row.build
   if (!build) return { label: 'No builds', cls: 'bg-active text-text-muted' }
   return match(build)
     .with({ state: 'queued' }, () => ({ label: 'Queued', cls: 'bg-active text-text-muted' }))

@@ -18,9 +18,7 @@
 {#snippet lastJobLine(row: CiBuildTypeStatus, showJobLabel: boolean)}
   <!-- Shared line of both variants. Reveals are paired hover + focus-within so
        keyboard focus gets the same affordance. -->
-  {@const chip = row.error
-    ? { label: 'Unavailable', cls: 'bg-warning-bg text-warning-text' }
-    : ciChip(row.build)}
+  {@const chip = ciChip(row)}
   <span class="flex items-center gap-2 w-full text-sm text-text">
     <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted">{branch}</span>
     {#if showJobLabel}

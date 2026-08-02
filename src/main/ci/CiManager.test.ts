@@ -120,6 +120,30 @@ describe('the token gate', () => {
 })
 
 describe('statusFor', () => {
+  it('degrades a failed row to Unavailable while siblings keep their builds', async () => {
+    const ci = {
+      provider: 'teamcity',
+      baseUrl: 'https://tc.example.com',
+      buildTypes: [
+        { id: 'Good_Job', label: 'Good' },
+        { id: 'Dead_Job', label: 'Dead' },
+      ],
+    }
+    const { manager } = fakes({ ci })
+    vi.mocked(fetchBuildForBranch).mockImplementation((_url, _tok, id) =>
+      id === 'Dead_Job'
+        ? errAsync({ _tag: 'CiApiError' as const, status: 404, message: 'No build type found' })
+        : okAsync(null),
+    )
+    const config = (await manager.loadConfig('r'))._unsafeUnwrap()
+    const result = await manager.statusFor(config, 'next')
+    expect(result.isOk()).toBe(true)
+    const rows = result._unsafeUnwrap()
+    expect(rows[0].error).toBeUndefined()
+    expect(rows[1].error).toContain('404')
+    expect(rows[1].build).toBeNull()
+  })
+
   it('uses the provided config without a second config read', async () => {
     const { manager, repoConfigManager } = fakes({ ci: VALID_CI })
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()

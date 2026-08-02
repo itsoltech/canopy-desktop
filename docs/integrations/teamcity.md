@@ -29,7 +29,10 @@ The integration follows the Project management architecture:
 - **Not configured**: a "Configure TeamCity" entry opens the per-repo configurator.
 - **Configured**: the server row (click opens TeamCity), a highlighted **Last job** card
   with the newest build of the active worktree's branch (build number and status chip;
-  clicking the card opens that build in TeamCity), a **Run job…** entry, and a summary
+  clicking the card opens that build in TeamCity). A row whose status fetch fails —
+  e.g. its job was deleted or re-ided on the server — shows an `Unavailable` chip with
+  the reason, and only that row degrades, never the whole card. Then a **Run job…**
+  entry, and a summary
   row labelled **Jobs history** — **Running job** while anything is active — whose chip
   shows "2 running · 1 queued" or "Idle". Clicking the row opens the activity window
   with the detailed list.
@@ -117,11 +120,11 @@ delete or rewrite a hand-edited `ci` block, even an invalid one.
 
 The typed error union `CiError` has three variants:
 
-| Variant           | Meaning                                   | Surface                                                                                                                                              |
-| ----------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CiNotConfigured` | No (valid) `ci` block in the repo config  | Section shows its "configure" entry; `ci:status` answers `{ configured: false }` (a silent no-op)                                                    |
-| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections                                                                                              |
-| `CiApiError`      | HTTP/network/API failure                  | **Jobs history** row shows an `Error` chip (full message in its tooltip); affected **Last job** rows show an `Unavailable` chip with the failure in the tooltip (a missing token shows a muted error line) |
+| Variant           | Meaning                                   | Surface                                                                                                                                                                                                                                                                                      |
+| ----------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CiNotConfigured` | No (valid) `ci` block in the repo config  | Section shows its "configure" entry; `ci:status` answers `{ configured: false }` (a silent no-op)                                                                                                                                                                                            |
+| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections                                                                                                                                                                                                                                      |
+| `CiApiError`      | HTTP/network/API failure                  | **Jobs history** row shows an `Error` chip (full message in its tooltip); affected **Last job** rows show an `Unavailable` chip carrying the failure (the muted `Last job unavailable` line only appears when `ci:status` fails as a whole, which the credential banner otherwise pre-empts) |
 
 Additional surfaces that are not `CiError` variants:
 

@@ -16,19 +16,27 @@ function build(overrides: Partial<CiBuildStatus>): CiBuildStatus {
 
 describe('ciChip', () => {
   it('labels the empty state', () => {
-    expect(ciChip(null).label).toBe('No builds')
+    expect(ciChip({ build: null }).label).toBe('No builds')
+  })
+
+  it('distinguishes a failed fetch from "never built"', () => {
+    const chip = ciChip({ build: null, error: 'TeamCity API error 404: not found' })
+    expect(chip.label).toBe('Unavailable')
+    expect(chip.label).not.toBe('No builds')
   })
 
   it('shows progress for running builds and omits it when unknown', () => {
-    expect(ciChip(build({ state: 'running', percentageComplete: 42 })).label).toBe('Running 42%')
-    expect(ciChip(build({ state: 'running' })).label).toBe('Running')
+    expect(ciChip({ build: build({ state: 'running', percentageComplete: 42 }) }).label).toBe(
+      'Running 42%',
+    )
+    expect(ciChip({ build: build({ state: 'running' }) }).label).toBe('Running')
   })
 
   it('maps queued and finished outcomes', () => {
-    expect(ciChip(build({ state: 'queued', status: 'UNKNOWN' })).label).toBe('Queued')
-    expect(ciChip(build({ status: 'SUCCESS' })).label).toBe('Success')
-    expect(ciChip(build({ status: 'FAILURE' })).label).toBe('Failed')
-    expect(ciChip(build({ status: 'UNKNOWN' })).label).toBe('Unknown')
+    expect(ciChip({ build: build({ state: 'queued', status: 'UNKNOWN' }) }).label).toBe('Queued')
+    expect(ciChip({ build: build({ status: 'SUCCESS' }) }).label).toBe('Success')
+    expect(ciChip({ build: build({ status: 'FAILURE' }) }).label).toBe('Failed')
+    expect(ciChip({ build: build({ status: 'UNKNOWN' }) }).label).toBe('Unknown')
   })
 })
 

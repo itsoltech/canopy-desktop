@@ -412,16 +412,12 @@
           <span class="text-xs text-danger-text">{typesError}</span>
         {/if}
 
-        {#if typesLoading && !typesLoaded}
-          <div class="flex items-center gap-2 text-sm text-text-faint">
-            <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
-            Loading available jobs…
-          </div>
-        {:else if typesLoaded}
-          <!-- Persistent live region: a node inserted together with its text is
-               skipped by screen readers — the wrapper stays, the content toggles. -->
-          <div role="status" id="ci-stale-jobs">
-            {#if missingBuildTypes.length > 0}
+        <!-- Persistent live region for the modal's LIFETIME: a wrapper mounted in the
+             same render pass as its content is skipped by screen readers, and every
+             path that changes the message resets typesLoaded first — so the region
+             must outlive the conditional chain below. -->
+        <div role="status" id="ci-stale-jobs">
+          {#if typesLoaded && missingBuildTypes.length > 0}
               {@const missingNames = missingBuildTypes
                 .map((id) => {
                   const label = selected.get(id)
@@ -449,7 +445,14 @@
                 {/if}
               </p>
             {/if}
+        </div>
+
+        {#if typesLoading && !typesLoaded}
+          <div class="flex items-center gap-2 text-sm text-text-faint">
+            <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
+            Loading available jobs…
           </div>
+        {:else if typesLoaded}
           <CiJobPicker {serverTypes} {selected} onToggle={toggleType} />
         {/if}
       {/if}
