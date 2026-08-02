@@ -136,7 +136,8 @@
   // Coarse state for the live region — no percentage, so a running build announces
   // once instead of on every 10 s poll. The chip keeps the fine-grained summary.
   let ciAnnouncement = $derived.by(() => {
-    if (!hasConfigAndToken) return ''
+    // An unreadable ci block has no other announcement path — polling never starts.
+    if (!hasConfigAndToken) return cfgState.error ? 'CI configuration invalid' : ''
     // Both halves in one string: they are independent (a dead build-type id says
     // nothing about the server's queue), so a persistent per-row failure must not
     // shadow activity transitions for the rest of the session. Still coarse — no
@@ -314,15 +315,24 @@
       {/if}
     </div>
   {:else if repoRoot && cfgState.loaded}
-    <!-- Init entry, mirroring Project Management's "Configure Tracker". -->
-    <div class="px-3 py-2">
-      <button
-        class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
-        onclick={showProjectCi}
-      >
-        <Plus size={14} />
-        Configure TeamCity
-      </button>
-    </div>
+    {#if cfgState.error}
+      <!-- The block EXISTS but cannot be read — a "Configure TeamCity" entry here
+           would send the user to set up what they already have. The header gear
+           still opens the configurator to fix and re-save it. -->
+      <div class="px-3 py-1 text-xs text-warning-text truncate" title={cfgState.error}>
+        {cfgState.error}
+      </div>
+    {:else}
+      <!-- Init entry, mirroring Project Management's "Configure Tracker". -->
+      <div class="px-3 py-2">
+        <button
+          class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
+          onclick={showProjectCi}
+        >
+          <Plus size={14} />
+          Configure TeamCity
+        </button>
+      </div>
+    {/if}
   {/if}
 </CollapsibleSection>

@@ -64,6 +64,15 @@ describe('toast slot', () => {
     expect(toastState.message.startsWith('Deploy #17: build failed')).toBe(true)
   })
 
+  it('keeps the most severe kind when a success folds in after a failure', () => {
+    // Newest-wins would paint the slot green while the (truncated) failure is
+    // still inside the folded message.
+    addToast('give-up', 'default', { sticky: true })
+    addToast('Deploy A #17: build failed', 'danger')
+    addToast('Deploy B #18: build succeeded', 'success')
+    expect(toastState.kind).toBe('danger')
+  })
+
   it('caps the fold at the 2 newest transients and dedupes an identical repeat', () => {
     addToast('sticky-tail', 'default', { sticky: true })
     addToast('post_run one')

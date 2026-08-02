@@ -3306,8 +3306,22 @@ export function registerIpcHandlers(
     if (typeof payload.branch !== 'string' || !CI_BRANCH_RE.test(payload.branch)) {
       return { configured: false, rows: [] } satisfies CiStatusResponse
     }
-    const config = await ciManager.loadConfig(payload.repoRoot).unwrapOr(null)
-    if (!config) return { configured: false, rows: [] } satisfies CiStatusResponse
+    const configResult = await ciManager.loadConfig(payload.repoRoot)
+    if (configResult.isErr()) {
+      // An invalid EXISTING block reports as configured-with-error, so the sidebar
+      // shows (and announces) the reason instead of the "Configure" entry.
+      if (configResult.error._tag === 'CiConfigInvalid') {
+        return {
+          configured: true,
+          baseUrl: '',
+          hasToken: true,
+          rows: [],
+          error: ciErrorMessage(configResult.error),
+        } satisfies CiStatusResponse
+      }
+      return { configured: false, rows: [] } satisfies CiStatusResponse
+    }
+    const config = configResult.value
 
     // Pass the loaded config down — statusFor doesn't re-read .canopy/config.json.
     const result = await ciManager.statusFor(config, payload.branch)

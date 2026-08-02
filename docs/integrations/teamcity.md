@@ -90,8 +90,9 @@ and says so with a "Stopped watching…" toast naming the job and its build numb
 That toast is **sticky** — it stays until dismissed (✕ or Escape), because this
 state has no other surface in the app. A transient toast arriving meanwhile (a
 queue confirmation, another build's outcome) folds into the sticky message instead
-of taking the slot or being dropped — capped at the newest few, with a failure
-outcome escalating the toast's color; a URL toast from a terminal link click only
+of taking the slot or being dropped — capped at the newest few, with the most
+severe folded outcome deciding the toast's color (a green result never repaints a
+slot that still carries a failure); a URL toast from a terminal link click only
 displaces the sticky message temporarily (it returns when the URL toast goes).
 When one outage costs several observed builds their watcher, the unacknowledged
 give-ups aggregate into one toast that still names each job and build number. The
@@ -134,19 +135,23 @@ Written by the configurator (hand-editing works too) in `.canopy/config.json`:
 - `buildTypes[].label` — sidebar label; defaults to the id.
 
 The block is validated at read time (`parseCiConfig`, applied by `CiManager`); a
-malformed block degrades to "not configured". The raw value is preserved verbatim
-across config saves — Settings actions that round-trip `.canopy/config.json` never
-delete or rewrite a hand-edited `ci` block, even an invalid one.
+malformed block reads as `CiConfigInvalid` — kept distinct from "not configured",
+because the surfaces that hit it exist precisely because the block is there. The raw
+value is preserved verbatim across config saves — Settings actions that round-trip
+`.canopy/config.json` never delete or rewrite a hand-edited `ci` block, even an
+invalid one, and a save against an unparseable config file fails instead of
+re-initializing it (initialization is reserved for a genuinely absent file).
 
 ## Error states
 
-The typed error union `CiError` has three variants:
+The typed error union `CiError` has four variants:
 
-| Variant           | Meaning                                   | Surface                                                                                                                                                                                                                                                                                      |
-| ----------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CiNotConfigured` | No (valid) `ci` block in the repo config  | Section shows its "configure" entry; `ci:status` answers `{ configured: false }` (a silent no-op)                                                                                                                                                                                            |
-| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections                                                                                                                                                                                                                                      |
-| `CiApiError`      | HTTP/network/API failure                  | **Jobs history** row shows an `Error` chip (full message in its tooltip); affected **Last job** rows show an `Unavailable` chip carrying the failure (the muted `Last job unavailable` line only appears when `ci:status` fails as a whole, which the credential banner otherwise pre-empts) |
+| Variant           | Meaning                                                                                                             | Surface                                                                                                                                                                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CiNotConfigured` | No `ci` block in the repo config                                                                                    | Section shows its "configure" entry; `ci:status` answers `{ configured: false }` (a silent no-op)                                                                                                                                                                                            |
+| `CiConfigInvalid` | A `ci` block exists but cannot be read — unparseable `.canopy/config.json` or a block shape `parseCiConfig` rejects | The CI/CD section shows the reason instead of the "configure" entry (the header gear still opens the configurator), announced by the live region; `ci:config` rejects with the reason; `ci:status` answers configured-with-error                                                             |
+| `CiAuthMissing`   | No token stored for the configured server                                                                           | Credential banners linking to Settings → CI connections                                                                                                                                                                                                                                      |
+| `CiApiError`      | HTTP/network/API failure                                                                                            | **Jobs history** row shows an `Error` chip (full message in its tooltip); affected **Last job** rows show an `Unavailable` chip carrying the failure (the muted `Last job unavailable` line only appears when `ci:status` fails as a whole, which the credential banner otherwise pre-empts) |
 
 Additional surfaces that are not `CiError` variants:
 

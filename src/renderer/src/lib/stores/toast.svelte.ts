@@ -58,9 +58,13 @@ export function addToast(
     if (parts[0] !== message) {
       toastState.message = [message, ...parts.slice(0, 1), held].join(' · ')
     }
-    // Escalate the chrome: kind is this component's only state signal, and the
-    // sticky holder is 'default' — keeping it would render a red failure neutral.
-    if (kind !== 'default') toastState.kind = kind
+    // Escalate, don't overwrite: the folded message carries more than one outcome,
+    // so the most severe of them has to win — newest-wins would paint a slot that
+    // still carries a (truncated-away) failure success-green. Kind is this
+    // component's only state signal. (The split above relies on sticky messages
+    // never containing the ' · ' separator — reportGiveUp uses '—' and ',' only.)
+    const rank: Record<ToastKind, number> = { default: 0, success: 1, danger: 2 }
+    if (rank[kind] > rank[toastState.kind]) toastState.kind = kind
     return
   }
   if (dismissTimer) clearTimeout(dismissTimer)

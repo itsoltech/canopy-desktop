@@ -224,4 +224,15 @@ describe('saveConfig', () => {
       expect.objectContaining({ ci: undefined }),
     )
   })
+
+  it('refuses to init over a config that exists but cannot be parsed', async () => {
+    // init OVERWRITES with defaults — falling back to it on a parse error would
+    // delete the repo's trackers, templates and agent config over a typo in the
+    // very block this save was about to replace.
+    const { manager, repoConfigManager } = fakes({ loadFails: 'parse' })
+    const result = await manager.saveConfig('r', null)
+    expect(result.isErr()).toBe(true)
+    expect(repoConfigManager.init).not.toHaveBeenCalled()
+    expect(repoConfigManager.save).not.toHaveBeenCalled()
+  })
 })

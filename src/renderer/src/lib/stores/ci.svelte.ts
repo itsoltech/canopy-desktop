@@ -64,6 +64,8 @@ interface CiRepoConfigState {
   loaded: boolean
   config: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null
   hasToken: boolean
+  /** Set when a ci block EXISTS but cannot be read — null config then ≠ "no CI". */
+  error?: string
 }
 
 let repoConfigState = $state<CiRepoConfigState>({
@@ -92,9 +94,18 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
       : false
     if (seq !== configSeq) return
     repoConfigState = { key, loaded: true, config, hasToken }
-  } catch {
+  } catch (e) {
     if (seq !== configSeq) return
-    repoConfigState = { key, loaded: true, config: null, hasToken: false }
+    // ci:config throws exactly when a block EXISTS but cannot be parsed — dropping
+    // the reason here would put the "Configure TeamCity" entry in front of someone
+    // who already has one.
+    repoConfigState = {
+      key,
+      loaded: true,
+      config: null,
+      hasToken: false,
+      error: e instanceof Error ? e.message : "Could not read this repository's CI configuration",
+    }
   }
 }
 
