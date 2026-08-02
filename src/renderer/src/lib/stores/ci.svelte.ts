@@ -1,5 +1,6 @@
 import { untrack } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
+import { match } from 'ts-pattern'
 import { addToast } from './toast.svelte'
 
 // CI (TeamCity) build status for the sidebar GIT section. State is scoped to one
@@ -135,13 +136,20 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       failures = 0
       if (build.state === 'finished') {
         stopObserving(buildId)
-        if (build.status === 'SUCCESS') {
-          addToast(`${label} #${build.number}: build succeeded`, 'success')
-        } else if (build.status === 'FAILURE') {
-          addToast(`${label} #${build.number}: build failed`, 'danger')
-        } else {
-          addToast(`${label} #${build.number}: build finished with unknown status`)
-        }
+        // .exhaustive() so the next widening of CiBuildResult fails to compile here
+        // instead of silently degrading to the neutral toast — this is the one
+        // surface that reaches a user who walked away after triggering.
+        match(build.status)
+          .with('SUCCESS', () => addToast(`${label} #${build.number}: build succeeded`, 'success'))
+          // ERROR is TeamCity's infra/agent failure — red in its own UI, so it must
+          // not read as "Canopy couldn't tell".
+          .with('FAILURE', 'ERROR', () =>
+            addToast(`${label} #${build.number}: build failed`, 'danger'),
+          )
+          .with('UNKNOWN', () =>
+            addToast(`${label} #${build.number}: build finished with unknown status`),
+          )
+          .exhaustive()
       }
     } catch {
       // Transient API errors are tolerated; give up after a few in a row.

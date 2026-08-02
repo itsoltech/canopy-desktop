@@ -57,6 +57,20 @@ describe('mapBuild', () => {
     expect(mapped.status).toBe('UNKNOWN')
   })
 
+  it('keeps ERROR distinct from UNKNOWN', () => {
+    // ERROR is TeamCity's infra/agent failure — folding it into UNKNOWN would give
+    // an infra-failed build the neutral chip and the neutral completion toast,
+    // while the activity window (raw passthrough) would still call it Failed.
+    const mapped = mapBuild({
+      id: 10,
+      number: '3',
+      state: 'finished',
+      status: 'ERROR',
+      webUrl: 'https://tc/build/10',
+    })
+    expect(mapped.status).toBe('ERROR')
+  })
+
   it('treats a queued build without status as unknown status', () => {
     const mapped = mapBuild({ id: 5, number: '2', state: 'queued', webUrl: 'https://tc/q/5' })
     expect(mapped.state).toBe('queued')

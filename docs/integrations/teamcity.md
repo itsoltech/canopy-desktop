@@ -31,7 +31,11 @@ The integration follows the Project management architecture:
   with the newest build of the active worktree's branch (build number and status chip;
   clicking the card opens that build in TeamCity). A row whose status fetch fails —
   e.g. its job was deleted or re-ided on the server — shows an `Unavailable` chip with
-  the reason, and only that row degrades, never the whole card. Then a **Run job…**
+  the reason, and only that row degrades, never the whole card. The chip vocabulary is
+  shared with the activity window: `SUCCESS` → **Success**, `FAILURE` and TeamCity's
+  `ERROR` → **Failed** (ERROR is an infra/agent failure — red in TeamCity's own UI, so
+  it must not read as neutral), anything else — including cancelled builds, which carry
+  `UNKNOWN` — → **Unknown**. Then a **Run job…**
   entry, and a summary
   row labelled **Jobs history** — **Running job** while anything is active — whose chip
   shows "2 running · 1 queued" or "Idle". Clicking the row opens the activity window
@@ -73,7 +77,11 @@ TeamCity's dialog semantics exactly — an unchecked checkbox submits its
 `uncheckedValue` (configs may carry whole CLI fragments there), never the raw stored
 value. Required parameters (`validationMode='not_empty'`) block submission. Chosen
 values are sent as build `properties`. Jobs without prompt parameters queue
-immediately.
+immediately. A build triggered from Canopy is then **observed to completion**: the app
+polls it every 10 s and shows a green or red toast with the outcome when it finishes
+(`SUCCESS` → succeeded; `FAILURE` and TeamCity's `ERROR` → failed; anything else →
+"finished with unknown status"). The poll gives up after five consecutive API failures
+or two hours, silently — the build itself is unaffected, only the toast is lost.
 
 ### Activity
 
@@ -130,6 +138,9 @@ Additional surfaces that are not `CiError` variants:
 
 - A failed trigger shows a toast with whatever `ci:trigger` rejected with — a formatted
   `CiApiError`, or a plain `Error` from the handler's input validation.
+- The completion toast for a build triggered from Canopy (see Run job…) comes from a
+  background `ci:build` poll, not from `CiError` handling — poll failures are tolerated
+  (five in a row stop the observation silently).
 - A branch with no builds is not an error: the Last-job card shows a "No builds" chip
   and running a job stays available.
 
@@ -173,7 +184,7 @@ Additional surfaces that are not `CiError` variants:
 | Config/keychain glue  | `src/main/ci/CiManager.ts` (+ tests — allowlist, token gate, config validation)                                                                                                                                                                           |
 | IPC                   | `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:branches`, `ci:activity`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection` in `src/main/ipc/handlers.ts`                                                        |
 | Renderer store        | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                                                                                                                |
-| Renderer helpers      | `src/renderer/src/lib/ci/status.ts`, `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`, `src/renderer/src/lib/a11y/focusTrap.ts` (shared dialog focus trap)                    |
+| Renderer helpers      | `src/renderer/src/lib/ci/status.ts` (+ tests), `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`, `src/renderer/src/lib/a11y/focusTrap.ts` (shared dialog focus trap)          |
 | Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/ci/CiLastJobCard.svelte` (Last-job card), `src/renderer/src/components/sidebar/ProjectTreeSection.svelte` (Run CI Job on Branch… context-menu entry) |
 | Dialogs               | `src/renderer/src/components/ci/CiRunJobModal.svelte`, `src/renderer/src/components/ci/RunBuildDialog.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`)                                                       |
 | Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`, `src/renderer/src/components/ci/CiJobPicker.svelte` (job selection list)                                                                                                                 |
