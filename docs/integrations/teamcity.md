@@ -27,9 +27,12 @@ The integration follows the Project management architecture:
 ### CI/CD sidebar section
 
 - **Not configured**: a "Configure TeamCity" entry opens the per-repo configurator.
-- **Configured**: the server row (click opens TeamCity), a **Run job…** entry, and a
-  one-row **Activity** summary ("2 running · 1 queued" / "Idle") — clicking it opens
-  the activity window with the detailed list.
+- **Configured**: the server row (click opens TeamCity), a highlighted **Last job** card
+  with the newest build of the active worktree's branch (build number and status chip;
+  clicking the card opens that build in TeamCity), a **Run job…** entry, and a summary
+  row labelled **Jobs history** — **Running job** while anything is active — whose chip
+  shows "2 running · 1 queued" or "Idle". Clicking the row opens the activity window
+  with the detailed list.
 - **Token missing**: a banner links to Settings → CI connections.
 
 ### Per-repo configurator (modal)

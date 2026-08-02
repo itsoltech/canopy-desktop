@@ -228,6 +228,16 @@
     typesLoaded ? [...selected.keys()].filter((id) => !serverTypes.some((bt) => bt.id === id)) : [],
   )
 
+  // True only when the SERVER is the reason nothing can be saved — none of the ids
+  // in the committed config came back. Unticking every live job also empties
+  // `effectiveBuildTypes`, but that is the user's own edit and must not be reported
+  // as "your jobs are gone" (nor push them at Remove CI configuration).
+  let allConfiguredStale = $derived(
+    typesLoaded &&
+      (existingConfig?.buildTypes.length ?? 0) > 0 &&
+      (existingConfig?.buildTypes ?? []).every((bt) => !serverTypes.some((s) => s.id === bt.id)),
+  )
+
   function toggleType(bt: ServerBuildType): void {
     if (selected.has(bt.id)) selected.delete(bt.id)
     else selected.set(bt.id, selected.get(bt.id) ?? bt.name)
@@ -410,10 +420,13 @@
         {:else if typesLoaded}
           {#if missingBuildTypes.length > 0}
             {@const missingNames = missingBuildTypes
-              .map((id) => `${selected.get(id) || id} (${id})`)
+              .map((id) => {
+                const label = selected.get(id)
+                return label && label !== id ? `${label} (${id})` : id
+              })
               .join(', ')}
             <p class="m-0 text-xs text-warning-text leading-snug" id="ci-stale-jobs" role="alert">
-              {#if effectiveBuildTypes.length === 0}
+              {#if allConfiguredStale && effectiveBuildTypes.length === 0}
                 None of this repository's configured jobs exist on this server any more ({missingNames}).
                 Save is disabled until you tick at least one job below — or use
                 <strong>Remove CI configuration</strong> to drop the
