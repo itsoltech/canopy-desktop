@@ -6,6 +6,11 @@
   // Newest build of the ACTIVE worktree's branch, per configured job. With a single
   // job the WHOLE card is one click target — hover OR keyboard focus anywhere
   // reveals the corner open icon and lights up the build number.
+  //
+  // Rows without a build use aria-disabled (not disabled): a disabled button leaves
+  // the tab order and Chromium suppresses its title tooltip, which would make the
+  // "why is this unavailable" reason unreachable by any input modality. onclick
+  // guards on row.build, so nothing can be activated.
 
   let { rows, branch }: { rows: CiBuildTypeStatus[]; branch: string } = $props()
 </script>
@@ -28,6 +33,11 @@
       >
     {/if}
     <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}">{chip.label}</span>
+    {#if row.error}
+      <!-- The failure reason must not depend on a tooltip — disabled/aria-disabled
+           tooltips are unreliable, and screen readers don't read title by default. -->
+      <span class="sr-only">{row.error}</span>
+    {/if}
   </span>
 {/snippet}
 
@@ -35,8 +45,8 @@
   {@const row = rows[0]}
   <button
     type="button"
-    class="group/card mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1 bg-transparent text-left font-inherit enabled:cursor-pointer disabled:cursor-default"
-    disabled={!row.build}
+    class="group/card mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1 bg-transparent text-left font-inherit cursor-pointer aria-disabled:cursor-default"
+    aria-disabled={!row.build}
     onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
     title={row.build
       ? `${row.label} — open build #${row.build.number} in TeamCity`
@@ -69,8 +79,8 @@
     {#each rows as row (row.buildTypeId)}
       <button
         type="button"
-        class="group/card flex items-center gap-2 w-full border-0 bg-transparent p-0 text-sm text-text font-inherit text-left enabled:cursor-pointer disabled:cursor-default"
-        disabled={!row.build}
+        class="group/card flex items-center gap-2 w-full border-0 bg-transparent p-0 text-sm text-text font-inherit text-left cursor-pointer aria-disabled:cursor-default"
+        aria-disabled={!row.build}
         onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
         title={row.build
           ? `${row.label} — open build #${row.build.number} in TeamCity`
