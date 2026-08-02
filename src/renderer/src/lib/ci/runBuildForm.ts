@@ -46,5 +46,13 @@ export function toProperties(
   params: CiParameter[],
   values: Record<string, string>,
 ): Array<{ name: string; value: string }> {
-  return params.map((p) => ({ name: p.name, value: values[p.name] ?? '' }))
+  return (
+    params
+      // An untouched password prompt is OMITTED, not sent empty: `parsePromptParameters`
+      // deliberately blanks its default, and a property present in the trigger payload
+      // overrides the configuration's stored value — sending '' would deploy with an
+      // empty secret. Leaving it out is what TeamCity's own dialog does.
+      .filter((p) => !(p.kind === 'password' && (values[p.name] ?? '') === ''))
+      .map((p) => ({ name: p.name, value: values[p.name] ?? '' }))
+  )
 }

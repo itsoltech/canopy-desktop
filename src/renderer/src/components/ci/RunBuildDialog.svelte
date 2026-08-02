@@ -97,7 +97,8 @@
 
     <p class="m-0 text-xs text-text-muted leading-snug">
       This build configuration prompts for parameters. Values below are the configuration's current
-      defaults.
+      defaults — except password parameters, which always start empty. Leave one blank to use the
+      value stored on the server.
     </p>
 
     <div class="flex flex-col gap-3">

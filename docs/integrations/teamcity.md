@@ -55,7 +55,11 @@ prompts for
 parameters (TeamCity's "Run custom build"), Canopy shows an equivalent dynamic form:
 text inputs with descriptions, checkboxes honoring custom checked/unchecked values,
 single selects, multi-selects with All/None joined by the spec's value separator, and
-masked inputs for `password` parameters (secret values are never rendered in the clear).
+masked inputs for `password` parameters. Password prompts always start **empty** — the
+value is never fetched into the app, so a secret cannot appear on screen, in a
+screenshot, or in the renderer's heap. Leave one blank to run with the value stored on
+the TeamCity server (the property is omitted from the trigger payload); type into it
+only to override that value for this run.
 Fields are prefilled with the configuration's current values; checkboxes follow
 TeamCity's dialog semantics exactly — an unchecked checkbox submits its
 `uncheckedValue` (configs may carry whole CLI fragments there), never the raw stored
@@ -137,6 +141,10 @@ Additional surfaces that are not `CiError` variants:
   transport). Every path where a token typed into a form is first stored (Settings → CI
   connections, and the configurator) therefore requires an explicit
   confirm naming the exact URL, with a warning for plain `http://`.
+- `password` prompt parameters never reach the renderer: their server-side value is
+  discarded at parse time in the main process, the field starts empty, and an
+  untouched field is omitted from the trigger payload so TeamCity uses its stored
+  secret.
 - Build type ids and branch names cross the IPC boundary through strict charsets
   (`BUILD_TYPE_ID_PATTERN` = `[A-Za-z0-9_]{1,255}`, branch = `[A-Za-z0-9._/-]{1,255}`)
   that cannot escape a parenthesized TeamCity locator value. Triggering and

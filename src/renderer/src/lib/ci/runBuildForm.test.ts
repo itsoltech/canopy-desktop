@@ -115,4 +115,17 @@ describe('toProperties', () => {
       { name: 'B', value: '' },
     ])
   })
+
+  it('omits untouched password prompts and keeps typed ones', () => {
+    // A property present in the payload OVERRIDES the configuration's stored value —
+    // an empty password must be left out so TeamCity falls back to its own secret.
+    const params = [param({ name: 'DeployKey', kind: 'password' }), param({ name: 'Env' })]
+    expect(toProperties(params, { DeployKey: '', Env: 'Test' })).toEqual([
+      { name: 'Env', value: 'Test' },
+    ])
+    expect(toProperties(params, { DeployKey: 'typed-secret', Env: 'Test' })).toEqual([
+      { name: 'DeployKey', value: 'typed-secret' },
+      { name: 'Env', value: 'Test' },
+    ])
+  })
 })

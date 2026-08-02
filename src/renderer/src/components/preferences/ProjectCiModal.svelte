@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Check, LoaderCircle, Trash2, X } from '@lucide/svelte'
-  import { SvelteMap } from 'svelte/reactivity'
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -45,6 +45,9 @@
   let typesError = $state('')
   let typesLoaded = $state(false)
   const selected = new SvelteMap<string, string>()
+  // URLs whose existing-config selection was already seeded once — an empty `selected`
+  // is ALSO what a user who deselected everything has, so re-seeding must not key on size.
+  const seededFor = new SvelteSet<string>()
 
   let effectiveUrl = $derived(
     selectedServer === NEW_SERVER ? newUrl.trim().replace(/\/$/, '') : selectedServer,
@@ -83,6 +86,7 @@
     }
     if (existingConfig) {
       selectedServer = existingConfig.baseUrl
+      seededFor.add(existingConfig.baseUrl)
       for (const bt of existingConfig.buildTypes) selected.set(bt.id, bt.label)
       // Editing with a stored token: show the picker right away.
       if (servers.some((s) => s.baseUrl === existingConfig!.baseUrl)) void loadBuildTypes()
@@ -187,8 +191,11 @@
       serverTypes = await window.api.ciListBuildTypes(effectiveUrl)
       typesLoaded = true
       // Returning to the server the repo is already configured against re-ticks its
-      // jobs (selectServer cleared them — the selection is per-server).
-      if (existingConfig && effectiveUrl === existingConfig.baseUrl && selected.size === 0) {
+      // jobs ONCE (selectServer cleared them — the selection is per-server). Tracked
+      // by a flag, not by `selected.size`: an empty map is also what a user who
+      // deselected everything has, and their choice must not be undone on reload.
+      if (existingConfig && effectiveUrl === existingConfig.baseUrl && !seededFor.has(effectiveUrl)) {
+        seededFor.add(effectiveUrl)
         for (const bt of existingConfig.buildTypes) selected.set(bt.id, bt.label)
       }
     } catch (e) {
