@@ -122,17 +122,6 @@
     return parts.join(' · ') || 'Idle'
   })
 
-  // Coarse state for the live region — no percentage, so a running build announces
-  // once instead of on every 10 s poll. The chip keeps the fine-grained summary.
-  let ciAnnouncement = $derived.by(() => {
-    if (!hasConfigAndToken || !activityLoaded) return ''
-    if (activityError) return 'CI activity unavailable'
-    const running = activity?.running.length ?? 0
-    const queued = activity?.queued.length ?? 0
-    if (running === 0 && queued === 0) return 'CI idle'
-    return `CI: ${running} running, ${queued} queued`
-  })
-
   // --- Last build of the CURRENT branch (highlighted card) — the newest build per
   // configured job for the active worktree's branch, via ci:status ---
 
@@ -143,6 +132,26 @@
   let branchError = $derived(branchState.response?.error ?? '')
   // Primitive deps for the poll effect (see the activity effect above).
   let branchBuildActive = $derived(anyBuildActive(branchRows))
+
+  // Coarse state for the live region — no percentage, so a running build announces
+  // once instead of on every 10 s poll. The chip keeps the fine-grained summary.
+  let ciAnnouncement = $derived.by(() => {
+    if (!hasConfigAndToken) return ''
+    // Branch status first: a job whose status can't be fetched is the more
+    // consequential change, and it is otherwise silent (the chip and the sr-only
+    // reason are only found by navigating back into the section).
+    if (branchError) return 'CI status unavailable'
+    const unavailable = branchRows.filter((r) => r.error).length
+    if (unavailable > 0) {
+      return `CI status unavailable for ${unavailable} ${unavailable === 1 ? 'job' : 'jobs'}`
+    }
+    if (!activityLoaded) return ''
+    if (activityError) return 'CI activity unavailable'
+    const running = activity?.running.length ?? 0
+    const queued = activity?.queued.length ?? 0
+    if (running === 0 && queued === 0) return 'CI idle'
+    return `CI: ${running} running, ${queued} queued`
+  })
 
   $effect(() => {
     if (!hasConfigAndToken) return
