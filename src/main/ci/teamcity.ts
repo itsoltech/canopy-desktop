@@ -46,7 +46,9 @@ export function mapBuild(raw: RawBuild): CiBuildStatus {
   const state: CiBuildState =
     raw.state === 'queued' || raw.state === 'running' ? raw.state : 'finished'
   const status: CiBuildResult =
-    raw.status === 'SUCCESS' || raw.status === 'FAILURE' ? raw.status : 'UNKNOWN'
+    raw.status === 'SUCCESS' || raw.status === 'FAILURE' || raw.status === 'ERROR'
+      ? raw.status
+      : 'UNKNOWN'
   return {
     id: raw.id,
     number: raw.number ?? String(raw.id),

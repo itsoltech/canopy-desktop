@@ -1,4 +1,4 @@
-import { match } from 'ts-pattern'
+import { match, P } from 'ts-pattern'
 import type { CiBuildTypeStatus } from './types'
 
 export interface CiChip {
@@ -24,18 +24,25 @@ export function ciChip(row: { build: ChipBuild | null; error?: string }): CiChip
   if (row.error) return { label: 'Unavailable', cls: 'bg-warning-bg text-warning-text' }
   const build = row.build
   if (!build) return { label: 'No builds', cls: 'bg-active text-text-muted' }
-  return match(build)
-    .with({ state: 'queued' }, () => ({ label: 'Queued', cls: 'bg-active text-text-muted' }))
-    .with({ state: 'running' }, (b) => ({
-      label: b.percentageComplete != null ? `Running ${b.percentageComplete}%` : 'Running',
-      cls: 'bg-accent-bg text-accent-text',
-    }))
-    .with({ status: 'SUCCESS' }, () => ({
-      label: 'Success',
-      cls: 'bg-success-bg text-success-text',
-    }))
-    .with({ status: 'FAILURE' }, () => ({ label: 'Failed', cls: 'bg-danger-bg text-danger-text' }))
-    .otherwise(() => ({ label: 'Unknown', cls: 'bg-active text-text-muted' }))
+  return (
+    match(build)
+      .with({ state: 'queued' }, () => ({ label: 'Queued', cls: 'bg-active text-text-muted' }))
+      .with({ state: 'running' }, (b) => ({
+        label: b.percentageComplete != null ? `Running ${b.percentageComplete}%` : 'Running',
+        cls: 'bg-accent-bg text-accent-text',
+      }))
+      .with({ status: 'SUCCESS' }, () => ({
+        label: 'Success',
+        cls: 'bg-success-bg text-success-text',
+      }))
+      // ERROR is TeamCity's infra/agent failure — red in its own UI, so it must not
+      // share the neutral Unknown chip with "never built" and cancelled builds.
+      .with({ status: P.union('FAILURE', 'ERROR') }, () => ({
+        label: 'Failed',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .otherwise(() => ({ label: 'Unknown', cls: 'bg-active text-text-muted' }))
+  )
 }
 
 /** Drives the faster poll interval — a queued or running build changes state soon. */

@@ -36,6 +36,9 @@ describe('ciChip', () => {
     expect(ciChip({ build: build({ state: 'queued', status: 'UNKNOWN' }) }).label).toBe('Queued')
     expect(ciChip({ build: build({ status: 'SUCCESS' }) }).label).toBe('Success')
     expect(ciChip({ build: build({ status: 'FAILURE' }) }).label).toBe('Failed')
+    // ERROR is a red state in TeamCity's own UI — it must read as a failure,
+    // not share the neutral chip with "never built".
+    expect(ciChip({ build: build({ status: 'ERROR' }) }).label).toBe('Failed')
     expect(ciChip({ build: build({ status: 'UNKNOWN' }) }).label).toBe('Unknown')
   })
 

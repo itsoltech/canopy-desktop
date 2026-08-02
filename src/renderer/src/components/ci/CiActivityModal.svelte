@@ -126,7 +126,7 @@
     <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}">{chip.label}</span>
     <ExternalLink
       size={11}
-      class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
+      class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60 group-focus-within:opacity-60"
     />
   </button>
 {/snippet}

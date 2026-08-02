@@ -16,7 +16,9 @@ export interface CiConfig {
 // --- Normalized build state ---
 
 export type CiBuildState = 'queued' | 'running' | 'finished'
-export type CiBuildResult = 'SUCCESS' | 'FAILURE' | 'UNKNOWN'
+// ERROR is TeamCity's infra/agent-failure outcome — a red state in its own UI,
+// so it must stay distinguishable from UNKNOWN (which also covers cancelled).
+export type CiBuildResult = 'SUCCESS' | 'FAILURE' | 'ERROR' | 'UNKNOWN'
 
 export interface CiBuildStatus {
   id: number
