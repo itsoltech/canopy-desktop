@@ -11,6 +11,7 @@
   } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
+  import CiLastJobCard from '../ci/CiLastJobCard.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import {
     showPreferences,
@@ -25,8 +26,8 @@
     getCiState,
     refreshCi,
   } from '../../lib/stores/ci.svelte'
-  import { ciChip, anyBuildActive } from '../../lib/ci/status'
-  import type { CiActivityBuild, CiBuildTypeStatus } from '../../lib/ci/types'
+  import { anyBuildActive } from '../../lib/ci/status'
+  import type { CiActivityBuild } from '../../lib/ci/types'
 
   // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
   // branch, and the server's current activity. Mirrors the Project management
@@ -150,27 +151,13 @@
   }
 </script>
 
-{#snippet lastJobLine(row: CiBuildTypeStatus, showJobLabel: boolean)}
-  <!-- Shared line of the Last-job card (single- and multi-job variants). Reveals are
-       paired hover + focus-within so keyboard focus gets the same affordance. -->
-  {@const chip = ciChip(row.build)}
-  <span class="flex items-center gap-2 w-full text-sm text-text">
-    <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted"
-      >{workspaceState.branch}</span
-    >
-    {#if showJobLabel}
-      <span class="text-2xs text-text-faint truncate max-w-24">{row.label}</span>
-    {/if}
-    {#if row.build}
-      <span
-        class="font-mono text-2xs text-text-secondary flex-shrink-0 underline-offset-2 group-hover/card:text-accent-text group-focus-within/card:text-accent-text group-hover/card:underline group-focus-within/card:underline"
-        >#{row.build.number}</span
-      >
-    {/if}
-    <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}">{chip.label}</span>
-  </span>
-{/snippet}
-
+<!-- The summary chip and the row label flip on a background poll — announce the
+     change instead of mutating silently under assistive tech. -->
+<span class="sr-only" aria-live="polite"
+  >{hasConfigAndToken && activityLoaded && !activityError
+    ? `CI activity: ${activitySummary}`
+    : ''}</span
+>
 <CollapsibleSection title="CI/CD" sectionKey="cicd" borderTop>
   {#snippet headerExtra()}
     <!-- Always available — for unconfigured worktrees this is the ONLY entry point
@@ -274,59 +261,8 @@
           {/if}
         </button>
 
-        {#if branchRows.length === 1 && branchRows[0] && workspaceState.branch}
-          {@const row = branchRows[0]}
-          <!-- Newest build of the ACTIVE worktree's branch. The WHOLE card is one
-               click target — hover OR keyboard focus anywhere reveals the corner
-               open icon and lights up the build number. -->
-          <button
-            type="button"
-            class="group/card mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1 bg-transparent text-left font-inherit enabled:cursor-pointer disabled:cursor-default"
-            disabled={!row.build}
-            onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
-            title={row.build
-              ? `${row.label} — open build #${row.build.number} in TeamCity`
-              : `No builds of ${row.label} for this branch yet`}
-          >
-            <span class="flex items-center gap-2 w-full">
-              <span
-                class="flex-1 min-w-0 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
-                title={row.label}>Last job · {row.label}</span
-              >
-              {#if row.build}
-                <span
-                  class="flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 group-focus-within/card:opacity-100 flex-shrink-0"
-                  aria-hidden="true"
-                >
-                  <ExternalLink size={11} />
-                </span>
-              {/if}
-            </span>
-            {@render lastJobLine(row, false)}
-          </button>
-        {:else if branchRows.length > 1 && workspaceState.branch}
-          <!-- Multiple configured jobs: header + one click target per job. -->
-          <div
-            class="mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1"
-          >
-            <span
-              class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
-              >Last job</span
-            >
-            {#each branchRows as row (row.buildTypeId)}
-              <button
-                type="button"
-                class="group/card flex items-center gap-2 w-full border-0 bg-transparent p-0 text-sm text-text font-inherit text-left enabled:cursor-pointer disabled:cursor-default"
-                disabled={!row.build}
-                onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
-                title={row.build
-                  ? `${row.label} — open build #${row.build.number} in TeamCity`
-                  : `No builds of ${row.label} for this branch yet`}
-              >
-                {@render lastJobLine(row, true)}
-              </button>
-            {/each}
-          </div>
+        {#if branchRows.length > 0 && workspaceState.branch}
+          <CiLastJobCard rows={branchRows} branch={workspaceState.branch} />
         {/if}
       {/if}
     </div>

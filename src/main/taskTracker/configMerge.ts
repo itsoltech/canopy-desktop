@@ -80,6 +80,8 @@ export function mergeConfigs(
     filters: r.filters,
     // Agent guidance is project-owned, like the naming templates.
     agents: r.agents,
+    // `ci` is deliberately NOT merged: it is repo-owned (no global counterpart), and the
+    // merged config only feeds tracker resolution — CI reads the repo config directly.
   }
 
   return {

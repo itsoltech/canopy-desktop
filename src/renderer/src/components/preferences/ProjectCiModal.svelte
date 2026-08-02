@@ -8,7 +8,7 @@
   import { loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import CustomSelect from '../shared/CustomSelect.svelte'
-  import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import CiJobPicker from '../ci/CiJobPicker.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
 
@@ -200,15 +200,21 @@
     }
   }
 
-  let groupedTypes = $derived.by(() => {
-    const groups = new SvelteMap<string, ServerBuildType[]>()
-    for (const bt of serverTypes) {
-      const key = bt.projectName || 'Other'
-      const list = groups.get(key)
-      if (list) list.push(bt)
-      else groups.set(key, [bt])
-    }
-    return [...groups.entries()]
+  // What Save will actually write — only ids the server just confirmed, ordered by
+  // the existing config (new entries appended) so an unrelated Save doesn't reshuffle
+  // the team's sidebar rows. Gating the button on THIS instead of `selected.size`
+  // keeps the enabled state and the request in agreement when every seeded id has
+  // been deleted or re-ided on TeamCity.
+  let effectiveBuildTypes = $derived.by(() => {
+    const confirmed = serverTypes
+      .filter((bt) => selected.has(bt.id))
+      .map((bt) => ({ id: bt.id, label: selected.get(bt.id) || bt.name }))
+    const savedOrder = new Map((existingConfig?.buildTypes ?? []).map((bt, i) => [bt.id, i]))
+    return confirmed.sort(
+      (a, b) =>
+        (savedOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (savedOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    )
   })
 
   function toggleType(bt: ServerBuildType): void {
@@ -217,19 +223,14 @@
   }
 
   async function saveConfiguration(): Promise<void> {
-    if (!repoRoot || selected.size === 0 || !urlValid) return
+    if (!repoRoot || effectiveBuildTypes.length === 0 || !urlValid) return
     saving = true
     try {
       await window.api.ciSaveConfig(repoRoot, {
         baseUrl: effectiveUrl,
-        // Only ids the server just confirmed (Save is gated on typesLoaded): a job
-        // deleted or re-ided on TeamCity has no checkbox in the picker, so it could
-        // never be unticked — writing it back would re-commit a dead entry to the
-        // git-shared config. Labels stay from `selected`: they are the user's own
-        // editable sidebar labels, not mirrors of the server name.
-        buildTypes: serverTypes
-          .filter((bt) => selected.has(bt.id))
-          .map((bt) => ({ id: bt.id, label: selected.get(bt.id) || bt.name })),
+        // Labels stay from `selected`: they are the user's own editable sidebar
+        // labels, not mirrors of the server name.
+        buildTypes: effectiveBuildTypes,
       })
       await loadCiRepoConfig(repoRoot)
       addToast('CI configuration saved — commit .canopy/config.json to share it')
@@ -396,48 +397,7 @@
             Loading available jobs…
           </div>
         {:else if typesLoaded}
-          {#if serverTypes.length === 0}
-            <span class="text-xs text-text-faint">The server exposes no jobs.</span>
-          {:else}
-            <div class="flex flex-col gap-2">
-              <p class="m-0 text-xs text-text-muted leading-snug">
-                These are all the jobs (build configurations) the TeamCity server exposes. Check the
-                ones that belong to THIS repository — only those appear in Canopy (the CI/CD
-                section, Run job and the branch context menu). The selection is written to the
-                git-tracked <code class="font-mono">.canopy/config.json</code>, so after you commit
-                it the whole team gets the same jobs. Labels are editable and shown in the sidebar.
-              </p>
-              {#each groupedTypes as [project, types] (project)}
-                <div class="flex flex-col gap-1">
-                  <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-                    >{project}</span
-                  >
-                  {#each types as bt (bt.id)}
-                    <div class="flex items-center gap-2">
-                      <label
-                        class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none min-w-0"
-                      >
-                        <CustomCheckbox
-                          checked={selected.has(bt.id)}
-                          onchange={() => toggleType(bt)}
-                        />
-                        <span class="truncate" title={bt.id}>{bt.name}</span>
-                      </label>
-                      {#if selected.has(bt.id)}
-                        <input
-                          class="flex-1 min-w-24 max-w-48 px-2 py-0.5 border border-border rounded-md bg-bg-input text-text text-xs font-inherit outline-none focus:border-focus-ring"
-                          aria-label={`Sidebar label for ${bt.name}`}
-                          value={selected.get(bt.id) ?? bt.name}
-                          oninput={(e) => selected.set(bt.id, e.currentTarget.value)}
-                          title="Label shown in the sidebar"
-                        />
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              {/each}
-            </div>
-          {/if}
+          <CiJobPicker {serverTypes} {selected} onToggle={toggleType} />
         {/if}
       {/if}
     </div>
@@ -467,7 +427,7 @@
           type="button"
           class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
           onclick={saveConfiguration}
-          disabled={saving || !typesLoaded || selected.size === 0 || !urlValid}
+          disabled={saving || !typesLoaded || effectiveBuildTypes.length === 0 || !urlValid}
           title="Writes the ci block to .canopy/config.json — commit it to share with the team"
           >{saving ? 'Saving…' : 'Save configuration'}</button
         >

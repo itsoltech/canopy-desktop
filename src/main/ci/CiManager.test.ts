@@ -1,0 +1,158 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { okAsync, errAsync } from 'neverthrow'
+import { CiManager } from './CiManager'
+import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
+import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
+
+// The network layer is mocked — these tests pin the SECURITY-relevant glue: the
+// configured-build-type allowlist, the token gate, config validation at read time
+// and the load→save round-trip of saveConfig.
+vi.mock('./teamcity', () => ({
+  fetchActivity: vi.fn(() => okAsync({ running: [], queued: [], recent: [] })),
+  fetchBranches: vi.fn(() => okAsync(['master'])),
+  fetchBuild: vi.fn(() => okAsync({})),
+  fetchBuildForBranch: vi.fn(() => okAsync(null)),
+  fetchBuildTypes: vi.fn(() => okAsync([])),
+  fetchPromptParameters: vi.fn(() => okAsync([])),
+  triggerBuild: vi.fn(() => okAsync({ buildId: 1, webUrl: 'https://tc/1', branchName: 'next' })),
+}))
+
+import { triggerBuild, fetchBuildForBranch } from './teamcity'
+
+const VALID_CI = {
+  provider: 'teamcity',
+  baseUrl: 'https://tc.example.com',
+  buildTypes: [{ id: 'Gakko_Build', label: 'Build' }],
+}
+
+function fakes(opts?: { ci?: unknown; token?: string | null; loadFails?: boolean }): {
+  repoConfigManager: RepoConfigManager
+  tokenStore: KeychainTokenStore
+  manager: CiManager
+} {
+  const config = { version: 1, trackers: [], projectOverrides: {}, filters: {}, ci: opts?.ci }
+  const repoConfigManager = {
+    load: vi.fn(() =>
+      opts?.loadFails
+        ? errAsync({ _tag: 'ConfigNotFound', repoRoot: 'r' })
+        : okAsync(structuredClone(config)),
+    ),
+    init: vi.fn(() => okAsync({ version: 1, trackers: [], projectOverrides: {}, filters: {} })),
+    save: vi.fn(() => okAsync(undefined)),
+  } as unknown as RepoConfigManager
+  const tokenStore = {
+    getCredentials: vi.fn(() =>
+      opts?.token === null ? null : { token: opts?.token ?? 'tok', username: undefined },
+    ),
+  } as unknown as KeychainTokenStore
+  return { repoConfigManager, tokenStore, manager: new CiManager(repoConfigManager, tokenStore) }
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe('loadConfig', () => {
+  it('degrades a missing or malformed ci block to CiNotConfigured', async () => {
+    for (const ci of [undefined, 'garbage', { provider: 'jenkins' }]) {
+      const { manager } = fakes({ ci })
+      const result = await manager.loadConfig('r')
+      expect(result.isErr() && result.error._tag).toBe('CiNotConfigured')
+    }
+  })
+
+  it('degrades a failed config load to CiNotConfigured', async () => {
+    const { manager } = fakes({ loadFails: true })
+    const result = await manager.loadConfig('r')
+    expect(result.isErr() && result.error._tag).toBe('CiNotConfigured')
+  })
+
+  it('returns the validated config', async () => {
+    const { manager } = fakes({ ci: VALID_CI })
+    const result = await manager.loadConfig('r')
+    expect(result.isOk() && result.value.baseUrl).toBe('https://tc.example.com')
+  })
+})
+
+describe('the configured-build-type allowlist', () => {
+  it('rejects triggering a job that is not in the repo config', async () => {
+    const { manager } = fakes({ ci: VALID_CI })
+    const result = await manager.trigger('r', 'Other_Job', 'next')
+    expect(result.isErr() && result.error._tag).toBe('CiApiError')
+    expect(result.isErr() && result.error._tag === 'CiApiError' && result.error.message).toContain(
+      'not configured',
+    )
+    expect(triggerBuild).not.toHaveBeenCalled()
+  })
+
+  it('rejects parameter and branch queries for unconfigured jobs', async () => {
+    const { manager } = fakes({ ci: VALID_CI })
+    for (const result of [
+      await manager.promptParameters('r', 'Other_Job'),
+      await manager.branches('r', 'Other_Job'),
+    ]) {
+      expect(result.isErr()).toBe(true)
+    }
+  })
+
+  it('passes a configured job through with the stored token and properties', async () => {
+    const { manager } = fakes({ ci: VALID_CI })
+    const props = [{ name: 'Env', value: 'Test' }]
+    const result = await manager.trigger('r', 'Gakko_Build', 'next', props)
+    expect(result.isOk()).toBe(true)
+    expect(triggerBuild).toHaveBeenCalledWith(
+      'https://tc.example.com',
+      'tok',
+      'Gakko_Build',
+      'next',
+      props,
+    )
+  })
+})
+
+describe('the token gate', () => {
+  it('fails with CiAuthMissing before any network call when no token is stored', async () => {
+    const { manager } = fakes({ ci: VALID_CI, token: null })
+    const result = await manager.trigger('r', 'Gakko_Build', 'next')
+    expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
+    expect(triggerBuild).not.toHaveBeenCalled()
+  })
+})
+
+describe('statusFor', () => {
+  it('uses the provided config without a second config read', async () => {
+    const { manager, repoConfigManager } = fakes({ ci: VALID_CI })
+    const config = (await manager.loadConfig('r'))._unsafeUnwrap()
+    vi.mocked(repoConfigManager.load).mockClear()
+    const result = await manager.statusFor(config, 'next')
+    expect(result.isOk()).toBe(true)
+    expect(repoConfigManager.load).not.toHaveBeenCalled()
+    expect(fetchBuildForBranch).toHaveBeenCalledWith(
+      'https://tc.example.com',
+      'tok',
+      'Gakko_Build',
+      'next',
+    )
+  })
+})
+
+describe('saveConfig', () => {
+  it('writes the ci block through the normal round-trip', async () => {
+    const { manager, repoConfigManager } = fakes({ ci: undefined })
+    const ci = { provider: 'teamcity' as const, baseUrl: 'https://tc', buildTypes: [] }
+    const result = await manager.saveConfig('r', ci)
+    expect(result.isOk()).toBe(true)
+    expect(repoConfigManager.save).toHaveBeenCalledWith('r', expect.objectContaining({ ci }))
+  })
+
+  it('initializes a missing config file before writing', async () => {
+    const { manager, repoConfigManager } = fakes({ loadFails: true })
+    const result = await manager.saveConfig('r', null)
+    expect(result.isOk()).toBe(true)
+    expect(repoConfigManager.init).toHaveBeenCalled()
+    expect(repoConfigManager.save).toHaveBeenCalledWith(
+      'r',
+      expect.objectContaining({ ci: undefined }),
+    )
+  })
+})
