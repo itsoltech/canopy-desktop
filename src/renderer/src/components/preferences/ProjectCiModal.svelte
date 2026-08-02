@@ -194,7 +194,11 @@
       // jobs ONCE (selectServer cleared them — the selection is per-server). Tracked
       // by a flag, not by `selected.size`: an empty map is also what a user who
       // deselected everything has, and their choice must not be undone on reload.
-      if (existingConfig && effectiveUrl === existingConfig.baseUrl && !seededFor.has(effectiveUrl)) {
+      if (
+        existingConfig &&
+        effectiveUrl === existingConfig.baseUrl &&
+        !seededFor.has(effectiveUrl)
+      ) {
         seededFor.add(effectiveUrl)
         for (const bt of existingConfig.buildTypes) selected.set(bt.id, bt.label)
       }
