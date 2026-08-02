@@ -418,33 +418,33 @@
              must outlive the conditional chain below. -->
         <div role="status" id="ci-stale-jobs">
           {#if typesLoaded && missingBuildTypes.length > 0}
-              {@const missingNames = missingBuildTypes
-                .map((id) => {
-                  const label = selected.get(id)
-                  return label && label !== id ? `${label} (${id})` : id
-                })
-                .join(', ')}
-              <p class="m-0 text-xs text-warning-text leading-snug">
-                {#if allConfiguredStale && effectiveBuildTypes.length === 0}
-                  None of this repository's configured jobs exist on this server any more ({missingNames}).
-                  Save is disabled until you tick at least one job below — or use
-                  <strong>Remove CI configuration</strong> to drop the
-                  <code class="font-mono">ci</code> block entirely.
-                {:else if effectiveBuildTypes.length > 0}
-                  {missingBuildTypes.length} configured
-                  {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
-                  Saving drops
-                  {missingBuildTypes.length === 1 ? 'it' : 'them'} from
-                  <code class="font-mono">.canopy/config.json</code>.
-                {:else}
-                  {missingBuildTypes.length} configured
-                  {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
-                  Tick at least one job below to save — the missing
-                  {missingBuildTypes.length === 1 ? 'entry is' : 'entries are'} dropped from
-                  <code class="font-mono">.canopy/config.json</code> when you do.
-                {/if}
-              </p>
-            {/if}
+            {@const missingNames = missingBuildTypes
+              .map((id) => {
+                const label = selected.get(id)
+                return label && label !== id ? `${label} (${id})` : id
+              })
+              .join(', ')}
+            <p class="m-0 text-xs text-warning-text leading-snug">
+              {#if allConfiguredStale && effectiveBuildTypes.length === 0}
+                None of this repository's configured jobs exist on this server any more ({missingNames}).
+                Save is disabled until you tick at least one job below — or use
+                <strong>Remove CI configuration</strong> to drop the
+                <code class="font-mono">ci</code> block entirely.
+              {:else if effectiveBuildTypes.length > 0}
+                {missingBuildTypes.length} configured
+                {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
+                Saving drops
+                {missingBuildTypes.length === 1 ? 'it' : 'them'} from
+                <code class="font-mono">.canopy/config.json</code>.
+              {:else}
+                {missingBuildTypes.length} configured
+                {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
+                Tick at least one job below to save — the missing
+                {missingBuildTypes.length === 1 ? 'entry is' : 'entries are'} dropped from
+                <code class="font-mono">.canopy/config.json</code> when you do.
+              {/if}
+            </p>
+          {/if}
         </div>
 
         {#if typesLoading && !typesLoaded}
