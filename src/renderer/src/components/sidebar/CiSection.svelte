@@ -138,6 +138,9 @@
 
   let branchState = $derived(getCiState())
   let branchRows = $derived(branchState.response?.configured ? branchState.response.rows : [])
+  // ci:status reports failures as a field (never throws) — surface them, or the
+  // Last-job card silently vanishes with nothing naming the reason.
+  let branchError = $derived(branchState.response?.error ?? '')
   // Primitive deps for the poll effect (see the activity effect above).
   let branchBuildActive = $derived(anyBuildActive(branchRows))
 
@@ -268,7 +271,11 @@
           {/if}
         </button>
 
-        {#if branchRows.length > 0 && workspaceState.branch}
+        {#if branchError}
+          <div class="px-3 py-1 text-xs text-warning-text truncate" title={branchError}>
+            Last job unavailable — {branchError}
+          </div>
+        {:else if branchRows.length > 0 && workspaceState.branch}
           <CiLastJobCard rows={branchRows} branch={workspaceState.branch} />
         {/if}
       {/if}

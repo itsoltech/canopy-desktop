@@ -183,12 +183,28 @@
       </header>
 
       {#if auto || (starting && !config)}
-        <div class="flex items-center gap-2 text-sm text-text-secondary py-2">
-          <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
-          Preparing {label}…
-        </div>
         {#if error}
-          <span class="text-xs text-danger-text">{error}</span>
+          <div class="flex flex-col gap-2 py-2" aria-live="polite">
+            <span class="text-xs text-danger-text">{error}</span>
+            <div class="flex gap-1.5 justify-end">
+              <button
+                type="button"
+                class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
+                onclick={closeDialog}>Close</button
+              >
+              <button
+                type="button"
+                class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
+                onclick={startRun}
+                disabled={starting}>Retry</button
+              >
+            </div>
+          </div>
+        {:else}
+          <div class="flex items-center gap-2 text-sm text-text-secondary py-2">
+            <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
+            Preparing {label}…
+          </div>
         {/if}
       {:else if config}
         <div class="flex flex-col gap-1">

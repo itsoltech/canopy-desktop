@@ -117,11 +117,11 @@ delete or rewrite a hand-edited `ci` block, even an invalid one.
 
 The typed error union `CiError` has three variants:
 
-| Variant           | Meaning                                   | Surface                                                       |
-| ----------------- | ----------------------------------------- | ------------------------------------------------------------- |
-| `CiNotConfigured` | No (valid) `ci` block in the repo config  | Section shows its "configure" entry                           |
-| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections       |
-| `CiApiError`      | HTTP/network/API failure                  | Muted error line in the section (full message in the tooltip) |
+| Variant           | Meaning                                   | Surface                                                                                                                                              |
+| ----------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CiNotConfigured` | No (valid) `ci` block in the repo config  | Section shows its "configure" entry; `ci:status` answers `{ configured: false }` (a silent no-op)                                                    |
+| `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections                                                                                              |
+| `CiApiError`      | HTTP/network/API failure                  | **Jobs history** row shows an `Error` chip (full message in its tooltip); the **Last job** card is replaced by a muted error line naming the failure |
 
 Additional surfaces that are not `CiError` variants:
 

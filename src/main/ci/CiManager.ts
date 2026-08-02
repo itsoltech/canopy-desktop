@@ -68,11 +68,16 @@ export class CiManager {
     return this.tokenFor(ci).andThen((token) =>
       ResultAsync.combine(
         ci.buildTypes.map((bt) =>
-          fetchBuildForBranch(ci.baseUrl, token, bt.id, branch).map((build) => ({
-            buildTypeId: bt.id,
-            label: bt.label,
-            build,
-          })),
+          fetchBuildForBranch(ci.baseUrl, token, bt.id, branch)
+            // One dead build-type id (deleted/re-ided on TeamCity → 404) must cost
+            // ONE row, not the whole card: combine() is fail-fast, so per-row
+            // failures degrade to "no build" instead of collapsing the array.
+            .orElse(() => okAsync(null))
+            .map((build) => ({
+              buildTypeId: bt.id,
+              label: bt.label,
+              build,
+            })),
         ),
       ),
     )
