@@ -87,8 +87,9 @@ export function parsePromptParameters(json: {
         required: spec.required,
         // Password prompts start EMPTY, like TeamCity's own dialog: `prop.value` is
         // either the secret (must not enter the renderer) or a scrambled placeholder
-        // (would be queued as a literal value). An untouched field then submits '',
-        // and TeamCity falls back to the configuration's own value.
+        // (would be queued as a literal value). `toProperties` then OMITS a field
+        // left blank rather than sending '', so TeamCity uses its stored value —
+        // a property present in the payload would override it.
         defaultValue: spec.kind === 'password' ? '' : (prop.value ?? ''),
         options: spec.options,
         multiple: spec.multiple,

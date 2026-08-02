@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Check, LoaderCircle, Trash2, X } from '@lucide/svelte'
-  import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+  import { SvelteMap } from 'svelte/reactivity'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -45,9 +45,6 @@
   let typesError = $state('')
   let typesLoaded = $state(false)
   const selected = new SvelteMap<string, string>()
-  // URLs whose existing-config selection was already seeded once — an empty `selected`
-  // is ALSO what a user who deselected everything has, so re-seeding must not key on size.
-  const seededFor = new SvelteSet<string>()
 
   let effectiveUrl = $derived(
     selectedServer === NEW_SERVER ? newUrl.trim().replace(/\/$/, '') : selectedServer,
@@ -86,7 +83,6 @@
     }
     if (existingConfig) {
       selectedServer = existingConfig.baseUrl
-      seededFor.add(existingConfig.baseUrl)
       for (const bt of existingConfig.buildTypes) selected.set(bt.id, bt.label)
       // Editing with a stored token: show the picker right away.
       if (servers.some((s) => s.baseUrl === existingConfig!.baseUrl)) void loadBuildTypes()
@@ -114,6 +110,12 @@
     // would let Save write these ids under a different baseUrl into the git-shared
     // config, where nothing cross-checks that the jobs exist on that server.
     selected.clear()
+    // Restoring the repo's own saved selection is not "carrying a selection across
+    // servers" — these ids belong to this baseUrl. A selection the user emptied by
+    // unticking is never restored, because nothing re-seeds on reload.
+    if (existingConfig && value === existingConfig.baseUrl) {
+      for (const bt of existingConfig.buildTypes) selected.set(bt.id, bt.label)
+    }
     if (value !== NEW_SERVER && servers.some((s) => s.baseUrl === value)) void loadBuildTypes()
   }
 
@@ -190,18 +192,6 @@
     try {
       serverTypes = await window.api.ciListBuildTypes(effectiveUrl)
       typesLoaded = true
-      // Returning to the server the repo is already configured against re-ticks its
-      // jobs ONCE (selectServer cleared them — the selection is per-server). Tracked
-      // by a flag, not by `selected.size`: an empty map is also what a user who
-      // deselected everything has, and their choice must not be undone on reload.
-      if (
-        existingConfig &&
-        effectiveUrl === existingConfig.baseUrl &&
-        !seededFor.has(effectiveUrl)
-      ) {
-        seededFor.add(effectiveUrl)
-        for (const bt of existingConfig.buildTypes) selected.set(bt.id, bt.label)
-      }
     } catch (e) {
       typesError = e instanceof Error ? e.message : 'Failed to load build configurations'
       serverTypes = []
@@ -232,7 +222,14 @@
     try {
       await window.api.ciSaveConfig(repoRoot, {
         baseUrl: effectiveUrl,
-        buildTypes: [...selected.entries()].map(([id, label]) => ({ id, label })),
+        // Only ids the server just confirmed (Save is gated on typesLoaded): a job
+        // deleted or re-ided on TeamCity has no checkbox in the picker, so it could
+        // never be unticked — writing it back would re-commit a dead entry to the
+        // git-shared config. Labels stay from `selected`: they are the user's own
+        // editable sidebar labels, not mirrors of the server name.
+        buildTypes: serverTypes
+          .filter((bt) => selected.has(bt.id))
+          .map((bt) => ({ id: bt.id, label: selected.get(bt.id) || bt.name })),
       })
       await loadCiRepoConfig(repoRoot)
       addToast('CI configuration saved — commit .canopy/config.json to share it')
