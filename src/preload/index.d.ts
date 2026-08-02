@@ -1651,6 +1651,7 @@ interface CiBuildTypeStatus {
   buildTypeId: string
   label: string
   build: CiBuildStatus | null
+  error?: string
 }
 
 interface CiStatusResponse {

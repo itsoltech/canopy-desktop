@@ -13,7 +13,9 @@
 {#snippet lastJobLine(row: CiBuildTypeStatus, showJobLabel: boolean)}
   <!-- Shared line of both variants. Reveals are paired hover + focus-within so
        keyboard focus gets the same affordance. -->
-  {@const chip = ciChip(row.build)}
+  {@const chip = row.error
+    ? { label: 'Unavailable', cls: 'bg-warning-bg text-warning-text' }
+    : ciChip(row.build)}
   <span class="flex items-center gap-2 w-full text-sm text-text">
     <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted">{branch}</span>
     {#if showJobLabel}
@@ -38,7 +40,9 @@
     onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
     title={row.build
       ? `${row.label} — open build #${row.build.number} in TeamCity`
-      : `No builds of ${row.label} for this branch yet`}
+      : row.error
+        ? `${row.label} — status unavailable: ${row.error}`
+        : `No builds of ${row.label} for this branch yet`}
   >
     <span class="flex items-center gap-2 w-full">
       <span
@@ -70,7 +74,9 @@
         onclick={() => row.build && window.api.openExternal(row.build.webUrl)}
         title={row.build
           ? `${row.label} — open build #${row.build.number} in TeamCity`
-          : `No builds of ${row.label} for this branch yet`}
+          : row.error
+            ? `${row.label} — status unavailable: ${row.error}`
+            : `No builds of ${row.label} for this branch yet`}
       >
         {@render lastJobLine(row, true)}
       </button>

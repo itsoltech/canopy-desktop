@@ -121,7 +121,7 @@ The typed error union `CiError` has three variants:
 | ----------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CiNotConfigured` | No (valid) `ci` block in the repo config  | Section shows its "configure" entry; `ci:status` answers `{ configured: false }` (a silent no-op)                                                    |
 | `CiAuthMissing`   | No token stored for the configured server | Credential banners linking to Settings → CI connections                                                                                              |
-| `CiApiError`      | HTTP/network/API failure                  | **Jobs history** row shows an `Error` chip (full message in its tooltip); the **Last job** card is replaced by a muted error line naming the failure |
+| `CiApiError`      | HTTP/network/API failure                  | **Jobs history** row shows an `Error` chip (full message in its tooltip); affected **Last job** rows show an `Unavailable` chip with the failure in the tooltip (a missing token shows a muted error line) |
 
 Additional surfaces that are not `CiError` variants:
 

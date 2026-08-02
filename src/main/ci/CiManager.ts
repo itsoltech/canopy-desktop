@@ -12,6 +12,7 @@ import type {
   CiTriggerResult,
 } from './types'
 import type { CiError } from './errors'
+import { ciErrorMessage } from './errors'
 import { parseCiConfig } from './config'
 import {
   fetchActivity,
@@ -70,14 +71,19 @@ export class CiManager {
         ci.buildTypes.map((bt) =>
           fetchBuildForBranch(ci.baseUrl, token, bt.id, branch)
             // One dead build-type id (deleted/re-ided on TeamCity → 404) must cost
-            // ONE row, not the whole card: combine() is fail-fast, so per-row
-            // failures degrade to "no build" instead of collapsing the array.
-            .orElse(() => okAsync(null))
-            .map((build) => ({
-              buildTypeId: bt.id,
-              label: bt.label,
-              build,
-            })),
+            // ONE row, not the whole card: combine() is fail-fast. The failure is
+            // CARRIED, not discarded — `null` already means "no build on this
+            // branch", so folding an outage into it would claim the branch was
+            // never built.
+            .map((build): CiBuildTypeStatus => ({ buildTypeId: bt.id, label: bt.label, build }))
+            .orElse((e) =>
+              okAsync<CiBuildTypeStatus, CiError>({
+                buildTypeId: bt.id,
+                label: bt.label,
+                build: null,
+                error: ciErrorMessage(e),
+              }),
+            ),
         ),
       ),
     )

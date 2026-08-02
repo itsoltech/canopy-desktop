@@ -33,6 +33,8 @@ export interface CiBuildTypeStatus {
   buildTypeId: string
   label: string
   build: CiBuildStatus | null
+  /** Set when THIS row's status fetch failed — null build then means "unknown", not "never built". */
+  error?: string
 }
 
 export interface CiTriggerResult {

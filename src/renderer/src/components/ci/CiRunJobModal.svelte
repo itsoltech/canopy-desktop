@@ -183,8 +183,10 @@
       </header>
 
       {#if auto || (starting && !config)}
-        {#if error}
-          <div class="flex flex-col gap-2 py-2" aria-live="polite">
+        <!-- Persistent live region: the wrapper mounts with the spinner and the
+             error swaps in as a MUTATION, so it is actually announced. -->
+        <div class="flex flex-col gap-2 py-2 min-h-4.5" aria-live="polite">
+          {#if error}
             <span class="text-xs text-danger-text">{error}</span>
             <div class="flex gap-1.5 justify-end">
               <button
@@ -199,13 +201,13 @@
                 disabled={starting}>Retry</button
               >
             </div>
-          </div>
-        {:else}
-          <div class="flex items-center gap-2 text-sm text-text-secondary py-2">
-            <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
-            Preparing {label}…
-          </div>
-        {/if}
+          {:else}
+            <div class="flex items-center gap-2 text-sm text-text-secondary">
+              <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
+              Preparing {label}…
+            </div>
+          {/if}
+        </div>
       {:else if config}
         <div class="flex flex-col gap-1">
           <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
