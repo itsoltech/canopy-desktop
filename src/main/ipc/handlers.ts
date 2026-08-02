@@ -3284,18 +3284,23 @@ export function registerIpcHandlers(
   const CI_BUILD_TYPE_ID_RE = BUILD_TYPE_ID_PATTERN
   const CI_BRANCH_RE = /^[A-Za-z0-9._/-]{1,255}$/
 
-  // Validated CI config of a repo (or null) — drives the Settings CI row.
+  // Validated CI config of a repo — drives the CI section and both CI modals.
+  // Structured result: `invalid` carries the SCOPE so the renderer can gate the
+  // recovery routes (file → fix by hand, block → re-save) without re-parsing the
+  // formatted message. Not-configured is a normal state (config: null alone).
   ipcMain.handle('ci:config', async (_event, payload: { repoRoot: string }) => {
     if (typeof payload.repoRoot !== 'string' || !payload.repoRoot) {
       throw new Error('repoRoot is required')
     }
     const result = await ciManager.loadConfig(payload.repoRoot)
-    if (result.isOk()) return result.value
-    // Not-configured is a normal state (null drives the "Configure" entries); a
-    // block that EXISTS but cannot be parsed must not read the same — the Run
-    // dialog reports the reason instead of pointing at setup.
-    if (result.error._tag === 'CiConfigInvalid') throw new Error(ciErrorMessage(result.error))
-    return null
+    if (result.isOk()) return { config: result.value }
+    if (result.error._tag === 'CiConfigInvalid') {
+      return {
+        config: null,
+        invalid: { scope: result.error.scope, message: ciErrorMessage(result.error) },
+      }
+    }
+    return { config: null }
   })
 
   // Read: never throws — the sidebar renders whatever state comes back.

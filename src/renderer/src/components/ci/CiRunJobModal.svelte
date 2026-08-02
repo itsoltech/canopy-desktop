@@ -45,17 +45,19 @@
 
   onMount(async () => {
     try {
-      config = await window.api.ciConfig(repoRoot)
+      const res = await window.api.ciConfig(repoRoot)
+      config = res.config
+      // `invalid` distinguishes "the block cannot be used" from "no ci block" —
+      // this dialog only opens from entries that exist BECAUSE the repo is
+      // configured, so "not configured" here would send the user hunting for a
+      // setting they already have.
+      if (!config) {
+        error = res.invalid?.message ?? 'No CI configured for this repository'
+        return
+      }
     } catch (e) {
-      // Distinguish "could not read the config" from "there is no ci block" — this
-      // dialog only opens from entries that exist BECAUSE the repo is configured,
-      // so "not configured" here would send the user hunting for a setting they
-      // already have.
       config = null
       error = e instanceof Error ? e.message : "Could not read this repository's CI configuration"
-    }
-    if (!config) {
-      error ||= 'No CI configured for this repository'
       return
     }
     buildTypeId = config.buildTypes[0]?.id ?? ''

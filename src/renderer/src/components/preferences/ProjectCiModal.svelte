@@ -32,9 +32,11 @@
     baseUrl: string
     buildTypes: Array<{ id: string; label: string }>
   } | null>(null)
-  /** Set when a ci block exists but could not be read — shown so the advertised
-      fix-and-re-save path names what is wrong. */
+  /** Set when a ci block exists but could not be used — shown so the advertised
+      fix-and-re-save path names what is wrong. The scope picks the ONE recovery
+      route to offer (file → hand-edit, Save disabled; block → re-save replaces). */
   let configLoadError = $state('')
+  let configLoadScope = $state<'file' | 'block' | ''>('')
   /** Save/remove failure — surfaced in the footer: a toast would render UNDER
       this modal's scrim (z-banner 9999 < z-overlay 10000) and be unclickable. */
   let saveError = $state('')
@@ -82,11 +84,16 @@
     }
     if (repoRoot) {
       try {
-        existingConfig = await window.api.ciConfig(repoRoot)
+        const res = await window.api.ciConfig(repoRoot)
+        existingConfig = res.config
+        // A block that EXISTS but cannot be used — this modal is the advertised
+        // fix path, so it must show what is wrong instead of opening as if the
+        // repo had never been configured.
+        if (res.invalid) {
+          configLoadError = res.invalid.message
+          configLoadScope = res.invalid.scope
+        }
       } catch (e) {
-        // ci:config throws exactly when a block EXISTS but cannot be read — this
-        // modal is the advertised fix-and-re-save path, so it must show what is
-        // wrong instead of opening as if the repo had never been configured.
         existingConfig = null
         configLoadError =
           e instanceof Error ? e.message : "Could not read this repository's CI configuration"
@@ -356,10 +363,15 @@
         <div role="status">
           {#if configLoadError}
             <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
-              {configLoadError} — the message names which part is broken: when the file itself cannot
-              be read, fix <code class="font-mono">.canopy/config.json</code> by hand (Save is
-              refused, so the rest of the file is never overwritten); when only the
-              <code class="font-mono">ci</code> block is invalid, saving here replaces it.
+              {configLoadError} —
+              {#if configLoadScope === 'file'}
+                fix <code class="font-mono">.canopy/config.json</code> by hand; Save is disabled here
+                because writing would require reading the file first (nothing is ever re-initialized over
+                it).
+              {:else}
+                pick the server and jobs below and Save to replace the invalid
+                <code class="font-mono">ci</code> block — the rest of the file is untouched.
+              {/if}
             </p>
           {/if}
         </div>
@@ -519,7 +531,7 @@
            toast layer (z-banner) paints UNDER this modal's scrim (z-overlay).
            No truncate: CiApiError can carry TeamCity's response body, and the one
            message explaining why a git-shared file was not written must wrap. -->
-      <div class="flex-1 min-w-0 text-xs text-danger-text" aria-live="polite">
+      <div class="flex-1 min-w-0 text-xs text-danger-text break-words" aria-live="polite">
         {saveError}
       </div>
       <div class="flex items-center gap-1.5">
@@ -536,7 +548,8 @@
             typesLoading ||
             !typesLoaded ||
             effectiveBuildTypes.length === 0 ||
-            !urlValid}
+            !urlValid ||
+            configLoadScope === 'file'}
           aria-describedby={missingBuildTypes.length > 0 ? 'ci-stale-jobs' : undefined}
           title="Writes the ci block to .canopy/config.json — commit it to share with the team"
           >{saving ? 'Saving…' : 'Save configuration'}</button

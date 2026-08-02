@@ -88,17 +88,23 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
     repoConfigState = { key, loaded: false, config: null, hasToken: false }
   }
   try {
-    const config = await window.api.ciConfig(repoRoot)
-    const hasToken = config
-      ? await window.api.keychainHasCredentials('teamcity', config.baseUrl)
+    const res = await window.api.ciConfig(repoRoot)
+    const hasToken = res.config
+      ? await window.api.keychainHasCredentials('teamcity', res.config.baseUrl)
       : false
     if (seq !== configSeq) return
-    repoConfigState = { key, loaded: true, config, hasToken }
-  } catch (e) {
-    if (seq !== configSeq) return
-    // ci:config throws exactly when a block EXISTS but cannot be parsed — dropping
+    // `invalid` is set exactly when a block EXISTS but cannot be used — dropping
     // the reason here would put the "Configure TeamCity" entry in front of someone
     // who already has one.
+    repoConfigState = {
+      key,
+      loaded: true,
+      config: res.config,
+      hasToken,
+      error: res.invalid?.message,
+    }
+  } catch (e) {
+    if (seq !== configSeq) return
     repoConfigState = {
       key,
       loaded: true,

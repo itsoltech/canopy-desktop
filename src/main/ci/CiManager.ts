@@ -181,11 +181,13 @@ export class CiManager {
         exists ? this.repoConfigManager.load(repoRoot) : this.repoConfigManager.init(repoRoot),
       )
       .andThen((cfg) => this.repoConfigManager.save(repoRoot, { ...cfg, ci: ci ?? undefined }))
-      .mapErr((e): CiError => ({
-        _tag: 'CiApiError',
-        status: 0,
-        message: taskTrackerErrorMessage(e),
-      }))
+      .mapErr((e): CiError =>
+        // Same reason loadConfig scopes this: a config file that won't parse is
+        // not a TeamCity failure, and CiApiError renders as "TeamCity: …".
+        e._tag === 'ConfigParseError'
+          ? { _tag: 'CiConfigInvalid', scope: 'file', reason: e.reason }
+          : { _tag: 'CiApiError', status: 0, message: taskTrackerErrorMessage(e) },
+      )
   }
 
   build(repoRoot: string, buildId: number): ResultAsync<CiBuildStatus, CiError> {

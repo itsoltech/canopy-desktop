@@ -268,7 +268,7 @@
     if (!ciMenuEnabled || wt.branch === '(detached)') return
     let ciConfigured = false
     try {
-      ciConfigured = (await window.api.ciConfig(wt.path)) != null
+      ciConfigured = (await window.api.ciConfig(wt.path)).config != null
     } catch {
       ciConfigured = false
     }

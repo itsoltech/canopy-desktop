@@ -1043,7 +1043,7 @@ interface CanopyAPI {
   >
 
   // CI (TeamCity)
-  ciConfig: (repoRoot: string) => Promise<CiConfigInfo | null>
+  ciConfig: (repoRoot: string) => Promise<CiConfigResult>
   ciStatus: (repoRoot: string, branch: string) => Promise<CiStatusResponse>
   ciTrigger: (
     repoRoot: string,
@@ -1591,6 +1591,13 @@ interface CiConfigInfo {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: Array<{ id: string; label: string }>
+}
+
+/** Structured `ci:config` answer — `invalid`'s scope gates the recovery routes. */
+interface CiConfigResult {
+  config: CiConfigInfo | null
+  /** Present when a ci block EXISTS but cannot be used (config is null then). */
+  invalid?: { scope: 'file' | 'block'; message: string }
 }
 
 /** A running, queued or recently finished build in the server-wide activity view. */

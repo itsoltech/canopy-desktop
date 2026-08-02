@@ -248,6 +248,11 @@ describe('saveConfig', () => {
     const { manager, repoConfigManager } = fakes({ loadFails: 'parse' })
     const result = await manager.saveConfig('r', null)
     expect(result.isErr()).toBe(true)
+    // A local parse failure must NOT come back as a "TeamCity: …" CiApiError.
+    expect(result.isErr() && result.error._tag).toBe('CiConfigInvalid')
+    expect(result.isErr() && result.error._tag === 'CiConfigInvalid' && result.error.scope).toBe(
+      'file',
+    )
     expect(repoConfigManager.init).not.toHaveBeenCalled()
     expect(repoConfigManager.save).not.toHaveBeenCalled()
   })

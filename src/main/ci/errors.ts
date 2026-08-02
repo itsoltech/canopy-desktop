@@ -24,9 +24,12 @@ export function ciErrorMessage(error: CiError): string {
       // re-parse or strip it. The suffix must not blame the ci block for a
       // file-level failure: most file reasons (bad JSON, unsupported version, a
       // legacy tracker provider) say nothing about `ci`.
+      // "cannot be USED", not "read": two of the file-scope reasons (unsupported
+      // version, a legacy tracker provider) parse fine — a specific field was
+      // rejected, so "cannot be read" would send the user hunting for corruption.
       (e) =>
         e.scope === 'file'
-          ? `${e.reason} — .canopy/config.json cannot be read`
+          ? `${e.reason} — .canopy/config.json cannot be used`
           : `${e.reason} — invalid ci block in .canopy/config.json`,
     )
     .with(
