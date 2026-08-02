@@ -73,6 +73,17 @@ describe('toast slot', () => {
     expect(toastState.kind).toBe('danger')
   })
 
+  it('drops the escalated kind once the segment that earned it is evicted', () => {
+    // A red slot whose message (and title) no longer mentions any failure would
+    // be the inverse of the green-slot-carrying-a-failure mismatch.
+    addToast('give-up', 'default', { sticky: true })
+    addToast('Deploy #17: build failed', 'danger')
+    addToast('post_run one')
+    addToast('post_run two')
+    expect(toastState.message).toBe('post_run two · post_run one · give-up')
+    expect(toastState.kind).toBe('default')
+  })
+
   it('caps the fold at the 2 newest transients and dedupes an identical repeat', () => {
     addToast('sticky-tail', 'default', { sticky: true })
     addToast('post_run one')

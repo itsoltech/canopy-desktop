@@ -25,7 +25,13 @@ const VALID_CI = {
   buildTypes: [{ id: 'Gakko_Build', label: 'Build' }],
 }
 
-function fakes(opts?: { ci?: unknown; token?: string | null; loadFails?: 'notFound' | 'parse' }): {
+function fakes(opts?: {
+  ci?: unknown
+  token?: string | null
+  loadFails?: 'notFound' | 'parse'
+  /** Overrides what exists() reports — defaults to "file is there unless notFound". */
+  exists?: boolean
+}): {
   repoConfigManager: RepoConfigManager
   tokenStore: KeychainTokenStore
   manager: CiManager
@@ -39,6 +45,7 @@ function fakes(opts?: { ci?: unknown; token?: string | null; loadFails?: 'notFou
           ? errAsync({ _tag: 'ConfigParseError', repoRoot: 'r', reason: 'bad JSON' })
           : okAsync(structuredClone(config)),
     ),
+    exists: vi.fn(async () => opts?.exists ?? opts?.loadFails !== 'notFound'),
     init: vi.fn(() => okAsync({ version: 1, trackers: [], projectOverrides: {}, filters: {} })),
     save: vi.fn(() => okAsync(undefined)),
   } as unknown as RepoConfigManager
@@ -230,6 +237,17 @@ describe('saveConfig', () => {
     // delete the repo's trackers, templates and agent config over a typo in the
     // very block this save was about to replace.
     const { manager, repoConfigManager } = fakes({ loadFails: 'parse' })
+    const result = await manager.saveConfig('r', null)
+    expect(result.isErr()).toBe(true)
+    expect(repoConfigManager.init).not.toHaveBeenCalled()
+    expect(repoConfigManager.save).not.toHaveBeenCalled()
+  })
+
+  it('refuses to init when the file exists but the read failed with the lossy tag', async () => {
+    // RepoConfigManager.load maps EVERY readFile rejection to ConfigNotFound — a
+    // transient EMFILE/EACCES on an existing file must not read as "absent" and
+    // be initialized over. The filesystem decides, not the error tag.
+    const { manager, repoConfigManager } = fakes({ loadFails: 'notFound', exists: true })
     const result = await manager.saveConfig('r', null)
     expect(result.isErr()).toBe(true)
     expect(repoConfigManager.init).not.toHaveBeenCalled()

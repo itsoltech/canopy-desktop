@@ -14,7 +14,15 @@ export const toastState: ToastState = $state({
   kind: 'default',
 })
 
+const KIND_RANK: Record<ToastKind, number> = { default: 0, success: 1, danger: 2 }
+
 let dismissTimer: ReturnType<typeof setTimeout> | null = null
+// Kinds of the transient segments currently folded into a sticky toast (newest
+// first, same order and cap as the message segments) plus the sticky holder's own
+// kind — the fold's cap evicts segments, and the chrome must describe what
+// SURVIVES, so the kind is recomputed from the retained segments on every fold.
+let foldedKinds: ToastKind[] = []
+let stickyBaseKind: ToastKind = 'default'
 // Guards the single slot: while a sticky toast is visible, transient chatter must
 // not silently take its place — it is the ONLY surface its state has.
 let sticky = false
@@ -53,24 +61,35 @@ export function addToast(
     // Bounded: the slot can be held for hours and background call sites keep
     // feeding it — keep the 2 newest transients (deduped) with the sticky text
     // always last, or the title and the live-region mirror grow into a paragraph.
+    // (The split relies on sticky messages never containing the ' · ' separator —
+    // reportGiveUp uses '—' and ',' only.)
     const parts = toastState.message.split(' · ')
     const held = parts.pop()!
-    if (parts[0] !== message) {
+    if (parts[0] === message) {
+      // Deduped repeat — it may still raise its own segment's severity.
+      if (KIND_RANK[kind] > KIND_RANK[foldedKinds[0] ?? 'default']) foldedKinds[0] = kind
+    } else {
       toastState.message = [message, ...parts.slice(0, 1), held].join(' · ')
+      foldedKinds = [kind, ...foldedKinds.slice(0, 1)]
     }
-    // Escalate, don't overwrite: the folded message carries more than one outcome,
-    // so the most severe of them has to win — newest-wins would paint a slot that
-    // still carries a (truncated-away) failure success-green. Kind is this
-    // component's only state signal. (The split above relies on sticky messages
-    // never containing the ' · ' separator — reportGiveUp uses '—' and ',' only.)
-    const rank: Record<ToastKind, number> = { default: 0, success: 1, danger: 2 }
-    if (rank[kind] > rank[toastState.kind]) toastState.kind = kind
+    // The chrome is recomputed from the RETAINED segments, not accumulated: a red
+    // slot whose evicted failure no longer appears in the message (or the title)
+    // would be the round-28 mismatch inverted. Kind is this component's only
+    // state signal, so it must always describe text that is still on screen.
+    toastState.kind = foldedKinds.reduce<ToastKind>(
+      (a, b) => (KIND_RANK[b] > KIND_RANK[a] ? b : a),
+      stickyBaseKind,
+    )
     return
   }
   if (dismissTimer) clearTimeout(dismissTimer)
   dismissTimer = null
   sticky = opts?.sticky ?? false
-  if (sticky) stashedSticky = null
+  foldedKinds = []
+  if (sticky) {
+    stashedSticky = null
+    stickyBaseKind = kind
+  }
   toastState.message = message
   toastState.url = ''
   toastState.kind = kind

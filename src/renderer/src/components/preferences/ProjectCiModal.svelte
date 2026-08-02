@@ -32,6 +32,9 @@
     baseUrl: string
     buildTypes: Array<{ id: string; label: string }>
   } | null>(null)
+  /** Set when a ci block exists but could not be read — shown so the advertised
+      fix-and-re-save path names what is wrong. */
+  let configLoadError = $state('')
   let servers = $state<Array<{ baseUrl: string }>>([])
   let selectedServer = $state<string>(NEW_SERVER)
   let newUrl = $state('')
@@ -77,8 +80,13 @@
     if (repoRoot) {
       try {
         existingConfig = await window.api.ciConfig(repoRoot)
-      } catch {
+      } catch (e) {
+        // ci:config throws exactly when a block EXISTS but cannot be read — this
+        // modal is the advertised fix-and-re-save path, so it must show what is
+        // wrong instead of opening as if the repo had never been configured.
         existingConfig = null
+        configLoadError =
+          e instanceof Error ? e.message : "Could not read this repository's CI configuration"
       }
     }
     if (existingConfig) {
@@ -330,6 +338,12 @@
       {#if !repoRoot}
         <p class="text-sm text-text-faint m-0">Open a repository first.</p>
       {:else}
+        {#if configLoadError}
+          <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
+            {configLoadError} — saving here replaces the broken ci block (the rest of .canopy/config.json
+            is never re-initialized over).
+          </p>
+        {/if}
         <div class="flex flex-col gap-1">
           <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
             >Server</span

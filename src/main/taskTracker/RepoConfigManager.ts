@@ -84,8 +84,8 @@ export class RepoConfigManager {
           // Must survive the load→save round-trip: normalization drops unknown fields, so
           // omitting `ci` here would erase the user's hand-edited CI block on the next save.
           // Keep the RAW value — `parseCiConfig` is applied at read time by CiManager, so a
-          // block that fails validation degrades to "not configured" without being deleted
-          // from the user's (git-tracked) config file.
+          // block that fails validation reads as `CiConfigInvalid` (distinct from "not
+          // configured") without being deleted from the user's (git-tracked) config file.
           ci: parsed.ci ?? undefined,
         }
         return ok(normalized)

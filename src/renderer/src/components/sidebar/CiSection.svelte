@@ -38,6 +38,11 @@
   let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let cfgState = $derived(getCiRepoConfig())
   let config = $derived(cfgState.config)
+  // The formatted message front-loads a constant prefix — strip it so the sidebar's
+  // truncated width is spent on the actual reason (full text stays in the title).
+  let cfgErrorReason = $derived(
+    (cfgState.error ?? '').replace(/^CI config in \.canopy\/config\.json is invalid: /, ''),
+  )
   let serverHost = $derived.by(() => {
     try {
       return config ? new URL(config.baseUrl).host : ''
@@ -317,10 +322,16 @@
   {:else if repoRoot && cfgState.loaded}
     {#if cfgState.error}
       <!-- The block EXISTS but cannot be read — a "Configure TeamCity" entry here
-           would send the user to set up what they already have. The header gear
-           still opens the configurator to fix and re-save it. -->
-      <div class="px-3 py-1 text-xs text-warning-text truncate" title={cfgState.error}>
-        {cfgState.error}
+           would send the user to set up what they already have. The REASON is
+           front-loaded (the message's constant prefix would eat the truncated
+           width), and the recovery is a visible button, not just the header gear. -->
+      <div class="px-3 py-1 flex flex-col gap-0.5 text-xs text-warning-text">
+        <span class="truncate" title={cfgState.error}>Invalid CI config — {cfgErrorReason}</span>
+        <button
+          type="button"
+          class="self-start text-2xs underline underline-offset-2 bg-transparent border-0 p-0 font-inherit text-warning-text cursor-pointer hover:text-text"
+          onclick={showProjectCi}>Open the configurator</button
+        >
       </div>
     {:else}
       <!-- Init entry, mirroring Project Management's "Configure Tracker". -->

@@ -170,22 +170,21 @@ export class CiManager {
    * same behavior as the Project tracker init flow.
    */
   saveConfig(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
-    return (
-      this.repoConfigManager
-        .load(repoRoot)
-        // ONLY a missing file may be initialized. `init` overwrites with defaults, so
-        // treating a parse failure as "absent" would delete the repo's trackers,
-        // templates and agent config over a typo in the block we are about to write.
-        .orElse((e) =>
-          e._tag === 'ConfigNotFound' ? this.repoConfigManager.init(repoRoot) : errAsync(e),
-        )
-        .andThen((cfg) => this.repoConfigManager.save(repoRoot, { ...cfg, ci: ci ?? undefined }))
-        .mapErr((e): CiError => ({
-          _tag: 'CiApiError',
-          status: 0,
-          message: taskTrackerErrorMessage(e),
-        }))
-    )
+    return ResultAsync.fromSafePromise(this.repoConfigManager.exists(repoRoot))
+      .andThen((exists) =>
+        // A file that exists but won't load is never initialized over: `init`
+        // writes defaults, so ANY read failure — a parse error, EACCES, a
+        // transient EMFILE (load's ConfigNotFound tag is lossy about the cause) —
+        // would delete the repo's committed trackers, templates and agent config.
+        // The filesystem decides whether the file is absent, not the error tag.
+        exists ? this.repoConfigManager.load(repoRoot) : this.repoConfigManager.init(repoRoot),
+      )
+      .andThen((cfg) => this.repoConfigManager.save(repoRoot, { ...cfg, ci: ci ?? undefined }))
+      .mapErr((e): CiError => ({
+        _tag: 'CiApiError',
+        status: 0,
+        message: taskTrackerErrorMessage(e),
+      }))
   }
 
   build(repoRoot: string, buildId: number): ResultAsync<CiBuildStatus, CiError> {
