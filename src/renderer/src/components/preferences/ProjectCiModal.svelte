@@ -35,6 +35,9 @@
   /** Set when a ci block exists but could not be read — shown so the advertised
       fix-and-re-save path names what is wrong. */
   let configLoadError = $state('')
+  /** Save/remove failure — surfaced in the footer: a toast would render UNDER
+      this modal's scrim (z-banner 9999 < z-overlay 10000) and be unclickable. */
+  let saveError = $state('')
   let servers = $state<Array<{ baseUrl: string }>>([])
   let selectedServer = $state<string>(NEW_SERVER)
   let newUrl = $state('')
@@ -258,6 +261,7 @@
   async function saveConfiguration(): Promise<void> {
     if (!repoRoot || effectiveBuildTypes.length === 0 || !urlValid) return
     saving = true
+    saveError = ''
     try {
       await window.api.ciSaveConfig(repoRoot, {
         baseUrl: effectiveUrl,
@@ -269,7 +273,7 @@
       addToast('CI configuration saved — commit .canopy/config.json to share it')
       closeDialog()
     } catch (e) {
-      addToast(e instanceof Error ? e.message : 'Failed to save CI configuration')
+      saveError = e instanceof Error ? e.message : 'Failed to save CI configuration'
     } finally {
       saving = false
     }
@@ -292,7 +296,7 @@
       addToast('CI configuration removed')
       closeDialog()
     } catch (e) {
-      addToast(e instanceof Error ? e.message : 'Failed to remove CI configuration')
+      saveError = e instanceof Error ? e.message : 'Failed to remove CI configuration'
     }
   }
 </script>
@@ -338,12 +342,18 @@
       {#if !repoRoot}
         <p class="text-sm text-text-faint m-0">Open a repository first.</p>
       {:else}
-        {#if configLoadError}
-          <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
-            {configLoadError} — saving here replaces the broken ci block (the rest of .canopy/config.json
-            is never re-initialized over).
-          </p>
-        {/if}
+        <!-- Persistent region: onMount resolves ciConfig before this text lands, so
+             the wrapper must outlive the content or the mutation is never announced. -->
+        <div role="status">
+          {#if configLoadError}
+            <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
+              {configLoadError} — fix <code class="font-mono">.canopy/config.json</code> by hand if
+              the file itself will not parse; if only the
+              <code class="font-mono">ci</code> block is malformed, saving here replaces it (the rest
+              of the file is never re-initialized over).
+            </p>
+          {/if}
+        </div>
         <div class="flex flex-col gap-1">
           <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
             >Server</span
@@ -495,6 +505,15 @@
             Remove CI configuration
           </button>
         {/if}
+      </div>
+      <!-- Persistent region: a failed save/remove lands here as a mutation — the
+           toast layer (z-banner) paints UNDER this modal's scrim (z-overlay). -->
+      <div
+        class="flex-1 min-w-0 text-xs text-danger-text truncate"
+        aria-live="polite"
+        title={saveError}
+      >
+        {saveError}
       </div>
       <div class="flex items-center gap-1.5">
         <button

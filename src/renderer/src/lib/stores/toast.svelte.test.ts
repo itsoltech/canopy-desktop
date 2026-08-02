@@ -115,6 +115,25 @@ describe('toast slot', () => {
     expect(toastState.visible).toBe(false)
   })
 
+  it('restores the fold bookkeeping with the stash — kind keeps tracking retained segments', () => {
+    addToast('give-up', 'default', { sticky: true })
+    addToast('Deploy #17: build failed', 'danger')
+    showUrlToast('https://example.com', { force: true })
+    // A transient landing during the interlude must not corrupt the stashed state.
+    addToast('post_run during interlude')
+    vi.advanceTimersByTime(4000) // its timer fires → the sticky message returns
+    expect(toastState.message).toBe('Deploy #17: build failed · give-up')
+    expect(toastState.kind).toBe('danger')
+    addToast('post_run after restore')
+    // The failure segment is still retained → the chrome stays red…
+    expect(toastState.message).toBe('post_run after restore · Deploy #17: build failed · give-up')
+    expect(toastState.kind).toBe('danger')
+    addToast('post_run again')
+    // …and returns to default only once the failure is actually evicted.
+    expect(toastState.kind).toBe('default')
+    dismissToast()
+  })
+
   it('drops the stash when a newer sticky replaces the slot', () => {
     addToast('give-up A', 'default', { sticky: true })
     showUrlToast('https://example.com', { force: true })

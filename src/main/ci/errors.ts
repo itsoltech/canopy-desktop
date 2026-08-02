@@ -14,7 +14,11 @@ export function ciErrorMessage(error: CiError): string {
     .with({ _tag: 'CiNotConfigured' }, () => 'No CI configured for this repository')
     .with(
       { _tag: 'CiConfigInvalid' },
-      (e) => `CI config in .canopy/config.json is invalid: ${e.reason}`,
+      // Reason FIRST: the sidebar renders this in a truncated column, and a
+      // constant prefix would eat exactly the width the reason needs. Every
+      // surface (sidebar, configurator) renders this one string — nothing may
+      // re-parse or strip it.
+      (e) => `${e.reason} — invalid ci block in .canopy/config.json`,
     )
     .with(
       { _tag: 'CiAuthMissing' },

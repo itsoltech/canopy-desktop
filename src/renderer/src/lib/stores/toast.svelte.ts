@@ -27,8 +27,16 @@ let stickyBaseKind: ToastKind = 'default'
 // not silently take its place — it is the ONLY surface its state has.
 let sticky = false
 // A sticky message displaced by a forced URL toast — restored when that toast
-// goes away, because clicking a link is not acknowledging a CI hand-off.
-let stashedSticky: { message: string; kind: ToastKind } | null = null
+// goes away, because clicking a link is not acknowledging a CI hand-off. The
+// message and the fold bookkeeping are ONE value: without foldedKinds and
+// stickyBaseKind travelling along, a fold after the restore would recompute the
+// kind against empty bookkeeping while the danger segment is still on screen.
+let stashedSticky: {
+  message: string
+  kind: ToastKind
+  foldedKinds: ToastKind[]
+  stickyBaseKind: ToastKind
+} | null = null
 
 export function showUrlToast(url: string, opts?: { force?: boolean }): void {
   // Same slot guard as addToast: a page-initiated open (BrowserPane's
@@ -36,7 +44,14 @@ export function showUrlToast(url: string, opts?: { force?: boolean }): void {
   // for. Direct user actions pass force to win the slot — temporarily: the
   // sticky message is stashed and comes back when the URL toast is gone.
   if (sticky && !opts?.force) return
-  if (sticky) stashedSticky = { message: toastState.message, kind: toastState.kind }
+  if (sticky) {
+    stashedSticky = {
+      message: toastState.message,
+      kind: toastState.kind,
+      foldedKinds: [...foldedKinds],
+      stickyBaseKind,
+    }
+  }
   if (dismissTimer) clearTimeout(dismissTimer)
   sticky = false
   toastState.url = url
@@ -121,6 +136,8 @@ export function dismissToast(): void {
   if (!sticky && stashedSticky) {
     toastState.message = stashedSticky.message
     toastState.kind = stashedSticky.kind
+    foldedKinds = stashedSticky.foldedKinds
+    stickyBaseKind = stashedSticky.stickyBaseKind
     toastState.url = ''
     toastState.visible = true
     sticky = true
@@ -128,5 +145,6 @@ export function dismissToast(): void {
     return
   }
   sticky = false
+  foldedKinds = []
   toastState.visible = false
 }
