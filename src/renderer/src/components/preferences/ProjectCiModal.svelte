@@ -219,6 +219,8 @@
     if (!(await ensureToken())) return
     typesLoading = true
     typesError = ''
+    // A stale WRITE failure must not sit through a reload it does not describe.
+    saveError = ''
     try {
       serverTypes = await window.api.ciListBuildTypes(effectiveUrl)
       typesLoaded = true
@@ -422,7 +424,7 @@
       {:else}
         <!-- Persistent region: onMount resolves ciConfig before this text lands, so
              the wrapper must outlive the content or the mutation is never announced. -->
-        <div role="status" id="ci-config-invalid">
+        <div role="status">
           {#if configLoadError}
             <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
               <!-- The separator lives INSIDE each branch: the unknown-scope catch
@@ -533,16 +535,6 @@
              same render pass as its content is skipped by screen readers, and every
              path that changes the message resets typesLoaded first — so the region
              must outlive the conditional chain below. -->
-        <!-- NOT in the live region: this is a standing disabled-reason (also on the
-             Save title + aria-describedby), and its number changes on every tick —
-             inside the role=status region each tick would re-announce every
-             paragraph (role=status implies aria-atomic). -->
-        {#if effectiveBuildTypes.length > CI_MAX_BUILD_TYPES}
-          <p id="ci-over-limit" class="m-0 text-xs text-warning-text leading-snug">
-            {effectiveBuildTypes.length} jobs ticked — at most {CI_MAX_BUILD_TYPES} can be configured.
-            Untick {effectiveBuildTypes.length - CI_MAX_BUILD_TYPES} to enable Save.
-          </p>
-        {/if}
         <div role="status" id="ci-save-warnings">
           {#if existingConfig?.droppedInvalid}
             <!-- Recovery is correcting the FILE: these are not TeamCity ids, so
@@ -682,9 +674,13 @@
         </div>
         <!-- Deliberately NOT live (the over-cap variant counts per tick — a live
              region would announce every checkbox); the button's aria-describedby
-             reads it on focus, which is the modality that needs it. -->
-        {#if saveBlockedReason && !saveError}
-          <span id="ci-save-blocked" class="text-2xs text-text-faint break-words"
+             reads it on focus, which is the modality that needs it. Renders
+             ALONGSIDE saveError (the reference must never dangle — AT ignores a
+             dangling describedby entirely), and in the same weight as the other
+             blocking explanations: this is the only visible reason the primary
+             button is dead, not a decorative hint. -->
+        {#if saveBlockedReason}
+          <span id="ci-save-blocked" class="text-xs text-warning-text break-words"
             >{saveBlockedReason}</span
           >
         {/if}
