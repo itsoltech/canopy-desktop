@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { okAsync, errAsync } from 'neverthrow'
+import { okAsync, errAsync, ResultAsync } from 'neverthrow'
 import { CiManager } from './CiManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
@@ -260,6 +260,37 @@ describe('saveConfig', () => {
     )
     expect(repoConfigManager.init).not.toHaveBeenCalled()
     expect(repoConfigManager.save).not.toHaveBeenCalled()
+  })
+
+  it('serializes overlapping read-modify-write cycles on the same repo', async () => {
+    // Save racing Remove: without the per-repo chain, the second cycle's load can
+    // read the pre-write state and its save resurrect what the first just removed.
+    const { manager, repoConfigManager } = fakes({ ci: VALID_CI })
+    const order: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    let loads = 0
+    let saves = 0
+    vi.mocked(repoConfigManager.load).mockImplementation((() => {
+      loads += 1
+      order.push(`load${loads}`)
+      return okAsync({ version: 1, trackers: [], projectOverrides: {}, filters: {} })
+    }) as never)
+    vi.mocked(repoConfigManager.save).mockImplementation((() => {
+      saves += 1
+      order.push(`save${saves}`)
+      return saves === 1 ? ResultAsync.fromSafePromise(gate) : okAsync(undefined)
+    }) as never)
+    const ci = { provider: 'teamcity' as const, baseUrl: 'https://tc', buildTypes: [] }
+    const first = manager.saveConfig('r', ci)
+    const second = manager.saveConfig('r', null)
+    await new Promise((r) => setTimeout(r, 0))
+    // The second cycle must not have started reading while the first still writes.
+    expect(order).toEqual(['load1', 'save1'])
+    release()
+    expect((await first).isOk()).toBe(true)
+    expect((await second).isOk()).toBe(true)
+    expect(order).toEqual(['load1', 'save1', 'load2', 'save2'])
   })
 
   it('reports a write failure as a local error, never as TeamCity', async () => {

@@ -17,14 +17,27 @@ export function parseCiConfig(raw: unknown): CiConfig | undefined {
   if (o.provider !== 'teamcity') return undefined
   if (typeof o.baseUrl !== 'string' || !/^https?:\/\//i.test(o.baseUrl)) return undefined
 
+  // The git-shared file is untrusted input like the IPC payload: every entry
+  // becomes an authenticated status fetch on every poll, so the SAME bounds as
+  // ci:saveConfig apply here — duplicates collapse (first wins), the list is
+  // capped at 50, labels at 100 chars. A hand-edited file with thousands of
+  // copies of one valid id must not fan out unbounded requests.
   const rawTypes = Array.isArray(o.buildTypes) ? o.buildTypes : []
+  const seen = new Set<string>()
   const buildTypes: CiBuildTypeConfig[] = rawTypes.flatMap((entry) => {
     if (!entry || typeof entry !== 'object') return []
     const { id, label } = entry as Record<string, unknown>
     if (typeof id !== 'string' || !BUILD_TYPE_ID_PATTERN.test(id)) return []
-    return [{ id, label: typeof label === 'string' && label.trim() ? label : id }]
+    if (seen.has(id)) return []
+    seen.add(id)
+    const trimmed = typeof label === 'string' ? label.trim().slice(0, 100) : ''
+    return [{ id, label: trimmed || id }]
   })
   if (buildTypes.length === 0) return undefined
 
-  return { provider: 'teamcity', baseUrl: o.baseUrl.replace(/\/$/, ''), buildTypes }
+  return {
+    provider: 'teamcity',
+    baseUrl: o.baseUrl.replace(/\/$/, ''),
+    buildTypes: buildTypes.slice(0, 50),
+  }
 }

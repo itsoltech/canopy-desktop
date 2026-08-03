@@ -24,6 +24,9 @@
   // In-flight guards: the confirm dialogs inside save/remove yield to the event loop,
   // so a double-click would otherwise start two overlapping keychain writes.
   let savingServer = $state(false)
+  // VISIBLE save-busy state — set only after the destination confirm resolves,
+  // so "Saving…" never shows while the user is still deciding.
+  let savingBusy = $state(false)
   let removingServer = $state(false)
   // Which row's Trash is busy — the flag alone would spin EVERY row's icon.
   let removingUrl = $state('')
@@ -113,6 +116,7 @@
     savingServer = true
     try {
       if (!(await confirmDestination())) return
+      savingBusy = true
       try {
         await window.api.keychainSetCredentials('teamcity', normalizedUrl, formToken)
       } catch (e) {
@@ -125,39 +129,40 @@
       addToast('CI connection saved')
     } finally {
       savingServer = false
+      savingBusy = false
     }
   }
 
   async function removeServer(server: { baseUrl: string }): Promise<void> {
     if (removingServer) return
+    // Guard set before the await — that is what blocks a second confirm. The
+    // VISIBLE busy state (removingUrl) waits for the answer: a spinner while the
+    // user is still deciding describes work that has not started, and disabling
+    // the button they just activated would blur it, so Cancel would drop focus.
     removingServer = true
-    removingUrl = server.baseUrl
     try {
-      await doRemoveServer(server)
+      const ok = await confirm({
+        title: 'Remove CI connection',
+        message: `Remove your stored token for TeamCity at ${server.baseUrl}?`,
+        details:
+          'Clears the token on this machine only. Repositories that configure this server will show a reconnect hint until a new token is saved.',
+        confirmLabel: 'Remove connection',
+        destructive: true,
+      })
+      if (!ok) return
+      removingUrl = server.baseUrl
+      try {
+        await window.api.keychainDeleteCredentials('teamcity', server.baseUrl)
+      } catch (e) {
+        addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
+        return
+      }
+      await reloadServers()
+      addToast('CI connection removed')
     } finally {
       removingServer = false
       removingUrl = ''
     }
-  }
-
-  async function doRemoveServer(server: { baseUrl: string }): Promise<void> {
-    const ok = await confirm({
-      title: 'Remove CI connection',
-      message: `Remove your stored token for TeamCity at ${server.baseUrl}?`,
-      details:
-        'Clears the token on this machine only. Repositories that configure this server will show a reconnect hint until a new token is saved.',
-      confirmLabel: 'Remove connection',
-      destructive: true,
-    })
-    if (!ok) return
-    try {
-      await window.api.keychainDeleteCredentials('teamcity', server.baseUrl)
-    } catch (e) {
-      addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
-      return
-    }
-    await reloadServers()
-    addToast('CI connection removed')
   }
 </script>
 
@@ -181,7 +186,7 @@
           {testResult}
           onCancel={cancelEdit}
           onTest={testConnection}
-          saving={savingServer}
+          saving={savingBusy}
           onSave={saveServer}
           onOpenTokenPage={openTokenPage}
         />
@@ -210,7 +215,8 @@
             type="button"
             class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted enabled:cursor-pointer enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:opacity-50"
             onclick={() => removeServer(server)}
-            disabled={removingServer}
+            disabled={removingUrl !== ''}
+            aria-busy={removingUrl === server.baseUrl}
             aria-label="Remove CI connection"
             title="Remove the stored token for this server"
           >
@@ -234,7 +240,7 @@
         {testResult}
         onCancel={cancelEdit}
         onTest={testConnection}
-        saving={savingServer}
+        saving={savingBusy}
         onSave={saveServer}
         onOpenTokenPage={openTokenPage}
       />

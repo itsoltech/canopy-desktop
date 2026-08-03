@@ -1,4 +1,4 @@
-import { ResultAsync, errAsync, okAsync } from 'neverthrow'
+import { ResultAsync, errAsync, okAsync, type Result } from 'neverthrow'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
@@ -165,12 +165,31 @@ export class CiManager {
     return this.tokenForUrl(baseUrl).andThen((token) => fetchBuildTypes(baseUrl, token))
   }
 
+  // One in-flight update per repo: Save and Remove are both read-modify-write on
+  // the same git-shared file, and two overlapping exists→load→save cycles could
+  // resurrect a removed block or silently drop a fresh selection. Keyed by the
+  // resolved repoRoot the IPC layer passes down.
+  private saveChains = new Map<string, Promise<unknown>>()
+
   /**
    * Write (or remove, with `null`) the `ci` block through the normal repo-config
    * round-trip. Creates `.canopy/config.json` with defaults when the repo has none —
-   * same behavior as the Project tracker init flow.
+   * same behavior as the Project tracker init flow. Serialized per repo.
    */
   saveConfig(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
+    const prev = this.saveChains.get(repoRoot) ?? Promise.resolve()
+    const run: Promise<Result<void, CiError>> = prev.then(
+      () => this.performSaveConfig(repoRoot, ci),
+      () => this.performSaveConfig(repoRoot, ci),
+    )
+    this.saveChains.set(repoRoot, run)
+    void run.finally(() => {
+      if (this.saveChains.get(repoRoot) === run) this.saveChains.delete(repoRoot)
+    })
+    return new ResultAsync(run)
+  }
+
+  private performSaveConfig(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
     return ResultAsync.fromSafePromise(this.repoConfigManager.exists(repoRoot))
       .andThen((exists) =>
         // A file that exists but won't load is never initialized over: `init`

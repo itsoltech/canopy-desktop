@@ -2,6 +2,36 @@ import { describe, expect, it } from 'vitest'
 import { parseCiConfig } from './config'
 
 describe('parseCiConfig', () => {
+  it('collapses duplicate ids (first wins) and enforces the 50-entry cap', () => {
+    // A hand-edited or committed file is untrusted input: without the cap, every
+    // entry becomes an authenticated status fetch on every poll.
+    const dupes = parseCiConfig({
+      provider: 'teamcity',
+      baseUrl: 'https://x',
+      buildTypes: [{ id: 'A', label: 'first' }, { id: 'A', label: 'second' }, { id: 'B' }],
+    })
+    expect(dupes?.buildTypes).toEqual([
+      { id: 'A', label: 'first' },
+      { id: 'B', label: 'B' },
+    ])
+    const many = parseCiConfig({
+      provider: 'teamcity',
+      baseUrl: 'https://x',
+      buildTypes: Array.from({ length: 200 }, (_, i) => ({ id: `Bt_${i}` })),
+    })
+    expect(many?.buildTypes).toHaveLength(50)
+    expect(many?.buildTypes[0]?.id).toBe('Bt_0')
+  })
+
+  it('caps labels at 100 chars, like the IPC save path', () => {
+    const parsed = parseCiConfig({
+      provider: 'teamcity',
+      baseUrl: 'https://x',
+      buildTypes: [{ id: 'A', label: 'x'.repeat(500) }],
+    })
+    expect(parsed?.buildTypes[0]?.label).toHaveLength(100)
+  })
+
   it('accepts a valid teamcity config and normalizes the base URL', () => {
     expect(
       parseCiConfig({

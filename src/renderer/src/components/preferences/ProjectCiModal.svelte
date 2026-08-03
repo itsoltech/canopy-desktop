@@ -295,26 +295,33 @@
   }
 
   async function removeConfiguration(): Promise<void> {
-    if (!repoRoot || !existingConfig) return
+    if (!repoRoot || !existingConfig || saving) return
+    // The SHARED `saving` guard, set before the confirm: it blocks a second
+    // confirm from a double-click AND takes Save out of the enabled set, so two
+    // read-modify-write passes over the git-shared .canopy/config.json cannot
+    // overlap from this dialog (the main process serializes them per repo too).
+    saving = true
     // Clear a previous SAVE failure before the confirm — declining it must not
     // leave that stale message sitting under the Remove button.
     saveError = ''
-    const ok = await confirm({
-      title: 'Remove CI configuration',
-      message: `Remove the TeamCity configuration (${existingConfig.baseUrl}) from this repository?`,
-      details:
-        'Removes the ci block from the git-tracked .canopy/config.json — after committing, the whole team loses the CI rows. Your stored token stays (Settings → CI connections).',
-      confirmLabel: 'Remove configuration',
-      destructive: true,
-    })
-    if (!ok) return
     try {
+      const ok = await confirm({
+        title: 'Remove CI configuration',
+        message: `Remove the TeamCity configuration (${existingConfig.baseUrl}) from this repository?`,
+        details:
+          'Removes the ci block from the git-tracked .canopy/config.json — after committing, the whole team loses the CI rows. Your stored token stays (Settings → CI connections).',
+        confirmLabel: 'Remove configuration',
+        destructive: true,
+      })
+      if (!ok) return
       await window.api.ciSaveConfig(repoRoot, null)
       await loadCiRepoConfig(repoRoot)
       addToast('CI configuration removed')
       closeDialog()
     } catch (e) {
       saveError = e instanceof Error ? e.message : 'Failed to remove CI configuration'
+    } finally {
+      saving = false
     }
   }
 </script>
@@ -527,8 +534,9 @@
         {#if existingConfig}
           <button
             type="button"
-            class="flex items-center gap-1 px-2 py-1 rounded-md border-0 bg-transparent text-text-faint text-xs font-inherit cursor-pointer hover:text-danger-text"
+            class="flex items-center gap-1 px-2 py-1 rounded-md border-0 bg-transparent text-text-faint text-xs font-inherit enabled:cursor-pointer enabled:hover:text-danger-text disabled:opacity-50"
             onclick={removeConfiguration}
+            disabled={saving}
           >
             <Trash2 size={12} />
             Remove CI configuration
