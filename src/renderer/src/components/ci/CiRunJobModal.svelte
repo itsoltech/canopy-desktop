@@ -135,6 +135,21 @@
     }
   }
 
+  // Why Run cannot fire — aria-disabled keeps the button in the tab order and
+  // does not stop clicks, so the blocked state needs a reachable reason (title +
+  // aria-describedby at the rendered span below the error region).
+  let runBlockedReason = $derived(
+    starting
+      ? 'Disabled while the run request is in flight'
+      : branchesLoading
+        ? 'Disabled: loading branches…'
+        : !buildTypeId
+          ? 'Disabled: pick a job first'
+          : !selectedBranch
+            ? 'Disabled: pick a branch first — typing in the search clears the selection'
+            : '',
+  )
+
   /** Same rule as ProjectCiModal.requestClose: a trigger failure has NO surface
       outside this dialog (triggerCiBuild deliberately returns the message rather
       than toasting, because the scrim paints over z-banner), so dismissing
@@ -236,6 +251,14 @@
             <span class="text-xs text-danger-text">{error}</span>
           {/if}
         </div>
+        <!-- NOT live: the reason changes with routine interaction (typing in the
+             branch search clears the selection by design); focus-time
+             aria-describedby is the modality that needs it. -->
+        {#if runBlockedReason}
+          <span id="ci-run-blocked-reason" class="text-xs text-text-secondary break-words"
+            >{runBlockedReason}</span
+          >
+        {/if}
 
         <div class="flex gap-1.5 justify-end">
           <button
@@ -252,18 +275,20 @@
                div. startRun guards internally. -->
           <button
             type="button"
-            class="flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
+            class="flex items-center justify-center gap-1.5 min-w-24 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
             onclick={startRun}
             aria-disabled={starting || branchesLoading || !selectedBranch || !buildTypeId}
             aria-busy={starting}
-            title="Fetches the job's parameters — configurations without prompts run immediately"
+            aria-describedby={runBlockedReason ? 'ci-run-blocked-reason' : undefined}
+            title={runBlockedReason ||
+              "Fetches the job's parameters — configurations without prompts run immediately"}
           >
             {#if starting}
               <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
             {:else}
               <Play size={13} />
             {/if}
-            Run
+            {starting ? 'Queueing…' : 'Run'}
           </button>
         </div>
       {:else}

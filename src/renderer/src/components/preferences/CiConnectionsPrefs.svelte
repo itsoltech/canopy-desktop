@@ -97,7 +97,8 @@
   }
 
   async function testConnection(): Promise<void> {
-    if (!urlValid || !formToken) return
+    // Mirrors the form's aria-disabled — which does not stop clicks.
+    if (!urlValid || !formToken || testing) return
     if (!(await confirmDestination())) return
     testing = true
     testResult = ''
@@ -211,11 +212,15 @@
               <Check size={12} />
             </span>
           </button>
+          <!-- aria-disabled: a real disabled makes ConfirmDialog's focus restore
+               a no-op (.focus() on a disabled element does nothing), stranding
+               the user on <body> after confirming. removeServer's guard blocks
+               re-entry. -->
           <button
             type="button"
-            class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted enabled:cursor-pointer enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:opacity-50"
+            class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
             onclick={() => removeServer(server)}
-            disabled={removingUrl !== ''}
+            aria-disabled={removingUrl !== ''}
             aria-busy={removingUrl === server.baseUrl}
             aria-label="Remove CI connection"
             title="Remove the stored token for this server"

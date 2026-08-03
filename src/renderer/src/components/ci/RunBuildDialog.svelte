@@ -217,7 +217,7 @@
            error describes a run that already happened. -->
       <div class="mr-auto min-h-4 text-xs" aria-live="polite">
         {#if missing.length > 0}
-          <span class="text-warning-text">Fill the required parameters</span>
+          <span id="ci-run-blocked" class="text-warning-text">Fill the required parameters</span>
         {:else if error}
           <span class="text-danger-text">{error}</span>
         {/if}
@@ -236,10 +236,16 @@
            trap. submit() guards internally, so nothing can double-fire. -->
       <button
         type="button"
-        class="flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
+        class="flex items-center justify-center gap-1.5 min-w-24 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
         onclick={submit}
         aria-disabled={missing.length > 0 || running}
         aria-busy={running}
+        aria-describedby={missing.length > 0 ? 'ci-run-blocked' : undefined}
+        title={running
+          ? 'Disabled while the run request is in flight'
+          : missing.length > 0
+            ? 'Disabled: fill the required parameters first'
+            : undefined}
       >
         {#if running}
           <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />

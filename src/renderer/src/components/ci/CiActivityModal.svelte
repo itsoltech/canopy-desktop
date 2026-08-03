@@ -27,6 +27,10 @@
   let seq = 0
 
   async function refresh(): Promise<void> {
+    // Mirrors the button's aria-disabled (which does not stop clicks); the seq
+    // guard already makes overlap harmless — this keeps handler and attribute
+    // in agreement.
+    if (refreshing) return
     const mySeq = ++seq
     refreshing = true
     try {
@@ -155,13 +159,17 @@
     >
       <h2 class="text-base font-semibold text-text m-0 leading-tight">Jobs history</h2>
       <div class="flex items-center gap-1">
+        <!-- aria-disabled, not disabled: `refreshing` flips on a 10 s TIMER, and a
+             real disabled would blur a merely-focused user to <body>, past the
+             focus trap on the descendant backdrop div. -->
         <button
           type="button"
-          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0 disabled:opacity-50"
+          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0 aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
           onclick={() => void refresh()}
-          disabled={refreshing}
+          aria-disabled={refreshing}
+          aria-busy={refreshing}
           aria-label="Refresh"
-          title="Refresh now (auto-refreshes every 10 s)"
+          title={refreshing ? 'Refreshing…' : 'Refresh now (auto-refreshes every 10 s)'}
         >
           <RefreshCw
             size={13}

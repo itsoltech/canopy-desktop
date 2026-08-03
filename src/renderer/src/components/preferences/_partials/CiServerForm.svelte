@@ -110,18 +110,20 @@
     >
     <button
       type="button"
-      class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg text-text-secondary enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
+      class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg aria-disabled:hover:text-text-secondary"
       onclick={onTest}
-      disabled={testing || !urlValid || !token}
+      aria-disabled={testing || !urlValid || !token}
+      aria-busy={testing}
       title="Check the connection against the server — nothing is saved"
     >
       {testing ? 'Testing…' : 'Test'}
     </button>
     <button
       type="button"
-      class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
+      class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
       onclick={onSave}
-      disabled={saving || !urlValid || !token}
+      aria-disabled={saving || !urlValid || !token}
+      aria-busy={saving}
       title="Save the token (stored globally on this machine, per provider + URL)"
       >{saving ? 'Saving…' : isNew ? 'Add connection' : 'Save token'}</button
     >

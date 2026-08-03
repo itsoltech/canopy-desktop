@@ -537,7 +537,12 @@
               class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
               onclick={testConnection}
               aria-disabled={testing || !urlValid}
-              title="Check the connection against the server — nothing is saved"
+              aria-busy={testing}
+              title={testing
+                ? 'Testing the connection…'
+                : !urlValid
+                  ? 'Disabled: enter a valid TeamCity server URL first'
+                  : 'Check the connection against the server — nothing is saved'}
             >
               {testing ? 'Testing…' : 'Test'}
             </button>
@@ -547,7 +552,12 @@
             class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
             onclick={loadBuildTypes}
             aria-disabled={typesLoading || !canLoadTypes}
-            title="Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server"
+            aria-busy={typesLoading}
+            title={typesLoading
+              ? "Loading the server's jobs…"
+              : !canLoadTypes
+                ? 'Disabled: enter the server URL and a token first'
+                : 'Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server'}
           >
             {typesLoading ? 'Loading…' : 'Load available jobs'}
           </button>
