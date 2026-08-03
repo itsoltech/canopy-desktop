@@ -187,7 +187,8 @@
   }
 
   async function testConnection(): Promise<void> {
-    if (!urlValid || !formToken) return
+    // Mirrors the button's aria-disabled — which does not stop clicks.
+    if (!urlValid || !formToken || testing) return
     if (!(await confirmDestination())) return
     testing = true
     testResult = ''
@@ -223,7 +224,8 @@
   }
 
   async function loadBuildTypes(): Promise<void> {
-    if (!urlValid) return
+    // Mirrors the button's aria-disabled — which does not stop clicks.
+    if (!canLoadTypes || typesLoading) return
     if (!(await ensureToken())) return
     typesLoading = true
     typesError = ''
@@ -532,9 +534,9 @@
           {#if formToken}
             <button
               type="button"
-              class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
+              class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
               onclick={testConnection}
-              disabled={testing || !urlValid}
+              aria-disabled={testing || !urlValid}
               title="Check the connection against the server — nothing is saved"
             >
               {testing ? 'Testing…' : 'Test'}
@@ -542,9 +544,9 @@
           {/if}
           <button
             type="button"
-            class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary enabled:hover:bg-hover-strong enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
+            class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
             onclick={loadBuildTypes}
-            disabled={typesLoading || !canLoadTypes}
+            aria-disabled={typesLoading || !canLoadTypes}
             title="Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server"
           >
             {typesLoading ? 'Loading…' : 'Load available jobs'}

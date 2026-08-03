@@ -99,7 +99,8 @@
 
   /** Fetch the job's prompt parameters — none means trigger right away. */
   async function startRun(): Promise<void> {
-    if (!buildTypeId || !selectedBranch) return
+    // Mirrors the button's aria-disabled — which does not stop clicks.
+    if (!buildTypeId || !selectedBranch || starting || branchesLoading) return
     starting = true
     error = ''
     try {
@@ -246,11 +247,15 @@
               ? 'Disabled while the run request is in flight'
               : 'Close without running'}>Cancel</button
           >
+          <!-- aria-disabled, not disabled: a real disabled blurs the activated
+               button to <body>, past the focus trap on the descendant backdrop
+               div. startRun guards internally. -->
           <button
             type="button"
-            class="flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
+            class="flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
             onclick={startRun}
-            disabled={starting || branchesLoading || !selectedBranch || !buildTypeId}
+            aria-disabled={starting || branchesLoading || !selectedBranch || !buildTypeId}
+            aria-busy={starting}
             title="Fetches the job's parameters — configurations without prompts run immediately"
           >
             {#if starting}

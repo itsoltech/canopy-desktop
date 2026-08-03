@@ -179,7 +179,10 @@ Additional surfaces that are not `CiError` variants:
   so the message would be dimmed and unclickable. A failed trigger lands in the Run
   dialog (the picker's live region, or the parameters form's footer) via
   `triggerCiBuild`'s returned message; a failed **Save configuration** or **Remove CI
-  configuration** lands in the configurator's footer live region.
+  configuration** lands in the configurator's footer live region. Because that
+  message has no home outside the dialog, dismissal (Escape, backdrop, ✕,
+  **Cancel**) is refused while the request is in flight — the controls dim and
+  name the reason in their tooltip, and become live again as soon as it resolves.
 - The completion toast for a build triggered from Canopy (see Run job…) comes from a
   background `ci:build` poll, not from `CiError` handling — poll failures are tolerated
   (~5 minutes of consecutive failures stop the observation with a "stopped watching"

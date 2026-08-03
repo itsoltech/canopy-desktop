@@ -96,7 +96,7 @@
       </div>
       <button
         type="button"
-        class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
+        class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0 aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
         onclick={requestCancel}
         aria-disabled={running}
         aria-label="Close"
@@ -224,24 +224,29 @@
       </div>
       <button
         type="button"
-        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
+        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-secondary"
         onclick={requestCancel}
         aria-disabled={running}
         title={running ? 'Disabled while the run request is in flight' : 'Back to the job picker'}
         >Cancel</button
       >
+      <!-- aria-disabled, not disabled: a real disabled blurs the just-activated
+           button to <body>, and the dialog's keydown handler lives on a descendant
+           div — Tab would then walk OUT of the aria-modal dialog past the focus
+           trap. submit() guards internally, so nothing can double-fire. -->
       <button
         type="button"
-        class="flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
+        class="flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
         onclick={submit}
-        disabled={missing.length > 0 || running}
+        aria-disabled={missing.length > 0 || running}
+        aria-busy={running}
       >
         {#if running}
           <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
         {:else}
           <Play size={13} />
         {/if}
-        Run Build
+        {running ? 'Queueing…' : 'Run Build'}
       </button>
     </div>
   </div>
