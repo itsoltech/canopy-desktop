@@ -293,8 +293,9 @@
   )
 
   // Per-control titles keep the full cascade so a blocked button never promises
-  // an action it cannot perform. The rendered reasons omit the shared invalid-URL
-  // term because the footer already states it once for Test, Load, and Save.
+  // an action it cannot perform. The rendered Load reason carries only its own
+  // token precondition: the footer owns invalid URL, while labels + aria-busy own
+  // busy states, matching CiServerForm's split.
   let testBlockedTitle = $derived(
     testing
       ? 'Testing the connection…'
@@ -302,7 +303,6 @@
         ? 'Disabled: enter a valid TeamCity server URL first'
         : '',
   )
-  let testBlockedReason = $derived(urlValid ? testBlockedTitle : '')
   let loadBlockedTitle = $derived(
     typesLoading
       ? "Loading the server's jobs…"
@@ -312,7 +312,11 @@
           ? 'Disabled: enter an access token first (or pick a server with one stored)'
           : '',
   )
-  let loadBlockedReason = $derived(urlValid ? loadBlockedTitle : '')
+  let loadBlockedReason = $derived(
+    urlValid && !typesLoading && !canLoadTypes
+      ? 'Disabled: enter an access token first (or pick a server with one stored)'
+      : '',
+  )
 
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
   // its colour cannot disagree (a flat severity disjunction paired a next-step
@@ -560,7 +564,6 @@
               onclick={testConnection}
               aria-disabled={testing || !urlValid}
               aria-busy={testing}
-              aria-describedby={testBlockedReason ? 'ci-test-blocked' : undefined}
               title={testBlockedTitle ||
                 'Check the connection against the server — nothing is saved'}
             >
@@ -594,13 +597,8 @@
 
         <!-- NOT live (routine next-step states, changing as the user types);
              reserved height so the row below does not shift. The buttons'
-             aria-describedby reads these on focus — title is hover-only. -->
+             aria-describedby reads this on focus — title is hover-only. -->
         <div class="min-h-4 flex flex-col gap-0.5">
-          {#if testBlockedReason && formToken}
-            <span id="ci-test-blocked" class="text-xs text-text-secondary break-words"
-              >Test: {testBlockedReason}</span
-            >
-          {/if}
           {#if loadBlockedReason}
             <span id="ci-load-blocked" class="text-xs text-text-secondary break-words"
               >Load: {loadBlockedReason}</span
