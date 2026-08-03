@@ -292,25 +292,27 @@
       configLoadScope === 'file',
   )
 
-  // Test/Load blocked reasons — same three-modality shape as saveBlockedState
-  // (title + aria-describedby at a rendered span): title is hover-only, and
-  // !canLoadTypes is the configurator's FIRST-RUN open state.
-  let testBlockedReason = $derived(
+  // Per-control titles keep the full cascade so a blocked button never promises
+  // an action it cannot perform. The rendered reasons omit the shared invalid-URL
+  // term because the footer already states it once for Test, Load, and Save.
+  let testBlockedTitle = $derived(
     testing
       ? 'Testing the connection…'
       : !urlValid
-        ? 'Disabled: enter a valid server URL first'
+        ? 'Disabled: enter a valid TeamCity server URL first'
         : '',
   )
-  // Invalid URL blocks Test, Load, and Save alike, so the footer owns that shared
-  // reason instead of repeating it under every control on first paint.
-  let loadBlockedReason = $derived(
+  let testBlockedReason = $derived(urlValid ? testBlockedTitle : '')
+  let loadBlockedTitle = $derived(
     typesLoading
       ? "Loading the server's jobs…"
-      : !canLoadTypes && urlValid
-        ? 'Disabled: enter an access token first (or pick a server with one stored)'
-        : '',
+      : !urlValid
+        ? 'Disabled: enter a valid TeamCity server URL first'
+        : !canLoadTypes
+          ? 'Disabled: enter an access token first (or pick a server with one stored)'
+          : '',
   )
+  let loadBlockedReason = $derived(urlValid ? loadBlockedTitle : '')
 
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
   // its colour cannot disagree (a flat severity disjunction paired a next-step
@@ -559,7 +561,7 @@
               aria-disabled={testing || !urlValid}
               aria-busy={testing}
               aria-describedby={testBlockedReason ? 'ci-test-blocked' : undefined}
-              title={testBlockedReason ||
+              title={testBlockedTitle ||
                 'Check the connection against the server — nothing is saved'}
             >
               {testing ? 'Testing…' : 'Test'}
@@ -572,7 +574,7 @@
             aria-disabled={typesLoading || !canLoadTypes}
             aria-busy={typesLoading}
             aria-describedby={loadBlockedReason ? 'ci-load-blocked' : undefined}
-            title={loadBlockedReason ||
+            title={loadBlockedTitle ||
               'Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server'}
           >
             {typesLoading ? 'Loading…' : 'Load available jobs'}
