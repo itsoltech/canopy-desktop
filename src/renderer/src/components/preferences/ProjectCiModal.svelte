@@ -306,6 +306,15 @@
                     : '',
   )
 
+  // Warning colour is for the two terms that describe something WRONG — a file
+  // that cannot be written, and a selection over the cap. The rest ("pick a URL",
+  // "load the jobs", "tick one") are next-step states and open the modal:
+  // rendering them in the same colour as the dropped-entry warnings above would
+  // devalue those.
+  let saveBlockedSeverity = $derived(
+    configLoadScope === 'file' || effectiveBuildTypes.length > CI_MAX_BUILD_TYPES ? 'warn' : 'info',
+  )
+
   function toggleType(bt: ServerBuildType): void {
     if (selected.has(bt.id)) selected.delete(bt.id)
     else selected.set(bt.id, selected.get(bt.id) ?? bt.name)
@@ -680,8 +689,11 @@
              blocking explanations: this is the only visible reason the primary
              button is dead, not a decorative hint. -->
         {#if saveBlockedReason}
-          <span id="ci-save-blocked" class="text-xs text-warning-text break-words"
-            >{saveBlockedReason}</span
+          <span
+            id="ci-save-blocked"
+            class="text-xs break-words {saveBlockedSeverity === 'warn'
+              ? 'text-warning-text'
+              : 'text-text-secondary'}">{saveBlockedReason}</span
           >
         {/if}
       </div>
