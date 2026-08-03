@@ -293,11 +293,10 @@
   )
 
   // Per-control titles keep the full cascade so a blocked button never promises
-  // an action it cannot perform. The rendered Load reason carries only its own
-  // token precondition: the footer states the shared invalid-URL term once, and
-  // busy states live on the button itself (label + aria-busy) — the same reason
-  // CiServerForm keeps `testing`/`saving` out of `formBlockedReason`. It does
-  // carry the URL term, because that form has no footer to own it.
+  // an action it cannot perform. The rendered Load reason normally carries its
+  // token precondition; invalid URL is delegated to the footer unless a file-scope
+  // error outranks it there. Busy states live on the button itself (label +
+  // aria-busy), as in CiServerForm's `formBlockedReason` split.
   let testBlockedTitle = $derived(
     testing
       ? 'Testing the connection…'
@@ -315,9 +314,11 @@
           : '',
   )
   let loadBlockedReason = $derived(
-    // Projection of the title, not a second copy: under this guard the cascade
-    // above lands on its token arm by construction, so hover and focus text cannot drift.
-    urlValid && !typesLoading && !canLoadTypes ? loadBlockedTitle : '',
+    // Projection of the title, not a second copy. The URL term is delegated only
+    // while the footer actually states it; a file-scope error ranks above it there.
+    !typesLoading && (urlValid ? !canLoadTypes : configLoadScope === 'file')
+      ? loadBlockedTitle
+      : '',
   )
 
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
@@ -600,10 +601,10 @@
         <!-- NOT live (routine next-step states, changing as the user types);
              reserved height so the row below does not shift. Load's
              aria-describedby reads this on focus — title is hover-only. -->
-        <div class="min-h-4 flex flex-col gap-0.5">
+        <div class="min-h-4">
           {#if loadBlockedReason}
             <span id="ci-load-blocked" class="text-xs text-text-secondary break-words"
-              >Load: {loadBlockedReason}</span
+              >{loadBlockedReason}</span
             >
           {/if}
         </div>
