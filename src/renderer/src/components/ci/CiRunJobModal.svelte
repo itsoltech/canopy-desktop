@@ -35,11 +35,15 @@
   let branchesLoading = $state(false)
   let error = $state('')
   let starting = $state(false)
+  let promptParameters = $state<CiParameter[] | null>(null)
+  let parametersLoading = $state(false)
+  let parametersError = $state('')
   let params = $state<CiParameter[] | null>(null)
   let submitting = $state(false)
   let paramsError = $state('')
   let dialogEl = $state<HTMLElement>()
   let branchesSeq = 0
+  let parametersSeq = 0
 
   let label = $derived(config?.buildTypes.find((bt) => bt.id === buildTypeId)?.label ?? buildTypeId)
 
@@ -62,6 +66,7 @@
     }
     buildTypeId = config.buildTypes[0]?.id ?? ''
     void loadBranches()
+    void loadPromptParameters()
   })
 
   $effect(() => {
@@ -90,32 +95,62 @@
     }
   }
 
+  async function loadPromptParameters(): Promise<void> {
+    if (!buildTypeId) {
+      promptParameters = []
+      return
+    }
+    const seq = ++parametersSeq
+    parametersLoading = true
+    parametersError = ''
+    promptParameters = null
+    try {
+      const fetched = await window.api.ciBuildParameters(repoRoot, buildTypeId)
+      if (seq !== parametersSeq) return
+      promptParameters = fetched
+    } catch (e) {
+      if (seq !== parametersSeq) return
+      parametersError = e instanceof Error ? e.message : 'Failed to load build parameters'
+    } finally {
+      if (seq === parametersSeq) parametersLoading = false
+    }
+  }
+
   function selectJob(id: string): void {
     buildTypeId = id
     selectedBranch = initialBranch ?? ''
     branchQuery = initialBranch ?? ''
+    params = null
+    paramsError = ''
     void loadBranches()
+    void loadPromptParameters()
   }
 
-  /** Fetch the job's prompt parameters — none means trigger right away. */
+  /** `Run` queues immediately; `Configure` opens the already-discovered prompts. */
   async function startRun(): Promise<void> {
     // Mirrors the button's aria-disabled — which does not stop clicks.
-    if (!buildTypeId || !selectedBranch || starting || branchesLoading) return
+    if (
+      !buildTypeId ||
+      !selectedBranch ||
+      starting ||
+      branchesLoading ||
+      parametersLoading ||
+      promptParameters == null ||
+      parametersError
+    )
+      return
+    if (promptParameters.length > 0) {
+      params = promptParameters
+      return
+    }
     starting = true
     error = ''
     try {
-      const fetched = await window.api.ciBuildParameters(repoRoot, buildTypeId)
-      if (fetched.length === 0) {
-        // triggerCiBuild reports failure via its return value, not by throwing —
-        // without surfacing it here the dialog would look untouched after Run.
-        const failure = await triggerCiBuild(repoRoot, buildTypeId, selectedBranch, label)
-        if (failure) error = failure
-        else closeDialog()
-      } else {
-        params = fetched
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load build parameters'
+      // triggerCiBuild reports failure via its return value, not by throwing —
+      // without surfacing it here the dialog would look untouched after Run.
+      const failure = await triggerCiBuild(repoRoot, buildTypeId, selectedBranch, label)
+      if (failure) error = failure
+      else closeDialog()
     } finally {
       starting = false
     }
@@ -143,11 +178,25 @@
       ? 'Disabled while the run request is in flight'
       : branchesLoading
         ? 'Disabled: loading branches…'
-        : !buildTypeId
-          ? 'Disabled: pick a job first'
-          : !selectedBranch
-            ? 'Disabled: pick a branch from the list (typing clears the selection)'
-            : '',
+        : parametersLoading || promptParameters == null
+          ? 'Disabled: loading job parameters…'
+          : parametersError
+            ? 'Disabled: job parameters could not be loaded'
+            : !buildTypeId
+              ? 'Disabled: pick a job first'
+              : !selectedBranch
+                ? 'Disabled: pick a branch from the list (typing clears the selection)'
+                : '',
+  )
+
+  let actionLabel = $derived(
+    starting
+      ? 'Queueing…'
+      : parametersLoading || promptParameters == null
+        ? 'Loading…'
+        : promptParameters.length > 0
+          ? 'Configure'
+          : 'Run',
   )
 
   /** Same rule as ProjectCiModal.requestClose: a trigger failure has NO surface
@@ -246,22 +295,14 @@
           {/if}
         </div>
 
-        <div class="min-h-4.5" aria-live="polite">
-          {#if error}
-            <span class="text-xs text-danger-text">{error}</span>
+        <div class:sr-only={!error && !parametersError} aria-live="polite">
+          {#if error || parametersError}
+            <span class="text-xs text-danger-text">{error || parametersError}</span>
           {/if}
         </div>
-        <!-- NOT live: the reason changes with routine interaction (typing in the
-             branch search clears the selection by design); focus-time
-             aria-describedby is the modality that needs it. Reserved height so
-             the Cancel/Run row does not shift while the user types. -->
-        <div class="min-h-4">
-          {#if runBlockedReason}
-            <span id="ci-run-blocked-reason" class="text-xs text-text-secondary break-words"
-              >{runBlockedReason}</span
-            >
-          {/if}
-        </div>
+        <!-- Keep the focus-time explanation without duplicating the button title
+             as visible body copy. -->
+        <span id="ci-run-blocked-reason" class="sr-only">{runBlockedReason}</span>
 
         <div class="flex gap-1.5 justify-end">
           <button
@@ -280,18 +321,26 @@
             type="button"
             class="flex items-center justify-center gap-1.5 min-w-28 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
             onclick={startRun}
-            aria-disabled={starting || branchesLoading || !selectedBranch || !buildTypeId}
-            aria-busy={starting}
+            aria-disabled={starting ||
+              branchesLoading ||
+              parametersLoading ||
+              promptParameters == null ||
+              !!parametersError ||
+              !selectedBranch ||
+              !buildTypeId}
+            aria-busy={starting || parametersLoading}
             aria-describedby={runBlockedReason ? 'ci-run-blocked-reason' : undefined}
             title={runBlockedReason ||
-              "Fetches the job's parameters — configurations without prompts run immediately"}
+              (promptParameters?.length
+                ? 'Review this job’s required parameters before queueing'
+                : 'Queue this build on the selected branch')}
           >
-            {#if starting}
+            {#if starting || parametersLoading}
               <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
             {:else}
               <Play size={13} />
             {/if}
-            {starting ? 'Queueing…' : 'Run'}
+            {actionLabel}
           </button>
         </div>
       {:else}

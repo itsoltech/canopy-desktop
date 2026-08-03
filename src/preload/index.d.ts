@@ -1611,6 +1611,7 @@ interface CiActivityBuild {
   number: string | undefined
   state: 'running' | 'queued' | 'finished'
   status: string | undefined
+  statusText: string | undefined
   percentageComplete: number | undefined
   webUrl: string
   branchName: string | undefined

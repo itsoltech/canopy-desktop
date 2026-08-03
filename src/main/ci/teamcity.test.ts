@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { buildBranchLocator, mapBuild, parseBuildsResponse } from './teamcity'
+import {
+  activityBuildTypesLocator,
+  buildBranchLocator,
+  mapBuild,
+  parseBuildsResponse,
+} from './teamcity'
+
+describe('activityBuildTypesLocator', () => {
+  it('builds a union scoped to every configured build type', () => {
+    expect(activityBuildTypesLocator(['Gakko_Build', 'Gakko_Deploy'])).toBe(
+      'buildType:(item:(id:Gakko_Build),item:(id:Gakko_Deploy))',
+    )
+  })
+})
 
 describe('buildBranchLocator', () => {
   it('scopes to build type and branch, including queued and running builds', () => {

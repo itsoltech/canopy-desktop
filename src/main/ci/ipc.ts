@@ -160,7 +160,7 @@ export function registerCiHandlers({
     },
   )
 
-  // Server-wide activity (running + queued) of the repo's CI server.
+  // Activity for build types selected in the repository's CI configuration.
   ipcMain.handle('ci:activity', async (event: CiIpcEvent, payload: { repoRoot: string }) => {
     const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
     const result = await ciManager.activity(repoRoot)

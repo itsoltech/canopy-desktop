@@ -3,6 +3,7 @@ import { okAsync, errAsync, ResultAsync } from 'neverthrow'
 import { CiManager } from './CiManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
+import type { CiActivityBuild } from './types'
 
 // The network layer is mocked — these tests pin the SECURITY-relevant glue: the
 // configured-build-type allowlist, the token gate, config validation at read time
@@ -17,7 +18,7 @@ vi.mock('./teamcity', () => ({
   triggerBuild: vi.fn(() => okAsync({ buildId: 1, webUrl: 'https://tc/1', branchName: 'next' })),
 }))
 
-import { triggerBuild, fetchBuildForBranch, fetchBuildTypes } from './teamcity'
+import { triggerBuild, fetchActivity, fetchBuildForBranch, fetchBuildTypes } from './teamcity'
 
 const VALID_CI = {
   provider: 'teamcity',
@@ -162,6 +163,39 @@ describe('the configured-build-type allowlist', () => {
       'next',
       props,
     )
+  })
+
+  it('keeps activity scoped to jobs configured for this repository', async () => {
+    const { manager } = fakes({ ci: VALID_CI })
+    const build = (id: number, buildTypeId: string): CiActivityBuild => ({
+      id,
+      number: String(id),
+      state: 'finished' as const,
+      status: 'SUCCESS',
+      statusText: `${buildTypeId} completed`,
+      percentageComplete: undefined,
+      webUrl: `https://tc.example.com/build/${id}`,
+      branchName: 'develop',
+      queuedAt: undefined,
+      startedAt: undefined,
+      finishedAt: undefined,
+      buildTypeId,
+      buildTypeName: buildTypeId,
+    })
+    vi.mocked(fetchActivity).mockReturnValue(
+      okAsync({
+        running: [build(1, 'Other_Job')],
+        queued: [build(2, 'Gakko_Build'), build(3, 'Other_Job')],
+        recent: [build(4, 'Other_Job'), build(5, 'Gakko_Build')],
+      }),
+    )
+
+    const result = await manager.activity('r')
+
+    expect(fetchActivity).toHaveBeenCalledWith('https://tc.example.com', 'tok', ['Gakko_Build'])
+    expect(result._unsafeUnwrap().running).toEqual([])
+    expect(result._unsafeUnwrap().queued.map((item) => item.id)).toEqual([2])
+    expect(result._unsafeUnwrap().recent.map((item) => item.id)).toEqual([5])
   })
 })
 

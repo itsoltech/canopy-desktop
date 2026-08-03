@@ -246,11 +246,12 @@
     y: number
     project: ProjectState
     wt: ProjectState['worktrees'][number]
-    /** This worktree's checkout has a CI config — gates the Run CI Job entry. */
-    ciConfigured: boolean
+    /** null while this worktree's git-tracked CI config is being checked. */
+    ciConfigured: boolean | null
   }
 
   let ctxMenu = $state<WorktreeCtx | null>(null)
+  let ctxMenuRequest = 0
 
   async function handleWorktreeContextMenu(
     e: MouseEvent,
@@ -260,10 +261,11 @@
     e.preventDefault()
     // Open the menu IMMEDIATELY — a context menu that waits on IPC + disk reads as a
     // dropped click. The per-worktree CI probe (the ci block lives in each checkout's
-    // .canopy/config.json) resolves into the already-visible menu, guarded by
-    // identity so a slow read for a previously right-clicked worktree cannot replace
-    // the menu (and target) the user is looking at.
-    const menu: WorktreeCtx = { x: e.clientX, y: e.clientY, project, wt, ciConfigured: false }
+    // .canopy/config.json) resolves into the already-visible menu. A monotonic request
+    // id avoids object-identity comparisons across Svelte's deep state proxies and
+    // prevents a slow result from updating a newer menu.
+    const request = ++ctxMenuRequest
+    const menu: WorktreeCtx = { x: e.clientX, y: e.clientY, project, wt, ciConfigured: null }
     ctxMenu = menu
     if (!ciMenuEnabled || wt.branch === '(detached)') return
     let ciConfigured = false
@@ -272,10 +274,13 @@
     } catch {
       ciConfigured = false
     }
-    if (ctxMenu === menu) ctxMenu = { ...menu, ciConfigured }
+    if (ctxMenuRequest === request && ctxMenu?.wt.path === wt.path) {
+      ctxMenu = { ...menu, ciConfigured }
+    }
   }
 
   function closeCtxMenu(): void {
+    ctxMenuRequest += 1
     ctxMenu = null
   }
 
@@ -324,7 +329,7 @@
   })
 
   function ctxRunCiJob(): void {
-    if (!ctxMenu) return
+    if (!ctxMenu || ctxMenu.ciConfigured !== true) return
     const { wt } = ctxMenu
     closeCtxMenu()
     // The worktree's own checkout carries the repo config; its branch prefills the run.
@@ -416,13 +421,19 @@
           role="menuitem"
           onclick={ctxNewWorktree}>New Worktree from Branch</button
         >
-        {#if ciMenuEnabled && ctxMenu.ciConfigured}
+        {#if ciMenuEnabled && ctxMenu.ciConfigured !== false}
           <div class="h-px mx-2 my-1 bg-border-subtle"></div>
           <button
             class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
             role="menuitem"
             onclick={ctxRunCiJob}
-            title="Queue a CI job (build/deploy) on this branch — the branch must exist on the remote"
+            aria-disabled={ctxMenu.ciConfigured === null}
+            aria-busy={ctxMenu.ciConfigured === null}
+            class:opacity-50={ctxMenu.ciConfigured === null}
+            class:cursor-default={ctxMenu.ciConfigured === null}
+            title={ctxMenu.ciConfigured === null
+              ? 'Checking this worktree for a CI configuration…'
+              : 'Queue a CI job (build/deploy) on this branch — the branch must exist on the remote'}
           >
             <span class="inline-flex items-center shrink-0">
               <TrackerProviderIcon provider="teamcity" size={13} />

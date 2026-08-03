@@ -8,9 +8,8 @@
   import { ciChip } from '../../lib/ci/status'
   import type { CiActivityBuild } from '../../lib/ci/types'
 
-  // Server activity window: everything running and queued on the TeamCity server plus
-  // recent history. The sidebar only carries a one-row summary — the details live
-  // here, where there is room for them. Refreshes while open.
+  // Repository activity: running, queued and recent builds whose configurations
+  // are selected in this repo's CI config. Refreshes while open.
 
   let { repoRoot }: { repoRoot: string } = $props()
 
@@ -110,6 +109,16 @@
           <span class="font-mono text-2xs text-text-faint flex-shrink-0">#{build.number}</span>
         {/if}
       </span>
+      {#if build.statusText}
+        <span
+          class="w-full text-2xs truncate {build.status === 'SUCCESS'
+            ? 'text-success'
+            : build.status === 'FAILURE' || build.status === 'ERROR'
+              ? 'text-danger-text'
+              : 'text-text-muted'}"
+          title={build.statusText}>{build.statusText}</span
+        >
+      {/if}
       <span class="w-full flex items-baseline gap-2 min-w-0">
         {#if build.branchName}
           <span class="font-mono text-2xs text-text-muted truncate" title={build.branchName}

@@ -130,10 +130,25 @@ export class CiManager {
     )
   }
 
-  /** Server-wide activity (running + queued builds) of the repo's CI server. */
+  /** Activity limited to build configurations selected in this repository's CI config. */
   activity(repoRoot: string): ResultAsync<CiActivity, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) =>
-      this.tokenFor(ci).andThen((token) => fetchActivity(ci.baseUrl, token)),
+      this.tokenFor(ci).andThen((token) =>
+        fetchActivity(
+          ci.baseUrl,
+          token,
+          ci.buildTypes.map((bt) => bt.id),
+        ).map((activity) => {
+          const configured = new Set(ci.buildTypes.map((bt) => bt.id))
+          const keepConfigured = (build: CiActivity['recent'][number]): boolean =>
+            configured.has(build.buildTypeId)
+          return {
+            running: activity.running.filter(keepConfigured),
+            queued: activity.queued.filter(keepConfigured),
+            recent: activity.recent.filter(keepConfigured),
+          }
+        }),
+      ),
     )
   }
 

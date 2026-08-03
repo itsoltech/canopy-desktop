@@ -79,13 +79,15 @@ export interface CiParameter {
   uncheckedValue: string | undefined
 }
 
-/** A running, queued or recently finished build in the server-wide activity view. */
+/** A running, queued or recently finished build in repository-scoped activity. */
 export interface CiActivityBuild {
   id: number
   number: string | undefined
   state: 'running' | 'queued' | 'finished'
   /** TeamCity outcome (SUCCESS/FAILURE/…) — set for running and finished builds. */
   status: string | undefined
+  /** TeamCity's build-specific summary, for example "sylabusy-api-test deployed". */
+  statusText: string | undefined
   percentageComplete: number | undefined
   webUrl: string
   branchName: string | undefined
@@ -100,7 +102,7 @@ export interface CiActivityBuild {
 export interface CiActivity {
   running: CiActivityBuild[]
   queued: CiActivityBuild[]
-  /** Most recent finished builds (server-wide history, newest first). */
+  /** Most recent finished builds for configured jobs, newest first. */
   recent: CiActivityBuild[]
 }
 

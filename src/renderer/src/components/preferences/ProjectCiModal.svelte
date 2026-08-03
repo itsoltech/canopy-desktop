@@ -496,7 +496,7 @@
       {:else}
         <!-- Persistent region: onMount resolves ciConfig before this text lands, so
              the wrapper must outlive the content or the mutation is never announced. -->
-        <div role="status">
+        <div role="status" class:sr-only={!configLoadError}>
           {#if configLoadError}
             <p class="m-0 text-xs text-warning-text leading-snug" title={configLoadError}>
               <!-- The separator lives INSIDE each branch: the unknown-scope catch
@@ -603,9 +603,9 @@
 
         <!-- NOT live: routine input changes do not need announcements;
              configLoadScope can also arrive asynchronously, but the config error
-             is announced by the status region above. Reserved height keeps the row
-             below stable; both buttons reference this on focus. -->
-        <div class="min-h-4">
+             is announced by the status region above. The empty persistent node is
+             visually collapsed; both buttons reference it on focus when populated. -->
+        <div class:sr-only={!serverBlockedReason}>
           {#if serverBlockedReason}
             <span id="ci-server-blocked" class="text-xs text-text-secondary break-words"
               >{serverBlockedReason}</span
@@ -615,7 +615,7 @@
 
         <!-- Persistent region: a load or keychain failure lands as a mutation —
              a span mounted together with its content is never announced. -->
-        <div class="min-h-4" role="status">
+        <div class:sr-only={!typesError} role="status">
           {#if typesError}
             <span class="text-xs text-danger-text">{typesError}</span>
           {/if}
@@ -625,7 +625,13 @@
              same render pass as its content is skipped by screen readers, and every
              path that changes the message resets typesLoaded first — so the region
              must outlive the conditional chain below. -->
-        <div role="status" id="ci-save-warnings">
+        <div
+          role="status"
+          id="ci-save-warnings"
+          class:sr-only={!existingConfig?.droppedInvalid &&
+            !existingConfig?.droppedOverCap &&
+            !(typesLoaded && missingBuildTypes.length > 0)}
+        >
           {#if existingConfig?.droppedInvalid}
             <!-- Recovery is correcting the FILE: these are not TeamCity ids, so
                  the picker below can never show them — "tick to keep" would be

@@ -74,7 +74,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  class="fixed inset-0 z-[10010] flex justify-center items-center bg-scrim"
+  class="fixed inset-0 z-overlay flex justify-center items-center bg-scrim"
   onmousedown={requestCancel}
   onkeydown={handleKeydown}
 >
@@ -132,7 +132,7 @@
             </label>
           {:else if param.kind === 'select' && param.multiple}
             <div class="flex items-center gap-2">
-              <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+              <span class="text-xs font-semibold text-text-faint"
                 >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
                     >*</span
                   >{/if}</span
@@ -167,7 +167,7 @@
               {/each}
             </div>
           {:else if param.kind === 'select'}
-            <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+            <span class="text-xs font-semibold text-text-faint"
               >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
                   >*</span
                 >{/if}</span
@@ -178,7 +178,7 @@
               onchange={(v) => (values[param.name] = v)}
             />
           {:else}
-            <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+            <span class="text-xs font-semibold text-text-faint"
               >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
                   >*</span
                 >{/if}</span

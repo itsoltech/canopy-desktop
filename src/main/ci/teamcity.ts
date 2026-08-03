@@ -182,21 +182,35 @@ export function fetchBuildTypes(
   )
 }
 
-/** Server-wide activity: running + queued builds and the most recent finished ones. */
-export function fetchActivity(baseUrl: string, token: string): ResultAsync<CiActivity, CiError> {
+/** A BuildTypeLocator union used to scope every activity query to configured jobs. */
+export function activityBuildTypesLocator(buildTypeIds: string[]): string {
+  return `buildType:(${buildTypeIds.map((id) => `item:(id:${id})`).join(',')})`
+}
+
+/** Activity for the repository's configured build types only. */
+export function fetchActivity(
+  baseUrl: string,
+  token: string,
+  buildTypeIds: string[],
+): ResultAsync<CiActivity, CiError> {
   const fields =
-    'count,build(id,number,status,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate,buildType(id,name))'
+    'count,build(id,number,status,statusText,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate,buildType(id,name))'
+  const scope = activityBuildTypesLocator(buildTypeIds)
   return ResultAsync.combine([
     tcFetch<RawActivityResponse>(
       baseUrl,
       token,
-      `/app/rest/builds?locator=running:true,defaultFilter:false,count:20&fields=${fields}`,
+      `/app/rest/builds?locator=${encodeURIComponent(`${scope},running:true,branch:(default:any),defaultFilter:false,count:20`)}&fields=${fields}`,
     ),
-    tcFetch<RawActivityResponse>(baseUrl, token, `/app/rest/buildQueue?fields=${fields}`),
     tcFetch<RawActivityResponse>(
       baseUrl,
       token,
-      `/app/rest/builds?locator=state:finished,defaultFilter:false,count:10&fields=${fields}`,
+      `/app/rest/buildQueue?locator=${encodeURIComponent(scope)}&fields=${fields}`,
+    ),
+    tcFetch<RawActivityResponse>(
+      baseUrl,
+      token,
+      `/app/rest/builds?locator=${encodeURIComponent(`${scope},state:finished,branch:(default:any),defaultFilter:false,count:10`)}&fields=${fields}`,
     ),
   ]).map(([running, queued, recent]) => parseActivity(running, queued, recent))
 }

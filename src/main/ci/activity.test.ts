@@ -24,6 +24,7 @@ describe('parseActivity', () => {
             number: '812',
             state: 'running',
             status: 'SUCCESS',
+            statusText: 'Step 3/7',
             percentageComplete: 63,
             webUrl: 'https://tc/build/55',
             branchName: 's152/ISSUE-2148',
@@ -40,13 +41,18 @@ describe('parseActivity', () => {
         number: '812',
         state: 'running',
         status: 'SUCCESS',
+        statusText: 'Step 3/7',
         percentageComplete: 63,
         webUrl: 'https://tc/build/55',
         branchName: 's152/ISSUE-2148',
+        queuedAt: undefined,
+        startedAt: undefined,
+        finishedAt: undefined,
         buildTypeId: 'Gakko_Build',
         buildTypeName: 'Build & Deploy',
       },
     ])
+    expect(activity.running[0].statusText).toBe('Step 3/7')
     expect(activity.queued).toEqual([])
     expect(activity.recent).toEqual([])
   })
@@ -69,6 +75,7 @@ describe('parseActivity', () => {
         number: undefined,
         state: 'queued',
         status: undefined,
+        statusText: undefined,
         percentageComplete: undefined,
         webUrl: 'https://tc/q/60',
         branchName: undefined,
@@ -80,6 +87,7 @@ describe('parseActivity', () => {
         number: undefined,
         state: 'queued',
         status: undefined,
+        statusText: undefined,
         percentageComplete: undefined,
         webUrl: '',
         branchName: 'next',
@@ -100,6 +108,7 @@ describe('parseActivity', () => {
             id: 50,
             number: '2602',
             status: 'SUCCESS',
+            statusText: 'sylabusy-api-test deployed',
             webUrl: 'https://tc/build/50',
             branchName: 'develop',
             startDate: '20260801T172255+0200',
@@ -116,6 +125,7 @@ describe('parseActivity', () => {
     ])
     const first = activity.recent[0]
     expect(first.startedAt).toBe(Date.parse('2026-08-01T17:22:55+02:00'))
+    expect(first.statusText).toBe('sylabusy-api-test deployed')
     expect(first.finishedAt).toBe(Date.parse('2026-08-01T17:24:06+02:00'))
     expect(activity.recent[1].startedAt).toBeUndefined()
   })

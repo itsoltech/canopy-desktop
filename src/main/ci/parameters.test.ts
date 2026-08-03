@@ -65,6 +65,29 @@ describe('parseParameterSpec', () => {
     expect(spec.label).toBe("it's odd")
   })
 
+  it('decodes TeamCity Unicode code-point escapes in labels, descriptions and options', () => {
+    const spec = parseParameterSpec(
+      "select display='prompt' label='Za[0x017C][0x00F3][0x0142][0x0107]' description='Uzupe[0x0142]nij pole [0x1F680]' data_1='Warto[0x015B][0x0107]'",
+    )
+    expect(spec.label).toBe('Zażółć')
+    expect(spec.description).toBe('Uzupełnij pole 🚀')
+    expect(spec.options).toEqual(['Wartość'])
+  })
+
+  it('decodes the pipe-prefixed Unicode escapes returned by older TeamCity servers', () => {
+    const spec = parseParameterSpec(
+      "text display='prompt' label='GakkoDatabase' description='Uzupe|0x0142nij baz|0x0119 dla |0x015brodowiska'",
+    )
+    expect(spec.description).toBe('Uzupełnij bazę dla środowiska')
+  })
+
+  it('leaves malformed or invalid Unicode escapes untouched', () => {
+    const spec = parseParameterSpec(
+      "text display='prompt' label='Bad [0xZZZZ] [0x110000] [0xD800]'",
+    )
+    expect(spec.label).toBe('Bad [0xZZZZ] [0x110000] [0xD800]')
+  })
+
   it('handles empty/missing specs as plain hidden text', () => {
     expect(parseParameterSpec(undefined).display).toBe('normal')
     expect(parseParameterSpec('').kind).toBe('text')

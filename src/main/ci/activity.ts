@@ -1,5 +1,5 @@
-// Parsing for the server-wide activity view (what is running / queued on TeamCity
-// right now) and for a build configuration's branch list.
+// Parsing for TeamCity activity and a build configuration's branch list. The manager
+// scopes parsed activity to the repository's configured jobs before it reaches IPC.
 
 import type { CiActivity, CiActivityBuild } from './types'
 
@@ -9,6 +9,7 @@ interface RawActivityBuild {
   // Present in responses but unused: each endpoint's locator already fixes the state.
   state?: string
   status?: string
+  statusText?: string
   percentageComplete?: number
   webUrl?: string
   branchName?: string
@@ -42,6 +43,7 @@ function mapActivityBuild(
     number: raw.number,
     state,
     status: raw.status,
+    statusText: raw.statusText,
     percentageComplete: raw.percentageComplete,
     webUrl: raw.webUrl ?? '',
     branchName: raw.branchName,

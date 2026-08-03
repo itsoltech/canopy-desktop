@@ -179,12 +179,10 @@
 
   function openRunJob(): void {
     if (!repoRoot) return
-    // Prefill the branch the rest of this section is scoped to — without it the
-    // dialog opens unarmed and branch-less, which is not what a section showing
-    // this worktree's builds implies. '(detached)' is a sentinel, not a branch
-    // name (CI_BRANCH_RE rejects it), so it stays unprefilled.
-    const branch = workspaceState.branch
-    showCiRunJob(repoRoot, branch && branch !== '(detached)' ? { branch } : undefined)
+    // The generic sidebar entry stays unarmed: an active `develop` worktree must
+    // not silently become the run target. The branch context-menu entry is the
+    // explicit shortcut that preselects its worktree's branch.
+    showCiRunJob(repoRoot)
   }
 
   function openActivity(): void {
@@ -251,7 +249,7 @@
         <button
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
           onclick={openRunJob}
-          title="Queue any configured job on any branch TeamCity knows"
+          title="Choose a configured job and branch to queue"
         >
           <Play
             size={13}
@@ -272,7 +270,7 @@
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
           onclick={openActivity}
           title={activityError ||
-            `What is running and queued on ${serverHost}, plus recent history — opens in a window`}
+            `Configured repository jobs running or queued on ${serverHost}, plus recent history — opens in a window`}
         >
           <Hammer
             size={13}

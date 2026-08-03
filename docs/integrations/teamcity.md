@@ -58,17 +58,16 @@ writes the `ci` block to `.canopy/config.json`; the modal can also remove it.
 A centered modal (rendered from the app layer — sidebar-hosted dialogs would be
 pinned to the sidebar column by its backdrop-filter): pick a configured job and a
 branch through a searchable list (branches come from TeamCity itself —
-`/app/rest/buildTypes/id:X/branches`; a typed name not on the list can still be used).
-Both entry points prefill the branch — the sidebar's **Run job…** uses the active
-worktree's branch, and the worktree context menu (right-click a branch in PROJECTS →
-**Run CI Job on Branch…**) uses that worktree's — and a prefilled branch stays selected
-even when TeamCity has not listed it yet. The dialog never picks a branch on its own:
-on a detached HEAD there is no branch to prefill, so **Run** stays disabled until one is
-chosen, and a single click can never queue a job on TeamCity's default branch by
-accident. The GIT section deliberately carries no CI entries, it holds
-CI-independent git actions. If the job
-prompts for
-parameters (TeamCity's "Run custom build"), Canopy shows an equivalent dynamic form:
+`/app/rest/buildTypes/id:X/branches`; typing filters the list and a branch must be picked).
+The generic sidebar **Run job…** entry leaves the branch empty, so an active `develop`
+worktree is never armed implicitly. The worktree context menu (right-click a branch in
+PROJECTS → **Run CI Job on Branch…**) explicitly prefills that worktree's branch, and
+the prefilled branch stays selected even when TeamCity has not listed it yet. Otherwise
+the dialog never picks a branch on its own, and **Run** stays disabled until one is
+chosen. The GIT section deliberately carries no CI entries; it holds CI-independent git
+actions. Parameter metadata is loaded for the selected job before submission. If the job
+prompts for parameters (TeamCity's "Run custom build"), the primary action says
+**Configure** and Canopy shows an equivalent dynamic form:
 text inputs with descriptions, checkboxes honoring custom checked/unchecked values,
 single selects, multi-selects with All/None joined by the spec's value separator, and
 masked inputs for `password` parameters. Password prompts always start **empty** — the
@@ -80,8 +79,8 @@ Fields are prefilled with the configuration's current values; checkboxes follow
 TeamCity's dialog semantics exactly — an unchecked checkbox submits its
 `uncheckedValue` (configs may carry whole CLI fragments there), never the raw stored
 value. Required parameters (`validationMode='not_empty'`) block submission. Chosen
-values are sent as build `properties`. Jobs without prompt parameters queue
-immediately. A build triggered from Canopy is then **observed to completion**: the app
+values are sent as build `properties`. Only jobs without prompt parameters expose
+**Run** and queue immediately. A build triggered from Canopy is then **observed to completion**: the app
 polls it every 10 s and shows a green or red toast with the outcome when it finishes
 (`SUCCESS` → succeeded; `FAILURE` and TeamCity's `ERROR` → failed; anything else →
 "finished with unknown status"). The poll gives up after ~5 minutes of consecutive
@@ -101,11 +100,12 @@ build itself is unaffected.
 ### Activity
 
 The sidebar carries only a one-row summary (running/queued counts, or "Idle");
-clicking it opens a dedicated activity window with the details: everything running or
-queued on the server (server-wide, like TeamCity's own queue page; capped at 20+20)
-plus the 10 most recent finished builds with their outcome. Job name, branch and
-progress per row (start time + duration for finished builds — same-day times as
-HH:MM, older ones as YYYY-MM-DD HH:MM; elapsed time for running); click opens the
+clicking it opens a dedicated activity window with the details. Canopy scopes its TeamCity
+queries to build configurations selected in this repository's `.canopy/config.json` and
+fetches up to 20 running builds, their queue and 10 recent matching builds. Job name, branch,
+TeamCity's build-specific `statusText`, outcome and progress are shown per row (start
+time + duration for finished builds — same-day times as HH:MM, older ones as
+YYYY-MM-DD HH:MM; elapsed time for running); click opens the
 build in TeamCity. The summary chip shows a single running build's percentage and the
 queued count, refreshes immediately after a trigger from Canopy, and polls every 30 s
 (10 s while anything is active) while the section is mounted; the window is resizable
