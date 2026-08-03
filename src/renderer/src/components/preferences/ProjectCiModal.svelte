@@ -322,8 +322,15 @@
     if (effectiveBuildTypes.length === 0) {
       return { reason: 'Disabled: tick at least one job below', severity: 'info' }
     }
-    if (saving) {
+    if (busy === 'save') {
       return { reason: 'Disabled: an update is already in progress', severity: 'info' }
+    }
+    // `saving` without a `busy` action is the pre-confirm guard, and only
+    // removeConfiguration awaits inside it (saveConfiguration sets both
+    // synchronously) — so nothing has started yet. Claiming otherwise is what
+    // splitting `busy` out of `saving` was for.
+    if (saving) {
+      return { reason: 'Disabled: confirm or dismiss the removal first', severity: 'info' }
     }
     return { reason: '', severity: 'info' }
   })
@@ -684,10 +691,10 @@
           </button>
         {/if}
       </div>
-      <!-- Persistent region: a failed save/remove lands here as a mutation — the
-           toast layer (z-banner) paints UNDER this modal's scrim (z-overlay).
-           No truncate: CiApiError can carry TeamCity's response body, and the one
-           message explaining why a git-shared file was not written must wrap. -->
+      <!-- Stacks the save failure and the blocked-reason line — both wrap rather
+           than truncate: CiApiError can carry TeamCity's response body, and the
+           one message explaining why a git-shared file was not written must be
+           fully readable. -->
       <div class="flex-1 min-w-0 flex flex-col gap-0.5">
         <!-- Persistent region: a failed save/remove lands here as a mutation — the
              toast layer (z-banner) paints UNDER this modal's scrim (z-overlay). -->
