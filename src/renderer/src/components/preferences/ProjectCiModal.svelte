@@ -119,10 +119,18 @@
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
-      closeDialog()
+      requestClose()
       return
     }
     if (e.key === 'Tab' && containerEl) cycleFocus(containerEl, e)
+  }
+
+  /** Every dismissal route funnels here: closing during an in-flight write would
+      destroy the footer region its failure is routed to — the error would have NO
+      surface (the success toast fires only after the await). Gated on `busy`, not
+      `saving`, so Escape still works while a removal confirm is open. */
+  function requestClose(): void {
+    if (busy === '') closeDialog()
   }
 
   function selectServer(value: string): void {
@@ -300,6 +308,14 @@
     if (busy === 'remove') {
       return { reason: 'Disabled: the CI configuration is being removed', severity: 'info' }
     }
+    // `saving` without a `busy` action is the pre-confirm guard, and only
+    // removeConfiguration awaits inside it (saveConfiguration sets both
+    // synchronously) — so nothing has started yet. Ranked with `busy === 'remove'`
+    // rather than last: both describe the removal the user just started, and a
+    // standing precondition about Save must not out-rank the modal on screen.
+    if (saving && busy === '') {
+      return { reason: 'Disabled: confirm or dismiss the removal first', severity: 'info' }
+    }
     if (!urlValid) {
       return { reason: 'Disabled: enter a valid TeamCity server URL first', severity: 'info' }
     }
@@ -324,13 +340,6 @@
     }
     if (busy === 'save') {
       return { reason: 'Disabled: an update is already in progress', severity: 'info' }
-    }
-    // `saving` without a `busy` action is the pre-confirm guard, and only
-    // removeConfiguration awaits inside it (saveConfiguration sets both
-    // synchronously) — so nothing has started yet. Claiming otherwise is what
-    // splitting `busy` out of `saving` was for.
-    if (saving) {
-      return { reason: 'Disabled: confirm or dismiss the removal first', severity: 'info' }
     }
     return { reason: '', severity: 'info' }
   })
@@ -414,7 +423,7 @@
 <div
   class="fixed inset-0 z-overlay flex justify-center items-center bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={closeDialog}
+  onmousedown={requestClose}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
@@ -439,7 +448,7 @@
       <button
         type="button"
         class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
-        onclick={closeDialog}
+        onclick={requestClose}
         aria-label="Close"
         title="Close"
       >
@@ -721,7 +730,7 @@
         <button
           type="button"
           class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-          onclick={closeDialog}>Cancel</button
+          onclick={requestClose}>Cancel</button
         >
         <button
           type="button"
