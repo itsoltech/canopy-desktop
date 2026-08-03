@@ -51,14 +51,21 @@ export class CiManager {
       )
       .andThen((cfg) => {
         if (cfg.ci == null) return errAsync<CiConfig, CiError>({ _tag: 'CiNotConfigured' })
-        const ci = parseCiConfig(cfg.ci)
-        return ci
-          ? okAsync(ci)
-          : errAsync<CiConfig, CiError>({
-              _tag: 'CiConfigInvalid',
-              scope: 'block',
-              reason: 'unrecognized ci block shape',
-            })
+        const parsed = parseCiConfig(cfg.ci)
+        if (parsed.config) return okAsync(parsed.config)
+        // When EVERY entry is a typo (a bulk rename), the names must still reach
+        // the user — a generic "unrecognized shape" would steer them at a Save
+        // that deletes the entries with their names never shown.
+        return errAsync<CiConfig, CiError>({
+          _tag: 'CiConfigInvalid',
+          scope: 'block',
+          reason:
+            parsed.invalidIds.length > 0
+              ? `invalid build type ids — fix them in the ci block: ${parsed.invalidIds
+                  .slice(0, 10)
+                  .join(', ')}`
+              : 'unrecognized ci block shape',
+        })
       })
   }
 

@@ -133,15 +133,18 @@ Written by the configurator (hand-editing works too) in `.canopy/config.json`:
   only (the renderer never supplies a URL for repo-scoped calls).
 - `buildTypes[].id` — TeamCity build configuration id (`[A-Za-z0-9_]`, ≤255 chars).
   An entry whose id violates the charset (a hand-edited typo like `Gakko-Build`) is
-  dropped at read time but **counted and named** in the configurator's warning — it
-  never silently disappears on Save.
+  dropped at read time but **counted and named** in the configurator's warning, with
+  a correct-the-file recovery (it is not a TeamCity id, so the picker cannot show
+  it) — and when every entry is invalid, the block-scope error itself names the ids.
+  It never silently disappears on Save.
 - `buildTypes[].label` — sidebar label; defaults to the id, capped at 100 chars.
 - `buildTypes` — at most 50 entries when read; duplicate `id`s collapse to the first
   occurrence and extras beyond the cap are ignored rather than rejected (the raw
-  block is preserved on disk). The configurator names the dropped entries (typo'd
-  ids and cap overflow alike, capped sample) before a Save would drop them for
-  real, and itself refuses to select more than 50 — Save is disabled with the
-  count named; the `ci:saveConfig` IPC path rejects >50 outright.
+  block is preserved on disk). The configurator names the dropped entries with the
+  recovery matching their cause — typo'd ids point at fixing the file, cap overflow
+  at re-ticking in the picker — before a Save would drop them for real, and itself
+  refuses to select more than 50 (Save is disabled with the count named); the
+  `ci:saveConfig` IPC path rejects >50 outright.
 
 `ci:config` answers with a structured result: `{ config }` when the block is valid,
 `{ config: null }` alone when the repo genuinely has no CI (every "Configure

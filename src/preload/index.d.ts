@@ -1591,11 +1591,11 @@ interface CiConfigInfo {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: Array<{ id: string; label: string }>
-  /** Entries dropped at parse time (typo'd ids, cap overflow) of a hand-edited
-      file — the configurator announces them before a Save deletes them. */
-  droppedBuildTypes?: number
-  /** Capped sample of the dropped ids — named in the configurator's warning. */
-  droppedBuildTypeIds?: string[]
+  /** Typo'd ids from a hand-edited file (charset failures) — announced with a
+      correct-the-file recovery; `ids` is a capped sample, `count` exact. */
+  droppedInvalid?: { count: number; ids: string[] }
+  /** Valid entries beyond the parse-time cap — announced with a re-tick recovery. */
+  droppedOverCap?: { count: number; ids: string[] }
 }
 
 /** Structured `ci:config` answer — `invalid`'s scope gates the recovery routes. */

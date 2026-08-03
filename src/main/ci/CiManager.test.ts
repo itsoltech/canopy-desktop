@@ -87,6 +87,21 @@ describe('loadConfig', () => {
     }
   })
 
+  it('names the invalid ids when every entry in the block is a typo', async () => {
+    // A bulk rename typos every id — the generic "unrecognized shape" would
+    // steer the user at a Save that deletes them with the names never shown.
+    const ci = {
+      provider: 'teamcity',
+      baseUrl: 'https://tc.example.com',
+      buildTypes: [{ id: 'Gakko-Build' }],
+    }
+    const { manager } = fakes({ ci })
+    const result = await manager.loadConfig('r')
+    expect(
+      result.isErr() && result.error._tag === 'CiConfigInvalid' && result.error.reason,
+    ).toContain('Gakko-Build')
+  })
+
   it('degrades a missing config file to CiNotConfigured', async () => {
     const { manager } = fakes({ loadFails: 'notFound' })
     const result = await manager.loadConfig('r')

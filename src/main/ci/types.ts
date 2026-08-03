@@ -11,12 +11,13 @@ export interface CiConfig {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: CiBuildTypeConfig[]
-  /** Entries dropped at parse time (typo'd ids, cap overflow) — carried so the
-      configurator can announce them before a Save deletes them for real. */
-  droppedBuildTypes?: number
-  /** The dropped ids themselves (capped sample) — the warning names them so the
-      user can re-tick survivors in the picker instead of hand-editing. */
-  droppedBuildTypeIds?: string[]
+  /** Hand-edited entries whose id fails the charset — typos, announced with a
+      correct-the-file recovery (they are not TeamCity ids; the picker can never
+      show them). `ids` is a capped sample, `count` is exact. */
+  droppedInvalid?: { count: number; ids: string[] }
+  /** Valid entries beyond the parse-time cap — announced with a re-tick recovery
+      (they are real jobs sitting unticked in the picker). */
+  droppedOverCap?: { count: number; ids: string[] }
 }
 
 // --- Normalized build state ---

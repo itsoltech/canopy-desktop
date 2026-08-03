@@ -37,6 +37,17 @@ export interface CiBuildTypeStatus {
   error?: string
 }
 
+/** `ci:config`'s parsed-config shape (mirror of the preload `CiConfigInfo`). */
+export interface CiRepoConfigInfo {
+  provider: 'teamcity'
+  baseUrl: string
+  buildTypes: Array<{ id: string; label: string }>
+  /** Typo'd ids from a hand-edited file — recovery is correcting the FILE. */
+  droppedInvalid?: { count: number; ids: string[] }
+  /** Valid entries beyond the parse cap — recovery is re-ticking in the picker. */
+  droppedOverCap?: { count: number; ids: string[] }
+}
+
 export interface CiParameter {
   name: string
   kind: 'text' | 'password' | 'checkbox' | 'select'

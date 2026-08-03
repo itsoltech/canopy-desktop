@@ -59,7 +59,13 @@
               class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none min-w-0"
             >
               <CustomCheckbox checked={selected.has(bt.id)} onchange={() => onToggle(bt)} />
-              <span class="truncate" title={bt.id}>{bt.name}</span>
+              <!-- The id rides along visibly: the configurator's warnings name IDS
+                   (they are what the git-shared file stores), and there is no
+                   search field — a hover-only title can't be scanned for. -->
+              <span class="truncate" title={bt.id}
+                >{bt.name}{#if bt.id !== bt.name}
+                  <span class="font-mono text-2xs text-text-faint">· {bt.id}</span>{/if}</span
+              >
             </label>
             {#if selected.has(bt.id)}
               <input

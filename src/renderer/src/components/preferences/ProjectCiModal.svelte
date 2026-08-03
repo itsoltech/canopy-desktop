@@ -8,6 +8,7 @@
   import { loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { CI_MAX_BUILD_TYPES } from '../../lib/ci/limits'
+  import type { CiRepoConfigInfo } from '../../lib/ci/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
@@ -29,13 +30,9 @@
   let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let containerEl: HTMLElement | undefined = $state()
 
-  let existingConfig = $state<{
-    baseUrl: string
-    buildTypes: Array<{ id: string; label: string }>
-    /** Hand-edited entries beyond the parse cap — invisible below, so they must
-        be announced before a Save deletes them from the git-tracked file. */
-    droppedBuildTypes?: number
-  } | null>(null)
+  // The SHARED shape (renderer mirror of the preload CiConfigInfo) — an inline
+  // copy already drifted once, reading a field the copy didn't declare.
+  let existingConfig = $state<CiRepoConfigInfo | null>(null)
   /** Set when a ci block exists but could not be used — shown so the advertised
       fix-and-re-save path names what is wrong. The scope picks the ONE recovery
       route to offer (file → hand-edit, Save disabled; block → re-save replaces). */
@@ -51,10 +48,12 @@
   let testing = $state(false)
   let testResult = $state<'success' | 'fail' | ''>('')
   let saving = $state(false)
-  // VISIBLE busy state — set only after a confirm resolves, so "Saving…" never
-  // shows (and Remove never disables/blurs itself) while the user is deciding.
-  // `saving` stays the pre-confirm re-entrancy guard shared by Save and Remove.
-  let savingBusy = $state(false)
+  // VISIBLE busy state, per action — set only after a confirm resolves, so
+  // "Saving…" never shows (and Remove never dims/blurs itself) while the user is
+  // deciding, and each button renders only ITS OWN spinner: one shared flag made
+  // a Save animate Remove's icon, announcing a removal that wasn't happening.
+  // `saving` stays the pre-confirm re-entrancy guard shared by both actions.
+  let busy = $state<'' | 'save' | 'remove'>('')
 
   let serverTypes = $state<ServerBuildType[]>([])
   let typesLoading = $state(false)
@@ -285,7 +284,7 @@
     if (!repoRoot || effectiveBuildTypes.length === 0 || !urlValid || saving) return
     // No confirm on this path — the guard and the visible state start together.
     saving = true
-    savingBusy = true
+    busy = 'save'
     saveError = ''
     try {
       await window.api.ciSaveConfig(repoRoot, {
@@ -301,7 +300,7 @@
       saveError = e instanceof Error ? e.message : 'Failed to save CI configuration'
     } finally {
       saving = false
-      savingBusy = false
+      busy = ''
     }
   }
 
@@ -328,7 +327,7 @@
         destructive: true,
       })
       if (!ok) return
-      savingBusy = true
+      busy = 'remove'
       await window.api.ciSaveConfig(repoRoot, null)
       await loadCiRepoConfig(repoRoot)
       addToast('CI configuration removed')
@@ -337,7 +336,7 @@
       saveError = e instanceof Error ? e.message : 'Failed to remove CI configuration'
     } finally {
       saving = false
-      savingBusy = false
+      busy = ''
     }
   }
 </script>
@@ -496,32 +495,45 @@
              same render pass as its content is skipped by screen readers, and every
              path that changes the message resets typesLoaded first — so the region
              must outlive the conditional chain below. -->
-        <div role="status" id="ci-stale-jobs">
-          {#if effectiveBuildTypes.length > CI_MAX_BUILD_TYPES}
-            <!-- Enforced HERE, not just at the IPC boundary: without this gate a
-                 51st tick left Save enabled and the rejection arrived as a bare
-                 footer error after the click, naming no limit. -->
+        <!-- NOT in the live region: this is a standing disabled-reason (also on the
+             Save title + aria-describedby), and its number changes on every tick —
+             inside the role=status region each tick would re-announce every
+             paragraph (role=status implies aria-atomic). -->
+        {#if effectiveBuildTypes.length > CI_MAX_BUILD_TYPES}
+          <p id="ci-over-limit" class="m-0 text-xs text-warning-text leading-snug">
+            {effectiveBuildTypes.length} jobs ticked — at most {CI_MAX_BUILD_TYPES} can be configured.
+            Untick {effectiveBuildTypes.length - CI_MAX_BUILD_TYPES} to enable Save.
+          </p>
+        {/if}
+        <div role="status" id="ci-save-warnings">
+          {#if existingConfig?.droppedInvalid}
+            <!-- Recovery is correcting the FILE: these are not TeamCity ids, so
+                 the picker below can never show them — "tick to keep" would be
+                 impossible advice here. -->
+            {@const inv = existingConfig.droppedInvalid}
             <p class="m-0 text-xs text-warning-text leading-snug">
-              {effectiveBuildTypes.length} jobs ticked — at most {CI_MAX_BUILD_TYPES} can be configured.
-              Untick {effectiveBuildTypes.length - CI_MAX_BUILD_TYPES} to enable Save.
+              {inv.count} hand-edited
+              {inv.count === 1 ? 'entry has an invalid id' : 'entries have invalid ids'}
+              ({inv.ids.join(', ')}{inv.count > inv.ids.length
+                ? ` and ${inv.count - inv.ids.length} more`
+                : ''}) — not TeamCity ids, so they cannot appear below. Correct them in
+              <code class="font-mono">.canopy/config.json</code> to keep them; saving without doing so
+              drops them.
             </p>
           {/if}
-          {#if (existingConfig?.droppedBuildTypes ?? 0) > 0}
-            <!-- Same invariant as the stale-job warning: nothing leaves the
-                 git-tracked file unannounced, and the entries are NAMED — a
-                 dropped job that still exists on the server sits unticked in the
-                 picker below, one click from being kept. -->
-            {@const droppedCount = existingConfig?.droppedBuildTypes ?? 0}
-            {@const droppedIds = existingConfig?.droppedBuildTypeIds ?? []}
+          {#if existingConfig?.droppedOverCap}
+            <!-- Recovery is re-ticking: these ids are real jobs sitting unticked
+                 in the picker — but the selection is seeded at the cap, so one
+                 must be unticked first. -->
+            {@const cap = existingConfig.droppedOverCap}
             <p class="m-0 text-xs text-warning-text leading-snug">
-              {droppedCount} hand-edited
-              {droppedCount === 1 ? 'entry' : 'entries'} in
-              <code class="font-mono">.canopy/config.json</code>
-              {droppedCount === 1 ? 'is' : 'are'} not shown here — invalid id or past the
-              {CI_MAX_BUILD_TYPES}-job cap ({droppedIds.join(', ')}{droppedCount > droppedIds.length
-                ? ` and ${droppedCount - droppedIds.length} more`
-                : ''}). Tick the ones you want to keep below, or trim the hand-edited list — saving
-              writes only the selection below.
+              {cap.count} hand-edited
+              {cap.count === 1 ? 'entry is' : 'entries are'} past the
+              {CI_MAX_BUILD_TYPES}-job cap and not selected ({cap.ids.join(', ')}{cap.count >
+              cap.ids.length
+                ? ` and ${cap.count - cap.ids.length} more`
+                : ''}). Untick another job below first, then tick these to keep them — or trim the
+              hand-edited list; saving writes only the selection below.
             </p>
           {/if}
           {#if typesLoaded && missingBuildTypes.length > 0}
@@ -584,10 +596,10 @@
             type="button"
             class="flex items-center gap-1 px-2 py-1 rounded-md border-0 bg-transparent text-text-faint text-xs font-inherit cursor-pointer hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:text-text-faint"
             onclick={removeConfiguration}
-            aria-disabled={savingBusy}
-            aria-busy={savingBusy}
+            aria-disabled={busy !== ''}
+            aria-busy={busy === 'remove'}
           >
-            {#if savingBusy}
+            {#if busy === 'remove'}
               <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
             {:else}
               <Trash2 size={12} />
@@ -622,17 +634,19 @@
             configLoadScope === 'file'}
           aria-describedby={configLoadScope === 'file'
             ? 'ci-config-invalid'
-            : missingBuildTypes.length > 0 ||
-                effectiveBuildTypes.length > CI_MAX_BUILD_TYPES ||
-                (existingConfig?.droppedBuildTypes ?? 0) > 0
-              ? 'ci-stale-jobs'
-              : undefined}
+            : effectiveBuildTypes.length > CI_MAX_BUILD_TYPES
+              ? 'ci-over-limit'
+              : missingBuildTypes.length > 0 ||
+                  existingConfig?.droppedInvalid ||
+                  existingConfig?.droppedOverCap
+                ? 'ci-save-warnings'
+                : undefined}
           title={configLoadScope === 'file'
             ? 'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file'
             : effectiveBuildTypes.length > CI_MAX_BUILD_TYPES
               ? `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured — untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`
               : 'Writes the ci block to .canopy/config.json — commit it to share with the team'}
-          >{savingBusy ? 'Saving…' : 'Save configuration'}</button
+          >{busy === 'save' ? 'Saving…' : 'Save configuration'}</button
         >
       </div>
     </footer>
