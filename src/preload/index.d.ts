@@ -1591,6 +1591,9 @@ interface CiConfigInfo {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: Array<{ id: string; label: string }>
+  /** Entries beyond the parse-time cap of a hand-edited file — dropped from
+      `buildTypes`; the configurator announces them before a Save deletes them. */
+  droppedBuildTypes?: number
 }
 
 /** Structured `ci:config` answer — `invalid`'s scope gates the recovery routes. */

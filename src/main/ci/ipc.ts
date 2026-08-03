@@ -1,6 +1,6 @@
 import type { Result } from 'neverthrow'
 import type { CiManager } from './CiManager'
-import { BUILD_TYPE_ID_PATTERN } from './config'
+import { BUILD_TYPE_ID_PATTERN, CI_MAX_BUILD_TYPES, CI_MAX_LABEL_LEN } from './config'
 import type { CiConfig, CiStatusResponse } from './types'
 import { ciErrorMessage } from './errors'
 import { testConnection as ciTestConnection } from './teamcity'
@@ -235,14 +235,15 @@ export function registerCiHandlers({
         if (!Array.isArray(payload.ci.buildTypes) || payload.ci.buildTypes.length === 0) {
           throw new Error('Select at least one build configuration')
         }
-        if (payload.ci.buildTypes.length > 50) {
+        if (payload.ci.buildTypes.length > CI_MAX_BUILD_TYPES) {
           throw new Error('Too many build configurations')
         }
         const buildTypes = payload.ci.buildTypes.map((bt) => {
           if (typeof bt?.id !== 'string' || !CI_BUILD_TYPE_ID_RE.test(bt.id)) {
             throw new Error('Invalid build type id')
           }
-          const label = typeof bt.label === 'string' ? bt.label.trim().slice(0, 100) : ''
+          const label =
+            typeof bt.label === 'string' ? bt.label.trim().slice(0, CI_MAX_LABEL_LEN) : ''
           return { id: bt.id, label: label || bt.id }
         })
         ci = {

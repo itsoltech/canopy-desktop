@@ -11,6 +11,9 @@ export interface CiConfig {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: CiBuildTypeConfig[]
+  /** Entries beyond the parse-time cap, dropped from `buildTypes` — carried so
+      the configurator can announce them before a Save deletes them for real. */
+  droppedBuildTypes?: number
 }
 
 // --- Normalized build state ---

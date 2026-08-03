@@ -21,6 +21,10 @@ describe('parseCiConfig', () => {
     })
     expect(many?.buildTypes).toHaveLength(50)
     expect(many?.buildTypes[0]?.id).toBe('Bt_0')
+    // NOT silent: the configurator announces the dropped entries before a Save
+    // would delete them from the git-tracked file.
+    expect(many?.droppedBuildTypes).toBe(150)
+    expect(dupes?.droppedBuildTypes).toBeUndefined()
   })
 
   it('caps labels at 100 chars, like the IPC save path', () => {

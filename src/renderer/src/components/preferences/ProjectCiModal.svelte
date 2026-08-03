@@ -31,6 +31,9 @@
   let existingConfig = $state<{
     baseUrl: string
     buildTypes: Array<{ id: string; label: string }>
+    /** Hand-edited entries beyond the parse cap — invisible below, so they must
+        be announced before a Save deletes them from the git-tracked file. */
+    droppedBuildTypes?: number
   } | null>(null)
   /** Set when a ci block exists but could not be used — shown so the advertised
       fix-and-re-save path names what is wrong. The scope picks the ONE recovery
@@ -47,6 +50,10 @@
   let testing = $state(false)
   let testResult = $state<'success' | 'fail' | ''>('')
   let saving = $state(false)
+  // VISIBLE busy state — set only after a confirm resolves, so "Saving…" never
+  // shows (and Remove never disables/blurs itself) while the user is deciding.
+  // `saving` stays the pre-confirm re-entrancy guard shared by Save and Remove.
+  let savingBusy = $state(false)
 
   let serverTypes = $state<ServerBuildType[]>([])
   let typesLoading = $state(false)
@@ -274,8 +281,10 @@
   }
 
   async function saveConfiguration(): Promise<void> {
-    if (!repoRoot || effectiveBuildTypes.length === 0 || !urlValid) return
+    if (!repoRoot || effectiveBuildTypes.length === 0 || !urlValid || saving) return
+    // No confirm on this path — the guard and the visible state start together.
     saving = true
+    savingBusy = true
     saveError = ''
     try {
       await window.api.ciSaveConfig(repoRoot, {
@@ -291,6 +300,7 @@
       saveError = e instanceof Error ? e.message : 'Failed to save CI configuration'
     } finally {
       saving = false
+      savingBusy = false
     }
   }
 
@@ -300,6 +310,9 @@
     // confirm from a double-click AND takes Save out of the enabled set, so two
     // read-modify-write passes over the git-shared .canopy/config.json cannot
     // overlap from this dialog (the main process serializes them per repo too).
+    // The VISIBLE busy state waits for the answer — a "Saving…" label while the
+    // user is still deciding describes work that has not started, and disabling
+    // the activated button would blur it, dropping Cancel's focus restore.
     saving = true
     // Clear a previous SAVE failure before the confirm — declining it must not
     // leave that stale message sitting under the Remove button.
@@ -314,6 +327,7 @@
         destructive: true,
       })
       if (!ok) return
+      savingBusy = true
       await window.api.ciSaveConfig(repoRoot, null)
       await loadCiRepoConfig(repoRoot)
       addToast('CI configuration removed')
@@ -322,6 +336,7 @@
       saveError = e instanceof Error ? e.message : 'Failed to remove CI configuration'
     } finally {
       saving = false
+      savingBusy = false
     }
   }
 </script>
@@ -481,6 +496,21 @@
              path that changes the message resets typesLoaded first — so the region
              must outlive the conditional chain below. -->
         <div role="status" id="ci-stale-jobs">
+          {#if (existingConfig?.droppedBuildTypes ?? 0) > 0}
+            <!-- Same invariant as the stale-job warning: nothing leaves the
+                 git-tracked file unannounced. These entries never made it into
+                 `selected`, so no other surface can name them. -->
+            <p class="m-0 text-xs text-warning-text leading-snug">
+              {existingConfig?.droppedBuildTypes} hand-edited
+              {existingConfig?.droppedBuildTypes === 1
+                ? 'entry is beyond the 50-job cap and is'
+                : 'entries are beyond the 50-job cap and are'}
+              not shown here. Saving writes only the selection below and drops
+              {existingConfig?.droppedBuildTypes === 1 ? 'it' : 'them'} from
+              <code class="font-mono">.canopy/config.json</code> — trim the hand-edited list first to
+              keep specific entries.
+            </p>
+          {/if}
           {#if typesLoaded && missingBuildTypes.length > 0}
             {@const missingNames = missingBuildTypes
               .map((id) => {
@@ -536,7 +566,7 @@
             type="button"
             class="flex items-center gap-1 px-2 py-1 rounded-md border-0 bg-transparent text-text-faint text-xs font-inherit enabled:cursor-pointer enabled:hover:text-danger-text disabled:opacity-50"
             onclick={removeConfiguration}
-            disabled={saving}
+            aria-disabled={savingBusy}
           >
             <Trash2 size={12} />
             Remove CI configuration
@@ -574,7 +604,7 @@
           title={configLoadScope === 'file'
             ? 'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file'
             : 'Writes the ci block to .canopy/config.json — commit it to share with the team'}
-          >{saving ? 'Saving…' : 'Save configuration'}</button
+          >{savingBusy ? 'Saving…' : 'Save configuration'}</button
         >
       </div>
     </footer>

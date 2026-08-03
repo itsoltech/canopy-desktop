@@ -56,28 +56,44 @@ function harness(): {
   }
 }
 
-// Every repo-scoped channel with a minimal otherwise-valid payload.
-const REPO_SCOPED: Array<{ channel: string; payload: (repoRoot: string) => unknown }> = [
-  { channel: 'ci:config', payload: (repoRoot) => ({ repoRoot }) },
-  { channel: 'ci:status', payload: (repoRoot) => ({ repoRoot, branch: 'next' }) },
+// Every repo-scoped channel with a minimal otherwise-valid payload, and the
+// CiManager method it lands on (the resolved-path passthrough loops over this).
+const REPO_SCOPED: Array<{
+  channel: string
+  method: keyof CiManager
+  payload: (repoRoot: string) => unknown
+}> = [
+  { channel: 'ci:config', method: 'loadConfig', payload: (repoRoot) => ({ repoRoot }) },
+  {
+    channel: 'ci:status',
+    method: 'loadConfig',
+    payload: (repoRoot) => ({ repoRoot, branch: 'next' }),
+  },
   {
     channel: 'ci:trigger',
+    method: 'trigger',
     payload: (repoRoot) => ({ repoRoot, buildTypeId: 'Gakko_Build', branch: 'next' }),
   },
-  { channel: 'ci:activity', payload: (repoRoot) => ({ repoRoot }) },
-  { channel: 'ci:branches', payload: (repoRoot) => ({ repoRoot, buildTypeId: 'Gakko_Build' }) },
+  { channel: 'ci:activity', method: 'activity', payload: (repoRoot) => ({ repoRoot }) },
+  {
+    channel: 'ci:branches',
+    method: 'branches',
+    payload: (repoRoot) => ({ repoRoot, buildTypeId: 'Gakko_Build' }),
+  },
   {
     channel: 'ci:buildParameters',
+    method: 'promptParameters',
     payload: (repoRoot) => ({ repoRoot, buildTypeId: 'Gakko_Build' }),
   },
   {
     channel: 'ci:saveConfig',
+    method: 'saveConfig',
     payload: (repoRoot) => ({
       repoRoot,
       ci: { baseUrl: 'https://tc', buildTypes: [{ id: 'Gakko_Build', label: 'B' }] },
     }),
   },
-  { channel: 'ci:build', payload: (repoRoot) => ({ repoRoot, buildId: 1 }) },
+  { channel: 'ci:build', method: 'build', payload: (repoRoot) => ({ repoRoot, buildId: 1 }) },
 ]
 
 describe('CI IPC authorization', () => {
@@ -97,14 +113,16 @@ describe('CI IPC authorization', () => {
     })
   }
 
-  it('passes only the RESOLVED path downstream, never the renderer-supplied string', async () => {
-    const { invoke, ciManager, validatePathAccess } = harness()
-    await invoke('ci:config', { repoRoot: '/ws/repo' })
-    expect(validatePathAccess).toHaveBeenCalledWith(7, '/ws/repo')
-    expect(ciManager.loadConfig).toHaveBeenCalledWith('/resolved/ws/repo')
-    await invoke('ci:saveConfig', { repoRoot: '/ws/repo', ci: null })
-    expect(ciManager.saveConfig).toHaveBeenCalledWith('/resolved/ws/repo', null)
-  })
+  for (const { channel, method, payload } of REPO_SCOPED) {
+    it(`${channel} passes the RESOLVED path downstream, never the renderer string`, async () => {
+      const { invoke, ciManager, validatePathAccess } = harness()
+      await invoke(channel, payload('/ws/repo'))
+      expect(validatePathAccess).toHaveBeenCalledWith(7, '/ws/repo')
+      // The gate's return value is the only form allowed past it: passing the raw
+      // string back would re-open the TOCTOU the realpath resolution closes.
+      expect(vi.mocked(ciManager[method]).mock.calls[0][0]).toBe('/resolved/ws/repo')
+    })
+  }
 
   it('URL-scoped channels stay path-free (no workspace gate involved)', async () => {
     const { invoke, ciManager, validatePathAccess } = harness()

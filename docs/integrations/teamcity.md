@@ -132,7 +132,11 @@ Written by the configurator (hand-editing works too) in `.canopy/config.json`:
 - `baseUrl` — http(s) origin of the TeamCity server. All requests go to this origin
   only (the renderer never supplies a URL for repo-scoped calls).
 - `buildTypes[].id` — TeamCity build configuration id (`[A-Za-z0-9_]`, ≤255 chars).
-- `buildTypes[].label` — sidebar label; defaults to the id.
+- `buildTypes[].label` — sidebar label; defaults to the id, capped at 100 chars.
+- `buildTypes` — at most 50 entries when read; duplicate `id`s collapse to the first
+  occurrence and extras beyond the cap are ignored rather than rejected (the raw
+  block is preserved on disk). The configurator names the ignored count before a
+  Save would drop them for real; the `ci:saveConfig` IPC path rejects >50 outright.
 
 `ci:config` answers with a structured result: `{ config }` when the block is valid,
 `{ config: null }` alone when the repo genuinely has no CI (every "Configure
@@ -176,6 +180,12 @@ Additional surfaces that are not `CiError` variants:
 
 ## Security and privacy
 
+- `repoRoot` on every repo-scoped channel (`ci:config`, `ci:status`, `ci:trigger`,
+  `ci:activity`, `ci:branches`, `ci:buildParameters`, `ci:saveConfig`, `ci:build`)
+  is resolved through the same workspace-authorization gate `repoConfig:*` uses, and
+  only the **resolved** path reaches `CiManager` — a renderer cannot point
+  `ci:saveConfig` at an arbitrary writable directory, nor drive `ci:trigger` off a
+  config it planted outside the workspace to spend the stored token.
 - Access tokens are stored via `KeychainTokenStore` keyed `teamcity:<baseUrl>`,
   encrypted at rest via Electron `safeStorage` (OS-native: DPAPI / Keychain / keyring;
   plaintext fallback in Canopy's local DB when no OS keyring is available). They are
@@ -203,19 +213,19 @@ Additional surfaces that are not `CiError` variants:
 
 ## Source files
 
-| Area                  | Files                                                                                                                                                                                                                                                     |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Types                 | `src/main/ci/types.ts`                                                                                                                                                                                                                                    |
-| Errors                | `src/main/ci/errors.ts` (typed `CiError` union + formatter)                                                                                                                                                                                               |
-| Config parsing        | `src/main/ci/config.ts` (+ tests)                                                                                                                                                                                                                         |
-| Parameter specs       | `src/main/ci/parameters.ts` (+ tests) — "Run custom build" typed-spec parser                                                                                                                                                                              |
-| Activity & branches   | `src/main/ci/activity.ts` (+ tests)                                                                                                                                                                                                                       |
-| TeamCity client       | `src/main/ci/teamcity.ts` (+ tests)                                                                                                                                                                                                                       |
-| Config/keychain glue  | `src/main/ci/CiManager.ts` (+ tests — allowlist, token gate, config validation)                                                                                                                                                                           |
-| IPC                   | `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:branches`, `ci:activity`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection` in `src/main/ipc/handlers.ts`                                                        |
-| Renderer store        | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                                                                                                                |
-| Renderer helpers      | `src/renderer/src/lib/ci/status.ts` (+ tests), `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`, `src/renderer/src/lib/a11y/focusTrap.ts` (shared dialog focus trap)          |
-| Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/ci/CiLastJobCard.svelte` (Last-job card), `src/renderer/src/components/sidebar/ProjectTreeSection.svelte` (Run CI Job on Branch… context-menu entry) |
-| Dialogs               | `src/renderer/src/components/ci/CiRunJobModal.svelte`, `src/renderer/src/components/ci/RunBuildDialog.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`)                                                       |
-| Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`, `src/renderer/src/components/ci/CiJobPicker.svelte` (job selection list)                                                                                                                 |
-| Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections), `src/renderer/src/components/preferences/_partials/CiServerForm.svelte` (add/edit server form)                                                                      |
+| Area                  | Files                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Types                 | `src/main/ci/types.ts`                                                                                                                                                                                                                                                                                                     |
+| Errors                | `src/main/ci/errors.ts` (typed `CiError` union + formatter)                                                                                                                                                                                                                                                                |
+| Config parsing        | `src/main/ci/config.ts` (+ tests)                                                                                                                                                                                                                                                                                          |
+| Parameter specs       | `src/main/ci/parameters.ts` (+ tests) — "Run custom build" typed-spec parser                                                                                                                                                                                                                                               |
+| Activity & branches   | `src/main/ci/activity.ts` (+ tests)                                                                                                                                                                                                                                                                                        |
+| TeamCity client       | `src/main/ci/teamcity.ts` (+ tests)                                                                                                                                                                                                                                                                                        |
+| Config/keychain glue  | `src/main/ci/CiManager.ts` (+ tests — allowlist, token gate, config validation)                                                                                                                                                                                                                                            |
+| IPC                   | `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:branches`, `ci:activity`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection` in `src/main/ci/ipc.ts` (`registerCiHandlers`, + tests — workspace authorization per repo-scoped channel), registered from `src/main/ipc/handlers.ts` |
+| Renderer store        | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                                                                                                                                                                                 |
+| Renderer helpers      | `src/renderer/src/lib/ci/status.ts` (+ tests), `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`, `src/renderer/src/lib/a11y/focusTrap.ts` (shared dialog focus trap)                                                                           |
+| Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/ci/CiLastJobCard.svelte` (Last-job card), `src/renderer/src/components/sidebar/ProjectTreeSection.svelte` (Run CI Job on Branch… context-menu entry)                                                                  |
+| Dialogs               | `src/renderer/src/components/ci/CiRunJobModal.svelte`, `src/renderer/src/components/ci/RunBuildDialog.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`)                                                                                                                        |
+| Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`, `src/renderer/src/components/ci/CiJobPicker.svelte` (job selection list)                                                                                                                                                                                  |
+| Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections), `src/renderer/src/components/preferences/_partials/CiServerForm.svelte` (add/edit server form)                                                                                                                                       |

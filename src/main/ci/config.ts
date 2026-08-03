@@ -4,6 +4,11 @@ import type { CiBuildTypeConfig, CiConfig } from './types'
 // (TeamCity's own id alphabet) doubles as injection defence for `buildType:(id:…)`.
 export const BUILD_TYPE_ID_PATTERN = /^[A-Za-z0-9_]{1,255}$/
 
+// One owner for the bounds: parse (degrade) and ci:saveConfig (reject) must
+// enforce the SAME numbers or the two paths drift apart.
+export const CI_MAX_BUILD_TYPES = 50
+export const CI_MAX_LABEL_LEN = 100
+
 /**
  * Defensive parse of the hand-edited `.canopy/config.json` → `ci` block. Returns
  * `undefined` for anything it cannot use; `CiManager.loadConfig` turns that into
@@ -18,10 +23,14 @@ export function parseCiConfig(raw: unknown): CiConfig | undefined {
   if (typeof o.baseUrl !== 'string' || !/^https?:\/\//i.test(o.baseUrl)) return undefined
 
   // The git-shared file is untrusted input like the IPC payload: every entry
-  // becomes an authenticated status fetch on every poll, so the SAME bounds as
-  // ci:saveConfig apply here — duplicates collapse (first wins), the list is
-  // capped at 50, labels at 100 chars. A hand-edited file with thousands of
-  // copies of one valid id must not fan out unbounded requests.
+  // becomes an authenticated status fetch on every poll, so the same LIMITS
+  // apply — but a hand-edited file degrades instead of being rejected, because
+  // `RepoConfigManager` round-trips the raw block and nothing here may destroy
+  // it: duplicate ids collapse (first wins) where `ci:saveConfig` doesn't dedupe
+  // at all, and the list truncates at the cap where `ci:saveConfig` throws.
+  // Labels truncate in both. The truncation is NOT silent: `droppedBuildTypes`
+  // carries the count so the configurator can announce it before a Save would
+  // delete the invisible entries from the git-tracked file.
   const rawTypes = Array.isArray(o.buildTypes) ? o.buildTypes : []
   const seen = new Set<string>()
   const buildTypes: CiBuildTypeConfig[] = rawTypes.flatMap((entry) => {
@@ -30,14 +39,18 @@ export function parseCiConfig(raw: unknown): CiConfig | undefined {
     if (typeof id !== 'string' || !BUILD_TYPE_ID_PATTERN.test(id)) return []
     if (seen.has(id)) return []
     seen.add(id)
-    const trimmed = typeof label === 'string' ? label.trim().slice(0, 100) : ''
+    const trimmed = typeof label === 'string' ? label.trim().slice(0, CI_MAX_LABEL_LEN) : ''
     return [{ id, label: trimmed || id }]
   })
   if (buildTypes.length === 0) return undefined
 
+  const accepted = buildTypes.slice(0, CI_MAX_BUILD_TYPES)
   return {
     provider: 'teamcity',
     baseUrl: o.baseUrl.replace(/\/$/, ''),
-    buildTypes: buildTypes.slice(0, 50),
+    buildTypes: accepted,
+    ...(buildTypes.length > accepted.length
+      ? { droppedBuildTypes: buildTypes.length - accepted.length }
+      : {}),
   }
 }
