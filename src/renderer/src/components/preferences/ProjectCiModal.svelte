@@ -293,10 +293,11 @@
   )
 
   // Per-control titles keep the full cascade so a blocked button never promises
-  // an action it cannot perform. The rendered Load reason normally carries its
-  // token precondition; invalid URL is delegated to the footer unless a file-scope
-  // error outranks it there. Busy states live on the button itself (label +
-  // aria-busy), as in CiServerForm's `formBlockedReason` split.
+  // an action it cannot perform. The shared rendered reason normally carries the
+  // token precondition; invalid URL is delegated to the footer only when nothing
+  // outranks it. A file-scope error does so durably, while the confirm and active
+  // removal states do so transiently. Busy states live on the button itself
+  // (label + aria-busy), as in CiServerForm's `formBlockedReason` split.
   let testBlockedTitle = $derived(
     testing
       ? 'Testing the connection…'
@@ -313,9 +314,10 @@
           ? 'Disabled: enter an access token first (or pick a server with one stored)'
           : '',
   )
-  let loadBlockedReason = $derived(
-    // Projection of the title, not a second copy. The URL term is delegated only
-    // while the footer actually states it; a file-scope error ranks above it there.
+  let serverBlockedReason = $derived(
+    // Projection of the title, not a second copy. The file-scope fallback exposes
+    // the URL term while the footer is occupied; transient removal states keep
+    // their own confirm or busy surface.
     !typesLoading && (urlValid ? !canLoadTypes : configLoadScope === 'file')
       ? loadBlockedTitle
       : '',
@@ -567,6 +569,7 @@
               onclick={testConnection}
               aria-disabled={testing || !urlValid}
               aria-busy={testing}
+              aria-describedby={serverBlockedReason ? 'ci-server-blocked' : undefined}
               title={testBlockedTitle ||
                 'Check the connection against the server — nothing is saved'}
             >
@@ -579,7 +582,7 @@
             onclick={loadBuildTypes}
             aria-disabled={typesLoading || !canLoadTypes}
             aria-busy={typesLoading}
-            aria-describedby={loadBlockedReason ? 'ci-load-blocked' : undefined}
+            aria-describedby={serverBlockedReason ? 'ci-server-blocked' : undefined}
             title={loadBlockedTitle ||
               'Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server'}
           >
@@ -598,13 +601,14 @@
           </span>
         </div>
 
-        <!-- NOT live (routine next-step states, changing as the user types);
-             reserved height so the row below does not shift. Load's
-             aria-describedby reads this on focus — title is hover-only. -->
+        <!-- NOT live: routine input changes do not need announcements;
+             configLoadScope can also arrive asynchronously, but the config error
+             is announced by the status region above. Reserved height keeps the row
+             below stable; both buttons reference this on focus. -->
         <div class="min-h-4">
-          {#if loadBlockedReason}
-            <span id="ci-load-blocked" class="text-xs text-text-secondary break-words"
-              >{loadBlockedReason}</span
+          {#if serverBlockedReason}
+            <span id="ci-server-blocked" class="text-xs text-text-secondary break-words"
+              >{serverBlockedReason}</span
             >
           {/if}
         </div>
