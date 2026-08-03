@@ -68,9 +68,12 @@ export function parseCiConfig(raw: unknown): CiConfigParseResult {
   if (buildTypes.length === 0) return { invalidIds }
 
   const accepted = buildTypes.slice(0, CI_MAX_BUILD_TYPES)
-  // Same display truncation as invalid ids: a valid id can be 255 chars, and ten
-  // of those in a warning paragraph is 2.5k of unbreakable text.
-  const overCapIds = buildTypes.slice(CI_MAX_BUILD_TYPES).map((bt) => bt.id.slice(0, 80))
+  // FULL ids: the configurator matches these against the server's build types to
+  // decide which over-cap entries can still be re-ticked. Display truncation
+  // belongs at the render site — cutting here would make a long id un-matchable
+  // and report a live job as deleted. (invalidIds ARE cut above: they are never
+  // compared against anything, only printed.)
+  const overCapIds = buildTypes.slice(CI_MAX_BUILD_TYPES).map((bt) => bt.id)
   return {
     invalidIds,
     config: {

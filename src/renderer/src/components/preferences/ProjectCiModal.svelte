@@ -280,6 +280,30 @@
       configLoadScope === 'file',
   )
 
+  // Why Save cannot run — derived from the SAME inputs as saveBlocked so the two
+  // cannot drift. A click on an aria-disabled button is a silent no-op, so every
+  // blocking term needs a reachable reason (title + aria-describedby + a visible
+  // line by the footer; the button is focusable now, which is the point).
+  let saveBlockedReason = $derived(
+    configLoadScope === 'file'
+      ? 'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file'
+      : busy === 'remove'
+        ? 'Disabled: the CI configuration is being removed'
+        : !urlValid
+          ? 'Disabled: enter a valid TeamCity server URL first'
+          : typesLoading
+            ? "Disabled: loading the server's jobs…"
+            : !typesLoaded
+              ? 'Disabled: click "Load available jobs" first — Canopy saves only jobs the server confirmed'
+              : effectiveBuildTypes.length > CI_MAX_BUILD_TYPES
+                ? `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured — untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`
+                : effectiveBuildTypes.length === 0
+                  ? 'Disabled: tick at least one job below'
+                  : saving
+                    ? 'Disabled: an update is already in progress'
+                    : '',
+  )
+
   function toggleType(bt: ServerBuildType): void {
     if (selected.has(bt.id)) selected.delete(bt.id)
     else selected.set(bt.id, selected.get(bt.id) ?? bt.name)
@@ -542,26 +566,31 @@
                  stale-jobs warning (which only sees `selected`). Until the list
                  is loaded, existence is genuinely unknown. -->
             {@const cap = existingConfig.droppedOverCap}
-            {@const capPresent = typesLoaded
-              ? cap.ids.filter((id) => serverTypes.some((bt) => bt.id === id))
-              : cap.ids}
-            {@const capGone = typesLoaded
-              ? cap.ids.filter((id) => !serverTypes.some((bt) => bt.id === id))
-              : []}
+            {@const capPresent = cap.ids.filter((id) => serverTypes.some((bt) => bt.id === id))}
+            {@const capGone = cap.ids.filter((id) => !serverTypes.some((bt) => bt.id === id))}
+            {@const shorten = (id: string): string => (id.length > 80 ? `${id.slice(0, 80)}…` : id)}
             <p class="m-0 text-xs text-warning-text leading-snug break-words">
               {cap.count} hand-edited
               {cap.count === 1 ? 'entry is' : 'entries are'} past the
               {CI_MAX_BUILD_TYPES}-job cap and not selected{cap.count > cap.ids.length
                 ? ` (showing ${cap.ids.length} of ${cap.count})`
                 : ''}.
-              {#if capPresent.length > 0}
-                Untick another job below first, then tick these to keep them: {capPresent.join(
-                  ', ',
-                )}.
-              {/if}
-              {#if capGone.length > 0}
-                No longer on this server — saving drops them and there is nothing to re-tick:
-                {capGone.join(', ')}.
+              {#if !typesLoaded}
+                <!-- Existence is genuinely unknown until the server list loads —
+                     promising a re-tick here would be an optimistic default the
+                     ids cannot back up yet. -->
+                Load the available jobs to see which of these can still be ticked:
+                {cap.ids.map(shorten).join(', ')}.
+              {:else}
+                {#if capPresent.length > 0}
+                  Untick another job below first, then tick these to keep them: {capPresent
+                    .map(shorten)
+                    .join(', ')}.
+                {/if}
+                {#if capGone.length > 0}
+                  No longer on this server — saving drops them and there is nothing to re-tick:
+                  {capGone.map(shorten).join(', ')}.
+                {/if}
               {/if}
               Or trim the hand-edited list; saving writes only the selection below.
             </p>
@@ -628,6 +657,9 @@
             onclick={removeConfiguration}
             aria-disabled={busy !== ''}
             aria-busy={busy === 'remove'}
+            title={busy !== ''
+              ? 'Disabled while an update is writing .canopy/config.json'
+              : 'Removes the ci block from the git-tracked .canopy/config.json'}
           >
             {#if busy === 'remove'}
               <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
@@ -642,8 +674,20 @@
            toast layer (z-banner) paints UNDER this modal's scrim (z-overlay).
            No truncate: CiApiError can carry TeamCity's response body, and the one
            message explaining why a git-shared file was not written must wrap. -->
-      <div class="flex-1 min-w-0 text-xs text-danger-text break-words" aria-live="polite">
-        {saveError}
+      <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+        <!-- Persistent region: a failed save/remove lands here as a mutation — the
+             toast layer (z-banner) paints UNDER this modal's scrim (z-overlay). -->
+        <div class="text-xs text-danger-text break-words" aria-live="polite">
+          {saveError}
+        </div>
+        <!-- Deliberately NOT live (the over-cap variant counts per tick — a live
+             region would announce every checkbox); the button's aria-describedby
+             reads it on focus, which is the modality that needs it. -->
+        {#if saveBlockedReason && !saveError}
+          <span id="ci-save-blocked" class="text-2xs text-text-faint break-words"
+            >{saveBlockedReason}</span
+          >
+        {/if}
       </div>
       <div class="flex items-center gap-1.5">
         <button
@@ -656,20 +700,15 @@
           class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
           onclick={saveConfiguration}
           aria-disabled={saveBlocked}
-          aria-describedby={configLoadScope === 'file'
-            ? 'ci-config-invalid'
-            : effectiveBuildTypes.length > CI_MAX_BUILD_TYPES
-              ? 'ci-over-limit'
-              : missingBuildTypes.length > 0 ||
-                  existingConfig?.droppedInvalid ||
-                  existingConfig?.droppedOverCap
-                ? 'ci-save-warnings'
-                : undefined}
-          title={configLoadScope === 'file'
-            ? 'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file'
-            : effectiveBuildTypes.length > CI_MAX_BUILD_TYPES
-              ? `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured — untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`
-              : 'Writes the ci block to .canopy/config.json — commit it to share with the team'}
+          aria-describedby={saveBlockedReason
+            ? 'ci-save-blocked'
+            : missingBuildTypes.length > 0 ||
+                existingConfig?.droppedInvalid ||
+                existingConfig?.droppedOverCap
+              ? 'ci-save-warnings'
+              : undefined}
+          title={saveBlockedReason ||
+            'Writes the ci block to .canopy/config.json — commit it to share with the team'}
           >{busy === 'save' ? 'Saving…' : 'Save configuration'}</button
         >
       </div>

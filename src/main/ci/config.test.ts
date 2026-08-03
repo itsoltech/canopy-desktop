@@ -48,6 +48,19 @@ describe('parseCiConfig', () => {
     expect(parsed?.droppedOverCap?.ids).toEqual(['Bt_50', 'Bt_51', 'Bt_52', 'Bt_53', 'Bt_54'])
   })
 
+  it('keeps over-cap ids intact - they are match keys, not just display text', () => {
+    // The configurator filters these against the server's build types; a
+    // truncated id can never match and would report a live job as deleted.
+    const longId = `Deep_${'Nested_'.repeat(20)}Job`
+    const parsed = parseCiConfig({
+      provider: 'teamcity',
+      baseUrl: 'https://x',
+      buildTypes: [...Array.from({ length: 50 }, (_, i) => ({ id: `Bt_${i}` })), { id: longId }],
+    }).config
+    expect(longId.length).toBeGreaterThan(80)
+    expect(parsed?.droppedOverCap?.ids).toEqual([longId])
+  })
+
   it('names the invalid ids even when NOTHING survives', () => {
     // A bulk rename typos every id: the block yields no config, but the names
     // must still reach the block-scope error instead of a generic shape message
