@@ -302,14 +302,14 @@
         ? 'Disabled: enter a valid server URL first'
         : '',
   )
+  // Invalid URL blocks Test, Load, and Save alike, so the footer owns that shared
+  // reason instead of repeating it under every control on first paint.
   let loadBlockedReason = $derived(
     typesLoading
       ? "Loading the server's jobs…"
-      : !urlValid
-        ? 'Disabled: enter a valid TeamCity server URL first'
-        : !canLoadTypes
-          ? 'Disabled: enter an access token first (or pick a server with one stored)'
-          : '',
+      : !canLoadTypes && urlValid
+        ? 'Disabled: enter an access token first (or pick a server with one stored)'
+        : '',
   )
 
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
@@ -601,7 +601,7 @@
           {/if}
           {#if loadBlockedReason}
             <span id="ci-load-blocked" class="text-xs text-text-secondary break-words"
-              >{loadBlockedReason}</span
+              >Load: {loadBlockedReason}</span
             >
           {/if}
         </div>

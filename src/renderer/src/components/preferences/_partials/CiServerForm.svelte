@@ -32,6 +32,16 @@
     onSave: () => void
     onOpenTokenPage: () => void
   } = $props()
+
+  // Both actions share these preconditions. Keep the reason visible and associated
+  // with each aria-disabled button because title text is unavailable on keyboard focus.
+  let formBlockedReason = $derived(
+    !urlValid
+      ? 'Disabled: enter a valid server URL first'
+      : !token
+        ? 'Disabled: enter an access token first'
+        : '',
+  )
 </script>
 
 <div class="flex flex-col gap-2 p-3 border border-border rounded-md bg-bg-input">
@@ -102,6 +112,14 @@
     {/if}
   </div>
 
+  <div class="min-h-4">
+    {#if formBlockedReason}
+      <span id="ci-server-form-blocked" class="text-xs text-text-secondary break-words"
+        >{formBlockedReason}</span
+      >
+    {/if}
+  </div>
+
   <div class="flex gap-1.5 justify-end">
     <button
       type="button"
@@ -114,6 +132,7 @@
       onclick={onTest}
       aria-disabled={testing || !urlValid || !token}
       aria-busy={testing}
+      aria-describedby={formBlockedReason ? 'ci-server-form-blocked' : undefined}
       title={testing
         ? 'Testing the connection…'
         : !urlValid
@@ -130,6 +149,7 @@
       onclick={onSave}
       aria-disabled={saving || !urlValid || !token}
       aria-busy={saving}
+      aria-describedby={formBlockedReason ? 'ci-server-form-blocked' : undefined}
       title={saving
         ? 'Saving…'
         : !urlValid

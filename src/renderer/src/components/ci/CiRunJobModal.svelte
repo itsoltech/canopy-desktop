@@ -146,7 +146,7 @@
         : !buildTypeId
           ? 'Disabled: pick a job first'
           : !selectedBranch
-            ? 'Disabled: pick a branch first — typing in the search clears the selection'
+            ? 'Disabled: pick a branch from the list (typing clears the selection)'
             : '',
   )
 
