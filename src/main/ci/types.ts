@@ -11,9 +11,12 @@ export interface CiConfig {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: CiBuildTypeConfig[]
-  /** Entries beyond the parse-time cap, dropped from `buildTypes` — carried so
-      the configurator can announce them before a Save deletes them for real. */
+  /** Entries dropped at parse time (typo'd ids, cap overflow) — carried so the
+      configurator can announce them before a Save deletes them for real. */
   droppedBuildTypes?: number
+  /** The dropped ids themselves (capped sample) — the warning names them so the
+      user can re-tick survivors in the picker instead of hand-editing. */
+  droppedBuildTypeIds?: string[]
 }
 
 // --- Normalized build state ---

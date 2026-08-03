@@ -33,10 +33,20 @@ export function parseCiConfig(raw: unknown): CiConfig | undefined {
   // delete the invisible entries from the git-tracked file.
   const rawTypes = Array.isArray(o.buildTypes) ? o.buildTypes : []
   const seen = new Set<string>()
+  // Ids that carried USER INTENT but will not survive the parse: a string id that
+  // fails the charset is a TYPO in a hand-edited file (Gakko-Build for
+  // Gakko_Build), and entries beyond the cap are valid but invisible — both are
+  // announced by the configurator before a Save deletes them for real.
+  // Non-object entries and duplicates lose nothing and are not counted.
+  const dropped: string[] = []
   const buildTypes: CiBuildTypeConfig[] = rawTypes.flatMap((entry) => {
     if (!entry || typeof entry !== 'object') return []
     const { id, label } = entry as Record<string, unknown>
-    if (typeof id !== 'string' || !BUILD_TYPE_ID_PATTERN.test(id)) return []
+    if (typeof id !== 'string') return []
+    if (!BUILD_TYPE_ID_PATTERN.test(id)) {
+      dropped.push(id.slice(0, 80))
+      return []
+    }
     if (seen.has(id)) return []
     seen.add(id)
     const trimmed = typeof label === 'string' ? label.trim().slice(0, CI_MAX_LABEL_LEN) : ''
@@ -45,12 +55,13 @@ export function parseCiConfig(raw: unknown): CiConfig | undefined {
   if (buildTypes.length === 0) return undefined
 
   const accepted = buildTypes.slice(0, CI_MAX_BUILD_TYPES)
+  dropped.push(...buildTypes.slice(CI_MAX_BUILD_TYPES).map((bt) => bt.id))
   return {
     provider: 'teamcity',
     baseUrl: o.baseUrl.replace(/\/$/, ''),
     buildTypes: accepted,
-    ...(buildTypes.length > accepted.length
-      ? { droppedBuildTypes: buildTypes.length - accepted.length }
+    ...(dropped.length > 0
+      ? { droppedBuildTypes: dropped.length, droppedBuildTypeIds: dropped.slice(0, 10) }
       : {}),
   }
 }

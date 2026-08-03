@@ -7,6 +7,7 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
+  import { CI_MAX_BUILD_TYPES } from '../../lib/ci/limits'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
@@ -496,19 +497,31 @@
              path that changes the message resets typesLoaded first — so the region
              must outlive the conditional chain below. -->
         <div role="status" id="ci-stale-jobs">
+          {#if effectiveBuildTypes.length > CI_MAX_BUILD_TYPES}
+            <!-- Enforced HERE, not just at the IPC boundary: without this gate a
+                 51st tick left Save enabled and the rejection arrived as a bare
+                 footer error after the click, naming no limit. -->
+            <p class="m-0 text-xs text-warning-text leading-snug">
+              {effectiveBuildTypes.length} jobs ticked — at most {CI_MAX_BUILD_TYPES} can be configured.
+              Untick {effectiveBuildTypes.length - CI_MAX_BUILD_TYPES} to enable Save.
+            </p>
+          {/if}
           {#if (existingConfig?.droppedBuildTypes ?? 0) > 0}
             <!-- Same invariant as the stale-job warning: nothing leaves the
-                 git-tracked file unannounced. These entries never made it into
-                 `selected`, so no other surface can name them. -->
+                 git-tracked file unannounced, and the entries are NAMED — a
+                 dropped job that still exists on the server sits unticked in the
+                 picker below, one click from being kept. -->
+            {@const droppedCount = existingConfig?.droppedBuildTypes ?? 0}
+            {@const droppedIds = existingConfig?.droppedBuildTypeIds ?? []}
             <p class="m-0 text-xs text-warning-text leading-snug">
-              {existingConfig?.droppedBuildTypes} hand-edited
-              {existingConfig?.droppedBuildTypes === 1
-                ? 'entry is beyond the 50-job cap and is'
-                : 'entries are beyond the 50-job cap and are'}
-              not shown here. Saving writes only the selection below and drops
-              {existingConfig?.droppedBuildTypes === 1 ? 'it' : 'them'} from
-              <code class="font-mono">.canopy/config.json</code> — trim the hand-edited list first to
-              keep specific entries.
+              {droppedCount} hand-edited
+              {droppedCount === 1 ? 'entry' : 'entries'} in
+              <code class="font-mono">.canopy/config.json</code>
+              {droppedCount === 1 ? 'is' : 'are'} not shown here — invalid id or past the
+              {CI_MAX_BUILD_TYPES}-job cap ({droppedIds.join(', ')}{droppedCount > droppedIds.length
+                ? ` and ${droppedCount - droppedIds.length} more`
+                : ''}). Tick the ones you want to keep below, or trim the hand-edited list — saving
+              writes only the selection below.
             </p>
           {/if}
           {#if typesLoaded && missingBuildTypes.length > 0}
@@ -562,13 +575,23 @@
     >
       <div>
         {#if existingConfig}
+          <!-- aria-disabled (not disabled): a real disabled would blur the button
+               mid-write and strand ConfirmDialog's focus restore on <body>. The
+               busy feedback is the spinner + dimming via aria-disabled: variants —
+               enabled:/disabled: variants key off the real attribute and would be
+               dead here. Clicks during the write no-op via the `saving` guard. -->
           <button
             type="button"
-            class="flex items-center gap-1 px-2 py-1 rounded-md border-0 bg-transparent text-text-faint text-xs font-inherit enabled:cursor-pointer enabled:hover:text-danger-text disabled:opacity-50"
+            class="flex items-center gap-1 px-2 py-1 rounded-md border-0 bg-transparent text-text-faint text-xs font-inherit cursor-pointer hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:text-text-faint"
             onclick={removeConfiguration}
             aria-disabled={savingBusy}
+            aria-busy={savingBusy}
           >
-            <Trash2 size={12} />
+            {#if savingBusy}
+              <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
+            {:else}
+              <Trash2 size={12} />
+            {/if}
             Remove CI configuration
           </button>
         {/if}
@@ -594,16 +617,21 @@
             typesLoading ||
             !typesLoaded ||
             effectiveBuildTypes.length === 0 ||
+            effectiveBuildTypes.length > CI_MAX_BUILD_TYPES ||
             !urlValid ||
             configLoadScope === 'file'}
           aria-describedby={configLoadScope === 'file'
             ? 'ci-config-invalid'
-            : missingBuildTypes.length > 0
+            : missingBuildTypes.length > 0 ||
+                effectiveBuildTypes.length > CI_MAX_BUILD_TYPES ||
+                (existingConfig?.droppedBuildTypes ?? 0) > 0
               ? 'ci-stale-jobs'
               : undefined}
           title={configLoadScope === 'file'
             ? 'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file'
-            : 'Writes the ci block to .canopy/config.json — commit it to share with the team'}
+            : effectiveBuildTypes.length > CI_MAX_BUILD_TYPES
+              ? `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured — untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`
+              : 'Writes the ci block to .canopy/config.json — commit it to share with the team'}
           >{savingBusy ? 'Saving…' : 'Save configuration'}</button
         >
       </div>

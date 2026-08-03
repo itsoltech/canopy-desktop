@@ -24,6 +24,9 @@ describe('parseCiConfig', () => {
     // NOT silent: the configurator announces the dropped entries before a Save
     // would delete them from the git-tracked file.
     expect(many?.droppedBuildTypes).toBe(150)
+    // The warning names a capped sample so the user can re-tick survivors.
+    expect(many?.droppedBuildTypeIds).toHaveLength(10)
+    expect(many?.droppedBuildTypeIds?.[0]).toBe('Bt_50')
     expect(dupes?.droppedBuildTypes).toBeUndefined()
   })
 
@@ -82,6 +85,11 @@ describe('parseCiConfig', () => {
       ],
     })
     expect(parsed?.buildTypes).toEqual([{ id: 'Gakko_Build', label: 'Gakko_Build' }])
+    // A string id that fails the charset is a TYPO carrying user intent — it must
+    // be counted and named, or a Save deletes it from the git-shared file
+    // unannounced. Non-object entries and id-less objects lose nothing.
+    expect(parsed?.droppedBuildTypes).toBe(2)
+    expect(parsed?.droppedBuildTypeIds).toEqual(['has spaces', 'evil),locator:(injection'])
   })
 
   it('returns undefined when no valid build types remain', () => {

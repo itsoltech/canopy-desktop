@@ -1591,9 +1591,11 @@ interface CiConfigInfo {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: Array<{ id: string; label: string }>
-  /** Entries beyond the parse-time cap of a hand-edited file — dropped from
-      `buildTypes`; the configurator announces them before a Save deletes them. */
+  /** Entries dropped at parse time (typo'd ids, cap overflow) of a hand-edited
+      file — the configurator announces them before a Save deletes them. */
   droppedBuildTypes?: number
+  /** Capped sample of the dropped ids — named in the configurator's warning. */
+  droppedBuildTypeIds?: string[]
 }
 
 /** Structured `ci:config` answer — `invalid`'s scope gates the recovery routes. */
