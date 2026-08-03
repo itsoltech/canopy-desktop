@@ -44,11 +44,18 @@
     dialogEl?.focus()
   })
 
+  /** Cancel unmounts this form (and its typed values) — mid-submit the failure
+      routed back to the footer would land on a destroyed component, so dismissal
+      waits for the in-flight run request like the other CI dialogs. */
+  function requestCancel(): void {
+    if (!running) onCancel()
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      onCancel()
+      requestCancel()
       return
     }
     if (e.key === 'Tab' && dialogEl) cycleFocus(dialogEl, e)
@@ -68,7 +75,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="fixed inset-0 z-[10010] flex justify-center items-center bg-scrim"
-  onmousedown={onCancel}
+  onmousedown={requestCancel}
   onkeydown={handleKeydown}
 >
   <div
@@ -90,9 +97,10 @@
       <button
         type="button"
         class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
-        onclick={onCancel}
+        onclick={requestCancel}
+        aria-disabled={running}
         aria-label="Close"
-        title="Close"
+        title={running ? 'Disabled while the run request is in flight' : 'Close'}
       >
         <X size={16} />
       </button>
@@ -217,7 +225,10 @@
       <button
         type="button"
         class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-        onclick={onCancel}>Cancel</button
+        onclick={requestCancel}
+        aria-disabled={running}
+        title={running ? 'Disabled while the run request is in flight' : 'Back to the job picker'}
+        >Cancel</button
       >
       <button
         type="button"

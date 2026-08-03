@@ -134,10 +134,18 @@
     }
   }
 
+  /** Same rule as ProjectCiModal.requestClose: a trigger failure has NO surface
+      outside this dialog (triggerCiBuild deliberately returns the message rather
+      than toasting, because the scrim paints over z-banner), so dismissing
+      mid-POST would discard it — and the typed parameter values with it. */
+  function requestClose(): void {
+    if (!starting && !submitting) closeDialog()
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
-      closeDialog()
+      requestClose()
       return
     }
     if (e.key === 'Tab' && dialogEl) cycleFocus(dialogEl, e)
@@ -164,7 +172,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="fixed inset-0 z-overlay flex justify-center items-center bg-scrim"
-    onmousedown={closeDialog}
+    onmousedown={requestClose}
     onkeydown={handleKeydown}
   >
     <div
@@ -180,10 +188,11 @@
         <h3 class="text-base font-semibold text-text m-0 leading-tight">Run job</h3>
         <button
           type="button"
-          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
-          onclick={closeDialog}
+          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0 aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
+          onclick={requestClose}
+          aria-disabled={starting || submitting}
           aria-label="Close"
-          title="Close"
+          title={starting || submitting ? 'Disabled while the run request is in flight' : 'Close'}
         >
           <X size={16} />
         </button>
@@ -230,8 +239,12 @@
         <div class="flex gap-1.5 justify-end">
           <button
             type="button"
-            class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-            onclick={closeDialog}>Cancel</button
+            class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-secondary"
+            onclick={requestClose}
+            aria-disabled={starting}
+            title={starting
+              ? 'Disabled while the run request is in flight'
+              : 'Close without running'}>Cancel</button
           >
           <button
             type="button"

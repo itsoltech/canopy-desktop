@@ -447,10 +447,11 @@
       </div>
       <button
         type="button"
-        class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
+        class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0 aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
         onclick={requestClose}
+        aria-disabled={busy !== ''}
         aria-label="Close"
-        title="Close"
+        title={busy !== '' ? 'Disabled while an update is writing .canopy/config.json' : 'Close'}
       >
         <X size={16} />
       </button>
@@ -729,8 +730,12 @@
       <div class="flex items-center gap-1.5">
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
-          onclick={requestClose}>Cancel</button
+          class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-secondary"
+          onclick={requestClose}
+          aria-disabled={busy !== ''}
+          title={busy !== ''
+            ? 'Disabled while an update is writing .canopy/config.json'
+            : 'Close without saving'}>Cancel</button
         >
         <button
           type="button"
