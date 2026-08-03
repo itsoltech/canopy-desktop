@@ -114,7 +114,13 @@
       onclick={onTest}
       aria-disabled={testing || !urlValid || !token}
       aria-busy={testing}
-      title="Check the connection against the server — nothing is saved"
+      title={testing
+        ? 'Testing the connection…'
+        : !urlValid
+          ? 'Disabled: enter a valid server URL first'
+          : !token
+            ? 'Disabled: enter an access token first'
+            : 'Check the connection against the server — nothing is saved'}
     >
       {testing ? 'Testing…' : 'Test'}
     </button>
@@ -124,7 +130,13 @@
       onclick={onSave}
       aria-disabled={saving || !urlValid || !token}
       aria-busy={saving}
-      title="Save the token (stored globally on this machine, per provider + URL)"
+      title={saving
+        ? 'Saving…'
+        : !urlValid
+          ? 'Disabled: enter a valid server URL first'
+          : !token
+            ? 'Disabled: enter an access token first'
+            : 'Save the token (stored globally on this machine, per provider + URL)'}
       >{saving ? 'Saving…' : isNew ? 'Add connection' : 'Save token'}</button
     >
   </div>

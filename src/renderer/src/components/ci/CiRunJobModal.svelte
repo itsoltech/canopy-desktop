@@ -253,12 +253,15 @@
         </div>
         <!-- NOT live: the reason changes with routine interaction (typing in the
              branch search clears the selection by design); focus-time
-             aria-describedby is the modality that needs it. -->
-        {#if runBlockedReason}
-          <span id="ci-run-blocked-reason" class="text-xs text-text-secondary break-words"
-            >{runBlockedReason}</span
-          >
-        {/if}
+             aria-describedby is the modality that needs it. Reserved height so
+             the Cancel/Run row does not shift while the user types. -->
+        <div class="min-h-4">
+          {#if runBlockedReason}
+            <span id="ci-run-blocked-reason" class="text-xs text-text-secondary break-words"
+              >{runBlockedReason}</span
+            >
+          {/if}
+        </div>
 
         <div class="flex gap-1.5 justify-end">
           <button
@@ -275,7 +278,7 @@
                div. startRun guards internally. -->
           <button
             type="button"
-            class="flex items-center justify-center gap-1.5 min-w-24 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
+            class="flex items-center justify-center gap-1.5 min-w-28 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
             onclick={startRun}
             aria-disabled={starting || branchesLoading || !selectedBranch || !buildTypeId}
             aria-busy={starting}

@@ -223,7 +223,11 @@
             aria-disabled={removingUrl !== ''}
             aria-busy={removingUrl === server.baseUrl}
             aria-label="Remove CI connection"
-            title="Remove the stored token for this server"
+            title={removingUrl !== ''
+              ? removingUrl === server.baseUrl
+                ? 'Removing…'
+                : 'Disabled while another connection is being removed'
+              : 'Remove the stored token for this server'}
           >
             {#if removingUrl === server.baseUrl}
               <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />

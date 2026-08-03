@@ -27,10 +27,6 @@
   let seq = 0
 
   async function refresh(): Promise<void> {
-    // Mirrors the button's aria-disabled (which does not stop clicks); the seq
-    // guard already makes overlap harmless — this keeps handler and attribute
-    // in agreement.
-    if (refreshing) return
     const mySeq = ++seq
     refreshing = true
     try {
@@ -165,7 +161,14 @@
         <button
           type="button"
           class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0 aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
-          onclick={() => void refresh()}
+          onclick={() => {
+            // Mirrors this button's aria-disabled, which does not stop clicks.
+            // Scoped to the CLICK path on purpose: the 10 s poll and the
+            // trigger-driven tick must still fire while a fetch is in flight —
+            // seq already makes that overlap harmless, and gating them would
+            // drop the re-fetch-immediately-after-a-trigger contract.
+            if (!refreshing) void refresh()
+          }}
           aria-disabled={refreshing}
           aria-busy={refreshing}
           aria-label="Refresh"

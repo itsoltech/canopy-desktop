@@ -292,6 +292,26 @@
       configLoadScope === 'file',
   )
 
+  // Test/Load blocked reasons — same three-modality shape as saveBlockedState
+  // (title + aria-describedby at a rendered span): title is hover-only, and
+  // !canLoadTypes is the configurator's FIRST-RUN open state.
+  let testBlockedReason = $derived(
+    testing
+      ? 'Testing the connection…'
+      : !urlValid
+        ? 'Disabled: enter a valid server URL first'
+        : '',
+  )
+  let loadBlockedReason = $derived(
+    typesLoading
+      ? "Loading the server's jobs…"
+      : !urlValid
+        ? 'Disabled: enter a valid TeamCity server URL first'
+        : !canLoadTypes
+          ? 'Disabled: enter an access token first (or pick a server with one stored)'
+          : '',
+  )
+
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
   // its colour cannot disagree (a flat severity disjunction paired a next-step
   // sentence with the warning colour whenever an earlier cascade term won while
@@ -538,11 +558,9 @@
               onclick={testConnection}
               aria-disabled={testing || !urlValid}
               aria-busy={testing}
-              title={testing
-                ? 'Testing the connection…'
-                : !urlValid
-                  ? 'Disabled: enter a valid TeamCity server URL first'
-                  : 'Check the connection against the server — nothing is saved'}
+              aria-describedby={testBlockedReason ? 'ci-test-blocked' : undefined}
+              title={testBlockedReason ||
+                'Check the connection against the server — nothing is saved'}
             >
               {testing ? 'Testing…' : 'Test'}
             </button>
@@ -553,11 +571,9 @@
             onclick={loadBuildTypes}
             aria-disabled={typesLoading || !canLoadTypes}
             aria-busy={typesLoading}
-            title={typesLoading
-              ? "Loading the server's jobs…"
-              : !canLoadTypes
-                ? 'Disabled: enter the server URL and a token first'
-                : 'Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server'}
+            aria-describedby={loadBlockedReason ? 'ci-load-blocked' : undefined}
+            title={loadBlockedReason ||
+              'Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server'}
           >
             {typesLoading ? 'Loading…' : 'Load available jobs'}
           </button>
@@ -572,6 +588,22 @@
               >
             {/if}
           </span>
+        </div>
+
+        <!-- NOT live (routine next-step states, changing as the user types);
+             reserved height so the row below does not shift. The buttons'
+             aria-describedby reads these on focus — title is hover-only. -->
+        <div class="min-h-4 flex flex-col gap-0.5">
+          {#if testBlockedReason && formToken}
+            <span id="ci-test-blocked" class="text-xs text-text-secondary break-words"
+              >Test: {testBlockedReason}</span
+            >
+          {/if}
+          {#if loadBlockedReason}
+            <span id="ci-load-blocked" class="text-xs text-text-secondary break-words"
+              >{loadBlockedReason}</span
+            >
+          {/if}
         </div>
 
         <!-- Persistent region: a load or keychain failure lands as a mutation —

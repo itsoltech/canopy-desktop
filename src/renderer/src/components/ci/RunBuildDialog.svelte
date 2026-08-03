@@ -236,7 +236,7 @@
            trap. submit() guards internally, so nothing can double-fire. -->
       <button
         type="button"
-        class="flex items-center justify-center gap-1.5 min-w-24 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
+        class="flex items-center justify-center gap-1.5 min-w-28 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
         onclick={submit}
         aria-disabled={missing.length > 0 || running}
         aria-busy={running}
