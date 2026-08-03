@@ -282,38 +282,51 @@
       configLoadScope === 'file',
   )
 
-  // Why Save cannot run — derived from the SAME inputs as saveBlocked so the two
-  // cannot drift. A click on an aria-disabled button is a silent no-op, so every
-  // blocking term needs a reachable reason (title + aria-describedby + a visible
-  // line by the footer; the button is focusable now, which is the point).
-  let saveBlockedReason = $derived(
-    configLoadScope === 'file'
-      ? 'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file'
-      : busy === 'remove'
-        ? 'Disabled: the CI configuration is being removed'
-        : !urlValid
-          ? 'Disabled: enter a valid TeamCity server URL first'
-          : typesLoading
-            ? "Disabled: loading the server's jobs…"
-            : !typesLoaded
-              ? 'Disabled: click "Load available jobs" first — Canopy saves only jobs the server confirmed'
-              : effectiveBuildTypes.length > CI_MAX_BUILD_TYPES
-                ? `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured — untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`
-                : effectiveBuildTypes.length === 0
-                  ? 'Disabled: tick at least one job below'
-                  : saving
-                    ? 'Disabled: an update is already in progress'
-                    : '',
-  )
-
-  // Warning colour is for the two terms that describe something WRONG — a file
-  // that cannot be written, and a selection over the cap. The rest ("pick a URL",
-  // "load the jobs", "tick one") are next-step states and open the modal:
-  // rendering them in the same colour as the dropped-entry warnings above would
-  // devalue those.
-  let saveBlockedSeverity = $derived(
-    configLoadScope === 'file' || effectiveBuildTypes.length > CI_MAX_BUILD_TYPES ? 'warn' : 'info',
-  )
+  // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
+  // its colour cannot disagree (a flat severity disjunction paired a next-step
+  // sentence with the warning colour whenever an earlier cascade term won while
+  // over-cap was also true). Warning colour is only for the two terms that
+  // describe something WRONG (a file that cannot be written, a selection over
+  // the cap); the rest are next-step states, two of which render on mount, and
+  // painting those like the dropped-entry warnings above would devalue those.
+  let saveBlockedState = $derived.by((): { reason: string; severity: 'warn' | 'info' } => {
+    if (configLoadScope === 'file') {
+      return {
+        reason:
+          'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file',
+        severity: 'warn',
+      }
+    }
+    if (busy === 'remove') {
+      return { reason: 'Disabled: the CI configuration is being removed', severity: 'info' }
+    }
+    if (!urlValid) {
+      return { reason: 'Disabled: enter a valid TeamCity server URL first', severity: 'info' }
+    }
+    if (typesLoading) {
+      return { reason: "Disabled: loading the server's jobs…", severity: 'info' }
+    }
+    if (!typesLoaded) {
+      return {
+        reason:
+          'Disabled: click "Load available jobs" first — Canopy saves only jobs the server confirmed',
+        severity: 'info',
+      }
+    }
+    if (effectiveBuildTypes.length > CI_MAX_BUILD_TYPES) {
+      return {
+        reason: `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured — untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`,
+        severity: 'warn',
+      }
+    }
+    if (effectiveBuildTypes.length === 0) {
+      return { reason: 'Disabled: tick at least one job below', severity: 'info' }
+    }
+    if (saving) {
+      return { reason: 'Disabled: an update is already in progress', severity: 'info' }
+    }
+    return { reason: '', severity: 'info' }
+  })
 
   function toggleType(bt: ServerBuildType): void {
     if (selected.has(bt.id)) selected.delete(bt.id)
@@ -688,12 +701,12 @@
              dangling describedby entirely), and in the same weight as the other
              blocking explanations: this is the only visible reason the primary
              button is dead, not a decorative hint. -->
-        {#if saveBlockedReason}
+        {#if saveBlockedState.reason}
           <span
             id="ci-save-blocked"
-            class="text-xs break-words {saveBlockedSeverity === 'warn'
+            class="text-xs break-words {saveBlockedState.severity === 'warn'
               ? 'text-warning-text'
-              : 'text-text-secondary'}">{saveBlockedReason}</span
+              : 'text-text-secondary'}">{saveBlockedState.reason}</span
           >
         {/if}
       </div>
@@ -708,14 +721,14 @@
           class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
           onclick={saveConfiguration}
           aria-disabled={saveBlocked}
-          aria-describedby={saveBlockedReason
+          aria-describedby={saveBlockedState.reason
             ? 'ci-save-blocked'
             : missingBuildTypes.length > 0 ||
                 existingConfig?.droppedInvalid ||
                 existingConfig?.droppedOverCap
               ? 'ci-save-warnings'
               : undefined}
-          title={saveBlockedReason ||
+          title={saveBlockedState.reason ||
             'Writes the ci block to .canopy/config.json — commit it to share with the team'}
           >{busy === 'save' ? 'Saving…' : 'Save configuration'}</button
         >
