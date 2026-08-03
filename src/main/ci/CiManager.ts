@@ -13,7 +13,7 @@ import type {
 } from './types'
 import type { CiError } from './errors'
 import { ciErrorMessage } from './errors'
-import { parseCiConfig } from './config'
+import { DROPPED_ID_SAMPLE, parseCiConfig } from './config'
 import {
   fetchActivity,
   fetchBranches,
@@ -62,7 +62,7 @@ export class CiManager {
           reason:
             parsed.invalidIds.length > 0
               ? `invalid build type ids — fix them in the ci block: ${parsed.invalidIds
-                  .slice(0, 10)
+                  .slice(0, DROPPED_ID_SAMPLE)
                   .join(', ')}`
               : 'unrecognized ci block shape',
         })

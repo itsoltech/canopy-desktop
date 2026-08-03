@@ -61,11 +61,17 @@
               <CustomCheckbox checked={selected.has(bt.id)} onchange={() => onToggle(bt)} />
               <!-- The id rides along visibly: the configurator's warnings name IDS
                    (they are what the git-shared file stores), and there is no
-                   search field — a hover-only title can't be scanned for. -->
-              <span class="truncate" title={bt.id}
-                >{bt.name}{#if bt.id !== bt.name}
-                  <span class="font-mono text-2xs text-text-faint">· {bt.id}</span>{/if}</span
-              >
+                   search field — a hover-only title can't be scanned for. The id
+                   gets its own non-shrinking cell so only the NAME truncates:
+                   appended inside one truncate span, the id was the first thing
+                   the ellipsis removed. -->
+              <span class="truncate">{bt.name}</span>
+              {#if bt.id !== bt.name}
+                <span
+                  class="font-mono text-2xs text-text-faint shrink-0 max-w-40 truncate"
+                  title={bt.id}>· {bt.id}</span
+                >
+              {/if}
             </label>
             {#if selected.has(bt.id)}
               <input

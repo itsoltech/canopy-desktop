@@ -142,7 +142,8 @@ Written by the configurator (hand-editing works too) in `.canopy/config.json`:
   occurrence and extras beyond the cap are ignored rather than rejected (the raw
   block is preserved on disk). The configurator names the dropped entries with the
   recovery matching their cause — typo'd ids point at fixing the file, cap overflow
-  at re-ticking in the picker — before a Save would drop them for real, and itself
+  at re-ticking in the picker (when the job still exists on the server; ids the
+  server no longer has are named as unrecoverable) — before a Save would drop them for real, and itself
   refuses to select more than 50 (Save is disabled with the count named); the
   `ci:saveConfig` IPC path rejects >50 outright.
 

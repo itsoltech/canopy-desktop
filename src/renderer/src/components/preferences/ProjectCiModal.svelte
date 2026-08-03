@@ -268,6 +268,18 @@
       (existingConfig?.buildTypes ?? []).every((bt) => !serverTypes.some((s) => s.id === bt.id)),
   )
 
+  // ONE definition of "Save cannot run": aria-disabled does not stop clicks, so
+  // saveConfiguration guards on exactly what the button renders as disabled.
+  let saveBlocked = $derived(
+    saving ||
+      typesLoading ||
+      !typesLoaded ||
+      effectiveBuildTypes.length === 0 ||
+      effectiveBuildTypes.length > CI_MAX_BUILD_TYPES ||
+      !urlValid ||
+      configLoadScope === 'file',
+  )
+
   function toggleType(bt: ServerBuildType): void {
     if (selected.has(bt.id)) selected.delete(bt.id)
     else selected.set(bt.id, selected.get(bt.id) ?? bt.name)
@@ -281,7 +293,9 @@
   }
 
   async function saveConfiguration(): Promise<void> {
-    if (!repoRoot || effectiveBuildTypes.length === 0 || !urlValid || saving) return
+    // Mirrors the button's aria-disabled: the cap and the file-scope block are
+    // real preconditions, and aria-disabled does not stop a click.
+    if (!repoRoot || saveBlocked) return
     // No confirm on this path — the guard and the visible state start together.
     saving = true
     busy = 'save'
@@ -511,7 +525,7 @@
                  the picker below can never show them — "tick to keep" would be
                  impossible advice here. -->
             {@const inv = existingConfig.droppedInvalid}
-            <p class="m-0 text-xs text-warning-text leading-snug">
+            <p class="m-0 text-xs text-warning-text leading-snug break-words">
               {inv.count} hand-edited
               {inv.count === 1 ? 'entry has an invalid id' : 'entries have invalid ids'}
               ({inv.ids.join(', ')}{inv.count > inv.ids.length
@@ -522,18 +536,34 @@
             </p>
           {/if}
           {#if existingConfig?.droppedOverCap}
-            <!-- Recovery is re-ticking: these ids are real jobs sitting unticked
-                 in the picker — but the selection is seeded at the cap, so one
-                 must be unticked first. -->
+            <!-- Recovery is re-ticking — but only for ids the SERVER still has:
+                 parseCiConfig verified the charset, not existence, and an id
+                 deleted on TeamCity is absent from the picker AND from the
+                 stale-jobs warning (which only sees `selected`). Until the list
+                 is loaded, existence is genuinely unknown. -->
             {@const cap = existingConfig.droppedOverCap}
-            <p class="m-0 text-xs text-warning-text leading-snug">
+            {@const capPresent = typesLoaded
+              ? cap.ids.filter((id) => serverTypes.some((bt) => bt.id === id))
+              : cap.ids}
+            {@const capGone = typesLoaded
+              ? cap.ids.filter((id) => !serverTypes.some((bt) => bt.id === id))
+              : []}
+            <p class="m-0 text-xs text-warning-text leading-snug break-words">
               {cap.count} hand-edited
               {cap.count === 1 ? 'entry is' : 'entries are'} past the
-              {CI_MAX_BUILD_TYPES}-job cap and not selected ({cap.ids.join(', ')}{cap.count >
-              cap.ids.length
-                ? ` and ${cap.count - cap.ids.length} more`
-                : ''}). Untick another job below first, then tick these to keep them — or trim the
-              hand-edited list; saving writes only the selection below.
+              {CI_MAX_BUILD_TYPES}-job cap and not selected{cap.count > cap.ids.length
+                ? ` (showing ${cap.ids.length} of ${cap.count})`
+                : ''}.
+              {#if capPresent.length > 0}
+                Untick another job below first, then tick these to keep them: {capPresent.join(
+                  ', ',
+                )}.
+              {/if}
+              {#if capGone.length > 0}
+                No longer on this server — saving drops them and there is nothing to re-tick:
+                {capGone.join(', ')}.
+              {/if}
+              Or trim the hand-edited list; saving writes only the selection below.
             </p>
           {/if}
           {#if typesLoaded && missingBuildTypes.length > 0}
@@ -543,7 +573,7 @@
                 return label && label !== id ? `${label} (${id})` : id
               })
               .join(', ')}
-            <p class="m-0 text-xs text-warning-text leading-snug">
+            <p class="m-0 text-xs text-warning-text leading-snug break-words">
               {#if allConfiguredStale && effectiveBuildTypes.length === 0}
                 None of this repository's configured jobs exist on this server any more ({missingNames}).
                 Save is disabled until you tick at least one job below — or use
@@ -623,15 +653,9 @@
         >
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"
+          class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
           onclick={saveConfiguration}
-          disabled={saving ||
-            typesLoading ||
-            !typesLoaded ||
-            effectiveBuildTypes.length === 0 ||
-            effectiveBuildTypes.length > CI_MAX_BUILD_TYPES ||
-            !urlValid ||
-            configLoadScope === 'file'}
+          aria-disabled={saveBlocked}
           aria-describedby={configLoadScope === 'file'
             ? 'ci-config-invalid'
             : effectiveBuildTypes.length > CI_MAX_BUILD_TYPES

@@ -12,7 +12,8 @@ export const CI_MAX_BUILD_TYPES = 50
 export const CI_MAX_LABEL_LEN = 100
 
 // The warning copy can only fit a sample — counts stay exact, names are capped.
-const DROPPED_ID_SAMPLE = 10
+// Exported: the block-scope reason in CiManager uses the same sample bound.
+export const DROPPED_ID_SAMPLE = 10
 
 export interface CiConfigParseResult {
   /** Absent when the block cannot be used at all. */
@@ -67,7 +68,9 @@ export function parseCiConfig(raw: unknown): CiConfigParseResult {
   if (buildTypes.length === 0) return { invalidIds }
 
   const accepted = buildTypes.slice(0, CI_MAX_BUILD_TYPES)
-  const overCapIds = buildTypes.slice(CI_MAX_BUILD_TYPES).map((bt) => bt.id)
+  // Same display truncation as invalid ids: a valid id can be 255 chars, and ten
+  // of those in a warning paragraph is 2.5k of unbreakable text.
+  const overCapIds = buildTypes.slice(CI_MAX_BUILD_TYPES).map((bt) => bt.id.slice(0, 80))
   return {
     invalidIds,
     config: {
