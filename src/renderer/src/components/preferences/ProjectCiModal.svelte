@@ -294,8 +294,10 @@
 
   // Per-control titles keep the full cascade so a blocked button never promises
   // an action it cannot perform. The rendered Load reason carries only its own
-  // token precondition: the footer owns invalid URL, while labels + aria-busy own
-  // busy states, matching CiServerForm's split.
+  // token precondition: the footer states the shared invalid-URL term once, and
+  // busy states live on the button itself (label + aria-busy) — the same reason
+  // CiServerForm keeps `testing`/`saving` out of `formBlockedReason`. It does
+  // carry the URL term, because that form has no footer to own it.
   let testBlockedTitle = $derived(
     testing
       ? 'Testing the connection…'
@@ -313,9 +315,9 @@
           : '',
   )
   let loadBlockedReason = $derived(
-    urlValid && !typesLoading && !canLoadTypes
-      ? 'Disabled: enter an access token first (or pick a server with one stored)'
-      : '',
+    // Projection of the title, not a second copy: under this guard the cascade
+    // above lands on its token arm by construction, so hover and focus text cannot drift.
+    urlValid && !typesLoading && !canLoadTypes ? loadBlockedTitle : '',
   )
 
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
@@ -596,7 +598,7 @@
         </div>
 
         <!-- NOT live (routine next-step states, changing as the user types);
-             reserved height so the row below does not shift. The buttons'
+             reserved height so the row below does not shift. Load's
              aria-describedby reads this on focus — title is hover-only. -->
         <div class="min-h-4 flex flex-col gap-0.5">
           {#if loadBlockedReason}
