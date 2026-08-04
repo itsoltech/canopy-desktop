@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ExternalLink } from '@lucide/svelte'
   import type { CiJobStatus } from '../../lib/ci/types'
-  import { ciRunChip } from '../../lib/ci/status'
+  import { ciRunChip, ciRunStatusTextClass } from '../../lib/ci/status'
 
   let { rows, branch }: { rows: CiJobStatus[]; branch: string } = $props()
 </script>
@@ -19,12 +19,7 @@
       <span class="flex-1 min-w-0 flex flex-col">
         <span class="text-xs text-text truncate">{row.label}</span>
         {#if row.run?.statusText}
-          <span
-            class="text-2xs truncate {row.run.conclusion === 'success'
-              ? 'text-success'
-              : row.run.conclusion === 'failure'
-                ? 'text-danger-text'
-                : 'text-text-muted'}">{row.run.statusText}</span
+          <span class="text-2xs truncate {ciRunStatusTextClass(row.run)}">{row.run.statusText}</span
           >
         {:else if row.error}
           <span class="text-2xs text-warning-text truncate">{row.error}</span>

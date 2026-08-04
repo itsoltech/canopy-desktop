@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { anyBuildActive, ciChip, ciRunChip, ciStatusTextClass } from './status'
+import {
+  anyBuildActive,
+  ciChip,
+  ciRunChip,
+  ciRunStatusTextClass,
+  ciStatusTextClass,
+} from './status'
 
 function build(overrides: Partial<CiBuildStatus>): CiBuildStatus {
   return {
@@ -112,5 +118,13 @@ describe('ciRunChip', () => {
     expect(ciRunChip({ run: run({ state: 'unknown', conclusion: 'failure' }) }).label).toBe(
       'Unknown',
     )
+  })
+
+  it('uses outcome colours only after a run finishes', () => {
+    expect(ciRunStatusTextClass(run({ state: 'running', conclusion: 'success' }))).toBe(
+      'text-text-muted',
+    )
+    expect(ciRunStatusTextClass(run({ conclusion: 'success' }))).toBe('text-success-text')
+    expect(ciRunStatusTextClass(run({ conclusion: 'failure' }))).toBe('text-danger-text')
   })
 })

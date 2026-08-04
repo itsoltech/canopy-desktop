@@ -24,6 +24,14 @@ export function ciStatusTextClass(build: ChipBuild): string {
     .otherwise(() => 'text-text-muted')
 }
 
+/** Colour for a GitHub Actions run's status line — the run counterpart above. */
+export function ciRunStatusTextClass(run: Pick<CiRun, 'state' | 'conclusion'>): string {
+  return match(run)
+    .with({ state: 'finished', conclusion: 'success' }, () => 'text-success-text')
+    .with({ state: 'finished', conclusion: 'failure' }, () => 'text-danger-text')
+    .otherwise(() => 'text-text-muted')
+}
+
 /**
  * Status chip for a build row — the single owner of the chip vocabulary for both the
  * Last-job card and the Jobs history window, so the two surfaces can never disagree

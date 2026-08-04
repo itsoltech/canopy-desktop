@@ -5,7 +5,7 @@
   import { getCiActivityTick } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { formatDuration, formatWhen } from '../../lib/ci/format'
-  import { ciRunChip } from '../../lib/ci/status'
+  import { ciRunChip, ciRunStatusTextClass } from '../../lib/ci/status'
   import type { CiRun, CiRunActivity } from '../../lib/ci/types'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
 
@@ -92,13 +92,8 @@
         {#if run.number}<span class="font-mono text-2xs text-text-faint">#{run.number}</span>{/if}
       </span>
       {#if run.statusText}
-        <span
-          class="truncate text-2xs {run.conclusion === 'success'
-            ? 'text-success'
-            : run.conclusion === 'failure'
-              ? 'text-danger-text'
-              : 'text-text-muted'}"
-          title={run.statusText}>{run.statusText}</span
+        <span class="truncate text-2xs {ciRunStatusTextClass(run)}" title={run.statusText}
+          >{run.statusText}</span
         >
       {/if}
       <span class="flex items-baseline gap-2 min-w-0">

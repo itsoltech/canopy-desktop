@@ -33,16 +33,13 @@
     onOpenTokenPage: () => void
   } = $props()
 
+  const URL_REQUIRED = 'Disabled: enter a valid server URL first'
+  const TOKEN_REQUIRED = 'Disabled: enter an access token first'
+
   // Both actions share these preconditions. Keep the reason visible and associated
   // with each aria-disabled button because title text is unavailable on keyboard focus.
   let tokenPresent = $derived(token.trim().length > 0)
-  let formBlockedReason = $derived(
-    !urlValid
-      ? 'Disabled: enter a valid server URL first'
-      : !tokenPresent
-        ? 'Disabled: enter an access token first'
-        : '',
-  )
+  let formBlockedReason = $derived(!urlValid ? URL_REQUIRED : !tokenPresent ? TOKEN_REQUIRED : '')
 </script>
 
 <div class="flex flex-col gap-2 p-3 border border-border rounded-md bg-bg-input">
@@ -137,9 +134,9 @@
       title={testing
         ? 'Testing the connection…'
         : !urlValid
-          ? 'Disabled: enter a valid server URL first'
+          ? URL_REQUIRED
           : !tokenPresent
-            ? 'Disabled: enter an access token first'
+            ? TOKEN_REQUIRED
             : 'Check the connection against the server — nothing is saved'}
     >
       {testing ? 'Testing…' : 'Test'}
@@ -154,9 +151,9 @@
       title={saving
         ? 'Saving…'
         : !urlValid
-          ? 'Disabled: enter a valid server URL first'
+          ? URL_REQUIRED
           : !tokenPresent
-            ? 'Disabled: enter an access token first'
+            ? TOKEN_REQUIRED
             : 'Save the token (stored globally on this machine, per provider + URL)'}
       >{saving ? 'Saving…' : isNew ? 'Add connection' : 'Save token'}</button
     >
