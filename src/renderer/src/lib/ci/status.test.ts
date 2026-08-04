@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { anyBuildActive, ciChip, ciRunChip } from './status'
+import { anyBuildActive, ciChip, ciRunChip, ciStatusTextClass } from './status'
 
 function build(overrides: Partial<CiBuildStatus>): CiBuildStatus {
   return {
@@ -67,6 +67,17 @@ describe('anyBuildActive', () => {
   it('is false for finished or absent builds', () => {
     expect(anyBuildActive([row(null), row(build({ status: 'FAILURE' }))])).toBe(false)
     expect(anyBuildActive([])).toBe(false)
+  })
+})
+
+describe('ciStatusTextClass', () => {
+  it('uses outcome colours only after a build finishes', () => {
+    expect(ciStatusTextClass(build({ state: 'running', status: 'SUCCESS' }))).toBe(
+      'text-text-muted',
+    )
+    expect(ciStatusTextClass(build({ status: 'SUCCESS' }))).toBe('text-success-text')
+    expect(ciStatusTextClass(build({ status: 'FAILURE' }))).toBe('text-danger-text')
+    expect(ciStatusTextClass(build({ status: 'ERROR' }))).toBe('text-danger-text')
   })
 })
 

@@ -5,7 +5,7 @@
   import { getCiActivityTick } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { formatDuration, formatWhen } from '../../lib/ci/format'
-  import { ciChip } from '../../lib/ci/status'
+  import { ciChip, ciStatusTextClass } from '../../lib/ci/status'
   import type { CiActivityBuild } from '../../lib/ci/types'
 
   // Repository activity: running, queued and recent builds whose configurations
@@ -110,13 +110,8 @@
         {/if}
       </span>
       {#if build.statusText}
-        <span
-          class="w-full text-2xs truncate {build.status === 'SUCCESS'
-            ? 'text-success'
-            : build.status === 'FAILURE' || build.status === 'ERROR'
-              ? 'text-danger-text'
-              : 'text-text-muted'}"
-          title={build.statusText}>{build.statusText}</span
+        <span class="w-full text-2xs truncate {ciStatusTextClass(build)}" title={build.statusText}
+          >{build.statusText}</span
         >
       {/if}
       <span class="w-full flex items-baseline gap-2 min-w-0">

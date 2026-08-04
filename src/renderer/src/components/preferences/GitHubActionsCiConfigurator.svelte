@@ -360,76 +360,84 @@
         {#if defaultBranch}
           <span class="text-xs text-text-muted">Default branch: {defaultBranch}</span>
         {/if}
-        {#if rewritesSharedRepository}
-          <p class="m-0 text-xs leading-snug text-warning-text" role="status">
-            This workspace’s origin is <code class="font-mono">{repository}</code>, but the shared
-            <code class="font-mono">ci</code> block names
-            <code class="font-mono">{existingConfig?.repository}</code>. Saving rewrites it and
-            causes a repository mismatch for anyone still using
-            <code class="font-mono">{existingConfig?.repository}</code>. If this is a fork, close
-            without saving.
+        <div role="status" class:sr-only={!rewritesSharedRepository}>
+          {#if rewritesSharedRepository}
+            <p class="m-0 text-xs leading-snug text-warning-text break-words">
+              This workspace’s origin is <code class="font-mono">{repository}</code>, but the shared
+              <code class="font-mono">ci</code> block names
+              <code class="font-mono">{existingConfig?.repository}</code>. Saving rewrites it and
+              causes a repository mismatch for anyone still using
+              <code class="font-mono">{existingConfig?.repository}</code>. If this is a fork, close
+              without saving.
+            </p>
+          {/if}
+        </div>
+      </div>
+
+      <div class="min-h-[152px]">
+        {#if repositoryReady && hasToken}
+          <div
+            class="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
+          >
+            <div class="min-w-0">
+              <div class="text-xs font-medium text-text">GitHub Actions token stored</div>
+              <div class="truncate text-xs text-text-muted" title={credentialUrl}>{repository}</div>
+            </div>
+            <button
+              type="button"
+              class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+              onclick={replaceToken}
+              aria-disabled={loading || saving}>Replace token</button
+            >
+          </div>
+        {:else if repositoryReady}
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between gap-2">
+              <label
+                for="github-ci-token"
+                class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+              >
+                Personal access token
+              </label>
+              <button
+                type="button"
+                class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
+                onclick={openTokenPage}
+              >
+                Generate token on GitHub →
+              </button>
+            </div>
+            <input
+              id="github-ci-token"
+              type="password"
+              class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm outline-none focus:border-focus-ring"
+              bind:value={token}
+              autocomplete="off"
+              placeholder="Fine-grained token"
+            />
+            <p class="m-0 text-xs text-text-muted">
+              Canopy asks GitHub to preselect <strong>Actions — Read and write</strong> and
+              <strong>Contents — Read-only</strong>. Confirm both permissions and the expiry before
+              generating. Under Repository access choose <strong>Only select repositories</strong>
+              and select <strong>{repositoryLabel}</strong>. Workflow inputs are not secret fields.
+            </p>
+            <CredentialStorageNote
+              provider="github-actions"
+              baseUrl={credentialUrl}
+              sharingNote={false}
+            />
+          </div>
+        {:else if repositoryResolving}
+          <p class="m-0 text-xs text-text-muted">
+            Resolving this workspace’s <code class="font-mono">origin</code> remote…
+          </p>
+        {:else}
+          <p class="m-0 text-xs text-text-muted">
+            Resolve a supported <code class="font-mono">github.com</code> origin before creating or storing
+            a GitHub Actions token.
           </p>
         {/if}
       </div>
-
-      {#if repositoryReady && hasToken}
-        <div
-          class="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
-        >
-          <div class="min-w-0">
-            <div class="text-xs font-medium text-text">GitHub Actions token stored</div>
-            <div class="truncate text-xs text-text-muted" title={credentialUrl}>{repository}</div>
-          </div>
-          <button
-            type="button"
-            class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
-            onclick={replaceToken}
-            aria-disabled={loading || saving}>Replace token</button
-          >
-        </div>
-      {:else if repositoryReady}
-        <div class="flex flex-col gap-1">
-          <div class="flex items-center justify-between gap-2">
-            <label
-              for="github-ci-token"
-              class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-            >
-              Personal access token
-            </label>
-            <button
-              type="button"
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={openTokenPage}
-            >
-              Generate token on GitHub →
-            </button>
-          </div>
-          <input
-            id="github-ci-token"
-            type="password"
-            class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm outline-none focus:border-focus-ring"
-            bind:value={token}
-            autocomplete="off"
-            placeholder="Fine-grained token"
-          />
-          <p class="m-0 text-xs text-text-muted">
-            Canopy asks GitHub to preselect <strong>Actions — Read and write</strong> and
-            <strong>Contents — Read-only</strong>. Confirm both permissions and the expiry before
-            generating. Under Repository access choose <strong>Only select repositories</strong>
-            and select <strong>{repositoryLabel}</strong>. Workflow inputs are not secret fields.
-          </p>
-          <CredentialStorageNote
-            provider="github-actions"
-            baseUrl={credentialUrl}
-            sharingNote={false}
-          />
-        </div>
-      {:else}
-        <p class="m-0 text-xs text-text-muted">
-          Resolve a supported <code class="font-mono">github.com</code> origin before creating or storing
-          a GitHub Actions token.
-        </p>
-      {/if}
 
       <div class="flex items-center gap-2">
         {#if repositoryReady && token.trim()}
@@ -492,13 +500,15 @@
             {/each}
           </div>
         {/if}
+      {/if}
+      <div role="status" class:sr-only={missingConfiguredWorkflows.length === 0}>
         {#if missingConfiguredWorkflows.length > 0}
-          <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text" role="status">
+          <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text break-words">
             No longer returned by GitHub and removed on Save:
             {missingConfiguredWorkflows.map((workflow) => workflow.label).join(', ')}
           </div>
         {/if}
-      {/if}
+      </div>
     </div>
 
     <footer class="px-6 py-3 border-t border-border-subtle flex items-center justify-between gap-3">

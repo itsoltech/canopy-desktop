@@ -4951,7 +4951,7 @@ export function registerIpcHandlers(
         status: 'error' as const,
         // InvalidRemoteUrl carries the raw remote, which may contain userinfo.
         // Keep credentials out of the renderer-visible setup error.
-        message: 'The origin remote is not a supported GitHub URL.',
+        message: 'it is not a supported GitHub URL.',
       }),
     )
   })

@@ -14,6 +14,17 @@ interface ChipBuild {
 }
 
 /**
+ * Colour for TeamCity's build-specific status text. Only a finished build has an
+ * outcome: TeamCity may report SUCCESS while a running build merely has not failed yet.
+ */
+export function ciStatusTextClass(build: ChipBuild): string {
+  return match(build)
+    .with({ state: 'finished', status: 'SUCCESS' }, () => 'text-success-text')
+    .with({ state: 'finished', status: P.union('FAILURE', 'ERROR') }, () => 'text-danger-text')
+    .otherwise(() => 'text-text-muted')
+}
+
+/**
  * Status chip for a build row — the single owner of the chip vocabulary for both the
  * Last-job card and the Jobs history window, so the two surfaces can never disagree
  * on the label or color for the same build state.

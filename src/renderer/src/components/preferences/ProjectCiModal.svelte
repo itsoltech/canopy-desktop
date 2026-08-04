@@ -295,6 +295,10 @@
       configLoadScope === 'file',
   )
 
+  // The control row delegates this exact sentence to the footer, so every surface
+  // uses one owner and wording changes cannot silently break that delegation.
+  const URL_REQUIRED = 'Disabled: enter a valid TeamCity server URL first'
+
   // Per-control titles keep the full cascade so a blocked button never promises
   // an action it cannot perform. The shared rendered reason normally carries the
   // token precondition; invalid URL is delegated to the footer only when nothing
@@ -302,30 +306,17 @@
   // removal states do so transiently. Busy states live on the button itself
   // (label + aria-busy), as in CiServerForm's `formBlockedReason` split.
   let testBlockedTitle = $derived(
-    testing
-      ? 'Testing the connection…'
-      : !urlValid
-        ? 'Disabled: enter a valid TeamCity server URL first'
-        : '',
+    testing ? 'Testing the connection…' : !urlValid ? URL_REQUIRED : '',
   )
   let loadBlockedTitle = $derived(
     typesLoading
       ? "Loading the server's jobs…"
       : !urlValid
-        ? 'Disabled: enter a valid TeamCity server URL first'
+        ? URL_REQUIRED
         : !canLoadTypes
           ? 'Disabled: enter an access token first (or pick a server with one stored)'
           : '',
   )
-  let serverBlockedReason = $derived(
-    // Projection of the title, not a second copy. The file-scope fallback exposes
-    // the URL term while the footer is occupied; transient removal states keep
-    // their own confirm or busy surface.
-    !typesLoading && (urlValid ? !canLoadTypes : configLoadScope === 'file')
-      ? loadBlockedTitle
-      : '',
-  )
-
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
   // its colour cannot disagree (a flat severity disjunction paired a next-step
   // sentence with the warning colour whenever an earlier cascade term won while
@@ -353,7 +344,7 @@
       return { reason: 'Disabled: confirm or dismiss the removal first', severity: 'info' }
     }
     if (!urlValid) {
-      return { reason: 'Disabled: enter a valid TeamCity server URL first', severity: 'info' }
+      return { reason: URL_REQUIRED, severity: 'info' }
     }
     if (typesLoading) {
       return { reason: "Disabled: loading the server's jobs…", severity: 'info' }
@@ -379,6 +370,15 @@
     }
     return { reason: '', severity: 'info' }
   })
+
+  let serverBlockedReason = $derived(
+    // Projection of the title, not a second copy. The URL term is delegated exactly
+    // when the footer is stating it, so adding a higher-ranked footer term cannot
+    // silently leave the row without an explanation.
+    !typesLoading && (urlValid ? !canLoadTypes : saveBlockedState.reason !== URL_REQUIRED)
+      ? loadBlockedTitle
+      : '',
+  )
 
   function toggleType(bt: ServerBuildType): void {
     if (selected.has(bt.id)) selected.delete(bt.id)

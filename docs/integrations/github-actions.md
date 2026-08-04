@@ -23,7 +23,8 @@ are intentionally out of scope.
 2. Open the repository CI/CD configurator and choose **GitHub Actions**.
    **Load workflows** stays inactive while Canopy resolves `origin`. An absent remote, an
    unsupported GitHub Enterprise host, and a git lookup failure are reported as distinct states.
-3. Select **Generate token on GitHub**. Canopy asks GitHub to preselect **Actions: write** and
+3. After Canopy confirms a supported `github.com` origin, select **Generate token on GitHub**.
+   Canopy asks GitHub to preselect **Actions: write** and
    **Contents: read**; confirm both permissions and the token expiry on GitHub. Choose the
    repository owner, restrict **Repository access** to this repository, then paste the generated
    token into Canopy.

@@ -80,8 +80,11 @@ TeamCity's dialog semantics exactly — an unchecked checkbox submits its
 `uncheckedValue` (configs may carry whole CLI fragments there), never the raw stored
 value. Required parameters (`validationMode='not_empty'`) block submission. Chosen
 values are sent as build `properties`. Only jobs without prompt parameters expose
-**Run** and queue immediately. A build triggered from Canopy is then **observed to completion**: the app
-polls it every 10 s and shows a green or red toast with the outcome when it finishes
+**Run** and queue immediately. TeamCity's `[0xNNNN]` and legacy `|0xNNNN` escapes in
+parameter labels, descriptions, and options are decoded to Unicode for display;
+malformed escapes remain literal. A build triggered from Canopy is then **observed to
+completion**: the app polls it every 10 s and shows a green or red toast with the outcome
+when it finishes
 (`SUCCESS` → succeeded; `FAILURE` and TeamCity's `ERROR` → failed; anything else →
 "finished with unknown status"). The poll gives up after ~5 minutes of consecutive
 API failures (a suspend/resume or VPN reconnect survives) or after two hours total,
@@ -223,10 +226,12 @@ Additional surfaces that are not `CiError` variants:
   secret.
 - Build type ids and branch names cross the IPC boundary through strict charsets
   (`BUILD_TYPE_ID_PATTERN` = `[A-Za-z0-9_]{1,255}`, branch = `[A-Za-z0-9._/-]{1,255}`)
-  that cannot escape a parenthesized TeamCity locator value. Triggering and
-  parameter/branch queries are limited to build types declared in the repo config, and
-  custom build properties are validated (name charset, value size, count cap) before
-  they reach the request body.
+  that cannot escape a parenthesized TeamCity locator value. Triggering, activity, and
+  parameter/branch queries are limited to build types declared in the repo config. The
+  activity queries interpolate those ids into a `buildType:(item:(id:…),…)` locator, so
+  nothing outside the repository's configured jobs is fetched or shown. Custom build
+  properties are validated (name charset, value size, count cap) before they reach the
+  request body.
 
 ## Source files
 
