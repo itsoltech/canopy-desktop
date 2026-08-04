@@ -40,7 +40,8 @@
     try {
       const all = await window.api.keychainListCredentials()
       servers = all.filter(
-        (connection) => connection.provider === 'teamcity' || connection.provider === 'github',
+        (connection) =>
+          connection.provider === 'teamcity' || connection.provider === 'github-actions',
       )
     } catch {
       servers = []
@@ -147,7 +148,7 @@
     try {
       const ok = await confirm({
         title: 'Remove CI connection',
-        message: `Remove your stored token for ${server.provider === 'github' ? 'GitHub' : 'TeamCity'} at ${server.baseUrl}?`,
+        message: `Remove your stored token for ${server.provider === 'github-actions' ? 'GitHub Actions' : 'TeamCity'} at ${server.baseUrl}?`,
         details:
           'Clears the token on this machine only. Repositories that configure this server will show a reconnect hint until a new token is saved.',
         confirmLabel: 'Remove connection',
@@ -172,7 +173,7 @@
 
 <PrefsSection
   title="Connections & credentials"
-  description="Your personal CI server connections and tokens stored on this machine — credentials are keyed by provider + URL and shared across your projects"
+  description="Personal CI tokens stored on this machine — TeamCity credentials are server-scoped; GitHub Actions credentials are repository-scoped"
 >
   <div class="flex flex-col gap-2">
     {#if servers.length === 0 && editing === null}
@@ -207,7 +208,7 @@
           >
             <span
               class="inline-flex items-center shrink-0 text-text-muted"
-              title={server.provider === 'github' ? 'GitHub' : 'TeamCity'}
+              title={server.provider === 'github-actions' ? 'GitHub Actions' : 'TeamCity'}
             >
               <TrackerProviderIcon provider={server.provider} size={14} />
             </span>

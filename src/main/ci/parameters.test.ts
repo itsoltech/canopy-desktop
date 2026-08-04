@@ -88,6 +88,13 @@ describe('parseParameterSpec', () => {
     expect(spec.label).toBe('Bad [0xZZZZ] [0x110000] [0xD800]')
   })
 
+  it('does not decode control characters or bidirectional overrides into UI text', () => {
+    const spec = parseParameterSpec(
+      "text display='prompt' label='Safe[0x0000][0x0085][0x061C][0x200E][0x200F][0x202E][0x2066]'",
+    )
+    expect(spec.label).toBe('Safe[0x0000][0x0085][0x061C][0x200E][0x200F][0x202E][0x2066]')
+  })
+
   it('handles empty/missing specs as plain hidden text', () => {
     expect(parseParameterSpec(undefined).display).toBe('normal')
     expect(parseParameterSpec('').kind).toBe('text')

@@ -5,9 +5,11 @@
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import CiRunJobModal from './CiRunJobModal.svelte'
   import GitHubActionsRunModal from './GitHubActionsRunModal.svelte'
+  import type { CiRepoConfigInfo } from '../../lib/ci/types'
 
   let { repoRoot, initialBranch }: { repoRoot: string; initialBranch?: string } = $props()
   let provider = $state<'teamcity' | 'github-actions' | ''>('')
+  let config = $state<CiRepoConfigInfo | null>(null)
   let error = $state('')
   let loading = $state(true)
   let dialogEl: HTMLElement | undefined = $state()
@@ -16,6 +18,7 @@
     dialogEl?.focus()
     try {
       const result = await window.api.ciConfig(repoRoot)
+      config = result.config
       provider = result.config?.provider ?? ''
       if (!provider) error = result.invalid?.message ?? 'No CI configured for this repository'
     } catch (cause) {
@@ -35,10 +38,10 @@
   }
 </script>
 
-{#if provider === 'teamcity'}
-  <CiRunJobModal {repoRoot} {initialBranch} />
-{:else if provider === 'github-actions'}
-  <GitHubActionsRunModal {repoRoot} {initialBranch} />
+{#if provider === 'teamcity' && config?.provider === 'teamcity'}
+  <CiRunJobModal {repoRoot} {initialBranch} initialConfig={config} />
+{:else if provider === 'github-actions' && config?.provider === 'github-actions'}
+  <GitHubActionsRunModal {repoRoot} {initialBranch} initialConfig={config} />
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div

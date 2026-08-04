@@ -24,7 +24,20 @@ const ATTR_RE = /([A-Za-z_][A-Za-z0-9_]*)='((?:[^']|'')*)'/g
 
 function decodeCodePoint(token: string, hex: string): string {
   const codePoint = Number.parseInt(hex, 16)
-  if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return token
+  const unsafeControl = codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+  const bidiOverride =
+    codePoint === 0x061c ||
+    codePoint === 0x200e ||
+    codePoint === 0x200f ||
+    (codePoint >= 0x202a && codePoint <= 0x202e) ||
+    (codePoint >= 0x2066 && codePoint <= 0x2069)
+  if (
+    codePoint > 0x10ffff ||
+    (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+    unsafeControl ||
+    bidiOverride
+  )
+    return token
   return String.fromCodePoint(codePoint)
 }
 

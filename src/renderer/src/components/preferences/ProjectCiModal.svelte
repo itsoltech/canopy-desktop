@@ -14,6 +14,20 @@
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
 
+  interface InvalidCiConfig {
+    scope: 'file' | 'block'
+    message: string
+    provider?: 'teamcity' | 'github-actions'
+  }
+
+  let {
+    initialConfig,
+    initialInvalid,
+  }: {
+    initialConfig: TeamCityCiRepoConfigInfo | null
+    initialInvalid?: InvalidCiConfig
+  } = $props()
+
   // Per-repo CI/CD configuration (TeamCity) for the ACTIVE worktree — the analogue of
   // the Project tracker modal. The server + selected build configurations are written
   // to the git-tracked .canopy/config.json (team-shared); tokens stay personal and
@@ -89,22 +103,10 @@
     } catch {
       servers = []
     }
-    if (repoRoot) {
-      try {
-        const res = await window.api.ciConfig(repoRoot)
-        existingConfig = res.config?.provider === 'teamcity' ? res.config : null
-        // A block that EXISTS but cannot be used — this modal is the advertised
-        // fix path, so it must show what is wrong instead of opening as if the
-        // repo had never been configured.
-        if (res.invalid) {
-          configLoadError = res.invalid.message
-          configLoadScope = res.invalid.scope
-        }
-      } catch (e) {
-        existingConfig = null
-        configLoadError =
-          e instanceof Error ? e.message : "Could not read this repository's CI configuration"
-      }
+    existingConfig = initialConfig
+    if (initialInvalid) {
+      configLoadError = initialInvalid.message
+      configLoadScope = initialInvalid.scope
     }
     if (existingConfig) {
       selectedServer = existingConfig.baseUrl

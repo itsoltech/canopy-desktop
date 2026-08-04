@@ -232,13 +232,16 @@ describe('the token gate', () => {
     expect(tokenStore.getCredentials).not.toHaveBeenCalled()
   })
 
-  it('maps an authorized GitHub repository to the existing GitHub credential key', async () => {
+  it('maps an authorized GitHub repository to its dedicated CI credential key', async () => {
     const { manager, tokenStore } = fakes({ ci: GITHUB_CI, token: null })
 
     const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
 
     expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
-    expect(tokenStore.getCredentials).toHaveBeenCalledWith('github', 'https://github.com')
+    expect(tokenStore.getCredentials).toHaveBeenCalledWith(
+      'github-actions',
+      'https://github.com/itsoltech/canopy-desktop',
+    )
   })
 
   it('does not store a GitHub credential for a non-GitHub workspace', async () => {
@@ -250,6 +253,19 @@ describe('the token gate', () => {
 
     expect(result.isErr() && result.error._tag).toBe('CiRepositoryMismatch')
     expect(tokenStore.setCredentials).not.toHaveBeenCalled()
+  })
+
+  it('stores GitHub Actions credentials under the normalized repository key', async () => {
+    const { manager, tokenStore } = fakes({})
+
+    const result = await manager.saveGitHubCredential('r', 'candidate-token')
+
+    expect(result.isOk()).toBe(true)
+    expect(tokenStore.setCredentials).toHaveBeenCalledWith(
+      'github-actions',
+      'https://github.com/itsoltech/canopy-desktop',
+      'candidate-token',
+    )
   })
 
   it('fails with CiAuthMissing before any network call when no token is stored', async () => {

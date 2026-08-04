@@ -13,6 +13,20 @@
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
 
+  interface InvalidCiConfig {
+    scope: 'file' | 'block'
+    message: string
+    provider?: 'teamcity' | 'github-actions'
+  }
+
+  let {
+    initialConfig,
+    initialInvalid,
+  }: {
+    initialConfig: GitHubActionsCiRepoConfigInfo | null
+    initialInvalid?: InvalidCiConfig
+  } = $props()
+
   interface DiscoveredWorkflow {
     id: string
     path: string
@@ -66,25 +80,33 @@
     saving || loading || !loaded || !repository || selectedWorkflows.length === 0,
   )
   let loadBlocked = $derived(loading || (!hasToken && token.trim().length === 0))
+  let loadBlockedReason = $derived(
+    !loading && !hasToken && token.trim().length === 0
+      ? 'Add a GitHub token before loading workflows.'
+      : '',
+  )
+  let credentialUrl = $derived(repository ? `https://github.com/${repository.toLowerCase()}` : '')
 
   onMount(async () => {
     containerEl?.focus()
     if (!repoRoot) return
-    try {
-      const [config, stored] = await Promise.all([
-        window.api.ciConfig(repoRoot),
-        window.api.keychainHasCredentials('github', 'https://github.com'),
-      ])
-      if (config.config?.provider === 'github-actions') {
-        existingConfig = config.config
-        repository = config.config.repository
-        for (const workflow of config.config.workflows) {
-          selected.set(workflow.path, workflow.label)
-        }
+    if (initialConfig) {
+      existingConfig = initialConfig
+      repository = initialConfig.repository
+      for (const workflow of initialConfig.workflows) {
+        selected.set(workflow.path, workflow.label)
       }
-      if (config.invalid?.provider === 'github-actions') error = config.invalid.message
-      hasToken = stored
-      if (stored) void loadWorkflows()
+    }
+    if (initialInvalid?.provider === 'github-actions') error = initialInvalid.message
+    try {
+      const identifier = await window.api.githubGetRepoIdentifier(repoRoot)
+      if (!repository && identifier?.host.toLowerCase() === 'github.com') {
+        repository = `${identifier.owner}/${identifier.repo}`.toLowerCase()
+      }
+      hasToken = credentialUrl
+        ? await window.api.keychainHasCredentials('github-actions', credentialUrl)
+        : false
+      if (hasToken) void loadWorkflows()
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not load GitHub Actions setup'
     }
@@ -93,10 +115,15 @@
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       event.preventDefault()
-      if (!saving) closeDialog()
+      requestClose()
     } else if (event.key === 'Tab' && containerEl) {
       cycleFocus(containerEl, event)
     }
+  }
+
+  function requestClose(): void {
+    if (saving) return
+    closeDialog()
   }
 
   async function testConnection(): Promise<void> {
@@ -117,7 +144,7 @@
   }
 
   async function ensureToken(): Promise<boolean> {
-    if (hasToken && !token) return true
+    if (hasToken && token.trim().length === 0) return true
     const candidateToken = token.trim()
     if (!repoRoot || !candidateToken) return false
     try {
@@ -137,6 +164,16 @@
     void window.api.openExternal(githubTokenCreationUrl(repository))
   }
 
+  function replaceToken(): void {
+    if (loading || saving) return
+    hasToken = false
+    token = ''
+    loaded = false
+    workflows = []
+    testResult = ''
+    error = ''
+  }
+
   async function loadWorkflows(): Promise<void> {
     if (!repoRoot || loadBlocked) return
     loading = true
@@ -153,7 +190,11 @@
       workflows = setup.workflows
       loaded = true
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not load GitHub workflows'
+      const message = cause instanceof Error ? cause.message : 'Could not load GitHub workflows'
+      error =
+        hasToken && token.trim().length === 0
+          ? `${message}. Replace the stored token if it cannot access ${repository}.`
+          : message
       loaded = false
     } finally {
       loading = false
@@ -248,9 +289,9 @@
       <button
         type="button"
         class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover hover:text-text aria-disabled:opacity-50"
-        onclick={closeDialog}
+        onclick={requestClose}
         aria-label="Close"
-        disabled={saving}><X size={16} /></button
+        aria-disabled={saving}><X size={16} /></button
       >
     </header>
 
@@ -267,7 +308,22 @@
         {/if}
       </div>
 
-      {#if !hasToken || token}
+      {#if hasToken}
+        <div
+          class="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
+        >
+          <div class="min-w-0">
+            <div class="text-xs font-medium text-text">GitHub Actions token stored</div>
+            <div class="truncate text-xs text-text-muted" title={credentialUrl}>{repository}</div>
+          </div>
+          <button
+            type="button"
+            class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary enabled:hover:bg-hover aria-disabled:opacity-50"
+            onclick={replaceToken}
+            aria-disabled={loading || saving}>Replace token</button
+          >
+        </div>
+      {:else}
         <div class="flex flex-col gap-1">
           <div class="flex items-center justify-between gap-2">
             <label
@@ -293,15 +349,14 @@
             placeholder="Fine-grained token"
           />
           <p class="m-0 text-xs text-text-muted">
-            GitHub opens with <strong>Actions — Read and write</strong> and
-            <strong>Contents — Read-only</strong> preselected. Under Repository access choose
-            <strong>Only select repositories</strong> and select
-            <strong>{repository || 'this workspace repository'}</strong>. Workflow inputs are not
-            secret fields.
+            Canopy asks GitHub to preselect <strong>Actions — Read and write</strong> and
+            <strong>Contents — Read-only</strong>. Confirm both permissions and the expiry before
+            generating. Under Repository access choose <strong>Only select repositories</strong>
+            and select <strong>{repository}</strong>. Workflow inputs are not secret fields.
           </p>
           <CredentialStorageNote
-            provider="github"
-            baseUrl="https://github.com"
+            provider="github-actions"
+            baseUrl={credentialUrl}
             sharingNote={false}
           />
         </div>
@@ -313,18 +368,16 @@
             type="button"
             class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50"
             onclick={testConnection}
-            disabled={testing || loading}
+            aria-disabled={testing || loading}
             aria-busy={testing}>{testing ? 'Testing…' : 'Test connection'}</button
           >
         {/if}
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary enabled:hover:bg-hover-strong disabled:opacity-50 disabled:cursor-not-allowed"
+          class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-bg-input"
           onclick={loadWorkflows}
-          disabled={loadBlocked}
-          title={loadBlocked && !loading
-            ? 'Add a GitHub token before loading workflows'
-            : undefined}
+          aria-disabled={loadBlocked}
+          aria-describedby={loadBlockedReason ? 'github-ci-load-blocked' : undefined}
           aria-busy={loading}>{loading ? 'Loading…' : 'Load workflows'}</button
         >
         <span class="text-xs" aria-live="polite">
@@ -334,6 +387,10 @@
             <span class="text-danger-text">Connection failed</span>
           {/if}
         </span>
+      </div>
+
+      <div id="github-ci-load-blocked" class="min-h-4 text-xs text-text-muted" aria-live="polite">
+        {loadBlockedReason}
       </div>
 
       <div class="min-h-5 text-xs text-danger-text break-words" role="status">{error}</div>
@@ -382,7 +439,7 @@
             type="button"
             class="flex items-center gap-1 px-2 py-1 border-0 bg-transparent text-xs text-text-faint hover:text-danger-text aria-disabled:opacity-50"
             onclick={removeConfiguration}
-            disabled={saving}><Trash2 size={12} /> Remove CI configuration</button
+            aria-disabled={saving}><Trash2 size={12} /> Remove CI configuration</button
           >
         {/if}
       </div>
@@ -390,15 +447,14 @@
         <button
           type="button"
           class="px-3 py-1 rounded-md text-sm border border-border bg-transparent text-text-secondary hover:bg-hover"
-          onclick={closeDialog}
-          disabled={saving}>Cancel</button
+          onclick={requestClose}
+          aria-disabled={saving}>Cancel</button
         >
         <button
           type="button"
           class="px-3 py-1 rounded-md text-sm border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50"
           onclick={saveConfiguration}
           aria-disabled={saveBlocked}
-          disabled={saveBlocked}
           title={saveBlocked
             ? 'Load and select at least one dispatchable workflow'
             : 'Save configuration'}>{saving ? 'Saving…' : 'Save configuration'}</button

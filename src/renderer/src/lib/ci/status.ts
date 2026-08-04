@@ -1,5 +1,5 @@
 import { match, P } from 'ts-pattern'
-import type { CiBuildTypeStatus } from './types'
+import type { CiBuildTypeStatus, CiRun } from './types'
 
 export interface CiChip {
   label: string
@@ -43,6 +43,41 @@ export function ciChip(row: { build: ChipBuild | null; error?: string }): CiChip
       }))
       .otherwise(() => ({ label: 'Unknown', cls: 'bg-active text-text-muted' }))
   )
+}
+
+/** Provider-neutral status chip for GitHub Actions run surfaces. */
+export function ciRunChip(row: { run: CiRun | null; error?: string }): CiChip {
+  if (row.error) return { label: 'Unavailable', cls: 'bg-warning-bg text-warning-text' }
+  const run = row.run
+  if (!run) return { label: 'No runs', cls: 'bg-active text-text-muted' }
+  return match(run)
+    .with({ state: 'waiting' }, () => ({
+      label: 'Waiting',
+      cls: 'bg-warning-bg text-warning-text',
+    }))
+    .with({ state: 'running' }, () => ({
+      label: 'Running',
+      cls: 'bg-accent-bg text-accent-text',
+    }))
+    .with({ state: 'queued' }, () => ({ label: 'Queued', cls: 'bg-active text-text-muted' }))
+    .with({ state: 'unknown' }, () => ({ label: 'Unknown', cls: 'bg-active text-text-muted' }))
+    .with({ conclusion: 'success' }, () => ({
+      label: 'Success',
+      cls: 'bg-success-bg text-success-text',
+    }))
+    .with({ conclusion: 'failure' }, () => ({
+      label: 'Failed',
+      cls: 'bg-danger-bg text-danger-text',
+    }))
+    .with({ conclusion: 'cancelled' }, () => ({
+      label: 'Cancelled',
+      cls: 'bg-active text-text-muted',
+    }))
+    .with({ conclusion: 'neutral' }, () => ({
+      label: 'Neutral',
+      cls: 'bg-active text-text-muted',
+    }))
+    .otherwise(() => ({ label: 'Unknown', cls: 'bg-active text-text-muted' }))
 }
 
 /** Drives the faster poll interval — a queued or running build changes state soon. */

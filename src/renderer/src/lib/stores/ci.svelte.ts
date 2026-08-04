@@ -127,8 +127,10 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
     const res = await window.api.ciConfig(repoRoot)
     const hasToken = res.config
       ? await window.api.keychainHasCredentials(
-          res.config.provider === 'github-actions' ? 'github' : 'teamcity',
-          res.config.baseUrl,
+          res.config.provider === 'github-actions' ? 'github-actions' : 'teamcity',
+          res.config.provider === 'github-actions'
+            ? `${res.config.baseUrl}/${res.config.repository.toLowerCase()}`
+            : res.config.baseUrl,
         )
       : false
     if (seq !== configSeq) return
@@ -352,7 +354,10 @@ function observeRun(repoRoot: string, runId: string, label: string): void {
   observedRuns.set(key, timer)
 }
 
-/** Returns the failure message, or `null` when the run was accepted or cancelled in native confirmation. */
+export type CiTriggerIssue =
+  { kind: 'cancelled' } | { kind: 'failure'; code: string; message: string }
+
+/** Returns `null` only when accepted; cancellation stays distinct so the form remains open. */
 export async function triggerCiJob(
   repoRoot: string,
   request: {
@@ -362,16 +367,20 @@ export async function triggerCiJob(
     inputs: Record<string, string | boolean>
   },
   label: string,
-): Promise<string | null> {
+): Promise<CiTriggerIssue | null> {
   try {
-    const result = await window.api.ciTriggerJob(repoRoot, request)
+    const response = await window.api.ciTriggerJob(repoRoot, request)
+    if (!response.ok) {
+      if (response.error.code === 'CiDispatchCancelled') return { kind: 'cancelled' }
+      return { kind: 'failure', ...response.error }
+    }
+    const result = response.value
     addToast(`${label}: workflow queued on ${result.ref.name}`, 'success')
     observeRun(repoRoot, result.runId, label)
     activityTick += 1
     return null
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to trigger workflow'
-    if (message.includes('cancelled before dispatch')) return null
-    return message
+    return { kind: 'failure', code: 'CiIpcError', message }
   }
 }

@@ -4,12 +4,19 @@ import {
   buildBranchLocator,
   mapBuild,
   parseBuildsResponse,
+  queuedActivityLocator,
 } from './teamcity'
 
 describe('activityBuildTypesLocator', () => {
   it('builds a union scoped to every configured build type', () => {
     expect(activityBuildTypesLocator(['Gakko_Build', 'Gakko_Deploy'])).toBe(
       'buildType:(item:(id:Gakko_Build),item:(id:Gakko_Deploy))',
+    )
+  })
+
+  it('keeps queued activity branch-complete, unfiltered and bounded', () => {
+    expect(queuedActivityLocator(['Gakko_Build'])).toBe(
+      'buildType:(item:(id:Gakko_Build)),branch:(default:any),defaultFilter:false,count:20',
     )
   })
 })

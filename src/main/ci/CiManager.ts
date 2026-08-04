@@ -162,9 +162,9 @@ export class CiManager {
     return this.tokenForUrl(ci.baseUrl)
   }
 
-  private githubToken(): ResultAsync<string, CiError> {
-    const baseUrl = 'https://github.com'
-    const creds = this.tokenStore.getCredentials('github', baseUrl)
+  private githubToken(repository: string): ResultAsync<string, CiError> {
+    const baseUrl = `https://github.com/${repository.toLowerCase()}`
+    const creds = this.tokenStore.getCredentials('github-actions', baseUrl)
     return creds?.token
       ? okAsync(creds.token)
       : errAsync({ _tag: 'CiAuthMissing', baseUrl, provider: 'github-actions' })
@@ -199,7 +199,7 @@ export class CiManager {
         })
         return candidateToken
           ? okAsync(makeClient(candidateToken))
-          : this.githubToken().map(makeClient)
+          : this.githubToken(repository).map(makeClient)
       })
   }
 
@@ -241,7 +241,7 @@ export class CiManager {
             actual: `${parsed.value.host}/${actual}`,
           })
         }
-        return this.githubToken().map((token) => ({
+        return this.githubToken(ci.repository).map((token) => ({
           ci,
           adapter: new GitHubActionsAdapter(
             ci,
@@ -554,11 +554,15 @@ export class CiManager {
   }
 
   saveGitHubCredential(repoRoot: string, token: string): ResultAsync<void, CiError> {
-    return this.githubClientForWorkspace(repoRoot, token).andThen(() =>
+    return this.githubClientForWorkspace(repoRoot, token).andThen(({ repository }) =>
       ResultAsync.fromPromise(
-        Promise.resolve().then(() => {
-          this.tokenStore.setCredentials('github', 'https://github.com', token)
-        }),
+        Promise.resolve().then(() =>
+          this.tokenStore.setCredentials(
+            'github-actions',
+            `https://github.com/${repository.toLowerCase()}`,
+            token,
+          ),
+        ),
         (): CiError => ({
           _tag: 'CiApiError',
           status: 0,

@@ -153,9 +153,12 @@ describe('triggerCiJob + observeRun', () => {
       inputs: { dry_run: true },
     }
     api.ciTriggerJob.mockResolvedValueOnce({
-      runId: '12345678901234567890',
-      webUrl: 'https://github.com/run/123',
-      ref: request.ref,
+      ok: true,
+      value: {
+        runId: '12345678901234567890',
+        webUrl: 'https://github.com/run/123',
+        ref: request.ref,
+      },
     })
 
     const failure = await triggerCiJob('r', request, 'Release')
@@ -200,16 +203,23 @@ describe('triggerCiJob + observeRun', () => {
       'Release',
     )
 
-    expect(failure).toBe('GitHub API error 422: rejected')
+    expect(failure).toEqual({
+      kind: 'failure',
+      code: 'CiIpcError',
+      message: 'GitHub API error 422: rejected',
+    })
     expect(api.ciTriggerJob).toHaveBeenCalledOnce()
     expect(toastState.visible).toBe(false)
   })
 
   it('stops safely when the repository CI provider changes during observation', async () => {
     api.ciTriggerJob.mockResolvedValueOnce({
-      runId: '42',
-      webUrl: 'https://github.com/run/42',
-      ref: { name: 'next', kind: 'branch' },
+      ok: true,
+      value: {
+        runId: '42',
+        webUrl: 'https://github.com/run/42',
+        ref: { name: 'next', kind: 'branch' },
+      },
     })
     await triggerCiJob(
       'r',
@@ -246,7 +256,10 @@ describe('triggerCiJob + observeRun', () => {
   })
 
   it('treats native-confirmation cancellation as a quiet cancellation', async () => {
-    api.ciTriggerJob.mockRejectedValueOnce(new Error('Workflow cancelled before dispatch'))
+    api.ciTriggerJob.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'CiDispatchCancelled', message: 'Workflow cancelled before dispatch' },
+    })
 
     const failure = await triggerCiJob(
       'r',
@@ -258,7 +271,7 @@ describe('triggerCiJob + observeRun', () => {
       'Release',
     )
 
-    expect(failure).toBeNull()
+    expect(failure).toEqual({ kind: 'cancelled' })
     expect(toastState.visible).toBe(false)
   })
 })

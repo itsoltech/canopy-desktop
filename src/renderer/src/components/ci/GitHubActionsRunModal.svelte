@@ -16,7 +16,15 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
 
-  let { repoRoot, initialBranch }: { repoRoot: string; initialBranch?: string } = $props()
+  let {
+    repoRoot,
+    initialBranch,
+    initialConfig,
+  }: {
+    repoRoot: string
+    initialBranch?: string
+    initialConfig: GitHubActionsCiRepoConfigInfo
+  } = $props()
   let containerEl: HTMLElement | undefined = $state()
   let config = $state<GitHubActionsCiRepoConfigInfo | null>(null)
   let jobId = $state('')
@@ -38,16 +46,27 @@
   let canRun = $derived(
     !!jobId && !!selectedRef && parameters !== null && missing.length === 0 && !loading && !running,
   )
+  let runBlockedReason = $derived(
+    running
+      ? 'The workflow request is in progress.'
+      : loading
+        ? 'Loading workflow details…'
+        : !jobId
+          ? 'Select a workflow.'
+          : !selectedRef
+            ? 'Select a remote branch or tag.'
+            : parameters === null
+              ? 'Workflow inputs could not be loaded.'
+              : missing.length > 0
+                ? 'Fill the required workflow inputs.'
+                : '',
+  )
 
   onMount(async () => {
     containerEl?.focus()
     try {
-      const result = await window.api.ciConfig(repoRoot)
-      if (result.config?.provider !== 'github-actions') {
-        throw new Error('GitHub Actions is not configured for this repository')
-      }
-      config = result.config
-      jobId = result.config.workflows[0]?.path ?? ''
+      config = initialConfig
+      jobId = initialConfig.workflows[0]?.path ?? ''
       await loadRefs()
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not load GitHub Actions'
@@ -59,10 +78,14 @@
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       event.preventDefault()
-      if (!running) closeDialog()
+      requestClose()
     } else if (event.key === 'Tab' && containerEl) {
       cycleFocus(containerEl, event)
     }
+  }
+
+  function requestClose(): void {
+    if (!running) closeDialog()
   }
 
   async function selectJob(path: string): Promise<void> {
@@ -128,7 +151,7 @@
     if (!canRun || !selectedRef || !parameters) return
     running = true
     error = ''
-    const failure = await triggerCiJob(
+    const issue = await triggerCiJob(
       repoRoot,
       {
         jobId,
@@ -139,9 +162,14 @@
       label,
     )
     running = false
-    if (failure) {
-      error = failure
-      if (failure.includes('workflow inputs changed')) await loadParameters()
+    if (issue?.kind === 'cancelled') return
+    if (issue?.kind === 'failure') {
+      if (issue.code === 'CiWorkflowSchemaChanged') {
+        await loadParameters()
+        error = error ? `${issue.message} ${error}` : issue.message
+      } else {
+        error = issue.message
+      }
       return
     }
     closeDialog()
@@ -152,7 +180,7 @@
 <div
   class="fixed inset-0 z-overlay flex items-center justify-center bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={() => !running && closeDialog()}
+  onmousedown={requestClose}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
@@ -179,9 +207,9 @@
       <button
         type="button"
         class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover hover:text-text aria-disabled:opacity-50"
-        onclick={closeDialog}
+        onclick={requestClose}
         aria-label="Close"
-        disabled={running}><X size={16} /></button
+        aria-disabled={running}><X size={16} /></button
       >
     </header>
 
@@ -311,8 +339,8 @@
       <button
         type="button"
         class="px-3 py-1 rounded-md border border-border bg-transparent text-sm text-text-secondary hover:bg-hover"
-        onclick={closeDialog}
-        disabled={running}>Cancel</button
+        onclick={requestClose}
+        aria-disabled={running}>Cancel</button
       >
       <button
         type="button"
@@ -320,7 +348,7 @@
         onclick={runWorkflow}
         aria-disabled={!canRun}
         aria-busy={running}
-        disabled={!canRun}
+        aria-describedby={runBlockedReason ? 'github-run-blocked-reason' : undefined}
       >
         {#if running}<LoaderCircle
             size={13}
@@ -329,5 +357,8 @@
         {running ? 'Starting…' : 'Run workflow'}
       </button>
     </footer>
+    {#if runBlockedReason}
+      <span id="github-run-blocked-reason" class="sr-only">{runBlockedReason}</span>
+    {/if}
   </div>
 </div>

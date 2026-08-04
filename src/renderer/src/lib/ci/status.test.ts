@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { anyBuildActive, ciChip } from './status'
+import { anyBuildActive, ciChip, ciRunChip } from './status'
 
 function build(overrides: Partial<CiBuildStatus>): CiBuildStatus {
   return {
@@ -67,5 +67,39 @@ describe('anyBuildActive', () => {
   it('is false for finished or absent builds', () => {
     expect(anyBuildActive([row(null), row(build({ status: 'FAILURE' }))])).toBe(false)
     expect(anyBuildActive([])).toBe(false)
+  })
+})
+
+describe('ciRunChip', () => {
+  const run = (overrides: Partial<CiRun> = {}): CiRun => ({
+    provider: 'github-actions',
+    runId: '1',
+    number: '1',
+    jobId: '.github/workflows/check.yml',
+    jobLabel: 'Check',
+    state: 'finished',
+    conclusion: 'success',
+    statusText: undefined,
+    webUrl: 'https://github.com/run/1',
+    ref: { name: 'next', kind: 'branch' },
+    queuedAt: undefined,
+    startedAt: undefined,
+    finishedAt: undefined,
+    ...overrides,
+  })
+
+  it('uses one vocabulary for GitHub run cards and history', () => {
+    expect(ciRunChip({ run: null }).label).toBe('No runs')
+    expect(ciRunChip({ run: null, error: 'offline' }).label).toBe('Unavailable')
+    expect(ciRunChip({ run: run({ state: 'waiting' }) }).label).toBe('Waiting')
+    expect(ciRunChip({ run: run({ state: 'running' }) }).label).toBe('Running')
+    expect(ciRunChip({ run: run({ conclusion: 'failure' }) }).label).toBe('Failed')
+    expect(ciRunChip({ run: run({ conclusion: 'cancelled' }) }).label).toBe('Cancelled')
+    expect(ciRunChip({ run: run({ state: 'unknown', conclusion: 'success' }) }).label).toBe(
+      'Unknown',
+    )
+    expect(ciRunChip({ run: run({ state: 'unknown', conclusion: 'failure' }) }).label).toBe(
+      'Unknown',
+    )
   })
 })

@@ -19,6 +19,12 @@ export interface CiActivityBuild {
   buildTypeName: string
 }
 
+export interface CiActivity {
+  running: CiActivityBuild[]
+  queued: CiActivityBuild[]
+  recent: CiActivityBuild[]
+}
+
 /** Newest build of a branch (per configured job) — the `ci:status` row shape. */
 export interface CiBuildStatus {
   id: number

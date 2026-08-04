@@ -2,6 +2,7 @@ const LABELS: Record<string, string> = {
   jira: 'Jira',
   youtrack: 'YouTrack',
   github: 'GitHub',
+  'github-actions': 'GitHub Actions',
   teamcity: 'TeamCity',
 }
 

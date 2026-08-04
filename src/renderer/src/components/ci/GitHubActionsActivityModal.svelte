@@ -5,6 +5,7 @@
   import { getCiActivityTick } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { formatDuration, formatWhen } from '../../lib/ci/format'
+  import { ciRunChip } from '../../lib/ci/status'
   import type { CiRun, CiRunActivity } from '../../lib/ci/types'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
 
@@ -74,24 +75,10 @@
     }
     return parts.join(' · ')
   }
-
-  function runState(run: CiRun): { label: string; cls: string } {
-    if (run.state === 'waiting') return { label: 'Waiting', cls: 'text-warning-text bg-warning-bg' }
-    if (run.state === 'running') return { label: 'Running', cls: 'text-accent-text bg-accent-bg' }
-    if (run.state === 'queued') return { label: 'Queued', cls: 'text-text-muted bg-bg-input' }
-    if (run.conclusion === 'success') return { label: 'Success', cls: 'text-success bg-success-bg' }
-    if (run.conclusion === 'failure')
-      return { label: 'Failed', cls: 'text-danger-text bg-danger-bg' }
-    if (run.conclusion === 'cancelled')
-      return { label: 'Cancelled', cls: 'text-text-muted bg-bg-input' }
-    if (run.conclusion === 'neutral')
-      return { label: 'Neutral', cls: 'text-text-muted bg-bg-input' }
-    return { label: 'Unknown', cls: 'text-text-muted bg-bg-input' }
-  }
 </script>
 
 {#snippet runRow(run: CiRun)}
-  {@const chip = runState(run)}
+  {@const chip = ciRunChip({ run })}
   <button
     type="button"
     class="group w-full min-h-10 px-3 py-1.5 rounded-md border-0 bg-transparent text-left text-text hover:bg-hover flex items-center gap-2.5 disabled:cursor-default"

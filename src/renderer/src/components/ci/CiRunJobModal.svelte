@@ -7,7 +7,7 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
   import BranchPicker from '../worktree/BranchPicker.svelte'
   import RunBuildDialog from './RunBuildDialog.svelte'
-  import type { CiParameter } from '../../lib/ci/types'
+  import type { CiParameter, TeamCityCiRepoConfigInfo } from '../../lib/ci/types'
 
   // Run-job dialog: pick a job and a branch (searchable — TeamCity branch lists get
   // long), then flow into the parameters form. Rendered from MainLayout so it is
@@ -17,9 +17,11 @@
   let {
     repoRoot,
     initialBranch,
+    initialConfig,
   }: {
     repoRoot: string
     initialBranch?: string
+    initialConfig: TeamCityCiRepoConfigInfo
   } = $props()
 
   let config = $state<{ baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null>(
@@ -48,22 +50,7 @@
   let label = $derived(config?.buildTypes.find((bt) => bt.id === buildTypeId)?.label ?? buildTypeId)
 
   onMount(async () => {
-    try {
-      const res = await window.api.ciConfig(repoRoot)
-      config = res.config
-      // `invalid` distinguishes "the block cannot be used" from "no ci block" —
-      // this dialog only opens from entries that exist BECAUSE the repo is
-      // configured, so "not configured" here would send the user hunting for a
-      // setting they already have.
-      if (!config) {
-        error = res.invalid?.message ?? 'No CI configured for this repository'
-        return
-      }
-    } catch (e) {
-      config = null
-      error = e instanceof Error ? e.message : "Could not read this repository's CI configuration"
-      return
-    }
+    config = initialConfig
     buildTypeId = config.buildTypes[0]?.id ?? ''
     void loadBranches()
     void loadPromptParameters()
@@ -178,10 +165,10 @@
       ? 'Disabled while the run request is in flight'
       : branchesLoading
         ? 'Disabled: loading branches…'
-        : parametersLoading || promptParameters == null
-          ? 'Disabled: loading job parameters…'
-          : parametersError
-            ? 'Disabled: job parameters could not be loaded'
+        : parametersError
+          ? 'Disabled: job parameters could not be loaded'
+          : parametersLoading || promptParameters == null
+            ? 'Disabled: loading job parameters…'
             : !buildTypeId
               ? 'Disabled: pick a job first'
               : !selectedBranch
@@ -192,11 +179,13 @@
   let actionLabel = $derived(
     starting
       ? 'Queueing…'
-      : parametersLoading || promptParameters == null
-        ? 'Loading…'
-        : promptParameters.length > 0
-          ? 'Configure'
-          : 'Run',
+      : parametersError
+        ? 'Unavailable'
+        : parametersLoading || promptParameters == null
+          ? 'Loading…'
+          : promptParameters.length > 0
+            ? 'Configure'
+            : 'Run',
   )
 
   /** Same rule as ProjectCiModal.requestClose: a trigger failure has NO surface
@@ -300,11 +289,18 @@
             <span class="text-xs text-danger-text">{error || parametersError}</span>
           {/if}
         </div>
-        <!-- Keep the focus-time explanation without duplicating the button title
-             as visible body copy. -->
-        <span id="ci-run-blocked-reason" class="sr-only">{runBlockedReason}</span>
+        {#if runBlockedReason}
+          <span id="ci-run-blocked-reason" class="sr-only">{runBlockedReason}</span>
+        {/if}
 
         <div class="flex gap-1.5 justify-end">
+          {#if parametersError}
+            <button
+              type="button"
+              class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text"
+              onclick={loadPromptParameters}>Retry parameters</button
+            >
+          {/if}
           <button
             type="button"
             class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-transparent text-text-secondary hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-secondary"

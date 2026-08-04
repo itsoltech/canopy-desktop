@@ -187,6 +187,10 @@ export function activityBuildTypesLocator(buildTypeIds: string[]): string {
   return `buildType:(${buildTypeIds.map((id) => `item:(id:${id})`).join(',')})`
 }
 
+export function queuedActivityLocator(buildTypeIds: string[]): string {
+  return `${activityBuildTypesLocator(buildTypeIds)},branch:(default:any),defaultFilter:false,count:20`
+}
+
 /** Activity for the repository's configured build types only. */
 export function fetchActivity(
   baseUrl: string,
@@ -205,7 +209,7 @@ export function fetchActivity(
     tcFetch<RawActivityResponse>(
       baseUrl,
       token,
-      `/app/rest/buildQueue?locator=${encodeURIComponent(scope)}&fields=${fields}`,
+      `/app/rest/buildQueue?locator=${encodeURIComponent(queuedActivityLocator(buildTypeIds))}&fields=${fields}`,
     ),
     tcFetch<RawActivityResponse>(
       baseUrl,

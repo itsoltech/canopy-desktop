@@ -21,9 +21,10 @@ are intentionally out of scope.
 
 1. Enable the CI/CD sidebar section in Settings if it is hidden.
 2. Open the repository CI/CD configurator and choose **GitHub Actions**.
-3. Select **Generate token on GitHub**. Canopy preselects **Actions: write** and
-   **Contents: read**. On GitHub, choose the repository owner and restrict **Repository access**
-   to this repository, then paste the generated token into Canopy.
+3. Select **Generate token on GitHub**. Canopy asks GitHub to preselect **Actions: write** and
+   **Contents: read**; confirm both permissions and the token expiry on GitHub. Choose the
+   repository owner, restrict **Repository access** to this repository, then paste the generated
+   token into Canopy.
 4. Load the workflows. Canopy validates and stores the token, then performs read-only repository
    and workflow discovery.
 5. Select only the workflows that should be available from Canopy, edit their labels if needed,
@@ -110,10 +111,31 @@ workflows.
 | Dispatch ambiguous   | Do not retry; link to repository Actions history.                        |
 | Unknown GitHub state | Display **Unknown** rather than inferring success or failure.            |
 
+## Security and privacy
+
+- GitHub Actions tokens use the dedicated `github-actions` credential namespace and are keyed by
+  the normalized repository URL (`https://github.com/owner/repository`). They cannot collide with
+  GitHub issue-tracker credentials or silently flow to another configured repository.
+- Tokens are stored through `KeychainTokenStore`, encrypted with Electron `safeStorage` when the
+  operating system provides it, and never written to `.canopy/config.json` or workflow inputs. If
+  no OS keyring is available, Canopy warns before storing the token unencrypted in its local
+  database on this machine.
+- Every repo-scoped IPC call is authorized against the sender's workspace before the main process
+  resolves the origin remote, reads a token, or calls GitHub. The configured repository must match
+  that remote.
+- GitHub requests go only to `https://api.github.com`, reject redirects, have bounded response
+  sizes and timeouts, and use the pinned `2026-03-10` API version. The dispatch endpoint returns
+  the exact workflow-run ID; Canopy does not search heuristically or retry an ambiguous dispatch.
+- The native confirmation is the final trust boundary for dispatch. It shows the repository,
+  workflow, ref, resolved commit and all non-secret inputs. Workflow inputs are ordinary values;
+  secrets belong in GitHub Actions secrets.
+
 ## Source files
 
 - Main provider and parser: `src/main/ci/github-actions/`
 - Provider adapters and orchestration: `src/main/ci/providers/`, `src/main/ci/CiManager.ts`
-- IPC and preload boundary: `src/main/ci/ipc.ts`, `src/preload/index.ts`
+- IPC and preload boundary: `src/main/ci/ipc.ts`, `src/preload/index.ts` — `ci:jobsStatus`,
+  `ci:jobRefs`, `ci:jobParameters`, `ci:triggerJob`, `ci:runActivity`, `ci:run`,
+  `ci:githubSetup`, `ci:testGitHubConnection`, and `ci:setGitHubCredential`
 - Renderer flows: `src/renderer/src/components/ci/`,
   `src/renderer/src/components/preferences/GitHubActionsCiConfigurator.svelte`

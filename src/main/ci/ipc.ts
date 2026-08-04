@@ -149,14 +149,14 @@ export function registerCiHandlers({
     'ci:testGitHubConnection',
     async (event: CiIpcEvent, payload: { repoRoot: string; token: string }) => {
       const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
-      if (
-        typeof payload.token !== 'string' ||
-        payload.token.length === 0 ||
-        payload.token.length > CI_TOKEN_MAX
-      ) {
+      if (typeof payload.token !== 'string' || payload.token.length > CI_TOKEN_MAX) {
         throw new Error('Invalid GitHub token')
       }
-      const result = await ciManager.testGitHubConnection(repoRoot, payload.token)
+      const token = payload.token.trim()
+      if (token.length === 0) {
+        throw new Error('Invalid GitHub token')
+      }
+      const result = await ciManager.testGitHubConnection(repoRoot, token)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )
@@ -165,14 +165,14 @@ export function registerCiHandlers({
     'ci:setGitHubCredential',
     async (event: CiIpcEvent, payload: { repoRoot: string; token: string }) => {
       const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
-      if (
-        typeof payload.token !== 'string' ||
-        payload.token.length === 0 ||
-        payload.token.length > CI_TOKEN_MAX
-      ) {
+      if (typeof payload.token !== 'string' || payload.token.length > CI_TOKEN_MAX) {
         throw new Error('Invalid GitHub token')
       }
-      const result = await ciManager.saveGitHubCredential(repoRoot, payload.token)
+      const token = payload.token.trim()
+      if (token.length === 0) {
+        throw new Error('Invalid GitHub token')
+      }
+      const result = await ciManager.saveGitHubCredential(repoRoot, token)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )
@@ -258,7 +258,13 @@ export function registerCiHandlers({
           }
         : undefined
       const result = await ciManager.triggerJob(repoRoot, request, confirm)
-      return unwrapOrThrow(result, ciErrorMessage)
+      return result.match(
+        (value) => ({ ok: true as const, value }),
+        (error) => ({
+          ok: false as const,
+          error: { code: error._tag, message: ciErrorMessage(error) },
+        }),
+      )
     },
   )
 

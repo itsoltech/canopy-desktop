@@ -7,9 +7,18 @@
   import ProjectCiModal from './ProjectCiModal.svelte'
   import GitHubActionsCiConfigurator from './GitHubActionsCiConfigurator.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
+  import type { CiRepoConfigInfo } from '../../lib/ci/types'
+
+  interface InvalidCiConfig {
+    scope: 'file' | 'block'
+    message: string
+    provider?: 'teamcity' | 'github-actions'
+  }
 
   let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let provider = $state<'teamcity' | 'github-actions' | ''>('')
+  let config = $state<CiRepoConfigInfo | null>(null)
+  let invalid = $state<InvalidCiConfig | undefined>()
   let loading = $state(true)
   let loadError = $state('')
   let containerEl: HTMLElement | undefined = $state()
@@ -22,6 +31,8 @@
     }
     try {
       const result = await window.api.ciConfig(repoRoot)
+      config = result.config
+      invalid = result.invalid
       provider = result.config?.provider ?? result.invalid?.provider ?? ''
       if (result.invalid && !result.invalid.provider) loadError = result.invalid.message
     } catch (error) {
@@ -42,9 +53,15 @@
 </script>
 
 {#if provider === 'teamcity'}
-  <ProjectCiModal />
+  <ProjectCiModal
+    initialConfig={config?.provider === 'teamcity' ? config : null}
+    initialInvalid={invalid}
+  />
 {:else if provider === 'github-actions'}
-  <GitHubActionsCiConfigurator />
+  <GitHubActionsCiConfigurator
+    initialConfig={config?.provider === 'github-actions' ? config : null}
+    initialInvalid={invalid}
+  />
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div

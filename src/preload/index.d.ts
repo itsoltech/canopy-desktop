@@ -1050,7 +1050,7 @@ interface CanopyAPI {
   ciJobsStatus: (repoRoot: string, ref: CiRef) => Promise<CiJobStatus[]>
   ciJobRefs: (repoRoot: string, jobId: string) => Promise<CiRef[]>
   ciJobParameters: (repoRoot: string, jobId: string, ref: CiRef) => Promise<CiParameterSet>
-  ciTriggerJob: (repoRoot: string, request: CiTriggerRequest) => Promise<CiRunTriggerResult>
+  ciTriggerJob: (repoRoot: string, request: CiTriggerRequest) => Promise<CiTriggerJobResponse>
   ciRunActivity: (repoRoot: string) => Promise<CiRunActivity>
   ciRun: (repoRoot: string, runId: string) => Promise<CiRun>
   ciStatus: (repoRoot: string, branch: string) => Promise<CiStatusResponse>
@@ -1758,6 +1758,24 @@ interface CiRunTriggerResult {
   webUrl: string
   ref: CiRef
 }
+
+type CiErrorCode =
+  | 'CiNotConfigured'
+  | 'CiConfigInvalid'
+  | 'CiConfigUnwritable'
+  | 'CiAuthMissing'
+  | 'CiRepositoryMismatch'
+  | 'CiWorkflowSchemaInvalid'
+  | 'CiWorkflowSchemaChanged'
+  | 'CiRefChanged'
+  | 'CiDispatchCancelled'
+  | 'CiDispatchAmbiguous'
+  | 'CiRateLimited'
+  | 'CiApiError'
+
+type CiTriggerJobResponse =
+  | { ok: true; value: CiRunTriggerResult }
+  | { ok: false; error: { code: CiErrorCode; message: string } }
 
 interface CiBuildStatus {
   id: number

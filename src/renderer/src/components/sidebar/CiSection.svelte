@@ -30,7 +30,7 @@
     refreshCiJobs,
   } from '../../lib/stores/ci.svelte'
   import { anyBuildActive } from '../../lib/ci/status'
-  import type { CiActivityBuild } from '../../lib/ci/types'
+  import type { CiActivity, CiRunActivity } from '../../lib/ci/types'
 
   // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
   // branch, and the server's current activity. Mirrors the Project management
@@ -65,11 +65,7 @@
   // --- Server activity: one summary row; details (running/queued/history) open in
   // their own window (CiActivityModal) — the sidebar has no room for the list ---
 
-  let activity = $state<{
-    running: Array<CiActivityBuild | { percentageComplete?: number }>
-    queued: Array<CiActivityBuild | object>
-    recent: Array<CiActivityBuild | object>
-  } | null>(null)
+  let activity = $state<CiActivity | CiRunActivity | null>(null)
   let activityError = $state('')
   let activityLoaded = $state(false)
   let activitySeq = 0
@@ -97,6 +93,9 @@
   // OBJECT changes on every poll and would loop the effect.
   let hasConfigAndToken = $derived(config != null && cfgState.hasToken)
   let activeCount = $derived(activity ? activity.running.length + activity.queued.length : 0)
+  let activityPartialErrors = $derived(
+    activity && 'partialErrors' in activity ? (activity.partialErrors ?? []) : [],
+  )
 
   $effect(() => {
     if (!hasConfigAndToken) return
@@ -140,7 +139,8 @@
     const parts: string[] = []
     if (activity.running.length === 1) {
       // A single running build shows its actual progress right in the chip.
-      const pct = activity.running[0].percentageComplete
+      const first = activity.running[0]
+      const pct = 'percentageComplete' in first ? first.percentageComplete : undefined
       parts.push(pct != null ? `${pct}%` : 'running')
     } else if (activity.running.length > 1) {
       parts.push(`${activity.running.length} running`)
@@ -200,6 +200,7 @@
         parts.push(
           running === 0 && queued === 0 ? 'CI idle' : `CI: ${running} running, ${queued} queued`,
         )
+        if (activityPartialErrors.length > 0) parts.push('CI activity is partial')
       }
     }
     return parts.join(' · ')
@@ -332,6 +333,7 @@
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
           onclick={openActivity}
           title={activityError ||
+            activityPartialErrors.join(' · ') ||
             `Configured repository jobs running or queued on ${serverHost}, plus recent history — opens in a window`}
         >
           <Hammer
@@ -339,10 +341,10 @@
             class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
           />
           <span class="flex-1">{activeCount > 0 ? 'Running job' : 'Jobs history'}</span>
-          {#if activityError}
+          {#if activityError || activityPartialErrors.length > 0}
             <span
               class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning-bg text-warning-text"
-              >Error</span
+              >{activityError ? 'Error' : 'Partial'}</span
             >
           {:else if !activityLoaded}
             <LoaderCircle

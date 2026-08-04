@@ -421,19 +421,21 @@
           role="menuitem"
           onclick={ctxNewWorktree}>New Worktree from Branch</button
         >
-        {#if ciMenuEnabled && ctxMenu.ciConfigured !== false}
+        {#if ciMenuEnabled}
           <div class="h-px mx-2 my-1 bg-border-subtle"></div>
           <button
             class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
             role="menuitem"
             onclick={ctxRunCiJob}
-            aria-disabled={ctxMenu.ciConfigured === null}
+            aria-disabled={ctxMenu.ciConfigured !== true}
             aria-busy={ctxMenu.ciConfigured === null}
-            class:opacity-50={ctxMenu.ciConfigured === null}
-            class:cursor-default={ctxMenu.ciConfigured === null}
+            class:opacity-50={ctxMenu.ciConfigured !== true}
+            class:cursor-default={ctxMenu.ciConfigured !== true}
             title={ctxMenu.ciConfigured === null
               ? 'Checking this worktree for a CI configuration…'
-              : 'Queue a CI job (build/deploy) on this branch — the branch must exist on the remote'}
+              : ctxMenu.ciConfigured
+                ? 'Queue a CI job on this branch — the branch must exist on the remote'
+                : 'CI/CD is not configured for this worktree'}
           >
             <span class="inline-flex items-center shrink-0">
               <TrackerProviderIcon provider="teamcity" size={13} />

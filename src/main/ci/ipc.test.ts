@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { okAsync } from 'neverthrow'
+import { errAsync, okAsync } from 'neverthrow'
 import { registerCiHandlers } from './ipc'
 import type { CiManager } from './CiManager'
 
@@ -237,6 +237,61 @@ describe('CI IPC authorization', () => {
       expect.objectContaining({ sender: { id: 7 } }),
       details,
     )
+  })
+
+  it('returns a structured success from the trigger channel', async () => {
+    const { invoke } = harness()
+
+    await expect(
+      invoke('ci:triggerJob', {
+        repoRoot: '/ws/repo',
+        jobId: '.github/workflows/release.yml',
+        ref: { name: 'next', kind: 'branch' },
+        schemaRevision: 'sha',
+        inputs: {},
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({ runId: '1' }),
+    })
+  })
+
+  it('returns a stable error code instead of forcing the renderer to parse messages', async () => {
+    const { invoke, ciManager } = harness()
+    vi.mocked(ciManager.triggerJob).mockReturnValue(errAsync({ _tag: 'CiWorkflowSchemaChanged' }))
+
+    await expect(
+      invoke('ci:triggerJob', {
+        repoRoot: '/ws/repo',
+        jobId: '.github/workflows/release.yml',
+        ref: { name: 'next', kind: 'branch' },
+        schemaRevision: 'stale',
+        inputs: {},
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: 'CiWorkflowSchemaChanged' }),
+    })
+  })
+
+  it('trims GitHub tokens before testing or storing them', async () => {
+    const { invoke, ciManager } = harness()
+
+    await invoke('ci:testGitHubConnection', { repoRoot: '/ws/repo', token: '  token  ' })
+    await invoke('ci:setGitHubCredential', { repoRoot: '/ws/repo', token: '  token  ' })
+
+    expect(ciManager.testGitHubConnection).toHaveBeenCalledWith('/resolved/ws/repo', 'token')
+    expect(ciManager.saveGitHubCredential).toHaveBeenCalledWith('/resolved/ws/repo', 'token')
+  })
+
+  it('rejects oversized raw GitHub tokens before trimming or calling CiManager', async () => {
+    const { invoke, ciManager } = harness()
+
+    await expect(
+      invoke('ci:testGitHubConnection', { repoRoot: '/ws/repo', token: ' '.repeat(10_001) }),
+    ).rejects.toThrow('Invalid GitHub token')
+
+    expect(ciManager.testGitHubConnection).not.toHaveBeenCalled()
   })
 
   it('rejects kind-less refs and non-primitive inputs before CiManager', async () => {
