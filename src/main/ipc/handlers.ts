@@ -4936,13 +4936,13 @@ export function registerIpcHandlers(
     if (hasOrigin.isErr()) {
       return {
         status: 'error' as const,
-        message: 'Could not inspect this workspace’s git remotes.',
+        message: 'git remotes could not be listed.',
       }
     }
     if (!hasOrigin.value) return { status: 'missing' as const }
     const remote = await GitRepository.getRemoteUrl(resolvedRepo)
     if (remote.isErr()) {
-      return { status: 'error' as const, message: 'Could not read this workspace’s origin remote.' }
+      return { status: 'error' as const, message: 'the origin remote has no readable URL.' }
     }
     const identifier = parseGitHubRemote(remote.value)
     return identifier.match(

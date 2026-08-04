@@ -92,6 +92,9 @@ history remains the recovery surface.
 - `baseUrl` must be exactly `https://github.com`.
 - `repository` is the `owner/repository` pair and must exactly match the workspace `origin` remote, ignoring only GitHub's
   case-insensitive spelling.
+- The configurator resolves `repository` from the local `origin`. If that differs from the
+  git-shared value (for example in a fork), it warns that saving will rewrite the shared value and
+  cause `CiRepositoryMismatch` for clones that still use the previous origin.
 - Workflow paths must be direct `.yml` or `.yaml` files under `.github/workflows/`.
 - At most 50 workflows may be configured; duplicate workflow paths collapse to the first
   entry when reading a hand-edited file and are rejected by the save path.

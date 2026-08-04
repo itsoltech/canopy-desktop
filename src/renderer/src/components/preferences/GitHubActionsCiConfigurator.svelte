@@ -100,6 +100,12 @@
             : '',
   )
   let repositoryLabel = $derived(repository || 'this workspace repository')
+  let repositoryReady = $derived(!repositoryResolving && !repositoryResolutionIssue && !!repository)
+  let rewritesSharedRepository = $derived(
+    !!existingConfig &&
+      !!repository &&
+      existingConfig.repository.toLowerCase() !== repository.toLowerCase(),
+  )
   let credentialUrl = $derived(repository ? `https://github.com/${repository.toLowerCase()}` : '')
 
   onMount(async () => {
@@ -121,23 +127,32 @@
     try {
       const lookup = await window.api.githubGetRepoIdentifier(repoRoot)
       if (lookup.status === 'missing') {
+        repository = ''
         repositoryResolutionIssue = 'No github.com origin remote was found for this workspace.'
       } else if (lookup.status === 'error') {
+        repository = ''
         repositoryResolutionIssue = `Could not resolve this workspace’s origin remote: ${lookup.message}`
       } else if (lookup.identifier.host.toLowerCase() !== 'github.com') {
+        repository = ''
         repositoryResolutionIssue = `GitHub Actions currently supports github.com origins only; this workspace uses ${lookup.identifier.host}.`
       } else {
         const { identifier } = lookup
-        // The local origin is the same authority CiManager verifies before every
-        // credential read/API call. A shared config may still name an upstream fork.
+        // Setup and credentials follow the local origin. adapterForConfig later
+        // requires the saved value to equal origin, so a rewrite is warned below.
         repository = `${identifier.owner}/${identifier.repo}`.toLowerCase()
         repositoryResolutionIssue = ''
       }
-      hasToken = credentialUrl
-        ? await window.api.keychainHasCredentials('github-actions', credentialUrl)
-        : false
+      try {
+        hasToken = credentialUrl
+          ? await window.api.keychainHasCredentials('github-actions', credentialUrl)
+          : false
+      } catch (cause) {
+        hasToken = false
+        error = cause instanceof Error ? cause.message : 'Could not check the stored GitHub token'
+      }
       loadStoredConfiguration = hasToken
     } catch (cause) {
+      repository = ''
       error = cause instanceof Error ? cause.message : 'Could not load GitHub Actions setup'
       repositoryResolutionIssue = 'Could not resolve this workspace’s GitHub origin remote.'
     } finally {
@@ -162,7 +177,7 @@
 
   async function testConnection(): Promise<void> {
     const candidateToken = token.trim()
-    if (!repoRoot || !candidateToken || testing || loading) return
+    if (!repoRoot || !repositoryReady || !candidateToken || testing || loading) return
     testing = true
     testResult = ''
     error = ''
@@ -178,6 +193,7 @@
   }
 
   async function ensureToken(): Promise<boolean> {
+    if (!repositoryReady) return false
     if (hasToken && token.trim().length === 0) return true
     const candidateToken = token.trim()
     if (!repoRoot || !candidateToken) return false
@@ -195,6 +211,7 @@
   }
 
   function openTokenPage(): void {
+    if (!repositoryReady) return
     void window.api.openExternal(githubTokenCreationUrl(repository))
   }
 
@@ -343,9 +360,19 @@
         {#if defaultBranch}
           <span class="text-xs text-text-muted">Default branch: {defaultBranch}</span>
         {/if}
+        {#if rewritesSharedRepository}
+          <p class="m-0 text-xs leading-snug text-warning-text" role="status">
+            This workspace’s origin is <code class="font-mono">{repository}</code>, but the shared
+            <code class="font-mono">ci</code> block names
+            <code class="font-mono">{existingConfig?.repository}</code>. Saving rewrites it and
+            causes a repository mismatch for anyone still using
+            <code class="font-mono">{existingConfig?.repository}</code>. If this is a fork, close
+            without saving.
+          </p>
+        {/if}
       </div>
 
-      {#if hasToken}
+      {#if repositoryReady && hasToken}
         <div
           class="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
         >
@@ -360,7 +387,7 @@
             aria-disabled={loading || saving}>Replace token</button
           >
         </div>
-      {:else}
+      {:else if repositoryReady}
         <div class="flex flex-col gap-1">
           <div class="flex items-center justify-between gap-2">
             <label
@@ -397,10 +424,15 @@
             sharingNote={false}
           />
         </div>
+      {:else}
+        <p class="m-0 text-xs text-text-muted">
+          Resolve a supported <code class="font-mono">github.com</code> origin before creating or storing
+          a GitHub Actions token.
+        </p>
       {/if}
 
       <div class="flex items-center gap-2">
-        {#if token.trim()}
+        {#if repositoryReady && token.trim()}
           <button
             type="button"
             class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
