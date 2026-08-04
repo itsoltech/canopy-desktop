@@ -217,10 +217,10 @@ export function closePullRequest(
  * crafted value cannot retarget the request — legitimate branch names keep their `/` segments,
  * so validation is preferred over encoding here.
  */
-function isSafeBranchRef(branch: unknown): branch is string {
+export function isSafeBranchRef(branch: unknown): branch is string {
   if (typeof branch !== 'string') return false
   const b = branch.trim()
-  if (b === '' || b.length > 255) return false
+  if (b === '' || b !== branch || b.length > 255) return false
   if (b.startsWith('-') || b.startsWith('/') || b.endsWith('/') || b.includes('//')) return false
   if (b.includes('..') || b.endsWith('.') || b.endsWith('.lock')) return false
   // Control chars, characters git forbids in ref names, and URL path/query metacharacters.

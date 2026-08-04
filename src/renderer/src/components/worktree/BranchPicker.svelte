@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
+  import { ChevronDown } from '@lucide/svelte'
   import { isRemoteOnly } from './utils'
 
   let {
@@ -53,14 +55,9 @@
   })
 
   // Combobox mode: the list collapses after a pick and reopens when the user edits the input.
-  let listOpen = $state(true)
-  let initialOpenStateApplied = $state(false)
-
-  $effect.pre(() => {
-    if (initialOpenStateApplied) return
-    listOpen = !collapseConfirmedSelection || !selectedBranch || query !== selectedBranch
-    initialOpenStateApplied = true
-  })
+  let listOpen = $state(
+    untrack(() => !collapseConfirmedSelection || !selectedBranch || query !== selectedBranch),
+  )
 
   function pick(branch: string): void {
     selectedBranch = branch
@@ -85,6 +82,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    if (!(e.target instanceof HTMLInputElement)) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       listOpen = true
@@ -134,19 +132,49 @@
       </svg>
     </button>
   </div>
-  <input
-    id="branch-picker-search"
-    class="w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
-    type="text"
-    bind:value={query}
-    oninput={handleInput}
-    placeholder="Search branches..."
-    spellcheck="false"
-    autocomplete="off"
-  />
+  <div class="relative">
+    <input
+      id="branch-picker-search"
+      class="w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
+      class:pr-8={fillQueryOnPick}
+      type="text"
+      role="combobox"
+      aria-autocomplete="list"
+      aria-expanded={!fillQueryOnPick || listOpen}
+      aria-controls="branch-picker-options"
+      aria-activedescendant={listOpen && filteredBranches.length > 0
+        ? `branch-picker-option-${selectedIdx}`
+        : undefined}
+      bind:value={query}
+      oninput={handleInput}
+      onfocus={() => {
+        if (fillQueryOnPick) listOpen = true
+      }}
+      placeholder="Search branches..."
+      spellcheck="false"
+      autocomplete="off"
+    />
+    {#if fillQueryOnPick}
+      <button
+        type="button"
+        class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 p-0 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+        onclick={() => (listOpen = !listOpen)}
+        aria-label={listOpen ? 'Hide branches' : 'Show branches'}
+        aria-expanded={listOpen}
+        aria-controls="branch-picker-options"
+        title={listOpen ? 'Hide branches' : 'Show branches'}
+      >
+        <ChevronDown
+          size={14}
+          class="transition-transform duration-fast {listOpen ? 'rotate-180' : ''}"
+        />
+      </button>
+    {/if}
+  </div>
   {#if !fillQueryOnPick || listOpen}
     <!-- Grows with the (resizable) dialog: flex-1 against the step container, scrolls when squeezed. -->
     <div
+      id="branch-picker-options"
       class="mt-2 flex-1 min-h-[120px] overflow-y-auto border border-border-subtle rounded-lg"
       role="listbox"
       aria-label="Branches"
@@ -161,8 +189,10 @@
             class:!bg-active={i === selectedIdx}
             class:!bg-accent-bg={highlightPicked && selectedBranch === branch}
             class:!text-accent-text={highlightPicked && selectedBranch === branch}
+            id={`branch-picker-option-${i}`}
             role="option"
-            aria-selected={i === selectedIdx}
+            tabindex="-1"
+            aria-selected={selectedBranch === branch}
             data-branch-selected={i === selectedIdx}
             onclick={() => pick(branch)}
             onpointerenter={() => (selectedIdx = i)}

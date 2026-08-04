@@ -10,6 +10,7 @@ export type TaskTrackerError =
   | { _tag: 'ConfigParseError'; repoRoot: string; reason: string }
   | { _tag: 'ConfigWriteError'; repoRoot: string; reason: string }
   | { _tag: 'PRCreationFailed'; reason: string }
+  | { _tag: 'PRLookupFailed'; reason: string }
 
 export function taskTrackerErrorMessage(error: TaskTrackerError): string {
   return match(error)
@@ -30,5 +31,6 @@ export function taskTrackerErrorMessage(error: TaskTrackerError): string {
       (e) => `Failed to write config in ${e.repoRoot}: ${e.reason}`,
     )
     .with({ _tag: 'PRCreationFailed' }, (e) => `PR creation failed: ${e.reason}`)
+    .with({ _tag: 'PRLookupFailed' }, (e) => `PR lookup failed: ${e.reason}`)
     .exhaustive()
 }

@@ -46,10 +46,7 @@ export function getPRFallbackGeneration(repoRoot: string, branch: string): numbe
 
 export function invalidatePRFallback(repoRoot: string, branch: string): void {
   const key = prKey(repoRoot, branch)
-  fallbackGenerationByKey = {
-    ...fallbackGenerationByKey,
-    [key]: (fallbackGenerationByKey[key] ?? 0) + 1,
-  }
+  fallbackGenerationByKey[key] = (fallbackGenerationByKey[key] ?? 0) + 1
 }
 
 export function loadPRFallbackSummary(

@@ -9,16 +9,19 @@
     ArchiveRestore,
     GitPullRequest,
     LoaderCircle,
+    AlertTriangle,
   } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt, showPRDetails, showCreateTaskPR } from '../../lib/stores/dialogs.svelte'
   import {
     getPRFallbackGeneration,
     getPRForBranch,
+    invalidatePRFallback,
     loadPRFallbackSummary,
   } from '../../lib/stores/github.svelte'
   import { getPanelTask, getPanelTaskResolvedPath } from '../../lib/stores/taskTracker.svelte'
   import { prStateChip } from '../../lib/github/prState'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import CollapsibleSection from './CollapsibleSection.svelte'
 
   let loading: string | null = $state(null)
@@ -182,12 +185,14 @@
   // The gh-CLI fallback takes a network round-trip: without a pending state the PR
   // rows simply popped in seconds after the section rendered, looking broken.
   let prLoading = $state(false)
+  let prLookupError = $state('')
   $effect(() => {
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     const branch = workspaceState.branch
     // Re-check only after a PR mutation for this exact repository and branch.
     void getPRFallbackGeneration(path, branch)
     fallbackPR = null
+    prLookupError = ''
     if (!path || !branch || branchPR) {
       prLoading = false
       return
@@ -200,7 +205,9 @@
           fallbackPR = { number: pr.number, state: pr.state, isDraft: pr.isDraft }
         }
       })
-      .catch(() => {})
+      .catch((e) => {
+        if (!cancelled) prLookupError = ipcErrorMessage(e, 'Failed to check pull requests')
+      })
       .finally(() => {
         if (!cancelled) prLoading = false
       })
@@ -215,7 +222,13 @@
     return fallbackPR
   })
   // A branch can accumulate merged/closed PRs — only an ACTIVE (open) one blocks a new PR.
-  let showCreatePRRow = $derived(!existingPR || existingPR.state !== 'OPEN')
+  let showCreatePRRow = $derived(!prLookupError && (!existingPR || existingPR.state !== 'OPEN'))
+
+  function retryPRLookup(): void {
+    const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
+    const branch = workspaceState.branch
+    if (path && branch) invalidatePRFallback(path, branch)
+  }
 
   function openExistingPR(): void {
     if (!workspaceState.branch) return
@@ -421,6 +434,21 @@
           class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
         />
         <span class="flex-1">Checking pull requests…</span>
+      </div>
+    {/if}
+    {#if prLookupError && !prLoading && !existingPR}
+      <div
+        class="flex items-center gap-2 w-full min-h-7 px-3 text-xs text-warning-text"
+        aria-live="polite"
+      >
+        <AlertTriangle size={13} class="flex-shrink-0" />
+        <span class="flex-1 min-w-0 break-words">{prLookupError}</span>
+        <button
+          type="button"
+          class="flex-shrink-0 border-0 rounded-sm bg-transparent px-1 py-0.5 text-xs text-text-secondary cursor-pointer hover:bg-hover hover:text-text"
+          onclick={retryPRLookup}
+          title="Retry pull request lookup">Retry</button
+        >
       </div>
     {/if}
     {#if existingPR}

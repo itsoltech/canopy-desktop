@@ -188,6 +188,9 @@ export function activityBuildTypesLocator(buildTypeIds: string[]): string {
 }
 
 export function queuedActivityLocator(buildTypeIds: string[]): string {
+  // BuildQueueLocator does not support the `branch` or `defaultFilter` dimensions used by the
+  // BuildLocator siblings below. Adding either makes this request fail and, because activity is
+  // combined fail-fast, prevents running and recent builds from rendering too.
   return `${activityBuildTypesLocator(buildTypeIds)},count:20`
 }
 

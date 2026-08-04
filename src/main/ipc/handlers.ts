@@ -67,7 +67,8 @@ import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
 import { normalizeKeychainCredentialPayload } from './keychainCredentials'
-import { loadPullRequestSummary } from '../taskTracker/prSummary'
+import { loadPullRequestSummary, PR_SUMMARY_TIMEOUT_MS } from '../taskTracker/prSummary'
+import { isSafeBranchRef } from '../taskTracker/prCreation'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -4466,15 +4467,10 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:prSummary',
     async (event, payload: { repoRoot: string; branch: string }) => {
-      if (
-        typeof payload.branch !== 'string' ||
-        payload.branch.length === 0 ||
-        payload.branch.startsWith('-')
-      ) {
-        return null
-      }
+      if (!isSafeBranchRef(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      return loadPullRequestSummary(resolvedRepo, payload.branch)
+      const result = await loadPullRequestSummary(resolvedRepo, payload.branch)
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
@@ -4483,8 +4479,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:prDetails',
     async (event, payload: { repoRoot: string; branch: string }) => {
-      // Reject leading-`-` branch names so they can't be consumed as gh flags.
-      if (typeof payload.branch !== 'string' || payload.branch.startsWith('-')) return null
+      // Keep renderer-supplied values within the same safe git-ref contract as PR mutations.
+      if (!isSafeBranchRef(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       try {
         const { stdout } = await execFileAsync(
@@ -4496,7 +4492,11 @@ export function registerIpcHandlers(
             '--json',
             'number,title,state,url,body,baseRefName,headRefName,isDraft,reviewDecision,author,createdAt,additions,deletions,changedFiles,statusCheckRollup,mergedAt,closedAt,mergedBy,mergeable,mergeStateStatus,assignees,reviewRequests,latestReviews',
           ],
-          { cwd: resolvedRepo, maxBuffer: 4 * 1024 * 1024 },
+          {
+            cwd: resolvedRepo,
+            maxBuffer: 4 * 1024 * 1024,
+            timeout: PR_SUMMARY_TIMEOUT_MS,
+          },
         )
         return JSON.parse(stdout)
       } catch {

@@ -4,15 +4,28 @@ import { loadPullRequestSummary, PR_SUMMARY_FIELDS, PR_SUMMARY_TIMEOUT_MS } from
 describe('loadPullRequestSummary', () => {
   it('requests and parses only the fields needed by the sidebar', async () => {
     const run = vi.fn().mockResolvedValue({
-      stdout: JSON.stringify({ number: 344, state: 'OPEN', isDraft: false }),
+      stdout: JSON.stringify([{ number: 344, state: 'OPEN', isDraft: false }]),
     })
 
-    const summary = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
+    const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
 
-    expect(summary).toEqual({ number: 344, state: 'OPEN', isDraft: false })
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toEqual({ number: 344, state: 'OPEN', isDraft: false })
     expect(run).toHaveBeenCalledWith(
       'gh',
-      ['pr', 'view', 'feature/large-pr', '--json', PR_SUMMARY_FIELDS],
+      [
+        'pr',
+        'list',
+        '--head',
+        'feature/large-pr',
+        '--state',
+        'all',
+        '--limit',
+        '1',
+        '--json',
+        PR_SUMMARY_FIELDS,
+      ],
       {
         cwd: 'C:/repo',
         encoding: 'utf8',
@@ -25,18 +38,36 @@ describe('loadPullRequestSummary', () => {
     expect(PR_SUMMARY_TIMEOUT_MS).toBe(15_000)
   })
 
-  it.each([
-    ['invalid JSON', { stdout: '{' }],
-    ['wrong shape', { stdout: JSON.stringify({ number: '344', state: 'OPEN' }) }],
-  ])('returns null for %s', async (_label, result) => {
-    const run = vi.fn().mockResolvedValue(result)
+  it('returns null only when the branch has no pull request', async () => {
+    const run = vi.fn().mockResolvedValue({ stdout: '[]' })
 
-    await expect(loadPullRequestSummary('C:/repo', 'feature/large-pr', run)).resolves.toBeNull()
+    const result = await loadPullRequestSummary('C:/repo', 'feature/without-pr', run)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toBeNull()
   })
 
-  it('returns null when GitHub CLI fails or times out', async () => {
+  it.each([
+    ['invalid JSON', { stdout: '{' }],
+    ['wrong shape', { stdout: JSON.stringify([{ number: '344', state: 'OPEN' }]) }],
+  ])('returns an error for %s', async (_label, commandResult) => {
+    const run = vi.fn().mockResolvedValue(commandResult)
+
+    const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected PR lookup to fail')
+    expect(result.error._tag).toBe('PRLookupFailed')
+  })
+
+  it('returns an error when GitHub CLI fails or times out', async () => {
     const run = vi.fn().mockRejectedValue(new Error('timed out'))
 
-    await expect(loadPullRequestSummary('C:/repo', 'feature/large-pr', run)).resolves.toBeNull()
+    const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected PR lookup to fail')
+    expect(result.error).toEqual({ _tag: 'PRLookupFailed', reason: 'timed out' })
   })
 })

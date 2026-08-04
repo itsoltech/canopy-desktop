@@ -97,7 +97,8 @@
         >
       {/if}
       <span class="flex items-baseline gap-2 min-w-0">
-        {#if run.ref}<span class="truncate font-mono text-2xs text-text-muted">{run.ref.name}</span
+        {#if run.ref}<span class="truncate font-mono text-2xs text-text-muted" title={run.ref.name}
+            >{run.ref.name}</span
           >{/if}
         <span class="ml-auto shrink-0 text-2xs text-text-faint">{runMeta(run)}</span>
       </span>
