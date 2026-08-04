@@ -19,6 +19,7 @@ interface SkillDefinition {
 
 let skills: SkillDefinition[] = $state([])
 let initialized = false
+let disposed = false
 let unsubscribe: (() => void) | null = null
 
 // --- Accessors ---
@@ -36,8 +37,17 @@ export function getSkillsByAgent(agent: string): SkillDefinition[] {
 export async function initSkillStore(): Promise<void> {
   if (initialized) return
   initialized = true
+  disposed = false
 
-  skills = await window.api.listSkills()
+  const fetched = await window.api.listSkills()
+
+  // destroySkillStore() can run while the fetch above is in flight. Its
+  // `unsubscribe?.()` is a no-op that early because the handle below does not
+  // exist yet, so subscribing now would strand a listener nothing can remove —
+  // and re-init would stack another on top of it.
+  if (disposed) return
+
+  skills = fetched
 
   unsubscribe = window.api.onSkillsChanged((updated) => {
     // The skills:changed IPC payload is produced from the typed SkillStore in the
@@ -49,6 +59,7 @@ export async function initSkillStore(): Promise<void> {
 // --- Cleanup ---
 
 export function destroySkillStore(): void {
+  disposed = true
   unsubscribe?.()
   unsubscribe = null
   initialized = false

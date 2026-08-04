@@ -23,10 +23,17 @@
 
   let containerEl: HTMLElement | undefined = $state()
 
-  onMount(async () => {
-    await loadGlobalConfig()
-    if (repoRoot) await loadRepoConfig(repoRoot)
-    containerEl?.focus()
+  onMount(() => {
+    // Kept synchronous so the returned cleanup actually runs: an `async`
+    // onMount resolves to a Promise, which Svelte does not treat as a
+    // teardown, and the focus would never be handed back to the opener.
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    void (async () => {
+      await loadGlobalConfig()
+      if (repoRoot) await loadRepoConfig(repoRoot)
+      containerEl?.focus()
+    })()
+    return () => previouslyFocused?.focus?.()
   })
 
   function handleKeydown(e: KeyboardEvent): void {

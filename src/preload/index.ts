@@ -690,9 +690,9 @@ const api = {
 
   onUpdateNotAvailable: (callback: () => void) => {
     const handler = (): void => callback()
-    ipcRenderer.on('update:not-available', handler)
+    ipcRenderer.on('update:notAvailable', handler)
     return (): void => {
-      ipcRenderer.removeListener('update:not-available', handler)
+      ipcRenderer.removeListener('update:notAvailable', handler)
     }
   },
 

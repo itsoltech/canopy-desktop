@@ -492,6 +492,15 @@
  * vestibular issues).
  */
 @media (prefers-reduced-motion: reduce) {
+  /* Busy spinners. Most call sites pair `animate-spin` with
+     `motion-reduce:animate-none`, but that has to be remembered per element and
+     dozens of them omit it. Cover the utilities centrally so a missed variant
+     can't leave a spinner rotating for a user who asked for reduced motion. */
+  .animate-spin,
+  .animate-spin-slow {
+    animation: none;
+  }
+
   [data-status='active'] .status-dot,
   [data-status='permission'] .status-dot {
     animation: none;

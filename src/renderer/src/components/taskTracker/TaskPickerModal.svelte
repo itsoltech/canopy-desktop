@@ -439,7 +439,7 @@
               {:else}
                 {#if hasActiveAgent}
                   <button
-                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 group-focus-within/task:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-generate"
                     onclick={(e) => sendTaskToAgent($state.snapshot(task) as TrackerTaskLite, e)}
                     disabled={Boolean(sendingTaskKey)}
                     title="Send to agent"
@@ -453,7 +453,7 @@
                   </button>
                 {/if}
                 <button
-                  class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                  class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 group-focus-within/task:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-generate"
                   onclick={(e) => {
                     e.stopPropagation()
                     void copyTaskToClipboard($state.snapshot(task) as TrackerTaskLite, e)

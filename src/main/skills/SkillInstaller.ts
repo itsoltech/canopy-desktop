@@ -8,7 +8,7 @@ import type { Result } from 'neverthrow'
 import type { SkillError } from './errors'
 import type { CanopySkill, SkillInstallOptions, SkillAgentTarget } from './types'
 import { parseSkillContent } from './SkillParser'
-import { SkillStore } from './SkillStore'
+import type { SkillStore } from './SkillStore'
 import { getTransformer } from './SkillTransformer'
 import { isPublicHttpUrl } from '../security/validateUrl'
 

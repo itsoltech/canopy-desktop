@@ -17,11 +17,19 @@ export interface TaskRecord {
 }
 
 export interface NotificationRecord {
+  /**
+   * Render key. `timestamp` is not unique — two hook events delivered in the
+   * same millisecond collide, and a duplicate `{#each}` key is a hard error in
+   * Svelte 5, so the inspector would fail to render rather than degrade.
+   */
+  id: number
   title: string
   message: string
   type: string
   timestamp: number
 }
+
+let notificationSeq = 0
 
 export type AgentStatus =
   | { type: 'inactive' }
@@ -280,6 +288,7 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
       session.notifications = [
         ...session.notifications.slice(-(MAX_NOTIFICATIONS - 1)),
         {
+          id: ++notificationSeq,
           title: event.title ?? '',
           message: event.message ?? '',
           type: event.notificationType ?? '',

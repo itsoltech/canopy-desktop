@@ -55,6 +55,13 @@
   let refreshing = $state(false)
   let containerEl: HTMLDivElement | undefined = $state()
 
+  // Captured at init — the modal's own DOM does not exist yet, so this is still
+  // the control that opened it. Restored in onDestroy so closing does not dump
+  // focus on <body> and force a keyboard user to tab in from the top.
+  // Captured here rather than in onMount because that hook is async, and an
+  // async onMount returns a Promise instead of a teardown.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+
   // "From task" mode: the picked task + the branch name generated from it (the task list
   // itself — projects, filters, search — lives in the shared TaskListPicker).
   let selectedTask = $state<TrackerTaskLite | null>(null)
@@ -170,6 +177,7 @@
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
+    previouslyFocused?.focus?.()
   })
 
   function initSetupTerminal(container: HTMLDivElement): void {

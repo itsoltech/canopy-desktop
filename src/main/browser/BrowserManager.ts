@@ -112,16 +112,27 @@ export class BrowserManager {
     // wired up below (DevTools, debugger attach, credential injection) must
     // only ever target a <webview> guest — never a main renderer or another
     // window's contents — so reject anything that isn't a webview guest.
-    if (wc.getType() !== 'webview') return
+    // `hostWebContents` is the embedder of a guest, so requiring it to equal
+    // the caller stops a renderer from claiming a guest it does not own:
+    // ids are small integers, and without this a compromised window could bind
+    // its own browserId to another window's guest and then drive DevTools,
+    // `debugger.attach`, and credential injection against that page.
+    if (wc.getType() !== 'webview' || wc.hostWebContents?.id !== sender.id) return
 
     // Idempotency guard: the listeners wired up below are anonymous closures
     // that teardown() cannot selectively remove. If this exact guest is already
     // registered (e.g. a duplicate `browser:setup` from a renderer re-mount or
     // a `dom-ready` re-fire), bail out so we don't stack a second copy of every
     // listener on the same WebContents. A genuinely new guest for this
-    // browserId arrives with a different wcId and is still wired below.
+    // browserId arrives with a different wcId and is still wired below — but
+    // only after tearing the old one down, since overwriting the map entry
+    // would strand its DevTools WebContentsView (never removed from the window,
+    // its renderer never closed) and leave a debugger session attached.
     const existing = this.entries.get(browserId)
-    if (existing && existing.webContentsId === wcId) return
+    if (existing) {
+      if (existing.webContentsId === wcId) return
+      this.teardown(browserId)
+    }
 
     const entry: WebviewEntry = {
       webContentsId: wcId,

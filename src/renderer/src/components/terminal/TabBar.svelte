@@ -24,6 +24,7 @@
     connectionStatus,
     type ConnectionStatus,
   } from '../../lib/terminal/connectionState.svelte'
+  import { match, P } from 'ts-pattern'
   // If the tab bar unmounts mid-drag (window close, workspace switch),
   // detach the window-level pointermove/pointerup handlers that would
   // otherwise leak with their closures.
@@ -69,10 +70,17 @@
       const t = session.status.type
       if (t === 'waitingPermission')
         return { color: 'var(--color-warning)', pulse: true, label: 'Permission required' }
-      if (t === 'error') priority = Math.max(priority, 5)
-      else if (t === 'thinking' || t === 'toolCalling' || t === 'compacting' || t === 'starting')
-        priority = Math.max(priority, 4)
-      else if (t === 'idle' || t === 'ended') priority = Math.max(priority, 3)
+      // Exhaustive over the remaining AgentStatus members so adding a tenth one
+      // fails the build here instead of silently showing no status dot.
+      priority = Math.max(
+        priority,
+        match(t)
+          .with('error', () => 5)
+          .with(P.union('thinking', 'toolCalling', 'compacting', 'starting'), () => 4)
+          .with(P.union('idle', 'ended'), () => 3)
+          .with('inactive', () => 0)
+          .exhaustive(),
+      )
     }
 
     if (priority === 5) return { color: 'var(--color-danger)', pulse: false, label: 'Agent error' }
@@ -381,7 +389,7 @@
             ></span>
           {/if}
           <button
-            class="hidden group-hover/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
+            class="hidden group-hover/tab:flex group-focus-within/tab:flex focus-visible:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
             onclick={(e: MouseEvent) => {
               e.stopPropagation()
               closeTab(tab.id)
