@@ -3,7 +3,7 @@
   import { X, ExternalLink, Copy, GitPullRequest, LoaderCircle, RefreshCw } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
-  import { loadBranchPRs } from '../../lib/stores/github.svelte'
+  import { invalidatePRFallback, loadBranchPRs } from '../../lib/stores/github.svelte'
   import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
   import { prStateChip } from '../../lib/github/prState'
@@ -183,7 +183,8 @@
         addToast(`Remote branch ${pr.headRefName} deleted`)
         remoteBranchAlive = false
       }
-      void loadBranchPRs(repoRoot)
+      if (kind !== 'delete') invalidatePRFallback(repoRoot, branch)
+      void loadBranchPRs(repoRoot, true)
       await load()
     } catch (e) {
       addToast(ipcErrorMessage(e, `Failed to ${kind === 'delete' ? 'delete branch' : kind}`))

@@ -67,6 +67,7 @@ import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
 import { normalizeKeychainCredentialPayload } from './keychainCredentials'
+import { loadPullRequestSummary } from '../taskTracker/prSummary'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -4457,6 +4458,23 @@ export function registerIpcHandlers(
       } catch {
         return null
       }
+    },
+  )
+
+  // Lightweight sidebar lookup. Full PR details are intentionally reserved for
+  // the details modal: large review histories made repeated startup queries costly.
+  ipcMain.handle(
+    'taskTracker:prSummary',
+    async (event, payload: { repoRoot: string; branch: string }) => {
+      if (
+        typeof payload.branch !== 'string' ||
+        payload.branch.length === 0 ||
+        payload.branch.startsWith('-')
+      ) {
+        return null
+      }
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      return loadPullRequestSummary(resolvedRepo, payload.branch)
     },
   )
 

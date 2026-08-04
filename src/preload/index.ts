@@ -1616,6 +1616,13 @@ const api = {
   taskTrackerFindPR: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,
 
+  taskTrackerPRSummary: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('taskTracker:prSummary', { repoRoot, branch }) as Promise<{
+      number: number
+      state: string
+      isDraft: boolean
+    } | null>,
+
   taskTrackerPRDetails: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:prDetails', { repoRoot, branch }) as Promise<{
       number: number
