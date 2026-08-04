@@ -11,10 +11,16 @@
     {@const status = ciRunChip(row)}
     <button
       type="button"
-      class="group w-full px-2.5 py-1.5 border-0 bg-transparent text-left hover:bg-hover flex items-center gap-2 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+      class="w-full px-2.5 py-1.5 border-0 bg-transparent text-left hover:bg-hover flex items-center gap-2 cursor-pointer aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
       aria-disabled={!row.run?.webUrl}
       onclick={() => row.run?.webUrl && window.api.openExternal(row.run.webUrl)}
-      title={row.error || row.run?.statusText || `Latest ${branch} run`}
+      title={row.run?.webUrl
+        ? `${row.label} — open run${row.run.number ? ` #${row.run.number}` : ''} in GitHub Actions`
+        : row.error
+          ? `${row.label} — status unavailable: ${row.error}`
+          : row.run
+            ? `${row.label} — run${row.run.number ? ` #${row.run.number}` : ''} cannot be opened in GitHub Actions`
+            : `No runs of ${row.label} for ${branch} yet`}
     >
       <span class="flex-1 min-w-0 flex flex-col">
         <span class="text-xs text-text truncate">{row.label}</span>

@@ -69,6 +69,10 @@ exists beyond the bounded page, the activity view marks the result as partial ra
 presenting it as complete. Environment approvals and run cancellation remain GitHub operations;
 Canopy only shows the waiting state and link.
 
+The open history window refreshes every 60 seconds. The sidebar CI/CD section polls activity and
+branch status every 60 seconds while any run is active and every 300 seconds otherwise. Both
+surfaces re-fetch immediately after Canopy dispatches a workflow.
+
 Run watching is in-memory. Restarting Canopy does not restore an active watcher, but the scoped
 history remains the recovery surface.
 
