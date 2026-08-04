@@ -68,9 +68,7 @@
         ? 'Select a workflow before running.'
         : !selectedRef
           ? 'Select a remote branch or tag before running.'
-          : parameters === null || missing.length > 0
-            ? ''
-            : '',
+          : '',
   )
 
   onMount(async () => {

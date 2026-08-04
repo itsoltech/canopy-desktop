@@ -6,6 +6,7 @@ import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
 import { parseDiff } from './diffParser'
 import { fromExternalCall, errorMessage } from '../errors'
+import { hasRemoteName } from './remoteNames'
 
 function validateRef(name: string): Result<string, GitError> {
   if (name.startsWith('-')) return err({ _tag: 'InvalidRef', ref: name })
@@ -181,6 +182,13 @@ export class GitRepository {
       return gitCall('remote get-url', git.raw(['remote', 'get-url', remote])).map((raw) =>
         raw.trim(),
       )
+    })
+  }
+
+  static hasRemote(repoRoot: string, remote = 'origin'): ResultAsync<boolean, GitError> {
+    return validateRef(remote).asyncAndThen(() => {
+      const git = simpleGit(repoRoot)
+      return gitCall('remote', git.raw(['remote'])).map((raw) => hasRemoteName(raw, remote))
     })
   }
 

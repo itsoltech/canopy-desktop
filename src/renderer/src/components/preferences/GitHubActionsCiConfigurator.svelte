@@ -128,7 +128,9 @@
         repositoryResolutionIssue = `GitHub Actions currently supports github.com origins only; this workspace uses ${lookup.identifier.host}.`
       } else {
         const { identifier } = lookup
-        if (!repository) repository = `${identifier.owner}/${identifier.repo}`.toLowerCase()
+        // The local origin is the same authority CiManager verifies before every
+        // credential read/API call. A shared config may still name an upstream fork.
+        repository = `${identifier.owner}/${identifier.repo}`.toLowerCase()
         repositoryResolutionIssue = ''
       }
       hasToken = credentialUrl

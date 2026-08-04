@@ -100,7 +100,6 @@ import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTrack
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import { parseGitHubRemote } from '../github/remoteUrl'
-import { classifyRepoIdentifierLookupFailure } from '../github/repoIdentifier'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
 import { listSelectableInterfaces } from '../remote/discovery'
@@ -4933,8 +4932,18 @@ export function registerIpcHandlers(
 
   ipcMain.handle('github:getRepoIdentifier', async (event, payload: { repoRoot: string }) => {
     const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+    const hasOrigin = await GitRepository.hasRemote(resolvedRepo)
+    if (hasOrigin.isErr()) {
+      return {
+        status: 'error' as const,
+        message: 'Could not inspect this workspace’s git remotes.',
+      }
+    }
+    if (!hasOrigin.value) return { status: 'missing' as const }
     const remote = await GitRepository.getRemoteUrl(resolvedRepo)
-    if (remote.isErr()) return classifyRepoIdentifierLookupFailure(remote.error)
+    if (remote.isErr()) {
+      return { status: 'error' as const, message: 'Could not read this workspace’s origin remote.' }
+    }
     const identifier = parseGitHubRemote(remote.value)
     return identifier.match(
       (value) => ({ status: 'found' as const, identifier: value }),
