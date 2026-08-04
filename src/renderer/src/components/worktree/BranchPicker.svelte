@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
   import { ChevronDown } from '@lucide/svelte'
   import { isRemoteOnly } from './utils'
 
@@ -56,15 +55,14 @@
   })
 
   // Combobox mode: the list collapses after a pick and reopens when the user edits the input.
-  let listOpen = $state(
-    untrack(() => !collapseConfirmedSelection || !selectedBranch || query !== selectedBranch),
-  )
+  let listOpen = $state(!collapseConfirmedSelection || !selectedBranch || query !== selectedBranch)
 
   function pick(branch: string): void {
     selectedBranch = branch
+    if (fillQueryOnPick) query = branch
+    // aria-activedescendant only applies while DOM focus remains on the combobox input.
+    inputEl?.focus()
     if (fillQueryOnPick) {
-      query = branch
-      inputEl?.focus()
       // focus opens the combobox for normal keyboard/mouse entry; picking is the one path that
       // must finish collapsed after focus has been restored to the input.
       listOpen = false
@@ -189,6 +187,7 @@
       {:else}
         {#each filteredBranches as branch, i (branch)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- Selection tracks the committed branch; keyboard highlight remains independent. -->
           <div
             class="flex items-baseline px-2.5 py-1.5 text-md text-text cursor-pointer transition-colors duration-fast hover:bg-active"
             class:!bg-active={i === selectedIdx}
@@ -196,7 +195,6 @@
             class:!text-accent-text={highlightPicked && selectedBranch === branch}
             id={`branch-picker-option-${i}`}
             role="option"
-            tabindex={fillQueryOnPick ? -1 : undefined}
             aria-selected={selectedBranch === branch}
             data-branch-selected={i === selectedIdx}
             onclick={() => pick(branch)}

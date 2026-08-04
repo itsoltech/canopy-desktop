@@ -39,6 +39,7 @@ import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/work
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
 const execFileAsync = promisify(execFile)
+const PR_DETAILS_TIMEOUT_MS = 30_000
 const WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir'
 const TRUSTED_WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir.trustedResolved'
 
@@ -67,7 +68,7 @@ import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
 import { normalizeKeychainCredentialPayload } from './keychainCredentials'
-import { loadPullRequestSummary, PR_SUMMARY_TIMEOUT_MS } from '../taskTracker/prSummary'
+import { loadPullRequestSummary } from '../taskTracker/prSummary'
 import { isSafeBranchRef } from '../taskTracker/prCreation'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
@@ -142,7 +143,7 @@ function ghFailureReason(error: unknown): string {
       return 'GitHub CLI (gh) is not installed'
     }
     if ('killed' in error && (error as { killed?: unknown }).killed === true) {
-      return `GitHub CLI request timed out after ${PR_SUMMARY_TIMEOUT_MS / 1000} seconds`
+      return `GitHub CLI request timed out after ${PR_DETAILS_TIMEOUT_MS / 1000} seconds`
     }
     if ('stderr' in error && typeof (error as { stderr?: unknown }).stderr === 'string') {
       const stderr = (error as { stderr: string }).stderr.trim()
@@ -4521,7 +4522,7 @@ export function registerIpcHandlers(
           {
             cwd: resolvedRepo,
             maxBuffer: 4 * 1024 * 1024,
-            timeout: PR_SUMMARY_TIMEOUT_MS,
+            timeout: PR_DETAILS_TIMEOUT_MS,
           },
         ),
         (e) => ({ _tag: 'PRLookupFailed' as const, reason: ghFailureReason(e) }),
