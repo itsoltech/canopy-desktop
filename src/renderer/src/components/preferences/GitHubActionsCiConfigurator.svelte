@@ -79,12 +79,17 @@
   let saveBlocked = $derived(
     saving || loading || !loaded || !repository || selectedWorkflows.length === 0,
   )
-  let loadBlocked = $derived(loading || (!hasToken && token.trim().length === 0))
+  let loadBlocked = $derived(loading || !repository || (!hasToken && token.trim().length === 0))
   let loadBlockedReason = $derived(
-    !loading && !hasToken && token.trim().length === 0
-      ? 'Add a GitHub token before loading workflows.'
-      : '',
+    loading
+      ? ''
+      : !repository
+        ? 'Connect this workspace to a GitHub origin remote before loading workflows.'
+        : !hasToken && token.trim().length === 0
+          ? 'Add a GitHub token before loading workflows.'
+          : '',
   )
+  let repositoryLabel = $derived(repository || 'this workspace repository')
   let credentialUrl = $derived(repository ? `https://github.com/${repository.toLowerCase()}` : '')
 
   onMount(async () => {
@@ -288,7 +293,7 @@
       </div>
       <button
         type="button"
-        class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover hover:text-text aria-disabled:opacity-50"
+        class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
         onclick={requestClose}
         aria-label="Close"
         aria-disabled={saving}><X size={16} /></button
@@ -318,7 +323,7 @@
           </div>
           <button
             type="button"
-            class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary enabled:hover:bg-hover aria-disabled:opacity-50"
+            class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
             onclick={replaceToken}
             aria-disabled={loading || saving}>Replace token</button
           >
@@ -352,7 +357,7 @@
             Canopy asks GitHub to preselect <strong>Actions — Read and write</strong> and
             <strong>Contents — Read-only</strong>. Confirm both permissions and the expiry before
             generating. Under Repository access choose <strong>Only select repositories</strong>
-            and select <strong>{repository}</strong>. Workflow inputs are not secret fields.
+            and select <strong>{repositoryLabel}</strong>. Workflow inputs are not secret fields.
           </p>
           <CredentialStorageNote
             provider="github-actions"
@@ -366,7 +371,7 @@
         {#if token.trim()}
           <button
             type="button"
-            class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50"
+            class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
             onclick={testConnection}
             aria-disabled={testing || loading}
             aria-busy={testing}>{testing ? 'Testing…' : 'Test connection'}</button
@@ -437,7 +442,7 @@
         {#if existingConfig}
           <button
             type="button"
-            class="flex items-center gap-1 px-2 py-1 border-0 bg-transparent text-xs text-text-faint hover:text-danger-text aria-disabled:opacity-50"
+            class="flex items-center gap-1 px-2 py-1 border-0 bg-transparent text-xs text-text-faint hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:text-text-faint"
             onclick={removeConfiguration}
             aria-disabled={saving}><Trash2 size={12} /> Remove CI configuration</button
           >
@@ -446,13 +451,15 @@
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm border border-border bg-transparent text-text-secondary hover:bg-hover"
+          class="px-3 py-1 rounded-md text-sm border border-border bg-transparent text-text-secondary hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
           onclick={requestClose}
-          aria-disabled={saving}>Cancel</button
+          aria-disabled={saving}
+          title={saving ? 'Disabled while the configuration is being saved' : 'Cancel'}
+          >Cancel</button
         >
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50"
+          class="px-3 py-1 rounded-md text-sm border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
           onclick={saveConfiguration}
           aria-disabled={saveBlocked}
           title={saveBlocked

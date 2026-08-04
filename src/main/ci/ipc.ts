@@ -504,10 +504,12 @@ export function registerCiHandlers({
       if (!['http:', 'https:'].includes(parsed.protocol)) {
         throw new Error('Base URL must use http:// or https://')
       }
-      if (typeof payload.token !== 'string' || !payload.token) {
+      if (typeof payload.token !== 'string' || payload.token.length > CI_TOKEN_MAX) {
         throw new Error('Token is required')
       }
-      const result = await ciTestConnection(payload.baseUrl.replace(/\/$/, ''), payload.token)
+      const token = payload.token.trim()
+      if (!token) throw new Error('Token is required')
+      const result = await ciTestConnection(payload.baseUrl.replace(/\/$/, ''), token)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )

@@ -101,15 +101,23 @@ workflows.
 
 ## Error states
 
-| State                | Behavior                                                                 |
-| -------------------- | ------------------------------------------------------------------------ |
-| Missing token        | Open the repository CI/CD configurator; no API call is made.             |
-| Repository mismatch  | Reject before token access or network use.                               |
-| Workflow unavailable | Keep the per-workflow discovery error visible and do not allow dispatch. |
-| Ref/schema changed   | Reload the form and require a fresh confirmation.                        |
-| Rate limited         | Pause background work until the reported reset time.                     |
-| Dispatch ambiguous   | Do not retry; link to repository Actions history.                        |
-| Unknown GitHub state | Display **Unknown** rather than inferring success or failure.            |
+| `CiError` variant         | Behavior                                                                   |
+| ------------------------- | -------------------------------------------------------------------------- |
+| `CiNotConfigured`         | Offer CI setup instead of making an API call.                              |
+| `CiConfigInvalid`         | Keep the invalid file/block reason visible so it can be corrected.         |
+| `CiConfigUnwritable`      | Preserve the configuration and report the local update failure.            |
+| `CiAuthMissing`           | Open the repository CI/CD configurator; no authenticated API call is made. |
+| `CiRepositoryMismatch`    | Reject before token access or network use.                                 |
+| `CiWorkflowSchemaInvalid` | Block discovery or dispatch and show the schema reason.                    |
+| `CiWorkflowSchemaChanged` | Reload the inputs and require the user to review them again.               |
+| `CiRefChanged`            | Require a fresh confirmation for the ref's new commit.                     |
+| `CiDispatchCancelled`     | Keep the run form open; nothing was dispatched.                            |
+| `CiDispatchAmbiguous`     | Do not retry; instruct the user to check repository Actions history.       |
+| `CiRateLimited`           | Pause background work until the reported reset time.                       |
+| `CiApiError`              | Show the sanitized GitHub status and message.                              |
+
+An unknown GitHub run state is displayed as **Unknown** rather than inferred as success or
+failure.
 
 ## Security and privacy
 

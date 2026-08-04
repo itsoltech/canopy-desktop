@@ -37,6 +37,7 @@
   let running = $state(false)
   let error = $state('')
   let loadSequence = 0
+  let runButtonFocused = $state(false)
 
   let selectedRef = $derived(refs.find((ref) => `${ref.kind}:${ref.name}` === selectedRefKey))
   let label = $derived(
@@ -206,10 +207,12 @@
       </div>
       <button
         type="button"
-        class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover hover:text-text aria-disabled:opacity-50"
+        class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
         onclick={requestClose}
         aria-label="Close"
-        aria-disabled={running}><X size={16} /></button
+        aria-disabled={running}
+        title={running ? 'Disabled while the workflow request is in progress' : 'Close'}
+        ><X size={16} /></button
       >
     </header>
 
@@ -338,17 +341,21 @@
     <footer class="flex justify-end gap-2 border-t border-border-subtle pt-3">
       <button
         type="button"
-        class="px-3 py-1 rounded-md border border-border bg-transparent text-sm text-text-secondary hover:bg-hover"
+        class="px-3 py-1 rounded-md border border-border bg-transparent text-sm text-text-secondary hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
         onclick={requestClose}
-        aria-disabled={running}>Cancel</button
+        aria-disabled={running}
+        title={running ? 'Disabled while the workflow request is in progress' : 'Cancel'}
+        >Cancel</button
       >
       <button
         type="button"
-        class="px-3 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm flex items-center gap-1.5 hover:bg-accent-bg-hover aria-disabled:opacity-50"
+        class="px-3 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm flex items-center gap-1.5 hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
         onclick={runWorkflow}
         aria-disabled={!canRun}
         aria-busy={running}
         aria-describedby={runBlockedReason ? 'github-run-blocked-reason' : undefined}
+        onfocus={() => (runButtonFocused = true)}
+        onblur={() => (runButtonFocused = false)}
       >
         {#if running}<LoaderCircle
             size={13}
@@ -357,8 +364,12 @@
         {running ? 'Starting…' : 'Run workflow'}
       </button>
     </footer>
-    {#if runBlockedReason}
-      <span id="github-run-blocked-reason" class="sr-only">{runBlockedReason}</span>
-    {/if}
+    <div class="min-h-4 text-right text-xs text-text-muted" aria-live="polite">
+      {#if runBlockedReason}
+        <span id="github-run-blocked-reason" class:sr-only={!runButtonFocused}>
+          {runBlockedReason}
+        </span>
+      {/if}
+    </div>
   </div>
 </div>

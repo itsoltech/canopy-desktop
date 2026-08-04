@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { errAsync, okAsync } from 'neverthrow'
 import { registerCiHandlers } from './ipc'
 import type { CiManager } from './CiManager'
+import { testConnection as ciTestConnection } from './teamcity'
 
 // Pins the AUTHORIZATION contract of the repo-scoped CI channels: a renderer-
 // supplied repoRoot outside the sender's workspaces must be rejected BEFORE any
@@ -211,6 +212,30 @@ describe('CI IPC authorization', () => {
     await invoke('ci:listBuildTypes', { baseUrl: 'https://tc.example.com' })
     expect(ciManager.listBuildTypes).toHaveBeenCalledWith('https://tc.example.com')
     expect(validatePathAccess).not.toHaveBeenCalled()
+  })
+
+  it('trims candidate TeamCity tokens before testing the connection', async () => {
+    const { invoke } = harness()
+
+    await invoke('ci:testNewConnection', {
+      baseUrl: 'https://tc.example.com/',
+      token: '  token  ',
+    })
+
+    expect(ciTestConnection).toHaveBeenCalledWith('https://tc.example.com', 'token')
+  })
+
+  it('rejects oversized raw TeamCity tokens before trimming or making a request', async () => {
+    const { invoke } = harness()
+
+    await expect(
+      invoke('ci:testNewConnection', {
+        baseUrl: 'https://tc.example.com',
+        token: ' '.repeat(10_001),
+      }),
+    ).rejects.toThrow('Token is required')
+
+    expect(ciTestConnection).not.toHaveBeenCalled()
   })
 
   it('passes a trusted confirmation callback to direct trigger IPC calls', async () => {

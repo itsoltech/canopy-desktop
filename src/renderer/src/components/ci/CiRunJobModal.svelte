@@ -43,6 +43,7 @@
   let params = $state<CiParameter[] | null>(null)
   let submitting = $state(false)
   let paramsError = $state('')
+  let runButtonFocused = $state(false)
   let dialogEl = $state<HTMLElement>()
   let branchesSeq = 0
   let parametersSeq = 0
@@ -289,10 +290,6 @@
             <span class="text-xs text-danger-text">{error || parametersError}</span>
           {/if}
         </div>
-        {#if runBlockedReason}
-          <span id="ci-run-blocked-reason" class="sr-only">{runBlockedReason}</span>
-        {/if}
-
         <div class="flex gap-1.5 justify-end">
           {#if parametersError}
             <button
@@ -326,6 +323,8 @@
               !buildTypeId}
             aria-busy={starting || parametersLoading}
             aria-describedby={runBlockedReason ? 'ci-run-blocked-reason' : undefined}
+            onfocus={() => (runButtonFocused = true)}
+            onblur={() => (runButtonFocused = false)}
             title={runBlockedReason ||
               (promptParameters?.length
                 ? 'Review this job’s required parameters before queueing'
@@ -338,6 +337,13 @@
             {/if}
             {actionLabel}
           </button>
+        </div>
+        <div class="min-h-4 text-right text-xs text-text-muted" aria-live="polite">
+          {#if runBlockedReason}
+            <span id="ci-run-blocked-reason" class:sr-only={!runButtonFocused}>
+              {runBlockedReason}
+            </span>
+          {/if}
         </div>
       {:else}
         <!-- Persistent region: the Loading… → error swap must arrive as a MUTATION
