@@ -253,7 +253,9 @@
 </script>
 
 <span class="sr-only" aria-live="polite">{loading ? `${loading} in progress…` : ''}</span>
-<span class="sr-only" aria-live="polite">{prLoading ? 'Checking pull requests…' : ''}</span>
+<span class="sr-only" aria-live="polite"
+  >{prLoading ? 'Checking pull requests…' : prLookupError}</span
+>
 <CollapsibleSection title="GIT" sectionKey="git" borderTop>
   {#snippet headerExtra()}
     <span class="flex items-center gap-1 min-w-0">
@@ -437,10 +439,7 @@
       </div>
     {/if}
     {#if prLookupError && !prLoading && !existingPR}
-      <div
-        class="flex items-center gap-2 w-full min-h-7 px-3 text-xs text-warning-text"
-        aria-live="polite"
-      >
+      <div class="flex items-center gap-2 w-full min-h-7 px-3 text-xs text-warning-text">
         <AlertTriangle size={13} class="flex-shrink-0" />
         <span class="flex-1 min-w-0 break-words">{prLookupError}</span>
         <button

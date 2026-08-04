@@ -29,7 +29,7 @@
             >{row.run.statusText}</span
           >
         {:else if row.error}
-          <span class="text-2xs text-warning-text truncate">{row.error}</span>
+          <span class="text-2xs text-warning-text truncate" title={row.error}>{row.error}</span>
         {/if}
       </span>
       {#if row.run?.number}<span class="font-mono text-2xs text-text-faint">#{row.run.number}</span

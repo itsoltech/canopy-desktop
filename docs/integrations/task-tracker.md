@@ -166,13 +166,16 @@ Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`.
 ### Creating a pull request from a task
 
 When the repository does not have the GitHub API integration configured, the sidebar resolves its
-`View PR #N` row through the lightweight `taskTracker:prSummary` IPC channel. The main process runs
-`gh pr list --state all --head <branch> --limit 1` and returns only the PR number, state, and draft
-flag. The lookup is repeated when the active worktree or branch changes and after a PR mutation made
-inside Canopy. A PR created externally — including with `gh pr create` in a Canopy terminal — may
-therefore require switching worktrees or restarting Canopy before the row appears. Authentication,
-network, timeout, and malformed-response failures are shown as a retryable error; they are not
-treated as proof that the branch has no PR.
+`View PR #N` row through the lightweight `taskTracker:prSummary` IPC channel. The main process first
+runs `gh pr list --state open --head <branch> --limit 1`; when there is no open PR, it repeats the
+lookup with `--state closed` so the sidebar can still show the latest merged/closed state while
+keeping **Create PR** available. Both calls return only the PR number, state, and draft flag. The
+lookup is repeated when the active worktree or branch changes and after a PR mutation made inside
+Canopy. A PR created externally — including with `gh pr create` in a Canopy terminal — may therefore
+require switching worktrees or restarting Canopy before the row appears. A missing `gh` executable
+or repository without a GitHub origin silently disables this optional fallback. Authentication,
+network, timeout, and malformed-response failures are shown as a retryable `PRLookupFailed` row and
+hide **Create PR** until the retry succeeds; they are not treated as proof that the branch has no PR.
 
 1. User triggers PR creation from the sidebar **GIT** section (`Create PR` row; an existing PR shows as `View PR #N` with a state chip instead). A native form shows the title and description for editing — rendered from the PR template when a tracker task is linked to the worktree, otherwise pre-filled from the branch name — plus a target-branch select, a reviewer search picker, and an assignee field defaulting to the authenticated `gh` user.
 2. Canopy pushes the current branch to the remote (failure is non-fatal).
@@ -312,6 +315,7 @@ and `Attachment not found on this task`.
 | `ConfigParseError`         | "Invalid config in {root}: {reason}"             | JSON parse error or unsupported config version                            |
 | `ConfigWriteError`         | "Failed to write config in {root}: {reason}"     | Filesystem permission error or disk full                                  |
 | `PRCreationFailed`         | "PR creation failed: {reason}"                   | `gh` CLI not installed, Git push failure, or `gh pr create` error         |
+| `PRLookupFailed`           | "PR lookup failed: {reason}"                     | `gh` auth, network, timeout, or malformed summary/details response        |
 | `NoActiveAgent`            | "No running agent is available..."               | Quick send was triggered after the active agent target disappeared        |
 | `AgentStartFailed`         | "The worktree was created, but..."               | Worktree creation succeeded, but Canopy could not open the selected agent |
 | `AgentNotReady`            | "The agent did not become ready..."              | Started agent ended, errored, or did not become idle before timeout       |
@@ -339,6 +343,7 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
   - `branchTemplate.ts` - template rendering, slugification, validation, type mapping
   - `prTemplate.ts` - PR title/body rendering, target branch resolution
   - `prCreation.ts` - `gh` CLI integration for push + PR creation
+  - `prSummary.ts` - bounded, typed `gh` CLI lookup for sidebar/worktree PR state
   - `KeychainTokenStore.ts` - credential storage keyed by provider:baseUrl
   - `providers/jira.ts` - Jira REST + Agile API client
   - `providers/youtrack.ts` - YouTrack REST API client

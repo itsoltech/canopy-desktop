@@ -367,7 +367,7 @@
     let cancelled = false
     for (const b of list.slice(0, 3)) {
       void window.api
-        .taskTrackerPRDetails(trackerRepoRoot, b.name)
+        .taskTrackerPRSummary(trackerRepoRoot, b.name)
         .then((pr) => {
           if (!cancelled && pr) {
             taskBranchPRs = {

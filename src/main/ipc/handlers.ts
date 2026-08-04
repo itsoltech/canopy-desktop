@@ -129,6 +129,29 @@ import { AgentCommandService } from '../commands/agentCommands'
 import { RunConfigCommandService } from '../commands/runConfigCommands'
 import type { AppStateSnapshot, EditorFileReadResult } from '../commands/types'
 
+async function hasSupportedGitHubRemote(repoRoot: string): Promise<boolean> {
+  const hasRemote = await GitRepository.hasRemote(repoRoot)
+  if (hasRemote.isErr() || !hasRemote.value) return false
+  const remote = await GitRepository.getRemoteUrl(repoRoot)
+  return remote.isOk() && parseGitHubRemote(remote.value).isOk()
+}
+
+function ghFailureReason(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    if ('code' in error && (error as { code?: unknown }).code === 'ENOENT') {
+      return 'GitHub CLI (gh) is not installed'
+    }
+    if ('killed' in error && (error as { killed?: unknown }).killed === true) {
+      return `GitHub CLI request timed out after ${PR_SUMMARY_TIMEOUT_MS / 1000} seconds`
+    }
+    if ('stderr' in error && typeof (error as { stderr?: unknown }).stderr === 'string') {
+      const stderr = (error as { stderr: string }).stderr.trim()
+      if (stderr) return stderr
+    }
+  }
+  return errorMessage(error)
+}
+
 // Session-level flag: once the user has successfully authenticated to reveal
 // a saved credential in the current app session, subsequent autofills reuse
 // that authentication instead of prompting the OS every time. Matches Chrome's
@@ -4469,6 +4492,9 @@ export function registerIpcHandlers(
     async (event, payload: { repoRoot: string; branch: string }) => {
       if (!isSafeBranchRef(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      // The gh CLI fallback is optional. Repositories without a GitHub origin keep the normal
+      // Create PR affordance rather than showing a retryable auth/network error for every branch.
+      if (!(await hasSupportedGitHubRemote(resolvedRepo))) return null
       const result = await loadPullRequestSummary(resolvedRepo, payload.branch)
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -4482,8 +4508,8 @@ export function registerIpcHandlers(
       // Keep renderer-supplied values within the same safe git-ref contract as PR mutations.
       if (!isSafeBranchRef(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      try {
-        const { stdout } = await execFileAsync(
+      const result = await fromExternalCall(
+        execFileAsync(
           'gh',
           [
             'pr',
@@ -4497,10 +4523,19 @@ export function registerIpcHandlers(
             maxBuffer: 4 * 1024 * 1024,
             timeout: PR_SUMMARY_TIMEOUT_MS,
           },
-        )
+        ),
+        (e) => ({ _tag: 'PRLookupFailed' as const, reason: ghFailureReason(e) }),
+      )
+      const { stdout } = unwrapOrThrow(result, taskTrackerErrorMessage)
+      try {
         return JSON.parse(stdout)
-      } catch {
-        return null
+      } catch (e) {
+        throw new Error(
+          taskTrackerErrorMessage({
+            _tag: 'PRLookupFailed',
+            reason: `Invalid GitHub CLI response: ${errorMessage(e)}`,
+          }),
+        )
       }
     },
   )

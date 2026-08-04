@@ -20,7 +20,7 @@ describe('loadPullRequestSummary', () => {
         '--head',
         'feature/large-pr',
         '--state',
-        'all',
+        'open',
         '--limit',
         '1',
         '--json',
@@ -46,6 +46,26 @@ describe('loadPullRequestSummary', () => {
     expect(result.isOk()).toBe(true)
     if (result.isErr()) throw result.error
     expect(result.value).toBeNull()
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('falls back to the latest closed pull request when no open one exists', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: '[]' })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify([{ number: 343, state: 'MERGED', isDraft: false }]),
+      })
+
+    const result = await loadPullRequestSummary('C:/repo', 'feature/merged-pr', run)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toEqual({ number: 343, state: 'MERGED', isDraft: false })
+    expect(run.mock.calls.map((call) => call[1])).toEqual([
+      expect.arrayContaining(['--state', 'open']),
+      expect.arrayContaining(['--state', 'closed']),
+    ])
   })
 
   it.each([
@@ -69,5 +89,16 @@ describe('loadPullRequestSummary', () => {
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected PR lookup to fail')
     expect(result.error).toEqual({ _tag: 'PRLookupFailed', reason: 'timed out' })
+  })
+
+  it('treats a missing GitHub CLI as an unavailable optional fallback', async () => {
+    const missingGh = Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' })
+    const run = vi.fn().mockRejectedValue(missingGh)
+
+    const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toBeNull()
   })
 })

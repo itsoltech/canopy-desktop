@@ -32,6 +32,7 @@
   } = $props()
 
   let selectedIdx = $state(0)
+  let inputEl = $state<HTMLInputElement>()
 
   function fuzzyMatch(text: string, q: string): boolean {
     if (!q) return true
@@ -63,6 +64,9 @@
     selectedBranch = branch
     if (fillQueryOnPick) {
       query = branch
+      inputEl?.focus()
+      // focus opens the combobox for normal keyboard/mouse entry; picking is the one path that
+      // must finish collapsed after focus has been restored to the input.
       listOpen = false
     }
   }
@@ -135,6 +139,7 @@
   <div class="relative">
     <input
       id="branch-picker-search"
+      bind:this={inputEl}
       class="w-full border border-border rounded-lg bg-bg-input text-text text-md font-inherit px-2.5 py-2 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
       class:pr-8={fillQueryOnPick}
       type="text"
@@ -191,7 +196,7 @@
             class:!text-accent-text={highlightPicked && selectedBranch === branch}
             id={`branch-picker-option-${i}`}
             role="option"
-            tabindex="-1"
+            tabindex={fillQueryOnPick ? -1 : undefined}
             aria-selected={selectedBranch === branch}
             data-branch-selected={i === selectedIdx}
             onclick={() => pick(branch)}
