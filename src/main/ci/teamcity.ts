@@ -188,7 +188,7 @@ export function activityBuildTypesLocator(buildTypeIds: string[]): string {
 }
 
 export function queuedActivityLocator(buildTypeIds: string[]): string {
-  return `${activityBuildTypesLocator(buildTypeIds)},branch:(default:any),defaultFilter:false,count:20`
+  return `${activityBuildTypesLocator(buildTypeIds)},count:20`
 }
 
 /** Activity for the repository's configured build types only. */

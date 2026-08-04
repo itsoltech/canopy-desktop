@@ -12,6 +12,7 @@
     showRemoteOnlyTag = false,
     highlightPicked = false,
     fillQueryOnPick = false,
+    collapseConfirmedSelection = false,
   }: {
     branches: { local: string[]; remote: string[] }
     label: string
@@ -24,6 +25,8 @@
     highlightPicked?: boolean
     /** Combobox behavior: picking from the list writes the branch into the search input. */
     fillQueryOnPick?: boolean
+    /** Start collapsed when the parent supplies an already confirmed selection. */
+    collapseConfirmedSelection?: boolean
   } = $props()
 
   let selectedIdx = $state(0)
@@ -51,6 +54,13 @@
 
   // Combobox mode: the list collapses after a pick and reopens when the user edits the input.
   let listOpen = $state(true)
+  let initialOpenStateApplied = $state(false)
+
+  $effect.pre(() => {
+    if (initialOpenStateApplied) return
+    listOpen = !collapseConfirmedSelection || !selectedBranch || query !== selectedBranch
+    initialOpenStateApplied = true
+  })
 
   function pick(branch: string): void {
     selectedBranch = branch

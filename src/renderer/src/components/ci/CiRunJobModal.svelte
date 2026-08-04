@@ -293,6 +293,7 @@
               onRefresh={loadBranches}
               fillQueryOnPick={true}
               highlightPicked={true}
+              collapseConfirmedSelection={true}
             />
           {/if}
         </div>

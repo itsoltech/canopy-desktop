@@ -14,9 +14,9 @@ describe('activityBuildTypesLocator', () => {
     )
   })
 
-  it('keeps queued activity branch-complete, unfiltered and bounded', () => {
+  it('keeps queued activity scoped and bounded with queue-supported dimensions', () => {
     expect(queuedActivityLocator(['Gakko_Build'])).toBe(
-      'buildType:(item:(id:Gakko_Build)),branch:(default:any),defaultFilter:false,count:20',
+      'buildType:(item:(id:Gakko_Build)),count:20',
     )
   })
 })
