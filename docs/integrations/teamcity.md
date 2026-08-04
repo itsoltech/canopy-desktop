@@ -205,7 +205,8 @@ Additional surfaces that are not `CiError` variants:
 - Access tokens are stored via `KeychainTokenStore` keyed `teamcity:<baseUrl>`,
   encrypted at rest via Electron `safeStorage` (OS-native: DPAPI / Keychain / keyring;
   plaintext fallback in Canopy's local DB when no OS keyring is available). They are
-  never written to `.canopy/config.json` or any other repository file.
+  trimmed and size-bounded before storage or use, and never written to
+  `.canopy/config.json` or any other repository file.
 - For repo-scoped calls (status, trigger, parameters, branches, activity) the server
   URL always comes from the repo config — the renderer never supplies a URL, so a
   compromised page cannot redirect requests. Redirects are refused

@@ -37,7 +37,6 @@
   let running = $state(false)
   let error = $state('')
   let loadSequence = 0
-  let runButtonFocused = $state(false)
 
   let selectedRef = $derived(refs.find((ref) => `${ref.kind}:${ref.name}` === selectedRefKey))
   let label = $derived(
@@ -61,6 +60,17 @@
               : missing.length > 0
                 ? 'Fill the required workflow inputs.'
                 : '',
+  )
+  let runBlockedHint = $derived(
+    running || loading
+      ? ''
+      : !jobId
+        ? 'Select a workflow before running.'
+        : !selectedRef
+          ? 'Select a remote branch or tag before running.'
+          : parameters === null || missing.length > 0
+            ? ''
+            : '',
   )
 
   onMount(async () => {
@@ -353,9 +363,8 @@
         onclick={runWorkflow}
         aria-disabled={!canRun}
         aria-busy={running}
-        aria-describedby={runBlockedReason ? 'github-run-blocked-reason' : undefined}
-        onfocus={() => (runButtonFocused = true)}
-        onblur={() => (runButtonFocused = false)}
+        aria-describedby={runBlockedHint ? 'github-run-blocked-hint' : undefined}
+        title={runBlockedReason || 'Run the selected workflow'}
       >
         {#if running}<LoaderCircle
             size={13}
@@ -364,11 +373,9 @@
         {running ? 'Starting…' : 'Run workflow'}
       </button>
     </footer>
-    <div class="min-h-4 text-right text-xs text-text-muted" aria-live="polite">
-      {#if runBlockedReason}
-        <span id="github-run-blocked-reason" class:sr-only={!runButtonFocused}>
-          {runBlockedReason}
-        </span>
+    <div class="min-h-4 break-words text-right text-xs text-text-secondary">
+      {#if runBlockedHint}
+        <span id="github-run-blocked-hint">{runBlockedHint}</span>
       {/if}
     </div>
   </div>

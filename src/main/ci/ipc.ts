@@ -10,6 +10,7 @@ import {
 import type { CiConfig, CiInputValue, CiRef, CiStatusResponse, CiTriggerRequest } from './types'
 import { ciErrorMessage } from './errors'
 import { testConnection as ciTestConnection } from './teamcity'
+import { CI_TOKEN_MAX, normalizeTeamCityToken } from './token'
 
 // The CI IPC surface, extracted so the AUTHORIZATION contract is unit-testable:
 // every repo-scoped channel resolves `payload.repoRoot` through the injected
@@ -56,7 +57,6 @@ const CI_PROPERTIES_MAX = 100
 const CI_JOB_ID_RE = /^[A-Za-z0-9._/-]{1,255}$/
 const CI_RUN_ID_RE = /^\d{1,30}$/
 const CI_SCHEMA_REVISION_RE = /^[A-Za-z0-9._:-]{1,200}$/
-const CI_TOKEN_MAX = 10_000
 
 function validateCiProperties(raw: unknown): Array<{ name: string; value: string }> | undefined {
   if (raw === undefined) return undefined
@@ -504,11 +504,7 @@ export function registerCiHandlers({
       if (!['http:', 'https:'].includes(parsed.protocol)) {
         throw new Error('Base URL must use http:// or https://')
       }
-      if (typeof payload.token !== 'string' || payload.token.length > CI_TOKEN_MAX) {
-        throw new Error('Token is required')
-      }
-      const token = payload.token.trim()
-      if (!token) throw new Error('Token is required')
+      const token = normalizeTeamCityToken(payload.token)
       const result = await ciTestConnection(payload.baseUrl.replace(/\/$/, ''), token)
       return unwrapOrThrow(result, ciErrorMessage)
     },

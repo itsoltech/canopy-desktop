@@ -59,6 +59,7 @@
   let selectedServer = $state<string>(NEW_SERVER)
   let newUrl = $state('')
   let formToken = $state('')
+  let trimmedFormToken = $derived(formToken.trim())
   let testing = $state(false)
   let testResult = $state<'success' | 'fail' | ''>('')
   let saving = $state(false)
@@ -80,7 +81,7 @@
   )
   let urlValid = $derived(/^https?:\/\/\S+$/i.test(effectiveUrl))
   let serverHasToken = $derived(servers.some((s) => s.baseUrl === selectedServer))
-  let canLoadTypes = $derived(urlValid && (serverHasToken || formToken.length > 0))
+  let canLoadTypes = $derived(urlValid && (serverHasToken || trimmedFormToken.length > 0))
 
   let serverOptions = $derived.by(() => {
     const options = servers.map((s) => ({ value: s.baseUrl, label: s.baseUrl }))
@@ -190,12 +191,12 @@
 
   async function testConnection(): Promise<void> {
     // Mirrors the button's aria-disabled — which does not stop clicks.
-    if (!urlValid || !formToken || testing) return
+    if (!urlValid || !trimmedFormToken || testing) return
     if (!(await confirmDestination())) return
     testing = true
     testResult = ''
     try {
-      await window.api.ciTestNewConnection(effectiveUrl, formToken)
+      await window.api.ciTestNewConnection(effectiveUrl, trimmedFormToken)
       testResult = 'success'
     } catch {
       testResult = 'fail'
@@ -206,11 +207,11 @@
 
   /** Stores a typed token (behind the destination gate) before first use. */
   async function ensureToken(): Promise<boolean> {
-    if (serverHasToken && !formToken) return true
-    if (!formToken) return false
+    if (serverHasToken && !trimmedFormToken) return true
+    if (!trimmedFormToken) return false
     if (!(await confirmDestination())) return false
     try {
-      await window.api.keychainSetCredentials('teamcity', effectiveUrl, formToken)
+      await window.api.keychainSetCredentials('teamcity', effectiveUrl, trimmedFormToken)
     } catch (e) {
       // In-modal per the scrim rule — a toast would paint under this dialog. The
       // caller (Load available jobs) surfaces typesError right next to its button.
@@ -564,7 +565,7 @@
         {/if}
 
         <div class="flex items-center gap-1.5">
-          {#if formToken}
+          {#if trimmedFormToken}
             <button
               type="button"
               class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"

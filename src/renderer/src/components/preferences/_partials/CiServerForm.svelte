@@ -35,10 +35,11 @@
 
   // Both actions share these preconditions. Keep the reason visible and associated
   // with each aria-disabled button because title text is unavailable on keyboard focus.
+  let tokenPresent = $derived(token.trim().length > 0)
   let formBlockedReason = $derived(
     !urlValid
       ? 'Disabled: enter a valid server URL first'
-      : !token
+      : !tokenPresent
         ? 'Disabled: enter an access token first'
         : '',
   )
@@ -130,14 +131,14 @@
       type="button"
       class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg aria-disabled:hover:text-text-secondary"
       onclick={onTest}
-      aria-disabled={testing || !urlValid || !token}
+      aria-disabled={testing || !urlValid || !tokenPresent}
       aria-busy={testing}
       aria-describedby={formBlockedReason ? 'ci-server-form-blocked' : undefined}
       title={testing
         ? 'Testing the connection…'
         : !urlValid
           ? 'Disabled: enter a valid server URL first'
-          : !token
+          : !tokenPresent
             ? 'Disabled: enter an access token first'
             : 'Check the connection against the server — nothing is saved'}
     >
@@ -147,14 +148,14 @@
       type="button"
       class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
       onclick={onSave}
-      aria-disabled={saving || !urlValid || !token}
+      aria-disabled={saving || !urlValid || !tokenPresent}
       aria-busy={saving}
       aria-describedby={formBlockedReason ? 'ci-server-form-blocked' : undefined}
       title={saving
         ? 'Saving…'
         : !urlValid
           ? 'Disabled: enter a valid server URL first'
-          : !token
+          : !tokenPresent
             ? 'Disabled: enter an access token first'
             : 'Save the token (stored globally on this machine, per provider + URL)'}
       >{saving ? 'Saving…' : isNew ? 'Add connection' : 'Save token'}</button

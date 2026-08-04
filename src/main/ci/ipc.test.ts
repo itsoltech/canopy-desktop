@@ -233,7 +233,20 @@ describe('CI IPC authorization', () => {
         baseUrl: 'https://tc.example.com',
         token: ' '.repeat(10_001),
       }),
-    ).rejects.toThrow('Token is required')
+    ).rejects.toThrow('Invalid TeamCity token')
+
+    expect(ciTestConnection).not.toHaveBeenCalled()
+  })
+
+  it('rejects whitespace-only TeamCity tokens before making a request', async () => {
+    const { invoke } = harness()
+
+    await expect(
+      invoke('ci:testNewConnection', {
+        baseUrl: 'https://tc.example.com',
+        token: '  \r\n  ',
+      }),
+    ).rejects.toThrow('TeamCity token is required')
 
     expect(ciTestConnection).not.toHaveBeenCalled()
   })

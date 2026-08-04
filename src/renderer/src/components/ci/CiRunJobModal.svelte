@@ -43,7 +43,6 @@
   let params = $state<CiParameter[] | null>(null)
   let submitting = $state(false)
   let paramsError = $state('')
-  let runButtonFocused = $state(false)
   let dialogEl = $state<HTMLElement>()
   let branchesSeq = 0
   let parametersSeq = 0
@@ -175,6 +174,19 @@
               : !selectedBranch
                 ? 'Disabled: pick a branch from the list (typing clears the selection)'
                 : '',
+  )
+
+  // Busy and error states already have visible text in the button or error region.
+  // Keep only selection problems here so the explanation stays visible while focus
+  // remains in the job/branch picker that caused the blocked state.
+  let runBlockedHint = $derived(
+    starting || branchesLoading || parametersError || parametersLoading || promptParameters == null
+      ? ''
+      : !buildTypeId
+        ? 'Pick a job before running.'
+        : !selectedBranch
+          ? 'Pick a branch from the list. Typing clears the current selection.'
+          : '',
   )
 
   let actionLabel = $derived(
@@ -322,9 +334,7 @@
               !selectedBranch ||
               !buildTypeId}
             aria-busy={starting || parametersLoading}
-            aria-describedby={runBlockedReason ? 'ci-run-blocked-reason' : undefined}
-            onfocus={() => (runButtonFocused = true)}
-            onblur={() => (runButtonFocused = false)}
+            aria-describedby={runBlockedHint ? 'ci-run-blocked-hint' : undefined}
             title={runBlockedReason ||
               (promptParameters?.length
                 ? 'Review this job’s required parameters before queueing'
@@ -338,11 +348,9 @@
             {actionLabel}
           </button>
         </div>
-        <div class="min-h-4 text-right text-xs text-text-muted" aria-live="polite">
-          {#if runBlockedReason}
-            <span id="ci-run-blocked-reason" class:sr-only={!runButtonFocused}>
-              {runBlockedReason}
-            </span>
+        <div class="min-h-4 break-words text-right text-xs text-text-secondary">
+          {#if runBlockedHint}
+            <span id="ci-run-blocked-hint">{runBlockedHint}</span>
           {/if}
         </div>
       {:else}

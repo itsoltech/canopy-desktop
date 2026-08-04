@@ -19,6 +19,7 @@
   let editing = $state<string | null>(null) // '__new__' or the server baseUrl
   let formUrl = $state('')
   let formToken = $state('')
+  let trimmedFormToken = $derived(formToken.trim())
   let testing = $state(false)
   let testResult = $state<'success' | 'fail' | ''>('')
   // In-flight guards: the confirm dialogs inside save/remove yield to the event loop,
@@ -102,12 +103,12 @@
 
   async function testConnection(): Promise<void> {
     // Mirrors the form's aria-disabled — which does not stop clicks.
-    if (!urlValid || !formToken || testing) return
+    if (!urlValid || !trimmedFormToken || testing) return
     if (!(await confirmDestination())) return
     testing = true
     testResult = ''
     try {
-      await window.api.ciTestNewConnection(normalizedUrl, formToken)
+      await window.api.ciTestNewConnection(normalizedUrl, trimmedFormToken)
       testResult = 'success'
     } catch {
       testResult = 'fail'
@@ -117,13 +118,13 @@
   }
 
   async function saveServer(): Promise<void> {
-    if (!urlValid || !formToken || savingServer) return
+    if (!urlValid || !trimmedFormToken || savingServer) return
     savingServer = true
     try {
       if (!(await confirmDestination())) return
       savingBusy = true
       try {
-        await window.api.keychainSetCredentials('teamcity', normalizedUrl, formToken)
+        await window.api.keychainSetCredentials('teamcity', normalizedUrl, trimmedFormToken)
       } catch (e) {
         addToast(e instanceof Error ? e.message : 'Failed to save credentials')
         return

@@ -66,6 +66,7 @@ import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
+import { normalizeKeychainCredentialPayload } from './keychainCredentials'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -98,6 +99,8 @@ import {
 import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTracker/configDefaults'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
+import { parseGitHubRemote } from '../github/remoteUrl'
+import { classifyRepoIdentifierLookupFailure } from '../github/repoIdentifier'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
 import { listSelectableInterfaces } from '../remote/discovery'
@@ -3233,20 +3236,15 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle(
-    'keychain:setCredentials',
-    (_event, payload: { provider: string; baseUrl: string; token: string; username?: string }) => {
-      if (!payload.provider || !payload.baseUrl) {
-        throw new Error('Provider and baseUrl are required')
-      }
-      keychainTokenStore.setCredentials(
-        payload.provider,
-        payload.baseUrl,
-        payload.token,
-        payload.username,
-      )
-    },
-  )
+  ipcMain.handle('keychain:setCredentials', (_event, payload: unknown) => {
+    const credentials = normalizeKeychainCredentialPayload(payload)
+    keychainTokenStore.setCredentials(
+      credentials.provider,
+      credentials.baseUrl,
+      credentials.token,
+      credentials.username,
+    )
+  })
 
   ipcMain.handle(
     'keychain:deleteCredentials',
@@ -4935,8 +4933,18 @@ export function registerIpcHandlers(
 
   ipcMain.handle('github:getRepoIdentifier', async (event, payload: { repoRoot: string }) => {
     const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-    const result = await gitHubService.getRepoIdentifier(resolvedRepo)
-    return result.unwrapOr(null)
+    const remote = await GitRepository.getRemoteUrl(resolvedRepo)
+    if (remote.isErr()) return classifyRepoIdentifierLookupFailure(remote.error)
+    const identifier = parseGitHubRemote(remote.value)
+    return identifier.match(
+      (value) => ({ status: 'found' as const, identifier: value }),
+      () => ({
+        status: 'error' as const,
+        // InvalidRemoteUrl carries the raw remote, which may contain userinfo.
+        // Keep credentials out of the renderer-visible setup error.
+        message: 'The origin remote is not a supported GitHub URL.',
+      }),
+    )
   })
 
   // --- Remote control (WebRTC pairing via QR) ---

@@ -23,6 +23,7 @@ import type {
   TeamCityCiConfig,
 } from './types'
 import type { CiError } from './errors'
+import { CI_TOKEN_MAX } from './token'
 import { ciErrorMessage } from './errors'
 import { DROPPED_ID_SAMPLE, parseCiConfig } from './config'
 import {
@@ -155,7 +156,9 @@ export class CiManager {
 
   private tokenForUrl(baseUrl: string): ResultAsync<string, CiError> {
     const creds = this.tokenStore.getCredentials('teamcity', baseUrl)
-    return creds?.token ? okAsync(creds.token) : errAsync({ _tag: 'CiAuthMissing', baseUrl })
+    const raw = creds?.token
+    const token = typeof raw === 'string' && raw.length <= CI_TOKEN_MAX ? raw.trim() : ''
+    return token ? okAsync(token) : errAsync({ _tag: 'CiAuthMissing', baseUrl })
   }
 
   private tokenFor(ci: TeamCityCiConfig): ResultAsync<string, CiError> {

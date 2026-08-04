@@ -288,6 +288,20 @@ describe('the token gate', () => {
     expect(result.isOk()).toBe(true)
     expect(fetchBuildTypes).toHaveBeenCalledWith('https://tc.example.com', 'tok')
   })
+
+  it('normalizes an existing stored TeamCity token before every API use', async () => {
+    const { manager } = fakes({ token: '  tok\r\n' })
+    const result = await manager.listBuildTypes('https://tc.example.com')
+    expect(result.isOk()).toBe(true)
+    expect(fetchBuildTypes).toHaveBeenCalledWith('https://tc.example.com', 'tok')
+  })
+
+  it('treats an existing whitespace-only TeamCity token as missing', async () => {
+    const { manager } = fakes({ token: ' \r\n ' })
+    const result = await manager.listBuildTypes('https://tc.example.com')
+    expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
+    expect(fetchBuildTypes).not.toHaveBeenCalled()
+  })
 })
 
 describe('GitHub dispatch confirmation', () => {

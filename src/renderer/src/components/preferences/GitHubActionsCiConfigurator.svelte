@@ -40,6 +40,8 @@
   let containerEl: HTMLElement | undefined = $state()
   let existingConfig = $state<GitHubActionsCiRepoConfigInfo | null>(null)
   let repository = $state('')
+  let repositoryResolving = $state(true)
+  let repositoryResolutionIssue = $state('')
   let defaultBranch = $state('')
   let workflows = $state<DiscoveredWorkflow[]>([])
   let token = $state('')
@@ -79,22 +81,34 @@
   let saveBlocked = $derived(
     saving || loading || !loaded || !repository || selectedWorkflows.length === 0,
   )
-  let loadBlocked = $derived(loading || !repository || (!hasToken && token.trim().length === 0))
+  let loadBlocked = $derived(
+    loading ||
+      repositoryResolving ||
+      !!repositoryResolutionIssue ||
+      !repository ||
+      (!hasToken && token.trim().length === 0),
+  )
   let loadBlockedReason = $derived(
-    loading
+    loading || repositoryResolving
       ? ''
-      : !repository
-        ? 'Connect this workspace to a GitHub origin remote before loading workflows.'
-        : !hasToken && token.trim().length === 0
-          ? 'Add a GitHub token before loading workflows.'
-          : '',
+      : repositoryResolutionIssue
+        ? repositoryResolutionIssue
+        : !repository
+          ? 'No github.com origin remote was found for this workspace.'
+          : !hasToken && token.trim().length === 0
+            ? 'Add a GitHub token before loading workflows.'
+            : '',
   )
   let repositoryLabel = $derived(repository || 'this workspace repository')
   let credentialUrl = $derived(repository ? `https://github.com/${repository.toLowerCase()}` : '')
 
   onMount(async () => {
     containerEl?.focus()
-    if (!repoRoot) return
+    if (!repoRoot) {
+      repositoryResolving = false
+      repositoryResolutionIssue = 'No workspace is available for GitHub Actions setup.'
+      return
+    }
     if (initialConfig) {
       existingConfig = initialConfig
       repository = initialConfig.repository
@@ -103,18 +117,31 @@
       }
     }
     if (initialInvalid?.provider === 'github-actions') error = initialInvalid.message
+    let loadStoredConfiguration = false
     try {
-      const identifier = await window.api.githubGetRepoIdentifier(repoRoot)
-      if (!repository && identifier?.host.toLowerCase() === 'github.com') {
-        repository = `${identifier.owner}/${identifier.repo}`.toLowerCase()
+      const lookup = await window.api.githubGetRepoIdentifier(repoRoot)
+      if (lookup.status === 'missing') {
+        repositoryResolutionIssue = 'No github.com origin remote was found for this workspace.'
+      } else if (lookup.status === 'error') {
+        repositoryResolutionIssue = `Could not resolve this workspace’s origin remote: ${lookup.message}`
+      } else if (lookup.identifier.host.toLowerCase() !== 'github.com') {
+        repositoryResolutionIssue = `GitHub Actions currently supports github.com origins only; this workspace uses ${lookup.identifier.host}.`
+      } else {
+        const { identifier } = lookup
+        if (!repository) repository = `${identifier.owner}/${identifier.repo}`.toLowerCase()
+        repositoryResolutionIssue = ''
       }
       hasToken = credentialUrl
         ? await window.api.keychainHasCredentials('github-actions', credentialUrl)
         : false
-      if (hasToken) void loadWorkflows()
+      loadStoredConfiguration = hasToken
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not load GitHub Actions setup'
+      repositoryResolutionIssue = 'Could not resolve this workspace’s GitHub origin remote.'
+    } finally {
+      repositoryResolving = false
     }
+    if (loadStoredConfiguration) void loadWorkflows()
   })
 
   function handleKeydown(event: KeyboardEvent): void {
@@ -306,7 +333,10 @@
           GitHub repository
         </span>
         <div class="px-2.5 py-1.5 rounded-md border border-border bg-bg-input text-sm text-text">
-          {repository || 'Resolved from this workspace’s origin remote'}
+          {repository ||
+            (repositoryResolving
+              ? 'Resolving from this workspace’s origin remote…'
+              : 'Unavailable')}
         </div>
         {#if defaultBranch}
           <span class="text-xs text-text-muted">Default branch: {defaultBranch}</span>

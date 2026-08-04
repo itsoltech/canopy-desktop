@@ -1293,9 +1293,14 @@ interface CanopyAPI {
     repoRoot: string,
     params: { title: string; body: string; baseRefName: string; draft: boolean },
   ) => Promise<GitHubPRInfo>
-  githubGetRepoIdentifier: (
-    repoRoot: string,
-  ) => Promise<{ owner: string; repo: string; host: string; apiUrl: string } | null>
+  githubGetRepoIdentifier: (repoRoot: string) => Promise<
+    | {
+        status: 'found'
+        identifier: { owner: string; repo: string; host: string; apiUrl: string }
+      }
+    | { status: 'missing' }
+    | { status: 'error'; message: string }
+  >
 
   // Performance diagnostics (only present when CANOPY_PERF=1)
   perfDiagnostics?: () => Promise<{
